@@ -82,26 +82,92 @@ async def get_client_ip(websocket: WebSocket) -> str:
     return websocket.client.host if websocket.client else "unknown"
 
 
-# Authentication dependency (placeholder)
-async def authenticate_websocket(token: Optional[str] = None) -> Optional[str]:
-    """Authenticate WebSocket connection and return user_id."""
-    # TODO: Implement proper JWT token validation
+# Dependency for extracting authentication token
+async def extract_websocket_token(
+    websocket: WebSocket, token: Optional[str] = Query(None)
+) -> Optional[str]:
+    """Extract authentication token from WebSocket connection.
+
+    Supports token extraction from:
+    1. Query parameter: ?token=<jwt_token>
+    2. Authorization header: Authorization: Bearer <jwt_token>
+    3. Custom header: X-Auth-Token: <jwt_token>
+    """
+    # First priority: Query parameter (for backward compatibility)
     if token:
-        logger.info(f"WebSocket authentication with token: {token[:20]}...")
-        return "authenticated_user"  # Placeholder
+        return token
+
+    # Second priority: Authorization header
+    auth_header = websocket.headers.get("authorization")
+    if auth_header:
+        # Handle "Bearer <token>" format
+        if auth_header.lower().startswith("bearer "):
+            return auth_header[7:]  # Remove "Bearer " prefix
+        # Handle raw token in authorization header
+        return auth_header
+
+    # Third priority: Custom X-Auth-Token header
+    auth_token_header = websocket.headers.get("x-auth-token")
+    if auth_token_header:
+        return auth_token_header
+
     return None
+
+
+# Authentication dependency with unauthenticated mode support
+async def authenticate_websocket(
+    token: Optional[str] = None, websocket: Optional[WebSocket] = None
+) -> tuple[Optional[str], dict[str, Any]]:
+    """Authenticate WebSocket connection and return user_id and user_info."""
+    from backend.api.dependencies import _get_unauthenticated_user, _is_auth_enabled
+    from backend.api.middleware.authentication import verify_jwt_token
+
+    # Check if authentication is enabled
+    if not _is_auth_enabled():
+        # Return unauthenticated user with admin privileges
+        user_info = _get_unauthenticated_user("admin")
+        return user_info["user_id"], user_info
+
+    # Authentication is enabled, validate token
+    if not token:
+        logger.warning(
+            "WebSocket connection attempted without token when auth is enabled"
+        )
+        return None, {}
+
+    try:
+        # Validate JWT token
+        payload = verify_jwt_token(token)
+        user_info = {
+            "user_id": payload.get("sub"),
+            "username": payload.get("username"),
+            "role": payload.get("role", "viewer"),
+            "auth_type": "jwt",
+            "permissions": payload.get("permissions", []),
+        }
+        logger.info(
+            f"WebSocket authenticated user: {user_info['username']} ({user_info['role']})"
+        )
+        return user_info["user_id"], user_info
+
+    except Exception as e:
+        logger.warning(f"WebSocket authentication failed: {str(e)}")
+        return None, {}
 
 
 @websocket_router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    token: Optional[str] = Query(None, description="Authentication token"),
     client_ip: str = Depends(get_client_ip),
+    token: Optional[str] = Depends(extract_websocket_token),
 ):
     """Main WebSocket endpoint for real-time data streaming.
 
     Supports:
-    - Authentication via token parameter
+    - Authentication via:
+      * Query parameter: ?token=<jwt_token>
+      * Authorization header: Authorization: Bearer <jwt_token>
+      * Custom header: X-Auth-Token: <jwt_token>
     - Multiple concurrent connections
     - Selective stream subscriptions
     - Real-time health monitoring
@@ -117,19 +183,38 @@ async def websocket_endpoint(
     client_id = None
     try:
         # Authenticate connection
-        user_id = await authenticate_websocket(token)
+        user_id, user_info = await authenticate_websocket(token, websocket)
+
+        # Check if authentication is required but failed
+        from backend.api.dependencies import _is_auth_enabled
+
+        if _is_auth_enabled() and not user_id:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required"
+            )
+            return
 
         # Establish WebSocket connection
         client_id = await websocket_handler.connect(websocket, token)
+
+        # Determine permissions based on user role
+        if user_info.get("role") == "admin":
+            permissions = {"stream:*", "control:*", "config:*"}
+        elif user_info.get("role") == "operator":
+            permissions = {"stream:*", "control:basic"}
+        else:
+            permissions = {"stream:frame", "stream:state"}
 
         # Register client in manager
         await websocket_manager.register_client(
             client_id=client_id,
             user_id=user_id,
-            permissions={"stream:*"} if user_id else {"stream:frame", "stream:state"},
+            permissions=permissions,
             metadata={
                 "ip_address": client_ip,
                 "user_agent": websocket.headers.get("user-agent"),
+                "auth_type": user_info.get("auth_type", "none"),
+                "role": user_info.get("role", "viewer"),
             },
         )
 
@@ -452,8 +537,12 @@ async def get_websocket_metrics():
             "frame_metrics": {
                 "frames_sent": message_broadcaster.broadcast_stats.frame_metrics.frames_sent,
                 "bytes_sent": message_broadcaster.broadcast_stats.frame_metrics.bytes_sent,
-                "compression_ratio": message_broadcaster.broadcast_stats.frame_metrics.compression_ratio,
-                "average_latency": message_broadcaster.broadcast_stats.frame_metrics.average_latency,
+                "compression_ratio": (
+                    message_broadcaster.broadcast_stats.frame_metrics.compression_ratio
+                ),
+                "average_latency": (
+                    message_broadcaster.broadcast_stats.frame_metrics.average_latency
+                ),
                 "dropped_frames": message_broadcaster.broadcast_stats.frame_metrics.dropped_frames,
                 "target_fps": message_broadcaster.broadcast_stats.frame_metrics.target_fps,
                 "actual_fps": message_broadcaster.broadcast_stats.frame_metrics.actual_fps,

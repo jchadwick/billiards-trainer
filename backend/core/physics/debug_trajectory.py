@@ -2,8 +2,8 @@
 
 import math
 
-from ..models import BallState, TableState, Vector2D
-from ..utils.cache import CacheManager
+from backend.core.models import BallState, TableState, Vector2D
+from backend.core.utils.cache import CacheManager
 
 from .trajectory import TrajectoryCalculator, TrajectoryQuality
 

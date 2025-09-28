@@ -527,10 +527,7 @@ class TableDetector:
         aspect_ratio = avg_width / avg_height
 
         expected_ratio = self.expected_aspect_ratio
-        if abs(aspect_ratio - expected_ratio) > self.aspect_ratio_tolerance:
-            return False
-
-        return True
+        return not abs(aspect_ratio - expected_ratio) > self.aspect_ratio_tolerance
 
     def _distance(self, p1: tuple[float, float], p2: tuple[float, float]) -> float:
         """Calculate Euclidean distance between two points."""

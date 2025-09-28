@@ -15,8 +15,8 @@ import logging
 from typing import Any, Callable, Optional
 
 try:
-    from ..config.manager import ConfigurationManager
-    from ..config.models.schemas import CameraSettings, VisionConfig
+    from backend.config.manager import ConfigurationManager
+    from backend.config.models.schemas import CameraSettings, VisionConfig
 except ImportError:
     # Fallback for development/testing
     logging.warning("Configuration module not available, using fallback")

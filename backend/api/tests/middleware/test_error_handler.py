@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
-from ...middleware.error_handler import (
+from backend.api.middleware.error_handler import (
     ERROR_CODES,
     CustomHTTPException,
     ErrorHandler,
@@ -18,7 +18,7 @@ from ...middleware.error_handler import (
     raise_error,
     setup_error_handling,
 )
-from ...models.responses import ErrorResponse
+from backend.api.models.responses import ErrorResponse
 
 
 class TestErrorHandlerConfig:
@@ -384,7 +384,7 @@ class TestErrorResponseModel:
         assert "timestamp" in data
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_request():
     """Mock request fixture."""
     request = Mock(spec=Request)

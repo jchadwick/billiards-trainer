@@ -17,7 +17,7 @@ from vision.tracking.tracker import BallTracker
 from vision.utils.visualization import draw_detection_overlay
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCameraFrame:
     """Test the CameraFrame model."""
 
@@ -66,7 +66,7 @@ class TestCameraFrame:
         assert not np.array_equal(frame.frame, frame_copy.frame)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestDetectionResult:
     """Test the DetectionResult model."""
 
@@ -101,7 +101,7 @@ class TestDetectionResult:
         assert 0 <= quality <= 1
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBallDetector:
     """Test the ball detector."""
 
@@ -110,7 +110,7 @@ class TestBallDetector:
         detector = BallDetector()
         assert detector is not None
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_balls_empty_frame(self):
         """Test ball detection on empty frame."""
         detector = BallDetector()
@@ -121,7 +121,7 @@ class TestBallDetector:
         # Should not detect any balls in empty frame
         assert len(balls) == 0
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_balls_with_circles(self):
         """Test ball detection with synthetic circles."""
         detector = BallDetector()
@@ -184,7 +184,7 @@ class TestBallDetector:
         )  # Should remove the overlapping one with lower confidence
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestTableDetector:
     """Test the table detector."""
 
@@ -193,7 +193,7 @@ class TestTableDetector:
         detector = TableDetector()
         assert detector is not None
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_table_edges(self):
         """Test table edge detection."""
         detector = TableDetector()
@@ -234,7 +234,7 @@ class TestTableDetector:
         invalid_corners = [(0, 0), (100, 0), (90, 60), (10, 50)]
         assert not detector.validate_corners(invalid_corners)
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_table_color(self):
         """Test table felt color detection."""
         detector = TableDetector()
@@ -248,7 +248,7 @@ class TestTableDetector:
         assert len(dominant_color) == 3
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCueDetector:
     """Test the cue detector."""
 
@@ -257,7 +257,7 @@ class TestCueDetector:
         detector = CueDetector()
         assert detector is not None
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_cue_stick_empty_frame(self):
         """Test cue detection on empty frame."""
         detector = CueDetector()
@@ -267,7 +267,7 @@ class TestCueDetector:
         # Should not detect cue in empty frame
         assert cue_data is None or cue_data["confidence"] < 0.5
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_cue_stick_with_line(self):
         """Test cue detection with synthetic line."""
         detector = CueDetector()
@@ -310,7 +310,7 @@ class TestCueDetector:
         assert len(filtered) <= len(lines)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBallTracker:
     """Test the ball tracker."""
 
@@ -416,7 +416,7 @@ class TestBallTracker:
         assert len(tracker.tracks) == 0
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestKalmanFilter:
     """Test the Kalman filter."""
 
@@ -474,7 +474,7 @@ class TestKalmanFilter:
         assert final_uncertainty < initial_uncertainty
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCameraCalibrator:
     """Test the camera calibrator."""
 
@@ -494,7 +494,7 @@ class TestCameraCalibrator:
         assert object_points.shape == (54, 3)  # 9*6 = 54 points
         assert object_points[0, 2] == 0  # Z coordinate should be 0
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_detect_chessboard_corners(self):
         """Test detecting chessboard corners."""
         calibrator = CameraCalibrator()
@@ -527,7 +527,7 @@ class TestCameraCalibrator:
         assert len(calibrator.image_points) == 1
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestColorCalibrator:
     """Test the color calibrator."""
 
@@ -585,7 +585,7 @@ class TestColorCalibrator:
         assert distance > 0
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestFramePreprocessor:
     """Test the frame preprocessor."""
 
@@ -594,7 +594,7 @@ class TestFramePreprocessor:
         preprocessor = FramePreprocessor()
         assert preprocessor is not None
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_noise_reduction(self):
         """Test noise reduction."""
         preprocessor = FramePreprocessor()
@@ -606,7 +606,7 @@ class TestFramePreprocessor:
         assert denoised.shape == frame.shape
         assert denoised.dtype == frame.dtype
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_contrast_enhancement(self):
         """Test contrast enhancement."""
         preprocessor = FramePreprocessor()
@@ -617,7 +617,7 @@ class TestFramePreprocessor:
         enhanced = preprocessor.enhance_contrast(frame)
         assert enhanced.shape == frame.shape
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_color_space_conversion(self):
         """Test color space conversion."""
         preprocessor = FramePreprocessor()
@@ -632,7 +632,7 @@ class TestFramePreprocessor:
         gray_frame = preprocessor.convert_color_space(frame, "GRAY")
         assert gray_frame.shape == (480, 640)
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_lighting_correction(self):
         """Test lighting correction."""
         preprocessor = FramePreprocessor()
@@ -657,11 +657,11 @@ class TestFramePreprocessor:
         assert roi.shape == (150, 200, 3)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestVisualizationUtils:
     """Test visualization utilities."""
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_draw_detection_overlay(self, mock_detection_result):
         """Test drawing detection overlay."""
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -672,7 +672,7 @@ class TestVisualizationUtils:
         # Frame should have been modified (circles drawn)
         assert not np.array_equal(frame, overlay_frame)
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_draw_ball_with_id(self):
         """Test drawing ball with ID label."""
         from vision.utils.visualization import draw_ball
@@ -685,7 +685,7 @@ class TestVisualizationUtils:
         assert modified_frame.shape == frame.shape
         assert not np.array_equal(frame, modified_frame)
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_draw_table_outline(self):
         """Test drawing table outline."""
         from vision.utils.visualization import draw_table
@@ -697,7 +697,7 @@ class TestVisualizationUtils:
         assert modified_frame.shape == frame.shape
         assert not np.array_equal(frame, modified_frame)
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_draw_trajectory_prediction(self):
         """Test drawing trajectory prediction."""
         from vision.utils.visualization import draw_trajectory

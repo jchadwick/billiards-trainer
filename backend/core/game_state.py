@@ -24,6 +24,7 @@ from .models import (
     TableState,
     Vector2D,
 )
+from .validation import StateValidator, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,9 @@ class GameStateManager:
         # State validation configuration
         self._validation_enabled = True
         self._auto_correct_enabled = True
+        self._state_validator = StateValidator(
+            enable_auto_correction=self._auto_correct_enabled
+        )
 
         # Default table configuration (standard 9-foot table)
         self._default_table = self._create_default_table()
@@ -323,46 +327,82 @@ class GameStateManager:
             logger.info(f"Game reset to {game_type.value}")
 
     def _validate_state(self, state: GameState) -> None:
-        """Validate game state for consistency (FR-CORE-006 to FR-CORE-010).
+        """Validate game state for consistency using comprehensive StateValidator.
 
         Raises:
             StateValidationError: If validation fails
         """
-        errors = []
+        # Run comprehensive validation
+        validation_result = self._state_validator.validate_game_state(state)
 
-        # Validate ball positions are within table bounds
-        for ball in state.balls:
-            if not ball.is_pocketed:
-                if not state.table.is_point_on_table(ball.position, ball.radius):
-                    errors.append(f"Ball {ball.id} position outside table bounds")
-
-        # Validate no ball overlaps (excluding pocketed balls)
-        active_balls = [b for b in state.balls if not b.is_pocketed]
-        for i, ball1 in enumerate(active_balls):
-            for ball2 in active_balls[i + 1 :]:
-                if ball1.is_touching(ball2, tolerance=-0.001):
-                    errors.append(f"Balls {ball1.id} and {ball2.id} overlap")
-
-        # Validate exactly one cue ball among active balls
-        cue_balls = [b for b in state.balls if b.is_cue_ball and not b.is_pocketed]
-        if len(cue_balls) != 1:
-            errors.append(f"Expected 1 active cue ball, found {len(cue_balls)}")
-
-        # Validate frame sequence
+        # Add frame sequence validation (specific to GameStateManager)
         if (
             self._current_state
             and state.frame_number <= self._current_state.frame_number
         ):
-            errors.append("Frame number must increase")
+            validation_result.add_error("Frame number must increase")
+
+        # Apply auto-corrections if enabled
+        if self._auto_correct_enabled and validation_result.corrected_values:
+            self._apply_corrections(state, validation_result.corrected_values)
 
         # Update state validation status
-        state.is_valid = len(errors) == 0
-        state.validation_errors = errors
+        state.is_valid = validation_result.is_valid
+        state.validation_errors = validation_result.errors.copy()
 
-        if errors and not self._auto_correct_enabled:
-            raise StateValidationError(f"State validation failed: {'; '.join(errors)}")
-        elif errors:
-            logger.warning(f"State validation warnings: {'; '.join(errors)}")
+        # Log validation results
+        if validation_result.warnings:
+            logger.warning(
+                f"State validation warnings: {'; '.join(validation_result.warnings)}"
+            )
+
+        if validation_result.errors:
+            error_msg = (
+                f"State validation failed: {'; '.join(validation_result.errors)}"
+            )
+            if not self._auto_correct_enabled:
+                raise StateValidationError(error_msg)
+            else:
+                logger.warning(error_msg)
+
+        # Log validation statistics
+        if validation_result.errors or validation_result.warnings:
+            logger.debug(f"Validation confidence: {validation_result.confidence:.2f}")
+
+    def _apply_corrections(self, state: GameState, corrections: dict) -> None:
+        """Apply auto-corrections to the game state."""
+        corrections_applied = []
+
+        for field, value in corrections.items():
+            if field.startswith("ball_") and field.endswith("_position"):
+                # Extract ball ID and update position
+                ball_id = field.replace("ball_", "").replace("_position", "")
+                for ball in state.balls:
+                    if ball.id == ball_id:
+                        ball.position = value
+                        corrections_applied.append(f"position of ball {ball_id}")
+                        break
+
+            elif field.startswith("ball_") and field.endswith("_velocity"):
+                # Extract ball ID and update velocity
+                ball_id = field.replace("ball_", "").replace("_velocity", "")
+                for ball in state.balls:
+                    if ball.id == ball_id:
+                        ball.velocity = value
+                        corrections_applied.append(f"velocity of ball {ball_id}")
+                        break
+
+            elif field.startswith("ball_") and field.endswith("_pocketed"):
+                # Extract ball ID and update pocketed status
+                ball_id = field.replace("ball_", "").replace("_pocketed", "")
+                for ball in state.balls:
+                    if ball.id == ball_id:
+                        ball.is_pocketed = value
+                        corrections_applied.append(f"pocketed status of ball {ball_id}")
+                        break
+
+        if corrections_applied:
+            logger.info(f"Auto-corrections applied: {', '.join(corrections_applied)}")
 
     def subscribe_to_events(self, event_type: str, callback: Callable) -> str:
         """Subscribe to state change events (FR-CORE-011)."""
@@ -481,6 +521,10 @@ class GameStateManager:
         """Configure state validation behavior."""
         self._validation_enabled = enabled
         self._auto_correct_enabled = auto_correct
+
+        # Update validator configuration
+        self._state_validator.enable_auto_correction = auto_correct
+
         logger.info(
             f"Validation config: enabled={enabled}, auto_correct={auto_correct}"
         )
@@ -491,20 +535,44 @@ class GameStateManager:
             return False, ["No current state"]
 
         try:
-            # Create a copy to avoid modifying the current state during validation
-            temp_state = self._current_state.copy()
+            # Run comprehensive validation without frame sequence check
+            validation_result = self._state_validator.validate_game_state(
+                self._current_state
+            )
 
-            # Temporarily disable frame sequence validation for force validation
-            original_current = self._current_state
-            self._current_state = None
-
-            self._validate_state(temp_state)
-
-            # Restore original state
-            self._current_state = original_current
-
-            return temp_state.is_valid, temp_state.validation_errors
-        except StateValidationError as e:
-            # Restore original state in case of error
-            self._current_state = original_current
+            return validation_result.is_valid, validation_result.errors
+        except Exception as e:
+            logger.error(f"Error during force validation: {e}")
             return False, [str(e)]
+
+    def get_validation_statistics(self) -> dict:
+        """Get detailed validation statistics and configuration."""
+        base_stats = self.get_statistics()
+        validator_stats = self._state_validator.get_validation_statistics()
+
+        return {
+            **base_stats,
+            "validation_config": validator_stats,
+            "validator_type": "StateValidator",
+        }
+
+    def validate_with_physics(
+        self, previous_state: Optional[GameState] = None, dt: float = 1 / 30
+    ) -> ValidationResult:
+        """Perform physics validation between states.
+
+        Args:
+            previous_state: Previous game state for physics comparison
+            dt: Time delta between states in seconds
+
+        Returns:
+            ValidationResult with physics validation details
+        """
+        if not self._current_state:
+            result = ValidationResult()
+            result.add_error("No current state to validate")
+            return result
+
+        return self._state_validator.validate_physics(
+            self._current_state, previous_state, dt
+        )

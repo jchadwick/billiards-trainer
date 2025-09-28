@@ -110,17 +110,36 @@ class WebSocketHandler:
         self, websocket: WebSocket, token: Optional[str] = None
     ) -> Optional[str]:
         """Authenticate WebSocket connection and return user_id if valid."""
-        # TODO: Implement proper JWT token validation
-        # For now, accept all connections but log the token
-        if token:
-            logger.info(
-                f"WebSocket authentication attempted with token: {token[:20]}..."
+        from backend.api.dependencies import _get_unauthenticated_user, _is_auth_enabled
+        from backend.api.middleware.authentication import verify_jwt_token
+
+        # Check if authentication is enabled
+        if not _is_auth_enabled():
+            # Return unauthenticated user
+            user_info = _get_unauthenticated_user("admin")
+            logger.info("WebSocket using unauthenticated mode")
+            return user_info["user_id"]
+
+        # Authentication is enabled, validate token
+        if not token:
+            logger.warning(
+                "WebSocket connection attempted without token when auth is enabled"
             )
-            # In real implementation, decode and validate JWT token here
-            return "authenticated_user"  # Placeholder
-        else:
-            logger.info("WebSocket connection without authentication token")
-            return None  # Anonymous connection
+            return None
+
+        try:
+            # Validate JWT token
+            payload = verify_jwt_token(token)
+            user_id = payload.get("sub")
+            username = payload.get("username")
+            role = payload.get("role", "viewer")
+
+            logger.info(f"WebSocket authenticated user: {username} ({role})")
+            return user_id
+
+        except Exception as e:
+            logger.warning(f"WebSocket authentication failed: {str(e)}")
+            return None
 
     async def connect(self, websocket: WebSocket, token: Optional[str] = None) -> str:
         """Accept new WebSocket connection with authentication."""

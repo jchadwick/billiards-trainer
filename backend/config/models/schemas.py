@@ -738,7 +738,14 @@ class CoreConfig(BaseConfig):
 class AuthenticationConfig(BaseConfig):
     """API authentication configuration."""
 
-    jwt_secret_key: SecretStr = Field(description="JWT signing secret key")
+    enabled: bool = Field(
+        default=False,
+        description="Enable authentication (set to False for development/testing)",
+    )
+    jwt_secret_key: SecretStr = Field(
+        default="dev-secret-key-change-in-production",
+        description="JWT signing secret key",
+    )
     jwt_algorithm: str = Field(default="HS256", description="JWT signing algorithm")
     jwt_expiration_hours: int = Field(
         default=24,

@@ -6,17 +6,17 @@ from unittest.mock import Mock, mock_open, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from ..main import create_app
+from backend.api.main import create_app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     """Create test client."""
     app = create_app()
     return TestClient(app)
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_core_module():
     """Mock core module for testing."""
     mock_core = Mock()
@@ -39,7 +39,7 @@ def mock_core_module():
     return mock_core
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_user():
     """Mock authenticated user."""
     return {"user_id": "test_user", "username": "testuser", "role": "operator"}

@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from ...config.models.schemas import ConfigProfile, ConfigValue
-from ...core.analysis.shot import ShotAnalysis
+from backend.config.models.schemas import ConfigProfile, ConfigValue
+from backend.core.analysis.shot import ShotAnalysis
 
 # Backend model imports
-from ...core.models import (
+from backend.core.models import (
     BallState,
     CueState,
     GameState,
@@ -16,11 +16,11 @@ from ...core.models import (
     TableState,
     Vector2D,
 )
-from ...core.physics.trajectory import Trajectory
-from ...vision.models import Ball as VisionBall
-from ...vision.models import CueStick as VisionCue
-from ...vision.models import DetectionResult as VisionDetectionResult
-from ...vision.models import Table as VisionTable
+from backend.core.physics.trajectory import Trajectory
+from backend.vision.models import Ball as VisionBall
+from backend.vision.models import CueStick as VisionCue
+from backend.vision.models import DetectionResult as VisionDetectionResult
+from backend.vision.models import Table as VisionTable
 
 from .config_models import (
     ConfigProfileModel,
@@ -651,13 +651,12 @@ def transform_dict_to_api_models(
     try:
         transformed = {}
 
-        if transformer_type == "game":
-            pass
-        elif transformer_type == "vision":
-            pass
-        elif transformer_type == "config":
-            pass
-        elif transformer_type == "health":
+        if (
+            transformer_type == "game"
+            or transformer_type == "vision"
+            or transformer_type == "config"
+            or transformer_type == "health"
+        ):
             pass
         else:
             raise ValueError(f"Unknown transformer type: {transformer_type}")

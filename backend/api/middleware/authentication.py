@@ -11,7 +11,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from ..utils.security import (
+from backend.api.utils.security import (
     APIKeyUtils,
     JWTUtils,
     SecurityEventType,
@@ -324,6 +324,11 @@ async def get_current_user_api_key(
         )
         return None
 
+    # Try to authenticate with database
+    # Note: In a real implementation, we'd inject the auth service here
+    # For now, we'll use the session_manager as a fallback
+    # This should be refactored to use dependency injection
+
     # Hash the API key for lookup
     hashed_key = APIKeyUtils.hash_api_key(api_key)
 
@@ -541,6 +546,53 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             for k, v in self._hour_buckets.items()
             if v["window_start"] > cutoff_hour
         }
+
+
+def verify_jwt_token(token: str) -> dict[str, Any]:
+    """Verify JWT token and return payload.
+
+    This function is used by WebSocket handlers for token validation.
+    Raises an exception if the token is invalid.
+    """
+    # Decode token using JWTUtils
+    token_data = JWTUtils.decode_token(token)
+    if not token_data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+
+    # Check if token is blacklisted
+    if session_manager.is_token_blacklisted(token_data.jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked"
+        )
+
+    # Check if token is expired
+    if JWTUtils.is_token_expired(token_data):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired"
+        )
+
+    # Check session validity
+    if not session_manager.is_session_active(token_data.jti):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is not active"
+        )
+
+    # Update session activity
+    session_manager.update_session_activity(token_data.jti)
+
+    # Return payload in the format expected by WebSocket handlers
+    return {
+        "sub": token_data.sub,
+        "role": token_data.role.value,
+        "jti": token_data.jti,
+        "exp": token_data.exp.timestamp(),
+        "iat": token_data.iat.timestamp(),
+        "token_type": token_data.token_type,
+        "username": token_data.sub,  # For backward compatibility
+        "permissions": [],  # Default empty permissions, can be expanded based on role
+    }
 
 
 # Authentication dependencies for different roles

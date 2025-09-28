@@ -11,7 +11,7 @@ This script showcases the capabilities of the collision system including:
 import math
 import time
 
-from ..models import BallState, TableState, Vector2D
+from backend.core.models import BallState, TableState, Vector2D
 
 from .collision import (
     CollisionDetector,

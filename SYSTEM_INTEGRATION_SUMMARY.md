@@ -199,8 +199,6 @@ I have successfully implemented a comprehensive system integration and monitorin
 - Service isolation with dedicated user
 - Minimal privilege operation
 - Secure configuration management
-- Access control and authentication
-- Audit logging and monitoring
 
 ### Network Security
 - Firewall configuration

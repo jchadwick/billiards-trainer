@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from ..game_state import GameStateManager, StateValidationError
-from ..models import BallState, GameState, GameType, TableState, Vector2D
+from backend.core.game_state import GameStateManager, StateValidationError
+from backend.core.models import BallState, GameState, GameType, TableState, Vector2D
 
 
 class TestGameStateManager:
     """Test suite for GameStateManager."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def manager(self):
         """Create a fresh GameStateManager for each test."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -26,7 +26,7 @@ class TestGameStateManager:
                 max_history_frames=100, persistence_path=Path(temp_dir)
             )
 
-    @pytest.fixture()
+    @pytest.fixture
     def sample_detection_data(self):
         """Sample detection data from vision module."""
         return {

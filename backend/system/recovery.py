@@ -346,10 +346,7 @@ class RecoveryManager:
         ]
 
         # Check if we've exceeded max attempts
-        if len(recent_attempts) >= policy.max_attempts:
-            return False
-
-        return True
+        return not len(recent_attempts) >= policy.max_attempts
 
     async def _execute_recovery(
         self, module_name: str, policy: RecoveryPolicy, context: dict[str, Any]
@@ -383,9 +380,10 @@ class RecoveryManager:
                 success = await callback(module_name)
             elif action == RecoveryAction.RESTART_SYSTEM:
                 success = await callback()
-            elif action == RecoveryAction.RESET_STATE:
-                success = await callback(module_name)
-            elif action == RecoveryAction.CLEAR_CACHE:
+            elif (
+                action == RecoveryAction.RESET_STATE
+                or action == RecoveryAction.CLEAR_CACHE
+            ):
                 success = await callback(module_name)
             elif action == RecoveryAction.FAILOVER:
                 success = await callback(module_name, context)

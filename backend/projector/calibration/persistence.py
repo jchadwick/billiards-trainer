@@ -513,10 +513,7 @@ class CalibrationPersistence:
             return False
 
         # Check length
-        if len(name) > 100:
-            return False
-
-        return True
+        return not len(name) > 100
 
     def get_backup_list(self) -> list[dict[str, Any]]:
         """Get list of available backup files.

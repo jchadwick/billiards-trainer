@@ -368,10 +368,10 @@ class UserPreferencesConfig:
 
         # Override based on assistance level
         if self.assistance_level == AssistanceLevel.DISABLED:
-            return {key: False for key in base_settings}
+            return dict.fromkeys(base_settings, False)
         elif self.assistance_level == AssistanceLevel.MINIMAL:
             return {
-                **{key: False for key in base_settings},
+                **dict.fromkeys(base_settings, False),
                 "show_primary_trajectory": True,
             }
         elif self.assistance_level == AssistanceLevel.ADVANCED:
@@ -381,7 +381,7 @@ class UserPreferencesConfig:
                 "show_angle_measurements": True,
             }
         elif self.assistance_level == AssistanceLevel.EXPERT:
-            return {key: True for key in base_settings}
+            return dict.fromkeys(base_settings, True)
 
         return base_settings
 

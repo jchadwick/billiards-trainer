@@ -8,11 +8,11 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.system()
+@pytest.mark.system
 class TestCompleteWorkflow:
     """Test complete system workflow from detection to projection."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_full_detection_to_projection_pipeline(
         self, config_module, mock_cv2_camera
     ):
@@ -178,7 +178,7 @@ class TestCompleteWorkflow:
         response = test_client.get("/api/v1/game/state")
         assert response.status_code == 200
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_websocket_integration_workflow(self, test_client):
         """Test WebSocket integration workflow."""
         from api.websocket.handler import WebSocketHandler
@@ -406,7 +406,7 @@ class TestCompleteWorkflow:
         sessions = response.json()
         assert isinstance(sessions, list)
 
-    @pytest.mark.slow()
+    @pytest.mark.slow
     def test_long_running_stability(self, config_module):
         """Test system stability during long-running operation."""
         from core.game_state import GameStateManager
@@ -493,7 +493,7 @@ class TestCompleteWorkflow:
         assert avg_fps > 10, f"Performance degraded: {avg_fps:.2f} FPS"
 
 
-@pytest.mark.system()
+@pytest.mark.system
 class TestHardwareIntegration:
     """Test hardware integration scenarios."""
 

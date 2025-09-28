@@ -30,7 +30,7 @@ from backend.vision.utils.visualization import TableVisualization
 class TestTableDetector:
     """Test suite for TableDetector class."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def default_config(self):
         """Default configuration for testing."""
         return {
@@ -49,12 +49,12 @@ class TestTableDetector:
             "debug": True,
         }
 
-    @pytest.fixture()
+    @pytest.fixture
     def detector(self, default_config):
         """Create a TableDetector instance for testing."""
         return TableDetector(default_config)
 
-    @pytest.fixture()
+    @pytest.fixture
     def synthetic_table_image(self):
         """Create a synthetic table image for testing."""
         # Create a 800x400 image with green table
@@ -89,7 +89,7 @@ class TestTableDetector:
 
         return image, table_corners, pocket_positions
 
-    @pytest.fixture()
+    @pytest.fixture
     def occluded_table_image(self):
         """Create a table image with partial occlusion."""
         # Create base table
@@ -494,7 +494,7 @@ class TestDetectionUtils:
 class TestTableVisualization:
     """Test suite for table visualization utilities."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def sample_detection_result(self):
         """Create a sample detection result for testing."""
         corners = TableCorners(

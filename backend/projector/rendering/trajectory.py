@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from ...core.game_state import Vector2D
-from ...core.physics.trajectory import CollisionType, Trajectory
+from backend.core.game_state import Vector2D
+from backend.core.physics.trajectory import CollisionType, Trajectory
 
 from .renderer import BasicRenderer, Color, Colors, LineStyle, Point2D
 
@@ -398,9 +398,10 @@ class TrajectoryRenderer:
                 self.renderer.draw_circle(
                     ghost_pos, radius, ghost_color, filled=False, outline_width=2.0
                 )
-            elif self.config.ghost_ball_style == GhostBallStyle.FILLED:
-                self.renderer.draw_circle(ghost_pos, radius, ghost_color, filled=True)
-            elif self.config.ghost_ball_style == GhostBallStyle.TRANSPARENT:
+            elif (
+                self.config.ghost_ball_style == GhostBallStyle.FILLED
+                or self.config.ghost_ball_style == GhostBallStyle.TRANSPARENT
+            ):
                 self.renderer.draw_circle(ghost_pos, radius, ghost_color, filled=True)
             elif self.config.ghost_ball_style == GhostBallStyle.PULSING:
                 # Animate radius based on time

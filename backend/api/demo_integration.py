@@ -550,7 +550,7 @@ async def main():
     demo = IntegrationDemo()
 
     # Set up signal handlers for graceful shutdown
-    def signal_handler(signum, frame):
+    def signal_handler(signum, _frame):
         logger.info(f"\n📡 Received signal {signum}, shutting down gracefully...")
         demo.running = False
 

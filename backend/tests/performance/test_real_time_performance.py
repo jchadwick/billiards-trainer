@@ -13,11 +13,11 @@ from vision.detection.balls import BallDetector
 from vision.tracking.tracker import BallTracker
 
 
-@pytest.mark.performance()
+@pytest.mark.performance
 class TestCameraProcessingPerformance:
     """Test camera processing performance requirements."""
 
-    @pytest.mark.opencv_available()
+    @pytest.mark.opencv_available
     def test_30_fps_camera_processing(self, performance_timer, memory_monitor):
         """Test maintaining 30+ FPS camera processing."""
         detector = BallDetector()
@@ -186,11 +186,11 @@ class TestCameraProcessingPerformance:
         assert len(results) == 60
 
 
-@pytest.mark.performance()
+@pytest.mark.performance
 class TestWebSocketLatencyPerformance:
     """Test WebSocket latency performance requirements."""
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_websocket_message_latency(self, performance_timer):
         """Test WebSocket message latency < 50ms."""
         handler = WebSocketHandler()
@@ -225,7 +225,7 @@ class TestWebSocketLatencyPerformance:
         assert avg_latency < 50, f"Average latency {avg_latency:.2f}ms > 50ms"
         assert max_latency < 100, f"Max latency {max_latency:.2f}ms > 100ms"
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_websocket_broadcast_performance(self, performance_timer):
         """Test WebSocket broadcast performance."""
         handler = WebSocketHandler()
@@ -257,7 +257,7 @@ class TestWebSocketLatencyPerformance:
         for client in clients:
             client.send_json.assert_called_with(message)
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_websocket_concurrent_connections(self, performance_timer):
         """Test performance with many concurrent WebSocket connections."""
         handler = WebSocketHandler()
@@ -289,7 +289,7 @@ class TestWebSocketLatencyPerformance:
         # Broadcast should still be fast
         assert performance_timer.elapsed_ms < 500
 
-    @pytest.mark.asyncio()
+    @pytest.mark.asyncio
     async def test_websocket_message_throughput(self, performance_timer):
         """Test WebSocket message throughput."""
         handler = WebSocketHandler()
@@ -322,7 +322,7 @@ class TestWebSocketLatencyPerformance:
         assert throughput > 500, f"Throughput {throughput:.2f} messages/sec too low"
 
 
-@pytest.mark.performance()
+@pytest.mark.performance
 class TestPhysicsPerformance:
     """Test physics engine performance requirements."""
 
@@ -463,7 +463,7 @@ class TestPhysicsPerformance:
         ), f"Memory increased by {memory_monitor.memory_increase_mb:.2f} MB"
 
 
-@pytest.mark.performance()
+@pytest.mark.performance
 class TestMemoryUsagePerformance:
     """Test memory usage performance requirements."""
 
@@ -544,7 +544,7 @@ class TestMemoryUsagePerformance:
         ), f"Potential memory leak: {memory_monitor.memory_increase_mb:.2f} MB increase"
 
 
-@pytest.mark.performance()
+@pytest.mark.performance
 class TestCPUUtilizationPerformance:
     """Test CPU utilization performance requirements."""
 

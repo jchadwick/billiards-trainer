@@ -10,24 +10,26 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Internal imports
 try:
-    from ..config import ConfigurationModule
-    from ..core import CoreModule, CoreModuleConfig
+    from backend.config import ConfigurationModule
+    from backend.core import CoreModule, CoreModuleConfig
 except ImportError:
     # If running from the backend directory directly
     from core import CoreModule, CoreModuleConfig
 
     from config import ConfigurationModule
 
-from .dependencies import app_state
+from .dependencies import ApplicationState, app_state
 from .middleware.authentication import AuthenticationMiddleware
 from .middleware.cors import CORSConfig, setup_cors_middleware
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
 from .middleware.logging import LoggingConfig, setup_logging_middleware
+from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.rate_limit import RateLimitConfig, setup_rate_limiting
 from .middleware.security import SecurityConfig, setup_security_headers
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import auth, calibration, config, game, health
+from .routes import auth, calibration, config, game, health, stream
+from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
     shutdown_websocket_system,
@@ -35,6 +37,26 @@ from .websocket import (
     websocket_manager,
 )
 from .websocket.endpoints import websocket_router
+
+# Import health monitor with fallback
+try:
+    from backend.system.health_monitor import health_monitor
+except ImportError:
+    try:
+        from system.health_monitor import health_monitor
+    except ImportError:
+        # Fallback: create a minimal health monitor interface
+        class MockHealthMonitor:
+            def register_components(self, **kwargs):
+                pass
+
+            async def start_monitoring(self, check_interval=5.0):
+                pass
+
+            async def stop_monitoring(self):
+                pass
+
+        health_monitor = MockHealthMonitor()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -95,8 +117,86 @@ def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
 # Application state is now imported from dependencies module
 
 
+async def _register_shutdown_functions(app_state: ApplicationState) -> None:
+    """Register shutdown functions for all modules."""
+    # Register WebSocket system shutdown
+    await register_module_for_shutdown("websocket", shutdown_websocket_system)
+
+    # Register core module shutdown (if needed)
+    if app_state.core_module:
+
+        async def shutdown_core():
+            """Shutdown core module resources."""
+            # Clear caches and stop any background processing
+            if hasattr(app_state.core_module, "trajectory_cache"):
+                app_state.core_module.trajectory_cache.clear()
+            if hasattr(app_state.core_module, "analysis_cache"):
+                app_state.core_module.analysis_cache.clear()
+            if hasattr(app_state.core_module, "collision_cache"):
+                app_state.core_module.collision_cache.clear()
+
+            # Wait for any pending operations
+            if hasattr(app_state.core_module, "_state_lock"):
+                async with app_state.core_module._state_lock:
+                    pass  # Ensure no state updates are in progress
+
+            logger.info("Core module shutdown completed")
+
+        await register_module_for_shutdown("core", shutdown_core)
+
+    # Register configuration module shutdown
+    if app_state.config_module:
+
+        async def shutdown_config():
+            """Shutdown configuration module."""
+            # Save current configuration
+            try:
+                app_state.config_module.save_config()
+
+                # Stop file watchers if they exist
+                if (
+                    hasattr(app_state.config_module, "_config_watcher")
+                    and app_state.config_module._config_watcher
+                ):
+                    app_state.config_module._config_watcher.stop()
+
+                # Create backup if configured
+                if hasattr(app_state.config_module, "_backup"):
+                    backup_metadata = app_state.config_module._backup.create_backup()
+                    if backup_metadata:
+                        logger.info(
+                            f"Configuration backup created: {backup_metadata.backup_path}"
+                        )
+
+                logger.info("Configuration module shutdown completed")
+            except Exception as e:
+                logger.error(f"Error during configuration shutdown: {e}")
+
+        await register_module_for_shutdown("config", shutdown_config)
+
+    # Register vision module shutdown (when available)
+    if app_state.vision_module:
+
+        async def shutdown_vision():
+            """Shutdown vision module."""
+            try:
+                # Stop capture and processing
+                if hasattr(app_state.vision_module, "stop_capture"):
+                    app_state.vision_module.stop_capture()
+
+                # Clean up camera resources
+                if hasattr(app_state.vision_module, "camera"):
+                    app_state.vision_module.camera.stop_capture()
+
+                logger.info("Vision module shutdown completed")
+            except Exception as e:
+                logger.error(f"Error during vision shutdown: {e}")
+
+        await register_module_for_shutdown("vision", shutdown_vision)
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
     """Application lifecycle management."""
     # Startup
     logger.info("Starting up Billiards Trainer API...")
@@ -130,6 +230,23 @@ async def lifespan(app: FastAPI):
         # Start WebSocket system services
         await initialize_websocket_system()
 
+        # Register components with health monitor
+        logger.info("Registering components with health monitor...")
+        health_monitor.register_components(
+            core_module=app_state.core_module,
+            config_module=app_state.config_module,
+            websocket_manager=app_state.websocket_manager,
+        )
+
+        # Start health monitoring
+        await health_monitor.start_monitoring(check_interval=5.0)
+
+        # Register module shutdown functions for graceful shutdown
+        await _register_shutdown_functions(app_state)
+
+        # Setup signal handlers for graceful shutdown
+        setup_signal_handlers()
+
         # Mark as healthy
         app_state.is_healthy = True
 
@@ -148,6 +265,9 @@ async def lifespan(app: FastAPI):
     finally:
         # Shutdown
         logger.info("Shutting down Billiards Trainer API...")
+
+        # Stop health monitoring
+        await health_monitor.stop_monitoring()
 
         # Shutdown WebSocket system
         await shutdown_websocket_system()
@@ -183,8 +303,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     # Determine if running in development mode
     development_mode = (
-        config_override.get("development_mode", False)
-        if config_override else False
+        config_override.get("development_mode", False) if config_override else False
     )
 
     # Get middleware configuration
@@ -193,7 +312,10 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # Add middleware in reverse order (last added = first executed)
     # This ensures proper execution order for request/response processing
 
-    # 1. Performance monitoring (last - measures everything)
+    # 1. Health metrics tracking (last - measures everything)
+    app.add_middleware(MetricsMiddleware)
+
+    # 2. Performance monitoring (last - measures everything)
     setup_performance_monitoring(app, middleware_config["performance"])
 
     # 2. Security headers (second to last)
@@ -236,6 +358,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(calibration.router, prefix="/api/v1")
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
+    app.include_router(stream.router, prefix="/api/v1")
 
     # Include WebSocket management endpoints
     app.include_router(websocket_router, prefix="/api/v1/websocket")
