@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Comprehensive API endpoint testing script."""
 
-import json
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 
@@ -23,10 +22,10 @@ class EndpointTester:
         method: str,
         path: str,
         expected_status: int = 200,
-        data: Optional[Dict] = None,
-        headers: Optional[Dict] = None,
+        data: Optional[dict] = None,
+        headers: Optional[dict] = None,
         description: str = "",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Test a single endpoint and return results."""
         url = f"{self.base_url}{path}"
         start_time = time.time()
@@ -85,7 +84,7 @@ class EndpointTester:
             self.failed_tests.append(result)
             return result
 
-    def print_result(self, result: Dict[str, Any]):
+    def print_result(self, result: dict[str, Any]):
         """Print a formatted test result."""
         status = "✅ PASS" if result["success"] else "❌ FAIL"
         method = result["method"]

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified System Integration Test.
+"""Simplified System Integration Test.
 
 Tests system-level functionality that works:
 - Multiple module coordination
@@ -167,10 +166,10 @@ async def test_system_lifecycle():
 
             # Test status reporting
             status = orchestrator.get_system_status()
-            assert status["running"] == True
-            assert status["modules"]["core"] == True
-            assert status["modules"]["vision"] == True
-            assert status["modules"]["config"] == True
+            assert status["running"] is True
+            assert status["modules"]["core"] is True
+            assert status["modules"]["vision"] is True
+            assert status["modules"]["config"] is True
             print("✓ System status reporting works")
 
             # Test operation while running
@@ -245,7 +244,7 @@ async def test_performance_monitoring():
 
             # Test performance over time
             metrics_history = []
-            for i in range(3):
+            for _i in range(3):
                 metrics = {
                     "timestamp": time.time(),
                     "core_updates": orchestrator.core_module.get_performance_metrics().total_updates,
@@ -284,7 +283,7 @@ async def test_resource_management():
         # Monitor system resources
         process = psutil.Process()
         initial_memory = process.memory_info().rss
-        initial_cpu_percent = process.cpu_percent()
+        process.cpu_percent()
 
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir) / "config"
@@ -304,7 +303,7 @@ async def test_resource_management():
             await orchestrator.start()
 
             # Simulate some work
-            for i in range(10):
+            for _i in range(10):
                 # Create some temporary objects
                 test_data = list(range(1000))
                 await asyncio.sleep(0.01)
@@ -364,19 +363,19 @@ async def test_error_handling():
 
             # Test individual module error isolation
             initial_status = orchestrator.get_system_status()
-            assert initial_status["running"] == True
+            assert initial_status["running"] is True
 
             # Simulate error in vision module
             try:
                 # Try to access non-existent camera
-                error_vision = VisionModule({"camera_device_id": 99999})
+                VisionModule({"camera_device_id": 99999})
                 print("✓ Vision module error handled gracefully")
             except Exception as e:
                 print(f"✓ Vision module error properly caught: {type(e).__name__}")
 
             # System should still be operational
             status_after_error = orchestrator.get_system_status()
-            assert status_after_error["running"] == True
+            assert status_after_error["running"] is True
             assert orchestrator.core_module is not None
             print("✓ System remains operational after module errors")
 
@@ -480,8 +479,8 @@ async def test_integration_workflow():
 
             # 5. Physics Processing (Simulation)
             # Test physics interface without state update
-            cue_ball = next(b for b in core_balls if b.is_cue_ball)
-            test_velocity = Vector2D(1.0, 0.0)
+            next(b for b in core_balls if b.is_cue_ball)
+            Vector2D(1.0, 0.0)
 
             # Verify physics module is accessible
             assert orchestrator.core_module.physics_engine is not None
@@ -502,7 +501,7 @@ async def test_integration_workflow():
 
             # 7. System Health Check
             system_status = orchestrator.get_system_status()
-            assert system_status["running"] == True
+            assert system_status["running"] is True
             assert all(system_status["modules"].values())
             print("✓ Step 7: System health verification")
 
@@ -511,7 +510,7 @@ async def test_integration_workflow():
             await orchestrator.cleanup()
             print("✓ Step 8: System cleanup")
 
-            print(f"✓ Integration workflow completed successfully")
+            print("✓ Integration workflow completed successfully")
             print(f"  - Processed {workflow_metrics['balls_processed']} balls")
             print(f"  - Core errors: {workflow_metrics['core_errors']}")
             print(f"  - Vision active: {workflow_metrics['vision_active']}")

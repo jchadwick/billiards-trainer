@@ -2,22 +2,11 @@
 
 import unittest
 
-from ..core.analysis.assistance import (
-    AssistanceEngine,
-    AssistanceLevel,
-    SafeZoneType,
-)
+from ..core.analysis.assistance import AssistanceEngine, AssistanceLevel, SafeZoneType
 from ..core.analysis.prediction import OutcomePredictor, OutcomeType
 from ..core.analysis.shot import IllegalShotReason, ShotAnalysis, ShotAnalyzer
 from ..core.analysis.test_scenarios import AnalysisTestScenarios
-from ..core.models import (
-    BallState,
-    GameState,
-    GameType,
-    ShotType,
-    TableState,
-    Vector2D,
-)
+from ..core.models import BallState, GameState, GameType, ShotType, TableState, Vector2D
 
 
 class TestShotAnalyzer(unittest.TestCase):

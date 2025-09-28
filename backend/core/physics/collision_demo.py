@@ -12,6 +12,7 @@ import math
 import time
 
 from ..models import BallState, TableState, Vector2D
+
 from .collision import (
     CollisionDetector,
     CollisionOptimizer,

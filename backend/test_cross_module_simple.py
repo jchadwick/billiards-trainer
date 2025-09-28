@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified Cross-Module Integration Test.
+"""Simplified Cross-Module Integration Test.
 
 Tests the working parts of integration between modules:
 - Data conversion between Core and Vision
@@ -40,8 +39,8 @@ async def test_core_vision_data_conversion():
 
     try:
         # Initialize modules
-        core = CoreModule()
-        vision = VisionModule({"camera_device_id": -1})  # No camera
+        CoreModule()
+        VisionModule({"camera_device_id": -1})  # No camera
 
         # Create Vision detection data
         vision_balls = [
@@ -144,7 +143,7 @@ async def test_configuration_coordination():
             config_dir = Path(temp_dir) / "config"
 
             # Initialize configuration module
-            config_module = ConfigurationModule(config_dir)
+            ConfigurationModule(config_dir)
             print("✓ Configuration module initialized")
 
             # Set up configuration for different modules
@@ -173,16 +172,16 @@ async def test_configuration_coordination():
             # Verify configuration was applied to Core
             assert core.config.cache_size == 500
             assert core.config.max_trajectory_time == 5.0
-            assert core.config.debug_mode == True
-            assert core.config.physics_enabled == True
-            assert core.config.prediction_enabled == True
+            assert core.config.debug_mode is True
+            assert core.config.physics_enabled is True
+            assert core.config.prediction_enabled is True
             print("✓ Core module configuration applied correctly")
 
             # Verify configuration was applied to Vision
             assert vision.config.camera_device_id == -1
-            assert vision.config.enable_ball_detection == True
+            assert vision.config.enable_ball_detection is True
             assert vision.config.target_fps == 30
-            assert vision.config.debug_mode == True
+            assert vision.config.debug_mode is True
             print("✓ Vision module configuration applied correctly")
 
             # Test configuration consistency
@@ -333,7 +332,7 @@ async def test_module_initialization_order():
                 "vision": VisionModule({"camera_device_id": -1}),
             }
 
-            for name, module in modules.items():
+            for _name, module in modules.items():
                 assert module is not None
             print("✓ Simultaneous module initialization works")
 
@@ -399,7 +398,7 @@ async def test_performance_coordination():
 
             # Simulate conversion work
             for ball in test_balls:
-                core_ball = BallState(
+                BallState(
                     id=f"ball_{ball.number}",
                     position=Vector2D(ball.position[0], ball.position[1]),
                     velocity=Vector2D.zero(),
@@ -441,16 +440,14 @@ async def test_error_isolation():
     try:
         # Initialize working modules
         core = CoreModule()
-        vision = VisionModule({"camera_device_id": -1})
+        VisionModule({"camera_device_id": -1})
 
         print("✓ Base modules initialized successfully")
 
         # Test that vision errors don't affect core
         try:
             # Try to create vision module with invalid config
-            invalid_vision = VisionModule(
-                {"camera_device_id": 99999, "invalid_param": "bad_value"}
-            )
+            VisionModule({"camera_device_id": 99999, "invalid_param": "bad_value"})
         except Exception as e:
             print(f"✓ Invalid vision config handled: {type(e).__name__}")
 
@@ -464,7 +461,7 @@ async def test_error_isolation():
         try:
             # This should fail gracefully
             bad_data = {"invalid": "structure"}
-            result = await core.update_state(bad_data)
+            await core.update_state(bad_data)
             print("! Bad data handled gracefully")
         except Exception as e:
             print(f"✓ Bad data properly rejected: {type(e).__name__}")

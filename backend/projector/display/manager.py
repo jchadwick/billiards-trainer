@@ -15,10 +15,7 @@ import moderngl
 import numpy as np
 import pygame
 
-from ..calibration import (
-    CalibrationManager,
-    TableDimensions,
-)
+from backend.projector.calibration import CalibrationManager, TableDimensions
 
 logger = logging.getLogger(__name__)
 

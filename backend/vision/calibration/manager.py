@@ -408,20 +408,20 @@ class CalibrationManager:
             status["session_date"] = self.current_session.created_date
 
         if self.camera_calibrator.camera_params:
-            status["camera_error"] = (
-                self.camera_calibrator.camera_params.calibration_error
-            )
+            status[
+                "camera_error"
+            ] = self.camera_calibrator.camera_params.calibration_error
 
         if self.color_calibrator.current_profile:
             status["color_profile"] = self.color_calibrator.current_profile.name
-            status["lighting_level"] = (
-                self.color_calibrator.current_profile.ambient_light_level
-            )
+            status[
+                "lighting_level"
+            ] = self.color_calibrator.current_profile.ambient_light_level
 
         if self.geometry_calibrator.current_calibration:
-            status["geometry_error"] = (
-                self.geometry_calibrator.current_calibration.calibration_error
-            )
+            status[
+                "geometry_error"
+            ] = self.geometry_calibrator.current_calibration.calibration_error
 
         return status
 

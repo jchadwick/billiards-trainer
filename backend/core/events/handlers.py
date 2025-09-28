@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from .manager import EventType
 
 if TYPE_CHECKING:
-    from backend.core.models import BallState, CueState, GameState
+    from ..models import BallState, CueState, GameState
 
 logger = logging.getLogger(__name__)
 

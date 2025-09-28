@@ -17,7 +17,7 @@ from typing import Any, Union
 
 # Import core models with fallback for different import contexts
 try:
-    from backend.core.models import (
+    from ...core.models import (
         BallState,
         Collision,
         CueState,
@@ -48,24 +48,20 @@ from .common import Coordinate2D, ValidationResult
 from .responses import (
     BallInfo,
     CueInfo,
-)
-from .responses import GameEvent as APIGameEvent
-from .responses import (
     GameStateResponse,
     ShotAnalysisResponse,
     TableInfo,
     TrajectoryInfo,
 )
+from .responses import GameEvent as APIGameEvent
 from .websocket import (
     BallStateData,
-)
-from .websocket import CollisionInfo as WSCollisionInfo
-from .websocket import (
     CueStateData,
     GameStateData,
     TableStateData,
     TrajectoryData,
 )
+from .websocket import CollisionInfo as WSCollisionInfo
 
 # =============================================================================
 # Core to API Model Converters

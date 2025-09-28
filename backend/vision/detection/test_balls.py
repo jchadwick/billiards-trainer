@@ -20,6 +20,7 @@ import pytest
 
 from ..models import Ball, BallType
 from ..tracking.tracker import ObjectTracker
+
 from .balls import BallDetector, DetectionMethod
 
 
