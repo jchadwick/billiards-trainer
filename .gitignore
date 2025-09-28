@@ -136,6 +136,9 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.production
+.env.staging
 .envrc
 .venv
 env/
@@ -182,9 +185,9 @@ cython_debug/
 .abstra/
 
 # Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
+#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer, 
+#  and can be added to the global gitignore or merged into this file. However, if you prefer,
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
@@ -205,3 +208,58 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+PLAN.md
+
+# Project-specific ignores
+# Configuration files with sensitive data
+config/production.json
+config/secrets.json
+
+# Data and output directories
+/data/
+/logs/
+/temp/
+/debug_images/
+
+# Model files and large data
+*.model
+*.weights
+*.onnx
+*.pkl
+
+# Camera and video files
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# Calibration data
+calibration_*.json
+camera_matrix.json
+distortion_coefficients.json
+
+# Performance profiling
+*.prof
+*.pstats
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# PyCharm additional
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries/
+.idea/shelf/

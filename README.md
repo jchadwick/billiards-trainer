@@ -49,14 +49,14 @@ The system performs continuous real-time analysis of a pool table through the fo
 ## Project Structure
 
 ```
-/                                                                                                                   │
-├── backend/                                                                                                                      │
-│   ├── api/              # FastAPI routes and WebSocket handlers                                                                 │
-│   ├── core/             # Detection, tracking, physics calculations                                                             │
-│   ├── vision/           # OpenCV processing modules                                                                             │
-│   ├── projector/        # Projection client module                                                                              │
-│   └── config/           # Configuration management                                                                              │
-└── frontend/             # Web application                                                                                 │
+/
+├── backend/
+│   ├── api/              # FastAPI routes and WebSocket handlers
+│   ├── core/             # Detection, tracking, physics calculations
+│   ├── vision/           # OpenCV processing modules
+│   ├── projector/        # Projection client module
+│   └── config/           # Configuration management
+└── frontend/             # Web application
 ```
 
 ## Architecture
