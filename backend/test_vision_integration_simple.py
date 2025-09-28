@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified Vision Module Integration Test.
+"""Simplified Vision Module Integration Test.
 
 Tests the vision module components without requiring a camera:
 - Module initialization
@@ -24,8 +23,8 @@ import numpy as np
 from core.models import BallState, Vector2D
 
 # Import vision module components
-from vision import VisionConfig, VisionModule
-from vision.models import Ball, BallType, CueState, DetectionResult, Table
+from vision import VisionModule
+from vision.models import Ball, BallType, DetectionResult, Table
 
 # Configure logging
 logging.basicConfig(
@@ -64,8 +63,8 @@ async def test_vision_module_initialization():
 
         # Test configuration access
         assert vision.config.camera_device_id == -1
-        assert vision.config.enable_ball_detection == True
-        assert vision.config.debug_mode == True
+        assert vision.config.enable_ball_detection is True
+        assert vision.config.debug_mode is True
         print("✓ Configuration properly applied")
 
         return True
@@ -246,7 +245,7 @@ async def test_vision_core_integration():
         assert core_ball.position.y == vision_ball.position[1]
         assert core_ball.number == vision_ball.number
         assert core_ball.confidence == vision_ball.confidence
-        assert core_ball.is_cue_ball == False
+        assert core_ball.is_cue_ball is False
         print("✓ Vision-to-Core ball conversion works")
 
         # Test multiple balls including cue ball
@@ -257,7 +256,7 @@ async def test_vision_core_integration():
         ]
 
         core_balls = []
-        for i, vball in enumerate(vision_balls):
+        for _i, vball in enumerate(vision_balls):
             ball_id = (
                 "cue" if vball.ball_type == BallType.CUE else f"ball_{vball.number}"
             )
@@ -275,9 +274,9 @@ async def test_vision_core_integration():
             )
 
         assert len(core_balls) == 3
-        assert core_balls[0].is_cue_ball == True  # CUE ball
-        assert core_balls[1].is_cue_ball == False  # SOLID ball
-        assert core_balls[2].is_cue_ball == False  # STRIPE ball
+        assert core_balls[0].is_cue_ball is True  # CUE ball
+        assert core_balls[1].is_cue_ball is False  # SOLID ball
+        assert core_balls[2].is_cue_ball is False  # STRIPE ball
         assert core_balls[0].id == "cue"
         assert core_balls[1].id == "ball_1"
         assert core_balls[2].id == "ball_9"

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Config Module Integration Test.
+"""Config Module Integration Test.
 
 Tests the configuration module functionality:
 - Configuration loading and management
@@ -13,9 +12,9 @@ Tests the configuration module functionality:
 import asyncio
 import json
 import logging
-import uuid
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 # Add backend to path for imports
@@ -226,7 +225,7 @@ async def test_configuration_persistence():
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             config_dir = Path(temp_dir) / "config"
-            config = ConfigurationModule(config_dir)
+            ConfigurationModule(config_dir)
 
             # Create a test configuration file
             test_config = {
@@ -244,7 +243,7 @@ async def test_configuration_persistence():
 
             # Test loading configuration from file
             if config_file.exists():
-                with open(config_file, "r") as f:
+                with open(config_file) as f:
                     loaded_config = json.load(f)
                     assert loaded_config == test_config
                     print("✓ Configuration file persistence works")
@@ -338,7 +337,6 @@ async def test_config_change_tracking():
             try:
                 import time
 
-
                 # Create a manual change entry
                 change = ConfigChange(
                     key="test.setting",
@@ -382,7 +380,7 @@ async def test_config_validation():
 
             # Test with invalid configuration directory
             try:
-                invalid_config = ConfigurationModule(Path("/nonexistent/path"))
+                ConfigurationModule(Path("/nonexistent/path"))
                 print("! Invalid path handled gracefully")
             except Exception:
                 print("✓ Invalid configuration path properly rejected")

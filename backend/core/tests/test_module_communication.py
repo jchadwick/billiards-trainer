@@ -7,17 +7,17 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from ..events.handlers import CoreEventHandlers
-from ..events.manager import Event, EventManager, EventPriority, EventType
-from ..game_state import GameStateManager
-from ..integration import (
+from backend.core.events.handlers import CoreEventHandlers
+from backend.core.events.manager import Event, EventManager, EventPriority, EventType
+from backend.core.game_state import GameStateManager
+from backend.core.integration import (
     APIInterfaceImpl,
     ConfigInterfaceImpl,
     CoreModuleIntegrator,
     ProjectorInterfaceImpl,
     VisionInterfaceImpl,
 )
-from ..models import GameState, GameType, ShotAnalysis, Trajectory
+from backend.core.models import GameState, GameType, ShotAnalysis, Trajectory
 
 
 class TestEventManager:

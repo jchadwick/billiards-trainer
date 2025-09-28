@@ -10,7 +10,7 @@ from datetime import datetime
 
 import pytest
 
-from ..models import (
+from backend.core.models import (
     BallState,
     Collision,
     CueState,

@@ -87,15 +87,15 @@ class SubscriptionManager:
     """Advanced subscription manager with filtering, aggregation, and performance optimization."""
 
     def __init__(self):
-        self.subscriptions: dict[str, dict[StreamType, StreamSubscription]] = (
-            defaultdict(dict)
-        )
+        self.subscriptions: dict[
+            str, dict[StreamType, StreamSubscription]
+        ] = defaultdict(dict)
         self.stream_subscribers: dict[StreamType, set[str]] = {
             stream_type: set() for stream_type in StreamType
         }
-        self.aggregation_buffers: dict[str, dict[StreamType, list[dict[str, Any]]]] = (
-            defaultdict(lambda: defaultdict(list))
-        )
+        self.aggregation_buffers: dict[
+            str, dict[StreamType, list[dict[str, Any]]]
+        ] = defaultdict(lambda: defaultdict(list))
         self.aggregation_tasks: dict[str, asyncio.Task] = {}
         self.sample_counters: dict[str, dict[StreamType, int]] = defaultdict(
             lambda: defaultdict(int)

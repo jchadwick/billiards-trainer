@@ -18,8 +18,11 @@ import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from ..dependencies import dev_admin_required, dev_viewer_required, get_config_module
-from ..middleware.authentication import AdminRequired, ViewerRequired
+from ..dependencies import (
+    dev_admin_required,
+    dev_viewer_required,
+    get_config_module,
+)
 from ..models.common import (
     ErrorCode,
     create_error_response,

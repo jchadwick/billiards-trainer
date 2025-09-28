@@ -5,7 +5,7 @@ import asyncio
 import json
 import sys
 import time
-from typing import Any, Dict
+from typing import Any
 
 import websockets
 
@@ -15,7 +15,7 @@ class WebSocketTester:
         self.url = url
         self.test_results = []
 
-    async def test_basic_connection(self) -> Dict[str, Any]:
+    async def test_basic_connection(self) -> dict[str, Any]:
         """Test basic WebSocket connection establishment."""
         test_name = "Basic Connection"
         start_time = time.time()
@@ -45,7 +45,7 @@ class WebSocketTester:
         self.test_results.append(result)
         return result
 
-    async def test_message_sending(self) -> Dict[str, Any]:
+    async def test_message_sending(self) -> dict[str, Any]:
         """Test sending messages to the WebSocket."""
         test_name = "Message Sending"
         start_time = time.time()
@@ -93,7 +93,7 @@ class WebSocketTester:
         self.test_results.append(result)
         return result
 
-    async def test_subscription(self) -> Dict[str, Any]:
+    async def test_subscription(self) -> dict[str, Any]:
         """Test subscription to different streams."""
         test_name = "Stream Subscription"
         start_time = time.time()
@@ -141,7 +141,7 @@ class WebSocketTester:
         self.test_results.append(result)
         return result
 
-    async def test_multiple_connections(self) -> Dict[str, Any]:
+    async def test_multiple_connections(self) -> dict[str, Any]:
         """Test multiple concurrent WebSocket connections."""
         test_name = "Multiple Connections"
         start_time = time.time()
@@ -218,7 +218,7 @@ class WebSocketTester:
             elif result.get("message"):
                 print(f"    {result['message']}")
 
-    def generate_report(self) -> Dict[str, Any]:
+    def generate_report(self) -> dict[str, Any]:
         """Generate a summary report of WebSocket tests."""
         total_tests = len(self.test_results)
         passed_tests = sum(1 for result in self.test_results if result["success"])

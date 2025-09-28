@@ -16,7 +16,7 @@ Main Classes:
     CalibrationValidator: System validation and accuracy testing
 
 Usage Example:
-    from backend.vision.calibration import CalibrationManager
+    from ...vision.calibration import CalibrationManager
 
     # Initialize calibration system
     manager = CalibrationManager()
