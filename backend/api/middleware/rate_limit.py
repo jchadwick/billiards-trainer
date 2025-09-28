@@ -273,8 +273,7 @@ class RateLimitMiddleware:
         if config is None:
             config = RateLimitConfig()
 
-        global _rate_limiter
-        _rate_limiter = RateLimiter(config)
+            _rate_limiter = RateLimiter(config)
         logger.info(
             f"Rate limiting middleware initialized: {config.requests_per_minute}/min, {config.requests_per_hour}/hour"
         )
@@ -317,7 +316,6 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
     Returns:
         Response object
     """
-    global _rate_limiter
 
     if _rate_limiter is None:
         # Rate limiting not configured, skip
@@ -380,7 +378,6 @@ def setup_rate_limiting(app: FastAPI, config: Optional[RateLimitConfig] = None) 
         app: FastAPI application instance
         config: Rate limiting configuration
     """
-    global _rate_limiter
 
     if config is None:
         config = RateLimitConfig()
@@ -402,7 +399,6 @@ def get_rate_limit_status(client_ip: str) -> dict:
     Returns:
         Dictionary with rate limit status
     """
-    global _rate_limiter
 
     if _rate_limiter is None:
         return {"error": "Rate limiting not configured"}

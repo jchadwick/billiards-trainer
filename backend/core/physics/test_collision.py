@@ -13,8 +13,7 @@ import math
 import time
 import unittest
 
-from backend.core.models import BallState, TableState, Vector2D
-
+from ..models import BallState, TableState, Vector2D
 from .collision import (
     CollisionDetector,
     CollisionOptimizer,

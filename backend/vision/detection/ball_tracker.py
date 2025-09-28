@@ -23,10 +23,9 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-from backend.vision.calibration.color import ColorCalibrator
-from backend.vision.models import Ball, BallType, DetectionResult, FrameStatistics
-from backend.vision.tracking.tracker import ObjectTracker
-
+from ..calibration.color import ColorCalibrator
+from ..models import Ball, BallType, DetectionResult, FrameStatistics
+from ..tracking.tracker import ObjectTracker
 from .balls import BallDetector, DetectionMethod
 
 logger = logging.getLogger(__name__)
@@ -224,9 +223,11 @@ class BallTrackingSystem:
                 tracking_time=tracking_time,
                 balls_detected=len(detected_balls),
                 balls_tracked=len(tracked_balls) if self.tracker else 0,
-                detection_confidence=np.mean([b.confidence for b in enhanced_balls])
-                if enhanced_balls
-                else 0.0,
+                detection_confidence=(
+                    np.mean([b.confidence for b in enhanced_balls])
+                    if enhanced_balls
+                    else 0.0
+                ),
                 frame_quality=self._calculate_frame_quality(enhanced_balls, frame),
             )
 

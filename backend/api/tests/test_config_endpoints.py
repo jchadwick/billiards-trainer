@@ -6,7 +6,7 @@ from unittest.mock import Mock, mock_open, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
+from ..main import create_app
 
 
 @pytest.fixture()
@@ -39,10 +39,13 @@ class TestConfigurationEndpoints:
 
     def test_get_configuration_success(self, client, mock_config_module, mock_user):
         """Test successful configuration retrieval."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/")
 
             assert response.status_code == 200
@@ -63,10 +66,13 @@ class TestConfigurationEndpoints:
 
     def test_get_configuration_by_section(self, client, mock_config_module, mock_user):
         """Test configuration retrieval by specific section."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/?section=camera")
 
             assert response.status_code == 200
@@ -81,10 +87,13 @@ class TestConfigurationEndpoints:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration retrieval with invalid section."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/?section=invalid_section")
 
             assert response.status_code == 400
@@ -95,10 +104,13 @@ class TestConfigurationEndpoints:
         """Test successful configuration update."""
         update_data = {"camera": {"fps": 60, "resolution": [1280, 720]}}
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put("/api/v1/config/", json=update_data)
 
             assert response.status_code == 200
@@ -117,10 +129,13 @@ class TestConfigurationEndpoints:
         """Test configuration update in validation-only mode."""
         update_data = {"camera": {"fps": 60}}
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put(
                 "/api/v1/config/?validate_only=true", json=update_data
             )
@@ -137,10 +152,13 @@ class TestConfigurationEndpoints:
         """Test configuration update with warnings."""
         update_data = {"camera": {"fps": 120}}  # This should trigger a warning
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put("/api/v1/config/", json=update_data)
 
             assert response.status_code == 400
@@ -155,10 +173,13 @@ class TestConfigurationEndpoints:
             "camera": {"fps": 120}  # This triggers warning but force_update=true
         }
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put("/api/v1/config/?force_update=true", json=update_data)
 
             assert response.status_code == 200
@@ -171,10 +192,13 @@ class TestConfigurationEndpoints:
         """Test configuration update with validation errors."""
         update_data = {"camera": {"fps": "invalid"}}  # Should be integer
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put("/api/v1/config/", json=update_data)
 
             assert response.status_code == 422
@@ -185,10 +209,13 @@ class TestConfigurationEndpoints:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration update with empty data."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.put("/api/v1/config/", json={})
 
             assert response.status_code == 422
@@ -197,10 +224,13 @@ class TestConfigurationEndpoints:
 
     def test_reset_configuration_success(self, client, mock_config_module, mock_user):
         """Test successful configuration reset."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.post("/api/v1/config/reset?confirm=true")
 
             assert response.status_code == 200
@@ -213,10 +243,13 @@ class TestConfigurationEndpoints:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration reset without confirmation."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             response = client.post("/api/v1/config/reset?confirm=false")
 
             assert response.status_code == 400
@@ -229,14 +262,14 @@ class TestConfigurationEndpoints:
         """Test configuration reset with backup creation."""
         mock_config_module.get_configuration.return_value = {"test": "config"}
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch(
-            "backend.api.routes.config.AdminRequired", return_value=mock_user
-        ), patch(
-            "builtins.open", mock_open()
-        ) as mock_file:
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+            patch("builtins.open", mock_open()) as mock_file,
+        ):
             response = client.post(
                 "/api/v1/config/reset?confirm=true&backup_current=true"
             )
@@ -256,10 +289,13 @@ class TestConfigurationEndpoints:
 
         json_content = json.dumps(config_data)
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             files = {"file": ("config.json", json_content, "application/json")}
             response = client.post("/api/v1/config/import", files=files)
 
@@ -279,10 +315,13 @@ system:
   debug: false
 """
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             files = {"file": ("config.yaml", yaml_content, "application/yaml")}
             response = client.post("/api/v1/config/import", files=files)
 
@@ -295,10 +334,13 @@ system:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration import with invalid file format."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             files = {"file": ("config.txt", "invalid content", "text/plain")}
             response = client.post("/api/v1/config/import", files=files)
 
@@ -310,10 +352,13 @@ system:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration import with invalid JSON."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             files = {"file": ("config.json", "invalid json{", "application/json")}
             response = client.post("/api/v1/config/import", files=files)
 
@@ -328,10 +373,13 @@ system:
         config_data = {"camera": {"fps": 30}}
         json_content = json.dumps(config_data)
 
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.AdminRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.AdminRequired", return_value=mock_user),
+        ):
             files = {"file": ("config.json", json_content, "application/json")}
             response = client.post(
                 "/api/v1/config/import?validate_only=true", files=files
@@ -345,10 +393,13 @@ system:
 
     def test_export_configuration_json(self, client, mock_config_module, mock_user):
         """Test configuration export in JSON format."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/export?format=json")
 
             assert response.status_code == 200
@@ -362,10 +413,13 @@ system:
 
     def test_export_configuration_yaml(self, client, mock_config_module, mock_user):
         """Test configuration export in YAML format."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/export?format=yaml")
 
             assert response.status_code == 200
@@ -377,10 +431,13 @@ system:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration export for specific sections."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get(
                 "/api/v1/config/export?sections=camera&sections=system"
             )
@@ -395,10 +452,13 @@ system:
         self, client, mock_config_module, mock_user
     ):
         """Test configuration export with metadata."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/export?include_metadata=true")
 
             assert response.status_code == 200
@@ -409,14 +469,14 @@ system:
 
     def test_download_configuration(self, client, mock_config_module, mock_user):
         """Test configuration download as file."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            return_value=mock_config_module,
-        ), patch(
-            "backend.api.routes.config.ViewerRequired", return_value=mock_user
-        ), patch(
-            "builtins.open", mock_open()
-        ) as mock_file:
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                return_value=mock_config_module,
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+            patch("builtins.open", mock_open()) as mock_file,
+        ):
             response = client.get("/api/v1/config/export/download?format=json")
 
             # Should return a file response
@@ -448,10 +508,13 @@ system:
 
     def test_configuration_error_handling(self, client, mock_user):
         """Test configuration endpoint error handling."""
-        with patch(
-            "backend.api.routes.config.get_config_module",
-            side_effect=Exception("Test error"),
-        ), patch("backend.api.routes.config.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.config.get_config_module",
+                side_effect=Exception("Test error"),
+            ),
+            patch("backend.api.routes.config.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/config/")
 
             assert response.status_code == 500

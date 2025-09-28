@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import (
+from ..models import (
     BallState,
     GameState,
     GameType,
@@ -13,8 +13,7 @@ from backend.core.models import (
     TableState,
     Vector2D,
 )
-from backend.core.utils.geometry import GeometryUtils
-
+from ..utils.geometry import GeometryUtils
 from .prediction import OutcomePredictor
 from .shot import ShotAnalysis, ShotAnalyzer
 

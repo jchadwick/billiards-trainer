@@ -830,11 +830,11 @@ class Collision:
             "ball1_id": self.ball1_id,
             "ball2_id": self.ball2_id,
             "type": self.type,
-            "resulting_velocities": {
-                k: v.to_dict() for k, v in self.resulting_velocities.items()
-            }
-            if self.resulting_velocities
-            else None,
+            "resulting_velocities": (
+                {k: v.to_dict() for k, v in self.resulting_velocities.items()}
+                if self.resulting_velocities
+                else None
+            ),
             "impact_force": self.impact_force,
             "confidence": self.confidence,
         }
@@ -1057,9 +1057,11 @@ class ShotAnalysis:
             "alternative_shots": [shot.to_dict() for shot in self.alternative_shots],
             "risk_assessment": self.risk_assessment,
             "predicted_outcome": self.predicted_outcome,
-            "cue_ball_final_position": self.cue_ball_final_position.to_dict()
-            if self.cue_ball_final_position
-            else None,
+            "cue_ball_final_position": (
+                self.cue_ball_final_position.to_dict()
+                if self.cue_ball_final_position
+                else None
+            ),
             "shot_confidence": self.shot_confidence,
         }
 
@@ -1109,7 +1111,7 @@ def serialize_to_json(
         Trajectory,
         ShotAnalysis,
         GameState,
-    ]
+    ],
 ) -> str:
     """Serialize any model object to JSON string."""
     return json.dumps(obj.to_dict(), indent=2)

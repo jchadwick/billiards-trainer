@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
-from backend.core.game_state import BallState, TableState, Vector2D
+from ..game_state import BallState, TableState, Vector2D
 
 
 @dataclass

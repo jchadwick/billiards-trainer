@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from backend.core.game_state import BallState, CueState, TableState, Vector2D
-from backend.core.utils.cache import CacheManager
-from backend.core.utils.geometry import GeometryUtils
-from backend.core.utils.math import MathUtils
+from ..game_state import BallState, CueState, TableState, Vector2D
+from ..utils.cache import CacheManager
+from ..utils.geometry import GeometryUtils
+from ..utils.math import MathUtils
 
 
 class CollisionType(Enum):
@@ -278,9 +278,11 @@ class TrajectoryCalculator:
                         acceleration=self._calculate_acceleration(
                             current_ball, table_state
                         ),
-                        spin=Vector2D(current_ball.spin.x, current_ball.spin.y)
-                        if current_ball.spin
-                        else Vector2D(0, 0),
+                        spin=(
+                            Vector2D(current_ball.spin.x, current_ball.spin.y)
+                            if current_ball.spin
+                            else Vector2D(0, 0)
+                        ),
                         energy=0.5
                         * current_ball.mass
                         * current_ball.velocity.magnitude() ** 2,
@@ -318,9 +320,11 @@ class TrajectoryCalculator:
                         acceleration=self._calculate_acceleration(
                             current_ball, table_state
                         ),
-                        spin=Vector2D(current_ball.spin.x, current_ball.spin.y)
-                        if current_ball.spin
-                        else Vector2D(0, 0),
+                        spin=(
+                            Vector2D(current_ball.spin.x, current_ball.spin.y)
+                            if current_ball.spin
+                            else Vector2D(0, 0)
+                        ),
                         energy=0.5
                         * current_ball.mass
                         * current_ball.velocity.magnitude() ** 2,
@@ -366,9 +370,11 @@ class TrajectoryCalculator:
             velocity=Vector2D(ball_state.velocity.x, ball_state.velocity.y),
             radius=ball_state.radius,
             mass=ball_state.mass,
-            spin=Vector2D(ball_state.spin.x, ball_state.spin.y)
-            if ball_state.spin
-            else Vector2D(0, 0),
+            spin=(
+                Vector2D(ball_state.spin.x, ball_state.spin.y)
+                if ball_state.spin
+                else Vector2D(0, 0)
+            ),
             is_cue_ball=ball_state.is_cue_ball,
             is_pocketed=ball_state.is_pocketed,
             number=ball_state.number,

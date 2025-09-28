@@ -18,14 +18,14 @@ import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from backend.api.main import get_config_module
-from backend.api.middleware.authentication import AdminRequired, ViewerRequired
-from backend.api.models.common import (
+from ..dependencies import dev_admin_required, dev_viewer_required, get_config_module
+from ..middleware.authentication import AdminRequired, ViewerRequired
+from ..models.common import (
     ErrorCode,
     create_error_response,
     create_success_response,
 )
-from backend.api.models.responses import (
+from ..models.responses import (
     ConfigExportResponse,
     ConfigResponse,
     ConfigUpdateResponse,
@@ -33,7 +33,7 @@ from backend.api.models.responses import (
 )
 
 try:
-    from backend.config import ConfigurationModule
+    from ...config import ConfigurationModule
 except ImportError:
     from config import ConfigurationModule
 
@@ -68,7 +68,7 @@ async def get_configuration(
         None, description="Specific configuration section to retrieve"
     ),
     include_metadata: bool = Query(True, description="Include configuration metadata"),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigResponse:
     """Retrieve current system configuration (FR-API-005).
@@ -146,7 +146,7 @@ async def update_configuration(
     section: Optional[str] = Query(None, description="Specific section to update"),
     validate_only: bool = Query(False, description="Only validate without applying"),
     force_update: bool = Query(False, description="Force update even with warnings"),
-    current_user: dict[str, Any] = Depends(AdminRequired),
+    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigUpdateResponse:
     """Update configuration parameters with validation (FR-API-006).
@@ -294,12 +294,12 @@ async def reset_configuration(
     confirm: bool = Query(..., description="Confirmation that reset is intended"),
     backup_current: bool = Query(True, description="Create backup before reset"),
     reset_type: str = Query(
-        "all", regex="^(all|user|section)$", description="Type of reset"
+        "all", pattern="^(all|user|section)$", description="Type of reset"
     ),
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to reset"
     ),
-    current_user: dict[str, Any] = Depends(AdminRequired),
+    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> SuccessResponse:
     """Reset configuration to defaults (FR-API-007).
@@ -382,9 +382,9 @@ async def reset_configuration(
             "Configuration reset to defaults successfully",
             {
                 "reset_type": reset_type,
-                "sections_reset": sections
-                if reset_type == "section"
-                else available_sections,
+                "sections_reset": (
+                    sections if reset_type == "section" else available_sections
+                ),
                 "backup_created": backup_current,
                 "backup_path": backup_path,
             },
@@ -409,10 +409,10 @@ async def reset_configuration(
 async def import_configuration(
     file: UploadFile = File(..., description="Configuration file to import"),
     merge_strategy: str = Query(
-        "replace", regex="^(replace|merge)$", description="Import strategy"
+        "replace", pattern="^(replace|merge)$", description="Import strategy"
     ),
     validate_only: bool = Query(False, description="Only validate without importing"),
-    current_user: dict[str, Any] = Depends(AdminRequired),
+    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> SuccessResponse:
     """Import configuration from file (FR-API-008).
@@ -544,13 +544,13 @@ async def import_configuration(
 
 @router.get("/export", response_model=ConfigExportResponse)
 async def export_configuration(
-    format: str = Query("json", regex="^(json|yaml)$", description="Export format"),
+    format: str = Query("json", pattern="^(json|yaml)$", description="Export format"),
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to export"
     ),
     include_defaults: bool = Query(False, description="Include default values"),
     include_metadata: bool = Query(True, description="Include metadata"),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigExportResponse:
     """Export configuration to downloadable format (FR-API-008).
@@ -635,11 +635,11 @@ async def export_configuration(
 
 @router.get("/export/download")
 async def download_configuration(
-    format: str = Query("json", regex="^(json|yaml)$", description="Export format"),
+    format: str = Query("json", pattern="^(json|yaml)$", description="Export format"),
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to export"
     ),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> FileResponse:
     """Download configuration as file.
@@ -692,7 +692,7 @@ async def download_configuration(
 @router.get("/schema")
 async def get_configuration_schema(
     section: Optional[str] = Query(None, description="Specific section schema"),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
 ) -> dict[str, Any]:
     """Get configuration schema for validation and documentation.
 

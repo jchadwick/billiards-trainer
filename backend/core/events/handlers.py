@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from .manager import EventType
 
 if TYPE_CHECKING:
-    from backend.core.models import BallState, GameState
+    from backend.core.models import BallState, CueState, GameState
 
 logger = logging.getLogger(__name__)
 
@@ -349,9 +349,11 @@ class CoreEventHandlers:
             "timestamp": state.timestamp,
             "frame_number": state.frame_number,
             "balls": [self._serialize_ball(ball) for ball in state.balls],
-            "table": state.table.to_dict()
-            if hasattr(state.table, "to_dict")
-            else asdict(state.table),
+            "table": (
+                state.table.to_dict()
+                if hasattr(state.table, "to_dict")
+                else asdict(state.table)
+            ),
             "cue": self._serialize_cue(state.cue) if state.cue else None,
             "game_type": state.game_type.value,
             "is_break": state.is_break,
@@ -378,9 +380,11 @@ class CoreEventHandlers:
             "angle": cue.angle,
             "elevation": cue.elevation,
             "estimated_force": cue.estimated_force,
-            "impact_point": {"x": cue.impact_point.x, "y": cue.impact_point.y}
-            if cue.impact_point
-            else None,
+            "impact_point": (
+                {"x": cue.impact_point.x, "y": cue.impact_point.y}
+                if cue.impact_point
+                else None
+            ),
             "confidence": cue.confidence,
         }
 

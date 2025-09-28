@@ -527,12 +527,12 @@ class CameraCalibrator:
         """
         try:
             export_data = {
-                "camera_params": self.camera_params.to_dict()
-                if self.camera_params
-                else None,
-                "table_transform": self.table_transform.to_dict()
-                if self.table_transform
-                else None,
+                "camera_params": (
+                    self.camera_params.to_dict() if self.camera_params else None
+                ),
+                "table_transform": (
+                    self.table_transform.to_dict() if self.table_transform else None
+                ),
                 "calibrator_version": "1.0",
             }
 

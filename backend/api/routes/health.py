@@ -21,8 +21,8 @@ except ImportError:
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from backend.api.main import ApplicationState, get_app_state
-from backend.api.models.responses import (
+from ..dependencies import ApplicationState, get_app_state
+from ..models.responses import (
     CapabilityInfo,
     ComponentHealth,
     HealthResponse,
@@ -107,34 +107,46 @@ async def health_check(
         if include_details:
             components["core"] = ComponentHealth(
                 name="core",
-                status=HealthStatus.HEALTHY
-                if app_state.core_module
-                else HealthStatus.UNHEALTHY,
-                message="Operating normally"
-                if app_state.core_module
-                else "Core module unavailable",
+                status=(
+                    HealthStatus.HEALTHY
+                    if app_state.core_module
+                    else HealthStatus.UNHEALTHY
+                ),
+                message=(
+                    "Operating normally"
+                    if app_state.core_module
+                    else "Core module unavailable"
+                ),
                 last_check=datetime.now(timezone.utc),
             )
 
             components["config"] = ComponentHealth(
                 name="config",
-                status=HealthStatus.HEALTHY
-                if app_state.config_module
-                else HealthStatus.UNHEALTHY,
-                message="Operating normally"
-                if app_state.config_module
-                else "Config module unavailable",
+                status=(
+                    HealthStatus.HEALTHY
+                    if app_state.config_module
+                    else HealthStatus.UNHEALTHY
+                ),
+                message=(
+                    "Operating normally"
+                    if app_state.config_module
+                    else "Config module unavailable"
+                ),
                 last_check=datetime.now(timezone.utc),
             )
 
             components["websocket"] = ComponentHealth(
                 name="websocket",
-                status=HealthStatus.HEALTHY
-                if app_state.websocket_manager
-                else HealthStatus.UNHEALTHY,
-                message="Operating normally"
-                if app_state.websocket_manager
-                else "WebSocket manager unavailable",
+                status=(
+                    HealthStatus.HEALTHY
+                    if app_state.websocket_manager
+                    else HealthStatus.UNHEALTHY
+                ),
+                message=(
+                    "Operating normally"
+                    if app_state.websocket_manager
+                    else "WebSocket manager unavailable"
+                ),
                 last_check=datetime.now(timezone.utc),
             )
 
@@ -278,9 +290,9 @@ async def graceful_shutdown(
                     "message": "A shutdown is already in progress",
                     "code": "SYS_002",
                     "details": {
-                        "scheduled_time": _shutdown_time.isoformat()
-                        if _shutdown_time
-                        else None
+                        "scheduled_time": (
+                            _shutdown_time.isoformat() if _shutdown_time else None
+                        )
                     },
                 },
             )

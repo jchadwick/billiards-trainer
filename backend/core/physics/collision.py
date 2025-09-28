@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, TableState, Vector2D
+from ..models import BallState, TableState, Vector2D
 
 
 class CollisionType(Enum):

@@ -169,11 +169,11 @@ class VisionModule:
             }
             self.camera = CameraCapture(camera_config)
 
-            # Image preprocessing
-            preprocessing_config = {
-                "enabled": self.config.preprocessing_enabled,
-                "use_gpu": self.config.enable_gpu,
-            }
+            # Image preprocessing - create config based on vision module settings
+            preprocessing_config = {}
+            if hasattr(self.config, "enable_gpu"):
+                # Note: PreprocessingConfig doesn't have a use_gpu field, so we skip it
+                pass
             self.preprocessor = ImagePreprocessor(preprocessing_config)
 
             # Detection components

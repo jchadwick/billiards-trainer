@@ -7,12 +7,12 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, validator
 
-from backend.api.middleware.authentication import (
+from ..middleware.authentication import (
     get_current_user,
     require_admin,
     session_manager,
 )
-from backend.api.utils.security import (
+from ..utils.security import (
     APIKeyUtils,
     JWTUtils,
     PasswordUtils,
@@ -643,7 +643,7 @@ async def revoke_api_key(
 # User and Session Management
 @router.get("/me", response_model=UserInfo)
 async def get_current_user_info(
-    current_user: dict[str, Any] = Depends(get_current_user)
+    current_user: dict[str, Any] = Depends(get_current_user),
 ):
     """Get current user information."""
     if current_user.get("auth_type") == "api_key":

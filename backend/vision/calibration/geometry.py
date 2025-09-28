@@ -82,12 +82,14 @@ class GeometricCalibration:
     def to_dict(self) -> dict[str, Any]:
         """Convert to serializable dictionary."""
         return {
-            "perspective_correction": self.perspective_correction.to_dict()
-            if self.perspective_correction
-            else None,
-            "coordinate_mapping": self.coordinate_mapping.to_dict()
-            if self.coordinate_mapping
-            else None,
+            "perspective_correction": (
+                self.perspective_correction.to_dict()
+                if self.perspective_correction
+                else None
+            ),
+            "coordinate_mapping": (
+                self.coordinate_mapping.to_dict() if self.coordinate_mapping else None
+            ),
             "table_dimensions_real": self.table_dimensions_real,
             "table_corners_pixel": self.table_corners_pixel,
             "calibration_error": self.calibration_error,
@@ -98,14 +100,16 @@ class GeometricCalibration:
     def from_dict(cls, data: dict[str, Any]) -> "GeometricCalibration":
         """Create from dictionary."""
         return cls(
-            perspective_correction=PerspectiveCorrection.from_dict(
-                data["perspective_correction"]
-            )
-            if data["perspective_correction"]
-            else None,
-            coordinate_mapping=CoordinateMapping.from_dict(data["coordinate_mapping"])
-            if data["coordinate_mapping"]
-            else None,
+            perspective_correction=(
+                PerspectiveCorrection.from_dict(data["perspective_correction"])
+                if data["perspective_correction"]
+                else None
+            ),
+            coordinate_mapping=(
+                CoordinateMapping.from_dict(data["coordinate_mapping"])
+                if data["coordinate_mapping"]
+                else None
+            ),
             table_dimensions_real=tuple(data["table_dimensions_real"]),
             table_corners_pixel=data["table_corners_pixel"],
             calibration_error=data["calibration_error"],

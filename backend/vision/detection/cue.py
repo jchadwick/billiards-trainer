@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 # Import from models to use consistent data structures
-from backend.vision.models import CueState, CueStick
+from ..models import CueState, CueStick
 
 
 class ShotType(Enum):

@@ -13,7 +13,7 @@ import time
 import numpy as np
 import pytest
 
-from backend.vision.models import (
+from ..models import (
     Ball,
     BallType,
     CalibrationData,

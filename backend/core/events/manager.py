@@ -572,9 +572,11 @@ class EventManager:
                 ),
                 "event_types_subscribed": len(self._subscribers),
                 "history_size": len(self.event_history),
-                "queue_size": self.event_queue.qsize()
-                if hasattr(self.event_queue, "qsize")
-                else 0,
+                "queue_size": (
+                    self.event_queue.qsize()
+                    if hasattr(self.event_queue, "qsize")
+                    else 0
+                ),
                 "is_running": self.is_running,
                 "filters_active": len(self.event_filters),
             }

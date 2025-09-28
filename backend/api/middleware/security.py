@@ -264,9 +264,9 @@ class SecurityHeadersManager:
 
             # Cross-Origin Embedder Policy
             if self.config.enable_coep:
-                response.headers[
-                    "Cross-Origin-Embedder-Policy"
-                ] = self.config.coep_value
+                response.headers["Cross-Origin-Embedder-Policy"] = (
+                    self.config.coep_value
+                )
                 headers_applied.append("COEP")
 
             # Cross-Origin Opener Policy
@@ -276,9 +276,9 @@ class SecurityHeadersManager:
 
             # Cross-Origin Resource Policy
             if self.config.enable_corp:
-                response.headers[
-                    "Cross-Origin-Resource-Policy"
-                ] = self.config.corp_value
+                response.headers["Cross-Origin-Resource-Policy"] = (
+                    self.config.corp_value
+                )
                 headers_applied.append("CORP")
 
             # Server header modification

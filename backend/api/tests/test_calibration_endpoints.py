@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
+from ..main import create_app
 
 
 @pytest.fixture()
@@ -68,13 +68,16 @@ class TestCalibrationEndpoints:
 
     def test_start_calibration_success(self, client, mock_core_module, mock_user):
         """Test successful calibration start."""
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", {}
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", {}),
         ):
             response = client.post(
                 "/api/v1/calibration/start?calibration_type=standard"
@@ -101,14 +104,16 @@ class TestCalibrationEndpoints:
         calibration_types = [("quick", 4), ("standard", 9), ("advanced", 16)]
 
         for cal_type, expected_points in calibration_types:
-            with patch(
-                "backend.api.routes.calibration.get_core_module",
-                return_value=mock_core_module,
-            ), patch(
-                "backend.api.routes.calibration.OperatorRequired",
-                return_value=mock_user,
-            ), patch(
-                "backend.api.routes.calibration._calibration_sessions", {}
+            with (
+                patch(
+                    "backend.api.routes.calibration.get_core_module",
+                    return_value=mock_core_module,
+                ),
+                patch(
+                    "backend.api.routes.calibration.OperatorRequired",
+                    return_value=mock_user,
+                ),
+                patch("backend.api.routes.calibration._calibration_sessions", {}),
             ):
                 response = client.post(
                     f"/api/v1/calibration/start?calibration_type={cal_type}"
@@ -125,13 +130,19 @@ class TestCalibrationEndpoints:
         # Setup an active session
         existing_sessions = {"existing_session": sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", existing_sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch(
+                "backend.api.routes.calibration._calibration_sessions",
+                existing_sessions,
+            ),
         ):
             response = client.post("/api/v1/calibration/start")
 
@@ -146,13 +157,19 @@ class TestCalibrationEndpoints:
         # Setup an active session
         existing_sessions = {"existing_session": sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", existing_sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch(
+                "backend.api.routes.calibration._calibration_sessions",
+                existing_sessions,
+            ),
         ):
             response = client.post("/api/v1/calibration/start?force_restart=true")
 
@@ -166,13 +183,16 @@ class TestCalibrationEndpoints:
         self, client, mock_core_module, mock_user
     ):
         """Test starting calibration with custom timeout."""
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", {}
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", {}),
         ):
             response = client.post("/api/v1/calibration/start?timeout_seconds=600")
 
@@ -184,11 +204,15 @@ class TestCalibrationEndpoints:
         self, client, mock_core_module, mock_user
     ):
         """Test starting calibration with invalid timeout."""
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
         ):
             response = client.post(
                 "/api/v1/calibration/start?timeout_seconds=30"
@@ -214,13 +238,16 @@ class TestCalibrationEndpoints:
             "confidence": 0.98,
         }
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/points", params=point_data
@@ -244,13 +271,16 @@ class TestCalibrationEndpoints:
             "world_position": [0.1, 0.1],
         }
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", {}
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", {}),
         ):
             response = client.post(
                 "/api/v1/calibration/invalid_session/points", params=point_data
@@ -274,13 +304,16 @@ class TestCalibrationEndpoints:
             "world_position": [0.1, 0.1],
         }
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/points", params=point_data
@@ -303,13 +336,16 @@ class TestCalibrationEndpoints:
             "world_position": [0.1, 0.1],
         }
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/points", params=point_data
@@ -337,13 +373,16 @@ class TestCalibrationEndpoints:
             "world_position": [0.3, 0.3],
         }
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/points", params=point_data
@@ -365,18 +404,21 @@ class TestCalibrationEndpoints:
         sample_calibration_session["accuracy"] = 0.95
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
-        ), patch(
-            "builtins.open"
-        ), patch(
-            "backend.api.routes.calibration.CalibrationMath.calculate_homography",
-            return_value=np.eye(3),
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+            patch("builtins.open"),
+            patch(
+                "backend.api.routes.calibration.CalibrationMath.calculate_homography",
+                return_value=np.eye(3),
+            ),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/apply")
 
@@ -397,13 +439,16 @@ class TestCalibrationEndpoints:
         # Keep status as "in_progress"
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/apply")
 
@@ -420,13 +465,16 @@ class TestCalibrationEndpoints:
         sample_calibration_session["points_captured"] = 2  # Less than minimum 4
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/apply")
 
@@ -444,13 +492,16 @@ class TestCalibrationEndpoints:
         sample_calibration_session["accuracy"] = 0.5  # Below threshold
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/apply")
 
@@ -468,18 +519,21 @@ class TestCalibrationEndpoints:
         sample_calibration_session["accuracy"] = 0.5  # Below threshold
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
-        ), patch(
-            "builtins.open"
-        ), patch(
-            "backend.api.routes.calibration.CalibrationMath.calculate_homography",
-            return_value=np.eye(3),
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+            patch("builtins.open"),
+            patch(
+                "backend.api.routes.calibration.CalibrationMath.calculate_homography",
+                return_value=np.eye(3),
+            ),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/apply?force_apply=true"
@@ -498,13 +552,16 @@ class TestCalibrationEndpoints:
         sample_calibration_session["points_captured"] = 9
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/validate")
 
@@ -527,13 +584,16 @@ class TestCalibrationEndpoints:
 
         test_points = [{"screen": [150.0, 150.0], "world": [0.15, 0.15]}]
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(
                 f"/api/v1/calibration/{session_id}/validate",
@@ -552,13 +612,16 @@ class TestCalibrationEndpoints:
         # Keep status as "in_progress"
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.get_core_module",
-            return_value=mock_core_module,
-        ), patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.calibration._calibration_sessions", sessions
+        with (
+            patch(
+                "backend.api.routes.calibration.get_core_module",
+                return_value=mock_core_module,
+            ),
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
         ):
             response = client.post(f"/api/v1/calibration/{session_id}/validate")
 
@@ -573,9 +636,13 @@ class TestCalibrationEndpoints:
         session_id = sample_calibration_session["session_id"]
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", sessions):
+        with (
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+        ):
             response = client.get(f"/api/v1/calibration/{session_id}")
 
             assert response.status_code == 200
@@ -587,9 +654,13 @@ class TestCalibrationEndpoints:
 
     def test_get_calibration_session_not_found(self, client, mock_user):
         """Test retrieving non-existent calibration session."""
-        with patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", {}):
+        with (
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", {}),
+        ):
             response = client.get("/api/v1/calibration/nonexistent")
 
             assert response.status_code == 404
@@ -600,9 +671,13 @@ class TestCalibrationEndpoints:
         """Test successful calibration sessions listing."""
         sessions = {"session1": sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", sessions):
+        with (
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+        ):
             response = client.get("/api/v1/calibration/")
 
             assert response.status_code == 200
@@ -624,9 +699,13 @@ class TestCalibrationEndpoints:
 
         sessions = {"session1": session1, "session2": session2}
 
-        with patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", sessions):
+        with (
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+        ):
             response = client.get("/api/v1/calibration/?status=applied")
 
             assert response.status_code == 200
@@ -642,9 +721,13 @@ class TestCalibrationEndpoints:
         # Create multiple sessions
         sessions = {f"session{i}": sample_calibration_session.copy() for i in range(10)}
 
-        with patch(
-            "backend.api.routes.calibration.OperatorRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", sessions):
+        with (
+            patch(
+                "backend.api.routes.calibration.OperatorRequired",
+                return_value=mock_user,
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+        ):
             response = client.get("/api/v1/calibration/?limit=5")
 
             assert response.status_code == 200
@@ -659,9 +742,12 @@ class TestCalibrationEndpoints:
         session_id = sample_calibration_session["session_id"]
         sessions = {session_id: sample_calibration_session}
 
-        with patch(
-            "backend.api.routes.calibration.AdminRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", sessions):
+        with (
+            patch(
+                "backend.api.routes.calibration.AdminRequired", return_value=mock_user
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", sessions),
+        ):
             response = client.delete(f"/api/v1/calibration/{session_id}")
 
             assert response.status_code == 200
@@ -672,16 +758,19 @@ class TestCalibrationEndpoints:
 
     def test_delete_calibration_session_not_found(self, client, mock_user):
         """Test deleting non-existent calibration session."""
-        with patch(
-            "backend.api.routes.calibration.AdminRequired", return_value=mock_user
-        ), patch("backend.api.routes.calibration._calibration_sessions", {}):
+        with (
+            patch(
+                "backend.api.routes.calibration.AdminRequired", return_value=mock_user
+            ),
+            patch("backend.api.routes.calibration._calibration_sessions", {}),
+        ):
             response = client.delete("/api/v1/calibration/nonexistent")
 
             assert response.status_code == 404
 
     def test_calibration_math_calculate_accuracy(self):
         """Test calibration math accuracy calculation."""
-        from backend.api.routes.calibration import CalibrationMath
+        from ..routes.calibration import CalibrationMath
 
         # Test with empty points
         result = CalibrationMath.calculate_accuracy([])
@@ -698,7 +787,7 @@ class TestCalibrationEndpoints:
 
     def test_calibration_math_calculate_homography(self):
         """Test calibration math homography calculation."""
-        from backend.api.routes.calibration import CalibrationMath
+        from ..routes.calibration import CalibrationMath
 
         src_points = [(0, 0), (100, 0), (100, 100), (0, 100)]
         dst_points = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]

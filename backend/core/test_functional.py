@@ -7,7 +7,7 @@ work together properly.
 import asyncio
 import time
 
-from backend.core import CoreModule, CoreModuleConfig, GameType, Vector2D
+from . import CoreModule, CoreModuleConfig, GameType, Vector2D
 
 
 async def test_core_module_integration():

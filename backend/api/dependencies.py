@@ -1,6 +1,6 @@
 """Dependency injection functions for FastAPI routes."""
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 
@@ -59,3 +59,31 @@ def get_websocket_manager():
 def get_app_state() -> ApplicationState:
     """Get the application state."""
     return app_state
+
+
+# Development mode bypass dependencies
+def dev_viewer_required() -> dict[str, Any]:
+    """Development mode bypass for ViewerRequired."""
+    return {
+        "user_id": "dev_user",
+        "role": "viewer",
+        "auth_type": "development",
+    }
+
+
+def dev_admin_required() -> dict[str, Any]:
+    """Development mode bypass for AdminRequired."""
+    return {
+        "user_id": "dev_admin",
+        "role": "admin",
+        "auth_type": "development",
+    }
+
+
+def dev_operator_required() -> dict[str, Any]:
+    """Development mode bypass for OperatorRequired."""
+    return {
+        "user_id": "dev_operator",
+        "role": "operator",
+        "auth_type": "development",
+    }

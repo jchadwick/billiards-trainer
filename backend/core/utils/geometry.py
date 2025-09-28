@@ -2,7 +2,7 @@
 
 import math
 
-from backend.core.models import Vector2D
+from ..models import Vector2D
 
 
 class GeometryUtils:

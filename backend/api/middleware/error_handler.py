@@ -289,7 +289,6 @@ def get_request_id(request: Request) -> str:
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Handle HTTP exceptions."""
-    global _error_handler
 
     request_id = get_request_id(request)
 
@@ -352,7 +351,6 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """Handle request validation errors."""
-    global _error_handler
 
     request_id = get_request_id(request)
 
@@ -399,7 +397,6 @@ async def validation_exception_handler(
 
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle all other exceptions."""
-    global _error_handler
 
     request_id = get_request_id(request)
 
@@ -459,7 +456,6 @@ def setup_error_handling(
         app: FastAPI application instance
         config: Error handler configuration
     """
-    global _error_handler
 
     if config is None:
         config = ErrorHandlerConfig()

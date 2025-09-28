@@ -380,9 +380,9 @@ class ObjectTracker:
             initial_position=detection.position,
             process_noise=self.kalman_process_noise,
             measurement_noise=self.kalman_measurement_noise,
-            initial_velocity=detection.velocity
-            if detection.velocity != (0, 0)
-            else None,
+            initial_velocity=(
+                detection.velocity if detection.velocity != (0, 0) else None
+            ),
         )
 
         track = Track(

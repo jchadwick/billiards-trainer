@@ -3,8 +3,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from backend.core.models import BallState, TableState, Vector2D
-
+from ..models import BallState, TableState, Vector2D
 from .engine import PhysicsConstants, PhysicsEngine, TrajectoryPoint
 from .forces import ForceCalculator
 

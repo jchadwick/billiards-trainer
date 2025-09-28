@@ -118,7 +118,7 @@ class PaginationRequest(BaseModel):
     page: int = Field(1, description="Page number (1-based)", ge=1)
     page_size: int = Field(50, description="Items per page", ge=1, le=1000)
     sort_by: Optional[str] = Field(None, description="Field to sort by")
-    sort_order: str = Field("asc", description="Sort order", regex="^(asc|desc)$")
+    sort_order: str = Field("asc", description="Sort order", pattern="^(asc|desc)$")
 
     @validator("sort_by")
     def validate_sort_field(cls, v):

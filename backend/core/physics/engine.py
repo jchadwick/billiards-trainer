@@ -4,8 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from backend.core.game_state import BallState, TableState, Vector2D
-from backend.core.models import Collision
+from ..game_state import BallState, TableState, Vector2D
+from ..models import Collision
 
 
 class PhysicsConstants:

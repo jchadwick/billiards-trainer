@@ -6,7 +6,7 @@ from unittest.mock import Mock, mock_open, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
+from ..main import create_app
 
 
 @pytest.fixture()
@@ -50,9 +50,12 @@ class TestGameStateEndpoints:
 
     def test_get_current_game_state_success(self, client, mock_core_module, mock_user):
         """Test successful current game state retrieval."""
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state")
 
             assert response.status_code == 200
@@ -71,9 +74,12 @@ class TestGameStateEndpoints:
         self, client, mock_core_module, mock_user
     ):
         """Test current game state retrieval without events."""
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state?include_events=false")
 
             assert response.status_code == 200
@@ -87,9 +93,12 @@ class TestGameStateEndpoints:
         """Test current game state retrieval with trajectories."""
         mock_core_module.predict_trajectories.return_value = []
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state?include_trajectories=true")
 
             assert response.status_code == 200
@@ -104,9 +113,12 @@ class TestGameStateEndpoints:
         """Test current game state retrieval when no game is active."""
         mock_core_module.get_current_state.return_value = None
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state")
 
             assert response.status_code == 200
@@ -121,9 +133,12 @@ class TestGameStateEndpoints:
         mock_history = {"states": [], "total_count": 0}
         mock_core_module.get_game_history.return_value = mock_history
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/history")
 
             assert response.status_code == 200
@@ -142,9 +157,12 @@ class TestGameStateEndpoints:
         mock_history = {"states": [], "total_count": 0}
         mock_core_module.get_game_history.return_value = mock_history
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get(
                 f"/api/v1/game/history?start_time={start_time.isoformat()}&end_time={end_time.isoformat()}&game_type=8ball&limit=50"
             )
@@ -161,9 +179,12 @@ class TestGameStateEndpoints:
         start_time = datetime.now(timezone.utc)
         end_time = datetime.now(timezone.utc) - timedelta(hours=1)  # End before start
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get(
                 f"/api/v1/game/history?start_time={start_time.isoformat()}&end_time={end_time.isoformat()}"
             )
@@ -177,9 +198,12 @@ class TestGameStateEndpoints:
         mock_history = {"states": [], "total_count": 150}
         mock_core_module.get_game_history.return_value = mock_history
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/history?limit=50&offset=100")
 
             assert response.status_code == 200
@@ -204,13 +228,13 @@ class TestGameStateEndpoints:
 
         mock_core_module.reset_game_state.return_value = mock_new_state
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.game.GameType"
-        ) as mock_game_type:
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.OperatorRequired", return_value=mock_user),
+            patch("backend.api.routes.game.GameType") as mock_game_type,
+        ):
             mock_game_type.return_value = Mock()
 
             response = client.post("/api/v1/game/reset?game_type=8ball")
@@ -245,15 +269,14 @@ class TestGameStateEndpoints:
 
         mock_core_module.reset_game_state.return_value = mock_new_state
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.game.GameType"
-        ) as mock_game_type, patch(
-            "builtins.open", mock_open()
-        ) as mock_file:
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.OperatorRequired", return_value=mock_user),
+            patch("backend.api.routes.game.GameType") as mock_game_type,
+            patch("builtins.open", mock_open()) as mock_file,
+        ):
             mock_game_type.return_value = Mock()
 
             response = client.post("/api/v1/game/reset?create_backup=true")
@@ -269,13 +292,15 @@ class TestGameStateEndpoints:
         self, client, mock_core_module, mock_user
     ):
         """Test game state reset with invalid game type."""
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.OperatorRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.game.GameType",
-            side_effect=ValueError("Invalid game type"),
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.OperatorRequired", return_value=mock_user),
+            patch(
+                "backend.api.routes.game.GameType",
+                side_effect=ValueError("Invalid game type"),
+            ),
         ):
             response = client.post("/api/v1/game/reset?game_type=invalid")
 
@@ -289,15 +314,14 @@ class TestGameStateEndpoints:
         mock_current_state.to_dict.return_value = {"session": "data"}
         mock_core_module.get_current_state.return_value = mock_current_state
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.ViewerRequired", return_value=mock_user
-        ), patch(
-            "builtins.open", mock_open()
-        ), patch(
-            "backend.api.routes.game.Path"
-        ) as mock_path:
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            patch("builtins.open", mock_open()),
+            patch("backend.api.routes.game.Path") as mock_path,
+        ):
             mock_path.return_value.stat.return_value.st_size = 1024
 
             response = client.post("/api/v1/game/export")
@@ -319,15 +343,14 @@ class TestGameStateEndpoints:
         mock_current_state.to_dict.return_value = {"session": "data"}
         mock_core_module.get_current_state.return_value = mock_current_state
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.ViewerRequired", return_value=mock_user
-        ), patch(
-            "backend.api.routes.game.zipfile.ZipFile"
-        ) as mock_zipfile, patch(
-            "backend.api.routes.game.Path"
-        ) as mock_path:
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            patch("backend.api.routes.game.zipfile.ZipFile") as mock_zipfile,
+            patch("backend.api.routes.game.Path") as mock_path,
+        ):
             mock_path.return_value.stat.return_value.st_size = 2048
 
             response = client.post(
@@ -351,15 +374,14 @@ class TestGameStateEndpoints:
         mock_history = {"states": [{"history": "data"}]}
         mock_core_module.get_game_history.return_value = mock_history
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch(
-            "backend.api.routes.game.ViewerRequired", return_value=mock_user
-        ), patch(
-            "builtins.open", mock_open()
-        ), patch(
-            "backend.api.routes.game.Path"
-        ) as mock_path:
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            patch("builtins.open", mock_open()),
+            patch("backend.api.routes.game.Path") as mock_path,
+        ):
             mock_path.return_value.stat.return_value.st_size = 1024
 
             response = client.post("/api/v1/game/export?include_processed_data=true")
@@ -373,9 +395,10 @@ class TestGameStateEndpoints:
         """Test successful session export download."""
         export_id = "test_export_123"
 
-        with patch(
-            "backend.api.routes.game.ViewerRequired", return_value=mock_user
-        ), patch("backend.api.routes.game.Path") as mock_path:
+        with (
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            patch("backend.api.routes.game.Path") as mock_path,
+        ):
             mock_path.return_value.exists.return_value = True
             mock_path.return_value.name = f"session_export_{export_id}.zip"
 
@@ -387,10 +410,10 @@ class TestGameStateEndpoints:
         """Test session export download when file not found."""
         export_id = "nonexistent_export"
 
-        with patch(
-            "backend.api.routes.game.ViewerRequired", return_value=mock_user
-        ), patch("backend.api.routes.game.Path") as mock_path, patch(
-            "glob.glob", return_value=[]
+        with (
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            patch("backend.api.routes.game.Path") as mock_path,
+            patch("glob.glob", return_value=[]),
         ):
             mock_path.return_value.exists.return_value = False
 
@@ -408,9 +431,12 @@ class TestGameStateEndpoints:
         }
         mock_core_module.get_game_statistics.return_value = mock_stats
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/stats")
 
             assert response.status_code == 200
@@ -429,9 +455,13 @@ class TestGameStateEndpoints:
         mock_core_module.get_game_statistics.return_value = {}
 
         for time_range in time_ranges:
-            with patch(
-                "backend.api.routes.game.get_core_module", return_value=mock_core_module
-            ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+            with (
+                patch(
+                    "backend.api.routes.game.get_core_module",
+                    return_value=mock_core_module,
+                ),
+                patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+            ):
                 response = client.get(f"/api/v1/game/stats?time_range={time_range}")
                 assert response.status_code == 200
 
@@ -439,18 +469,24 @@ class TestGameStateEndpoints:
         self, client, mock_core_module, mock_user
     ):
         """Test game statistics with invalid time range."""
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core_module
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module", return_value=mock_core_module
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/stats?time_range=invalid")
             assert response.status_code == 422
 
     def test_game_endpoints_error_handling(self, client, mock_user):
         """Test game endpoint error handling."""
-        with patch(
-            "backend.api.routes.game.get_core_module",
-            side_effect=Exception("Test error"),
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch(
+                "backend.api.routes.game.get_core_module",
+                side_effect=Exception("Test error"),
+            ),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state")
 
             assert response.status_code == 500
@@ -464,9 +500,10 @@ class TestGameStateEndpoints:
         del mock_core.get_current_state
         del mock_core.get_game_history
 
-        with patch(
-            "backend.api.routes.game.get_core_module", return_value=mock_core
-        ), patch("backend.api.routes.game.ViewerRequired", return_value=mock_user):
+        with (
+            patch("backend.api.routes.game.get_core_module", return_value=mock_core),
+            patch("backend.api.routes.game.ViewerRequired", return_value=mock_user),
+        ):
             response = client.get("/api/v1/game/state")
             # Should still work with fallback implementation
             assert response.status_code == 200

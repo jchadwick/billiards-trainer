@@ -230,9 +230,11 @@ class ConnectionMonitor:
             "health_status": metrics.overall_health.value,
             "latency": {
                 "average_ms": metrics.average_latency_ms,
-                "min_ms": metrics.min_latency_ms
-                if metrics.min_latency_ms != float("inf")
-                else 0,
+                "min_ms": (
+                    metrics.min_latency_ms
+                    if metrics.min_latency_ms != float("inf")
+                    else 0
+                ),
                 "max_ms": metrics.max_latency_ms,
                 "jitter_ms": metrics.latency_jitter_ms,
                 "measurements": len(metrics.latency_measurements),

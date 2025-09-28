@@ -154,9 +154,9 @@ class Table:
 
     # Calibration data
     perspective_transform: Optional[np.ndarray] = None  # 3x3 transform matrix
-    real_world_dimensions: Optional[
-        tuple[float, float]
-    ] = None  # (width, height) in meters
+    real_world_dimensions: Optional[tuple[float, float]] = (
+        None  # (width, height) in meters
+    )
     pixels_per_meter: Optional[float] = None
 
     # Table characteristics

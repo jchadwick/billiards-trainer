@@ -24,7 +24,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-from backend.vision.models import Ball, BallType
+from ..models import Ball, BallType
 
 logger = logging.getLogger(__name__)
 

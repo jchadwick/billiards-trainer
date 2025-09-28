@@ -134,13 +134,13 @@ async def websocket_endpoint(
         )
 
         # Start monitoring for this client
-        connection_monitor.client_metrics[
-            client_id
-        ] = connection_monitor.client_metrics.get(
-            client_id,
-            connection_monitor.client_metrics.__class__.__dict__[
-                "__dataclass_fields__"
-            ]["client_id"].default_factory(),
+        connection_monitor.client_metrics[client_id] = (
+            connection_monitor.client_metrics.get(
+                client_id,
+                connection_monitor.client_metrics.__class__.__dict__[
+                    "__dataclass_fields__"
+                ]["client_id"].default_factory(),
+            )
         )
 
         logger.info(f"WebSocket connection established: {client_id} from {client_ip}")
@@ -439,7 +439,31 @@ async def stop_websocket_system():
 async def get_websocket_metrics():
     """Get detailed WebSocket performance metrics."""
     try:
-        return await message_broadcaster.send_performance_metrics()
+        # Get comprehensive metrics from both broadcaster and websocket handler
+        metrics_data = {
+            "broadcast_stats": {
+                "messages_sent": message_broadcaster.broadcast_stats.messages_sent,
+                "bytes_sent": message_broadcaster.broadcast_stats.bytes_sent,
+                "failed_sends": message_broadcaster.broadcast_stats.failed_sends,
+                "average_latency": message_broadcaster.broadcast_stats.average_latency,
+                "peak_latency": message_broadcaster.broadcast_stats.peak_latency,
+                "compression_enabled": message_broadcaster.broadcast_stats.compression_enabled,
+            },
+            "frame_metrics": {
+                "frames_sent": message_broadcaster.broadcast_stats.frame_metrics.frames_sent,
+                "bytes_sent": message_broadcaster.broadcast_stats.frame_metrics.bytes_sent,
+                "compression_ratio": message_broadcaster.broadcast_stats.frame_metrics.compression_ratio,
+                "average_latency": message_broadcaster.broadcast_stats.frame_metrics.average_latency,
+                "dropped_frames": message_broadcaster.broadcast_stats.frame_metrics.dropped_frames,
+                "target_fps": message_broadcaster.broadcast_stats.frame_metrics.target_fps,
+                "actual_fps": message_broadcaster.broadcast_stats.frame_metrics.actual_fps,
+            },
+            "connection_stats": websocket_handler.get_connection_stats(),
+            "broadcaster_stats": message_broadcaster.get_broadcast_stats(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        return metrics_data
 
     except Exception as e:
         logger.error(f"Error getting metrics: {e}")

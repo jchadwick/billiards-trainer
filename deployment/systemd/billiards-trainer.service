@@ -1,0 +1,59 @@
+[Unit]
+Description=Billiards Trainer System
+Documentation=https://github.com/billiards-trainer/docs
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=billiards
+Group=billiards
+WorkingDirectory=/opt/billiards-trainer
+Environment=PATH=/opt/billiards-trainer/venv/bin
+Environment=PYTHONPATH=/opt/billiards-trainer/backend
+Environment=BILLIARDS_ENV=production
+Environment=BILLIARDS_CONFIG=/opt/billiards-trainer/config/production.json
+
+ExecStartPre=/bin/mkdir -p /opt/billiards-trainer/logs
+ExecStartPre=/bin/chown billiards:billiards /opt/billiards-trainer/logs
+
+ExecStart=/opt/billiards-trainer/venv/bin/python /opt/billiards-trainer/backend/system_launcher.py \
+    --environment production \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 4 \
+    --log-level INFO \
+    --log-file /opt/billiards-trainer/logs/billiards-trainer.log
+
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/billiards-trainer/logs /opt/billiards-trainer/data
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=billiards-trainer
+
+[Install]
+WantedBy=multi-user.target

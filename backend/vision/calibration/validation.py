@@ -56,18 +56,20 @@ class CalibrationReport:
         return {
             "session_id": self.session_id,
             "test_date": self.test_date,
-            "camera_validation": self.camera_validation.to_dict()
-            if self.camera_validation
-            else None,
-            "color_validation": self.color_validation.to_dict()
-            if self.color_validation
-            else None,
-            "geometry_validation": self.geometry_validation.to_dict()
-            if self.geometry_validation
-            else None,
-            "integration_validation": self.integration_validation.to_dict()
-            if self.integration_validation
-            else None,
+            "camera_validation": (
+                self.camera_validation.to_dict() if self.camera_validation else None
+            ),
+            "color_validation": (
+                self.color_validation.to_dict() if self.color_validation else None
+            ),
+            "geometry_validation": (
+                self.geometry_validation.to_dict() if self.geometry_validation else None
+            ),
+            "integration_validation": (
+                self.integration_validation.to_dict()
+                if self.integration_validation
+                else None
+            ),
             "overall_score": self.overall_score,
             "recommendations": self.recommendations,
         }
@@ -78,20 +80,26 @@ class CalibrationReport:
         return cls(
             session_id=data["session_id"],
             test_date=data["test_date"],
-            camera_validation=ValidationResult.from_dict(data["camera_validation"])
-            if data["camera_validation"]
-            else None,
-            color_validation=ValidationResult.from_dict(data["color_validation"])
-            if data["color_validation"]
-            else None,
-            geometry_validation=ValidationResult.from_dict(data["geometry_validation"])
-            if data["geometry_validation"]
-            else None,
-            integration_validation=ValidationResult.from_dict(
-                data["integration_validation"]
-            )
-            if data["integration_validation"]
-            else None,
+            camera_validation=(
+                ValidationResult.from_dict(data["camera_validation"])
+                if data["camera_validation"]
+                else None
+            ),
+            color_validation=(
+                ValidationResult.from_dict(data["color_validation"])
+                if data["color_validation"]
+                else None
+            ),
+            geometry_validation=(
+                ValidationResult.from_dict(data["geometry_validation"])
+                if data["geometry_validation"]
+                else None
+            ),
+            integration_validation=(
+                ValidationResult.from_dict(data["integration_validation"])
+                if data["integration_validation"]
+                else None
+            ),
             overall_score=data["overall_score"],
             recommendations=data["recommendations"],
         )

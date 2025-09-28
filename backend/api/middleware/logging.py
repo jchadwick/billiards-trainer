@@ -265,9 +265,9 @@ class RequestLogger:
         return {
             "total_requests": total_requests,
             "successful_requests": successful_requests,
-            "success_rate": successful_requests / total_requests * 100
-            if total_requests > 0
-            else 0,
+            "success_rate": (
+                successful_requests / total_requests * 100 if total_requests > 0 else 0
+            ),
             "average_duration_ms": avg_duration,
             "slow_requests": slow_requests,
             "status_code_distribution": status_codes,
