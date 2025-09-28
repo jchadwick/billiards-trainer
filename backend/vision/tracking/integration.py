@@ -220,12 +220,12 @@ class IntegratedTracker:
         """Get comprehensive performance summary."""
         summary = {
             "frames_processed": self.frame_count,
-            "average_processing_time": np.mean(self.processing_times)
-            if self.processing_times
-            else 0,
-            "current_fps": 1.0 / self.processing_times[-1]
-            if self.processing_times
-            else 0,
+            "average_processing_time": (
+                np.mean(self.processing_times) if self.processing_times else 0
+            ),
+            "current_fps": (
+                1.0 / self.processing_times[-1] if self.processing_times else 0
+            ),
             "tracking_statistics": self.tracker.get_tracking_statistics(),
         }
 
@@ -233,9 +233,9 @@ class IntegratedTracker:
             summary.update(self.optimizer.get_performance_summary())
 
         if self.adaptive_tuner:
-            summary[
-                "adaptive_parameters"
-            ] = self.adaptive_tuner.get_current_parameters()
+            summary["adaptive_parameters"] = (
+                self.adaptive_tuner.get_current_parameters()
+            )
 
         return summary
 
@@ -475,7 +475,7 @@ class MissingDetectionPredictor:
 
 # Factory function for easy initialization
 def create_integrated_tracker(
-    config: Optional[dict[str, Any]] = None
+    config: Optional[dict[str, Any]] = None,
 ) -> IntegratedTracker:
     """Create an integrated tracker with default or custom configuration.
 

@@ -5,7 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Internal imports
@@ -18,6 +18,7 @@ except ImportError:
 
     from config import ConfigurationModule
 
+from .dependencies import ApplicationState, app_state
 from .middleware.authentication import AuthenticationMiddleware
 from .middleware.cors import CORSConfig, setup_cors_middleware
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
@@ -44,9 +45,11 @@ def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
     """Get middleware configuration based on environment."""
     return {
         "cors": CORSConfig(
-            allow_origins=["*"]
-            if development_mode
-            else ["http://localhost:3000", "http://localhost:3001"],
+            allow_origins=(
+                ["*"]
+                if development_mode
+                else ["http://localhost:3000", "http://localhost:3001"]
+            ),
             allow_credentials=not development_mode,
             max_age=600,
         ),
@@ -89,20 +92,7 @@ def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
     }
 
 
-class ApplicationState:
-    """Application state container."""
-
-    def __init__(self):
-        self.core_module: Optional[CoreModule] = None
-        self.config_module: Optional[ConfigurationModule] = None
-        self.websocket_manager: Optional[WebSocketManager] = None
-        self.websocket_handler: Optional[WebSocketHandler] = None
-        self.startup_time: Optional[float] = None
-        self.is_healthy: bool = False
-
-
-# Global application state
-app_state = ApplicationState()
+# Application state is now imported from dependencies module
 
 
 @asynccontextmanager
@@ -227,9 +217,11 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # 8. Trusted host middleware (security)
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["localhost", "127.0.0.1", "0.0.0.0", "*"]
-        if development_mode
-        else ["localhost", "127.0.0.1"],
+        allowed_hosts=(
+            ["localhost", "127.0.0.1", "0.0.0.0", "*"]
+            if development_mode
+            else ["localhost", "127.0.0.1"]
+        ),
     )
 
     # 9. CORS (first - handles preflight requests)
@@ -248,9 +240,25 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(websocket_router, prefix="/api/v1/websocket")
 
     # Include the actual WebSocket endpoint at root level (no prefix)
-    from .websocket.endpoints import websocket_endpoint
+    # For now, create a simple working WebSocket endpoint
+    async def simple_websocket_endpoint(websocket: WebSocket):
+        """Simple WebSocket endpoint for testing."""
+        await websocket.accept()
+        try:
+            while True:
+                # Wait for client message
+                data = await websocket.receive_text()
+                # Echo the message back
+                await websocket.send_text(f"Echo: {data}")
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+        finally:
+            try:
+                await websocket.close()
+            except:
+                pass
 
-    app.add_websocket_route("/ws", websocket_endpoint)
+    app.add_websocket_route("/ws", simple_websocket_endpoint)
 
     # Root endpoint
     @app.get("/")
@@ -265,33 +273,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     return app
 
 
-# Dependency injection functions
-def get_core_module() -> CoreModule:
-    """Get the core module instance."""
-    if not app_state.core_module:
-        raise HTTPException(status_code=503, detail="Core module not available")
-    return app_state.core_module
-
-
-def get_config_module() -> ConfigurationModule:
-    """Get the configuration module instance."""
-    if not app_state.config_module:
-        raise HTTPException(
-            status_code=503, detail="Configuration module not available"
-        )
-    return app_state.config_module
-
-
-def get_websocket_manager() -> WebSocketManager:
-    """Get the WebSocket manager instance."""
-    if not app_state.websocket_manager:
-        raise HTTPException(status_code=503, detail="WebSocket manager not available")
-    return app_state.websocket_manager
-
-
-def get_app_state() -> ApplicationState:
-    """Get the application state."""
-    return app_state
+# Dependency injection functions are now in dependencies module
 
 
 # Create the application instance

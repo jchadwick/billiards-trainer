@@ -344,9 +344,11 @@ class TableDetector:
             "table_corners": detection.corners.to_list(),
             "table_dimensions": (detection.width, detection.height),
             "surface_color": detection.surface_color,
-            "perspective_transform": detection.perspective_transform.tolist()
-            if detection.perspective_transform is not None
-            else None,
+            "perspective_transform": (
+                detection.perspective_transform.tolist()
+                if detection.perspective_transform is not None
+                else None
+            ),
             "pocket_count": len(detection.pockets),
             "confidence": detection.confidence,
         }

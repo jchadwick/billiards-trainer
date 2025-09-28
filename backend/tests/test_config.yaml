@@ -1,0 +1,142 @@
+# Test configuration for billiards trainer backend
+# This configuration is used during testing to provide consistent test environment
+
+camera:
+  device_id: 0
+  width: 1920
+  height: 1080
+  fps: 30
+  exposure: -6
+  brightness: 50
+  contrast: 50
+  saturation: 50
+  auto_focus: false
+  focus: 100
+
+table:
+  width: 2.84  # meters - regulation pool table
+  height: 1.42
+  pocket_radius: 0.057
+  rail_height: 0.035
+  felt_color: [34, 139, 34]  # forest green RGB
+  corner_pockets:
+    - [0.0, 0.0]
+    - [2.84, 0.0]
+    - [2.84, 1.42]
+    - [0.0, 1.42]
+  side_pockets:
+    - [1.42, 0.0]
+    - [1.42, 1.42]
+
+balls:
+  radius: 0.028575  # meters - regulation ball radius
+  mass: 0.17  # kg
+  colors:
+    cue: [255, 255, 255]     # white
+    "1": [255, 255, 0]       # yellow
+    "2": [0, 0, 255]         # blue
+    "3": [255, 0, 0]         # red
+    "4": [128, 0, 128]       # purple
+    "5": [255, 165, 0]       # orange
+    "6": [0, 128, 0]         # green
+    "7": [128, 0, 0]         # maroon
+    "8": [0, 0, 0]           # black
+    "9": [255, 255, 0]       # yellow stripe
+    "10": [0, 0, 255]        # blue stripe
+    "11": [255, 0, 0]        # red stripe
+    "12": [128, 0, 128]      # purple stripe
+    "13": [255, 165, 0]      # orange stripe
+    "14": [0, 128, 0]        # green stripe
+    "15": [128, 0, 0]        # maroon stripe
+
+physics:
+  friction: 0.15
+  restitution: 0.9
+  gravity: 9.81
+  air_resistance: 0.001
+  rolling_friction: 0.02
+  sliding_friction: 0.3
+  max_velocity: 10.0  # m/s
+  min_velocity: 0.01  # m/s - below this considered stopped
+
+projector:
+  width: 1920
+  height: 1080
+  position: [0, 0, 2.0]  # x, y, z in meters
+  rotation: [0, 0, 0]    # rx, ry, rz in degrees
+  brightness: 0.8
+  contrast: 1.0
+  gamma: 2.2
+  color_temperature: 6500  # Kelvin
+  throw_ratio: 1.2
+  keystone_correction: [0, 0]  # horizontal, vertical
+
+api:
+  host: "127.0.0.1"
+  port: 8001
+  debug: true
+  cors_origins: ["*"]
+  cors_credentials: false
+  cors_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  cors_headers: ["*"]
+  websocket_ping_interval: 30
+  websocket_ping_timeout: 10
+  max_connections: 100
+  rate_limit: 1000  # requests per minute
+
+vision:
+  detection:
+    ball_detection:
+      hough_param1: 50
+      hough_param2: 30
+      min_radius: 15  # pixels
+      max_radius: 40  # pixels
+      blur_kernel_size: 5
+      canny_threshold1: 50
+      canny_threshold2: 150
+
+    table_detection:
+      edge_threshold: 50
+      line_threshold: 100
+      min_line_length: 100
+      max_line_gap: 10
+      corner_detection_method: "harris"
+
+    cue_detection:
+      line_threshold: 150
+      min_line_length: 200
+      max_line_gap: 5
+      angle_tolerance: 5  # degrees
+
+  tracking:
+    max_disappeared: 30  # frames
+    max_distance: 100    # pixels
+    velocity_smoothing: 0.7
+    position_smoothing: 0.3
+    confidence_threshold: 0.5
+
+  calibration:
+    color_samples: 10
+    geometric_points: 4
+    calibration_timeout: 300  # seconds
+
+performance:
+  target_fps: 30
+  max_latency_ms: 50
+  memory_limit_mb: 500
+  cpu_limit_percent: 80
+
+testing:
+  mock_camera: true
+  mock_projector: true
+  test_data_dir: "tests/data"
+  performance_tests: true
+  hardware_tests: false  # disabled in CI
+  slow_tests: false      # disabled by default
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "tests/logs/test.log"
+  max_size_mb: 10
+  backup_count: 3

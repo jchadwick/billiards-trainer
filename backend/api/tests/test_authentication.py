@@ -6,11 +6,11 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
-from backend.api.middleware.authentication import session_manager
+from ..main import create_app
+from ..middleware.authentication import session_manager
 
 # Import the modules we're testing
-from backend.api.utils.security import (
+from ..utils.security import (
     APIKeyUtils,
     JWTUtils,
     PasswordPolicy,

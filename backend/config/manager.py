@@ -12,8 +12,8 @@ from .models.schemas import (
     ConfigFormat,
     ConfigProfile,
     ConfigSource,
-    ConfigurationSettings,
     ConfigValue,
+    create_default_config,
 )
 
 
@@ -27,7 +27,7 @@ class ConfigurationModule:
             config_dir: Directory containing configuration files
         """
         self.config_dir = Path(config_dir)
-        self._settings = ConfigurationSettings()
+        self._settings = create_default_config()
         self._data: dict[str, ConfigValue] = {}
         self._schemas: dict[str, dict] = {}
         self._subscriptions: dict[str, Callable[[ConfigChange], None]] = {}
@@ -48,9 +48,9 @@ class ConfigurationModule:
         directories = [
             self.config_dir,
             self.config_dir / "profiles",
-            self._settings.paths.data_dir,
-            self._settings.paths.log_dir,
-            self._settings.paths.cache_dir,
+            self._settings.system.paths.data_dir,
+            self._settings.system.paths.log_dir,
+            self._settings.system.paths.cache_dir,
         ]
 
         for directory in directories:
@@ -696,3 +696,24 @@ class ConfigurationModule:
                 differences[key] = (current_val, other_val)
 
         return differences
+
+    async def initialize(self) -> None:
+        """Async initialization method for compatibility with API main.py.
+
+        This method is called during application startup.
+        """
+        # The initialization is already done in __init__, so this is a no-op
+        # but provides the async interface expected by the API main.py
+        pass
+
+    async def get_configuration(self) -> dict[str, Any]:
+        """Get the complete configuration as a nested dictionary.
+
+        Returns:
+            Dictionary with the complete configuration in nested format
+        """
+        # Get all configuration values
+        all_config = self.get_all()
+
+        # Convert flat dict to nested structure
+        return self._unflatten_dict(all_config)

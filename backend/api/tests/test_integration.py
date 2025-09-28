@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from backend.api.integration import (
+from ...config import ConfigurationModule
+from ...core import CoreModule
+from ...vision import VisionModule
+from ..integration import (
     APIIntegration,
     ConfigurationService,
     DetectionService,
@@ -15,9 +18,6 @@ from backend.api.integration import (
     IntegrationError,
     ServiceUnavailableError,
 )
-from backend.config import ConfigurationModule
-from backend.core import CoreModule
-from backend.vision import VisionModule
 
 
 class TestAPIIntegration:
@@ -62,13 +62,18 @@ class TestAPIIntegration:
     @pytest.fixture()
     async def integration(self, integration_config, mock_modules):
         """Create integration instance with mocked modules."""
-        with patch(
-            "backend.api.integration.ConfigurationModule",
-            return_value=mock_modules["config"],
-        ), patch(
-            "backend.api.integration.CoreModule", return_value=mock_modules["core"]
-        ), patch(
-            "backend.api.integration.VisionModule", return_value=mock_modules["vision"]
+        with (
+            patch(
+                "backend.api.integration.ConfigurationModule",
+                return_value=mock_modules["config"],
+            ),
+            patch(
+                "backend.api.integration.CoreModule", return_value=mock_modules["core"]
+            ),
+            patch(
+                "backend.api.integration.VisionModule",
+                return_value=mock_modules["vision"],
+            ),
         ):
             integration = APIIntegration(integration_config)
             await integration.startup()
@@ -77,8 +82,9 @@ class TestAPIIntegration:
 
     async def test_integration_startup(self, integration_config):
         """Test integration startup sequence."""
-        with patch("backend.api.integration.ConfigurationModule"), patch(
-            "backend.api.integration.CoreModule"
+        with (
+            patch("backend.api.integration.ConfigurationModule"),
+            patch("backend.api.integration.CoreModule"),
         ):
             integration = APIIntegration(integration_config)
 
@@ -469,9 +475,11 @@ class TestIntegrationPerformance:
         config = IntegrationConfig(module_timeout=0.1)
         integration = APIIntegration(config)
 
-        with patch("backend.api.integration.ConfigurationModule"), patch(
-            "backend.api.integration.CoreModule"
-        ), patch("backend.api.integration.VisionModule"):
+        with (
+            patch("backend.api.integration.ConfigurationModule"),
+            patch("backend.api.integration.CoreModule"),
+            patch("backend.api.integration.VisionModule"),
+        ):
             await integration.startup()
 
             try:

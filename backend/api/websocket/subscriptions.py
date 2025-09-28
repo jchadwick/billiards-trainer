@@ -87,15 +87,15 @@ class SubscriptionManager:
     """Advanced subscription manager with filtering, aggregation, and performance optimization."""
 
     def __init__(self):
-        self.subscriptions: dict[
-            str, dict[StreamType, StreamSubscription]
-        ] = defaultdict(dict)
+        self.subscriptions: dict[str, dict[StreamType, StreamSubscription]] = (
+            defaultdict(dict)
+        )
         self.stream_subscribers: dict[StreamType, set[str]] = {
             stream_type: set() for stream_type in StreamType
         }
-        self.aggregation_buffers: dict[
-            str, dict[StreamType, list[dict[str, Any]]]
-        ] = defaultdict(lambda: defaultdict(list))
+        self.aggregation_buffers: dict[str, dict[StreamType, list[dict[str, Any]]]] = (
+            defaultdict(lambda: defaultdict(list))
+        )
         self.aggregation_tasks: dict[str, asyncio.Task] = {}
         self.sample_counters: dict[str, dict[StreamType, int]] = defaultdict(
             lambda: defaultdict(int)
@@ -339,12 +339,16 @@ class SubscriptionManager:
                 "max_fps": subscription.max_fps,
                 "min_fps": subscription.min_fps,
                 "max_latency_ms": subscription.max_latency_ms,
-                "include_fields": list(subscription.include_fields)
-                if subscription.include_fields
-                else None,
-                "exclude_fields": list(subscription.exclude_fields)
-                if subscription.exclude_fields
-                else None,
+                "include_fields": (
+                    list(subscription.include_fields)
+                    if subscription.include_fields
+                    else None
+                ),
+                "exclude_fields": (
+                    list(subscription.exclude_fields)
+                    if subscription.exclude_fields
+                    else None
+                ),
                 "filter_conditions": [
                     {
                         "field": cond.field_path,
@@ -361,9 +365,11 @@ class SubscriptionManager:
                 "messages_sent": subscription.messages_sent,
                 "messages_filtered": subscription.messages_filtered,
                 "bytes_sent": subscription.bytes_sent,
-                "last_message_time": subscription.last_message_time.isoformat()
-                if subscription.last_message_time
-                else None,
+                "last_message_time": (
+                    subscription.last_message_time.isoformat()
+                    if subscription.last_message_time
+                    else None
+                ),
                 "average_latency_ms": subscription.average_latency_ms,
             }
             subscription_info.append(info)

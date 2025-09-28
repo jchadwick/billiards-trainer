@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from backend.config.models.schemas import ConfigProfile, ConfigValue
-from backend.core.analysis.shot import ShotAnalysis
+from ...config.models.schemas import ConfigProfile, ConfigValue
+from ...core.analysis.shot import ShotAnalysis
 
 # Backend model imports
-from backend.core.models import (
+from ...core.models import (
     BallState,
     CueState,
     GameState,
@@ -16,12 +16,11 @@ from backend.core.models import (
     TableState,
     Vector2D,
 )
-from backend.core.physics.trajectory import Trajectory
-from backend.vision.models import Ball as VisionBall
-from backend.vision.models import CueStick as VisionCue
-from backend.vision.models import DetectionResult as VisionDetectionResult
-from backend.vision.models import Table as VisionTable
-
+from ...core.physics.trajectory import Trajectory
+from ...vision.models import Ball as VisionBall
+from ...vision.models import CueStick as VisionCue
+from ...vision.models import DetectionResult as VisionDetectionResult
+from ...vision.models import Table as VisionTable
 from .config_models import (
     ConfigProfileModel,
     ConfigSourceEnum,
@@ -348,9 +347,11 @@ class VisionTransformer:
                     confidence=getattr(ball, "confidence", 1.0),
                 ),
                 is_moving=getattr(ball, "is_moving", False),
-                velocity_pixels=Point2DModel(x=0, y=0)
-                if not hasattr(ball, "velocity")
-                else Point2DModel(x=ball.velocity.x, y=ball.velocity.y),
+                velocity_pixels=(
+                    Point2DModel(x=0, y=0)
+                    if not hasattr(ball, "velocity")
+                    else Point2DModel(x=ball.velocity.x, y=ball.velocity.y)
+                ),
             )
         except Exception as e:
             logger.error(f"Error converting vision Ball to model: {e}")
@@ -370,7 +371,7 @@ class VisionTransformer:
             if hasattr(table, "pockets") and table.pockets:
                 for i, pocket in enumerate(table.pockets):
                     pockets.append(
-                        VisionPocketModel(
+                        PocketModel(
                             id=f"pocket_{i}",
                             center=Point2DModel(x=pocket[0], y=pocket[1]),
                             radius=30.0,  # Default pocket radius in pixels
@@ -381,9 +382,11 @@ class VisionTransformer:
             return VisionTableModel(
                 corners=corners,
                 pockets=pockets,
-                surface_color=tuple(table.surface_color)
-                if hasattr(table, "surface_color")
-                else (60, 200, 100),
+                surface_color=(
+                    tuple(table.surface_color)
+                    if hasattr(table, "surface_color")
+                    else (60, 200, 100)
+                ),
                 width_pixels=table.width,
                 height_pixels=table.height,
                 confidence=getattr(table, "confidence", 1.0),
@@ -596,7 +599,7 @@ class HealthTransformer:
 
     @staticmethod
     def performance_metrics_to_model(
-        metrics: dict[str, Any]
+        metrics: dict[str, Any],
     ) -> PerformanceMetricsModel:
         """Convert performance metrics to API model."""
         try:
@@ -618,7 +621,7 @@ class HealthTransformer:
 
     @staticmethod
     def integration_metrics_to_model(
-        metrics: dict[str, Any]
+        metrics: dict[str, Any],
     ) -> IntegrationMetricsModel:
         """Convert integration metrics to API model."""
         try:
@@ -664,9 +667,11 @@ def transform_dict_to_api_models(
                 transformed[key] = transform_dict_to_api_models(value, transformer_type)
             elif isinstance(value, list):
                 transformed[key] = [
-                    transform_dict_to_api_models(item, transformer_type)
-                    if isinstance(item, dict)
-                    else item
+                    (
+                        transform_dict_to_api_models(item, transformer_type)
+                        if isinstance(item, dict)
+                        else item
+                    )
                     for item in value
                 ]
             else:

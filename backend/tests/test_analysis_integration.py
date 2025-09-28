@@ -7,10 +7,10 @@ import unittest
 # Add the backend directory to the Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from backend.core.analysis.assistance import AssistanceEngine, AssistanceLevel
-from backend.core.analysis.prediction import OutcomePredictor
-from backend.core.analysis.shot import ShotAnalyzer
-from backend.core.models import (
+from ..core.analysis.assistance import AssistanceEngine, AssistanceLevel
+from ..core.analysis.prediction import OutcomePredictor
+from ..core.analysis.shot import ShotAnalyzer
+from ..core.models import (
     BallState,
     GameState,
     GameType,

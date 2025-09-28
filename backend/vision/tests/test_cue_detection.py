@@ -6,13 +6,13 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.vision.detection.cue import (
+from ..detection.cue import (
     CueDetector,
     ExtendedCueStick,
     ExtendedShotEvent,
     ShotType,
 )
-from backend.vision.models import CueState, CueStick
+from ..models import CueState, CueStick
 
 
 class TestCueDetector:

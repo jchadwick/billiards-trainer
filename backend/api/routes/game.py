@@ -18,10 +18,10 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from backend.api.main import get_core_module
-from backend.api.middleware.authentication import OperatorRequired, ViewerRequired
-from backend.api.models.common import ErrorCode, create_error_response
-from backend.api.models.responses import (
+from ..dependencies import dev_viewer_required, get_core_module
+from ..middleware.authentication import OperatorRequired, ViewerRequired
+from ..models.common import ErrorCode, create_error_response
+from ..models.responses import (
     BallInfo,
     CueInfo,
     GameEvent,
@@ -33,8 +33,8 @@ from backend.api.models.responses import (
 )
 
 try:
-    from backend.core import CoreModule
-    from backend.core.models import BallState, CueState, GameState, GameType, TableState
+    from ...core import CoreModule
+    from ...core.models import BallState, CueState, GameState, GameType, TableState
 except ImportError:
     from core import CoreModule
     from core.models import BallState, CueState, GameState, GameType, TableState
@@ -122,7 +122,7 @@ async def get_current_game_state(
     include_trajectories: bool = Query(
         False, description="Include trajectory predictions"
     ),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> GameStateResponse:
     """Retrieve current game state snapshot (FR-API-013).
@@ -137,13 +137,13 @@ async def get_current_game_state(
             game_state = core_module.get_current_state()
         else:
             # Fallback: create a basic game state
-            from backend.core.models import GameState, GameType, TableState
+            from ...core.models import GameState, GameType, TableState
 
             game_state = GameState.create_initial_state(GameType.PRACTICE)
 
         if not game_state:
             # Return empty state if no game is active
-            from backend.core.models import TableState
+            from ...core.models import TableState
 
             empty_table = TableState.standard_9ft_table()
 
@@ -187,7 +187,7 @@ async def get_current_game_state(
             detail=create_error_response(
                 "Game State Retrieval Failed",
                 "Unable to retrieve current game state",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -208,10 +208,10 @@ async def get_game_history(
     include_events: bool = Query(False, description="Include game events in results"),
     game_type: Optional[str] = Query(
         None,
-        regex="^(practice|8ball|9ball|straight)$",
+        pattern="^(practice|8ball|9ball|straight)$",
         description="Filter by game type",
     ),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> GameHistoryResponse:
     """Access historical game states (FR-API-014).
@@ -288,7 +288,7 @@ async def get_game_history(
             detail=create_error_response(
                 "Game History Retrieval Failed",
                 "Unable to retrieve game history",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -298,7 +298,7 @@ async def get_game_history(
 async def reset_game_state(
     game_type: str = Query(
         "practice",
-        regex="^(practice|8ball|9ball|straight)$",
+        pattern="^(practice|8ball|9ball|straight)$",
         description="Game type to initialize",
     ),
     preserve_table: bool = Query(True, description="Keep existing table configuration"),
@@ -366,7 +366,7 @@ async def reset_game_state(
                 detail=create_error_response(
                     "Game Reset Failed",
                     f"Failed to reset game state: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
+                    ErrorCode.SYSTEM_INTERNAL_ERROR,
                     {"error": str(e)},
                 ),
             )
@@ -394,7 +394,7 @@ async def reset_game_state(
             detail=create_error_response(
                 "Game Reset Failed",
                 "Unable to reset game state",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -414,11 +414,11 @@ async def export_session_data(
         True, description="Include trajectory calculations"
     ),
     include_events: bool = Query(True, description="Include game events"),
-    format: str = Query("zip", regex="^(zip|json)$", description="Export format"),
+    format: str = Query("zip", pattern="^(zip|json)$", description="Export format"),
     compression_level: int = Query(
         6, ge=0, le=9, description="Compression level (0-9)"
     ),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> SessionExportResponse:
     """Export game session data (FR-API-016).
@@ -558,7 +558,7 @@ async def export_session_data(
             detail=create_error_response(
                 "Session Export Failed",
                 "Unable to export session data",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -625,7 +625,7 @@ async def download_session_export(
             detail=create_error_response(
                 "Export Download Failed",
                 "Unable to download export file",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -634,9 +634,9 @@ async def download_session_export(
 @router.get("/stats")
 async def get_game_statistics(
     time_range: str = Query(
-        "24h", regex="^(1h|6h|24h|7d|30d)$", description="Time range for statistics"
+        "24h", pattern="^(1h|6h|24h|7d|30d)$", description="Time range for statistics"
     ),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
+    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> dict[str, Any]:
     """Get game statistics and performance metrics.
@@ -699,7 +699,7 @@ async def get_game_statistics(
             detail=create_error_response(
                 "Statistics Retrieval Failed",
                 "Unable to retrieve game statistics",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )

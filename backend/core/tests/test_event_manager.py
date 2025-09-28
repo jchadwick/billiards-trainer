@@ -9,7 +9,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from backend.core.events.manager import EventManager
+from ..events.manager import EventManager
 
 
 class TestEventManager:

@@ -11,7 +11,7 @@ from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBea
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from backend.api.utils.security import (
+from ..utils.security import (
     APIKeyUtils,
     JWTUtils,
     SecurityEventType,

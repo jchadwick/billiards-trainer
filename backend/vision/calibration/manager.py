@@ -34,18 +34,20 @@ class CalibrationSession:
         return {
             "session_id": self.session_id,
             "created_date": self.created_date,
-            "camera_calibration": self.camera_calibration.to_dict()
-            if self.camera_calibration
-            else None,
-            "color_profile": self.color_profile.to_dict()
-            if self.color_profile
-            else None,
-            "geometric_calibration": self.geometric_calibration.to_dict()
-            if self.geometric_calibration
-            else None,
-            "validation_report": self.validation_report.to_dict()
-            if self.validation_report
-            else None,
+            "camera_calibration": (
+                self.camera_calibration.to_dict() if self.camera_calibration else None
+            ),
+            "color_profile": (
+                self.color_profile.to_dict() if self.color_profile else None
+            ),
+            "geometric_calibration": (
+                self.geometric_calibration.to_dict()
+                if self.geometric_calibration
+                else None
+            ),
+            "validation_report": (
+                self.validation_report.to_dict() if self.validation_report else None
+            ),
             "system_ready": self.system_ready,
         }
 
@@ -55,20 +57,26 @@ class CalibrationSession:
         return cls(
             session_id=data["session_id"],
             created_date=data["created_date"],
-            camera_calibration=CameraParameters.from_dict(data["camera_calibration"])
-            if data["camera_calibration"]
-            else None,
-            color_profile=ColorProfile.from_dict(data["color_profile"])
-            if data["color_profile"]
-            else None,
-            geometric_calibration=GeometricCalibration.from_dict(
-                data["geometric_calibration"]
-            )
-            if data["geometric_calibration"]
-            else None,
-            validation_report=CalibrationReport.from_dict(data["validation_report"])
-            if data["validation_report"]
-            else None,
+            camera_calibration=(
+                CameraParameters.from_dict(data["camera_calibration"])
+                if data["camera_calibration"]
+                else None
+            ),
+            color_profile=(
+                ColorProfile.from_dict(data["color_profile"])
+                if data["color_profile"]
+                else None
+            ),
+            geometric_calibration=(
+                GeometricCalibration.from_dict(data["geometric_calibration"])
+                if data["geometric_calibration"]
+                else None
+            ),
+            validation_report=(
+                CalibrationReport.from_dict(data["validation_report"])
+                if data["validation_report"]
+                else None
+            ),
             system_ready=data["system_ready"],
         )
 
@@ -400,20 +408,20 @@ class CalibrationManager:
             status["session_date"] = self.current_session.created_date
 
         if self.camera_calibrator.camera_params:
-            status[
-                "camera_error"
-            ] = self.camera_calibrator.camera_params.calibration_error
+            status["camera_error"] = (
+                self.camera_calibrator.camera_params.calibration_error
+            )
 
         if self.color_calibrator.current_profile:
             status["color_profile"] = self.color_calibrator.current_profile.name
-            status[
-                "lighting_level"
-            ] = self.color_calibrator.current_profile.ambient_light_level
+            status["lighting_level"] = (
+                self.color_calibrator.current_profile.ambient_light_level
+            )
 
         if self.geometry_calibrator.current_calibration:
-            status[
-                "geometry_error"
-            ] = self.geometry_calibrator.current_calibration.calibration_error
+            status["geometry_error"] = (
+                self.geometry_calibrator.current_calibration.calibration_error
+            )
 
         return status
 

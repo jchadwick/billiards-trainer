@@ -268,9 +268,11 @@ class TrackingOptimizer:
         # Extract positions
         track_positions = np.array(
             [
-                track.kalman_filter.get_position()
-                if hasattr(track, "kalman_filter")
-                else (0, 0)
+                (
+                    track.kalman_filter.get_position()
+                    if hasattr(track, "kalman_filter")
+                    else (0, 0)
+                )
                 for track in tracks
             ]
         )

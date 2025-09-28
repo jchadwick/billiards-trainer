@@ -116,17 +116,19 @@ class GameStateManager:
                 balls=balls,
                 table=table,
                 cue=cue,
-                game_type=self._current_state.game_type
-                if self._current_state
-                else GameType.PRACTICE,
-                current_player=self._current_state.current_player
-                if self._current_state
-                else None,
+                game_type=(
+                    self._current_state.game_type
+                    if self._current_state
+                    else GameType.PRACTICE
+                ),
+                current_player=(
+                    self._current_state.current_player if self._current_state else None
+                ),
                 scores=self._current_state.scores if self._current_state else {},
                 is_break=self._current_state.is_break if self._current_state else False,
-                last_shot=self._current_state.last_shot
-                if self._current_state
-                else None,
+                last_shot=(
+                    self._current_state.last_shot if self._current_state else None
+                ),
                 events=events,
             )
 
@@ -169,11 +171,11 @@ class GameStateManager:
                     "radius", 0.028575
                 ),  # Standard ball radius in meters
                 mass=0.17,  # Standard ball mass in kg
-                spin=Vector2D(
-                    detection.get("spin_x", 0.0), detection.get("spin_y", 0.0)
-                )
-                if "spin_x" in detection
-                else None,
+                spin=(
+                    Vector2D(detection.get("spin_x", 0.0), detection.get("spin_y", 0.0))
+                    if "spin_x" in detection
+                    else None
+                ),
                 is_cue_ball=detection.get("is_cue_ball", False),
                 is_pocketed=detection.get("is_pocketed", False),
                 number=detection.get("number"),
@@ -195,9 +197,11 @@ class GameStateManager:
             angle=cue_data.get("angle", 0.0),
             elevation=cue_data.get("elevation", 0.0),
             estimated_force=cue_data.get("force", 0.0),
-            impact_point=Vector2D(cue_data["impact_x"], cue_data["impact_y"])
-            if "impact_x" in cue_data
-            else None,
+            impact_point=(
+                Vector2D(cue_data["impact_x"], cue_data["impact_y"])
+                if "impact_x" in cue_data
+                else None
+            ),
             is_visible=cue_data.get("is_visible", True),
             confidence=cue_data.get("confidence", 1.0),
             last_update=cue_data.get("timestamp", time.time()),
@@ -458,17 +462,17 @@ class GameStateManager:
                 "uptime_seconds": time.time() - self._start_time,
                 "validation_enabled": self._validation_enabled,
                 "auto_correct_enabled": self._auto_correct_enabled,
-                "current_balls_count": len(self._current_state.balls)
-                if self._current_state
-                else 0,
-                "active_balls_count": len(
-                    [b for b in self._current_state.balls if not b.is_pocketed]
-                )
-                if self._current_state
-                else 0,
-                "last_update": self._current_state.timestamp
-                if self._current_state
-                else None,
+                "current_balls_count": (
+                    len(self._current_state.balls) if self._current_state else 0
+                ),
+                "active_balls_count": (
+                    len([b for b in self._current_state.balls if not b.is_pocketed])
+                    if self._current_state
+                    else 0
+                ),
+                "last_update": (
+                    self._current_state.timestamp if self._current_state else None
+                ),
             }
 
     def set_validation_config(

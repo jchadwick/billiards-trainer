@@ -404,7 +404,7 @@ class GameEventRequest(TimestampedRequest):
 class GameStateExportRequest(BaseModel):
     """Request model for game state export."""
 
-    format: str = Field("json", description="Export format", regex="^(json|csv)$")
+    format: str = Field("json", description="Export format", pattern="^(json|csv)$")
     include_history: bool = Field(True, description="Include historical states")
     include_events: bool = Field(True, description="Include game events")
     time_range: Optional[dict[str, datetime]] = Field(
@@ -448,13 +448,13 @@ class MetricsRequest(BaseModel):
     """Request model for performance metrics."""
 
     time_range: str = Field(
-        "1h", description="Time range for metrics", regex="^(5m|15m|1h|6h|24h|7d)$"
+        "1h", description="Time range for metrics", pattern="^(5m|15m|1h|6h|24h|7d)$"
     )
     include_system: bool = Field(True, description="Include system metrics")
     include_vision: bool = Field(True, description="Include vision processing metrics")
     include_api: bool = Field(True, description="Include API metrics")
     format: str = Field(
-        "json", description="Response format", regex="^(json|prometheus)$"
+        "json", description="Response format", pattern="^(json|prometheus)$"
     )
 
 
@@ -464,7 +464,7 @@ class ConfigResetRequest(BaseModel):
     confirm: bool = Field(..., description="Confirmation that reset is intended")
     backup_current: bool = Field(True, description="Create backup before reset")
     reset_type: str = Field(
-        "all", description="Type of reset to perform", regex="^(all|module|user)$"
+        "all", description="Type of reset to perform", pattern="^(all|module|user)$"
     )
     modules: Optional[list[str]] = Field(None, description="Specific modules to reset")
 

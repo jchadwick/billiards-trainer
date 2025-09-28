@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, GameState, ShotType, TableState, Vector2D
-from backend.core.physics.trajectory import TrajectoryCalculator
-from backend.core.utils.geometry import GeometryUtils
+from ..models import BallState, GameState, ShotType, TableState, Vector2D
+from ..physics.trajectory import TrajectoryCalculator
+from ..utils.geometry import GeometryUtils
 
 
 class OutcomeType(Enum):
@@ -156,9 +156,11 @@ class OutcomePredictor:
 
             # Create outcome based on trajectory
             outcome = PredictedOutcome(
-                outcome_type=OutcomeType.SUCCESS
-                if trajectory.will_be_pocketed
-                else OutcomeType.MISS,
+                outcome_type=(
+                    OutcomeType.SUCCESS
+                    if trajectory.will_be_pocketed
+                    else OutcomeType.MISS
+                ),
                 probability=0.9 if trajectory.will_be_pocketed else 0.1,
                 description=f"Ball {ball.id} prediction",
                 final_ball_positions={ball.id: Vector2D(*trajectory.final_position)},

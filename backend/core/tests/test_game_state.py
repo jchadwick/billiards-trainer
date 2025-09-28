@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from backend.core.game_state import GameStateManager, StateValidationError
-from backend.core.models import BallState, GameState, GameType, TableState, Vector2D
+from ..game_state import GameStateManager, StateValidationError
+from ..models import BallState, GameState, GameType, TableState, Vector2D
 
 
 class TestGameStateManager:

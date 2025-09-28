@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.config.manager import ConfigurationModule
-from backend.config.models.schemas import ConfigSource
+from ..manager import ConfigurationModule
+from ..models.schemas import ConfigSource
 
 
 class TestConfigurationModule:

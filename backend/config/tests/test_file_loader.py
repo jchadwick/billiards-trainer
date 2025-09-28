@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from backend.config.loader.file import (
+from ..loader.file import (
     ConfigFormat,
     FileLoader,
     FileLoadError,

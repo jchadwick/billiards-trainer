@@ -136,9 +136,11 @@ class SystemMetrics:
                     "cpu_percent": cpu_percent,
                     "memory_mb": memory_mb,
                     "threads": self.process.num_threads(),
-                    "file_descriptors": self.process.num_fds()
-                    if hasattr(self.process, "num_fds")
-                    else 0,
+                    "file_descriptors": (
+                        self.process.num_fds()
+                        if hasattr(self.process, "num_fds")
+                        else 0
+                    ),
                 },
                 "system": {
                     "cpu_percent": system_cpu_percent,
@@ -154,12 +156,16 @@ class SystemMetrics:
                     "packets_recv": network_io.packets_recv,
                 },
                 "averages": {
-                    "cpu_avg_1min": mean(self.cpu_percent_history)
-                    if self.cpu_percent_history
-                    else 0,
-                    "memory_avg_1min": mean(self.memory_usage_history)
-                    if self.memory_usage_history
-                    else 0,
+                    "cpu_avg_1min": (
+                        mean(self.cpu_percent_history)
+                        if self.cpu_percent_history
+                        else 0
+                    ),
+                    "memory_avg_1min": (
+                        mean(self.memory_usage_history)
+                        if self.memory_usage_history
+                        else 0
+                    ),
                 },
             }
         except Exception as e:
@@ -284,9 +290,9 @@ class PerformanceMonitor:
             response_size=response_size,
             memory_usage_mb=memory_mb,
             cpu_usage_percent=cpu_percent,
-            error=None
-            if response.status_code < 400
-            else f"HTTP {response.status_code}",
+            error=(
+                None if response.status_code < 400 else f"HTTP {response.status_code}"
+            ),
         )
 
         # Store metrics
@@ -356,9 +362,9 @@ class PerformanceMonitor:
             "overview": {
                 "total_requests": total_requests,
                 "error_count": error_count,
-                "error_rate_percent": (error_count / total_requests * 100)
-                if total_requests > 0
-                else 0,
+                "error_rate_percent": (
+                    (error_count / total_requests * 100) if total_requests > 0 else 0
+                ),
                 "slow_requests_count": self.slow_requests_count,
                 "monitoring_period_minutes": self.config.metrics_retention_minutes,
             },
@@ -407,13 +413,15 @@ class PerformanceMonitor:
                     "total_errors": stats.total_errors,
                     "error_rate_percent": stats.error_rate,
                     "average_duration_ms": avg_duration,
-                    "min_duration_ms": stats.min_duration_ms
-                    if stats.min_duration_ms != float("inf")
-                    else 0,
+                    "min_duration_ms": (
+                        stats.min_duration_ms
+                        if stats.min_duration_ms != float("inf")
+                        else 0
+                    ),
                     "max_duration_ms": stats.max_duration_ms,
-                    "last_request": stats.last_request.isoformat()
-                    if stats.last_request
-                    else None,
+                    "last_request": (
+                        stats.last_request.isoformat() if stats.last_request else None
+                    ),
                 }
 
                 # Add recent performance data

@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, GameState, ShotType, TableState, Vector2D
-from backend.core.physics.trajectory import TrajectoryCalculator
-from backend.core.utils.geometry import GeometryUtils
+from ..models import BallState, GameState, ShotType, TableState, Vector2D
+from ..physics.trajectory import TrajectoryCalculator
+from ..utils.geometry import GeometryUtils
 
 
 class IllegalShotReason(Enum):
@@ -196,9 +196,7 @@ class ShotAnalyzer:
             (cue_ball.position.x, cue_ball.position.y),
             (target_ball.position.x, target_ball.position.y),
         )
-        max_distance = math.sqrt(
-            game_state.table.width**2 + game_state.table.height**2
-        )
+        max_distance = math.sqrt(game_state.table.width**2 + game_state.table.height**2)
         factors["distance"] = min(distance / max_distance, 1.0)
 
         # Angle factor - how thin the cut is

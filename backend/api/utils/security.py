@@ -370,9 +370,11 @@ class SecurityEventLogger:
     ) -> None:
         """Log a login attempt."""
         event = SecurityEvent(
-            event_type=SecurityEventType.LOGIN_SUCCESS
-            if success
-            else SecurityEventType.LOGIN_FAILURE,
+            event_type=(
+                SecurityEventType.LOGIN_SUCCESS
+                if success
+                else SecurityEventType.LOGIN_FAILURE
+            ),
             timestamp=datetime.now(timezone.utc),
             user_id=user_id,
             ip_address=ip_address,
@@ -391,9 +393,11 @@ class SecurityEventLogger:
     ) -> None:
         """Log API key usage."""
         event = SecurityEvent(
-            event_type=SecurityEventType.API_KEY_USAGE
-            if success
-            else SecurityEventType.API_KEY_INVALID,
+            event_type=(
+                SecurityEventType.API_KEY_USAGE
+                if success
+                else SecurityEventType.API_KEY_INVALID
+            ),
             timestamp=datetime.now(timezone.utc),
             user_id=key_id,
             ip_address=ip_address,

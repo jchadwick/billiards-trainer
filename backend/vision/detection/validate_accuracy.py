@@ -15,8 +15,8 @@ import numpy as np
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
-from backend.vision.detection.ball_tracker import BallTrackingSystem
-from backend.vision.detection.balls import BallDetector, DetectionMethod
+from .ball_tracker import BallTrackingSystem
+from .balls import BallDetector, DetectionMethod
 
 
 class AccuracyValidator:

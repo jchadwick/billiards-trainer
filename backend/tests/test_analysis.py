@@ -2,15 +2,15 @@
 
 import unittest
 
-from backend.core.analysis.assistance import (
+from ..core.analysis.assistance import (
     AssistanceEngine,
     AssistanceLevel,
     SafeZoneType,
 )
-from backend.core.analysis.prediction import OutcomePredictor, OutcomeType
-from backend.core.analysis.shot import IllegalShotReason, ShotAnalysis, ShotAnalyzer
-from backend.core.analysis.test_scenarios import AnalysisTestScenarios
-from backend.core.models import (
+from ..core.analysis.prediction import OutcomePredictor, OutcomeType
+from ..core.analysis.shot import IllegalShotReason, ShotAnalysis, ShotAnalyzer
+from ..core.analysis.test_scenarios import AnalysisTestScenarios
+from ..core.models import (
     BallState,
     GameState,
     GameType,

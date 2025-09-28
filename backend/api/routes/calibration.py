@@ -17,14 +17,14 @@ from typing import Any, Optional
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from backend.api.main import get_core_module
-from backend.api.middleware.authentication import AdminRequired, OperatorRequired
-from backend.api.models.common import (
+from ..dependencies import dev_admin_required, dev_operator_required, get_core_module
+from ..middleware.authentication import AdminRequired, OperatorRequired
+from ..models.common import (
     ErrorCode,
     create_error_response,
     create_success_response,
 )
-from backend.api.models.responses import (
+from ..models.responses import (
     CalibrationApplyResponse,
     CalibrationPointResponse,
     CalibrationSession,
@@ -34,7 +34,7 @@ from backend.api.models.responses import (
 )
 
 try:
-    from backend.core import CoreModule
+    from ...core import CoreModule
 except ImportError:
     from core import CoreModule
 
@@ -155,7 +155,7 @@ async def start_calibration_sequence(
     background_tasks: BackgroundTasks,
     calibration_type: str = Query(
         "standard",
-        regex="^(standard|advanced|quick)$",
+        pattern="^(standard|advanced|quick)$",
         description="Type of calibration",
     ),
     force_restart: bool = Query(
@@ -164,7 +164,7 @@ async def start_calibration_sequence(
     timeout_seconds: int = Query(
         300, ge=60, le=1800, description="Calibration timeout in seconds"
     ),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
+    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationStartResponse:
     """Initiate calibration sequence (FR-API-009).
@@ -304,7 +304,7 @@ async def capture_calibration_point(
     confidence: float = Query(
         1.0, ge=0.0, le=1.0, description="Point detection confidence"
     ),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
+    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationPointResponse:
     """Capture calibration reference points (FR-API-010).
@@ -442,7 +442,7 @@ async def apply_calibration_transformations(
     force_apply: bool = Query(
         False, description="Apply even if accuracy is below threshold"
     ),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
+    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationApplyResponse:
     """Apply calibration transformations (FR-API-011).
@@ -623,7 +623,7 @@ async def validate_calibration_accuracy(
     accuracy_threshold: float = Query(
         0.9, ge=0.0, le=1.0, description="Required accuracy threshold"
     ),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
+    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationValidationResponse:
     """Validate calibration accuracy (FR-API-012).
@@ -802,7 +802,7 @@ async def validate_calibration_accuracy(
 
 @router.get("/{session_id}", response_model=CalibrationSession)
 async def get_calibration_session(
-    session_id: str, current_user: dict[str, Any] = Depends(OperatorRequired)
+    session_id: str, current_user: dict[str, Any] = Depends(dev_operator_required)
 ) -> CalibrationSession:
     """Get calibration session details.
 
@@ -843,13 +843,13 @@ async def get_calibration_session(
 async def list_calibration_sessions(
     status: Optional[str] = Query(
         None,
-        regex="^(in_progress|ready_to_apply|completed|applied|expired|cancelled)$",
+        pattern="^(in_progress|ready_to_apply|completed|applied|expired|cancelled)$",
         description="Filter by session status",
     ),
     limit: int = Query(
         50, ge=1, le=500, description="Maximum number of sessions to return"
     ),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
+    current_user: dict[str, Any] = Depends(dev_operator_required),
 ) -> list[CalibrationSession]:
     """List calibration sessions with optional filtering.
 
@@ -902,7 +902,7 @@ async def list_calibration_sessions(
 
 @router.delete("/{session_id}", response_model=SuccessResponse)
 async def delete_calibration_session(
-    session_id: str, current_user: dict[str, Any] = Depends(AdminRequired)
+    session_id: str, current_user: dict[str, Any] = Depends(dev_admin_required)
 ) -> SuccessResponse:
     """Delete a calibration session.
 

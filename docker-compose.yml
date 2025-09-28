@@ -1,0 +1,341 @@
+# Docker Compose configuration for Billiards Trainer
+# ==================================================
+# This file provides orchestration for the complete billiards trainer system
+# including the backend API, optional databases, and monitoring services.
+
+version: '3.8'
+
+# ========================
+# Services Configuration
+# ========================
+services:
+  # Backend API Service
+  # ------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+      args:
+        BUILD_DATE: ${BUILD_DATE:-2024-01-01}
+        BUILD_VERSION: ${BUILD_VERSION:-1.0.0}
+        BUILD_COMMIT: ${BUILD_COMMIT:-dev}
+    image: billiards-trainer/backend:${BUILD_VERSION:-latest}
+    container_name: billiards-trainer-backend
+    restart: unless-stopped
+
+    # Environment configuration
+    environment:
+      # Application settings
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      APP_NAME: ${APP_NAME:-billiards-trainer}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+
+      # API configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      WS_PORT: 8001
+
+      # Security (must be set via .env file or environment)
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      API_KEY_HEADER: ${API_KEY_HEADER:-X-API-Key}
+      DEFAULT_API_KEY: ${DEFAULT_API_KEY}
+
+      # Computer Vision settings
+      CAMERA_INDEX: ${CAMERA_INDEX:-0}
+      CAMERA_WIDTH: ${CAMERA_WIDTH:-1920}
+      CAMERA_HEIGHT: ${CAMERA_HEIGHT:-1080}
+      CAMERA_FPS: ${CAMERA_FPS:-30}
+      VISION_BUFFER_SIZE: ${VISION_BUFFER_SIZE:-10}
+      DETECTION_CONFIDENCE_THRESHOLD: ${DETECTION_CONFIDENCE_THRESHOLD:-0.8}
+
+      # Projector settings
+      PROJECTOR_DISPLAY_INDEX: ${PROJECTOR_DISPLAY_INDEX:-1}
+      PROJECTOR_WIDTH: ${PROJECTOR_WIDTH:-1920}
+      PROJECTOR_HEIGHT: ${PROJECTOR_HEIGHT:-1080}
+      PROJECTOR_FULLSCREEN: ${PROJECTOR_FULLSCREEN:-false}
+
+      # Physics configuration
+      PHYSICS_TIME_STEP: ${PHYSICS_TIME_STEP:-0.016}
+      PHYSICS_GRAVITY: ${PHYSICS_GRAVITY:-9.81}
+      BALL_RADIUS: ${BALL_RADIUS:-0.02875}
+      TABLE_FRICTION: ${TABLE_FRICTION:-0.1}
+      CUSHION_RESTITUTION: ${CUSHION_RESTITUTION:-0.9}
+
+      # Performance settings
+      MAX_CONCURRENT_CONNECTIONS: ${MAX_CONCURRENT_CONNECTIONS:-100}
+      FRAME_BUFFER_SIZE: ${FRAME_BUFFER_SIZE:-30}
+      MAX_MEMORY_USAGE_MB: ${MAX_MEMORY_USAGE_MB:-2048}
+      API_TIMEOUT: ${API_TIMEOUT:-30}
+      WEBSOCKET_TIMEOUT: ${WEBSOCKET_TIMEOUT:-60}
+
+      # Optional: Database connection
+      DATABASE_URL: ${DATABASE_URL:-}
+
+      # Optional: Redis connection
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+
+      # Monitoring
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      METRICS_PORT: ${METRICS_PORT:-9090}
+
+    # Port mappings
+    ports:
+      - "${API_PORT:-8000}:8000"
+      - "${WS_PORT:-8001}:8001"
+      - "${METRICS_PORT:-9090}:9090"
+
+    # Volume mounts for persistent data
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - /tmp:/tmp
+      # Device access for camera (if needed)
+      - /dev:/dev
+
+    # Device access for camera and graphics
+    devices:
+      - /dev/dri:/dev/dri  # GPU access for graphics acceleration
+
+    # Privileged mode may be needed for camera access
+    # privileged: true  # Uncomment if camera access issues occur
+
+    # Network configuration
+    networks:
+      - billiards-net
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Dependencies
+    depends_on:
+      redis:
+        condition: service_healthy
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMORY_LIMIT:-4G}
+          cpus: ${BACKEND_CPU_LIMIT:-2.0}
+        reservations:
+          memory: ${BACKEND_MEMORY_RESERVATION:-1G}
+          cpus: ${BACKEND_CPU_RESERVATION:-0.5}
+
+  # Redis Cache Service (Optional but recommended)
+  # ---------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: billiards-trainer-redis
+    restart: unless-stopped
+
+    # Redis configuration
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
+      --maxmemory-policy allkeys-lru
+
+    # Port mapping (internal only by default)
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+    # Persistent storage
+    volumes:
+      - redis-data:/data
+
+    # Network
+    networks:
+      - billiards-net
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # PostgreSQL Database (Optional - uncomment if needed)
+  # ---------------------------------------------------
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: billiards-trainer-postgres
+  #   restart: unless-stopped
+  #
+  #   environment:
+  #     POSTGRES_DB: ${POSTGRES_DB:-billiards_trainer}
+  #     POSTGRES_USER: ${POSTGRES_USER:-billiards}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  #     POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+  #
+  #   ports:
+  #     - "${POSTGRES_PORT:-5432}:5432"
+  #
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #     - ./scripts/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+  #
+  #   networks:
+  #     - billiards-net
+  #
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-billiards}"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+  # Monitoring Services (Optional)
+  # -----------------------------
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: billiards-trainer-prometheus
+    restart: unless-stopped
+
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"
+
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+    networks:
+      - billiards-net
+
+    profiles:
+      - monitoring
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: billiards-trainer-grafana
+    restart: unless-stopped
+
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: false
+
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+    networks:
+      - billiards-net
+
+    profiles:
+      - monitoring
+
+# ========================
+# Development Override
+# ========================
+  # Development service with hot reload
+  backend-dev:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: billiards-trainer-backend-dev
+
+    environment:
+      ENVIRONMENT: development
+      DEBUG: true
+      LOG_LEVEL: DEBUG
+      API_RELOAD: true
+      # Simplified security for development
+      JWT_SECRET_KEY: dev-secret-key-not-for-production
+      DEFAULT_API_KEY: dev-api-key
+
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+
+    volumes:
+      - ./backend:/app
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+    networks:
+      - billiards-net
+
+    profiles:
+      - development
+
+# ========================
+# Networks
+# ========================
+networks:
+  billiards-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ========================
+# Volumes
+# ========================
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ========================
+# Usage Examples
+# ========================
+#
+# Production deployment:
+#   docker-compose up -d backend redis
+#
+# Development with hot reload:
+#   docker-compose --profile development up backend-dev redis
+#
+# Full stack with monitoring:
+#   docker-compose --profile monitoring up -d
+#
+# Scale backend:
+#   docker-compose up -d --scale backend=3
+#
+# View logs:
+#   docker-compose logs -f backend
+#
+# Stop all services:
+#   docker-compose down
+#
+# Clean up (removes volumes):
+#   docker-compose down -v --remove-orphans

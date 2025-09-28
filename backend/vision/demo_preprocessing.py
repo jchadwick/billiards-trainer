@@ -29,7 +29,7 @@ import numpy as np
 # Add backend to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from backend.vision.preprocessing import (
+from .preprocessing import (
     ColorSpace,
     ImagePreprocessor,
     NoiseReductionMethod,

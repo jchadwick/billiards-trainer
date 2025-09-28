@@ -1,0 +1,92 @@
+# Billiards Trainer System Requirements
+
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+websockets==12.0
+
+# Computer Vision
+opencv-python==4.8.1.78
+numpy==1.24.3
+Pillow==10.0.1
+
+# Graphics and Display
+pygame==2.5.2
+moderngl==5.8.2
+
+# Scientific Computing and ML
+scipy==1.11.4
+scikit-learn==1.3.2
+matplotlib==3.7.2
+
+# Data Structures and Utilities
+pydantic==2.5.0
+email-validator==2.1.0.post1
+dataclasses-json==0.6.1
+
+# Async and Concurrency
+asyncio-mqtt==0.16.1
+aiofiles==23.2.1
+aiohttp==3.9.1
+
+# Database and Storage
+redis==5.0.1
+sqlalchemy==2.0.23
+
+# Configuration Management
+python-dotenv==1.0.0
+PyYAML==6.0.1
+toml==0.10.2
+
+# Monitoring and Metrics
+psutil==5.9.6
+prometheus-client==0.19.0
+
+# Logging and Debugging
+structlog==23.2.0
+rich==13.7.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2
+
+# Development Tools
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Network and Communication
+requests==2.31.0
+
+# File and Data Processing
+pandas==2.1.3
+openpyxl==3.1.2
+
+# System Integration
+python-multipart==0.0.6
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Deployment and Production
+gunicorn==21.2.0
+supervisor==4.2.5
+
+# Optional GPU Support (install separately if needed)
+# torch==2.1.1
+# torchvision==0.16.1
+# torchaudio==2.1.1
+
+# Optional Advanced Computer Vision (install separately if needed)
+# mediapipe==0.10.8
+# dlib==19.24.2
+
+# Camera and Hardware Interface
+# pyudev==0.24.1  # Linux device management
+# picamera2==0.3.12  # Raspberry Pi camera (if applicable)
+
+# Development and Documentation
+sphinx==7.2.6
+sphinx-rtd-theme==1.3.0

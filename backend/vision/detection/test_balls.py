@@ -18,9 +18,8 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.vision.models import Ball, BallType
-from backend.vision.tracking.tracker import ObjectTracker
-
+from ..models import Ball, BallType
+from ..tracking.tracker import ObjectTracker
 from .balls import BallDetector, DetectionMethod
 
 

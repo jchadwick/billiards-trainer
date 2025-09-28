@@ -1,0 +1,314 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "application": "billiards-trainer",
+    "environment": "development",
+    "description": "Default configuration for billiards trainer"
+  },
+  "system": {
+    "debug": true,
+    "environment": "development",
+    "timezone": "UTC",
+    "paths": {
+      "config_dir": "config",
+      "data_dir": "data",
+      "log_dir": "logs",
+      "cache_dir": ".cache",
+      "profiles_dir": "config/profiles",
+      "temp_dir": "/tmp"
+    },
+    "logging": {
+      "level": "INFO",
+      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+      "file_logging": true,
+      "console_logging": true,
+      "max_file_size": 10485760,
+      "backup_count": 5,
+      "log_modules": {
+        "vision": "INFO",
+        "core": "INFO",
+        "api": "INFO",
+        "projector": "INFO",
+        "config": "INFO"
+      }
+    },
+    "performance": {
+      "mode": "balanced",
+      "max_memory_mb": 2048,
+      "max_cpu_percent": 80,
+      "thread_pool_size": 4,
+      "enable_profiling": false,
+      "profile_interval": 60
+    }
+  },
+  "vision": {
+    "camera": {
+      "device_id": 0,
+      "backend": "auto",
+      "resolution": [1920, 1080],
+      "fps": 30,
+      "exposure_mode": "auto",
+      "gain": 1.0,
+      "brightness": 0.5,
+      "contrast": 0.5,
+      "saturation": 0.5,
+      "buffer_size": 1,
+      "auto_focus": true
+    },
+    "detection": {
+      "table_color": {
+        "hue_min": 35,
+        "hue_max": 85,
+        "saturation_min": 50,
+        "saturation_max": 255,
+        "value_min": 50,
+        "value_max": 255
+      },
+      "table_edge_threshold": 0.7,
+      "min_table_area": 0.3,
+      "ball_colors": {
+        "cue": {
+          "hue_min": 0,
+          "hue_max": 179,
+          "saturation_min": 0,
+          "saturation_max": 50
+        },
+        "solid": {
+          "hue_min": 0,
+          "hue_max": 179,
+          "saturation_min": 100,
+          "saturation_max": 255
+        },
+        "stripe": {
+          "hue_min": 0,
+          "hue_max": 179,
+          "saturation_min": 50,
+          "saturation_max": 255
+        }
+      },
+      "min_ball_radius": 10,
+      "max_ball_radius": 40,
+      "ball_detection_method": "hough",
+      "ball_sensitivity": 0.8,
+      "cue_detection_enabled": true,
+      "min_cue_length": 100,
+      "cue_line_threshold": 0.6
+    },
+    "processing": {
+      "use_gpu": false,
+      "enable_preprocessing": true,
+      "blur_kernel_size": 5,
+      "morphology_kernel_size": 3,
+      "enable_tracking": true,
+      "tracking_max_distance": 50,
+      "frame_skip": 0,
+      "roi_enabled": false
+    },
+    "debug": false,
+    "save_debug_images": false,
+    "debug_output_path": "/tmp/vision_debug",
+    "calibration_auto_save": true
+  },
+  "core": {
+    "physics": {
+      "gravity": 9.81,
+      "air_resistance": 0.01,
+      "rolling_friction": 0.01,
+      "sliding_friction": 0.2,
+      "cushion_coefficient": 0.85,
+      "spin_decay_rate": 0.95,
+      "max_iterations": 1000,
+      "time_step": 0.001,
+      "enable_spin_effects": true,
+      "enable_cushion_compression": true
+    },
+    "prediction": {
+      "max_prediction_time": 10.0,
+      "prediction_resolution": 100,
+      "collision_threshold": 0.001,
+      "monte_carlo_samples": 10,
+      "max_bounces": 10,
+      "stop_velocity_threshold": 0.01
+    },
+    "assistance": {
+      "difficulty_levels": {
+        "beginner": 0.2,
+        "intermediate": 0.5,
+        "advanced": 0.8,
+        "expert": 1.0
+      },
+      "show_alternative_shots": true,
+      "max_alternatives": 3,
+      "highlight_best_shot": true,
+      "show_success_probability": true,
+      "enable_shot_analysis": true,
+      "analysis_depth": 3
+    },
+    "validation": {
+      "max_ball_velocity": 10.0,
+      "min_ball_separation": 0.001,
+      "position_tolerance": 0.005,
+      "velocity_tolerance": 0.1,
+      "enable_physics_validation": true,
+      "enable_continuity_check": true,
+      "auto_correction": true
+    },
+    "state_history_size": 1000,
+    "event_buffer_size": 100,
+    "update_frequency": 60.0,
+    "enable_game_rules": false,
+    "default_game_type": "practice"
+  },
+  "api": {
+    "network": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "workers": 1,
+      "max_connections": 100,
+      "websocket_ping_interval": 30,
+      "websocket_ping_timeout": 10,
+      "request_timeout": 30,
+      "enable_compression": true,
+      "ssl_enabled": false
+    },
+    "authentication": {
+      "jwt_secret_key": "your-secret-key-here",
+      "jwt_algorithm": "HS256",
+      "jwt_expiration_hours": 24,
+      "refresh_token_expiration_days": 30,
+      "enable_api_keys": true,
+      "api_key_expiration_days": 365,
+      "password_min_length": 8,
+      "require_password_complexity": true
+    },
+    "cors": {
+      "enabled": true,
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["*"],
+      "allow_credentials": true,
+      "max_age": 600
+    },
+    "rate_limiting": {
+      "enabled": true,
+      "requests_per_minute": 100,
+      "burst_size": 20,
+      "websocket_connections_per_ip": 10,
+      "enable_distributed": false
+    },
+    "enable_docs": true,
+    "docs_url": "/docs",
+    "openapi_url": "/openapi.json",
+    "api_prefix": "/api/v1",
+    "websocket_path": "/ws",
+    "health_check_path": "/health",
+    "metrics_enabled": true,
+    "metrics_path": "/metrics"
+  },
+  "projector": {
+    "display": {
+      "mode": "window",
+      "monitor_index": 0,
+      "resolution": [1920, 1080],
+      "refresh_rate": 60,
+      "vsync": true,
+      "gamma": 1.0,
+      "brightness": 1.0,
+      "contrast": 1.0
+    },
+    "calibration": {
+      "keystone_horizontal": 0.0,
+      "keystone_vertical": 0.0,
+      "rotation": 0.0,
+      "barrel_distortion": 0.0,
+      "edge_blend": {
+        "left": 0.0,
+        "right": 0.0,
+        "top": 0.0,
+        "bottom": 0.0
+      },
+      "auto_calibration": false,
+      "calibration_grid_size": 10
+    },
+    "visual": {
+      "trajectory_width": 3.0,
+      "trajectory_color": [0, 255, 0],
+      "collision_color": [255, 0, 0],
+      "reflection_color": [255, 255, 0],
+      "enable_glow": true,
+      "glow_intensity": 0.5,
+      "enable_animations": true,
+      "animation_speed": 1.0,
+      "fade_duration": 0.5,
+      "trajectory_opacity": 0.8,
+      "ghost_ball_opacity": 0.4,
+      "overlay_opacity": 0.6,
+      "font_family": "Arial",
+      "font_size": 24,
+      "text_color": [255, 255, 255]
+    },
+    "rendering": {
+      "renderer": "opengl",
+      "quality": "high",
+      "antialiasing": "4x",
+      "texture_filtering": "anisotropic",
+      "max_fps": 60,
+      "buffer_frames": 2,
+      "use_gpu": true,
+      "gpu_memory_limit_mb": 1024
+    },
+    "network": {
+      "backend_url": "ws://localhost:8000/ws",
+      "reconnect_interval": 5,
+      "heartbeat_interval": 30,
+      "buffer_size": 1048576,
+      "compression": true,
+      "timeout": 10
+    },
+    "assistance": {
+      "show_primary_trajectory": true,
+      "show_collision_trajectories": true,
+      "show_ghost_balls": true,
+      "show_impact_points": true,
+      "show_angle_measurements": false,
+      "show_force_indicators": true,
+      "show_probability": true,
+      "show_alternative_shots": false,
+      "max_trajectory_bounces": 3
+    },
+    "debug": false,
+    "debug_overlay": false
+  },
+  "sources": {
+    "enable_files": true,
+    "enable_environment": true,
+    "enable_cli": true,
+    "file_paths": ["config/default.json", "config/local.json"],
+    "env_prefix": "BILLIARDS_",
+    "precedence": ["cli", "environment", "file", "default"]
+  },
+  "validation": {
+    "strict_mode": false,
+    "allow_unknown": false,
+    "type_checking": true,
+    "range_checking": true,
+    "dependency_checking": true,
+    "auto_correct": false
+  },
+  "persistence": {
+    "auto_save": true,
+    "save_interval": 60,
+    "backup_count": 5,
+    "compression": true,
+    "encryption": false,
+    "atomic_writes": true
+  },
+  "hot_reload": {
+    "enabled": true,
+    "watch_files": true,
+    "watch_interval": 1,
+    "reload_delay": 0,
+    "notify_modules": true,
+    "validation_before_reload": true
+  }
+}
