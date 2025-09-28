@@ -196,7 +196,9 @@ class ShotAnalyzer:
             (cue_ball.position.x, cue_ball.position.y),
             (target_ball.position.x, target_ball.position.y),
         )
-        max_distance = math.sqrt(game_state.table.width**2 + game_state.table.height**2)
+        max_distance = math.sqrt(
+            game_state.table.width**2 + game_state.table.height**2
+        )
         factors["distance"] = min(distance / max_distance, 1.0)
 
         # Angle factor - how thin the cut is

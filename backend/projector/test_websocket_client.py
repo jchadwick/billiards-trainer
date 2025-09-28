@@ -6,7 +6,6 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Dict
 
 # Add backend to path
 backend_dir = Path(__file__).parent.parent
@@ -108,7 +107,7 @@ class WebSocketClientTester:
         self.message_handlers = None
         self.test_results = {}
 
-    async def run_tests(self) -> Dict[str, bool]:
+    async def run_tests(self) -> dict[str, bool]:
         """Run comprehensive WebSocket client tests."""
         logger.info("Starting WebSocket client tests...")
 

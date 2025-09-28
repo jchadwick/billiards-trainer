@@ -21,6 +21,7 @@ from ...core.physics.trajectory import (
     PredictedCollision,
     Trajectory,
 )
+
 from .renderer import BasicRenderer, Color, Colors, Point2D
 
 logger = logging.getLogger(__name__)

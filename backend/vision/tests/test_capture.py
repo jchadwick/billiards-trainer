@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 import pytest
 
-from ..capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
+from backend.vision.capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
 
 
 class TestCameraCapture:

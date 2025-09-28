@@ -316,7 +316,6 @@ async def rate_limit_middleware(request: Request, call_next: Callable) -> Respon
     Returns:
         Response object
     """
-
     if _rate_limiter is None:
         # Rate limiting not configured, skip
         return await call_next(request)
@@ -378,7 +377,6 @@ def setup_rate_limiting(app: FastAPI, config: Optional[RateLimitConfig] = None) 
         app: FastAPI application instance
         config: Rate limiting configuration
     """
-
     if config is None:
         config = RateLimitConfig()
 
@@ -399,7 +397,6 @@ def get_rate_limit_status(client_ip: str) -> dict:
     Returns:
         Dictionary with rate limit status
     """
-
     if _rate_limiter is None:
         return {"error": "Rate limiting not configured"}
 

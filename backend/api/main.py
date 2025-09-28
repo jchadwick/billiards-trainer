@@ -2,23 +2,23 @@
 
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Internal imports
 try:
-    from backend.config import ConfigurationModule
-    from backend.core import CoreModule, CoreModuleConfig
+    from ..config import ConfigurationModule
+    from ..core import CoreModule, CoreModuleConfig
 except ImportError:
     # If running from the backend directory directly
     from core import CoreModule, CoreModuleConfig
 
     from config import ConfigurationModule
 
-from .dependencies import ApplicationState, app_state
+from .dependencies import app_state
 from .middleware.authentication import AuthenticationMiddleware
 from .middleware.cors import CORSConfig, setup_cors_middleware
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
@@ -182,8 +182,9 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         app.extra = {"config_override": config_override}
 
     # Determine if running in development mode
-    development_mode = config_override and config_override.get(
-        "development_mode", False
+    development_mode = (
+        config_override.get("development_mode", False)
+        if config_override else False
     )
 
     # Get middleware configuration
@@ -253,10 +254,8 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         except Exception as e:
             logger.error(f"WebSocket error: {e}")
         finally:
-            try:
+            with suppress(Exception):
                 await websocket.close()
-            except:
-                pass
 
     app.add_websocket_route("/ws", simple_websocket_endpoint)
 

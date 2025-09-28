@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Cross-Module Integration Test.
+"""Cross-Module Integration Test.
 
 Tests integration between modules:
 - Core ↔ Vision data flow
@@ -41,8 +40,8 @@ async def test_core_vision_data_flow():
 
     try:
         # Initialize modules
-        core = CoreModule()
-        vision = VisionModule({"camera_device_id": -1})  # No camera
+        CoreModule()
+        VisionModule({"camera_device_id": -1})  # No camera
 
         # Create Vision detection data
         vision_balls = [
@@ -83,7 +82,7 @@ async def test_core_vision_data_flow():
         print("✓ Cue ball consistency verified")
 
         # Check position consistency
-        for i, (vball, cball) in enumerate(zip(vision_balls, core_balls)):
+        for _i, (vball, cball) in enumerate(zip(vision_balls, core_balls)):
             assert cball.position.x == vball.position[0]
             assert cball.position.y == vball.position[1]
         print("✓ Position consistency verified")
@@ -134,7 +133,7 @@ async def test_config_module_propagation():
             config_dir = Path(temp_dir) / "config"
 
             # Initialize configuration module
-            config_module = ConfigurationModule(config_dir)
+            ConfigurationModule(config_dir)
 
             # Set up configuration for different modules
             core_config = {
@@ -162,11 +161,11 @@ async def test_config_module_propagation():
             # Verify configuration was applied
             assert core.config.cache_size == 500
             assert core.config.max_trajectory_time == 5.0
-            assert core.config.debug_mode == True
+            assert core.config.debug_mode is True
             print("✓ Core module configuration applied")
 
             assert vision.config.camera_device_id == -1
-            assert vision.config.enable_ball_detection == True
+            assert vision.config.enable_ball_detection is True
             assert vision.config.target_fps == 30
             print("✓ Vision module configuration applied")
 
@@ -191,7 +190,7 @@ async def test_event_system_integration():
     try:
         # Initialize modules
         core = CoreModule()
-        vision = VisionModule({"camera_device_id": -1})
+        VisionModule({"camera_device_id": -1})
 
         # Set up event tracking
         events_received = []
@@ -443,7 +442,7 @@ async def test_error_propagation():
     try:
         # Initialize modules
         core = CoreModule()
-        vision = VisionModule({"camera_device_id": -1})
+        VisionModule({"camera_device_id": -1})
 
         # Test invalid data handling
         try:
@@ -468,9 +467,7 @@ async def test_error_propagation():
         # Test module error isolation
         try:
             # Create a module with invalid configuration
-            invalid_vision = VisionModule(
-                {"camera_device_id": 999999}
-            )  # Non-existent camera
+            VisionModule({"camera_device_id": 999999})  # Non-existent camera
             print("✓ Invalid vision configuration handled gracefully")
         except Exception as e:
             print(

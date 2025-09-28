@@ -289,7 +289,6 @@ def get_request_id(request: Request) -> str:
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Handle HTTP exceptions."""
-
     request_id = get_request_id(request)
 
     # Handle custom HTTP exceptions
@@ -351,7 +350,6 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """Handle request validation errors."""
-
     request_id = get_request_id(request)
 
     # Format validation errors
@@ -397,7 +395,6 @@ async def validation_exception_handler(
 
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle all other exceptions."""
-
     request_id = get_request_id(request)
 
     # Determine error code based on exception type
@@ -456,7 +453,6 @@ def setup_error_handling(
         app: FastAPI application instance
         config: Error handler configuration
     """
-
     if config is None:
         config = ErrorHandlerConfig()
 

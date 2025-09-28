@@ -233,9 +233,9 @@ class IntegratedTracker:
             summary.update(self.optimizer.get_performance_summary())
 
         if self.adaptive_tuner:
-            summary["adaptive_parameters"] = (
-                self.adaptive_tuner.get_current_parameters()
-            )
+            summary[
+                "adaptive_parameters"
+            ] = self.adaptive_tuner.get_current_parameters()
 
         return summary
 

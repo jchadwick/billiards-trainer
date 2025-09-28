@@ -4,6 +4,7 @@ import time
 
 from ..models import BallState, CueState, TableState, Vector2D
 from ..utils.cache import CacheManager
+
 from .trajectory import (
     CollisionType,
     TrajectoryCalculator,

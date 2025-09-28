@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Vision Module Integration Test.
+"""Vision Module Integration Test.
 
 Tests the vision module components without requiring a physical camera:
 - Module initialization
@@ -36,7 +35,6 @@ from vision import (
     ObjectTracker,
     Table,
     TableDetector,
-    VisionConfig,
     VisionModule,
 )
 
@@ -321,9 +319,9 @@ async def test_vision_core_integration():
             )
 
         assert len(core_balls) == 3
-        assert core_balls[0].is_cue_ball == True  # CUE ball
-        assert core_balls[1].is_cue_ball == False  # SOLID ball
-        assert core_balls[2].is_cue_ball == False  # STRIPE ball
+        assert core_balls[0].is_cue_ball is True  # CUE ball
+        assert core_balls[1].is_cue_ball is False  # SOLID ball
+        assert core_balls[2].is_cue_ball is False  # STRIPE ball
         print("✓ Multiple ball conversion works")
 
         return True
@@ -434,7 +432,7 @@ async def test_tracking_functionality():
     print("\nTesting Tracking Functionality...")
 
     try:
-        tracker = ObjectTracker()
+        ObjectTracker()
 
         # Simulate tracking a ball across frames
         frame_1_ball = Ball(
@@ -490,7 +488,7 @@ async def test_error_handling():
     try:
         # Test invalid ball creation
         try:
-            invalid_ball = Ball(
+            Ball(
                 id="",  # Empty ID should be handled
                 position=Vector2D(-10, -10),  # Negative coordinates
                 radius=-5.0,  # Invalid radius

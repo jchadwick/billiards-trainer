@@ -16,10 +16,8 @@ from enum import Enum
 from typing import Optional
 
 from ...core.game_state import Vector2D
-from ...core.physics.trajectory import (
-    CollisionType,
-    Trajectory,
-)
+from ...core.physics.trajectory import CollisionType, Trajectory
+
 from .renderer import BasicRenderer, Color, Colors, LineStyle, Point2D
 
 logger = logging.getLogger(__name__)

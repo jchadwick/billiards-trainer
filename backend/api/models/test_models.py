@@ -458,7 +458,7 @@ class TestModelConverters:
 
     def test_coordinate_conversion(self):
         """Test coordinate conversions."""
-        from backend.core.models import Vector2D
+        from ...core.models import Vector2D
 
         # Test Vector2D to Coordinate2D
         vector = Vector2D(1.5, 2.3)

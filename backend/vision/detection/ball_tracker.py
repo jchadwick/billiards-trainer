@@ -26,6 +26,7 @@ import numpy as np
 from ..calibration.color import ColorCalibrator
 from ..models import Ball, BallType, DetectionResult, FrameStatistics
 from ..tracking.tracker import ObjectTracker
+
 from .balls import BallDetector, DetectionMethod
 
 logger = logging.getLogger(__name__)
