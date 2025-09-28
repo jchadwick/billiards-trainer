@@ -14,6 +14,7 @@ from ..models import (
     Vector2D,
 )
 from ..utils.geometry import GeometryUtils
+
 from .prediction import OutcomePredictor
 from .shot import ShotAnalysis, ShotAnalyzer
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Very Simplified Vision Module Integration Test.
+"""Very Simplified Vision Module Integration Test.
 
 Tests only the working parts of the vision module:
 - Module initialization
@@ -11,13 +10,11 @@ Tests only the working parts of the vision module:
 import asyncio
 import logging
 import sys
-import time
 from pathlib import Path
 
 # Add backend to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-import numpy as np
 
 # Import core models for integration testing
 from core.models import BallState, Vector2D
@@ -198,7 +195,7 @@ async def test_vision_to_core_conversion():
         cue_ball = next(b for b in core_balls if b.is_cue_ball)
         assert cue_ball.id == "cue"
         assert cue_ball.number == 0
-        assert cue_ball.is_cue_ball == True
+        assert cue_ball.is_cue_ball is True
         print("✓ Cue ball conversion correct")
 
         # Check numbered balls
@@ -294,13 +291,13 @@ async def test_module_configuration():
 
         # Test configuration access
         assert vision.config.camera_device_id == -1
-        assert vision.config.enable_ball_detection == True
-        assert vision.config.enable_table_detection == False
-        assert vision.config.debug_mode == True
+        assert vision.config.enable_ball_detection is True
+        assert vision.config.enable_table_detection is False
+        assert vision.config.debug_mode is True
         print("✓ Configuration access works")
 
         # Test default values are preserved
-        assert vision.config.enable_cue_detection == True  # Should be default
+        assert vision.config.enable_cue_detection is True  # Should be default
         print("✓ Default configuration values preserved")
 
         return True

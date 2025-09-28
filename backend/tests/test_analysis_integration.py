@@ -10,14 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from ..core.analysis.assistance import AssistanceEngine, AssistanceLevel
 from ..core.analysis.prediction import OutcomePredictor
 from ..core.analysis.shot import ShotAnalyzer
-from ..core.models import (
-    BallState,
-    GameState,
-    GameType,
-    ShotType,
-    TableState,
-    Vector2D,
-)
+from ..core.models import BallState, GameState, GameType, ShotType, TableState, Vector2D
 
 
 class TestAnalysisIntegration(unittest.TestCase):

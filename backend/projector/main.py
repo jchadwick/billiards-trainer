@@ -11,8 +11,8 @@ import pygame
 
 # Import core models with fallback for different import contexts
 try:
-    from backend.core.game_state import BallState
-    from backend.core.physics.trajectory import PredictedCollision, Trajectory
+    from ..core.game_state import BallState
+    from ..core.physics.trajectory import PredictedCollision, Trajectory
 except ImportError:
     # If running from the backend directory directly
     from core.game_state import BallState

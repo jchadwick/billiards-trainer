@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-System Orchestration Integration Test.
+"""System Orchestration Integration Test.
 
 Tests the complete system working together:
 - Full system initialization
@@ -21,13 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Import all modules and orchestrator
-from core import CoreModule, CoreModuleConfig
 from system.health import HealthMonitor
 from system.monitoring import PerformanceMonitor
 from system.orchestrator import SystemOrchestrator
 from vision import VisionModule
-
-from config import ConfigurationModule
 
 # Configure logging
 logging.basicConfig(
@@ -110,7 +106,7 @@ async def test_health_monitoring():
             print("✓ Individual module health check performed")
 
             # Test health monitoring over time
-            for i in range(3):
+            for _i in range(3):
                 health_status = health_monitor.check_system_health(orchestrator)
                 assert health_status is not None
                 await asyncio.sleep(0.1)
@@ -152,7 +148,7 @@ async def test_performance_monitoring():
 
             # Test metrics over time
             metrics_history = []
-            for i in range(3):
+            for _i in range(3):
                 metrics = perf_monitor.collect_metrics(orchestrator)
                 metrics_history.append(metrics)
                 await asyncio.sleep(0.1)
@@ -201,7 +197,7 @@ async def test_system_startup_shutdown():
             # Test system status
             system_status = orchestrator.get_system_status()
             assert system_status is not None
-            assert system_status["running"] == True
+            assert system_status["running"] is True
             print("✓ System status reporting works")
 
             # Test graceful shutdown

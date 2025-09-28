@@ -14,6 +14,7 @@ import time
 import unittest
 
 from ..models import BallState, TableState, Vector2D
+
 from .collision import (
     CollisionDetector,
     CollisionOptimizer,

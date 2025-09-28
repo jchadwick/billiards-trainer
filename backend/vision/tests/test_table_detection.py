@@ -16,15 +16,15 @@ import cv2
 import numpy as np
 import pytest
 
-from ..detection.table import (
+from backend.vision.detection.table import (
     Pocket,
     PocketType,
     TableCorners,
     TableDetectionResult,
     TableDetector,
 )
-from ..detection.utils import DetectionUtils
-from ..utils.visualization import TableVisualization
+from backend.vision.detection.utils import DetectionUtils
+from backend.vision.utils.visualization import TableVisualization
 
 
 class TestTableDetector:

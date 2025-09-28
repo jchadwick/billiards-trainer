@@ -21,6 +21,7 @@ from ...vision.models import Ball as VisionBall
 from ...vision.models import CueStick as VisionCue
 from ...vision.models import DetectionResult as VisionDetectionResult
 from ...vision.models import Table as VisionTable
+
 from .config_models import (
     ConfigProfileModel,
     ConfigSourceEnum,

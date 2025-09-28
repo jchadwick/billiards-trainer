@@ -12,8 +12,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Union
 
-from ...core.config.base import ConfigBase
-from ..rendering.trajectory import (
+from backend.core.config.base import ConfigBase
+from backend.projector.rendering.trajectory import (
     GhostBallStyle,
     PowerIndicatorStyle,
     TrajectoryStyle,

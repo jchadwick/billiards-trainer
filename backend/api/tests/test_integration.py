@@ -6,9 +6,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from ...config import ConfigurationModule
-from ...core import CoreModule
-from ...vision import VisionModule
 from ..integration import (
     APIIntegration,
     ConfigurationService,
@@ -18,6 +15,9 @@ from ..integration import (
     IntegrationError,
     ServiceUnavailableError,
 )
+from ...config import ConfigurationModule
+from ...core import CoreModule
+from ...vision import VisionModule
 
 
 class TestAPIIntegration:

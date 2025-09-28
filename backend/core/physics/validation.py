@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ..models import BallState, TableState, Vector2D
+
 from .engine import PhysicsConstants, PhysicsEngine, TrajectoryPoint
 from .forces import ForceCalculator
 

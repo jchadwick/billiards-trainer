@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified Core Module Integration Test.
+"""Simplified Core Module Integration Test.
 
 Tests the core module working independently:
 - Module initialization
@@ -11,7 +10,6 @@ Tests the core module working independently:
 import asyncio
 import logging
 import sys
-import time
 from pathlib import Path
 
 # Add backend to path for imports
@@ -96,9 +94,11 @@ async def test_vector_math_operations():
 
         # Test addition/subtraction
         sum_v = v1 + v2
-        assert sum_v.x == 4.0 and sum_v.y == 6.0
+        assert sum_v.x == 4.0
+        assert sum_v.y == 6.0
         diff_v = v1 - v2
-        assert diff_v.x == 2.0 and diff_v.y == 2.0
+        assert diff_v.x == 2.0
+        assert diff_v.y == 2.0
         print("✓ Vector arithmetic operations work")
 
         # Test distance

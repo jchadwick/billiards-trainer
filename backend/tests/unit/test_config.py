@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 import yaml
+
 from config.loader.env import EnvironmentLoader
 from config.loader.file import FileLoader
 from config.manager import ConfigurationModule

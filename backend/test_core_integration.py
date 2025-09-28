@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Integration test for Core Module functionality.
+"""Integration test for Core Module functionality.
 
 Tests the core module components working together:
 - Physics engine integration
@@ -390,7 +389,7 @@ async def test_state_validation():
 
         # Test validation with no state
         validation = await core.validate_state()
-        assert validation["valid"] == False
+        assert validation["valid"] is False
         assert "No current game state available" in validation["issues"]
         print("✓ Validation correctly handles no state")
 
