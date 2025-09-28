@@ -1,0 +1,48 @@
+# Core dependencies for billiards-trainer backend
+# Computer Vision
+opencv-python>=4.8.0
+numpy>=1.24.0
+scikit-image>=0.21.0
+numba>=0.57.0
+Pillow>=10.0.0
+
+# API and Communication
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0
+python-multipart>=0.0.6
+
+# Authentication and Security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# Configuration and Data
+pydantic>=2.0.0
+PyYAML>=6.0
+python-dotenv>=1.0.0
+jsonschema>=4.17.0
+
+# Physics and Math
+scipy>=1.10.0
+
+# Projector and Display
+PyOpenGL>=3.1.0
+pygame>=2.5.0
+moderngl>=5.8.0
+
+# Development and Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+black>=23.0.0
+isort>=5.12.0
+mypy>=1.5.0
+
+# System monitoring for performance middleware
+psutil>=5.9.0
+
+# File watching for hot reload
+watchdog>=3.0.0
+
+# Optional: Redis for scaling (commented out for now)
+# redis>=4.5.0
