@@ -3,7 +3,7 @@
 import math
 from typing import Optional
 
-from ..models import Vector2D
+from backend.core.models import Vector2D
 
 
 class MathUtils:

@@ -4,8 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ..game_state import BallState, TableState, Vector2D
-from ..models import Collision
+from backend.core.game_state import BallState, TableState, Vector2D
+from backend.core.models import Collision
 
 
 class PhysicsConstants:
@@ -511,13 +511,9 @@ class PhysicsEngine:
         # Determine which cushion was hit based on collision position
         x, y = collision.position.x, collision.position.y
 
-        if x <= ball.radius:  # Left cushion
+        if x <= ball.radius or x >= table.width - ball.radius:  # Left cushion
             ball.velocity.x = -ball.velocity.x * table.cushion_elasticity
-        elif x >= table.width - ball.radius:  # Right cushion
-            ball.velocity.x = -ball.velocity.x * table.cushion_elasticity
-        elif y <= ball.radius:  # Bottom cushion
-            ball.velocity.y = -ball.velocity.y * table.cushion_elasticity
-        elif y >= table.height - ball.radius:  # Top cushion
+        elif y <= ball.radius or y >= table.height - ball.radius:  # Bottom cushion
             ball.velocity.y = -ball.velocity.y * table.cushion_elasticity
 
         # Ensure ball is not inside cushion

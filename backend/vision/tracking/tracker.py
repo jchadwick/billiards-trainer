@@ -107,9 +107,11 @@ class Track:
         self.radius_history.append(detection.radius)
 
         # Update track state
-        if self.state == TrackState.TENTATIVE and self.detection_count >= 3:
-            self.state = TrackState.CONFIRMED
-        elif self.state == TrackState.LOST:
+        if (
+            self.state == TrackState.TENTATIVE
+            and self.detection_count >= 3
+            or self.state == TrackState.LOST
+        ):
             self.state = TrackState.CONFIRMED
 
     def predict(self, dt: float) -> tuple[float, float]:
@@ -125,9 +127,12 @@ class Track:
         # Update track state based on miss count
         if self.state == TrackState.CONFIRMED and self.miss_count > 10:
             self.state = TrackState.LOST
-        elif self.state == TrackState.TENTATIVE and self.miss_count > 3:
-            self.state = TrackState.DELETED
-        elif self.state == TrackState.LOST and self.miss_count > 30:
+        elif (
+            self.state == TrackState.TENTATIVE
+            and self.miss_count > 3
+            or self.state == TrackState.LOST
+            and self.miss_count > 30
+        ):
             self.state = TrackState.DELETED
 
     def is_valid(self) -> bool:
@@ -369,10 +374,7 @@ class ObjectTracker:
 
         # Size compatibility
         size_ratio = detection.radius / track.average_radius
-        if size_ratio < 0.5 or size_ratio > 2.0:
-            return False
-
-        return True
+        return not (size_ratio < 0.5 or size_ratio > 2.0)
 
     def _create_new_track(self, detection: Ball, frame_number: int) -> None:
         """Create new track from detection."""

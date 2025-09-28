@@ -25,7 +25,7 @@ import numpy as np
 
 # Import configuration types
 try:
-    from ..config.models.schemas import (
+    from backend.config.models.schemas import (
         CameraBackend,
         CameraSettings,
         ExposureMode,

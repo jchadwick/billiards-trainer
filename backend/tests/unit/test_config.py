@@ -4,7 +4,6 @@ from unittest.mock import patch
 
 import pytest
 import yaml
-
 from config.loader.env import EnvironmentLoader
 from config.loader.file import FileLoader
 from config.manager import ConfigurationModule
@@ -12,7 +11,7 @@ from config.storage.persistence import PersistenceManager
 from config.validator.schema import SchemaValidator
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestConfigurationModule:
     """Test the main configuration module."""
 
@@ -101,7 +100,7 @@ class TestConfigurationModule:
         assert saved_config["table"]["width"] == 2.84
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestSchemaValidator:
     """Test the schema validator."""
 
@@ -140,7 +139,7 @@ class TestSchemaValidator:
         validator.validate_physics(valid_physics)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestFileLoader:
     """Test the file loader."""
 
@@ -191,7 +190,7 @@ class TestFileLoader:
             loader.load(str(config_file))
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestEnvironmentLoader:
     """Test the environment variable loader."""
 
@@ -241,7 +240,7 @@ class TestEnvironmentLoader:
             assert isinstance(config["api"]["cors_origins"], list)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestPersistenceManager:
     """Test the persistence manager."""
 
@@ -315,7 +314,7 @@ class TestPersistenceManager:
         assert restored_data["camera"]["device_id"] == 0
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestConfigSchema:
     """Test the configuration schema."""
 

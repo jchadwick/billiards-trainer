@@ -418,3 +418,25 @@ def get_rate_limit_status(client_ip: str) -> dict:
         "hour_used": hour_used,
         "hour_remaining": _rate_limiter.config.requests_per_hour - hour_used,
     }
+
+
+def rate_limit(requests_per_minute: int = 60, burst_size: int = 10):
+    """Decorator for applying rate limiting to individual endpoints.
+
+    Args:
+        requests_per_minute: Maximum requests per minute for this endpoint
+        burst_size: Maximum burst size for this endpoint
+
+    Returns:
+        Decorator function
+    """
+
+    def decorator(func):
+        # Store rate limit metadata on the function
+        func._rate_limit_config = {
+            "requests_per_minute": requests_per_minute,
+            "burst_size": burst_size,
+        }
+        return func
+
+    return decorator

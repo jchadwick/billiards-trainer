@@ -7,17 +7,17 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from ..main import create_app
+from backend.api.main import create_app
 
 
-@pytest.fixture()
+@pytest.fixture
 def client():
     """Create test client."""
     app = create_app()
     return TestClient(app)
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_core_module():
     """Mock core module for testing."""
     mock_core = Mock()
@@ -25,13 +25,13 @@ def mock_core_module():
     return mock_core
 
 
-@pytest.fixture()
+@pytest.fixture
 def mock_user():
     """Mock authenticated user."""
     return {"user_id": "test_user", "username": "testuser", "role": "operator"}
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_calibration_session():
     """Sample calibration session data."""
     return {
@@ -770,7 +770,7 @@ class TestCalibrationEndpoints:
 
     def test_calibration_math_calculate_accuracy(self):
         """Test calibration math accuracy calculation."""
-        from ..routes.calibration import CalibrationMath
+        from backend.api.routes.calibration import CalibrationMath
 
         # Test with empty points
         result = CalibrationMath.calculate_accuracy([])
@@ -787,7 +787,7 @@ class TestCalibrationEndpoints:
 
     def test_calibration_math_calculate_homography(self):
         """Test calibration math homography calculation."""
-        from ..routes.calibration import CalibrationMath
+        from backend.api.routes.calibration import CalibrationMath
 
         src_points = [(0, 0), (100, 0), (100, 100), (0, 100)]
         dst_points = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]

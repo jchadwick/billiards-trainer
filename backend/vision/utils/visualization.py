@@ -10,7 +10,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from ..detection.table import (
+from backend.vision.detection.table import (
     Pocket,
     PocketType,
     TableCorners,

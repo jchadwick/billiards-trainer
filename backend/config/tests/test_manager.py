@@ -15,13 +15,13 @@ from backend.config.models.schemas import ConfigSource
 class TestConfigurationModule:
     """Test suite for ConfigurationModule."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def temp_config_dir(self):
         """Create a temporary directory for testing."""
         with tempfile.TemporaryDirectory() as temp_dir:
             yield Path(temp_dir)
 
-    @pytest.fixture()
+    @pytest.fixture
     def config_module(self, temp_config_dir):
         """Create a ConfigurationModule instance for testing."""
         return ConfigurationModule(config_dir=temp_config_dir)

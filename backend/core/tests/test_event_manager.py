@@ -9,13 +9,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from ..events.manager import EventManager
+from backend.core.events.manager import EventManager
 
 
 class TestEventManager:
     """Test suite for EventManager."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def event_manager(self):
         """Create a fresh EventManager for each test."""
         return EventManager()

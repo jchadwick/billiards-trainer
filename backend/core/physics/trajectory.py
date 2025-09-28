@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from ..game_state import BallState, CueState, TableState, Vector2D
-from ..utils.cache import CacheManager
-from ..utils.geometry import GeometryUtils
-from ..utils.math import MathUtils
+from backend.core.game_state import BallState, CueState, TableState, Vector2D
+from backend.core.utils.cache import CacheManager
+from backend.core.utils.geometry import GeometryUtils
+from backend.core.utils.math import MathUtils
 
 
 class CollisionType(Enum):
@@ -178,15 +178,12 @@ class TrajectoryOptimizer:
             return True
 
         # Terminate if ball is off table (using proper table coordinates 0 to width/height)
-        if (
+        return bool(
             ball.position.x < 0
             or ball.position.x > table.width
             or ball.position.y < 0
             or ball.position.y > table.height
-        ):
-            return True
-
-        return False
+        )
 
 
 class TrajectoryCalculator:

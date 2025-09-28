@@ -2,9 +2,9 @@
 
 import unittest
 
-from ...models import BallState, TableState, Vector2D
-from ..engine import PhysicsConstants, PhysicsEngine
-from ..forces import ForceCalculator
+from backend.core.models import BallState, TableState, Vector2D
+from backend.core.physics.engine import PhysicsConstants, PhysicsEngine
+from backend.core.physics.forces import ForceCalculator
 
 
 class TestPhysicsEngine(unittest.TestCase):

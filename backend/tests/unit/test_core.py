@@ -13,7 +13,7 @@ from core.utils.geometry import angle_between_points, distance, normalize_vector
 from core.utils.math import clamp, lerp
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBall:
     """Test the Ball model."""
 
@@ -65,7 +65,7 @@ class TestBall:
         assert abs(ball.speed - math.sqrt(5)) < 1e-6
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestTable:
     """Test the Table model."""
 
@@ -113,7 +113,7 @@ class TestTable:
         assert abs(distance - 0.1) < 1e-6
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGameState:
     """Test the GameState model."""
 
@@ -160,7 +160,7 @@ class TestGameState:
         assert mock_game_state.balls_in_motion()
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestShot:
     """Test the Shot model."""
 
@@ -185,7 +185,7 @@ class TestShot:
         assert isinstance(duration, float)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGameStateManager:
     """Test the game state manager."""
 
@@ -246,7 +246,7 @@ class TestGameStateManager:
         assert manager.current_state.current_player != initial_player
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestPhysicsEngine:
     """Test the physics engine."""
 
@@ -368,7 +368,7 @@ class TestPhysicsEngine:
         assert cue_ball.x != initial_x or cue_ball.y != initial_y
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestShotPredictor:
     """Test the shot predictor."""
 
@@ -417,7 +417,7 @@ class TestShotPredictor:
         assert -180 <= angle <= 180
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestShotAssistant:
     """Test the shot assistant."""
 
@@ -464,7 +464,7 @@ class TestShotAssistant:
             assert hasattr(best_shot, "force")
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGeometryUtils:
     """Test geometry utility functions."""
 
@@ -509,7 +509,7 @@ class TestGeometryUtils:
         assert not point_in_polygon(1, 3, polygon)  # Outside
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestMathUtils:
     """Test math utility functions."""
 
@@ -534,7 +534,7 @@ class TestMathUtils:
         assert abs(normalize_angle(180) - 180) < 1e-6
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestEventManager:
     """Test the event manager."""
 

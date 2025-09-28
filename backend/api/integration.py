@@ -21,9 +21,9 @@ from functools import wraps
 from typing import Any, Callable, Optional
 
 # Backend module imports
-from ..config import ConfigurationModule
-from ..core import CoreModule, CoreModuleConfig
-from ..vision import VisionModule
+from backend.config import ConfigurationModule
+from backend.core import CoreModule, CoreModuleConfig
+from backend.vision import VisionModule
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -170,7 +170,7 @@ class APIIntegration:
         except Exception as e:
             logger.error(f"Failed to start API Integration: {e}")
             await self.shutdown()
-            raise IntegrationError(f"Startup failed: {e}")
+            raise IntegrationError(f"Startup failed: {e}") from e
 
     async def shutdown(self) -> None:
         """Shutdown sequence for the integration layer.
@@ -237,7 +237,7 @@ class APIIntegration:
 
         except Exception as e:
             logger.error(f"Module initialization failed: {e}")
-            raise IntegrationError(f"Module initialization failed: {e}")
+            raise IntegrationError(f"Module initialization failed: {e}") from e
 
     async def _initialize_services(self) -> None:
         """Initialize service layer."""

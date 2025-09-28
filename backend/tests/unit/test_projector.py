@@ -15,7 +15,7 @@ from projector.rendering.opengl.textures import TextureManager
 from projector.utils.math import create_projection_matrix, transform_point
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestProjectorState:
     """Test the projector state model."""
 
@@ -80,7 +80,7 @@ class TestProjectorState:
         assert new_state.brightness == state.brightness
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestRenderObject:
     """Test the render object model."""
 
@@ -160,7 +160,7 @@ class TestRenderObject:
         assert not obj1.overlaps(obj3)  # Distant objects don't overlap
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestOverlay:
     """Test the overlay model."""
 
@@ -236,7 +236,7 @@ class TestOverlay:
         assert lines[0] == line
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestOpenGLRenderer:
     """Test the OpenGL renderer."""
 
@@ -383,7 +383,7 @@ class TestOpenGLRenderer:
         assert "objects_rendered" in stats
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestShaderManager:
     """Test the shader manager."""
 
@@ -452,7 +452,7 @@ class TestShaderManager:
         mock_program.__setitem__.assert_called_with("resolution", (1920, 1080))
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestTextureManager:
     """Test the texture manager."""
 
@@ -526,7 +526,7 @@ class TestTextureManager:
         mock_texture.release.assert_called()
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGeometryCalibrator:
     """Test the geometry calibrator."""
 
@@ -618,7 +618,7 @@ class TestGeometryCalibrator:
         assert len(new_calibrator.calibration_points) == 2
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestProjectorColorCalibrator:
     """Test the projector color calibrator."""
 
@@ -680,7 +680,7 @@ class TestProjectorColorCalibrator:
         assert gamma_corrected != original_color
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestProjectorMath:
     """Test projector math utilities."""
 
@@ -759,7 +759,7 @@ class TestProjectorMath:
         assert not point_in_frustum((0, 0, -15), near=1, far=10)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestProjectorConfigManager:
     """Test the projector configuration manager."""
 

@@ -20,8 +20,9 @@ from pathlib import Path
 # Add backend to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import ConfigurationModule
 from config.models.schemas import ConfigChange, ConfigSource, ConfigValue
+
+from config import ConfigurationModule
 
 # Configure logging
 logging.basicConfig(

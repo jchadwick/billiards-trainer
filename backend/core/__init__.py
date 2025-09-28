@@ -28,6 +28,8 @@ from .physics.trajectory import TrajectoryCalculator
 from .utils.cache import CalculationCache
 from .utils.geometry import GeometryUtils
 from .utils.math import MathUtils
+from .validation.physics import PhysicsValidator
+from .validation.state import StateValidator, ValidationResult
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -47,6 +49,15 @@ class CoreModuleConfig:
     performance_monitoring: bool = True
     async_processing: bool = True
     debug_mode: bool = False
+
+    # Physics validation settings
+    physics_validation_enabled: bool = True
+    detailed_validation: bool = True
+    conservation_checks: bool = True
+    energy_tolerance: float = 0.05
+    momentum_tolerance: float = 0.01
+    max_velocity: float = 20.0
+    max_acceleration: float = 100.0
 
 
 @dataclass
@@ -135,6 +146,20 @@ class CoreModule:
             # Utility components
             self.geometry_utils = GeometryUtils()
             self.math_utils = MathUtils()
+
+            # Validation components
+            if self.config.physics_validation_enabled:
+                validation_config = {
+                    "detailed_validation": self.config.detailed_validation,
+                    "conservation_checks": self.config.conservation_checks,
+                    "energy_tolerance": self.config.energy_tolerance,
+                    "momentum_tolerance": self.config.momentum_tolerance,
+                    "max_velocity": self.config.max_velocity,
+                    "max_acceleration": self.config.max_acceleration,
+                }
+                self.physics_validator = PhysicsValidator(validation_config)
+            else:
+                self.physics_validator = None
 
             logger.info("All core components initialized successfully")
 
@@ -475,36 +500,246 @@ class CoreModule:
             return {"valid": False, "issues": ["No current game state available"]}
 
         try:
-            # Basic validation checks
             issues = []
+            warnings = []
 
-            # Check ball positions
-            for ball in self._current_state.balls:
-                if ball.position.x < 0 or ball.position.y < 0:
-                    issues.append(f"Ball {ball.id} has invalid position")
+            # Use physics validator if available
+            if self.physics_validator:
+                validation_result = self.physics_validator.validate_system_state(
+                    self._current_state.balls, self._current_state.table
+                )
 
-                if ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
-                    issues.append(f"Ball {ball.id} has unrealistic velocity")
+                # Convert validation errors to issues
+                for error in validation_result.errors:
+                    if error.severity in ["error", "critical"]:
+                        issues.append(f"{error.error_type}: {error.message}")
+                    else:
+                        warnings.append(f"{error.error_type}: {error.message}")
 
-            # Check table bounds
-            table = self._current_state.table
-            if table.width <= 0 or table.height <= 0:
-                issues.append("Invalid table dimensions")
+                for warning in validation_result.warnings:
+                    warnings.append(f"{warning.error_type}: {warning.message}")
 
-            # Check for ball overlaps
-            ball_overlaps = self._check_ball_overlaps()
-            if ball_overlaps:
-                issues.extend(ball_overlaps)
+                return {
+                    "valid": validation_result.is_valid,
+                    "issues": issues,
+                    "warnings": warnings,
+                    "confidence": validation_result.confidence,
+                    "timestamp": self._current_state.timestamp,
+                    "detailed_validation": True,
+                }
+            else:
+                # Fallback to basic validation
+                # Check ball positions
+                for ball in self._current_state.balls:
+                    if ball.position.x < 0 or ball.position.y < 0:
+                        issues.append(f"Ball {ball.id} has invalid position")
 
-            return {
-                "valid": len(issues) == 0,
-                "issues": issues,
-                "timestamp": self._current_state.timestamp,
-            }
+                    if ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
+                        issues.append(f"Ball {ball.id} has unrealistic velocity")
+
+                # Check table bounds
+                table = self._current_state.table
+                if table.width <= 0 or table.height <= 0:
+                    issues.append("Invalid table dimensions")
+
+                # Check for ball overlaps
+                ball_overlaps = self._check_ball_overlaps()
+                if ball_overlaps:
+                    issues.extend(ball_overlaps)
+
+                return {
+                    "valid": len(issues) == 0,
+                    "issues": issues,
+                    "warnings": [],
+                    "confidence": 1.0 if len(issues) == 0 else 0.5,
+                    "timestamp": self._current_state.timestamp,
+                    "detailed_validation": False,
+                }
 
         except Exception as e:
             logger.error(f"State validation failed: {e}")
-            return {"valid": False, "issues": [f"Validation error: {e}"]}
+            return {
+                "valid": False,
+                "issues": [f"Validation error: {e}"],
+                "warnings": [],
+                "confidence": 0.0,
+                "timestamp": (
+                    self._current_state.timestamp if self._current_state else 0.0
+                ),
+                "detailed_validation": False,
+            }
+
+    async def validate_trajectory(
+        self,
+        ball_id: str,
+        initial_velocity: Vector2D,
+        time_limit: Optional[float] = None,
+    ) -> ValidationResult:
+        """Validate a predicted trajectory for physics consistency.
+
+        Args:
+            ball_id: ID of the ball to validate trajectory for
+            initial_velocity: Initial velocity vector
+            time_limit: Maximum simulation time
+
+        Returns:
+            ValidationResult with detailed trajectory validation
+
+        Raises:
+            CoreModuleError: If validation fails
+        """
+        if not self.physics_validator:
+            raise CoreModuleError("Physics validation is disabled")
+
+        if not self._current_state:
+            raise CoreModuleError("No current game state available")
+
+        try:
+            # Calculate trajectory first
+            trajectory_points = await self.calculate_trajectory(
+                ball_id, initial_velocity, time_limit
+            )
+
+            # Convert to TrajectoryPoint format for validation
+            from .physics.engine import TrajectoryPoint
+
+            trajectory_for_validation = []
+            time_step = (time_limit or self.config.max_trajectory_time) / max(
+                1, len(trajectory_points) - 1
+            )
+
+            for i, position in enumerate(trajectory_points):
+                trajectory_for_validation.append(
+                    TrajectoryPoint(
+                        time=i * time_step,
+                        position=position,
+                        velocity=Vector2D(0, 0),  # Simplified for now
+                    )
+                )
+
+            # Validate the trajectory
+            return self.physics_validator.validate_trajectory(trajectory_for_validation)
+
+        except Exception as e:
+            logger.error(f"Trajectory validation failed: {e}")
+            raise CoreModuleError(f"Trajectory validation failed: {e}")
+
+    async def validate_collision(
+        self, collision: Collision, ball1_id: str, ball2_id: Optional[str] = None
+    ) -> ValidationResult:
+        """Validate a collision for physics consistency.
+
+        Args:
+            collision: Collision object to validate
+            ball1_id: ID of first ball involved
+            ball2_id: ID of second ball (None for cushion/pocket collisions)
+
+        Returns:
+            ValidationResult with detailed collision validation
+
+        Raises:
+            CoreModuleError: If validation fails
+        """
+        if not self.physics_validator:
+            raise CoreModuleError("Physics validation is disabled")
+
+        if not self._current_state:
+            raise CoreModuleError("No current game state available")
+
+        try:
+            # Get ball states
+            ball1 = self._get_ball_by_id(ball1_id)
+            ball2 = self._get_ball_by_id(ball2_id) if ball2_id else None
+
+            if not ball1:
+                raise CoreModuleError(f"Ball {ball1_id} not found")
+
+            if ball2_id and not ball2:
+                raise CoreModuleError(f"Ball {ball2_id} not found")
+
+            # Validate the collision
+            return self.physics_validator.validate_collision(collision, ball1, ball2)
+
+        except Exception as e:
+            logger.error(f"Collision validation failed: {e}")
+            raise CoreModuleError(f"Collision validation failed: {e}")
+
+    async def validate_conservation_laws(
+        self, before_states: list[BallState], after_states: list[BallState]
+    ) -> dict[str, ValidationResult]:
+        """Validate energy and momentum conservation laws.
+
+        Args:
+            before_states: Ball states before interaction
+            after_states: Ball states after interaction
+
+        Returns:
+            Dictionary with energy and momentum validation results
+
+        Raises:
+            CoreModuleError: If validation fails
+        """
+        if not self.physics_validator:
+            raise CoreModuleError("Physics validation is disabled")
+
+        try:
+            results = {}
+
+            # Validate energy conservation
+            results["energy"] = self.physics_validator.validate_energy_conservation(
+                before_states, after_states
+            )
+
+            # Validate momentum conservation
+            results["momentum"] = self.physics_validator.validate_momentum_conservation(
+                before_states, after_states
+            )
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Conservation law validation failed: {e}")
+            raise CoreModuleError(f"Conservation law validation failed: {e}")
+
+    def get_validation_summary(self) -> dict[str, Any]:
+        """Get a summary of physics validation system status.
+
+        Returns:
+            Dictionary with validation system information
+        """
+        return {
+            "validation_enabled": self.physics_validator is not None,
+            "detailed_validation": (
+                self.physics_validator.detailed_validation
+                if self.physics_validator
+                else False
+            ),
+            "conservation_checks": (
+                self.physics_validator.conservation_checks
+                if self.physics_validator
+                else False
+            ),
+            "tolerances": (
+                {
+                    "energy": self.physics_validator.energy_tolerance,
+                    "momentum": self.physics_validator.momentum_tolerance,
+                    "velocity": self.physics_validator.velocity_tolerance,
+                    "position": self.physics_validator.position_tolerance,
+                }
+                if self.physics_validator
+                else {}
+            ),
+            "limits": (
+                {
+                    "max_velocity": self.physics_validator.max_velocity,
+                    "max_acceleration": self.physics_validator.max_acceleration,
+                    "max_spin": self.physics_validator.max_spin,
+                    "max_force": self.physics_validator.max_force,
+                }
+                if self.physics_validator
+                else {}
+            ),
+        }
 
     def get_current_state(self) -> Optional[GameState]:
         """Get the current game state."""
@@ -684,4 +919,7 @@ __all__ = [
     "ShotAnalysis",
     "Vector2D",
     "Collision",
+    "PhysicsValidator",
+    "StateValidator",
+    "ValidationResult",
 ]

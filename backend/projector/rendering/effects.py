@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
-from ...core.game_state import Vector2D
-from ...core.physics.trajectory import (
+from backend.core.game_state import Vector2D
+from backend.core.physics.trajectory import (
     CollisionType,
     PredictedCollision,
     Trajectory,

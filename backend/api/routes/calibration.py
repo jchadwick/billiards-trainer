@@ -17,17 +17,17 @@ from typing import Any, Optional
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from ..dependencies import (
+from backend.api.dependencies import (
     dev_admin_required,
     dev_operator_required,
     get_core_module,
 )
-from ..models.common import (
+from backend.api.models.common import (
     ErrorCode,
     create_error_response,
     create_success_response,
 )
-from ..models.responses import (
+from backend.api.models.responses import (
     CalibrationApplyResponse,
     CalibrationPointResponse,
     CalibrationSession,
@@ -37,7 +37,7 @@ from ..models.responses import (
 )
 
 try:
-    from ...core import CoreModule
+    from backend.core import CoreModule
 except ImportError:
     from core import CoreModule
 
