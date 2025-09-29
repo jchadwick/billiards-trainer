@@ -390,12 +390,14 @@ async def run_performance_benchmark() -> list[PerformanceBenchmark]:
                 duration=cpu_duration,
                 passed=cpu_score >= 70,
                 issues=[] if cpu_score >= 70 else ["High CPU usage detected"],
-                recommendations=[]
-                if cpu_score >= 70
-                else [
-                    "Close unnecessary applications",
-                    "Check for background processes",
-                ],
+                recommendations=(
+                    []
+                    if cpu_score >= 70
+                    else [
+                        "Close unnecessary applications",
+                        "Check for background processes",
+                    ]
+                ),
             )
         )
 
@@ -420,9 +422,14 @@ async def run_performance_benchmark() -> list[PerformanceBenchmark]:
                 duration=memory_duration,
                 passed=memory_score >= 60,
                 issues=[] if memory_score >= 60 else ["High memory usage detected"],
-                recommendations=[]
-                if memory_score >= 60
-                else ["Close memory-intensive applications", "Consider upgrading RAM"],
+                recommendations=(
+                    []
+                    if memory_score >= 60
+                    else [
+                        "Close memory-intensive applications",
+                        "Consider upgrading RAM",
+                    ]
+                ),
             )
         )
 
@@ -440,9 +447,11 @@ async def run_performance_benchmark() -> list[PerformanceBenchmark]:
                 duration=disk_duration,
                 passed=disk_score >= 70,
                 issues=[] if disk_score >= 70 else ["Slow disk performance detected"],
-                recommendations=[]
-                if disk_score >= 70
-                else ["Consider SSD upgrade", "Check disk health"],
+                recommendations=(
+                    []
+                    if disk_score >= 70
+                    else ["Consider SSD upgrade", "Check disk health"]
+                ),
             )
         )
 

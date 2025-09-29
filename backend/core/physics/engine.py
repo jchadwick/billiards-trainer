@@ -333,9 +333,11 @@ class PhysicsEngine:
                         velocity=Vector2D(
                             current_ball.velocity.x, current_ball.velocity.y
                         ),
-                        collision_type=first_collision.collision_type.value
-                        if hasattr(first_collision, "collision_type")
-                        else first_collision.type,
+                        collision_type=(
+                            first_collision.collision_type.value
+                            if hasattr(first_collision, "collision_type")
+                            else first_collision.type
+                        ),
                     )
                 )
 

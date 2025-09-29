@@ -207,7 +207,7 @@ class ColorUtils:
 
     @staticmethod
     def get_complementary_color(
-        color: tuple[int, int, int, int]
+        color: tuple[int, int, int, int],
     ) -> tuple[int, int, int, int]:
         """Get complementary color.
 
@@ -228,7 +228,7 @@ class ColorUtils:
 
     @staticmethod
     def get_triadic_colors(
-        color: tuple[int, int, int, int]
+        color: tuple[int, int, int, int],
     ) -> list[tuple[int, int, int, int]]:
         """Get triadic color scheme.
 
@@ -542,7 +542,7 @@ def create_fade_effect(
 
 
 def get_high_contrast_text_color(
-    background: tuple[int, int, int, int]
+    background: tuple[int, int, int, int],
 ) -> tuple[int, int, int, int]:
     """Get high contrast text color for given background.
 

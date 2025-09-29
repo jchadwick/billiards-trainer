@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .camera import CameraCalibrator, CameraParameters
 from .color import ColorCalibrator, ColorProfile
 from .geometry import GeometricCalibration, GeometricCalibrator
 from .validation import CalibrationReport, CalibrationValidator
+from ..utils.performance import PerformanceTimer
 
 logger = logging.getLogger(__name__)
 
