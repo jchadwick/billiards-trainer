@@ -1,10 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DashboardLayout } from "../components/monitoring/DashboardLayout";
+import { DiagnosticsSystem } from "../components/diagnostics/DiagnosticsSystem";
 
 export const Route = createFileRoute("/diagnostics")({
   component: RouteComponent,
 });
 
 function RouteComponent() {
-  return <DashboardLayout />;
+  return <DiagnosticsSystem />;
 }

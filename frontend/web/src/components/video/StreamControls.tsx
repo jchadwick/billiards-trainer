@@ -36,7 +36,7 @@ export const StreamControls = observer<StreamControlsProps>(({
   // Connection controls
   const handleConnect = useCallback(async () => {
     try {
-      await videoStore.connect('http://localhost:8000');
+      await videoStore.connect('http://localhost:8080');
     } catch (error) {
       console.error('Failed to connect:', error);
     }

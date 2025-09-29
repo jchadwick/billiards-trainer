@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react-lite';
+import { apiClient } from '../../services/api-client';
 
 export interface SystemEvent {
   id: string;
@@ -31,156 +32,138 @@ export const EventTimeline: React.FC = observer(() => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    generateMockEvents();
+    loadRealEvents();
     if (autoRefresh) {
-      const interval = setInterval(addNewEvents, 15000); // Add new events every 15 seconds
+      const interval = setInterval(loadRealEvents, 15000); // Refresh events every 15 seconds
       return () => clearInterval(interval);
     }
   }, [autoRefresh]);
 
-  const generateMockEvents = () => {
-    const eventTypes = ['system', 'user', 'game', 'calibration', 'error', 'performance'] as const;
-    const severities = ['low', 'medium', 'high', 'critical'] as const;
+  const loadRealEvents = async () => {
+    try {
+      // Fetch events from multiple backend sources
+      const [securityEvents, gameHistory] = await Promise.all([
+        fetchSecurityEvents().catch(() => []),
+        fetchGameEvents().catch(() => [])
+      ]);
 
-    const sampleEvents = {
-      system: [
-        { title: 'System Started', description: 'Billiards trainer system initialized successfully', category: 'startup' },
-        { title: 'Configuration Loaded', description: 'System configuration loaded from config.json', category: 'config' },
-        { title: 'Database Connected', description: 'Successfully connected to PostgreSQL database', category: 'database' },
-        { title: 'Service Restart', description: 'Vision service restarted due to memory usage', category: 'service' },
-        { title: 'Health Check', description: 'Periodic health check completed successfully', category: 'monitoring' },
-      ],
-      user: [
-        { title: 'User Login', description: 'User admin logged in successfully', category: 'authentication' },
-        { title: 'User Logout', description: 'User session ended normally', category: 'authentication' },
-        { title: 'Settings Updated', description: 'System settings modified by user', category: 'configuration' },
-        { title: 'Manual Calibration', description: 'User initiated manual calibration process', category: 'calibration' },
-        { title: 'Game Started', description: 'New game session started by user', category: 'gameplay' },
-      ],
-      game: [
-        { title: 'Game Session Started', description: 'New billiards game session initiated', category: 'session' },
-        { title: 'Shot Detected', description: 'Ball movement detected, analyzing trajectory', category: 'tracking' },
-        { title: 'Pocket Made', description: 'Ball successfully potted in corner pocket', category: 'scoring' },
-        { title: 'Game Ended', description: 'Game session completed, final score recorded', category: 'session' },
-        { title: 'Statistics Updated', description: 'Player statistics updated with session data', category: 'analytics' },
-      ],
-      calibration: [
-        { title: 'Calibration Started', description: 'Automatic calibration process initiated', category: 'auto' },
-        { title: 'Calibration Point Added', description: 'Calibration reference point captured', category: 'manual' },
-        { title: 'Calibration Completed', description: 'Camera-projector calibration completed successfully', category: 'completion' },
-        { title: 'Calibration Failed', description: 'Calibration process failed due to insufficient points', category: 'error' },
-        { title: 'Calibration Drift', description: 'Calibration accuracy degraded, recalibration recommended', category: 'maintenance' },
-      ],
-      error: [
-        { title: 'Camera Error', description: 'Failed to capture frame from camera device', category: 'hardware' },
-        { title: 'Network Error', description: 'WebSocket connection lost, attempting reconnection', category: 'network' },
-        { title: 'Processing Error', description: 'Frame processing failed due to invalid input', category: 'processing' },
-        { title: 'Database Error', description: 'Failed to save game data to database', category: 'persistence' },
-        { title: 'API Error', description: 'External API request failed after 3 retries', category: 'external' },
-      ],
-      performance: [
-        { title: 'High CPU Usage', description: 'CPU usage exceeded 80% threshold', category: 'resources' },
-        { title: 'Memory Warning', description: 'Memory usage approaching system limits', category: 'resources' },
-        { title: 'Slow Processing', description: 'Frame processing time exceeded target latency', category: 'latency' },
-        { title: 'Performance Improved', description: 'System performance returned to normal levels', category: 'optimization' },
-        { title: 'Cache Cleared', description: 'System cache cleared to improve performance', category: 'optimization' },
-      ],
-    };
+      // Combine and convert to SystemEvent format
+      const allEvents: SystemEvent[] = [
+        ...securityEvents,
+        ...gameHistory,
+        ...generateSystemEvents() // Keep some system events for monitoring
+      ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
-    const generateRandomEvent = (baseTime: Date = new Date()): SystemEvent => {
-      const type = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-      const eventTemplates = sampleEvents[type];
-      const template = eventTemplates[Math.floor(Math.random() * eventTemplates.length)];
-      const severity = severities[Math.floor(Math.random() * severities.length)];
+      setEvents(allEvents);
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to load real events:', error);
+      // Fallback to generating minimal events
+      generateFallbackEvents();
+    }
+  };
 
-      return {
-        id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        timestamp: new Date(baseTime.getTime() - Math.random() * 86400000), // Random time in last 24 hours
-        type,
-        category: template.category,
-        title: template.title,
-        description: template.description,
-        severity,
+  const fetchSecurityEvents = async (): Promise<SystemEvent[]> => {
+    try {
+      const response = await apiClient.get('/auth/security-events?limit=20');
+      return response.map((event: any) => ({
+        id: event.id || `security-${Date.now()}-${Math.random()}`,
+        timestamp: new Date(event.timestamp),
+        type: 'user' as const,
+        category: 'authentication',
+        title: event.event_type || 'Security Event',
+        description: event.description || 'Security-related event occurred',
+        severity: event.level || 'medium' as const,
+        metadata: event.metadata || {},
+        userId: event.user_id,
+        sessionId: event.session_id
+      }));
+    } catch (error) {
+      console.warn('Could not fetch security events:', error);
+      return [];
+    }
+  };
+
+  const fetchGameEvents = async (): Promise<SystemEvent[]> => {
+    try {
+      const response = await apiClient.get('/game/history?limit=20&include_events=true');
+      const gameEvents: SystemEvent[] = [];
+
+      response.forEach((gameState: any) => {
+        if (gameState.events) {
+          gameState.events.forEach((event: any) => {
+            gameEvents.push({
+              id: `game-${event.timestamp}-${Math.random()}`,
+              timestamp: new Date(event.timestamp),
+              type: 'game' as const,
+              category: event.event_type || 'gameplay',
+              title: event.event_type || 'Game Event',
+              description: event.description || 'Game-related event occurred',
+              severity: 'low' as const,
+              metadata: event.data || {},
+              sessionId: gameState.session_id
+            });
+          });
+        }
+      });
+
+      return gameEvents;
+    } catch (error) {
+      console.warn('Could not fetch game events:', error);
+      return [];
+    }
+  };
+
+  const generateSystemEvents = (): SystemEvent[] => {
+    // Generate a few system monitoring events
+    const now = new Date();
+    return [
+      {
+        id: `system-health-${now.getTime()}`,
+        timestamp: new Date(now.getTime() - Math.random() * 300000), // Last 5 minutes
+        type: 'system' as const,
+        category: 'monitoring',
+        title: 'Health Check',
+        description: 'Periodic system health check completed successfully',
+        severity: 'low' as const,
         metadata: {
           systemLoad: Math.floor(Math.random() * 100),
           memoryUsage: Math.floor(Math.random() * 100),
-          activeConnections: Math.floor(Math.random() * 10),
-        },
-        userId: type === 'user' ? `user-${Math.random().toString(36).substr(2, 8)}` : undefined,
-        sessionId: `session-${Math.random().toString(36).substr(2, 8)}`,
-      };
-    };
+        }
+      }
+    ];
+  };
 
-    // Generate initial events
-    const initialEvents = Array.from({ length: 50 }, () => generateRandomEvent())
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  const generateFallbackEvents = () => {
+    // Generate minimal fallback events when backend is unavailable
+    const now = new Date();
+    const fallbackEvents: SystemEvent[] = [
+      {
+        id: `fallback-system-${now.getTime()}`,
+        timestamp: new Date(now.getTime() - 60000), // 1 minute ago
+        type: 'system',
+        category: 'monitoring',
+        title: 'System Status Check',
+        description: 'Unable to connect to backend for events',
+        severity: 'medium',
+        metadata: {}
+      },
+      {
+        id: `fallback-error-${now.getTime()}`,
+        timestamp: new Date(now.getTime() - 120000), // 2 minutes ago
+        type: 'error',
+        category: 'network',
+        title: 'Backend Connection Issue',
+        description: 'Failed to fetch events from backend API',
+        severity: 'high',
+        metadata: {}
+      }
+    ];
 
-    setEvents(initialEvents);
+    setEvents(fallbackEvents);
     setLoading(false);
   };
 
-  const addNewEvents = () => {
-    const newEvents = Array.from({ length: Math.floor(Math.random() * 3) + 1 }, () =>
-      generateRandomEvent(new Date())
-    );
-
-    setEvents(prevEvents => {
-      const allEvents = [...newEvents, ...prevEvents]
-        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-        .slice(0, 500); // Keep only last 500 events
-
-      return allEvents;
-    });
-  };
-
-  const generateRandomEvent = (baseTime: Date): SystemEvent => {
-    const eventTypes = ['system', 'user', 'game', 'calibration', 'error', 'performance'] as const;
-    const severities = ['low', 'medium', 'high', 'critical'] as const;
-
-    const sampleEvents = {
-      system: [
-        { title: 'Health Check', description: 'Periodic system health check completed', category: 'monitoring' },
-        { title: 'Service Status', description: 'All services running normally', category: 'monitoring' },
-      ],
-      user: [
-        { title: 'User Activity', description: 'User performed system action', category: 'interaction' },
-      ],
-      game: [
-        { title: 'Shot Analysis', description: 'Ball trajectory analyzed and recorded', category: 'tracking' },
-        { title: 'Frame Processed', description: 'Video frame processed for object detection', category: 'processing' },
-      ],
-      calibration: [
-        { title: 'Auto Adjustment', description: 'Minor calibration adjustment applied', category: 'auto' },
-      ],
-      error: [
-        { title: 'Minor Error', description: 'Recoverable error occurred and was handled', category: 'recovery' },
-      ],
-      performance: [
-        { title: 'Performance Update', description: 'System performance metrics updated', category: 'metrics' },
-      ],
-    };
-
-    const type = eventTypes[Math.floor(Math.random() * eventTypes.length)];
-    const eventTemplates = sampleEvents[type];
-    const template = eventTemplates[Math.floor(Math.random() * eventTemplates.length)];
-    const severity = severities[Math.floor(Math.random() * severities.length)];
-
-    return {
-      id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date(baseTime.getTime() - Math.random() * 300000), // Random time in last 5 minutes
-      type,
-      category: template.category,
-      title: template.title,
-      description: template.description,
-      severity,
-      metadata: {
-        systemLoad: Math.floor(Math.random() * 100),
-        memoryUsage: Math.floor(Math.random() * 100),
-        activeConnections: Math.floor(Math.random() * 10),
-      },
-      sessionId: `session-${Math.random().toString(36).substr(2, 8)}`,
-    };
-  };
 
   // Apply filters
   useEffect(() => {

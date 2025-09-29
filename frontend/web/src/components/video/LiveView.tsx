@@ -64,7 +64,7 @@ const defaultOverlayConfig: OverlayConfig = {
 export const LiveView = observer<LiveViewProps>(({
   className = '',
   autoConnect = true,
-  baseUrl = 'http://localhost:8000',
+  baseUrl = 'http://localhost:8080',
 }) => {
   const [videoStore] = useState(() => new VideoStore());
   const [containerSize, setContainerSize] = useState<Size2D>({ width: 0, height: 0 });

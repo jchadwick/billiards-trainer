@@ -11,8 +11,9 @@ Supports the following requirements:
 - FR-CFG-005: Support configuration inheritance and overrides
 """
 
+from .cli import CLILoader
 from .env import EnvironmentLoader
 from .file import FileLoader
 from .merger import ConfigurationMerger
 
-__all__ = ["FileLoader", "EnvironmentLoader", "ConfigurationMerger"]
+__all__ = ["FileLoader", "EnvironmentLoader", "CLILoader", "ConfigurationMerger"]

@@ -16,6 +16,41 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Try to import rendering modules, use fallbacks if not available
+try:
+    from ..rendering.renderer import Color, Colors, Point2D
+except ImportError:
+    # Create fallback classes for testing
+    class Color:
+        def __init__(self, r, g, b, a=1.0):
+            self.r = r
+            self.g = g
+            self.b = b
+            self.a = a
+
+        def with_alpha(self, alpha):
+            return Color(self.r, self.g, self.b, alpha)
+
+        def to_dict(self):
+            return {"r": self.r, "g": self.g, "b": self.b, "a": self.a}
+
+    class Point2D:
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+        def to_tuple(self):
+            return (self.x, self.y)
+
+    class Colors:
+        RED = Color(1.0, 0.0, 0.0, 1.0)
+        GREEN = Color(0.0, 1.0, 0.0, 1.0)
+        BLUE = Color(0.0, 0.0, 1.0, 1.0)
+        YELLOW = Color(1.0, 1.0, 0.0, 1.0)
+        WHITE = Color(1.0, 1.0, 1.0, 1.0)
+        BLACK = Color(0.0, 0.0, 0.0, 1.0)
+        CYAN = Color(0.0, 1.0, 1.0, 1.0)
+        ORANGE = Color(1.0, 0.5, 0.0, 1.0)
+
 
 class ProjectorInterface(Protocol):
     """Protocol for projector module interface."""
@@ -552,19 +587,280 @@ class ProjectorMessageHandlers:
             logger.error(f"Error rendering collision prediction: {e}")
 
     async def _display_alert(self, alert: dict[str, Any]) -> None:
-        """Display alert on projector."""
+        """Display alert on projector using visual overlay system."""
         try:
             level = alert["level"]
             message = alert["message"]
+            code = alert["code"]
+            details = alert.get("details", {})
 
-            # For now, just log the alert (you can enhance this to show visual alerts)
+            # Log the alert
             logger.info(f"Displaying alert [{level.upper()}]: {message}")
 
-            # TODO: Implement visual alert display on projector
-            # This could involve rendering text overlays, colored indicators, etc.
+            # Import required modules for visual alerts (fallbacks defined at module level)
+            try:
+                from ..rendering.text import TextRenderer
+            except ImportError:
+                TextRenderer = None
+
+            # Get alert display configuration
+            alert_config = self._get_alert_display_config(level)
+
+            # Create visual alert overlay
+            await self._create_alert_overlay(
+                level=level,
+                message=message,
+                code=code,
+                details=details,
+                config=alert_config
+            )
+
+            # Create appropriate effect based on alert level
+            await self._create_alert_effect(level, alert_config["position"])
 
         except Exception as e:
             logger.error(f"Error displaying alert: {e}")
+
+    def _get_alert_display_config(self, level: str) -> dict[str, Any]:
+        """Get display configuration for alert level."""
+        # Define alert configurations by severity level
+        alert_configs = {
+            "error": {
+                "background_color": Colors.RED.with_alpha(0.8),
+                "text_color": Colors.WHITE,
+                "border_color": Colors.RED,
+                "position": Point2D(50, 50),  # Top-left area
+                "size": (400, 100),
+                "icon": "✕",
+                "priority": 4,
+                "pulsing": True,
+                "sound_enabled": True
+            },
+            "warning": {
+                "background_color": Colors.YELLOW.with_alpha(0.7),
+                "text_color": Colors.BLACK,
+                "border_color": Colors.ORANGE,
+                "position": Point2D(50, 170),  # Below error alerts
+                "size": (350, 80),
+                "icon": "⚠",
+                "priority": 3,
+                "pulsing": False,
+                "sound_enabled": False
+            },
+            "info": {
+                "background_color": Colors.BLUE.with_alpha(0.6),
+                "text_color": Colors.WHITE,
+                "border_color": Colors.CYAN,
+                "position": Point2D(50, 270),  # Below warning alerts
+                "size": (300, 70),
+                "icon": "ℹ",
+                "priority": 2,
+                "pulsing": False,
+                "sound_enabled": False
+            },
+            "success": {
+                "background_color": Colors.GREEN.with_alpha(0.6),
+                "text_color": Colors.WHITE,
+                "border_color": Colors.GREEN,
+                "position": Point2D(50, 360),  # Below info alerts
+                "size": (300, 70),
+                "icon": "✓",
+                "priority": 1,
+                "pulsing": False,
+                "sound_enabled": False
+            }
+        }
+
+        return alert_configs.get(level, alert_configs["info"])
+
+    async def _create_alert_overlay(
+        self,
+        level: str,
+        message: str,
+        code: str,
+        details: dict[str, Any],
+        config: dict[str, Any]
+    ) -> None:
+        """Create visual alert overlay on projector display."""
+        try:
+            # Check if projector has required rendering capabilities
+            if not hasattr(self.projector, 'render_text_overlay'):
+                # Fall back to effects-based alert display
+                await self._create_effects_based_alert(level, message, config)
+                return
+
+            # Create text overlay components
+            title_text = f"{config['icon']} {level.upper()}"
+            message_text = message
+            code_text = f"Code: {code}" if code != "NO_CODE" else ""
+
+            # Position calculations
+            position = config["position"]
+            width, height = config["size"]
+
+            # Create background overlay
+            overlay_data = {
+                "type": "alert_overlay",
+                "level": level,
+                "position": {"x": position.x, "y": position.y},
+                "size": {"width": width, "height": height},
+                "background": {
+                    "color": config["background_color"].to_dict(),
+                    "border_color": config["border_color"].to_dict(),
+                    "border_width": 3.0,
+                    "corner_radius": 8.0
+                },
+                "text": {
+                    "title": {
+                        "content": title_text,
+                        "color": config["text_color"].to_dict(),
+                        "font_size": 18,
+                        "font_weight": "bold",
+                        "position": {"x": position.x + 15, "y": position.y + 15}
+                    },
+                    "message": {
+                        "content": message_text,
+                        "color": config["text_color"].to_dict(),
+                        "font_size": 14,
+                        "font_weight": "normal",
+                        "position": {"x": position.x + 15, "y": position.y + 45},
+                        "max_width": width - 30
+                    },
+                    "code": {
+                        "content": code_text,
+                        "color": config["text_color"].with_alpha(0.8).to_dict(),
+                        "font_size": 10,
+                        "font_weight": "normal",
+                        "position": {"x": position.x + 15, "y": position.y + height - 20}
+                    } if code_text else None
+                },
+                "animation": {
+                    "pulsing": config["pulsing"],
+                    "fade_in_duration": 0.3,
+                    "display_duration": self.config.alert_display_duration,
+                    "fade_out_duration": 0.5
+                },
+                "details": details
+            }
+
+            # Render the overlay on projector
+            self.projector.render_text_overlay(overlay_data)
+
+        except Exception as e:
+            logger.error(f"Error creating alert overlay: {e}")
+            # Fall back to basic effects
+            await self._create_effects_based_alert(level, message, config)
+
+    async def _create_effects_based_alert(
+        self,
+        level: str,
+        message: str,
+        config: dict[str, Any]
+    ) -> None:
+        """Create alert using effects system as fallback."""
+        try:
+            # Check if projector has effects system
+            if not hasattr(self.projector, 'effects_system'):
+                logger.warning("No effects system available for alert display")
+                return
+
+            effects_system = self.projector.effects_system
+            position = config["position"]
+
+            # Create appropriate effect based on alert level
+            if level == "error":
+                effects_system.create_failure_indicator(position, f"Error: {message}")
+            elif level == "success":
+                effects_system.create_success_indicator(position, 1.0)
+            else:
+                # Create a generic indicator effect
+                try:
+                    from ..rendering.effects import Effect, EffectType
+
+                    effect = Effect(
+                        effect_type=EffectType.UNCERTAINTY_CLOUD,
+                        position=position,
+                        start_time=time.time(),
+                        duration=self.config.alert_display_duration,
+                        properties={"level": level, "message": message}
+                    )
+
+                    effects_system._add_effect(effect)
+                except ImportError:
+                    logger.debug("Effect classes not available for generic alert effect")
+
+        except Exception as e:
+            logger.error(f"Error creating effects-based alert: {e}")
+
+    async def _create_alert_effect(self, level: str, position) -> None:
+        """Create visual effect to accompany alert display."""
+        try:
+            # Check if projector has effects system
+            if not hasattr(self.projector, 'effects_system'):
+                return
+
+            effects_system = self.projector.effects_system
+
+            # Create effect based on alert level
+            if level == "error":
+                # Create pulsing red effect around alert
+                effects_system.create_failure_indicator(position, "Alert")
+            elif level == "warning":
+                # Create yellow warning burst
+                effects_system.create_power_burst(position, 2.0, 0.0)
+            elif level == "success":
+                # Create green success indicator
+                effects_system.create_success_indicator(position, 1.0)
+            elif level == "info":
+                # Create subtle blue effect
+                try:
+                    from ..rendering.effects import Effect, EffectType, Particle
+                    from ..rendering.renderer import Colors
+                    from ...core.models import Vector2D
+                except ImportError:
+                    # Use fallback classes if imports fail
+                    Effect = EffectType = Particle = None
+                    class Vector2D:
+                        def __init__(self, x, y):
+                            self.x = x
+                            self.y = y
+                import math
+
+                if Effect and EffectType and Particle:
+                    effect = Effect(
+                        effect_type=EffectType.UNCERTAINTY_CLOUD,
+                        position=position,
+                        start_time=time.time(),
+                        duration=1.0,
+                        properties={"level": level}
+                    )
+
+                    # Add gentle particles for info alerts
+                    for i in range(8):
+                        angle = (i / 8) * 2 * math.pi
+                        particle_pos = Point2D(
+                            position.x + 30 * math.cos(angle),
+                            position.y + 30 * math.sin(angle)
+                        )
+
+                        particle = Particle(
+                            position=particle_pos,
+                            velocity=Vector2D(0, 0),
+                            color=Colors.CYAN.with_alpha(0.5),
+                            size=3.0,
+                            life_time=0.0,
+                            max_life=1.0,
+                            fade_rate=1.0
+                        )
+
+                        effect.particles.append(particle)
+
+                    effects_system._add_effect(effect)
+                else:
+                    logger.debug("Effect classes not available, skipping info effect")
+
+        except Exception as e:
+            logger.error(f"Error creating alert effect: {e}")
 
     async def _remove_alert_after_delay(
         self, alert: dict[str, Any], delay: float
