@@ -46,14 +46,32 @@ RUN pip install --no-cache-dir \
     python-jose[cryptography] \
     passlib[bcrypt] \
     psutil \
-    watchdog
+    watchdog \
+    sqlalchemy \
+    redis \
+    aiofiles \
+    aiohttp
 
 # Install OpenCV headless (no GUI dependencies)
-RUN pip install opencv-python-headless
+RUN pip install --no-cache-dir opencv-python-headless
 
-# Try to install remaining dependencies, but don't fail if some are missing
-RUN pip install --no-cache-dir -r /tmp/requirements.txt || \
-    echo "Some optional dependencies failed to install - continuing with core functionality"
+# Install remaining dependencies from requirements.txt
+# Skip optional GPU/display packages that may fail in headless environment
+RUN pip install --no-cache-dir \
+    scikit-image \
+    scikit-learn \
+    numba \
+    Pillow \
+    email-validator \
+    jsonschema \
+    pytest \
+    pytest-asyncio \
+    httpx \
+    || echo "Some optional packages skipped"
+
+# Try PyOpenGL, pygame, moderngl but don't fail if they can't install
+RUN pip install --no-cache-dir PyOpenGL pygame moderngl || \
+    echo "Display packages skipped (not needed for headless operation)"
 
 # ========================
 # Production Stage

@@ -91,18 +91,21 @@ services:
 
     # Volume mounts for persistent data
     volumes:
-      - ./config:/app/config
+      # Note: config is in the Docker image at /app/config, don't mount over it
+      # Mount backend-specific config if needed: - ./backend/config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
       - /tmp:/tmp
-      # Device access for camera (if needed)
-      - /dev:/dev
+      # Device access for camera (Linux only - uncomment if needed)
+      # - /dev:/dev
 
     # Device access for camera and graphics
-    devices:
-      - /dev/dri:/dev/dri  # GPU access for graphics acceleration
+    # Note: GPU access disabled by default for macOS compatibility
+    # Uncomment for Linux with GPU:
+    # devices:
+    #   - /dev/dri:/dev/dri  # GPU access for graphics acceleration
 
-    # Privileged mode may be needed for camera access
+    # Privileged mode may be needed for camera access on Linux
     # privileged: true  # Uncomment if camera access issues occur
 
     # Network configuration

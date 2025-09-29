@@ -5,7 +5,7 @@ set -e
 WORKERS=${WORKERS:-1}
 HOST=${API_HOST:-0.0.0.0}
 PORT=${API_PORT:-8000}
-LOG_LEVEL=${LOG_LEVEL:-info}
+LOG_LEVEL=$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')
 JWT_SECRET_KEY=${JWT_SECRET_KEY:-top_secret_key}
 
 

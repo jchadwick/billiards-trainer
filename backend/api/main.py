@@ -9,21 +9,26 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Internal imports
+# Import core module
 try:
-    from ..config import ConfigurationModule
     from ..core import CoreModule, CoreModuleConfig
 except ImportError:
-    # If running from the backend directory directly
     import sys
     from pathlib import Path
 
-    # Add parent directory to path
     backend_path = Path(__file__).parent.parent
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
+    from core import CoreModule, CoreModuleConfig  # type: ignore[import-not-found]
 
-    from core import CoreModule, CoreModuleConfig  # type: ignore[import-not-found,no-redef]
-    from config import ConfigurationModule  # type: ignore[attr-defined,no-redef]
+# Import config module - use absolute import to avoid conflict with api.routes.config
+import sys
+from pathlib import Path
+
+backend_path = Path(__file__).parent.parent
+if str(backend_path) not in sys.path:
+    sys.path.insert(0, str(backend_path))
+from config.manager import ConfigurationModule  # type: ignore
 
 from .dependencies import ApplicationState, app_state
 from .middleware.authentication import AuthenticationMiddleware
@@ -59,21 +64,24 @@ try:
     from ..system.health_monitor import health_monitor
 except ImportError:
     try:
-        from system.health_monitor import (
-            health_monitor,  # type: ignore[import-not-found,no-redef]
-        )
+        from system.health_monitor import health_monitor  # type: ignore
     except ImportError:
         # Fallback: create a minimal health monitor interface
         from typing import Any as _Any
 
         class MockHealthMonitor:
+            """Mock health monitor for when system.health_monitor is not available."""
+
             def register_components(self, **kwargs: _Any) -> None:
+                """Register components for monitoring."""
                 pass
 
             async def start_monitoring(self, check_interval: float = 5.0) -> None:
+                """Start monitoring."""
                 pass
 
             async def stop_monitoring(self) -> None:
+                """Stop monitoring."""
                 pass
 
         health_monitor = MockHealthMonitor()  # type: ignore[assignment]
