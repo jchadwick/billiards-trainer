@@ -19,6 +19,7 @@ import sys
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 # Add backend to Python path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))

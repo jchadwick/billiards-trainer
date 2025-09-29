@@ -9,6 +9,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 from ..detection.table import Pocket, PocketType, TableCorners, TableDetectionResult
 

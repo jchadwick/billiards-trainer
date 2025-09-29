@@ -22,6 +22,7 @@ from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 # Import Kinect v2 support
 from .kinect2_capture import KINECT2_AVAILABLE, Kinect2Capture, Kinect2Status
