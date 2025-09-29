@@ -6,7 +6,7 @@ from core.models import Ball, Table
 from core.physics.engine import PhysicsEngine
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestConfigCoreIntegration:
     """Test integration between configuration and core modules."""
 

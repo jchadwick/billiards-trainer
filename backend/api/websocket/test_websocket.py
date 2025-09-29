@@ -17,13 +17,13 @@ from .schemas import BallData, FrameData, GameStateData
 from .subscriptions import SubscriptionManager
 
 
-@pytest.fixture
+@pytest.fixture()
 def websocket_handler():
     """Create a fresh WebSocket handler for testing."""
     return WebSocketHandler()
 
 
-@pytest.fixture
+@pytest.fixture()
 async def websocket_manager():
     """Create a fresh WebSocket manager for testing."""
     manager = WebSocketManager()
@@ -33,7 +33,7 @@ async def websocket_manager():
         await manager.unregister_client(client_id)
 
 
-@pytest.fixture
+@pytest.fixture()
 async def message_broadcaster():
     """Create a fresh message broadcaster for testing."""
     broadcaster = MessageBroadcaster()
@@ -42,14 +42,14 @@ async def message_broadcaster():
     await broadcaster.stop_streaming()
 
 
-@pytest.fixture
+@pytest.fixture()
 async def subscription_manager():
     """Create a fresh subscription manager for testing."""
     manager = SubscriptionManager()
     return manager
 
 
-@pytest.fixture
+@pytest.fixture()
 async def connection_monitor():
     """Create a fresh connection monitor for testing."""
     monitor = ConnectionMonitor()
@@ -101,7 +101,7 @@ class MockWebSocket:
 class TestWebSocketHandler:
     """Test WebSocket connection handler."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_connection_establishment(self, websocket_handler):
         """Test establishing a WebSocket connection."""
         mock_ws = MockWebSocket()
@@ -120,7 +120,7 @@ class TestWebSocketHandler:
         assert welcome_msg["type"] == "connection"
         assert welcome_msg["data"]["client_id"] == client_id
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_message_handling(self, websocket_handler):
         """Test handling incoming messages."""
         mock_ws = MockWebSocket()
@@ -140,7 +140,7 @@ class TestWebSocketHandler:
         pong_messages = [msg for msg in messages if msg["type"] == "pong"]
         assert len(pong_messages) == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscription_management(self, websocket_handler):
         """Test subscription requests."""
         mock_ws = MockWebSocket()
@@ -156,7 +156,7 @@ class TestWebSocketHandler:
         assert len(subscribed_messages) == 1
         assert set(subscribed_messages[0]["data"]["streams"]) == {"frame", "state"}
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_rate_limiting(self, websocket_handler):
         """Test rate limiting functionality."""
         mock_ws = MockWebSocket()
@@ -179,7 +179,7 @@ class TestWebSocketHandler:
         ]
         assert len(error_messages) > 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_disconnection_cleanup(self, websocket_handler):
         """Test proper cleanup on disconnection."""
         mock_ws = MockWebSocket()
@@ -195,7 +195,7 @@ class TestWebSocketHandler:
 class TestWebSocketManager:
     """Test WebSocket manager functionality."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_client_registration(self, websocket_manager):
         """Test client session registration."""
         client_id = "test_client_1"
@@ -212,7 +212,7 @@ class TestWebSocketManager:
         assert session.user_id == user_id
         assert session.connection_state == ConnectionState.CONNECTED
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_stream_subscription(self, websocket_manager):
         """Test stream subscription management."""
         client_id = "test_client_1"
@@ -236,7 +236,7 @@ class TestWebSocketManager:
         assert success
         assert client_id not in websocket_manager.stream_subscribers[StreamType.FRAME]
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_permission_checking(self, websocket_manager):
         """Test permission-based subscription filtering."""
         client_id = "test_client_1"
@@ -256,7 +256,7 @@ class TestWebSocketManager:
         )
         assert not success
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_alert_broadcasting(self, websocket_manager):
         """Test alert broadcasting to specific clients."""
         client_id = "test_client_1"
@@ -275,7 +275,7 @@ class TestWebSocketManager:
 class TestMessageBroadcaster:
     """Test message broadcasting functionality."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_frame_broadcasting(self, message_broadcaster):
         """Test video frame broadcasting."""
         # Create test image
@@ -294,7 +294,7 @@ class TestMessageBroadcaster:
         assert latest_frame["quality"] == 75
         assert "image" in latest_frame  # Base64 encoded image
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_game_state_broadcasting(self, message_broadcaster):
         """Test game state broadcasting."""
         # Create test game state
@@ -328,7 +328,7 @@ class TestMessageBroadcaster:
             assert "balls" in call_args[0][1]  # Data contains balls
             assert "cue" in call_args[0][1]  # Data contains cue
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trajectory_broadcasting(self, message_broadcaster):
         """Test trajectory broadcasting."""
         lines = [
@@ -353,7 +353,7 @@ class TestMessageBroadcaster:
             assert len(data["lines"]) == 2
             assert len(data["collisions"]) == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_performance_metrics(self, message_broadcaster):
         """Test performance metrics collection."""
         # Generate some activity
@@ -371,7 +371,7 @@ class TestMessageBroadcaster:
 class TestSubscriptionManager:
     """Test subscription management system."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscription_creation(self, subscription_manager):
         """Test creating subscriptions with filters."""
         client_id = "test_client_1"
@@ -394,7 +394,7 @@ class TestSubscriptionManager:
         assert subscription.sample_rate == 0.5
         assert "image" in subscription.include_fields
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_message_filtering(self, subscription_manager):
         """Test message filtering functionality."""
         client_id = "test_client_1"
@@ -425,7 +425,7 @@ class TestSubscriptionManager:
         assert "cue" not in filtered_data  # Should be filtered out
         assert "table" not in filtered_data  # Should be filtered out
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_sampling(self, subscription_manager):
         """Test message sampling."""
         client_id = "test_client_1"
@@ -451,7 +451,7 @@ class TestSubscriptionManager:
 class TestConnectionMonitor:
     """Test connection health monitoring."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_latency_recording(self, connection_monitor):
         """Test latency measurement recording."""
         client_id = "test_client_1"
@@ -467,7 +467,7 @@ class TestConnectionMonitor:
         assert health_info["latency"]["min_ms"] == 25.0
         assert health_info["latency"]["max_ms"] == 35.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_health_assessment(self, connection_monitor):
         """Test health status assessment."""
         client_id = "test_client_1"
@@ -484,7 +484,7 @@ class TestConnectionMonitor:
         health_info = connection_monitor.get_client_health(client_id)
         assert health_info["health_status"] == HealthStatus.CRITICAL.value
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_error_tracking(self, connection_monitor):
         """Test error tracking."""
         client_id = "test_client_1"
@@ -499,7 +499,7 @@ class TestConnectionMonitor:
         assert health_info["errors"]["timeouts"] == 1
         assert health_info["errors"]["disconnections"] == 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_system_health(self, connection_monitor):
         """Test system-wide health monitoring."""
         # Add some clients with different health levels
@@ -582,7 +582,7 @@ class TestSchemas:
 class TestIntegration:
     """Integration tests for the complete WebSocket system."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_full_connection_lifecycle(self):
         """Test complete connection lifecycle."""
         # Initialize components
@@ -644,7 +644,7 @@ class TestIntegration:
             await broadcaster.stop_streaming()
             await monitor.stop_monitoring()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_multi_client_broadcasting(self):
         """Test broadcasting to multiple clients."""
         handler = WebSocketHandler()

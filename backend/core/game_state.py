@@ -24,8 +24,8 @@ from .models import (
     TableState,
     Vector2D,
 )
-from .validation import StateValidator, ValidationResult
 from .rules import GameRules
+from .validation import StateValidator, ValidationResult
 
 logger = logging.getLogger(__name__)
 

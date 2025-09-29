@@ -12,11 +12,25 @@ from typing import Any, Callable, Optional
 try:
     from ..config import ConfigurationModule
     from ..core import CoreModule, CoreModuleConfig
+    from ..core.integration import (
+        APIInterfaceImpl,
+        ConfigInterfaceImpl,
+        CoreModuleIntegrator,
+        ProjectorInterfaceImpl,
+        VisionInterfaceImpl,
+    )
     from ..projector import ProjectorModule
     from ..vision import VisionModule
 except ImportError:
     # If running from backend directory directly
     from core import CoreModule, CoreModuleConfig
+    from core.integration import (
+        CoreModuleIntegrator,
+        VisionInterfaceImpl,
+        APIInterfaceImpl,
+        ProjectorInterfaceImpl,
+        ConfigInterfaceImpl,
+    )
     from projector import ProjectorModule
     from vision import VisionModule
 
@@ -117,6 +131,9 @@ class SystemOrchestrator:
         self.resource_monitor = ResourceMonitor()
         self.process_manager = ProcessManager()
 
+        # Module integration - will be initialized after core module startup
+        self.module_integrator: Optional[CoreModuleIntegrator] = None
+
         # Event tracking
         self.event_callbacks: dict[str, list[Callable]] = {}
         self.shutdown_requested = False
@@ -147,6 +164,9 @@ class SystemOrchestrator:
             success = await self._start_modules()
 
             if success:
+                # Initialize module integration after all modules are started
+                await self._initialize_module_integration()
+
                 # Start background monitoring tasks
                 await self._start_background_tasks()
 
@@ -676,6 +696,72 @@ class SystemOrchestrator:
 
         except Exception as e:
             logger.error(f"Error stopping monitoring: {e}")
+
+    async def _initialize_module_integration(self) -> None:
+        """Initialize module integration interfaces after all modules are started."""
+        try:
+            logger.info("Initializing module integration interfaces...")
+
+            # Get the core module which should contain the event manager and game state manager
+            core_module = self.modules.get("core")
+            if not core_module:
+                logger.error("Core module not available for integration")
+                return
+
+            # Create CoreModuleIntegrator with event manager and game state manager from core
+            self.module_integrator = CoreModuleIntegrator(
+                event_manager=core_module.event_manager,
+                game_state_manager=core_module.game_state_manager,
+            )
+
+            # Create and register interface implementations
+            await self._register_integration_interfaces()
+
+            logger.info("Module integration interfaces initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize module integration: {e}")
+            raise
+
+    async def _register_integration_interfaces(self) -> None:
+        """Register concrete interface implementations with the module integrator."""
+        if not self.module_integrator:
+            logger.error("Module integrator not initialized")
+            return
+
+        core_module = self.modules.get("core")
+        if not core_module:
+            logger.error("Core module not available for interface registration")
+            return
+
+        try:
+            # Register Vision interface if vision module is available
+            if "vision" in self.modules:
+                vision_interface = VisionInterfaceImpl(core_module.event_manager)
+                self.module_integrator.register_vision_interface(vision_interface)
+                logger.info("Vision interface registered")
+
+            # Register API interface if API module is available
+            if "api" in self.modules:
+                api_interface = APIInterfaceImpl(core_module.event_manager)
+                self.module_integrator.register_api_interface(api_interface)
+                logger.info("API interface registered")
+
+            # Register Projector interface if projector module is available
+            if "projector" in self.modules:
+                projector_interface = ProjectorInterfaceImpl(core_module.event_manager)
+                self.module_integrator.register_projector_interface(projector_interface)
+                logger.info("Projector interface registered")
+
+            # Register Config interface if config module is available
+            if "config" in self.modules:
+                config_interface = ConfigInterfaceImpl(core_module.event_manager)
+                self.module_integrator.register_config_interface(config_interface)
+                logger.info("Config interface registered")
+
+        except Exception as e:
+            logger.error(f"Failed to register integration interfaces: {e}")
+            raise
 
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers for graceful shutdown."""

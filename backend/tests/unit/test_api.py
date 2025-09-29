@@ -14,7 +14,7 @@ from api.websocket.handler import WebSocketHandler
 from api.websocket.subscriptions import SubscriptionManager
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestAPICreation:
     """Test API application creation."""
 
@@ -43,7 +43,7 @@ class TestAPICreation:
         assert "/api/v1/game/state" in route_paths
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestHealthEndpoint:
     """Test health check endpoint."""
 
@@ -78,7 +78,7 @@ class TestHealthEndpoint:
         assert performance_timer.elapsed_ms < 50
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestRootEndpoint:
     """Test root endpoint."""
 
@@ -101,7 +101,7 @@ class TestRootEndpoint:
         assert isinstance(data["version"], str)
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestGameStateEndpoints:
     """Test game state API endpoints."""
 
@@ -150,7 +150,7 @@ class TestGameStateEndpoints:
         assert response.status_code == 422  # Validation error
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestBallEndpoints:
     """Test ball-related API endpoints."""
 
@@ -200,7 +200,7 @@ class TestBallEndpoints:
         mock_manager.update_ball_position.assert_called_once_with("cue", 2.0, 1.0)
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestShotEndpoints:
     """Test shot-related API endpoints."""
 
@@ -259,7 +259,7 @@ class TestShotEndpoints:
         assert response.status_code == 422  # Validation error
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestConfigurationEndpoints:
     """Test configuration API endpoints."""
 
@@ -300,17 +300,17 @@ class TestConfigurationEndpoints:
         assert "width" in data
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestWebSocketHandler:
     """Test WebSocket handler."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handler_creation(self):
         """Test creating WebSocket handler."""
         handler = WebSocketHandler()
         assert handler is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_websocket_connection(self, mock_websocket):
         """Test WebSocket connection handling."""
         handler = WebSocketHandler()
@@ -318,7 +318,7 @@ class TestWebSocketHandler:
         await handler.connect(mock_websocket)
         mock_websocket.accept.assert_called_once()
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_websocket_disconnection(self, mock_websocket):
         """Test WebSocket disconnection handling."""
         handler = WebSocketHandler()
@@ -329,7 +329,7 @@ class TestWebSocketHandler:
         # Should clean up connection
         assert mock_websocket not in handler.active_connections
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_broadcast_message(self, mock_websocket):
         """Test broadcasting message to all connections."""
         handler = WebSocketHandler()
@@ -341,7 +341,7 @@ class TestWebSocketHandler:
 
         mock_websocket.send_json.assert_called_once_with(message)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_send_to_specific_client(self, mock_websocket):
         """Test sending message to specific client."""
         handler = WebSocketHandler()
@@ -353,7 +353,7 @@ class TestWebSocketHandler:
 
         mock_websocket.send_json.assert_called_once_with(message)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_handle_ping_pong(self, mock_websocket):
         """Test ping/pong handling."""
         handler = WebSocketHandler()
@@ -367,7 +367,7 @@ class TestWebSocketHandler:
         mock_websocket.send_json.assert_called_with({"type": "pong"})
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestSubscriptionManager:
     """Test WebSocket subscription manager."""
 
@@ -376,7 +376,7 @@ class TestSubscriptionManager:
         manager = SubscriptionManager()
         assert manager is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_subscribe_to_event(self, mock_websocket):
         """Test subscribing to events."""
         manager = SubscriptionManager()
@@ -385,7 +385,7 @@ class TestSubscriptionManager:
 
         assert mock_websocket in manager.get_subscribers("game_state_updates")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_unsubscribe_from_event(self, mock_websocket):
         """Test unsubscribing from events."""
         manager = SubscriptionManager()
@@ -395,7 +395,7 @@ class TestSubscriptionManager:
 
         assert mock_websocket not in manager.get_subscribers("game_state_updates")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_publish_to_subscribers(self, mock_websocket):
         """Test publishing to event subscribers."""
         manager = SubscriptionManager()
@@ -407,7 +407,7 @@ class TestSubscriptionManager:
 
         mock_websocket.send_json.assert_called_once_with(message)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_cleanup_disconnected_clients(self, mock_websocket):
         """Test cleaning up disconnected clients."""
         manager = SubscriptionManager()
@@ -420,7 +420,7 @@ class TestSubscriptionManager:
         assert mock_websocket not in manager.get_subscribers("game_state_updates")
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestPerformanceMiddleware:
     """Test performance monitoring middleware."""
 
@@ -429,7 +429,7 @@ class TestPerformanceMiddleware:
         middleware = PerformanceMiddleware()
         assert middleware is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_request_timing(self):
         """Test request timing measurement."""
         middleware = PerformanceMiddleware()
@@ -447,7 +447,7 @@ class TestPerformanceMiddleware:
         # Should have recorded timing
         assert hasattr(response, "headers")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_memory_monitoring(self):
         """Test memory usage monitoring."""
         middleware = PerformanceMiddleware(monitor_memory=True)
@@ -475,7 +475,7 @@ class TestPerformanceMiddleware:
         assert metrics["/api/v1/game/state"]["count"] == 1
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestAuthMiddleware:
     """Test authentication middleware."""
 
@@ -484,7 +484,7 @@ class TestAuthMiddleware:
         middleware = AuthMiddleware()
         assert middleware is not None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_public_endpoint_access(self):
         """Test access to public endpoints."""
         middleware = AuthMiddleware()
@@ -501,7 +501,7 @@ class TestAuthMiddleware:
         # Public endpoints should be accessible
         assert response.status_code == 200
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_protected_endpoint_no_auth(self):
         """Test access to protected endpoints without auth."""
         middleware = AuthMiddleware()
@@ -519,7 +519,7 @@ class TestAuthMiddleware:
         # Should be denied access
         assert response.status_code == 401
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_protected_endpoint_with_valid_auth(self):
         """Test access to protected endpoints with valid auth."""
         middleware = AuthMiddleware()
@@ -539,7 +539,7 @@ class TestAuthMiddleware:
         assert response.status_code == 200
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestSecurityUtils:
     """Test security utilities."""
 
@@ -601,7 +601,7 @@ class TestSecurityUtils:
         # (depends on rate limit configuration)
 
 
-@pytest.mark.unit
+@pytest.mark.unit()
 class TestResponseModels:
     """Test API response models."""
 

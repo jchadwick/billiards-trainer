@@ -14,6 +14,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+
+Base = declarative_base()
+
 import cv2
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
