@@ -15,6 +15,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
+from numpy.typing import NDArray
 
 # =============================================================================
 # Detection Object Types
@@ -82,7 +83,7 @@ class Ball:
     predicted_position: Optional[tuple[float, float]] = None
     position_history: list[tuple[float, float]] = field(default_factory=list)
 
-    def update_history(self, max_history: int = 10):
+    def update_history(self, max_history: int = 10) -> None:
         """Update position history, keeping only recent positions."""
         self.position_history.append(self.position)
         if len(self.position_history) > max_history:
@@ -153,7 +154,7 @@ class Table:
     )  # Inner boundary
 
     # Calibration data
-    perspective_transform: Optional[np.ndarray] = None  # 3x3 transform matrix
+    perspective_transform: Optional[NDArray[np.float64]] = None  # 3x3 transform matrix
     real_world_dimensions: Optional[
         tuple[float, float]
     ] = None  # (width, height) in meters
@@ -234,8 +235,8 @@ class DetectionResult:
 
     # Frame metadata
     frame_size: tuple[int, int] = (0, 0)  # (width, height)
-    original_frame: Optional[np.ndarray] = None  # Original captured frame
-    processed_frame: Optional[np.ndarray] = None  # Frame with overlays
+    original_frame: Optional[NDArray[np.uint8]] = None  # Original captured frame
+    processed_frame: Optional[NDArray[np.uint8]] = None  # Frame with overlays
 
     # Processing flags
     is_complete: bool = True  # All detection components completed successfully
@@ -274,8 +275,8 @@ class DetectionResult:
 class CameraCalibration:
     """Camera intrinsic calibration parameters."""
 
-    camera_matrix: np.ndarray  # 3x3 intrinsic matrix
-    distortion_coefficients: np.ndarray  # Distortion parameters
+    camera_matrix: NDArray[np.float64]  # 3x3 intrinsic matrix
+    distortion_coefficients: NDArray[np.float64]  # Distortion parameters
     resolution: tuple[int, int]  # (width, height) used for calibration
     reprojection_error: float  # RMS reprojection error
     calibration_date: float = field(default_factory=time.time)
@@ -300,8 +301,8 @@ class GeometricCalibration:
 
     table_corners_pixel: list[tuple[float, float]]  # Table corners in image coordinates
     table_corners_world: list[tuple[float, float]]  # Table corners in world coordinates
-    homography_matrix: np.ndarray  # 3x3 homography matrix
-    inverse_homography: np.ndarray  # Inverse homography
+    homography_matrix: NDArray[np.float64]  # 3x3 homography matrix
+    inverse_homography: NDArray[np.float64]  # Inverse homography
     table_dimensions_real: tuple[float, float]  # Real world table size (meters)
     pixels_per_meter: float  # Scaling factor
     calibration_quality: float  # 0.0-1.0 quality score
@@ -327,6 +328,10 @@ class CalibrationData:
 
         current_time = time.time()
         max_age = 24 * 3600  # 24 hours
+
+        # Check if calibration components exist before accessing their attributes
+        if self.camera is None or self.colors is None or self.geometry is None:
+            return False
 
         return all(
             [

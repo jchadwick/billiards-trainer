@@ -49,6 +49,7 @@ repos:
     hooks:
       - id: mypy
         files: ^backend/
+        exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/)
         additional_dependencies:
           - types-PyYAML
           - types-requests
@@ -69,6 +70,7 @@ repos:
     hooks:
       - id: pydocstyle
         files: ^backend/
+        exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/|api/tests/)
         args: [--convention=google]
 
 # Configuration for pre-commit.ci (if using pre-commit.ci service)

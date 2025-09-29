@@ -87,7 +87,7 @@ class CameraCalibrator:
     - Manual calibration adjustment
     """
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: Optional[str] = None) -> None:
         """Initialize camera calibrator.
 
         Args:
@@ -109,7 +109,7 @@ class CameraCalibrator:
         self.chessboard_size = (9, 6)  # Internal corners
         self.square_size = 0.025  # 25mm squares
 
-    def generate_chessboard_points(self) -> np.ndarray:
+    def generate_chessboard_points(self) -> NDArray[np.float64]:
         """Generate 3D points for chessboard pattern."""
         pattern_points = np.zeros(
             (self.chessboard_size[0] * self.chessboard_size[1], 3), np.float32
@@ -227,7 +227,7 @@ class CameraCalibrator:
 
     def calibrate_table_transform(
         self,
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         table_corners: list[tuple[float, float]],
         table_dimensions: Optional[tuple[float, float]] = None,
     ) -> Optional[TableTransform]:
@@ -294,10 +294,10 @@ class CameraCalibrator:
 
     def undistort_image(
         self,
-        image: np.ndarray,
-        camera_matrix: Optional[np.ndarray] = None,
-        distortion: Optional[np.ndarray] = None,
-    ) -> np.ndarray:
+        image: NDArray[np.uint8],
+        camera_matrix: Optional[NDArray[np.float64]] = None,
+        distortion: Optional[NDArray[np.float64]] = None,
+    ) -> NDArray[np.float64]:
         """Remove lens distortion from image.
 
         Args:
@@ -386,7 +386,7 @@ class CameraCalibrator:
 
     def manual_adjust_corners(
         self,
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         initial_corners: list[tuple[float, float]],
         adjustment_vectors: list[tuple[float, float]],
     ) -> Optional[TableTransform]:
@@ -408,7 +408,7 @@ class CameraCalibrator:
 
     def validate_calibration(
         self,
-        test_image: np.ndarray,
+        test_image: NDArray[np.float64],
         known_world_points: list[tuple[float, float]],
         known_pixel_points: list[tuple[float, float]],
     ) -> dict[str, float]:
@@ -454,14 +454,14 @@ class CameraCalibrator:
             "num_test_points": len(known_world_points),
         }
 
-    def _save_camera_params(self):
+    def _save_camera_params(self) -> None:
         """Save camera parameters to cache."""
         if self.camera_params:
             cache_file = self.cache_dir / "camera_params.json"
             with open(cache_file, "w") as f:
                 json.dump(self.camera_params.to_dict(), f, indent=2)
 
-    def _save_table_transform(self):
+    def _save_table_transform(self) -> None:
         """Save table transformation to cache."""
         if self.table_transform:
             cache_file = self.cache_dir / "table_transform.json"

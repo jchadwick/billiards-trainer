@@ -127,7 +127,7 @@ class BallDetector:
     - Motion state detection
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize ball detector with configuration.
 
         Args:
@@ -154,7 +154,7 @@ class BallDetector:
             f"Ball detector initialized with method: {self.config.detection_method}"
         )
 
-    def _initialize_detectors(self):
+    def _initialize_detectors(self) -> None:
         """Initialize detection algorithm components."""
         # Blob detector for alternative detection
         params = cv2.SimpleBlobDetector_Params()
@@ -173,7 +173,7 @@ class BallDetector:
         logger.debug("Detection algorithms initialized")
 
     def detect_balls(
-        self, frame: np.ndarray, table_mask: Optional[np.ndarray] = None
+        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
     ) -> list[Ball]:
         """Detect all balls in frame using configured method.
 
@@ -229,7 +229,10 @@ class BallDetector:
             return []
 
     def classify_ball_type(
-        self, ball_region: np.ndarray, position: tuple[float, float], radius: float
+        self,
+        ball_region: NDArray[np.float64],
+        position: tuple[float, float],
+        radius: float,
     ) -> tuple[BallType, float, Optional[int]]:
         """Classify ball type from image region.
 
@@ -277,7 +280,7 @@ class BallDetector:
             return BallType.UNKNOWN, 0.0, None
 
     def identify_ball_number(
-        self, ball_region: np.ndarray, ball_type: BallType
+        self, ball_region: NDArray[np.float64], ball_type: BallType
     ) -> Optional[int]:
         """Identify ball number if visible using pattern recognition.
 
@@ -317,7 +320,7 @@ class BallDetector:
     # Private helper methods
 
     def _detect_hough_circles(
-        self, frame: np.ndarray
+        self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Detect circles using Hough transform."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -349,7 +352,7 @@ class BallDetector:
         return candidates
 
     def _detect_contour_based(
-        self, frame: np.ndarray
+        self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Detect circles using contour analysis."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -390,7 +393,9 @@ class BallDetector:
         self.stats["detection_method_stats"]["contour"] += len(candidates)
         return candidates
 
-    def _detect_blob_based(self, frame: np.ndarray) -> list[tuple[float, float, float]]:
+    def _detect_blob_based(
+        self, frame: NDArray[np.uint8]
+    ) -> list[tuple[float, float, float]]:
         """Detect circles using blob detection."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
@@ -412,7 +417,9 @@ class BallDetector:
         self.stats["detection_method_stats"]["blob"] += len(candidates)
         return candidates
 
-    def _detect_combined(self, frame: np.ndarray) -> list[tuple[float, float, float]]:
+    def _detect_combined(
+        self, frame: NDArray[np.uint8]
+    ) -> list[tuple[float, float, float]]:
         """Combined detection using multiple methods with optimized merging."""
         # Get candidates from all methods
         hough_candidates = self._detect_hough_circles(frame)
@@ -474,7 +481,7 @@ class BallDetector:
         return merged_candidates
 
     def _filter_and_validate(
-        self, candidates: list[tuple[float, float, float]], frame: np.ndarray
+        self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Filter and validate ball candidates."""
         valid_candidates = []
@@ -499,7 +506,7 @@ class BallDetector:
         return valid_candidates
 
     def _classify_balls(
-        self, candidates: list[tuple[float, float, float]], frame: np.ndarray
+        self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
     ) -> list[Ball]:
         """Classify ball candidates."""
         balls = []
@@ -564,7 +571,7 @@ class BallDetector:
         return final_balls
 
     def _color_to_ball_type(
-        self, color_name: str, ball_region: np.ndarray
+        self, color_name: str, ball_region: NDArray[np.float64]
     ) -> tuple[BallType, Optional[int]]:
         """Map detected color to ball type and number."""
         color_map = {
@@ -591,7 +598,7 @@ class BallDetector:
 
         return BallType.UNKNOWN, None
 
-    def _is_striped_ball(self, ball_region: np.ndarray) -> bool:
+    def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> bool:
         """Detect if a ball has stripe pattern (simplified implementation)."""
         # This is a placeholder - would need sophisticated pattern recognition
         # to reliably distinguish stripes from solids
@@ -604,7 +611,7 @@ class BallDetector:
         return variance > 1000
 
     def _draw_candidates(
-        self, frame: np.ndarray, candidates: list[tuple[float, float, float]]
+        self, frame: NDArray[np.uint8], candidates: list[tuple[float, float, float]]
     ):
         """Draw detected candidates for debugging."""
         debug_frame = frame.copy()
@@ -615,7 +622,9 @@ class BallDetector:
 
         self.debug_images.append(("candidates", debug_frame))
 
-    def _preprocess_for_number_recognition(self, ball_region: np.ndarray) -> np.ndarray:
+    def _preprocess_for_number_recognition(
+        self, ball_region: NDArray[np.float64]
+    ) -> NDArray[np.float64]:
         """Preprocess ball region to enhance number visibility."""
         # Resize to standard size for consistent processing
         size = (64, 64)
@@ -639,7 +648,7 @@ class BallDetector:
         return binary
 
     def _template_match_number(
-        self, preprocessed: np.ndarray, ball_type: BallType
+        self, preprocessed: NDArray[np.float64], ball_type: BallType
     ) -> Optional[int]:
         """Use template matching to identify ball numbers."""
         # This would require pre-created templates for each number
@@ -673,7 +682,7 @@ class BallDetector:
         return self._analyze_contour_for_number(largest_contour, ball_type)
 
     def _analyze_contour_for_number(
-        self, contour: np.ndarray, ball_type: BallType
+        self, contour: NDArray[np.float64], ball_type: BallType
     ) -> Optional[int]:
         """Analyze contour shape to infer number."""
         # Calculate shape descriptors
@@ -719,7 +728,7 @@ class BallDetector:
                 return 12  # Default for stripes
 
     def _ocr_recognize_number(
-        self, preprocessed: np.ndarray, ball_type: BallType
+        self, preprocessed: NDArray[np.float64], ball_type: BallType
     ) -> Optional[int]:
         """Simple OCR-like number recognition using contour analysis."""
         # Find all contours
@@ -777,7 +786,7 @@ class BallDetector:
         return None
 
     def _classify_single_digit(
-        self, contour: np.ndarray, digit_region: np.ndarray
+        self, contour: NDArray[np.float64], digit_region: NDArray[np.float64]
     ) -> Optional[int]:
         """Classify a single digit based on its shape."""
         # Calculate shape features
@@ -827,7 +836,7 @@ class BallDetector:
                 return 2
 
     def _infer_number_from_color(
-        self, ball_region: np.ndarray, ball_type: BallType
+        self, ball_region: NDArray[np.float64], ball_type: BallType
     ) -> Optional[int]:
         """Infer ball number based on dominant color and type."""
         # Extract dominant color
@@ -887,7 +896,7 @@ class BallDetector:
 
         return None
 
-    def _update_stats(self, balls: list[Ball]):
+    def _update_stats(self, balls: list[Ball]) -> None:
         """Update detection statistics."""
         self.stats["total_detections"] += 1
         if balls:
@@ -902,7 +911,7 @@ class BallDetector:
         """Get debug images."""
         return self.debug_images
 
-    def clear_debug_images(self):
+    def clear_debug_images(self) -> None:
         """Clear debug image storage."""
         self.debug_images.clear()
 

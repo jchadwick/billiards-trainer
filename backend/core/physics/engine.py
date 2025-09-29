@@ -448,7 +448,8 @@ class PhysicsEngine:
         )
 
     def _integrate_motion(self, ball: BallState, table: TableState, dt: float) -> None:
-        """Integrate ball motion using numerical methods (Euler integration)
+        """Integrate ball motion using numerical methods (Euler integration).
+
         Applies friction and updates position/velocity.
         """
         if not self.friction_enabled:
@@ -508,8 +509,9 @@ class PhysicsEngine:
         table: TableState,
         max_time: float,
     ) -> Optional[Collision]:
-        """Detect the next collision (ball-ball, ball-cushion, or ball-pocket)
-        within the given time frame.
+        """Detect the next collision within the given time frame.
+
+        Checks for ball-ball, ball-cushion, or ball-pocket collisions.
         """
         closest_collision = None
         closest_time = max_time
@@ -546,7 +548,8 @@ class PhysicsEngine:
     def _calculate_ball_collision_time(
         self, ball1: BallState, ball2: BallState
     ) -> Optional[float]:
-        """Calculate time until collision between two balls
+        """Calculate time until collision between two balls.
+
         Returns None if no collision will occur.
         """
         # Relative position and velocity

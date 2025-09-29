@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class MessageFormatVerifier:
     """Verifies WebSocket message formats between frontend and backend."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the message format verifier."""
         self.verification_results: dict[str, dict[str, Any]] = {}
 
@@ -48,7 +48,7 @@ class MessageFormatVerifier:
             import cv2
 
             _, buffer = cv2.imencode(".jpg", sample_image)
-            base64_image = base64.b64encode(buffer).decode("utf-8")
+            base64_image = base64.b64encode(buffer.tobytes()).decode("utf-8")
 
             frame_data = FrameData(
                 image=base64_image,
@@ -146,6 +146,7 @@ class MessageFormatVerifier:
                     [320.0, 425.0],
                     [60.0, 420.0],
                 ],
+                rails=None,
                 calibrated=True,
                 dimensions={"length": 2.54, "width": 1.27},  # meters
             )
@@ -155,11 +156,8 @@ class MessageFormatVerifier:
                 balls=balls,
                 cue=cue,
                 table=table,
-                game_mode="8ball",
-                current_player="player1",
-                player_turn=1,
-                shot_number=5,
-                game_status="in_progress",
+                ball_count=len(balls),
+                frame_number=1,
             )
 
             message = WebSocketMessage(
@@ -196,27 +194,33 @@ class MessageFormatVerifier:
     def verify_trajectory_message(self) -> dict[str, Any]:
         """Verify trajectory message format compatibility."""
         try:
+            # Create sample trajectory line
+            from .schemas import CollisionData, TrajectoryLine
+
+            line = TrajectoryLine(
+                start=[320.0, 240.0],
+                end=[400.0, 180.0],
+                type="primary",
+                confidence=0.95,
+            )
+
+            collision = CollisionData(
+                position=[395.0, 185.0],
+                ball_id="1",
+                angle=45.0,
+                velocity_before=None,
+                velocity_after=None,
+                time_to_collision=0.5,
+            )
+
             # Create sample trajectory data
             trajectory = TrajectoryData(
-                ball_id="cue",
-                path=[[320.0, 240.0], [350.0, 220.0], [380.0, 200.0], [400.0, 180.0]],
-                ghost_ball_position=[395.0, 185.0],
-                predicted_collisions=[
-                    {
-                        "ball_id": "1",
-                        "collision_point": [395.0, 185.0],
-                        "collision_time": 0.5,
-                        "collision_angle": 45.0,
-                    }
-                ],
-                shot_power=0.7,
-                success_probability=0.82,
-                recommendations=["Aim slightly higher for better angle"],
-                physics_data={
-                    "initial_velocity": 5.0,
-                    "spin": {"english": 0.0, "follow": 0.2},
-                    "estimated_time": 1.2,
-                },
+                lines=[line],
+                collisions=[collision],
+                confidence=0.82,
+                calculation_time_ms=5.2,
+                line_count=1,
+                collision_count=1,
             )
 
             message = WebSocketMessage(
@@ -253,14 +257,13 @@ class MessageFormatVerifier:
     def verify_alert_message(self) -> dict[str, Any]:
         """Verify alert message format compatibility."""
         try:
+            from .schemas import AlertLevel
+
             alert = AlertData(
-                level="warning",
-                title="Camera Detection Issue",
+                level=AlertLevel.WARNING,
                 message="Ball detection confidence has dropped below threshold",
-                source="vision",
                 code="LOW_CONFIDENCE",
                 details={"confidence": 0.65, "threshold": 0.8},
-                actions=["Recalibrate camera", "Check lighting conditions"],
             )
 
             message = WebSocketMessage(
@@ -298,8 +301,8 @@ class MessageFormatVerifier:
         """Verify configuration message format compatibility."""
         try:
             config = ConfigData(
-                module="vision",
-                settings={
+                section="vision",
+                config={
                     "camera": {
                         "resolution": [1920, 1080],
                         "fps": 30,
@@ -311,8 +314,7 @@ class MessageFormatVerifier:
                         "tracking_enabled": True,
                     },
                 },
-                version="1.2.0",
-                updated_by="system",
+                change_summary="Updated camera and detection settings",
             )
 
             message = WebSocketMessage(
@@ -350,19 +352,20 @@ class MessageFormatVerifier:
         """Verify metrics message format compatibility."""
         try:
             metrics = MetricsData(
-                module="api",
-                performance={
-                    "cpu_usage": 25.4,
-                    "memory_usage": 512.8,
-                    "processing_time": 0.023,
-                    "queue_size": 3,
+                broadcast_stats={
+                    "total_messages": 1250,
+                    "messages_per_second": 45.2,
+                    "active_clients": 3,
                 },
-                counters={"requests_processed": 1250, "errors": 2, "warnings": 15},
-                rates={"fps": 29.8, "messages_per_second": 45.2},
-                quality_indicators={
-                    "detection_accuracy": 0.94,
-                    "tracking_stability": 0.98,
-                    "calibration_score": 0.96,
+                frame_metrics={
+                    "fps": 29.8,
+                    "frames_sent": 850,
+                    "avg_frame_size": 15360,
+                },
+                connection_stats={
+                    "total_connections": 3,
+                    "connected_clients": 3,
+                    "disconnected_clients": 0,
                 },
             )
 
@@ -401,7 +404,7 @@ class MessageFormatVerifier:
         """Run comprehensive WebSocket message format verification."""
         logger.info("Starting comprehensive WebSocket message format verification...")
 
-        results = {
+        results: dict[str, Any] = {
             "verification_timestamp": datetime.now(timezone.utc).isoformat(),
             "message_formats": {},
             "summary": {
@@ -589,7 +592,7 @@ export interface MetricsData {{
         return typescript_types
 
 
-async def run_format_verification():
+async def run_format_verification() -> dict[str, Any]:
     """Standalone function to run WebSocket format verification."""
     verifier = MessageFormatVerifier()
     results = verifier.run_comprehensive_verification()

@@ -18,13 +18,13 @@ class TableVisualization:
 
     @staticmethod
     def draw_table_detection(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         detection: TableDetectionResult,
         show_corners: bool = True,
         show_pockets: bool = True,
         show_perspective: bool = True,
         show_info: bool = True,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw complete table detection visualization on image.
 
         Args:
@@ -66,11 +66,11 @@ class TableVisualization:
 
     @staticmethod
     def draw_table_boundaries(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         corners: TableCorners,
         color: tuple[int, int, int] = (0, 255, 0),
         thickness: int = 3,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw table boundary lines."""
         if image is None or corners is None:
             return image
@@ -87,12 +87,12 @@ class TableVisualization:
 
     @staticmethod
     def draw_corners(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         corners: TableCorners,
         color: tuple[int, int, int] = (255, 0, 0),
         radius: int = 8,
         thickness: int = -1,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw corner markers with labels."""
         if image is None or corners is None:
             return image
@@ -128,12 +128,12 @@ class TableVisualization:
 
     @staticmethod
     def draw_pockets(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         pockets: list[Pocket],
         corner_color: tuple[int, int, int] = (255, 255, 0),
         side_color: tuple[int, int, int] = (0, 255, 255),
         thickness: int = 2,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw pocket markers with type indicators."""
         if image is None or not pockets:
             return image
@@ -168,12 +168,12 @@ class TableVisualization:
 
     @staticmethod
     def draw_perspective_grid(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         detection: TableDetectionResult,
         grid_size: int = 50,
         color: tuple[int, int, int] = (128, 128, 128),
         thickness: int = 1,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw perspective correction grid."""
         if (
             image is None
@@ -232,13 +232,13 @@ class TableVisualization:
 
     @staticmethod
     def draw_detection_info(
-        image: np.ndarray,
+        image: NDArray[np.uint8],
         detection: TableDetectionResult,
         position: tuple[int, int] = (10, 30),
         font_scale: float = 0.6,
         color: tuple[int, int, int] = (255, 255, 255),
         background_color: Optional[tuple[int, int, int]] = (0, 0, 0),
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Draw detection information text overlay."""
         if image is None or detection is None:
             return image
@@ -285,10 +285,10 @@ class TableVisualization:
 
     @staticmethod
     def create_detection_comparison(
-        original: np.ndarray,
+        original: NDArray[np.float64],
         detection: TableDetectionResult,
         debug_images: list[tuple[str, np.ndarray]],
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Create side-by-side comparison of detection stages."""
         if original is None:
             return np.array([])
@@ -342,8 +342,10 @@ class TableVisualization:
 
     @staticmethod
     def visualize_color_segmentation(
-        image: np.ndarray, mask: np.ndarray, title: str = "Color Segmentation"
-    ) -> np.ndarray:
+        image: NDArray[np.uint8],
+        mask: NDArray[np.uint8],
+        title: str = "Color Segmentation",
+    ) -> NDArray[np.float64]:
         """Visualize color segmentation results."""
         if image is None or mask is None:
             return np.array([])
@@ -364,8 +366,10 @@ class TableVisualization:
 
     @staticmethod
     def draw_contours_analysis(
-        image: np.ndarray, contours: list[np.ndarray], title: str = "Contour Analysis"
-    ) -> np.ndarray:
+        image: NDArray[np.uint8],
+        contours: list[np.ndarray],
+        title: str = "Contour Analysis",
+    ) -> NDArray[np.float64]:
         """Visualize contour detection analysis."""
         if image is None or not contours:
             return image
@@ -411,10 +415,10 @@ class TableVisualization:
 
     @staticmethod
     def create_debug_dashboard(
-        original: np.ndarray,
+        original: NDArray[np.float64],
         detection: TableDetectionResult,
         debug_images: list[tuple[str, np.ndarray]],
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Create comprehensive debug dashboard."""
         if original is None:
             return np.array([])
