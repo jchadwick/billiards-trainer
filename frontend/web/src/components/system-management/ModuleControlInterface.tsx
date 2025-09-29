@@ -85,18 +85,17 @@ export const ModuleControlInterface = observer(() => {
     setActioningModule(moduleName)
 
     try {
-      // This will need to be implemented with real API calls
-      let result = { success: false, error: 'API not implemented yet' }
+      let result;
 
       switch (action) {
         case 'start':
-          // result = await systemStore.startModule(moduleName)
+          result = await systemStore.startModule(moduleName)
           break
         case 'stop':
-          // result = await systemStore.stopModule(moduleName)
+          result = await systemStore.stopModule(moduleName)
           break
         case 'restart':
-          // result = await systemStore.restartModule(moduleName)
+          result = await systemStore.restartModule(moduleName)
           break
       }
 
