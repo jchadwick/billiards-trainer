@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,7 +14,9 @@ from .camera import CameraCalibrator, CameraParameters
 from .color import ColorCalibrator, ColorProfile
 from .geometry import GeometricCalibration, GeometricCalibrator
 from .validation import CalibrationReport, CalibrationValidator
-from ..utils.performance import PerformanceTimer
+
+if TYPE_CHECKING:
+    from ..utils.performance import PerformanceTimer
 
 logger = logging.getLogger(__name__)
 
@@ -410,20 +412,20 @@ class CalibrationManager:
             status["session_date"] = self.current_session.created_date
 
         if self.camera_calibrator.camera_params:
-            status[
-                "camera_error"
-            ] = self.camera_calibrator.camera_params.calibration_error
+            status["camera_error"] = (
+                self.camera_calibrator.camera_params.calibration_error
+            )
 
         if self.color_calibrator.current_profile:
             status["color_profile"] = self.color_calibrator.current_profile.name
-            status[
-                "lighting_level"
-            ] = self.color_calibrator.current_profile.ambient_light_level
+            status["lighting_level"] = (
+                self.color_calibrator.current_profile.ambient_light_level
+            )
 
         if self.geometry_calibrator.current_calibration:
-            status[
-                "geometry_error"
-            ] = self.geometry_calibrator.current_calibration.calibration_error
+            status["geometry_error"] = (
+                self.geometry_calibrator.current_calibration.calibration_error
+            )
 
         return status
 
