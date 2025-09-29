@@ -48,7 +48,7 @@ class ConfigPersistence:
         base_dir: Optional[Path] = None,
         logger: Optional[logging.Logger] = None,
         encryption: Optional[ConfigEncryption] = None,
-        enable_encryption: bool = False
+        enable_encryption: bool = False,
     ):
         """Initialize persistence manager.
 
@@ -271,12 +271,20 @@ class ConfigPersistence:
                 data = dict(config_data)
 
             # Apply encryption if enabled
-            if self.enable_encryption and self.encryption and self.encryption.is_encryption_enabled():
+            if (
+                self.enable_encryption
+                and self.encryption
+                and self.encryption.is_encryption_enabled()
+            ):
                 try:
                     data = self.encryption.encrypt_config_dict(data)
-                    self.logger.debug("Applied encryption to sensitive configuration fields")
+                    self.logger.debug(
+                        "Applied encryption to sensitive configuration fields"
+                    )
                 except ConfigEncryptionError as e:
-                    self.logger.warning(f"Encryption failed, saving without encryption: {e}")
+                    self.logger.warning(
+                        f"Encryption failed, saving without encryption: {e}"
+                    )
 
             # Create backup if requested and file exists
             if create_backup:
@@ -331,10 +339,16 @@ class ConfigPersistence:
             data = self._deserialize_data(content, format)
 
             # Apply decryption if encryption is enabled
-            if self.enable_encryption and self.encryption and self.encryption.is_encryption_enabled():
+            if (
+                self.enable_encryption
+                and self.encryption
+                and self.encryption.is_encryption_enabled()
+            ):
                 try:
                     data = self.encryption.decrypt_config_dict(data)
-                    self.logger.debug("Applied decryption to encrypted configuration fields")
+                    self.logger.debug(
+                        "Applied decryption to encrypted configuration fields"
+                    )
                 except ConfigEncryptionError as e:
                     self.logger.warning(f"Decryption failed, loading as-is: {e}")
 
@@ -553,7 +567,11 @@ class ConfigPersistence:
         """
         return self.load_config(path)
 
-    def enable_config_encryption(self, encryption: Optional[ConfigEncryption] = None, password: Optional[str] = None) -> bool:
+    def enable_config_encryption(
+        self,
+        encryption: Optional[ConfigEncryption] = None,
+        password: Optional[str] = None,
+    ) -> bool:
         """Enable configuration encryption.
 
         Args:
@@ -591,12 +609,14 @@ class ConfigPersistence:
             True if encryption is enabled and ready
         """
         return (
-            self.enable_encryption and
-            self.encryption is not None and
-            self.encryption.is_encryption_enabled()
+            self.enable_encryption
+            and self.encryption is not None
+            and self.encryption.is_encryption_enabled()
         )
 
-    def migrate_to_encrypted(self, file_path: Union[str, Path], password: Optional[str] = None) -> bool:
+    def migrate_to_encrypted(
+        self, file_path: Union[str, Path], password: Optional[str] = None
+    ) -> bool:
         """Migrate an existing unencrypted configuration file to encrypted format.
 
         Args:
@@ -630,13 +650,19 @@ class ConfigPersistence:
             # Save with encryption
             backup_created = self._create_backup(file_path)
             if backup_created:
-                self.logger.info(f"Created backup before encryption migration: {backup_created}")
+                self.logger.info(
+                    f"Created backup before encryption migration: {backup_created}"
+                )
 
             success = self.save_config(config_data, file_path, create_backup=False)
             if success:
-                self.logger.info(f"Successfully migrated {file_path} to encrypted format")
+                self.logger.info(
+                    f"Successfully migrated {file_path} to encrypted format"
+                )
             else:
-                self.logger.error(f"Failed to save encrypted configuration to {file_path}")
+                self.logger.error(
+                    f"Failed to save encrypted configuration to {file_path}"
+                )
 
             return success
 
@@ -653,14 +679,18 @@ class ConfigPersistence:
         info = {
             "encryption_enabled": self.enable_encryption,
             "encryption_ready": self.is_encryption_enabled(),
-            "secure_fields": list(self.encryption.get_secure_fields()) if self.encryption else [],
-            "encryption_available": self.encryption is not None
+            "secure_fields": list(self.encryption.get_secure_fields())
+            if self.encryption
+            else [],
+            "encryption_available": self.encryption is not None,
         }
 
         if self.encryption:
-            info.update({
-                "key_file": str(self.encryption.key_manager.key_file),
-                "key_file_exists": self.encryption.key_manager.key_file.exists()
-            })
+            info.update(
+                {
+                    "key_file": str(self.encryption.key_manager.key_file),
+                    "key_file_exists": self.encryption.key_manager.key_file.exists(),
+                }
+            )
 
         return info

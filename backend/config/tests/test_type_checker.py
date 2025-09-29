@@ -1,16 +1,18 @@
 """Tests for type checker."""
 
-import pytest
-from typing import List, Dict, Union, Optional, Tuple, Any
-from pathlib import Path
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+import pytest
 
 from backend.config.validator.types import TypeChecker, TypeCheckError
 
 
 class ConfigTestEnum(Enum):
     """Test enum for type checking."""
+
     OPTION_A = "a"
     OPTION_B = "b"
     OPTION_C = "c"
@@ -21,6 +23,7 @@ try:
 
     class ConfigTestModel(BaseModel):
         """Test Pydantic model for type checking."""
+
         name: str
         age: int
         active: bool = True
@@ -105,7 +108,7 @@ class TestTypeChecker:
 
     def test_list_type_checking(self):
         """Test List generic type checking."""
-        list_str = List[str]
+        list_str = list[str]
         assert self.checker.check(["a", "b", "c"], list_str)
         assert not self.checker.check([1, 2, 3], list_str)  # wrong element type
         assert not self.checker.check("not_a_list", list_str)  # wrong container type
@@ -115,22 +118,24 @@ class TestTypeChecker:
 
     def test_dict_type_checking(self):
         """Test Dict generic type checking."""
-        dict_str_int = Dict[str, int]
+        dict_str_int = dict[str, int]
         assert self.checker.check({"a": 1, "b": 2}, dict_str_int)
         assert not self.checker.check({1: "a", 2: "b"}, dict_str_int)  # wrong key type
         assert not self.checker.check({"a": "b"}, dict_str_int)  # wrong value type
-        assert not self.checker.check("not_a_dict", dict_str_int)  # wrong container type
+        assert not self.checker.check(
+            "not_a_dict", dict_str_int
+        )  # wrong container type
 
     def test_tuple_type_checking(self):
         """Test Tuple generic type checking."""
         # Fixed-length tuple
-        tuple_str_int = Tuple[str, int]
+        tuple_str_int = tuple[str, int]
         assert self.checker.check(("hello", 42), tuple_str_int)
         assert not self.checker.check(("hello",), tuple_str_int)  # wrong length
         assert not self.checker.check(("hello", "world"), tuple_str_int)  # wrong type
 
         # Variable-length tuple
-        tuple_str_var = Tuple[str, ...]
+        tuple_str_var = tuple[str, ...]
         assert self.checker.check(("a", "b", "c"), tuple_str_var)
         assert not self.checker.check((1, 2, 3), tuple_str_var)  # wrong element type
 
@@ -213,7 +218,7 @@ class TestTypeChecker:
     def test_complex_nested_types(self):
         """Test complex nested type specifications."""
         # List of dicts
-        list_dict_type = List[Dict[str, int]]
+        list_dict_type = list[dict[str, int]]
         valid_data = [{"a": 1, "b": 2}, {"c": 3, "d": 4}]
         assert self.checker.check(valid_data, list_dict_type)
 
@@ -221,7 +226,7 @@ class TestTypeChecker:
         assert not self.checker.check(invalid_data, list_dict_type)
 
         # Dict with Union values
-        dict_union_type = Dict[str, Union[str, int]]
+        dict_union_type = dict[str, Union[str, int]]
         valid_union_data = {"name": "John", "age": 30, "city": "NYC"}
         assert self.checker.check(valid_union_data, dict_union_type)
 
@@ -273,18 +278,13 @@ class TestTypeChecker:
 
     def test_validate_schema_types(self):
         """Test schema validation functionality."""
-        schema = {
-            "name": str,
-            "age": int,
-            "active": bool,
-            "scores": List[float]
-        }
+        schema = {"name": str, "age": int, "active": bool, "scores": list[float]}
 
         valid_data = {
             "name": "John",
             "age": 30,
             "active": True,
-            "scores": [85.5, 92.0, 78.5]
+            "scores": [85.5, 92.0, 78.5],
         }
 
         is_valid, errors = self.checker.validate_schema_types(valid_data, schema)
@@ -295,7 +295,7 @@ class TestTypeChecker:
             "name": 123,  # should be str
             "age": "thirty",  # should be int
             "active": True,
-            "scores": [85.5, "not_float", 78.5]  # contains invalid element
+            "scores": [85.5, "not_float", 78.5],  # contains invalid element
         }
 
         is_valid, errors = self.checker.validate_schema_types(invalid_data, schema)
@@ -305,12 +305,12 @@ class TestTypeChecker:
     def test_edge_cases(self):
         """Test edge cases and error conditions."""
         # Empty containers
-        assert self.checker.check([], List[str])
-        assert self.checker.check({}, Dict[str, int])
-        assert self.checker.check((), Tuple[str, ...])
+        assert self.checker.check([], list[str])
+        assert self.checker.check({}, dict[str, int])
+        assert self.checker.check((), tuple[str, ...])
 
         # Very nested types
-        deeply_nested = List[Dict[str, List[int]]]
+        deeply_nested = list[dict[str, list[int]]]
         valid_nested = [{"numbers": [1, 2, 3]}, {"more_numbers": [4, 5, 6]}]
         assert self.checker.check(valid_nested, deeply_nested)
 
@@ -330,6 +330,7 @@ class TestTypeChecker:
 
     def test_fallback_isinstance_check(self):
         """Test fallback isinstance functionality."""
+
         # Create a custom class
         class CustomClass:
             pass
@@ -342,9 +343,9 @@ class TestTypeChecker:
         """Test error handling in recursive type checking."""
         # This should not cause infinite recursion
         recursive_dict = {}
-        recursive_dict['self'] = recursive_dict
+        recursive_dict["self"] = recursive_dict
 
         # Should handle gracefully without crashing
-        result = self.checker.check(recursive_dict, Dict[str, Any])
+        result = self.checker.check(recursive_dict, dict[str, Any])
         # The exact result doesn't matter as much as not crashing
         assert isinstance(result, bool)

@@ -1,8 +1,8 @@
 """Type checking for configuration."""
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_origin, get_args
 import sys
+from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
 
 # Handle different Python versions for typing
 if sys.version_info >= (3, 10):
@@ -10,12 +10,13 @@ if sys.version_info >= (3, 10):
 else:
     UnionType = None
 import inspect
-from pathlib import Path
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
 try:
     from pydantic import BaseModel
+
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
@@ -30,7 +31,9 @@ class TypeCheckError(Exception):
     def __init__(self, value: Any, expected_type: Any, message: str = None):
         self.value = value
         self.expected_type = expected_type
-        self.message = message or f"Expected {expected_type}, got {type(value).__name__}"
+        self.message = (
+            message or f"Expected {expected_type}, got {type(value).__name__}"
+        )
         super().__init__(self.message)
 
 
@@ -46,29 +49,29 @@ class TypeChecker:
         """
         self.strict_mode = strict_mode
         self.allow_coercion = allow_coercion
-        self._type_errors: List[str] = []
+        self._type_errors: list[str] = []
 
         # Built-in type mappings for string specifications
         self._type_mapping = {
-            'str': str,
-            'string': str,
-            'int': int,
-            'integer': int,
-            'float': float,
-            'number': (int, float),
-            'bool': bool,
-            'boolean': bool,
-            'list': list,
-            'array': list,
-            'dict': dict,
-            'object': dict,
-            'tuple': tuple,
-            'set': set,
-            'path': Path,
-            'datetime': datetime,
-            'none': type(None),
-            'null': type(None),
-            'any': object,
+            "str": str,
+            "string": str,
+            "int": int,
+            "integer": int,
+            "float": float,
+            "number": (int, float),
+            "bool": bool,
+            "boolean": bool,
+            "list": list,
+            "array": list,
+            "dict": dict,
+            "object": dict,
+            "tuple": tuple,
+            "set": set,
+            "path": Path,
+            "datetime": datetime,
+            "none": type(None),
+            "null": type(None),
+            "any": object,
         }
 
     def check(self, value: Any, type_spec: Any) -> bool:
@@ -108,7 +111,11 @@ class TypeChecker:
                 return self._check_generic_type(value, type_spec)
 
             # Handle Pydantic models
-            if PYDANTIC_AVAILABLE and inspect.isclass(type_spec) and issubclass(type_spec, BaseModel):
+            if (
+                PYDANTIC_AVAILABLE
+                and inspect.isclass(type_spec)
+                and issubclass(type_spec, BaseModel)
+            ):
                 return self._check_pydantic_model(value, type_spec)
 
             # Handle Enum types
@@ -133,7 +140,7 @@ class TypeChecker:
 
     def _check_none_type(self, type_spec: Any) -> bool:
         """Check if None is allowed by type specification."""
-        if type_spec is type(None) or type_spec == 'none' or type_spec == 'null':
+        if type_spec is type(None) or type_spec == "none" or type_spec == "null":
             return True
 
         # Check if it's Optional type
@@ -162,22 +169,28 @@ class TypeChecker:
         try:
             # This would require more sophisticated parsing
             # For now, handle common patterns
-            if type_spec_lower.startswith('optional[') and type_spec_lower.endswith(']'):
+            if type_spec_lower.startswith("optional[") and type_spec_lower.endswith(
+                "]"
+            ):
                 inner_type = type_spec[9:-1]  # Remove "Optional[" and "]"
                 if value is None:
                     return True
                 return self._check_string_type_spec(value, inner_type)
 
-            if type_spec_lower.startswith('list[') and type_spec_lower.endswith(']'):
+            if type_spec_lower.startswith("list[") and type_spec_lower.endswith("]"):
                 if not isinstance(value, list):
-                    self._handle_type_error(f"Expected list, got {type(value).__name__}")
+                    self._handle_type_error(
+                        f"Expected list, got {type(value).__name__}"
+                    )
                     return False
                 # For now, don't check inner types from string spec
                 return True
 
-            if type_spec_lower.startswith('dict[') and type_spec_lower.endswith(']'):
+            if type_spec_lower.startswith("dict[") and type_spec_lower.endswith("]"):
                 if not isinstance(value, dict):
-                    self._handle_type_error(f"Expected dict, got {type(value).__name__}")
+                    self._handle_type_error(
+                        f"Expected dict, got {type(value).__name__}"
+                    )
                     return False
                 return True
 
@@ -209,7 +222,7 @@ class TypeChecker:
         # Restore strict mode
         self.strict_mode = original_strict
 
-        type_names = [getattr(t, '__name__', str(t)) for t in union_args]
+        type_names = [getattr(t, "__name__", str(t)) for t in union_args]
         error_msg = f"Value does not match any type in Union[{', '.join(type_names)}]"
         self._handle_type_error(error_msg)
         return False
@@ -239,11 +252,11 @@ class TypeChecker:
             return False
 
         # Check element types
-        if origin is list or origin is List:
+        if origin is list or origin is list:
             return self._check_list_elements(value, args)
-        elif origin is dict or origin is Dict:
+        elif origin is dict or origin is dict:
             return self._check_dict_elements(value, args)
-        elif origin is tuple or origin is Tuple:
+        elif origin is tuple or origin is tuple:
             return self._check_tuple_elements(value, args)
         elif origin in (set, frozenset):
             return self._check_set_elements(value, args)
@@ -309,13 +322,17 @@ class TypeChecker:
             element_type = args[0]
             for i, item in enumerate(value):
                 if not self.check(item, element_type):
-                    self._handle_type_error(f"Tuple element at index {i} has wrong type")
+                    self._handle_type_error(
+                        f"Tuple element at index {i} has wrong type"
+                    )
                     return False
             return True
 
         # Handle fixed-length tuples
         if len(value) != len(args):
-            self._handle_type_error(f"Tuple length mismatch: expected {len(args)}, got {len(value)}")
+            self._handle_type_error(
+                f"Tuple length mismatch: expected {len(args)}, got {len(value)}"
+            )
             return False
 
         for i, (item, expected_type) in enumerate(zip(value, args)):
@@ -334,12 +351,12 @@ class TypeChecker:
 
         for item in value:
             if not self.check(item, element_type):
-                self._handle_type_error(f"Set element has wrong type")
+                self._handle_type_error("Set element has wrong type")
                 return False
 
         return True
 
-    def _check_pydantic_model(self, value: Any, type_spec: Type[BaseModel]) -> bool:
+    def _check_pydantic_model(self, value: Any, type_spec: type[BaseModel]) -> bool:
         """Check value against Pydantic model."""
         if isinstance(value, type_spec):
             return True
@@ -359,7 +376,7 @@ class TypeChecker:
         self._handle_type_error(error_msg)
         return False
 
-    def _check_enum_type(self, value: Any, type_spec: Type[Enum]) -> bool:
+    def _check_enum_type(self, value: Any, type_spec: type[Enum]) -> bool:
         """Check value against Enum type."""
         if isinstance(value, type_spec):
             return True
@@ -386,7 +403,7 @@ class TypeChecker:
         self._handle_type_error(error_msg)
         return False
 
-    def _check_basic_type(self, value: Any, type_spec: Type) -> bool:
+    def _check_basic_type(self, value: Any, type_spec: type) -> bool:
         """Check value against basic type."""
         if isinstance(value, type_spec):
             return True
@@ -410,7 +427,7 @@ class TypeChecker:
             if self.check(value, possible_type):
                 return True
 
-        type_names = [getattr(t, '__name__', str(t)) for t in type_spec]
+        type_names = [getattr(t, "__name__", str(t)) for t in type_spec]
         error_msg = f"Value does not match any type in ({', '.join(type_names)})"
         self._handle_type_error(error_msg)
         return False
@@ -427,7 +444,7 @@ class TypeChecker:
         self._handle_type_error(error_msg)
         return False
 
-    def _try_coercion(self, value: Any, target_type: Type) -> bool:
+    def _try_coercion(self, value: Any, target_type: type) -> bool:
         """Attempt to coerce value to target type."""
         try:
             # Common coercion patterns
@@ -446,7 +463,7 @@ class TypeChecker:
                     return True
             elif target_type == bool:
                 if isinstance(value, str):
-                    return value.lower() in ('true', 'false', '1', '0', 'yes', 'no')
+                    return value.lower() in ("true", "false", "1", "0", "yes", "no")
                 elif isinstance(value, (int, float)):
                     return True
             elif target_type == Path:
@@ -456,7 +473,7 @@ class TypeChecker:
                 if isinstance(value, (tuple, set)):
                     return True
             elif target_type == dict:
-                return hasattr(value, 'items')
+                return hasattr(value, "items")
 
         except (ValueError, TypeError):
             pass
@@ -480,7 +497,7 @@ class TypeChecker:
         """Check if type specification is a generic type."""
         return get_origin(type_spec) is not None
 
-    def get_type_errors(self) -> List[str]:
+    def get_type_errors(self) -> list[str]:
         """Get list of type errors from last check.
 
         Returns:
@@ -504,7 +521,9 @@ class TypeChecker:
         if self.strict_mode:
             raise TypeCheckError(None, None, message)
 
-    def validate_schema_types(self, data: dict, schema: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_schema_types(
+        self, data: dict, schema: dict[str, Any]
+    ) -> tuple[bool, list[str]]:
         """Validate all types in a data dictionary against a schema.
 
         Args:

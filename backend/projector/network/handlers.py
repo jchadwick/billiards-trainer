@@ -38,6 +38,7 @@ except ImportError:
         def __init__(self, x, y):
             self.x = x
             self.y = y
+
         def to_tuple(self):
             return (self.x, self.y)
 
@@ -601,7 +602,7 @@ class ProjectorMessageHandlers:
             try:
                 from ..rendering.text import TextRenderer
             except ImportError:
-                TextRenderer = None
+                pass
 
             # Get alert display configuration
             alert_config = self._get_alert_display_config(level)
@@ -612,7 +613,7 @@ class ProjectorMessageHandlers:
                 message=message,
                 code=code,
                 details=details,
-                config=alert_config
+                config=alert_config,
             )
 
             # Create appropriate effect based on alert level
@@ -634,7 +635,7 @@ class ProjectorMessageHandlers:
                 "icon": "✕",
                 "priority": 4,
                 "pulsing": True,
-                "sound_enabled": True
+                "sound_enabled": True,
             },
             "warning": {
                 "background_color": Colors.YELLOW.with_alpha(0.7),
@@ -645,7 +646,7 @@ class ProjectorMessageHandlers:
                 "icon": "⚠",
                 "priority": 3,
                 "pulsing": False,
-                "sound_enabled": False
+                "sound_enabled": False,
             },
             "info": {
                 "background_color": Colors.BLUE.with_alpha(0.6),
@@ -656,7 +657,7 @@ class ProjectorMessageHandlers:
                 "icon": "ℹ",
                 "priority": 2,
                 "pulsing": False,
-                "sound_enabled": False
+                "sound_enabled": False,
             },
             "success": {
                 "background_color": Colors.GREEN.with_alpha(0.6),
@@ -667,8 +668,8 @@ class ProjectorMessageHandlers:
                 "icon": "✓",
                 "priority": 1,
                 "pulsing": False,
-                "sound_enabled": False
-            }
+                "sound_enabled": False,
+            },
         }
 
         return alert_configs.get(level, alert_configs["info"])
@@ -679,12 +680,12 @@ class ProjectorMessageHandlers:
         message: str,
         code: str,
         details: dict[str, Any],
-        config: dict[str, Any]
+        config: dict[str, Any],
     ) -> None:
         """Create visual alert overlay on projector display."""
         try:
             # Check if projector has required rendering capabilities
-            if not hasattr(self.projector, 'render_text_overlay'):
+            if not hasattr(self.projector, "render_text_overlay"):
                 # Fall back to effects-based alert display
                 await self._create_effects_based_alert(level, message, config)
                 return
@@ -708,7 +709,7 @@ class ProjectorMessageHandlers:
                     "color": config["background_color"].to_dict(),
                     "border_color": config["border_color"].to_dict(),
                     "border_width": 3.0,
-                    "corner_radius": 8.0
+                    "corner_radius": 8.0,
                 },
                 "text": {
                     "title": {
@@ -716,7 +717,7 @@ class ProjectorMessageHandlers:
                         "color": config["text_color"].to_dict(),
                         "font_size": 18,
                         "font_weight": "bold",
-                        "position": {"x": position.x + 15, "y": position.y + 15}
+                        "position": {"x": position.x + 15, "y": position.y + 15},
                     },
                     "message": {
                         "content": message_text,
@@ -724,23 +725,28 @@ class ProjectorMessageHandlers:
                         "font_size": 14,
                         "font_weight": "normal",
                         "position": {"x": position.x + 15, "y": position.y + 45},
-                        "max_width": width - 30
+                        "max_width": width - 30,
                     },
                     "code": {
                         "content": code_text,
                         "color": config["text_color"].with_alpha(0.8).to_dict(),
                         "font_size": 10,
                         "font_weight": "normal",
-                        "position": {"x": position.x + 15, "y": position.y + height - 20}
-                    } if code_text else None
+                        "position": {
+                            "x": position.x + 15,
+                            "y": position.y + height - 20,
+                        },
+                    }
+                    if code_text
+                    else None,
                 },
                 "animation": {
                     "pulsing": config["pulsing"],
                     "fade_in_duration": 0.3,
                     "display_duration": self.config.alert_display_duration,
-                    "fade_out_duration": 0.5
+                    "fade_out_duration": 0.5,
                 },
-                "details": details
+                "details": details,
             }
 
             # Render the overlay on projector
@@ -752,15 +758,12 @@ class ProjectorMessageHandlers:
             await self._create_effects_based_alert(level, message, config)
 
     async def _create_effects_based_alert(
-        self,
-        level: str,
-        message: str,
-        config: dict[str, Any]
+        self, level: str, message: str, config: dict[str, Any]
     ) -> None:
         """Create alert using effects system as fallback."""
         try:
             # Check if projector has effects system
-            if not hasattr(self.projector, 'effects_system'):
+            if not hasattr(self.projector, "effects_system"):
                 logger.warning("No effects system available for alert display")
                 return
 
@@ -782,12 +785,14 @@ class ProjectorMessageHandlers:
                         position=position,
                         start_time=time.time(),
                         duration=self.config.alert_display_duration,
-                        properties={"level": level, "message": message}
+                        properties={"level": level, "message": message},
                     )
 
                     effects_system._add_effect(effect)
                 except ImportError:
-                    logger.debug("Effect classes not available for generic alert effect")
+                    logger.debug(
+                        "Effect classes not available for generic alert effect"
+                    )
 
         except Exception as e:
             logger.error(f"Error creating effects-based alert: {e}")
@@ -796,7 +801,7 @@ class ProjectorMessageHandlers:
         """Create visual effect to accompany alert display."""
         try:
             # Check if projector has effects system
-            if not hasattr(self.projector, 'effects_system'):
+            if not hasattr(self.projector, "effects_system"):
                 return
 
             effects_system = self.projector.effects_system
@@ -814,16 +819,18 @@ class ProjectorMessageHandlers:
             elif level == "info":
                 # Create subtle blue effect
                 try:
+                    from ...core.models import Vector2D
                     from ..rendering.effects import Effect, EffectType, Particle
                     from ..rendering.renderer import Colors
-                    from ...core.models import Vector2D
                 except ImportError:
                     # Use fallback classes if imports fail
                     Effect = EffectType = Particle = None
+
                     class Vector2D:
                         def __init__(self, x, y):
                             self.x = x
                             self.y = y
+
                 import math
 
                 if Effect and EffectType and Particle:
@@ -832,7 +839,7 @@ class ProjectorMessageHandlers:
                         position=position,
                         start_time=time.time(),
                         duration=1.0,
-                        properties={"level": level}
+                        properties={"level": level},
                     )
 
                     # Add gentle particles for info alerts
@@ -840,7 +847,7 @@ class ProjectorMessageHandlers:
                         angle = (i / 8) * 2 * math.pi
                         particle_pos = Point2D(
                             position.x + 30 * math.cos(angle),
-                            position.y + 30 * math.sin(angle)
+                            position.y + 30 * math.sin(angle),
                         )
 
                         particle = Particle(
@@ -850,7 +857,7 @@ class ProjectorMessageHandlers:
                             size=3.0,
                             life_time=0.0,
                             max_life=1.0,
-                            fade_rate=1.0
+                            fade_rate=1.0,
                         )
 
                         effect.particles.append(particle)

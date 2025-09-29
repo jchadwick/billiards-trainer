@@ -14,6 +14,7 @@ from ..storage.encryption import (
     KeyDerivationError,
 )
 from ..storage.persistence import ConfigPersistence
+import pytest
 
 
 class TestEncryptionKeyManager(unittest.TestCase):
@@ -28,6 +29,7 @@ class TestEncryptionKeyManager(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment."""
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_generate_master_key(self):
@@ -70,7 +72,7 @@ class TestEncryptionKeyManager(unittest.TestCase):
         self.key_manager.save_master_key(original_key, password)
 
         # Try to load without password
-        with self.assertRaises(ConfigEncryptionError):
+        with pytest.raises(ConfigEncryptionError):
             self.key_manager.load_master_key()
 
     def test_get_or_create_master_key(self):
@@ -128,6 +130,7 @@ class TestConfigEncryption(unittest.TestCase):
     def tearDown(self):
         """Clean up test environment."""
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_encrypt_decrypt_value(self):
@@ -187,7 +190,7 @@ class TestConfigEncryption(unittest.TestCase):
             "debug": True,
             "port": 8000,
             "jwt_secret_key": "super_secret_key",
-            "database_password": "db_password_123"
+            "database_password": "db_password_123",
         }
 
         encrypted_config = self.encryption.encrypt_config_dict(config)
@@ -199,20 +202,22 @@ class TestConfigEncryption(unittest.TestCase):
         # Sensitive fields should be encrypted
         self.assertNotEqual(encrypted_config["jwt_secret_key"], "super_secret_key")
         self.assertNotEqual(encrypted_config["database_password"], "db_password_123")
-        self.assertTrue(encrypted_config["jwt_secret_key"].startswith(self.encryption.ENCRYPTED_PREFIX))
-        self.assertTrue(encrypted_config["database_password"].startswith(self.encryption.ENCRYPTED_PREFIX))
+        self.assertTrue(
+            encrypted_config["jwt_secret_key"].startswith(
+                self.encryption.ENCRYPTED_PREFIX
+            )
+        )
+        self.assertTrue(
+            encrypted_config["database_password"].startswith(
+                self.encryption.ENCRYPTED_PREFIX
+            )
+        )
 
     def test_encrypt_config_dict_nested(self):
         """Test encrypting nested configuration dictionary."""
         config = {
-            "app": {
-                "debug": False,
-                "secret_key": "app_secret"
-            },
-            "database": {
-                "host": "localhost",
-                "password": "db_secret"
-            }
+            "app": {"debug": False, "secret_key": "app_secret"},
+            "database": {"host": "localhost", "password": "db_secret"},
         }
 
         encrypted_config = self.encryption.encrypt_config_dict(config)
@@ -228,7 +233,7 @@ class TestConfigEncryption(unittest.TestCase):
         config = {
             "debug": True,
             "jwt_secret_key": "super_secret_key",
-            "api_key": "api_secret_123"
+            "api_key": "api_secret_123",
         }
 
         # Encrypt then decrypt
@@ -242,9 +247,9 @@ class TestConfigEncryption(unittest.TestCase):
         config = {
             "servers": [
                 {"host": "server1", "password": "pass1"},
-                {"host": "server2", "password": "pass2"}
+                {"host": "server2", "password": "pass2"},
             ],
-            "debug": True
+            "debug": True,
         }
 
         encrypted_config = self.encryption.encrypt_config_dict(config)
@@ -252,15 +257,15 @@ class TestConfigEncryption(unittest.TestCase):
         # Check that passwords in list items are encrypted
         self.assertEqual(encrypted_config["servers"][0]["host"], "server1")
         self.assertNotEqual(encrypted_config["servers"][0]["password"], "pass1")
-        self.assertTrue(encrypted_config["servers"][0]["password"].startswith(self.encryption.ENCRYPTED_PREFIX))
+        self.assertTrue(
+            encrypted_config["servers"][0]["password"].startswith(
+                self.encryption.ENCRYPTED_PREFIX
+            )
+        )
 
     def test_export_import_encrypted_config(self):
         """Test exporting and importing encrypted configuration as JSON."""
-        config = {
-            "debug": False,
-            "jwt_secret_key": "secret_key_123",
-            "port": 8000
-        }
+        config = {"debug": False, "jwt_secret_key": "secret_key_123", "port": 8000}
 
         # Export to JSON
         json_string = self.encryption.export_encrypted_config(config)
@@ -268,7 +273,9 @@ class TestConfigEncryption(unittest.TestCase):
 
         # Verify JSON contains encrypted data
         json_data = json.loads(json_string)
-        self.assertTrue(json_data["jwt_secret_key"].startswith(self.encryption.ENCRYPTED_PREFIX))
+        self.assertTrue(
+            json_data["jwt_secret_key"].startswith(self.encryption.ENCRYPTED_PREFIX)
+        )
 
         # Import from JSON
         imported_config = self.encryption.import_encrypted_config(json_string)
@@ -278,10 +285,10 @@ class TestConfigEncryption(unittest.TestCase):
         """Test that operations fail when encryption is not initialized."""
         uninitialized_encryption = ConfigEncryption()
 
-        with self.assertRaises(ConfigEncryptionError):
+        with pytest.raises(ConfigEncryptionError):
             uninitialized_encryption.encrypt_value("test")
 
-        with self.assertRaises(ConfigEncryptionError):
+        with pytest.raises(ConfigEncryptionError):
             uninitialized_encryption.decrypt_value("test")
 
     def test_rotate_keys(self):
@@ -323,13 +330,13 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
 
         # Create persistence with encryption enabled
         self.persistence = ConfigPersistence(
-            base_dir=self.temp_dir,
-            enable_encryption=True
+            base_dir=self.temp_dir, enable_encryption=True
         )
 
     def tearDown(self):
         """Clean up test environment."""
         import shutil
+
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_save_and_load_encrypted_config(self):
@@ -338,7 +345,7 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
             "debug": True,
             "port": 8000,
             "jwt_secret_key": "super_secret_key_123",
-            "api_key": "api_secret_456"
+            "api_key": "api_secret_456",
         }
 
         # Save configuration
@@ -347,7 +354,7 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
         self.assertTrue(self.config_file.exists())
 
         # Verify file contains encrypted data
-        with open(self.config_file, 'r') as f:
+        with open(self.config_file) as f:
             file_content = json.load(f)
 
         # Sensitive fields should be encrypted in file
@@ -366,7 +373,7 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
         config_data = {
             "debug": True,
             "jwt_secret_key": "secret_to_encrypt",
-            "port": 8000
+            "port": 8000,
         }
 
         # Save without encryption first
@@ -374,7 +381,7 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
         self.persistence.save_config(config_data, self.config_file)
 
         # Verify file contains unencrypted data
-        with open(self.config_file, 'r') as f:
+        with open(self.config_file) as f:
             file_content = json.load(f)
         self.assertEqual(file_content["jwt_secret_key"], "secret_to_encrypt")
 
@@ -383,7 +390,7 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
         self.assertTrue(success)
 
         # Verify file now contains encrypted data
-        with open(self.config_file, 'r') as f:
+        with open(self.config_file) as f:
             file_content = json.load(f)
         self.assertTrue(file_content["jwt_secret_key"].startswith("ENCRYPTED:"))
 
@@ -406,11 +413,11 @@ class TestConfigPersistenceWithEncryption(unittest.TestCase):
         config_data = {
             "debug": True,
             "jwt_secret_key": "unencrypted_secret",
-            "port": 8000
+            "port": 8000,
         }
 
         # Create unencrypted file manually
-        with open(self.config_file, 'w') as f:
+        with open(self.config_file, "w") as f:
             json.dump(config_data, f)
 
         # Load with encryption enabled (should work)

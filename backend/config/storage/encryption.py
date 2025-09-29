@@ -27,6 +27,7 @@ try:
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
+
     # Mock classes for development/testing when cryptography is not available
     class MockFernet:
         @staticmethod
@@ -60,11 +61,13 @@ logger = logging.getLogger(__name__)
 
 class ConfigEncryptionError(Exception):
     """Configuration encryption related errors."""
+
     pass
 
 
 class KeyDerivationError(ConfigEncryptionError):
     """Key derivation related errors."""
+
     pass
 
 
@@ -79,7 +82,7 @@ class EncryptionKeyManager:
         """
         self.key_file = key_file or Path("config/.encryption_key")
         self._master_key: Optional[bytes] = None
-        self._derived_keys: Dict[str, bytes] = {}
+        self._derived_keys: dict[str, bytes] = {}
 
     def _ensure_key_directory(self) -> None:
         """Ensure the key directory exists."""
@@ -97,7 +100,9 @@ class EncryptionKeyManager:
 
         return Fernet.generate_key()
 
-    def derive_key_from_password(self, password: str, salt: Optional[bytes] = None) -> bytes:
+    def derive_key_from_password(
+        self, password: str, salt: Optional[bytes] = None
+    ) -> bytes:
         """Derive encryption key from password using PBKDF2.
 
         Args:
@@ -112,7 +117,9 @@ class EncryptionKeyManager:
         """
         try:
             if not CRYPTOGRAPHY_AVAILABLE:
-                logger.warning("Cryptography library not available, using mock derivation")
+                logger.warning(
+                    "Cryptography library not available, using mock derivation"
+                )
                 return b"mock_derived_key_32_bytes_long__"
 
             if salt is None:
@@ -125,7 +132,7 @@ class EncryptionKeyManager:
                 iterations=100000,  # OWASP recommended minimum
             )
 
-            key = base64.urlsafe_b64encode(kdf.derive(password.encode('utf-8')))
+            key = base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
             return key
 
         except Exception as e:
@@ -154,17 +161,17 @@ class EncryptionKeyManager:
                 # Store salt + encrypted key
                 key_data = {
                     "encrypted": True,
-                    "salt": base64.b64encode(salt).decode('utf-8'),
-                    "key": base64.b64encode(encrypted_key).decode('utf-8')
+                    "salt": base64.b64encode(salt).decode("utf-8"),
+                    "key": base64.b64encode(encrypted_key).decode("utf-8"),
                 }
             else:
                 # Store key unencrypted (not recommended for production)
                 key_data = {
                     "encrypted": False,
-                    "key": base64.b64encode(key).decode('utf-8')
+                    "key": base64.b64encode(key).decode("utf-8"),
                 }
 
-            with open(self.key_file, 'w') as f:
+            with open(self.key_file, "w") as f:
                 json.dump(key_data, f, indent=2)
 
             # Set restrictive permissions
@@ -191,7 +198,7 @@ class EncryptionKeyManager:
             if not self.key_file.exists():
                 raise ConfigEncryptionError(f"Key file not found: {self.key_file}")
 
-            with open(self.key_file, 'r') as f:
+            with open(self.key_file) as f:
                 key_data = json.load(f)
 
             if key_data.get("encrypted", False):
@@ -242,23 +249,25 @@ class ConfigEncryption:
 
     # Fields that should be encrypted by default
     DEFAULT_SECURE_FIELDS = {
-        'jwt_secret_key',
-        'api_key',
-        'secret_key',
-        'password',
-        'token',
-        'credential',
-        'private_key',
-        'database_password',
-        'redis_password',
+        "jwt_secret_key",
+        "api_key",
+        "secret_key",
+        "password",
+        "token",
+        "credential",
+        "private_key",
+        "database_password",
+        "redis_password",
     }
 
     # Prefix to identify encrypted values
     ENCRYPTED_PREFIX = "ENCRYPTED:"
 
-    def __init__(self,
-                 key_manager: Optional[EncryptionKeyManager] = None,
-                 secure_fields: Optional[List[str]] = None):
+    def __init__(
+        self,
+        key_manager: Optional[EncryptionKeyManager] = None,
+        secure_fields: Optional[list[str]] = None,
+    ):
         """Initialize configuration encryption.
 
         Args:
@@ -291,7 +300,9 @@ class ConfigEncryption:
     def _ensure_initialized(self) -> None:
         """Ensure encryption is initialized."""
         if not self._initialized:
-            raise ConfigEncryptionError("Encryption not initialized. Call initialize() first.")
+            raise ConfigEncryptionError(
+                "Encryption not initialized. Call initialize() first."
+            )
 
     def _is_secure_field(self, key: str) -> bool:
         """Check if a field should be encrypted based on its name.
@@ -337,8 +348,8 @@ class ConfigEncryption:
             return value  # Already encrypted
 
         try:
-            encrypted_bytes = self._cipher.encrypt(value.encode('utf-8'))
-            encrypted_b64 = base64.b64encode(encrypted_bytes).decode('utf-8')
+            encrypted_bytes = self._cipher.encrypt(value.encode("utf-8"))
+            encrypted_b64 = base64.b64encode(encrypted_bytes).decode("utf-8")
             return f"{self.ENCRYPTED_PREFIX}{encrypted_b64}"
 
         except Exception as e:
@@ -363,12 +374,12 @@ class ConfigEncryption:
 
         try:
             # Remove prefix and decode
-            encrypted_b64 = encrypted_value[len(self.ENCRYPTED_PREFIX):]
+            encrypted_b64 = encrypted_value[len(self.ENCRYPTED_PREFIX) :]
             encrypted_bytes = base64.b64decode(encrypted_b64)
 
             # Decrypt
             decrypted_bytes = self._cipher.decrypt(encrypted_bytes)
-            return decrypted_bytes.decode('utf-8')
+            return decrypted_bytes.decode("utf-8")
 
         except Exception as e:
             raise ConfigEncryptionError(f"Failed to decrypt value: {e}")
@@ -415,7 +426,9 @@ class ConfigEncryption:
         """
         return self.decrypt_value(encrypted_data)
 
-    def encrypt_config_dict(self, config_dict: Dict[str, Any], path_prefix: str = "") -> Dict[str, Any]:
+    def encrypt_config_dict(
+        self, config_dict: dict[str, Any], path_prefix: str = ""
+    ) -> dict[str, Any]:
         """Recursively encrypt sensitive fields in a configuration dictionary.
 
         Args:
@@ -452,7 +465,9 @@ class ConfigEncryption:
 
         return encrypted_dict
 
-    def decrypt_config_dict(self, config_dict: Dict[str, Any], path_prefix: str = "") -> Dict[str, Any]:
+    def decrypt_config_dict(
+        self, config_dict: dict[str, Any], path_prefix: str = ""
+    ) -> dict[str, Any]:
         """Recursively decrypt encrypted fields in a configuration dictionary.
 
         Args:
@@ -489,7 +504,9 @@ class ConfigEncryption:
 
         return decrypted_dict
 
-    def _encrypt_config_list(self, config_list: List[Any], path_prefix: str) -> List[Any]:
+    def _encrypt_config_list(
+        self, config_list: list[Any], path_prefix: str
+    ) -> list[Any]:
         """Encrypt items in a configuration list.
 
         Args:
@@ -512,7 +529,9 @@ class ConfigEncryption:
 
         return encrypted_list
 
-    def _decrypt_config_list(self, config_list: List[Any], path_prefix: str) -> List[Any]:
+    def _decrypt_config_list(
+        self, config_list: list[Any], path_prefix: str
+    ) -> list[Any]:
         """Decrypt items in a configuration list.
 
         Args:
@@ -578,7 +597,7 @@ class ConfigEncryption:
         except Exception as e:
             raise ConfigEncryptionError(f"Key rotation failed: {e}")
 
-    def export_encrypted_config(self, config_dict: Dict[str, Any]) -> str:
+    def export_encrypted_config(self, config_dict: dict[str, Any]) -> str:
         """Export configuration with sensitive fields encrypted as JSON string.
 
         Args:
@@ -590,7 +609,7 @@ class ConfigEncryption:
         encrypted_dict = self.encrypt_config_dict(config_dict)
         return json.dumps(encrypted_dict, indent=2, default=str, ensure_ascii=False)
 
-    def import_encrypted_config(self, config_json: str) -> Dict[str, Any]:
+    def import_encrypted_config(self, config_json: str) -> dict[str, Any]:
         """Import configuration from JSON string with encrypted fields.
 
         Args:

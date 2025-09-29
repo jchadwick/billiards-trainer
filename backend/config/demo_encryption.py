@@ -6,11 +6,10 @@ secure storage of sensitive configuration values.
 """
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.storage.encryption import ConfigEncryption, EncryptionKeyManager
@@ -67,29 +66,26 @@ def demo_config_dict_encryption():
             "host": "localhost",
             "port": 8000,
             "jwt_secret_key": "super_secret_jwt_key",
-            "authentication": {
-                "enabled": True,
-                "api_key": "secret_api_key_123"
-            }
+            "authentication": {"enabled": True, "api_key": "secret_api_key_123"},
         },
         "database": {
             "host": "db.example.com",
             "port": 5432,
             "username": "app_user",
-            "password": "very_secret_db_password"
+            "password": "very_secret_db_password",
         },
         "services": [
             {
                 "name": "redis",
                 "host": "redis.example.com",
-                "password": "redis_secret_pass"
+                "password": "redis_secret_pass",
             },
             {
                 "name": "elasticsearch",
                 "host": "es.example.com",
-                "api_key": "es_api_key_secret"
-            }
-        ]
+                "api_key": "es_api_key_secret",
+            },
+        ],
     }
 
     print("Original configuration:")
@@ -154,10 +150,7 @@ def demo_persistence_with_encryption():
         config_file = config_dir / "app_config.json"
 
         # Create persistence manager with encryption enabled
-        persistence = ConfigPersistence(
-            base_dir=config_dir,
-            enable_encryption=True
-        )
+        persistence = ConfigPersistence(base_dir=config_dir, enable_encryption=True)
 
         # Sample configuration
         config_data = {
@@ -168,15 +161,12 @@ def demo_persistence_with_encryption():
                 "host": "0.0.0.0",
                 "port": 8000,
                 "jwt_secret_key": "production_jwt_secret_key",
-                "authentication": {
-                    "enabled": True,
-                    "api_key": "production_api_key"
-                }
+                "authentication": {"enabled": True, "api_key": "production_api_key"},
             },
             "database": {
                 "url": "postgresql://localhost:5432/billiards",
-                "password": "super_secret_db_password"
-            }
+                "password": "super_secret_db_password",
+            },
         }
 
         print("Saving configuration with encryption...")
@@ -184,7 +174,7 @@ def demo_persistence_with_encryption():
         print(f"Save successful: {success}")
 
         # Show what's actually stored in the file
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             file_content = json.load(f)
 
         print("\nActual file content (with encrypted sensitive fields):")
@@ -221,10 +211,10 @@ def demo_migration_to_encrypted():
             "debug": True,
             "jwt_secret_key": "legacy_secret_key",
             "api_key": "legacy_api_key",
-            "database_password": "legacy_db_password"
+            "database_password": "legacy_db_password",
         }
 
-        with open(config_file, 'w') as f:
+        with open(config_file, "w") as f:
             json.dump(legacy_config, f, indent=2)
 
         print("Created legacy unencrypted configuration:")
@@ -239,7 +229,7 @@ def demo_migration_to_encrypted():
         print(f"Migration successful: {success}")
 
         # Show updated file content
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             encrypted_content = json.load(f)
 
         print("\nFile content after migration (with encrypted sensitive fields):")
@@ -268,7 +258,7 @@ def demo_custom_secure_fields():
         "private_token": "private_token_123",
         "license_key": "ABCD-1234-EFGH-5678",
         "public_setting": "not_encrypted",
-        "jwt_secret_key": "default_secure_field"  # Not in custom list
+        "jwt_secret_key": "default_secure_field",  # Not in custom list
     }
 
     print("Configuration with custom secure fields:")
@@ -324,6 +314,7 @@ def main():
     except Exception as e:
         print(f"Demo failed with error: {e}")
         import traceback
+
         traceback.print_exc()
 
 

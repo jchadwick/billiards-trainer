@@ -1,8 +1,9 @@
 """Tests for CLI argument configuration loader."""
 
 import argparse
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from ..loader.cli import ArgumentError, CLIError, CLILoader, TypeConversionError
 
@@ -28,7 +29,7 @@ class TestCLILoader:
             description="Test Description",
             prefix="-",
             nested_separator="__",
-            schema=schema
+            schema=schema,
         )
 
         assert loader.prog_name == "test-app"
@@ -49,12 +50,7 @@ class TestCLILoader:
     def test_load_basic_arguments(self):
         """Test loading basic arguments."""
         loader = CLILoader()
-        args = [
-            "--debug",
-            "--log-level", "DEBUG",
-            "--port", "8080",
-            "--camera", "1"
-        ]
+        args = ["--debug", "--log-level", "DEBUG", "--port", "8080", "--camera", "1"]
 
         config = loader.load(args)
 
@@ -66,10 +62,7 @@ class TestCLILoader:
     def test_load_nested_configuration(self):
         """Test loading nested configuration paths."""
         loader = CLILoader()
-        args = [
-            "--host", "localhost",
-            "--resolution", "1920x1080"
-        ]
+        args = ["--host", "localhost", "--resolution", "1920x1080"]
 
         config = loader.load(args)
 
@@ -80,9 +73,12 @@ class TestCLILoader:
         """Test loading with config file specification."""
         loader = CLILoader()
         args = [
-            "--config", "/path/to/config.json",
-            "--config-format", "json",
-            "--profile", "development"
+            "--config",
+            "/path/to/config.json",
+            "--config-format",
+            "json",
+            "--profile",
+            "development",
         ]
 
         config = loader.load(args)
@@ -114,7 +110,7 @@ class TestCLILoader:
         result = loader._convert_json('{"key": "value"}')
         assert result == {"key": "value"}
 
-        result = loader._convert_json('[1, 2, 3]')
+        result = loader._convert_json("[1, 2, 3]")
         assert result == [1, 2, 3]
 
         # Test invalid JSON
@@ -169,7 +165,7 @@ class TestCLILoader:
             "custom_option",
             help="Custom option",
             config_key="custom.option",
-            value_type="str"
+            value_type="str",
         )
 
         config = loader.load(["--custom-option", "test_value"])
@@ -182,18 +178,14 @@ class TestCLILoader:
                 "host": {
                     "type": "str",
                     "default": "localhost",
-                    "description": "Database host"
+                    "description": "Database host",
                 },
                 "port": {
                     "type": "int",
                     "default": 5432,
-                    "description": "Database port"
+                    "description": "Database port",
                 },
-                "ssl": {
-                    "type": "bool",
-                    "default": False,
-                    "description": "Enable SSL"
-                }
+                "ssl": {"type": "bool", "default": False, "description": "Enable SSL"},
             }
         }
 
@@ -207,12 +199,7 @@ class TestCLILoader:
 
     def test_load_with_schema(self):
         """Test loading with a specific schema."""
-        schema = {
-            "test_option": {
-                "type": "str",
-                "description": "Test option"
-            }
-        }
+        schema = {"test_option": {"type": "str", "description": "Test option"}}
 
         loader = CLILoader()
         config = loader.load_with_schema(schema, ["--test-option", "value"])
@@ -238,7 +225,8 @@ class TestCLILoader:
         loader = CLILoader()
         args = [
             "--debug",  # This should override any default/file/env setting
-            "--port", "9000"
+            "--port",
+            "9000",
         ]
 
         config = loader.load(args)
@@ -251,14 +239,11 @@ class TestCLILoader:
         """Test adding module-specific arguments."""
         loader = CLILoader()
         module_schema = {
-            "enabled": {
-                "type": "bool",
-                "description": "Enable the module"
-            },
+            "enabled": {"type": "bool", "description": "Enable the module"},
             "config_option": {
                 "type": "str",
-                "description": "Module configuration option"
-            }
+                "description": "Module configuration option",
+            },
         }
 
         loader.add_module_arguments("test_module", module_schema)
@@ -280,8 +265,8 @@ class TestCLILoader:
         loader = CLILoader()
 
         # Test --version
-        with patch('sys.exit') as mock_exit:
-            with patch('builtins.print') as mock_print:
+        with patch("sys.exit") as mock_exit:
+            with patch("builtins.print") as mock_print:
                 loader.load(["--version"])
                 mock_exit.assert_called_once_with(0)
                 mock_print.assert_called()
@@ -306,23 +291,20 @@ class TestCLILoader:
                     "device_id": {"type": "int", "description": "Camera device ID"}
                 }
             },
-            "api": {
-                "network": {
-                    "host": {"type": "str", "description": "API host"}
-                }
-            },
+            "api": {"network": {"host": {"type": "str", "description": "API host"}}},
             "system": {
-                "logging": {
-                    "level": {"type": "str", "description": "Log level"}
-                }
-            }
+                "logging": {"level": {"type": "str", "description": "Log level"}}
+            },
         }
 
         loader = CLILoader(schema=schema)
         args = [
-            "--vision-camera-device-id", "2",
-            "--api-network-host", "0.0.0.0",
-            "--system-logging-level", "WARNING"
+            "--vision-camera-device-id",
+            "2",
+            "--api-network-host",
+            "0.0.0.0",
+            "--system-logging-level",
+            "WARNING",
         ]
 
         config = loader.load(args)
@@ -354,9 +336,7 @@ class TestCLILoader:
 
         # Add a custom list argument
         loader.add_argument(
-            "--modules",
-            help="Comma-separated list of modules",
-            dest="enabled_modules"
+            "--modules", help="Comma-separated list of modules", dest="enabled_modules"
         )
 
         config = loader.load(["--modules", "vision,api,projector"])
@@ -371,7 +351,7 @@ class TestCLILoader:
             "metadata",
             help="JSON metadata",
             config_key="custom_metadata",
-            value_type="json"
+            value_type="json",
         )
 
         json_value = '{"key": "value", "number": 42}'
@@ -390,13 +370,7 @@ class TestCLILoader:
 
     def test_config_validation(self):
         """Test configuration validation against schema."""
-        schema = {
-            "custom_port": {
-                "type": "int",
-                "minimum": 1,
-                "maximum": 65535
-            }
-        }
+        schema = {"custom_port": {"type": "int", "minimum": 1, "maximum": 65535}}
 
         loader = CLILoader(schema=schema)
 
@@ -427,12 +401,7 @@ class TestCLILoader:
     def test_schema_argument_conflicts(self):
         """Test handling of schema argument conflicts."""
         # Schema with argument that might conflict with built-ins
-        schema = {
-            "port": {
-                "type": "int",
-                "description": "Custom port"
-            }
-        }
+        schema = {"port": {"type": "int", "description": "Custom port"}}
 
         loader = CLILoader(schema=schema)
 

@@ -18,16 +18,19 @@ logger = logging.getLogger(__name__)
 
 class CLIError(Exception):
     """Exception raised for CLI argument errors."""
+
     pass
 
 
 class TypeConversionError(CLIError):
     """Exception raised when type conversion fails."""
+
     pass
 
 
 class ArgumentError(CLIError):
     """Exception raised for invalid arguments."""
+
     pass
 
 
@@ -120,11 +123,11 @@ class CLILoader:
             parsed_args = self.parser.parse_args(args)
 
             # Handle special cases
-            if hasattr(parsed_args, 'help_config') and parsed_args.help_config:
+            if hasattr(parsed_args, "help_config") and parsed_args.help_config:
                 self._print_config_help()
                 sys.exit(0)
 
-            if hasattr(parsed_args, 'version') and parsed_args.version:
+            if hasattr(parsed_args, "version") and parsed_args.version:
                 self._print_version()
                 sys.exit(0)
 
@@ -141,7 +144,7 @@ class CLILoader:
             logger.info(f"Loaded {len(config)} configuration values from CLI")
             return config
 
-        except SystemExit as e:
+        except SystemExit:
             # Re-raise SystemExit to allow normal help/error exits
             raise
         except Exception as e:
@@ -151,7 +154,7 @@ class CLILoader:
         self,
         schema: dict[str, Any],
         args: Optional[list[str]] = None,
-        strict: bool = False
+        strict: bool = False,
     ) -> dict[str, Any]:
         """Load CLI arguments according to a specific schema.
 
@@ -187,7 +190,7 @@ class CLILoader:
         *args,
         config_key: Optional[str] = None,
         value_type: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """Add a custom CLI argument.
 
@@ -207,8 +210,8 @@ class CLILoader:
 
         # Add type conversion info
         if value_type:
-            kwargs['dest'] = config_key
-            kwargs['metavar'] = value_type.upper()
+            kwargs["dest"] = config_key
+            kwargs["metavar"] = value_type.upper()
 
         # Add argument to parser
         try:
@@ -216,7 +219,9 @@ class CLILoader:
         except argparse.ArgumentError as e:
             logger.warning(f"Could not add argument {name}: {e}")
 
-    def add_module_arguments(self, module_name: str, module_schema: dict[str, Any]) -> None:
+    def add_module_arguments(
+        self, module_name: str, module_schema: dict[str, Any]
+    ) -> None:
         """Add arguments for a specific module.
 
         Args:
@@ -225,7 +230,7 @@ class CLILoader:
         """
         group = self.parser.add_argument_group(
             f"{module_name.title()} Module",
-            f"Configuration options for the {module_name} module"
+            f"Configuration options for the {module_name} module",
         )
 
         self._add_schema_arguments_to_group(group, module_schema, module_name)
@@ -263,31 +268,32 @@ class CLILoader:
         )
 
         config_group.add_argument(
-            "--config", "-c",
+            "--config",
+            "-c",
             dest="config_file",
             metavar="FILE",
-            help="Configuration file path"
+            help="Configuration file path",
         )
 
         config_group.add_argument(
             "--config-format",
             choices=["json", "yaml", "ini"],
             dest="config_format",
-            help="Configuration file format (auto-detected if not specified)"
+            help="Configuration file format (auto-detected if not specified)",
         )
 
         config_group.add_argument(
             "--profile",
             dest="active_profile",
             metavar="NAME",
-            help="Configuration profile to use"
+            help="Configuration profile to use",
         )
 
         config_group.add_argument(
             "--no-config",
             action="store_true",
             dest="ignore_config_files",
-            help="Ignore configuration files"
+            help="Ignore configuration files",
         )
 
         # Environment options
@@ -299,21 +305,21 @@ class CLILoader:
             "--env",
             dest="environment",
             choices=["development", "testing", "production"],
-            help="Runtime environment"
+            help="Runtime environment",
         )
 
         env_group.add_argument(
             "--debug",
             action="store_true",
             dest="system.debug",
-            help="Enable debug mode"
+            help="Enable debug mode",
         )
 
         env_group.add_argument(
             "--log-level",
             dest="system.logging.level",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-            help="Set logging level"
+            help="Set logging level",
         )
 
         # Module enable/disable
@@ -325,21 +331,21 @@ class CLILoader:
             "--enable-vision",
             action="store_true",
             dest="modules.vision.enabled",
-            help="Enable vision module"
+            help="Enable vision module",
         )
 
         modules_group.add_argument(
             "--enable-projector",
             action="store_true",
             dest="modules.projector.enabled",
-            help="Enable projector module"
+            help="Enable projector module",
         )
 
         modules_group.add_argument(
             "--enable-api",
             action="store_true",
             dest="modules.api.enabled",
-            help="Enable API module"
+            help="Enable API module",
         )
 
         # Network options
@@ -351,15 +357,16 @@ class CLILoader:
             "--host",
             dest="api.network.host",
             metavar="HOST",
-            help="API server host address"
+            help="API server host address",
         )
 
         network_group.add_argument(
-            "--port", "-p",
+            "--port",
+            "-p",
             dest="api.network.port",
             type=int,
             metavar="PORT",
-            help="API server port"
+            help="API server port",
         )
 
         # Hardware options
@@ -372,14 +379,14 @@ class CLILoader:
             dest="vision.camera.device_id",
             type=int,
             metavar="ID",
-            help="Camera device ID"
+            help="Camera device ID",
         )
 
         hardware_group.add_argument(
             "--resolution",
             dest="vision.camera.resolution",
             metavar="WIDTHxHEIGHT",
-            help="Camera resolution (e.g., 1920x1080)"
+            help="Camera resolution (e.g., 1920x1080)",
         )
 
         # Utility options
@@ -390,20 +397,18 @@ class CLILoader:
         util_group.add_argument(
             "--help-config",
             action="store_true",
-            help="Show detailed configuration help"
+            help="Show detailed configuration help",
         )
 
         util_group.add_argument(
-            "--version", "-V",
-            action="store_true",
-            help="Show version information"
+            "--version", "-V", action="store_true", help="Show version information"
         )
 
         util_group.add_argument(
             "--validate-only",
             action="store_true",
             dest="validate_only",
-            help="Validate configuration and exit"
+            help="Validate configuration and exit",
         )
 
     def _add_schema_arguments(self) -> None:
@@ -415,10 +420,7 @@ class CLILoader:
         self._process_schema_section(self.schema, "")
 
     def _add_schema_arguments_to_group(
-        self,
-        group: argparse._ArgumentGroup,
-        schema: dict[str, Any],
-        prefix: str = ""
+        self, group: argparse._ArgumentGroup, schema: dict[str, Any], prefix: str = ""
     ) -> None:
         """Add schema-based arguments to a specific group."""
         for key, spec in schema.items():
@@ -454,7 +456,9 @@ class CLILoader:
         existing_args_flat = [arg for sublist in existing_args for arg in sublist]
 
         if arg_name in existing_args_flat:
-            logger.debug(f"Skipping schema argument {arg_name}: conflicts with existing argument")
+            logger.debug(
+                f"Skipping schema argument {arg_name}: conflicts with existing argument"
+            )
             return
 
         # Get argument properties
@@ -500,7 +504,7 @@ class CLILoader:
         group: argparse._ArgumentGroup,
         key: str,
         spec: dict[str, Any],
-        prefix: str
+        prefix: str,
     ) -> None:
         """Add a single argument to a specific group."""
         # Similar to _add_single_argument but adds to group
@@ -545,7 +549,7 @@ class CLILoader:
         # We need to check if the argument was explicitly set
         for action in self.parser._actions:
             dest = action.dest
-            if dest == 'help':
+            if dest == "help":
                 continue
 
             if hasattr(namespace, dest):
@@ -563,10 +567,13 @@ class CLILoader:
 
     def _apply_type_conversions(self, config: dict[str, Any]) -> dict[str, Any]:
         """Apply type conversions to configuration values."""
+
         def convert_recursive(obj: Any, path: str = "") -> Any:
             if isinstance(obj, dict):
-                return {k: convert_recursive(v, f"{path}.{k}" if path else k)
-                       for k, v in obj.items()}
+                return {
+                    k: convert_recursive(v, f"{path}.{k}" if path else k)
+                    for k, v in obj.items()
+                }
             elif isinstance(obj, str):
                 # Try to convert special string values
                 return self._convert_string_value(obj, path)
@@ -609,7 +616,9 @@ class CLILoader:
         """Validate configuration against schema."""
         errors = []
 
-        def validate_recursive(obj: dict[str, Any], schema: dict[str, Any], path: str = "") -> None:
+        def validate_recursive(
+            obj: dict[str, Any], schema: dict[str, Any], path: str = ""
+        ) -> None:
             for key, value in obj.items():
                 current_path = f"{path}.{key}" if path else key
 
@@ -629,10 +638,14 @@ class CLILoader:
                             maximum = spec.get("maximum")
 
                             if minimum is not None and value < minimum:
-                                errors.append(f"{current_path}: Value {value} below minimum {minimum}")
+                                errors.append(
+                                    f"{current_path}: Value {value} below minimum {minimum}"
+                                )
 
                             if maximum is not None and value > maximum:
-                                errors.append(f"{current_path}: Value {value} above maximum {maximum}")
+                                errors.append(
+                                    f"{current_path}: Value {value} above maximum {maximum}"
+                                )
 
                     elif isinstance(spec, dict) and isinstance(value, dict):
                         # Recurse into nested objects
@@ -668,8 +681,9 @@ class CLILoader:
 
     def _get_type_converter(self, type_name: str) -> Optional[Callable]:
         """Get type converter function for a type name."""
-        return (self.type_converters.get(type_name) or
-                self._default_converters.get(type_name))
+        return self.type_converters.get(type_name) or self._default_converters.get(
+            type_name
+        )
 
     def _convert_bool(self, value: str) -> bool:
         """Convert string to boolean."""
@@ -771,7 +785,9 @@ Examples:
 
         print("\nFor more details, use --help")
 
-    def _print_schema_help(self, schema: dict[str, Any], prefix: str = "", indent: int = 0) -> None:
+    def _print_schema_help(
+        self, schema: dict[str, Any], prefix: str = "", indent: int = 0
+    ) -> None:
         """Print help for schema sections."""
         for key, spec in schema.items():
             current_prefix = f"{prefix}.{key}" if prefix else key

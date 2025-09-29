@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""
-Validation System Demo
+"""Validation System Demo.
 
 This script demonstrates the comprehensive validation system functionality
 including ValidationRules, TypeChecker, and ConfigDiffer utilities.
 """
 
 import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-from backend.config.validator.rules import ValidationRules, ValidationError
-from backend.config.validator.types import TypeChecker, TypeCheckError
-from backend.config.utils.differ import ConfigDiffer, ChangeType
 from backend.config.models.schemas import (
     ApplicationConfig,
-    VisionConfig,
     CameraSettings,
+    VisionConfig,
     create_development_config,
-    create_production_config
+    create_production_config,
 )
+from backend.config.utils.differ import ChangeType, ConfigDiffer
+from backend.config.validator.rules import ValidationError, ValidationRules
+from backend.config.validator.types import TypeChecker, TypeCheckError
 
 
 def demo_validation_rules():
@@ -30,7 +29,7 @@ def demo_validation_rules():
 
     # Create validator instances
     validator = ValidationRules()
-    strict_validator = ValidationRules(strict_mode=True)
+    ValidationRules(strict_mode=True)
     auto_correct_validator = ValidationRules(auto_correct=True)
 
     print("\n1. Range Validation")
@@ -38,14 +37,18 @@ def demo_validation_rules():
 
     # Valid range tests
     print(f"✓ FPS 30 in range [15, 120]: {validator.check_range(30, 15, 120, 'fps')}")
-    print(f"✓ Gain 1.5 in range [0.0, 10.0]: {validator.check_range(1.5, 0.0, 10.0, 'gain')}")
+    print(
+        f"✓ Gain 1.5 in range [0.0, 10.0]: {validator.check_range(1.5, 0.0, 10.0, 'gain')}"
+    )
 
     # Invalid range tests
     print(f"✗ FPS 200 in range [15, 120]: {validator.check_range(200, 15, 120, 'fps')}")
-    print(f"✗ Device ID -1 in range [0, 10]: {validator.check_range(-1, 0, 10, 'device_id')}")
+    print(
+        f"✗ Device ID -1 in range [0, 10]: {validator.check_range(-1, 0, 10, 'device_id')}"
+    )
 
     # Auto-correction demo
-    print(f"\n2. Auto-Correction")
+    print("\n2. Auto-Correction")
     print("-" * 30)
     corrected_fps = auto_correct_validator.check_range("30", 15, 120, "fps")
     print(f"String '30' auto-corrected to: {corrected_fps}")
@@ -53,7 +56,7 @@ def demo_validation_rules():
     corrected_gain = auto_correct_validator.check_range(15.0, 0.0, 10.0, "gain")
     print(f"Gain 15.0 (above max) auto-corrected to: {corrected_gain}")
 
-    print(f"\n3. Type Validation")
+    print("\n3. Type Validation")
     print("-" * 30)
 
     # Valid type tests
@@ -65,28 +68,27 @@ def demo_validation_rules():
     print(f"✗ 'hello' is int: {validator.check_type('hello', int, 'count')}")
     print(f"✗ 42 is str: {validator.check_type(42, str, 'name')}")
 
-    print(f"\n4. Pattern Validation")
+    print("\n4. Pattern Validation")
     print("-" * 30)
 
-    email_pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
-    print(f"✓ 'test@example.com' matches email pattern: {validator.validate_pattern('test@example.com', email_pattern, 'email')}")
-    print(f"✗ 'invalid-email' matches email pattern: {validator.validate_pattern('invalid-email', email_pattern, 'email')}")
+    email_pattern = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    print(
+        f"✓ 'test@example.com' matches email pattern: {validator.validate_pattern('test@example.com', email_pattern, 'email')}"
+    )
+    print(
+        f"✗ 'invalid-email' matches email pattern: {validator.validate_pattern('invalid-email', email_pattern, 'email')}"
+    )
 
-    print(f"\n5. Nested Validation")
+    print("\n5. Nested Validation")
     print("-" * 30)
 
-    camera_config = {
-        "device_id": 0,
-        "fps": 30,
-        "resolution": (1920, 1080),
-        "gain": 1.0
-    }
+    camera_config = {"device_id": 0, "fps": 30, "resolution": (1920, 1080), "gain": 1.0}
 
     camera_schema = {
         "device_id": {"type": "int", "min": 0, "max": 10, "required": True},
         "fps": {"type": "int", "min": 15, "max": 120, "required": True},
         "resolution": {"type": "tuple", "required": True},
-        "gain": {"type": "float", "min": 0.0, "max": 10.0, "required": False}
+        "gain": {"type": "float", "min": 0.0, "max": 10.0, "required": False},
     }
 
     result = validator.validate_nested(camera_config, camera_schema, "camera")
@@ -94,7 +96,7 @@ def demo_validation_rules():
 
     # Show validation errors
     if validator.get_validation_errors():
-        print(f"\nValidation Errors:")
+        print("\nValidation Errors:")
         for error in validator.get_validation_errors():
             print(f"  - {error}")
 
@@ -106,7 +108,7 @@ def demo_type_checker():
     print("=" * 60)
 
     checker = TypeChecker()
-    strict_checker = TypeChecker(strict_mode=True)
+    TypeChecker(strict_mode=True)
 
     print("\n1. Basic Type Checking")
     print("-" * 30)
@@ -116,18 +118,20 @@ def demo_type_checker():
     print(f"✓ 3.14 is float: {checker.check(3.14, float)}")
     print(f"✗ 'hello' is int: {checker.check('hello', int)}")
 
-    print(f"\n2. Generic Type Checking")
+    print("\n2. Generic Type Checking")
     print("-" * 30)
 
-    from typing import List, Dict, Optional, Union
+    from typing import Dict, List, Optional, Union
 
-    print(f"✓ ['a','b','c'] is List[str]: {checker.check(['a','b','c'], List[str])}")
-    print(f"✓ {{'a':1,'b':2}} is Dict[str,int]: {checker.check({'a':1,'b':2}, Dict[str,int])}")
+    print(f"✓ ['a','b','c'] is List[str]: {checker.check(['a','b','c'], list[str])}")
+    print(
+        f"✓ {{'a':1,'b':2}} is Dict[str,int]: {checker.check({'a':1,'b':2}, dict[str,int])}"
+    )
     print(f"✓ 'hello' is Optional[str]: {checker.check('hello', Optional[str])}")
     print(f"✓ None is Optional[str]: {checker.check(None, Optional[str])}")
     print(f"✓ 42 is Union[str,int]: {checker.check(42, Union[str,int])}")
 
-    print(f"\n3. Pydantic Model Checking")
+    print("\n3. Pydantic Model Checking")
     print("-" * 30)
 
     camera_dict = {
@@ -135,16 +139,20 @@ def demo_type_checker():
         "resolution": (1920, 1080),
         "fps": 30,
         "gain": 1.0,
-        "brightness": 0.5
+        "brightness": 0.5,
     }
 
-    print(f"✓ Camera dict validates against CameraSettings: {checker.check(camera_dict, CameraSettings)}")
+    print(
+        f"✓ Camera dict validates against CameraSettings: {checker.check(camera_dict, CameraSettings)}"
+    )
 
     # Invalid camera config
     invalid_camera = {"device_id": "not_int", "fps": -10}
-    print(f"✗ Invalid camera dict validates: {checker.check(invalid_camera, CameraSettings)}")
+    print(
+        f"✗ Invalid camera dict validates: {checker.check(invalid_camera, CameraSettings)}"
+    )
 
-    print(f"\n4. Type Coercion")
+    print("\n4. Type Coercion")
     print("-" * 30)
 
     coercion_checker = TypeChecker(allow_coercion=True)
@@ -153,7 +161,9 @@ def demo_type_checker():
     print(f"✓ '42' coerced to int: {coercion_checker.check('42', int)}")
     print(f"✗ '42' without coercion: {no_coercion_checker.check('42', int)}")
     print(f"✓ 'true' coerced to bool: {coercion_checker.check('true', bool)}")
-    print(f"✓ '/path/to/file' coerced to Path: {coercion_checker.check('/path/to/file', Path)}")
+    print(
+        f"✓ '/path/to/file' coerced to Path: {coercion_checker.check('/path/to/file', Path)}"
+    )
 
 
 def demo_config_differ():
@@ -170,22 +180,10 @@ def demo_config_differ():
     # Original config
     config_v1 = {
         "vision": {
-            "camera": {
-                "device_id": 0,
-                "fps": 30,
-                "resolution": (1920, 1080)
-            },
-            "detection": {
-                "min_ball_radius": 10,
-                "max_ball_radius": 40
-            }
+            "camera": {"device_id": 0, "fps": 30, "resolution": (1920, 1080)},
+            "detection": {"min_ball_radius": 10, "max_ball_radius": 40},
         },
-        "core": {
-            "physics": {
-                "gravity": 9.81,
-                "friction": 0.01
-            }
-        }
+        "core": {"physics": {"gravity": 9.81, "friction": 0.01}},
     }
 
     # Updated config
@@ -193,22 +191,22 @@ def demo_config_differ():
         "vision": {
             "camera": {
                 "device_id": 1,  # Changed
-                "fps": 60,       # Changed
-                "resolution": (1920, 1080)  # Unchanged
+                "fps": 60,  # Changed
+                "resolution": (1920, 1080),  # Unchanged
             },
             "detection": {
-                "min_ball_radius": 15,     # Changed
-                "max_ball_radius": 40,     # Unchanged
-                "sensitivity": 0.8         # Added
-            }
+                "min_ball_radius": 15,  # Changed
+                "max_ball_radius": 40,  # Unchanged
+                "sensitivity": 0.8,  # Added
+            },
         },
         "core": {
             "physics": {
-                "gravity": 9.81,     # Unchanged
-                "friction": 0.02,    # Changed
-                "air_resistance": 0.001  # Added
+                "gravity": 9.81,  # Unchanged
+                "friction": 0.02,  # Changed
+                "air_resistance": 0.001,  # Added
             }
-        }
+        },
     }
 
     diff_result = differ.diff(config_v1, config_v2)
@@ -218,14 +216,14 @@ def demo_config_differ():
     print(f"Modified: {diff_result['summary'].modified_count}")
     print(f"Removed: {diff_result['summary'].removed_count}")
 
-    print(f"\n2. Detailed Changes")
+    print("\n2. Detailed Changes")
     print("-" * 30)
 
-    for change in diff_result['changes']:
+    for change in diff_result["changes"]:
         symbol = {
             ChangeType.ADDED: "+",
             ChangeType.REMOVED: "-",
-            ChangeType.MODIFIED: "~"
+            ChangeType.MODIFIED: "~",
         }.get(change.change_type, "?")
 
         print(f"{symbol} {change.path}")
@@ -236,34 +234,26 @@ def demo_config_differ():
         elif change.change_type == ChangeType.MODIFIED:
             print(f"    {change.old_value} → {change.new_value}")
 
-    print(f"\n3. Diff Report")
+    print("\n3. Diff Report")
     print("-" * 30)
 
     report = differ.format_diff_report(diff_result)
     print(report[:500] + "..." if len(report) > 500 else report)
 
-    print(f"\n4. Version Comparison")
+    print("\n4. Version Comparison")
     print("-" * 30)
 
     # Multiple versions
-    config_v3 = {
-        **config_v2,
-        "api": {
-            "port": 8000,
-            "enable_docs": True
-        }
-    }
+    config_v3 = {**config_v2, "api": {"port": 8000, "enable_docs": True}}
 
-    versions = [
-        ("v1.0", config_v1),
-        ("v1.1", config_v2),
-        ("v1.2", config_v3)
-    ]
+    versions = [("v1.0", config_v1), ("v1.1", config_v2), ("v1.2", config_v3)]
 
     comparisons = differ.compare_versions(versions)
 
     for comparison_name, comparison_result in comparisons.items():
-        print(f"{comparison_name}: {comparison_result['summary'].total_changes} changes")
+        print(
+            f"{comparison_name}: {comparison_result['summary'].total_changes} changes"
+        )
 
 
 def demo_real_world_scenario():
@@ -288,8 +278,8 @@ def demo_real_world_scenario():
     dev_dict = dev_config.model_dump()
     prod_dict = prod_config.model_dump()
 
-    print(f"✓ Development config loaded and validated")
-    print(f"✓ Production config loaded and validated")
+    print("✓ Development config loaded and validated")
+    print("✓ Production config loaded and validated")
 
     # Validate against schemas
     dev_valid = type_checker.check(dev_dict, ApplicationConfig)
@@ -298,7 +288,7 @@ def demo_real_world_scenario():
     print(f"✓ Dev config schema validation: {dev_valid}")
     print(f"✓ Prod config schema validation: {prod_valid}")
 
-    print(f"\n2. Configuration Migration Simulation")
+    print("\n2. Configuration Migration Simulation")
     print("-" * 50)
 
     # Simulate configuration migration
@@ -311,26 +301,30 @@ def demo_real_world_scenario():
 
     # Show critical changes
     critical_changes = [
-        change for change in migration_diff['changes']
-        if any(keyword in change.path.lower() for keyword in ['debug', 'ssl', 'port', 'auth'])
+        change
+        for change in migration_diff["changes"]
+        if any(
+            keyword in change.path.lower()
+            for keyword in ["debug", "ssl", "port", "auth"]
+        )
     ]
 
     if critical_changes:
-        print(f"\nCritical changes requiring attention:")
+        print("\nCritical changes requiring attention:")
         for change in critical_changes:
             print(f"  {change.change_type.value}: {change.path}")
 
-    print(f"\n3. Validation Error Recovery")
+    print("\n3. Validation Error Recovery")
     print("-" * 50)
 
     # Simulate invalid configuration
     invalid_config = {
         "vision": {
             "camera": {
-                "device_id": -1,       # Invalid: below minimum
-                "fps": "sixty",        # Invalid: wrong type
+                "device_id": -1,  # Invalid: below minimum
+                "fps": "sixty",  # Invalid: wrong type
                 "resolution": "1920x1080",  # Invalid: wrong format
-                "gain": 15.0           # Invalid: above maximum
+                "gain": 15.0,  # Invalid: above maximum
             }
         }
     }
@@ -354,7 +348,7 @@ def demo_real_world_scenario():
         print(f"  - {error}")
 
     # Demonstrate auto-correction
-    print(f"\n4. Auto-Correction")
+    print("\n4. Auto-Correction")
     print("-" * 50)
 
     auto_corrector = ValidationRules(auto_correct=True)
@@ -366,7 +360,7 @@ def demo_real_world_scenario():
     print(f"device_id -1 → {corrected_device_id}")
     print(f"gain 15.0 → {corrected_gain}")
 
-    print(f"\n5. Configuration Backup and Rollback Simulation")
+    print("\n5. Configuration Backup and Rollback Simulation")
     print("-" * 50)
 
     # Simulate backup creation
@@ -383,7 +377,7 @@ def demo_real_world_scenario():
 
     print(f"Changes to rollback: {rollback_diff['summary'].total_changes}")
     print("Rollback operations:")
-    for change in rollback_diff['changes']:
+    for change in rollback_diff["changes"]:
         if change.change_type == ChangeType.MODIFIED:
             print(f"  Restore {change.path}: {change.new_value} ← {change.old_value}")
         elif change.change_type == ChangeType.ADDED:
@@ -411,6 +405,7 @@ def main():
     except Exception as e:
         print(f"\n\n✗ DEMO FAILED: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return 1
 

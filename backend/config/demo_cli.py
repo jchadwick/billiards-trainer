@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.loader.cli import CLILoader
 from config.loader.env import EnvironmentLoader
 from config.loader.file import FileLoader
-from config.loader.merger import ConfigurationMerger, ConfigSource
+from config.loader.merger import ConfigSource, ConfigurationMerger
 
 
 def demo_basic_usage():
@@ -28,10 +28,14 @@ def demo_basic_usage():
     # Simulate command line arguments
     test_args = [
         "--debug",
-        "--log-level", "DEBUG",
-        "--port", "8080",
-        "--camera", "1",
-        "--resolution", "1920x1080"
+        "--log-level",
+        "DEBUG",
+        "--port",
+        "8080",
+        "--camera",
+        "1",
+        "--resolution",
+        "1920x1080",
     ]
 
     print(f"CLI arguments: {' '.join(test_args)}")
@@ -52,51 +56,55 @@ def demo_schema_integration():
                 "device_id": {
                     "type": "int",
                     "default": 0,
-                    "description": "Camera device ID"
+                    "description": "Camera device ID",
                 },
                 "fps": {
                     "type": "int",
                     "default": 30,
                     "minimum": 15,
                     "maximum": 120,
-                    "description": "Camera frames per second"
-                }
+                    "description": "Camera frames per second",
+                },
             },
             "detection": {
                 "enabled": {
                     "type": "bool",
                     "default": True,
-                    "description": "Enable object detection"
+                    "description": "Enable object detection",
                 }
-            }
+            },
         },
         "api": {
             "network": {
                 "host": {
                     "type": "str",
                     "default": "localhost",
-                    "description": "API server host"
+                    "description": "API server host",
                 },
                 "port": {
                     "type": "int",
                     "default": 8000,
                     "minimum": 1,
                     "maximum": 65535,
-                    "description": "API server port"
-                }
+                    "description": "API server port",
+                },
             }
-        }
+        },
     }
 
     loader = CLILoader(schema=schema)
 
     # Test schema-generated arguments
     test_args = [
-        "--vision-camera-device-id", "2",
-        "--vision-camera-fps", "60",
+        "--vision-camera-device-id",
+        "2",
+        "--vision-camera-fps",
+        "60",
         "--vision-detection-enabled",
-        "--api-network-host", "0.0.0.0",
-        "--api-network-port", "9000"
+        "--api-network-host",
+        "0.0.0.0",
+        "--api-network-port",
+        "9000",
     ]
 
     print(f"CLI arguments: {' '.join(test_args)}")
@@ -117,17 +125,22 @@ def demo_type_conversions():
     loader.add_argument("--list-data", dest="modules", help="Comma-separated modules")
 
     test_args = [
-        "--resolution", "2560x1440",  # Tuple conversion
-        "--json-data", '{"version": "1.0", "features": ["vision", "api"]}',  # JSON conversion
-        "--list-data", "vision,core,projector,api",  # List conversion
-        "--debug"  # Boolean flag
+        "--resolution",
+        "2560x1440",  # Tuple conversion
+        "--json-data",
+        '{"version": "1.0", "features": ["vision", "api"]}',  # JSON conversion
+        "--list-data",
+        "vision,core,projector,api",  # List conversion
+        "--debug",  # Boolean flag
     ]
 
     print(f"CLI arguments: {' '.join(test_args)}")
 
     config = loader.load(test_args)
     print("\nType conversions:")
-    print(f"Resolution (tuple): {config.get('vision', {}).get('camera', {}).get('resolution')}")
+    print(
+        f"Resolution (tuple): {config.get('vision', {}).get('camera', {}).get('resolution')}"
+    )
     print(f"JSON data (dict): {config.get('metadata')}")
     print(f"List data (list): {config.get('modules')}")
     print(f"Debug flag (bool): {config.get('system', {}).get('debug')}")
@@ -140,15 +153,10 @@ def demo_precedence_chain():
     # Create a temporary config file
     import tempfile
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         file_config = {
-            "system": {
-                "debug": False,
-                "logging": {"level": "WARNING"}
-            },
-            "api": {
-                "network": {"port": 8000, "host": "127.0.0.1"}
-            }
+            "system": {"debug": False, "logging": {"level": "WARNING"}},
+            "api": {"network": {"port": 8000, "host": "127.0.0.1"}},
         }
         json.dump(file_config, f)
         config_file = f.name
@@ -156,11 +164,14 @@ def demo_precedence_chain():
     try:
         # Set environment variables
         import os
+
         old_env = os.environ.copy()
-        os.environ.update({
-            "BILLIARDS_API__NETWORK__PORT": "8080",
-            "BILLIARDS_SYSTEM__LOGGING__LEVEL": "INFO"
-        })
+        os.environ.update(
+            {
+                "BILLIARDS_API__NETWORK__PORT": "8080",
+                "BILLIARDS_SYSTEM__LOGGING__LEVEL": "INFO",
+            }
+        )
 
         # Load from all sources
         file_loader = FileLoader()
@@ -170,10 +181,9 @@ def demo_precedence_chain():
         env_config = env_loader.load_environment()
 
         cli_loader = CLILoader()
-        cli_config = cli_loader.load([
-            "--debug",  # CLI override
-            "--port", "9000"  # CLI override
-        ])
+        cli_config = cli_loader.load(
+            ["--debug", "--port", "9000"]  # CLI override  # CLI override
+        )
 
         print("File configuration:")
         print(json.dumps(file_config_loaded, indent=2))
@@ -188,7 +198,7 @@ def demo_precedence_chain():
         merger = ConfigurationMerger()
         merged_config = merger.merge_configurations(
             [file_config_loaded, env_config, cli_config],
-            sources=[ConfigSource.FILE, ConfigSource.ENVIRONMENT, ConfigSource.CLI]
+            sources=[ConfigSource.FILE, ConfigSource.ENVIRONMENT, ConfigSource.CLI],
         )
 
         print("\nMerged configuration (CLI > Env > File):")
@@ -197,7 +207,9 @@ def demo_precedence_chain():
         print("\nPrecedence verification:")
         print(f"- Debug (CLI override): {merged_config['system']['debug']}")
         print(f"- Port (CLI override): {merged_config['api']['network']['port']}")
-        print(f"- Log level (Env override): {merged_config['system']['logging']['level']}")
+        print(
+            f"- Log level (Env override): {merged_config['system']['logging']['level']}"
+        )
         print(f"- Host (File original): {merged_config['api']['network']['host']}")
 
     finally:
@@ -215,18 +227,18 @@ def demo_help_generation():
             "host": {
                 "type": "str",
                 "default": "localhost",
-                "description": "Database host address"
+                "description": "Database host address",
             },
             "port": {
                 "type": "int",
                 "default": 5432,
-                "description": "Database port number"
+                "description": "Database port number",
             },
             "ssl": {
                 "type": "bool",
                 "default": False,
-                "description": "Enable SSL connection"
-            }
+                "description": "Enable SSL connection",
+            },
         }
     }
 
@@ -247,11 +259,14 @@ def demo_module_arguments():
         "enabled": {"type": "bool", "description": "Enable vision module"},
         "camera": {
             "device_id": {"type": "int", "description": "Camera device ID"},
-            "resolution": {"type": "str", "description": "Camera resolution"}
+            "resolution": {"type": "str", "description": "Camera resolution"},
         },
         "detection": {
-            "ball_sensitivity": {"type": "float", "description": "Ball detection sensitivity"}
-        }
+            "ball_sensitivity": {
+                "type": "float",
+                "description": "Ball detection sensitivity",
+            }
+        },
     }
 
     # Add API module arguments
@@ -259,8 +274,8 @@ def demo_module_arguments():
         "enabled": {"type": "bool", "description": "Enable API module"},
         "network": {
             "port": {"type": "int", "description": "API server port"},
-            "workers": {"type": "int", "description": "Number of worker processes"}
-        }
+            "workers": {"type": "int", "description": "Number of worker processes"},
+        },
     }
 
     loader.add_module_arguments("vision", vision_schema)
@@ -268,12 +283,17 @@ def demo_module_arguments():
 
     test_args = [
         "--vision-enabled",
-        "--vision-camera-device-id", "1",
-        "--vision-camera-resolution", "1920x1080",
-        "--vision-detection-ball-sensitivity", "0.85",
+        "--vision-camera-device-id",
+        "1",
+        "--vision-camera-resolution",
+        "1920x1080",
+        "--vision-detection-ball-sensitivity",
+        "0.85",
         "--api-enabled",
-        "--api-network-port", "8080",
-        "--api-network-workers", "4"
+        "--api-network-port",
+        "8080",
+        "--api-network-workers",
+        "4",
     ]
 
     print(f"CLI arguments: {' '.join(test_args)}")
@@ -292,7 +312,7 @@ def demo_error_handling():
             "type": "int",
             "minimum": 1,
             "maximum": 65535,
-            "description": "Network port"
+            "description": "Network port",
         }
     }
 
@@ -310,16 +330,16 @@ def demo_error_handling():
     # Test 2: Invalid value (out of range)
     try:
         config = loader.load(["--port", "999999"])
-        print(f"✗ Should have failed for port 999999")
+        print("✗ Should have failed for port 999999")
     except Exception as e:
         print(f"✓ Caught validation error: {e}")
 
     # Test 3: Invalid argument
     try:
         config = loader.load(["--nonexistent-argument", "value"])
-        print(f"✗ Should have failed for nonexistent argument")
+        print("✗ Should have failed for nonexistent argument")
     except SystemExit:
-        print(f"✓ Caught argument error for nonexistent argument")
+        print("✓ Caught argument error for nonexistent argument")
 
 
 def main():
@@ -352,6 +372,7 @@ def main():
     except Exception as e:
         print(f"\nDemo failed with error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

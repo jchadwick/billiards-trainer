@@ -1,12 +1,18 @@
 """Tests for configuration differ."""
 
-import pytest
-from pathlib import Path
-from datetime import datetime
 import json
 import tempfile
+from datetime import datetime
+from pathlib import Path
 
-from backend.config.utils.differ import ConfigDiffer, ChangeType, ConfigChange, DiffSummary
+import pytest
+
+from backend.config.utils.differ import (
+    ChangeType,
+    ConfigChange,
+    ConfigDiffer,
+    DiffSummary,
+)
 
 
 class TestConfigDiffer:
@@ -30,11 +36,11 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 0
-        assert result['summary'].added_count == 0
-        assert result['summary'].removed_count == 0
-        assert result['summary'].modified_count == 0
-        assert len(result['changes']) == 0
+        assert result["summary"].total_changes == 0
+        assert result["summary"].added_count == 0
+        assert result["summary"].removed_count == 0
+        assert result["summary"].modified_count == 0
+        assert len(result["changes"]) == 0
 
     def test_basic_diff_with_changes(self):
         """Test diff with basic changes."""
@@ -43,16 +49,18 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 2
-        assert result['summary'].added_count == 1
-        assert result['summary'].modified_count == 1
+        assert result["summary"].total_changes == 2
+        assert result["summary"].added_count == 1
+        assert result["summary"].modified_count == 1
 
         # Check changes
-        changes = result['changes']
+        changes = result["changes"]
         assert len(changes) == 2
 
         # Find specific changes
-        modified_change = next(c for c in changes if c.change_type == ChangeType.MODIFIED)
+        modified_change = next(
+            c for c in changes if c.change_type == ChangeType.MODIFIED
+        )
         added_change = next(c for c in changes if c.change_type == ChangeType.ADDED)
 
         assert modified_change.path == "value"
@@ -69,10 +77,10 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 1
-        assert result['summary'].removed_count == 1
+        assert result["summary"].total_changes == 1
+        assert result["summary"].removed_count == 1
 
-        removed_change = result['changes'][0]
+        removed_change = result["changes"][0]
         assert removed_change.change_type == ChangeType.REMOVED
         assert removed_change.path == "old_field"
         assert removed_change.old_value == "removed"
@@ -83,10 +91,7 @@ class TestConfigDiffer:
             "database": {
                 "host": "localhost",
                 "port": 5432,
-                "settings": {
-                    "timeout": 30,
-                    "pool_size": 10
-                }
+                "settings": {"timeout": 30, "pool_size": 10},
             }
         }
 
@@ -94,20 +99,18 @@ class TestConfigDiffer:
             "database": {
                 "host": "production.db",
                 "port": 5432,
-                "settings": {
-                    "timeout": 60,
-                    "pool_size": 10,
-                    "ssl": True
-                }
+                "settings": {"timeout": 60, "pool_size": 10, "ssl": True},
             }
         }
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes >= 2  # host and timeout changed, ssl added
+        assert (
+            result["summary"].total_changes >= 2
+        )  # host and timeout changed, ssl added
 
         # Check that nested paths are properly constructed
-        changes = result['changes']
+        changes = result["changes"]
         paths = [change.path for change in changes]
 
         assert "database.host" in paths
@@ -122,7 +125,7 @@ class TestConfigDiffer:
             "float_field": 3.14,
             "bool_field": True,
             "list_field": [1, 2, 3],
-            "dict_field": {"nested": "value"}
+            "dict_field": {"nested": "value"},
         }
 
         config2 = {
@@ -131,15 +134,15 @@ class TestConfigDiffer:
             "float_field": 2.71,
             "bool_field": False,
             "list_field": [4, 5, 6],
-            "dict_field": {"nested": "changed"}
+            "dict_field": {"nested": "changed"},
         }
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 6
+        assert result["summary"].total_changes == 6
 
         # All should be modifications
-        for change in result['changes']:
+        for change in result["changes"]:
             assert change.change_type == ChangeType.MODIFIED
 
     def test_list_comparison(self):
@@ -149,9 +152,9 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 1
-        assert result['changes'][0].change_type == ChangeType.MODIFIED
-        assert result['changes'][0].path == "items"
+        assert result["summary"].total_changes == 1
+        assert result["changes"][0].change_type == ChangeType.MODIFIED
+        assert result["changes"][0].path == "items"
 
     def test_none_values(self):
         """Test handling of None values."""
@@ -160,9 +163,9 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 2
+        assert result["summary"].total_changes == 2
 
-        for change in result['changes']:
+        for change in result["changes"]:
             assert change.change_type == ChangeType.MODIFIED
 
     def test_path_objects(self):
@@ -172,8 +175,8 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        assert result['summary'].total_changes == 1
-        assert result['changes'][0].change_type == ChangeType.MODIFIED
+        assert result["summary"].total_changes == 1
+        assert result["changes"][0].change_type == ChangeType.MODIFIED
 
     def test_floating_point_precision(self):
         """Test floating point precision handling."""
@@ -183,7 +186,7 @@ class TestConfigDiffer:
         result = self.differ.diff(config1, config2)
 
         # Should be considered equal due to floating point precision
-        assert result['summary'].total_changes == 0
+        assert result["summary"].total_changes == 0
 
     def test_max_depth_limit(self):
         """Test maximum depth limitation."""
@@ -208,7 +211,7 @@ class TestConfigDiffer:
 
         # Should handle gracefully without crashing
         assert isinstance(result, dict)
-        assert 'summary' in result
+        assert "summary" in result
 
     def test_ignore_unchanged_setting(self):
         """Test ignore_unchanged setting."""
@@ -217,18 +220,18 @@ class TestConfigDiffer:
 
         # With ignore_unchanged=True (default)
         result1 = self.differ.diff(config1, config2)
-        assert 'unchanged' not in result1['details']['unchanged']
+        assert "unchanged" not in result1["details"]["unchanged"]
 
         # With ignore_unchanged=False
         result2 = self.differ_with_unchanged.diff(config1, config2)
-        assert 'unchanged' in result2['details']['unchanged']
+        assert "unchanged" in result2["details"]["unchanged"]
 
     def test_get_changes_by_type(self):
         """Test filtering changes by type."""
         config1 = {"old_field": "value", "modified_field": "old"}
         config2 = {"modified_field": "new", "new_field": "added"}
 
-        result = self.differ.diff(config1, config2)
+        self.differ.diff(config1, config2)
 
         added_changes = self.differ.get_changes_by_type(ChangeType.ADDED)
         removed_changes = self.differ.get_changes_by_type(ChangeType.REMOVED)
@@ -246,14 +249,14 @@ class TestConfigDiffer:
         """Test filtering changes by path pattern."""
         config1 = {
             "database": {"host": "old", "port": 5432},
-            "cache": {"host": "old", "timeout": 30}
+            "cache": {"host": "old", "timeout": 30},
         }
         config2 = {
             "database": {"host": "new", "port": 5432},
-            "cache": {"host": "new", "timeout": 60}
+            "cache": {"host": "new", "timeout": 60},
         }
 
-        result = self.differ.diff(config1, config2)
+        self.differ.diff(config1, config2)
 
         # Find all host changes
         host_changes = self.differ.get_changes_by_path("*.host")
@@ -285,7 +288,9 @@ class TestConfigDiffer:
         config2 = {"unchanged": "same", "changed": "new"}
 
         result = self.differ_with_unchanged.diff(config1, config2)
-        report = self.differ_with_unchanged.format_diff_report(result, include_unchanged=True)
+        report = self.differ_with_unchanged.format_diff_report(
+            result, include_unchanged=True
+        )
 
         assert "= unchanged" in report
         assert "~ changed" in report
@@ -297,7 +302,7 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             output_path = Path(f.name)
 
         try:
@@ -305,12 +310,12 @@ class TestConfigDiffer:
             assert output_path.exists()
 
             # Verify content
-            with output_path.open('r') as f:
+            with output_path.open("r") as f:
                 exported_data = json.load(f)
 
-            assert 'summary' in exported_data
-            assert 'changes' in exported_data
-            assert exported_data['summary']['total_changes'] == 1
+            assert "summary" in exported_data
+            assert "changes" in exported_data
+            assert exported_data["summary"]["total_changes"] == 1
 
         finally:
             if output_path.exists():
@@ -323,7 +328,7 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             output_path = Path(f.name)
 
         try:
@@ -331,7 +336,7 @@ class TestConfigDiffer:
             assert output_path.exists()
 
             # Verify content
-            with output_path.open('r') as f:
+            with output_path.open("r") as f:
                 content = f.read()
 
             assert "Configuration Diff Report" in content
@@ -344,7 +349,10 @@ class TestConfigDiffer:
     def test_compare_versions(self):
         """Test comparing multiple configuration versions."""
         version1 = ("v1.0", {"setting": "old", "feature": False})
-        version2 = ("v1.1", {"setting": "updated", "feature": False, "new_option": True})
+        version2 = (
+            "v1.1",
+            {"setting": "updated", "feature": False, "new_option": True},
+        )
         version3 = ("v1.2", {"setting": "latest", "feature": True, "new_option": True})
 
         versions = [version1, version2, version3]
@@ -355,11 +363,13 @@ class TestConfigDiffer:
 
         # Check first comparison
         first_diff = comparisons["v1.0 -> v1.1"]
-        assert first_diff['summary'].total_changes >= 1  # setting changed, new_option added
+        assert (
+            first_diff["summary"].total_changes >= 1
+        )  # setting changed, new_option added
 
         # Check second comparison
         second_diff = comparisons["v1.1 -> v1.2"]
-        assert second_diff['summary'].total_changes >= 2  # setting and feature changed
+        assert second_diff["summary"].total_changes >= 2  # setting and feature changed
 
     def test_compare_versions_insufficient_data(self):
         """Test compare_versions with insufficient data."""
@@ -381,12 +391,14 @@ class TestConfigDiffer:
 
         result = self.differ.diff(config1, config2)
 
-        for change in result['changes']:
+        for change in result["changes"]:
             assert isinstance(change.timestamp, datetime)
 
     def test_diff_summary_calculations(self):
         """Test diff summary calculations."""
-        summary = DiffSummary(added_count=2, removed_count=1, modified_count=3, unchanged_count=5)
+        summary = DiffSummary(
+            added_count=2, removed_count=1, modified_count=3, unchanged_count=5
+        )
 
         assert summary.total_changes == 6  # added + removed + modified
         assert summary.unchanged_count == 5
@@ -397,7 +409,7 @@ class TestConfigDiffer:
             path="test.field",
             change_type=ChangeType.MODIFIED,
             old_value="old",
-            new_value="new"
+            new_value="new",
         )
 
         assert change.path == "test.field"

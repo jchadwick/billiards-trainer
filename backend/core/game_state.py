@@ -25,6 +25,7 @@ from .models import (
     Vector2D,
 )
 from .validation import StateValidator, ValidationResult
+from .rules import GameRules
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ class GameStateManager:
         # Event detection state
         self._last_ball_positions: dict[str, Vector2D] = {}
         self._motion_threshold = 0.005  # meters/frame threshold for motion detection
+
+        self._game_rules: Optional[GameRules] = None
 
         logger.info("GameStateManager initialized")
 
@@ -260,6 +263,14 @@ class GameStateManager:
 
         return events
 
+    def set_game_type(self, game_type: GameType) -> None:
+        """Set the current game type."""
+        with self._lock:
+            if self._current_state:
+                self._current_state.game_type = game_type
+                self._game_rules = GameRules(game_type)
+                logger.info(f"Game type set to {game_type.value}")
+
     def get_current_state(self) -> Optional[GameState]:
         """Get current game state (FR-CORE-002)."""
         with self._lock:
@@ -291,6 +302,18 @@ class GameStateManager:
             if ball.is_cue_ball:
                 return ball
         return None
+
+    def validate_shot(self, target_ball: BallState) -> bool:
+        """Validate a shot based on the game rules."""
+        if self._game_rules and self._current_state:
+            return self._game_rules.validate_shot(self._current_state, target_ball)
+        return True
+
+    def is_game_over(self) -> bool:
+        """Check if the game is over."""
+        if self._game_rules and self._current_state:
+            return self._game_rules.check_game_over(self._current_state)
+        return False
 
     def reset_game(
         self,
@@ -324,6 +347,7 @@ class GameStateManager:
                 {"game_type": game_type.value, "timestamp": self._start_time},
             )
 
+            self._game_rules = GameRules(game_type)
             logger.info(f"Game reset to {game_type.value}")
 
     def _validate_state(self, state: GameState) -> None:
