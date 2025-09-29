@@ -293,9 +293,7 @@ class IntegrationDemo:
                     status_emoji = (
                         "✅"
                         if service_health.status == "healthy"
-                        else "⚠️"
-                        if service_health.status == "degraded"
-                        else "❌"
+                        else "⚠️" if service_health.status == "degraded" else "❌"
                     )
                     response_time = service_health.response_time or 0
                     logger.info(
