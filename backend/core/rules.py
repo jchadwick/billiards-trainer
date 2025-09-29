@@ -220,14 +220,16 @@ class GameRules:
                 continue
 
             # Legal ball pocketed - continue turn
-            if player_group == "solids" and 1 <= ball.number <= 7:
-                return True
-            elif player_group == "stripes" and 9 <= ball.number <= 15:
-                return True
-            elif (
-                player_group != "undetermined"
-                and ball.number == 8
-                and self._player_group_cleared(game_state, game_state.current_player)
+            if (
+                (player_group == "solids" and 1 <= ball.number <= 7)
+                or (player_group == "stripes" and 9 <= ball.number <= 15)
+                or (
+                    player_group != "undetermined"
+                    and ball.number == 8
+                    and self._player_group_cleared(
+                        game_state, game_state.current_player
+                    )
+                )
             ):
                 return True
 

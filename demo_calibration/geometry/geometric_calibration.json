@@ -70,4 +70,6 @@
         1.0
       ]
     ],
-    "correction_quality":
+    "correction_quality": 0.95
+  }
+}
