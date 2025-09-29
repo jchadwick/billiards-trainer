@@ -114,19 +114,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/venv /opt/venv
 
 # Create application directories
-RUN mkdir -p /app/config /app/data /app/logs /app/temp \
-    && chown -R appuser:appuser /app
+RUN mkdir -p /app/config /app/data /app/logs /app/temp
 
-# Copy application code
-COPY --chown=appuser:appuser . /app/
-
-# Switch to non-root user
-USER appuser
-
-# Set working directory
-WORKDIR /app
-
-# Create startup script
+# Create startup script (before switching to non-root user)
 RUN cat > /app/entrypoint.sh << 'EOF'
 #!/bin/bash
 set -e
@@ -198,8 +188,18 @@ else
 fi
 EOF
 
-# Make entrypoint executable
-RUN chmod +x /app/entrypoint.sh
+# Make entrypoint executable and set proper ownership
+RUN chmod +x /app/entrypoint.sh \
+    && chown -R appuser:appuser /app
+
+# Copy application code
+COPY --chown=appuser:appuser . /app/
+
+# Switch to non-root user
+USER appuser
+
+# Set working directory
+WORKDIR /app
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
