@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 # Import from models to use consistent data structures
 from ..models import CueState, CueStick

@@ -14,6 +14,7 @@ from typing import List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 

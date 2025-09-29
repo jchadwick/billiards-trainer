@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 from ..calibration.color import ColorCalibrator
 from ..models import Ball, BallType, DetectionResult, FrameStatistics

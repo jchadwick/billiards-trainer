@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 # Kinect v2 dependencies - optional import for graceful fallback
 try:
