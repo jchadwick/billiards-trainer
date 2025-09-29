@@ -156,19 +156,25 @@ async def list_modules(
                 format_module_status(
                     name,
                     {
-                        "state": status.state.value
-                        if hasattr(status.state, "value")
-                        else str(status.state),
-                        "health": status.health.value
-                        if hasattr(status.health, "value")
-                        else str(status.health),
+                        "state": (
+                            status.state.value
+                            if hasattr(status.state, "value")
+                            else str(status.state)
+                        ),
+                        "health": (
+                            status.health.value
+                            if hasattr(status.health, "value")
+                            else str(status.health)
+                        ),
                         "startup_time": status.startup_time,
                         "last_error": status.last_error,
                         "restart_count": status.restart_count,
                         "metrics": status.metrics,
-                        "uptime": time.time() - status.startup_time
-                        if status.startup_time
-                        else None,
+                        "uptime": (
+                            time.time() - status.startup_time
+                            if status.startup_time
+                            else None
+                        ),
                     },
                 )
                 for name, status in module_statuses.items()
@@ -235,19 +241,25 @@ async def get_module_status(
             status = format_module_status(
                 module_id,
                 {
-                    "state": module_info.state.value
-                    if hasattr(module_info.state, "value")
-                    else str(module_info.state),
-                    "health": module_info.health.value
-                    if hasattr(module_info.health, "value")
-                    else str(module_info.health),
+                    "state": (
+                        module_info.state.value
+                        if hasattr(module_info.state, "value")
+                        else str(module_info.state)
+                    ),
+                    "health": (
+                        module_info.health.value
+                        if hasattr(module_info.health, "value")
+                        else str(module_info.health)
+                    ),
                     "startup_time": module_info.startup_time,
                     "last_error": module_info.last_error,
                     "restart_count": module_info.restart_count,
                     "metrics": module_info.metrics,
-                    "uptime": time.time() - module_info.startup_time
-                    if module_info.startup_time
-                    else None,
+                    "uptime": (
+                        time.time() - module_info.startup_time
+                        if module_info.startup_time
+                        else None
+                    ),
                 },
             )
 

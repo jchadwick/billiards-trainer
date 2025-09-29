@@ -357,9 +357,11 @@ def test_end_to_end_integration():
                 {
                     "id": ball.id,
                     "position": {"x": ball.position.x, "y": ball.position.y},
-                    "velocity": {"x": ball.velocity.x, "y": ball.velocity.y}
-                    if ball.velocity
-                    else {"x": 0, "y": 0},
+                    "velocity": (
+                        {"x": ball.velocity.x, "y": ball.velocity.y}
+                        if ball.velocity
+                        else {"x": 0, "y": 0}
+                    ),
                     "confidence": 0.9,
                 }
                 for ball in [cue_ball] + other_balls[:3]
