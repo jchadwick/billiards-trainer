@@ -32,15 +32,17 @@ router = APIRouter(prefix="/diagnostics", tags=["Diagnostics"])
 
 class HardwareDevice(BaseModel):
     """Hardware device information."""
+
     id: str
     name: str
     type: str
     status: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
 
 
 class NetworkEndpoint(BaseModel):
     """Network endpoint test result."""
+
     id: str
     name: str
     url: str
@@ -53,39 +55,43 @@ class NetworkEndpoint(BaseModel):
 
 class BandwidthTestResult(BaseModel):
     """Network bandwidth test result."""
+
     download_speed: float  # Mbps
-    upload_speed: float    # Mbps
-    latency: float         # ms
-    packet_loss: float     # percentage
-    jitter: float          # ms
+    upload_speed: float  # Mbps
+    latency: float  # ms
+    packet_loss: float  # percentage
+    jitter: float  # ms
 
 
 class PerformanceBenchmark(BaseModel):
     """Performance benchmark result."""
+
     test_name: str
-    score: float           # 0-100
-    metrics: Dict[str, float]
-    duration: float        # seconds
+    score: float  # 0-100
+    metrics: dict[str, float]
+    duration: float  # seconds
     passed: bool
-    issues: List[str]
-    recommendations: List[str]
+    issues: list[str]
+    recommendations: list[str]
 
 
 class SystemValidationResult(BaseModel):
     """System validation test result."""
+
     test_id: str
     name: str
     category: str
     status: str
     score: float
     duration: float
-    result: Dict[str, Any]
-    issues: List[str]
-    recommendations: List[str]
+    result: dict[str, Any]
+    issues: list[str]
+    recommendations: list[str]
 
 
 class DiagnosticSummary(BaseModel):
     """Comprehensive diagnostic summary."""
+
     timestamp: datetime
     overall_score: float
     total_tests: int
@@ -93,12 +99,12 @@ class DiagnosticSummary(BaseModel):
     failed_tests: int
     warnings: int
     critical_issues: int
-    system_info: Dict[str, Any]
-    recommendations: List[str]
+    system_info: dict[str, Any]
+    recommendations: list[str]
 
 
-@router.get("/hardware", response_model=List[HardwareDevice])
-async def detect_hardware() -> List[HardwareDevice]:
+@router.get("/hardware", response_model=list[HardwareDevice])
+async def detect_hardware() -> list[HardwareDevice]:
     """Detect and validate hardware devices."""
     devices = []
 
@@ -117,7 +123,9 @@ async def detect_hardware() -> List[HardwareDevice]:
                     "cores": psutil.cpu_count(logical=False) or 0,
                     "logical_cores": psutil.cpu_count(logical=True) or 0,
                     "frequency": cpu_freq,
-                    "usage": psutil.cpu_percent(interval=0.1),  # Shorter interval for faster response
+                    "usage": psutil.cpu_percent(
+                        interval=0.1
+                    ),  # Shorter interval for faster response
                 }
             except Exception as cpu_error:
                 logger.warning(f"CPU info collection partially failed: {cpu_error}")
@@ -128,13 +136,15 @@ async def detect_hardware() -> List[HardwareDevice]:
                     "usage": 0,
                 }
 
-            devices.append(HardwareDevice(
-                id="cpu",
-                name="CPU",
-                type="processor",
-                status="online",
-                details=cpu_info
-            ))
+            devices.append(
+                HardwareDevice(
+                    id="cpu",
+                    name="CPU",
+                    type="processor",
+                    status="online",
+                    details=cpu_info,
+                )
+            )
 
         # Memory Information
         if psutil:
@@ -146,17 +156,19 @@ async def detect_hardware() -> List[HardwareDevice]:
                 "percentage": memory.percent,
             }
 
-            devices.append(HardwareDevice(
-                id="memory",
-                name="System Memory",
-                type="memory",
-                status="online",
-                details=memory_info
-            ))
+            devices.append(
+                HardwareDevice(
+                    id="memory",
+                    name="System Memory",
+                    type="memory",
+                    status="online",
+                    details=memory_info,
+                )
+            )
 
         # Disk Information
         if psutil:
-            disk = psutil.disk_usage('/')
+            disk = psutil.disk_usage("/")
             disk_info = {
                 "total": disk.total,
                 "used": disk.used,
@@ -164,76 +176,101 @@ async def detect_hardware() -> List[HardwareDevice]:
                 "percentage": (disk.used / disk.total) * 100,
             }
 
-            devices.append(HardwareDevice(
-                id="disk",
-                name="Primary Disk",
-                type="storage",
-                status="online",
-                details=disk_info
-            ))
+            devices.append(
+                HardwareDevice(
+                    id="disk",
+                    name="Primary Disk",
+                    type="storage",
+                    status="online",
+                    details=disk_info,
+                )
+            )
 
         # Network Interfaces
         if psutil:
             network_interfaces = psutil.net_if_addrs()
             for interface, addresses in network_interfaces.items():
-                if interface != 'lo':  # Skip loopback
+                if interface != "lo":  # Skip loopback
                     interface_info = {
                         "addresses": [addr.address for addr in addresses],
                         "family": [addr.family.name for addr in addresses],
                     }
 
-                    devices.append(HardwareDevice(
-                        id=f"network_{interface}",
-                        name=f"Network Interface {interface}",
-                        type="network",
-                        status="online",
-                        details=interface_info
-                    ))
+                    devices.append(
+                        HardwareDevice(
+                            id=f"network_{interface}",
+                            name=f"Network Interface {interface}",
+                            type="network",
+                            status="online",
+                            details=interface_info,
+                        )
+                    )
 
         # Simulate camera detection (would use actual camera detection in real implementation)
-        devices.append(HardwareDevice(
-            id="camera_overhead",
-            name="Overhead Camera",
-            type="camera",
-            status="available",
-            details={
-                "resolution": "1920x1080",
-                "frame_rate": 30,
-                "formats": ["MJPEG", "YUV"],
-            }
-        ))
+        devices.append(
+            HardwareDevice(
+                id="camera_overhead",
+                name="Overhead Camera",
+                type="camera",
+                status="available",
+                details={
+                    "resolution": "1920x1080",
+                    "frame_rate": 30,
+                    "formats": ["MJPEG", "YUV"],
+                },
+            )
+        )
 
         # Simulate projector detection
-        devices.append(HardwareDevice(
-            id="projector_main",
-            name="Main Projector",
-            type="projector",
-            status="connected",
-            details={
-                "resolution": "1920x1080",
-                "brightness": 3000,
-                "calibrated": True,
-            }
-        ))
+        devices.append(
+            HardwareDevice(
+                id="projector_main",
+                name="Main Projector",
+                type="projector",
+                status="connected",
+                details={
+                    "resolution": "1920x1080",
+                    "brightness": 3000,
+                    "calibrated": True,
+                },
+            )
+        )
 
     except Exception as e:
         logger.error(f"Hardware detection failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Unable to detect hardware devices"
-        )
+        raise HTTPException(status_code=500, detail="Unable to detect hardware devices")
 
     return devices
 
 
-@router.post("/network/test", response_model=List[NetworkEndpoint])
-async def test_network_endpoints() -> List[NetworkEndpoint]:
+@router.post("/network/test", response_model=list[NetworkEndpoint])
+async def test_network_endpoints() -> list[NetworkEndpoint]:
     """Test connectivity to various network endpoints."""
     endpoints = [
-        {"id": "local_api", "name": "Local API", "url": "http://localhost:8000/health", "method": "GET"},
-        {"id": "local_ws", "name": "WebSocket", "url": "ws://localhost:8000/ws", "method": "GET"},
-        {"id": "external_dns", "name": "External DNS", "url": "https://8.8.8.8", "method": "HEAD"},
-        {"id": "internet", "name": "Internet Connectivity", "url": "https://www.google.com", "method": "HEAD"},
+        {
+            "id": "local_api",
+            "name": "Local API",
+            "url": "http://localhost:8000/health",
+            "method": "GET",
+        },
+        {
+            "id": "local_ws",
+            "name": "WebSocket",
+            "url": "ws://localhost:8000/ws",
+            "method": "GET",
+        },
+        {
+            "id": "external_dns",
+            "name": "External DNS",
+            "url": "https://8.8.8.8",
+            "method": "HEAD",
+        },
+        {
+            "id": "internet",
+            "name": "Internet Connectivity",
+            "url": "https://www.google.com",
+            "method": "HEAD",
+        },
     ]
 
     results = []
@@ -251,6 +288,7 @@ async def test_network_endpoints() -> List[NetworkEndpoint]:
                 # Would implement HTTP request here
                 # For simulation, we'll assume most endpoints are working
                 import random
+
                 if random.random() > 0.1:  # 90% success rate
                     status = "online"
                     status_code = 200
@@ -268,16 +306,18 @@ async def test_network_endpoints() -> List[NetworkEndpoint]:
             error = str(e)
             response_time = (time.time() - start_time) * 1000
 
-        results.append(NetworkEndpoint(
-            id=endpoint["id"],
-            name=endpoint["name"],
-            url=endpoint["url"],
-            method=endpoint["method"],
-            status=status,
-            response_time=response_time,
-            status_code=status_code,
-            error=error
-        ))
+        results.append(
+            NetworkEndpoint(
+                id=endpoint["id"],
+                name=endpoint["name"],
+                url=endpoint["url"],
+                method=endpoint["method"],
+                status=status,
+                response_time=response_time,
+                status_code=status_code,
+                error=error,
+            )
+        )
 
         # Small delay between tests
         await asyncio.sleep(0.1)
@@ -296,17 +336,17 @@ async def test_network_bandwidth() -> BandwidthTestResult:
 
         # Generate realistic bandwidth test results
         download_speed = 50 + random.random() * 100  # 50-150 Mbps
-        upload_speed = 20 + random.random() * 50     # 20-70 Mbps
-        latency = 10 + random.random() * 40          # 10-50 ms
-        packet_loss = random.random() * 2            # 0-2%
-        jitter = random.random() * 5                 # 0-5 ms
+        upload_speed = 20 + random.random() * 50  # 20-70 Mbps
+        latency = 10 + random.random() * 40  # 10-50 ms
+        packet_loss = random.random() * 2  # 0-2%
+        jitter = random.random() * 5  # 0-5 ms
 
         return BandwidthTestResult(
             download_speed=download_speed,
             upload_speed=upload_speed,
             latency=latency,
             packet_loss=packet_loss,
-            jitter=jitter
+            jitter=jitter,
         )
 
     except Exception as e:
@@ -317,12 +357,12 @@ async def test_network_bandwidth() -> BandwidthTestResult:
                 "error": "Bandwidth Test Failed",
                 "message": "Unable to perform bandwidth test",
                 "details": {"error": str(e)},
-            }
+            },
         )
 
 
-@router.post("/performance/benchmark", response_model=List[PerformanceBenchmark])
-async def run_performance_benchmark() -> List[PerformanceBenchmark]:
+@router.post("/performance/benchmark", response_model=list[PerformanceBenchmark])
+async def run_performance_benchmark() -> list[PerformanceBenchmark]:
     """Run comprehensive performance benchmarks."""
     benchmarks = []
 
@@ -339,15 +379,25 @@ async def run_performance_benchmark() -> List[PerformanceBenchmark]:
 
         cpu_duration = time.time() - cpu_start
 
-        benchmarks.append(PerformanceBenchmark(
-            test_name="CPU Performance",
-            score=cpu_score,
-            metrics={"cpu_usage": cpu_usage if psutil else 50, "cores": psutil.cpu_count() if psutil else 4},
-            duration=cpu_duration,
-            passed=cpu_score >= 70,
-            issues=[] if cpu_score >= 70 else ["High CPU usage detected"],
-            recommendations=[] if cpu_score >= 70 else ["Close unnecessary applications", "Check for background processes"]
-        ))
+        benchmarks.append(
+            PerformanceBenchmark(
+                test_name="CPU Performance",
+                score=cpu_score,
+                metrics={
+                    "cpu_usage": cpu_usage if psutil else 50,
+                    "cores": psutil.cpu_count() if psutil else 4,
+                },
+                duration=cpu_duration,
+                passed=cpu_score >= 70,
+                issues=[] if cpu_score >= 70 else ["High CPU usage detected"],
+                recommendations=[]
+                if cpu_score >= 70
+                else [
+                    "Close unnecessary applications",
+                    "Check for background processes",
+                ],
+            )
+        )
 
         # Memory Benchmark
         memory_start = time.time()
@@ -359,15 +409,22 @@ async def run_performance_benchmark() -> List[PerformanceBenchmark]:
 
         memory_duration = time.time() - memory_start
 
-        benchmarks.append(PerformanceBenchmark(
-            test_name="Memory Performance",
-            score=memory_score,
-            metrics={"memory_usage": 100 - memory_score, "total_gb": memory.total / (1024**3) if psutil else 16},
-            duration=memory_duration,
-            passed=memory_score >= 60,
-            issues=[] if memory_score >= 60 else ["High memory usage detected"],
-            recommendations=[] if memory_score >= 60 else ["Close memory-intensive applications", "Consider upgrading RAM"]
-        ))
+        benchmarks.append(
+            PerformanceBenchmark(
+                test_name="Memory Performance",
+                score=memory_score,
+                metrics={
+                    "memory_usage": 100 - memory_score,
+                    "total_gb": memory.total / (1024**3) if psutil else 16,
+                },
+                duration=memory_duration,
+                passed=memory_score >= 60,
+                issues=[] if memory_score >= 60 else ["High memory usage detected"],
+                recommendations=[]
+                if memory_score >= 60
+                else ["Close memory-intensive applications", "Consider upgrading RAM"],
+            )
+        )
 
         # Disk I/O Benchmark
         disk_start = time.time()
@@ -375,15 +432,19 @@ async def run_performance_benchmark() -> List[PerformanceBenchmark]:
         disk_score = 80 + (20 * (1 - 0.3))  # Simulated disk performance
         disk_duration = time.time() - disk_start
 
-        benchmarks.append(PerformanceBenchmark(
-            test_name="Disk Performance",
-            score=disk_score,
-            metrics={"read_speed": 120, "write_speed": 100},  # MB/s
-            duration=disk_duration,
-            passed=disk_score >= 70,
-            issues=[] if disk_score >= 70 else ["Slow disk performance detected"],
-            recommendations=[] if disk_score >= 70 else ["Consider SSD upgrade", "Check disk health"]
-        ))
+        benchmarks.append(
+            PerformanceBenchmark(
+                test_name="Disk Performance",
+                score=disk_score,
+                metrics={"read_speed": 120, "write_speed": 100},  # MB/s
+                duration=disk_duration,
+                passed=disk_score >= 70,
+                issues=[] if disk_score >= 70 else ["Slow disk performance detected"],
+                recommendations=[]
+                if disk_score >= 70
+                else ["Consider SSD upgrade", "Check disk health"],
+            )
+        )
 
     except Exception as e:
         logger.error(f"Performance benchmark failed: {e}")
@@ -393,14 +454,14 @@ async def run_performance_benchmark() -> List[PerformanceBenchmark]:
                 "error": "Performance Benchmark Failed",
                 "message": "Unable to run performance benchmarks",
                 "details": {"error": str(e)},
-            }
+            },
         )
 
     return benchmarks
 
 
-@router.post("/validation/system", response_model=List[SystemValidationResult])
-async def run_system_validation() -> List[SystemValidationResult]:
+@router.post("/validation/system", response_model=list[SystemValidationResult])
+async def run_system_validation() -> list[SystemValidationResult]:
     """Run comprehensive system validation tests."""
     validations = []
 
@@ -412,21 +473,23 @@ async def run_system_validation() -> List[SystemValidationResult]:
         config_score = 95  # Simulated score
         config_duration = time.time() - config_start
 
-        validations.append(SystemValidationResult(
-            test_id="config_validation",
-            name="Configuration Validation",
-            category="integrity",
-            status="passed",
-            score=config_score,
-            duration=config_duration,
-            result={
-                "parameters_checked": 50,
-                "invalid_parameters": 0,
-                "missing_parameters": 0,
-            },
-            issues=[],
-            recommendations=[]
-        ))
+        validations.append(
+            SystemValidationResult(
+                test_id="config_validation",
+                name="Configuration Validation",
+                category="integrity",
+                status="passed",
+                score=config_score,
+                duration=config_duration,
+                result={
+                    "parameters_checked": 50,
+                    "invalid_parameters": 0,
+                    "missing_parameters": 0,
+                },
+                issues=[],
+                recommendations=[],
+            )
+        )
 
         # Module Communication Test
         comm_start = time.time()
@@ -435,21 +498,23 @@ async def run_system_validation() -> List[SystemValidationResult]:
         comm_score = 88
         comm_duration = time.time() - comm_start
 
-        validations.append(SystemValidationResult(
-            test_id="module_communication",
-            name="Module Communication",
-            category="communication",
-            status="passed",
-            score=comm_score,
-            duration=comm_duration,
-            result={
-                "modules_tested": 5,
-                "successful_connections": 5,
-                "average_latency": 25.5,
-            },
-            issues=[],
-            recommendations=[]
-        ))
+        validations.append(
+            SystemValidationResult(
+                test_id="module_communication",
+                name="Module Communication",
+                category="communication",
+                status="passed",
+                score=comm_score,
+                duration=comm_duration,
+                result={
+                    "modules_tested": 5,
+                    "successful_connections": 5,
+                    "average_latency": 25.5,
+                },
+                issues=[],
+                recommendations=[],
+            )
+        )
 
         # Data Integrity Test
         data_start = time.time()
@@ -458,21 +523,23 @@ async def run_system_validation() -> List[SystemValidationResult]:
         data_score = 100
         data_duration = time.time() - data_start
 
-        validations.append(SystemValidationResult(
-            test_id="data_integrity",
-            name="Data Integrity",
-            category="integrity",
-            status="passed",
-            score=data_score,
-            duration=data_duration,
-            result={
-                "records_checked": 1000,
-                "corrupted_records": 0,
-                "checksum_validation": "passed",
-            },
-            issues=[],
-            recommendations=[]
-        ))
+        validations.append(
+            SystemValidationResult(
+                test_id="data_integrity",
+                name="Data Integrity",
+                category="integrity",
+                status="passed",
+                score=data_score,
+                duration=data_duration,
+                result={
+                    "records_checked": 1000,
+                    "corrupted_records": 0,
+                    "checksum_validation": "passed",
+                },
+                issues=[],
+                recommendations=[],
+            )
+        )
 
     except Exception as e:
         logger.error(f"System validation failed: {e}")
@@ -482,7 +549,7 @@ async def run_system_validation() -> List[SystemValidationResult]:
                 "error": "System Validation Failed",
                 "message": "Unable to run system validation tests",
                 "details": {"error": str(e)},
-            }
+            },
         )
 
     return validations
@@ -509,11 +576,13 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
         }
 
         if psutil:
-            system_info.update({
-                "cpu_cores": psutil.cpu_count(),
-                "memory_gb": round(psutil.virtual_memory().total / (1024**3), 1),
-                "disk_gb": round(psutil.disk_usage('/').total / (1024**3), 1),
-            })
+            system_info.update(
+                {
+                    "cpu_cores": psutil.cpu_count(),
+                    "memory_gb": round(psutil.virtual_memory().total / (1024**3), 1),
+                    "disk_gb": round(psutil.disk_usage("/").total / (1024**3), 1),
+                }
+            )
 
         recommendations = []
         if failed_tests > 0:
@@ -521,7 +590,9 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
         if warnings > 0:
             recommendations.append("Address warning conditions for optimal performance")
         if overall_score < 90:
-            recommendations.append("Run individual diagnostic categories for detailed analysis")
+            recommendations.append(
+                "Run individual diagnostic categories for detailed analysis"
+            )
 
         return DiagnosticSummary(
             timestamp=datetime.now(timezone.utc),
@@ -532,7 +603,7 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
             warnings=warnings,
             critical_issues=critical_issues,
             system_info=system_info,
-            recommendations=recommendations
+            recommendations=recommendations,
         )
 
     except Exception as e:
@@ -543,7 +614,7 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
                 "error": "Diagnostic Summary Failed",
                 "message": "Unable to generate diagnostic summary",
                 "details": {"error": str(e)},
-            }
+            },
         )
 
 
@@ -554,19 +625,13 @@ async def test_download_endpoint(size_mb: int):
         raise HTTPException(status_code=400, detail="Size too large")
 
     # Generate test data
-    test_data = b'0' * (size_mb * 1024 * 1024)
+    test_data = b"0" * (size_mb * 1024 * 1024)
 
-    return {
-        "size": len(test_data),
-        "message": f"Downloaded {size_mb}MB test file"
-    }
+    return {"size": len(test_data), "message": f"Downloaded {size_mb}MB test file"}
 
 
 @router.post("/test/upload")
 async def test_upload_endpoint():
     """Test endpoint for bandwidth testing - simulates uploading data."""
     # In real implementation, would receive and process uploaded data
-    return {
-        "message": "Upload test completed",
-        "received_size": 0
-    }
+    return {"message": "Upload test completed", "received_size": 0}

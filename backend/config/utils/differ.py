@@ -1,12 +1,12 @@
 """Configuration diff utilities."""
 
+import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-import json
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ class ConfigDiffer:
         """
         self.ignore_unchanged = ignore_unchanged
         self.max_depth = max_depth
-        self._changes: List[ConfigChange] = []
+        self._changes: list[ConfigChange] = []
 
     def diff(self, old_config: dict, new_config: dict, context_path: str = "") -> dict:
         """Calculate differences between two configuration dictionaries.
@@ -91,29 +91,34 @@ class ConfigDiffer:
                 raise ValueError("Both configurations must be dictionaries")
 
             # Calculate differences
-            diff_details = self._calculate_diff(old_config, new_config, context_path, depth=0)
+            diff_details = self._calculate_diff(
+                old_config, new_config, context_path, depth=0
+            )
 
             # Generate summary
             summary = self._generate_summary()
 
             result = {
-                'summary': summary,
-                'changes': self._changes.copy(),
-                'details': diff_details,
-                'timestamp': datetime.now(),
-                'old_config_keys': set(old_config.keys()),
-                'new_config_keys': set(new_config.keys())
+                "summary": summary,
+                "changes": self._changes.copy(),
+                "details": diff_details,
+                "timestamp": datetime.now(),
+                "old_config_keys": set(old_config.keys()),
+                "new_config_keys": set(new_config.keys()),
             }
 
-            logger.info(f"Configuration diff completed: {summary.total_changes} total changes")
+            logger.info(
+                f"Configuration diff completed: {summary.total_changes} total changes"
+            )
             return result
 
         except Exception as e:
             logger.error(f"Error calculating configuration diff: {str(e)}")
             raise
 
-    def _calculate_diff(self, old_config: dict, new_config: dict,
-                       context_path: str = "", depth: int = 0) -> dict:
+    def _calculate_diff(
+        self, old_config: dict, new_config: dict, context_path: str = "", depth: int = 0
+    ) -> dict:
         """Calculate detailed differences between configurations.
 
         Args:
@@ -126,15 +131,12 @@ class ConfigDiffer:
             Dictionary with categorized differences
         """
         if depth > self.max_depth:
-            logger.warning(f"Maximum diff depth ({self.max_depth}) reached at path: {context_path}")
-            return {'added': {}, 'removed': {}, 'modified': {}, 'unchanged': {}}
+            logger.warning(
+                f"Maximum diff depth ({self.max_depth}) reached at path: {context_path}"
+            )
+            return {"added": {}, "removed": {}, "modified": {}, "unchanged": {}}
 
-        diff_details = {
-            'added': {},
-            'removed': {},
-            'modified': {},
-            'unchanged': {}
-        }
+        diff_details = {"added": {}, "removed": {}, "modified": {}, "unchanged": {}}
 
         # Get all unique keys from both configurations
         old_keys = set(old_config.keys())
@@ -152,41 +154,53 @@ class ConfigDiffer:
                 if self._values_equal(old_value, new_value):
                     # Values are the same
                     if not self.ignore_unchanged:
-                        diff_details['unchanged'][key] = new_value
-                        self._add_change(current_path, ChangeType.UNCHANGED, old_value, new_value)
+                        diff_details["unchanged"][key] = new_value
+                        self._add_change(
+                            current_path, ChangeType.UNCHANGED, old_value, new_value
+                        )
 
                 elif isinstance(old_value, dict) and isinstance(new_value, dict):
                     # Both values are dictionaries - recurse
-                    nested_diff = self._calculate_diff(old_value, new_value, current_path, depth + 1)
+                    nested_diff = self._calculate_diff(
+                        old_value, new_value, current_path, depth + 1
+                    )
 
                     # Only include in modified if there are actual changes
-                    if (nested_diff['added'] or nested_diff['removed'] or
-                        nested_diff['modified'] or (not self.ignore_unchanged and nested_diff['unchanged'])):
-                        diff_details['modified'][key] = {
-                            'old_value': old_value,
-                            'new_value': new_value,
-                            'nested_changes': nested_diff
+                    if (
+                        nested_diff["added"]
+                        or nested_diff["removed"]
+                        or nested_diff["modified"]
+                        or (not self.ignore_unchanged and nested_diff["unchanged"])
+                    ):
+                        diff_details["modified"][key] = {
+                            "old_value": old_value,
+                            "new_value": new_value,
+                            "nested_changes": nested_diff,
                         }
-                        self._add_change(current_path, ChangeType.MODIFIED, old_value, new_value)
+                        self._add_change(
+                            current_path, ChangeType.MODIFIED, old_value, new_value
+                        )
 
                 else:
                     # Values are different and not both dictionaries
-                    diff_details['modified'][key] = {
-                        'old_value': old_value,
-                        'new_value': new_value
+                    diff_details["modified"][key] = {
+                        "old_value": old_value,
+                        "new_value": new_value,
                     }
-                    self._add_change(current_path, ChangeType.MODIFIED, old_value, new_value)
+                    self._add_change(
+                        current_path, ChangeType.MODIFIED, old_value, new_value
+                    )
 
             elif key in new_keys:
                 # Key was added
                 new_value = new_config[key]
-                diff_details['added'][key] = new_value
+                diff_details["added"][key] = new_value
                 self._add_change(current_path, ChangeType.ADDED, None, new_value)
 
             elif key in old_keys:
                 # Key was removed
                 old_value = old_config[key]
-                diff_details['removed'][key] = old_value
+                diff_details["removed"][key] = old_value
                 self._add_change(current_path, ChangeType.REMOVED, old_value, None)
 
         return diff_details
@@ -211,8 +225,12 @@ class ConfigDiffer:
             # Handle different types
             if type(value1) != type(value2):
                 # Try to handle numeric comparisons
-                if isinstance(value1, (int, float)) and isinstance(value2, (int, float)):
-                    return abs(value1 - value2) < 1e-9  # Handle floating point precision
+                if isinstance(value1, (int, float)) and isinstance(
+                    value2, (int, float)
+                ):
+                    return (
+                        abs(value1 - value2) < 1e-9
+                    )  # Handle floating point precision
                 return False
 
             # Handle dictionaries recursively (shallow comparison for this method)
@@ -220,7 +238,7 @@ class ConfigDiffer:
                 if set(value1.keys()) != set(value2.keys()):
                     return False
                 # For shallow comparison, check if all values are equal
-                for key in value1.keys():
+                for key in value1:
                     if not self._values_equal(value1[key], value2[key]):
                         return False
                 return True
@@ -246,8 +264,9 @@ class ConfigDiffer:
             logger.warning(f"Error comparing values: {str(e)}")
             return False
 
-    def _add_change(self, path: str, change_type: ChangeType,
-                   old_value: Any, new_value: Any) -> None:
+    def _add_change(
+        self, path: str, change_type: ChangeType, old_value: Any, new_value: Any
+    ) -> None:
         """Add a change to the changes list.
 
         Args:
@@ -257,10 +276,7 @@ class ConfigDiffer:
             new_value: New value
         """
         change = ConfigChange(
-            path=path,
-            change_type=change_type,
-            old_value=old_value,
-            new_value=new_value
+            path=path, change_type=change_type, old_value=old_value, new_value=new_value
         )
         self._changes.append(change)
 
@@ -282,10 +298,12 @@ class ConfigDiffer:
             elif change.change_type == ChangeType.UNCHANGED:
                 summary.unchanged_count += 1
 
-        summary.total_changes = summary.added_count + summary.removed_count + summary.modified_count
+        summary.total_changes = (
+            summary.added_count + summary.removed_count + summary.modified_count
+        )
         return summary
 
-    def get_changes_by_type(self, change_type: ChangeType) -> List[ConfigChange]:
+    def get_changes_by_type(self, change_type: ChangeType) -> list[ConfigChange]:
         """Get all changes of a specific type.
 
         Args:
@@ -296,7 +314,7 @@ class ConfigDiffer:
         """
         return [change for change in self._changes if change.change_type == change_type]
 
-    def get_changes_by_path(self, path_pattern: str) -> List[ConfigChange]:
+    def get_changes_by_path(self, path_pattern: str) -> list[ConfigChange]:
         """Get all changes matching a path pattern.
 
         Args:
@@ -306,10 +324,16 @@ class ConfigDiffer:
             List of changes matching the pattern
         """
         import fnmatch
-        return [change for change in self._changes
-                if fnmatch.fnmatch(change.path, path_pattern)]
 
-    def format_diff_report(self, diff_result: dict, include_unchanged: bool = False) -> str:
+        return [
+            change
+            for change in self._changes
+            if fnmatch.fnmatch(change.path, path_pattern)
+        ]
+
+    def format_diff_report(
+        self, diff_result: dict, include_unchanged: bool = False
+    ) -> str:
         """Format diff result as a human-readable report.
 
         Args:
@@ -320,8 +344,8 @@ class ConfigDiffer:
             Formatted report string
         """
         try:
-            summary = diff_result['summary']
-            changes = diff_result['changes']
+            summary = diff_result["summary"]
+            changes = diff_result["changes"]
 
             report_lines = []
             report_lines.append("Configuration Diff Report")
@@ -345,27 +369,42 @@ class ConfigDiffer:
                 report_lines.append("-" * 20)
 
                 for change in changes:
-                    if change.change_type == ChangeType.UNCHANGED and not include_unchanged:
+                    if (
+                        change.change_type == ChangeType.UNCHANGED
+                        and not include_unchanged
+                    ):
                         continue
 
                     symbol = {
                         ChangeType.ADDED: "+",
                         ChangeType.REMOVED: "-",
                         ChangeType.MODIFIED: "~",
-                        ChangeType.UNCHANGED: "="
+                        ChangeType.UNCHANGED: "=",
                     }.get(change.change_type, "?")
 
                     report_lines.append(f"{symbol} {change.path}")
 
                     if change.change_type == ChangeType.ADDED:
-                        report_lines.append(f"    Added: {self._format_value(change.new_value)}")
+                        report_lines.append(
+                            f"    Added: {self._format_value(change.new_value)}"
+                        )
                     elif change.change_type == ChangeType.REMOVED:
-                        report_lines.append(f"    Removed: {self._format_value(change.old_value)}")
+                        report_lines.append(
+                            f"    Removed: {self._format_value(change.old_value)}"
+                        )
                     elif change.change_type == ChangeType.MODIFIED:
-                        report_lines.append(f"    Old: {self._format_value(change.old_value)}")
-                        report_lines.append(f"    New: {self._format_value(change.new_value)}")
-                    elif change.change_type == ChangeType.UNCHANGED and include_unchanged:
-                        report_lines.append(f"    Value: {self._format_value(change.new_value)}")
+                        report_lines.append(
+                            f"    Old: {self._format_value(change.old_value)}"
+                        )
+                        report_lines.append(
+                            f"    New: {self._format_value(change.new_value)}"
+                        )
+                    elif (
+                        change.change_type == ChangeType.UNCHANGED and include_unchanged
+                    ):
+                        report_lines.append(
+                            f"    Value: {self._format_value(change.new_value)}"
+                        )
 
                     report_lines.append("")
 
@@ -409,15 +448,16 @@ class ConfigDiffer:
 
             # Truncate if too long
             if len(result) > max_length:
-                result = result[:max_length - 3] + "..."
+                result = result[: max_length - 3] + "..."
 
             return result
 
         except Exception:
             return f"{type(value).__name__}(unprintable)"
 
-    def export_diff(self, diff_result: dict, output_path: Path,
-                   format: str = "json") -> None:
+    def export_diff(
+        self, diff_result: dict, output_path: Path, format: str = "json"
+    ) -> None:
         """Export diff result to file.
 
         Args:
@@ -432,23 +472,26 @@ class ConfigDiffer:
             if format.lower() == "json":
                 # Convert datetime and other non-serializable objects
                 serializable_result = self._make_serializable(diff_result)
-                with output_path.open('w') as f:
+                with output_path.open("w") as f:
                     json.dump(serializable_result, f, indent=2)
 
             elif format.lower() == "txt":
                 report = self.format_diff_report(diff_result, include_unchanged=True)
-                with output_path.open('w') as f:
+                with output_path.open("w") as f:
                     f.write(report)
 
             elif format.lower() == "yaml":
                 try:
                     import yaml
+
                     serializable_result = self._make_serializable(diff_result)
-                    with output_path.open('w') as f:
+                    with output_path.open("w") as f:
                         yaml.dump(serializable_result, f, default_flow_style=False)
                 except ImportError:
                     logger.warning("PyYAML not available, falling back to JSON")
-                    self.export_diff(diff_result, output_path.with_suffix('.json'), 'json')
+                    self.export_diff(
+                        diff_result, output_path.with_suffix(".json"), "json"
+                    )
 
             else:
                 raise ValueError(f"Unsupported format: {format}")
@@ -476,19 +519,19 @@ class ConfigDiffer:
             return list(obj)
         elif isinstance(obj, ConfigChange):
             return {
-                'path': obj.path,
-                'change_type': obj.change_type.value,
-                'old_value': self._make_serializable(obj.old_value),
-                'new_value': self._make_serializable(obj.new_value),
-                'timestamp': obj.timestamp.isoformat() if obj.timestamp else None
+                "path": obj.path,
+                "change_type": obj.change_type.value,
+                "old_value": self._make_serializable(obj.old_value),
+                "new_value": self._make_serializable(obj.new_value),
+                "timestamp": obj.timestamp.isoformat() if obj.timestamp else None,
             }
         elif isinstance(obj, DiffSummary):
             return {
-                'added_count': obj.added_count,
-                'removed_count': obj.removed_count,
-                'modified_count': obj.modified_count,
-                'unchanged_count': obj.unchanged_count,
-                'total_changes': obj.total_changes
+                "added_count": obj.added_count,
+                "removed_count": obj.removed_count,
+                "modified_count": obj.modified_count,
+                "unchanged_count": obj.unchanged_count,
+                "total_changes": obj.total_changes,
             }
         elif isinstance(obj, dict):
             return {k: self._make_serializable(v) for k, v in obj.items()}
@@ -497,7 +540,7 @@ class ConfigDiffer:
         else:
             return obj
 
-    def compare_versions(self, config_versions: List[Tuple[str, dict]]) -> dict:
+    def compare_versions(self, config_versions: list[tuple[str, dict]]) -> dict:
         """Compare multiple configuration versions.
 
         Args:

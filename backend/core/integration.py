@@ -47,7 +47,9 @@ class VisionInterface(ABC):
     @abstractmethod
     def receive_detection_data(self, detection_data: dict[str, Any]) -> None:
         """Receive detection data from Vision module."""
-        raise NotImplementedError("Vision interface must implement receive_detection_data")
+        raise NotImplementedError(
+            "Vision interface must implement receive_detection_data"
+        )
 
     @abstractmethod
     def request_calibration(self, calibration_type: str) -> dict[str, Any]:
@@ -57,7 +59,9 @@ class VisionInterface(ABC):
     @abstractmethod
     def set_detection_parameters(self, parameters: dict[str, Any]) -> bool:
         """Set detection parameters in Vision module."""
-        raise NotImplementedError("Vision interface must implement set_detection_parameters")
+        raise NotImplementedError(
+            "Vision interface must implement set_detection_parameters"
+        )
 
 
 class APIInterface(ABC):
@@ -71,12 +75,16 @@ class APIInterface(ABC):
     @abstractmethod
     def send_event_notification(self, event_data: dict[str, Any]) -> None:
         """Send event notifications to API module."""
-        raise NotImplementedError("API interface must implement send_event_notification")
+        raise NotImplementedError(
+            "API interface must implement send_event_notification"
+        )
 
     @abstractmethod
     def register_websocket_handler(self, handler: Callable) -> str:
         """Register WebSocket message handler."""
-        raise NotImplementedError("API interface must implement register_websocket_handler")
+        raise NotImplementedError(
+            "API interface must implement register_websocket_handler"
+        )
 
 
 class ProjectorInterface(ABC):
@@ -85,17 +93,23 @@ class ProjectorInterface(ABC):
     @abstractmethod
     def send_trajectory_data(self, trajectory_data: dict[str, Any]) -> None:
         """Send trajectory data to Projector module."""
-        raise NotImplementedError("Projector interface must implement send_trajectory_data")
+        raise NotImplementedError(
+            "Projector interface must implement send_trajectory_data"
+        )
 
     @abstractmethod
     def send_overlay_data(self, overlay_data: dict[str, Any]) -> None:
         """Send overlay visualization data."""
-        raise NotImplementedError("Projector interface must implement send_overlay_data")
+        raise NotImplementedError(
+            "Projector interface must implement send_overlay_data"
+        )
 
     @abstractmethod
     def update_projection_settings(self, settings: dict[str, Any]) -> None:
         """Update projector settings."""
-        raise NotImplementedError("Projector interface must implement update_projection_settings")
+        raise NotImplementedError(
+            "Projector interface must implement update_projection_settings"
+        )
 
 
 class ConfigInterface(ABC):
@@ -109,12 +123,16 @@ class ConfigInterface(ABC):
     @abstractmethod
     def update_module_config(self, module_name: str, config: dict[str, Any]) -> None:
         """Update configuration for a specific module."""
-        raise NotImplementedError("Config interface must implement update_module_config")
+        raise NotImplementedError(
+            "Config interface must implement update_module_config"
+        )
 
     @abstractmethod
     def subscribe_config_changes(self, callback: Callable) -> str:
         """Subscribe to configuration changes."""
-        raise NotImplementedError("Config interface must implement subscribe_config_changes")
+        raise NotImplementedError(
+            "Config interface must implement subscribe_config_changes"
+        )
 
 
 class CoreModuleIntegrator:
@@ -580,7 +598,9 @@ class VisionInterfaceImpl(VisionInterface):
                 processed_data = {
                     **detection_data,
                     "processed_balls": processed_balls,
-                    "detection_quality": self._assess_detection_quality(processed_balls),
+                    "detection_quality": self._assess_detection_quality(
+                        processed_balls
+                    ),
                 }
 
                 # Forward to event manager
@@ -605,7 +625,9 @@ class VisionInterfaceImpl(VisionInterface):
                 # Check if calibration is stale (older than 1 hour)
                 current_time = time.time()
                 if current_time - calibration.get("timestamp", 0) > 3600:
-                    self.logger.warning(f"Calibration data for {calibration_type} is stale")
+                    self.logger.warning(
+                        f"Calibration data for {calibration_type} is stale"
+                    )
                     calibration["is_stale"] = True
 
                 self.logger.info(f"Providing {calibration_type} calibration data")
@@ -1116,7 +1138,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                     "type": "settings_update",
                     "timestamp": time.time(),
                     "settings": self.projection_settings,
-                    "requires_restart": self._requires_projector_restart(valid_settings),
+                    "requires_restart": self._requires_projector_restart(
+                        valid_settings
+                    ),
                 }
 
                 self._send_to_projector(settings_message)
@@ -1160,7 +1184,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
                 # Update calibration
                 self.projection_settings["calibration_points"] = processed_points
-                self.projection_settings["transformation_matrix"] = transformation_matrix
+                self.projection_settings[
+                    "transformation_matrix"
+                ] = transformation_matrix
 
                 self.calibration_status = {
                     "is_calibrated": True,
@@ -1583,7 +1609,9 @@ class ConfigInterfaceImpl(ConfigInterface):
             try:
                 config = self.module_configs.get(module_name, {})
                 if not config:
-                    self.logger.warning(f"No configuration found for module: {module_name}")
+                    self.logger.warning(
+                        f"No configuration found for module: {module_name}"
+                    )
                     return {}
 
                 # Add metadata
@@ -1614,7 +1642,9 @@ class ConfigInterfaceImpl(ConfigInterface):
             try:
                 # Validate configuration
                 if not self._validate_config(module_name, config):
-                    self.logger.error(f"Configuration validation failed for {module_name}")
+                    self.logger.error(
+                        f"Configuration validation failed for {module_name}"
+                    )
                     return
 
                 # Backup current config
@@ -1652,9 +1682,7 @@ class ConfigInterfaceImpl(ConfigInterface):
         """Subscribe to configuration changes."""
         with self._lock:
             try:
-                subscription_id = (
-                    f"config_sub_{int(time.time() * 1000)}_{len(self.config_subscribers)}"
-                )
+                subscription_id = f"config_sub_{int(time.time() * 1000)}_{len(self.config_subscribers)}"
 
                 # Wrap callback with error handling
                 wrapped_callback = self._wrap_config_callback(callback, subscription_id)

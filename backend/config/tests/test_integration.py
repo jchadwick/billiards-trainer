@@ -1,16 +1,18 @@
 """Integration tests for validation utilities with configuration system."""
 
-import pytest
 from pathlib import Path
-from backend.config.validator.rules import ValidationRules
-from backend.config.validator.types import TypeChecker
-from backend.config.utils.differ import ConfigDiffer
+
+import pytest
+
 from backend.config.models.schemas import (
     ApplicationConfig,
-    VisionConfig,
     CameraSettings,
-    create_development_config
+    VisionConfig,
+    create_development_config,
 )
+from backend.config.utils.differ import ConfigDiffer
+from backend.config.validator.rules import ValidationRules
+from backend.config.validator.types import TypeChecker
 
 
 class TestValidationIntegration:
@@ -30,18 +32,22 @@ class TestValidationIntegration:
             "resolution": (1920, 1080),
             "fps": 30,
             "gain": 1.0,
-            "brightness": 0.5
+            "brightness": 0.5,
         }
 
         # Test range validation
         assert self.validator.check_range(valid_camera["device_id"], 0, 10, "device_id")
         assert self.validator.check_range(valid_camera["fps"], 15, 120, "fps")
         assert self.validator.check_range(valid_camera["gain"], 0.0, 10.0, "gain")
-        assert self.validator.check_range(valid_camera["brightness"], 0.0, 1.0, "brightness")
+        assert self.validator.check_range(
+            valid_camera["brightness"], 0.0, 1.0, "brightness"
+        )
 
         # Test type validation
         assert self.validator.check_type(valid_camera["device_id"], int, "device_id")
-        assert self.validator.check_type(valid_camera["resolution"], tuple, "resolution")
+        assert self.validator.check_type(
+            valid_camera["resolution"], tuple, "resolution"
+        )
         assert self.validator.check_type(valid_camera["fps"], int, "fps")
 
         # Test invalid values
@@ -56,7 +62,7 @@ class TestValidationIntegration:
             "resolution": (1920, 1080),
             "fps": 30,
             "gain": 1.0,
-            "brightness": 0.5
+            "brightness": 0.5,
         }
 
         # Should pass type checking for dict to Pydantic model
@@ -66,7 +72,7 @@ class TestValidationIntegration:
         invalid_camera = {
             "device_id": "not_an_int",
             "resolution": "not_a_tuple",
-            "fps": -10
+            "fps": -10,
         }
 
         assert not self.type_checker.check(invalid_camera, CameraSettings)
@@ -76,22 +82,10 @@ class TestValidationIntegration:
         # Original configuration
         config_v1 = {
             "vision": {
-                "camera": {
-                    "device_id": 0,
-                    "fps": 30,
-                    "resolution": (1920, 1080)
-                },
-                "detection": {
-                    "min_ball_radius": 10,
-                    "max_ball_radius": 40
-                }
+                "camera": {"device_id": 0, "fps": 30, "resolution": (1920, 1080)},
+                "detection": {"min_ball_radius": 10, "max_ball_radius": 40},
             },
-            "core": {
-                "physics": {
-                    "gravity": 9.81,
-                    "friction": 0.01
-                }
-            }
+            "core": {"physics": {"gravity": 9.81, "friction": 0.01}},
         }
 
         # Updated configuration
@@ -99,32 +93,31 @@ class TestValidationIntegration:
             "vision": {
                 "camera": {
                     "device_id": 1,  # Changed
-                    "fps": 60,       # Changed
-                    "resolution": (1920, 1080)  # Unchanged
+                    "fps": 60,  # Changed
+                    "resolution": (1920, 1080),  # Unchanged
                 },
                 "detection": {
                     "min_ball_radius": 15,  # Changed
                     "max_ball_radius": 40,  # Unchanged
-                    "sensitivity": 0.8      # Added
-                }
+                    "sensitivity": 0.8,  # Added
+                },
             },
             "core": {
-                "physics": {
-                    "gravity": 9.81,  # Unchanged
-                    "friction": 0.02  # Changed
-                }
-            }
+                "physics": {"gravity": 9.81, "friction": 0.02}  # Unchanged  # Changed
+            },
         }
 
         diff_result = self.differ.diff(config_v1, config_v2)
 
         # Check that changes were detected
-        assert diff_result['summary'].total_changes > 0
-        assert diff_result['summary'].added_count >= 1  # sensitivity added
-        assert diff_result['summary'].modified_count >= 3  # device_id, fps, friction, min_ball_radius
+        assert diff_result["summary"].total_changes > 0
+        assert diff_result["summary"].added_count >= 1  # sensitivity added
+        assert (
+            diff_result["summary"].modified_count >= 3
+        )  # device_id, fps, friction, min_ball_radius
 
         # Check specific change paths
-        change_paths = [change.path for change in diff_result['changes']]
+        change_paths = [change.path for change in diff_result["changes"]]
         assert "vision.camera.device_id" in change_paths
         assert "vision.camera.fps" in change_paths
         assert "vision.detection.sensitivity" in change_paths
@@ -152,13 +145,11 @@ class TestValidationIntegration:
         invalid_config = {
             "vision": {
                 "camera": {
-                    "device_id": -1,     # Out of range
-                    "fps": "not_int",    # Wrong type
-                    "gain": 15.0         # Out of range
+                    "device_id": -1,  # Out of range
+                    "fps": "not_int",  # Wrong type
+                    "gain": 15.0,  # Out of range
                 },
-                "detection": {
-                    "min_ball_radius": "not_numeric"  # Wrong type
-                }
+                "detection": {"min_ball_radius": "not_numeric"},  # Wrong type
             }
         }
 
@@ -166,12 +157,20 @@ class TestValidationIntegration:
         self.validator.clear_validation_errors()
 
         # Range validations
-        self.validator.check_range(invalid_config["vision"]["camera"]["device_id"], 0, 10, "device_id")
-        self.validator.check_range(invalid_config["vision"]["camera"]["gain"], 0.0, 10.0, "gain")
+        self.validator.check_range(
+            invalid_config["vision"]["camera"]["device_id"], 0, 10, "device_id"
+        )
+        self.validator.check_range(
+            invalid_config["vision"]["camera"]["gain"], 0.0, 10.0, "gain"
+        )
 
         # Type validations
         self.validator.check_type(invalid_config["vision"]["camera"]["fps"], int, "fps")
-        self.validator.check_type(invalid_config["vision"]["detection"]["min_ball_radius"], (int, float), "min_ball_radius")
+        self.validator.check_type(
+            invalid_config["vision"]["detection"]["min_ball_radius"],
+            (int, float),
+            "min_ball_radius",
+        )
 
         errors = self.validator.get_validation_errors()
         assert len(errors) >= 4  # Should have collected multiple errors

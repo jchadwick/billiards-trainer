@@ -6,7 +6,6 @@ memory usage monitoring, and latency measurements.
 """
 
 import logging
-import psutil
 import threading
 import time
 from collections import defaultdict, deque
@@ -15,6 +14,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import numpy as np
+import psutil
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class MetricValue:
 
     timestamp: float
     value: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate metric value."""
@@ -68,7 +68,7 @@ class PerformanceProfile:
     total_execution_time: float = 0.0
     call_count: int = 0
     average_time: float = 0.0
-    min_time: float = float('inf')
+    min_time: float = float("inf")
     max_time: float = 0.0
     memory_peak: float = 0.0
     last_update: float = field(default_factory=time.time)
@@ -92,8 +92,8 @@ class DetectionAccuracyMetrics:
     false_positives: int = 0
     true_negatives: int = 0
     false_negatives: int = 0
-    confidence_scores: List[float] = field(default_factory=list)
-    detection_times: List[float] = field(default_factory=list)
+    confidence_scores: list[float] = field(default_factory=list)
+    detection_times: list[float] = field(default_factory=list)
 
     @property
     def precision(self) -> float:
@@ -120,7 +120,12 @@ class DetectionAccuracyMetrics:
     @property
     def accuracy(self) -> float:
         """Calculate overall accuracy."""
-        total = self.true_positives + self.false_positives + self.true_negatives + self.false_negatives
+        total = (
+            self.true_positives
+            + self.false_positives
+            + self.true_negatives
+            + self.false_negatives
+        )
         if total == 0:
             return 0.0
         return (self.true_positives + self.true_negatives) / total
@@ -139,7 +144,12 @@ class DetectionAccuracyMetrics:
 class PerformanceTimer:
     """Context manager for measuring execution time."""
 
-    def __init__(self, metrics_collector: 'VisionMetricsCollector', metric_name: str, metadata: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        metrics_collector: "VisionMetricsCollector",
+        metric_name: str,
+        metadata: Optional[dict[str, Any]] = None,
+    ):
         """Initialize performance timer.
 
         Args:
@@ -172,7 +182,7 @@ class PerformanceTimer:
             MetricType.LATENCY,
             self.metric_name,
             execution_time * 1000,  # Convert to milliseconds
-            metadata={**self.metadata, "memory_delta_mb": memory_delta}
+            metadata={**self.metadata, "memory_delta_mb": memory_delta},
         )
 
         # Record memory usage if significant change
@@ -181,7 +191,7 @@ class PerformanceTimer:
                 MetricType.MEMORY,
                 f"{self.metric_name}_memory",
                 memory_delta,
-                metadata=self.metadata
+                metadata=self.metadata,
             )
 
 
@@ -207,12 +217,18 @@ class VisionMetricsCollector:
         self.max_history_size = max_history_size
 
         # Metric storage
-        self.metrics: Dict[str, deque] = defaultdict(lambda: deque(maxlen=max_history_size))
-        self.performance_profiles: Dict[str, PerformanceProfile] = {}
-        self.detection_metrics: Dict[str, DetectionAccuracyMetrics] = defaultdict(DetectionAccuracyMetrics)
+        self.metrics: dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=max_history_size)
+        )
+        self.performance_profiles: dict[str, PerformanceProfile] = {}
+        self.detection_metrics: dict[str, DetectionAccuracyMetrics] = defaultdict(
+            DetectionAccuracyMetrics
+        )
 
         # FPS tracking
-        self.frame_timestamps: deque = deque(maxlen=100)  # Last 100 frames for FPS calculation
+        self.frame_timestamps: deque = deque(
+            maxlen=100
+        )  # Last 100 frames for FPS calculation
         self.processing_times: deque = deque(maxlen=1000)  # Processing time history
 
         # System monitoring
@@ -233,8 +249,7 @@ class VisionMetricsCollector:
 
         self._monitoring_active = True
         self._system_monitor_thread = threading.Thread(
-            target=self._system_monitor_loop,
-            daemon=True
+            target=self._system_monitor_loop, daemon=True
         )
         self._system_monitor_thread.start()
         logger.info("Started system monitoring")
@@ -251,7 +266,7 @@ class VisionMetricsCollector:
         metric_type: MetricType,
         name: str,
         value: float,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Record a metric value.
 
@@ -264,9 +279,7 @@ class VisionMetricsCollector:
         with self._lock:
             metric_key = f"{metric_type.value}_{name}"
             metric_value = MetricValue(
-                timestamp=time.time(),
-                value=value,
-                metadata=metadata or {}
+                timestamp=time.time(), value=value, metadata=metadata or {}
             )
             self.metrics[metric_key].append(metric_value)
 
@@ -302,7 +315,7 @@ class VisionMetricsCollector:
                 MetricType.LATENCY,
                 component,
                 processing_time * 1000,  # Convert to milliseconds
-                metadata={"component": component}
+                metadata={"component": component},
             )
 
     def record_detection_result(
@@ -313,7 +326,7 @@ class VisionMetricsCollector:
         true_negative: bool = False,
         false_negative: bool = False,
         confidence: Optional[float] = None,
-        detection_time: Optional[float] = None
+        detection_time: Optional[float] = None,
     ) -> None:
         """Record detection accuracy result.
 
@@ -350,7 +363,9 @@ class VisionMetricsCollector:
                 if len(metrics.detection_times) > 1000:
                     metrics.detection_times = metrics.detection_times[-1000:]
 
-    def time_component(self, component_name: str, metadata: Optional[Dict[str, Any]] = None) -> PerformanceTimer:
+    def time_component(
+        self, component_name: str, metadata: Optional[dict[str, Any]] = None
+    ) -> PerformanceTimer:
         """Create a timer context manager for a component.
 
         Args:
@@ -367,7 +382,7 @@ class VisionMetricsCollector:
         metric_type: MetricType,
         name: str,
         aggregation: AggregationType = AggregationType.MEAN,
-        time_window: Optional[float] = None
+        time_window: Optional[float] = None,
     ) -> Optional[float]:
         """Get aggregated metric statistics.
 
@@ -451,7 +466,9 @@ class VisionMetricsCollector:
 
             return (len(recent_frames) - 1) / time_span
 
-    def get_detection_metrics(self, detector_name: str) -> Optional[DetectionAccuracyMetrics]:
+    def get_detection_metrics(
+        self, detector_name: str
+    ) -> Optional[DetectionAccuracyMetrics]:
         """Get detection accuracy metrics for a detector.
 
         Args:
@@ -463,7 +480,9 @@ class VisionMetricsCollector:
         with self._lock:
             return self.detection_metrics.get(detector_name)
 
-    def get_performance_profile(self, component_name: str) -> Optional[PerformanceProfile]:
+    def get_performance_profile(
+        self, component_name: str
+    ) -> Optional[PerformanceProfile]:
         """Get performance profile for a component.
 
         Args:
@@ -475,7 +494,7 @@ class VisionMetricsCollector:
         with self._lock:
             return self.performance_profiles.get(component_name)
 
-    def get_system_metrics(self) -> Dict[str, float]:
+    def get_system_metrics(self) -> dict[str, float]:
         """Get current system metrics.
 
         Returns:
@@ -497,7 +516,9 @@ class VisionMetricsCollector:
             logger.warning(f"Failed to get system metrics: {e}")
             return {}
 
-    def get_comprehensive_report(self, time_window: Optional[float] = None) -> Dict[str, Any]:
+    def get_comprehensive_report(
+        self, time_window: Optional[float] = None
+    ) -> dict[str, Any]:
         """Generate comprehensive metrics report.
 
         Args:
@@ -512,7 +533,9 @@ class VisionMetricsCollector:
                 "time_window": time_window,
                 "fps": {
                     "current": self.get_current_fps(),
-                    "average": self.get_metric_stats(MetricType.FPS, "vision_pipeline", time_window=time_window),
+                    "average": self.get_metric_stats(
+                        MetricType.FPS, "vision_pipeline", time_window=time_window
+                    ),
                 },
                 "system": self.get_system_metrics(),
                 "performance_profiles": {},
@@ -541,7 +564,8 @@ class VisionMetricsCollector:
                     "accuracy": metrics.accuracy,
                     "average_confidence": metrics.average_confidence,
                     "average_detection_time_ms": metrics.average_detection_time * 1000,
-                    "total_detections": metrics.true_positives + metrics.false_positives,
+                    "total_detections": metrics.true_positives
+                    + metrics.false_positives,
                 }
 
             # Add latency statistics
@@ -549,11 +573,36 @@ class VisionMetricsCollector:
                 if metric_key.startswith("latency_"):
                     component = metric_key.replace("latency_", "")
                     report["latency_stats"][component] = {
-                        "mean_ms": self.get_metric_stats(MetricType.LATENCY, component, AggregationType.MEAN, time_window),
-                        "median_ms": self.get_metric_stats(MetricType.LATENCY, component, AggregationType.MEDIAN, time_window),
-                        "p95_ms": self.get_metric_stats(MetricType.LATENCY, component, AggregationType.PERCENTILE_95, time_window),
-                        "p99_ms": self.get_metric_stats(MetricType.LATENCY, component, AggregationType.PERCENTILE_99, time_window),
-                        "max_ms": self.get_metric_stats(MetricType.LATENCY, component, AggregationType.MAX, time_window),
+                        "mean_ms": self.get_metric_stats(
+                            MetricType.LATENCY,
+                            component,
+                            AggregationType.MEAN,
+                            time_window,
+                        ),
+                        "median_ms": self.get_metric_stats(
+                            MetricType.LATENCY,
+                            component,
+                            AggregationType.MEDIAN,
+                            time_window,
+                        ),
+                        "p95_ms": self.get_metric_stats(
+                            MetricType.LATENCY,
+                            component,
+                            AggregationType.PERCENTILE_95,
+                            time_window,
+                        ),
+                        "p99_ms": self.get_metric_stats(
+                            MetricType.LATENCY,
+                            component,
+                            AggregationType.PERCENTILE_99,
+                            time_window,
+                        ),
+                        "max_ms": self.get_metric_stats(
+                            MetricType.LATENCY,
+                            component,
+                            AggregationType.MAX,
+                            time_window,
+                        ),
                     }
 
             # Add memory statistics
@@ -561,14 +610,31 @@ class VisionMetricsCollector:
                 if metric_key.startswith("memory_"):
                     component = metric_key.replace("memory_", "")
                     report["memory_stats"][component] = {
-                        "mean_mb": self.get_metric_stats(MetricType.MEMORY, component, AggregationType.MEAN, time_window),
-                        "max_mb": self.get_metric_stats(MetricType.MEMORY, component, AggregationType.MAX, time_window),
-                        "min_mb": self.get_metric_stats(MetricType.MEMORY, component, AggregationType.MIN, time_window),
+                        "mean_mb": self.get_metric_stats(
+                            MetricType.MEMORY,
+                            component,
+                            AggregationType.MEAN,
+                            time_window,
+                        ),
+                        "max_mb": self.get_metric_stats(
+                            MetricType.MEMORY,
+                            component,
+                            AggregationType.MAX,
+                            time_window,
+                        ),
+                        "min_mb": self.get_metric_stats(
+                            MetricType.MEMORY,
+                            component,
+                            AggregationType.MIN,
+                            time_window,
+                        ),
                     }
 
             return report
 
-    def reset_metrics(self, metric_type: Optional[MetricType] = None, name: Optional[str] = None) -> None:
+    def reset_metrics(
+        self, metric_type: Optional[MetricType] = None, name: Optional[str] = None
+    ) -> None:
         """Reset metrics data.
 
         Args:
@@ -590,7 +656,9 @@ class VisionMetricsCollector:
                     self.metrics[metric_key].clear()
             elif metric_type is not None:
                 # Reset all metrics of specific type
-                keys_to_remove = [k for k in self.metrics if k.startswith(f"{metric_type.value}_")]
+                keys_to_remove = [
+                    k for k in self.metrics if k.startswith(f"{metric_type.value}_")
+                ]
                 for key in keys_to_remove:
                     self.metrics[key].clear()
 
@@ -661,10 +729,12 @@ def time_function(func: Callable, component_name: Optional[str] = None) -> Calla
     Returns:
         Decorated function
     """
+
     def wrapper(*args, **kwargs):
         name = component_name or func.__name__
         with get_metrics_collector().time_component(name):
             return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -677,7 +747,7 @@ def record_detection(
     detector_name: str,
     is_correct: bool,
     confidence: Optional[float] = None,
-    detection_time: Optional[float] = None
+    detection_time: Optional[float] = None,
 ) -> None:
     """Record detection result.
 
@@ -692,7 +762,7 @@ def record_detection(
         true_positive=is_correct,
         false_positive=not is_correct,
         confidence=confidence,
-        detection_time=detection_time
+        detection_time=detection_time,
     )
 
 
@@ -705,7 +775,7 @@ def get_current_fps() -> float:
     return get_metrics_collector().get_current_fps()
 
 
-def get_system_stats() -> Dict[str, float]:
+def get_system_stats() -> dict[str, float]:
     """Get current system statistics.
 
     Returns:
