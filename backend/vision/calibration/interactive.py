@@ -3,9 +3,20 @@
 import logging
 import queue
 import threading
-import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from typing import Any, Optional
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+
+    TK_AVAILABLE = True
+except ImportError:
+    TK_AVAILABLE = False
+    tk = None  # type: ignore
+    filedialog = None  # type: ignore
+    messagebox = None  # type: ignore
+    ttk = None  # type: ignore
 
 import cv2
 
@@ -20,12 +31,14 @@ logger = logging.getLogger(__name__)
 class InteractiveCalibrationGUI:
     """Interactive GUI for comprehensive calibration system."""
 
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: Any) -> None:
         """Initialize calibration GUI.
 
         Args:
             master: Root tkinter window
         """
+        if not TK_AVAILABLE:
+            raise ImportError("Tkinter is not available. Cannot use interactive GUI.")
         self.master = master
         self.master.title("Billiards Vision Calibration System")
         self.master.geometry("1200x800")
@@ -825,11 +838,13 @@ class InteractiveCalibrationGUI:
 
 def run_calibration_gui():
     """Run the interactive calibration GUI."""
-    root = tk.Tk()
+    if not TK_AVAILABLE:
+        raise ImportError("Tkinter is not available. Cannot run interactive GUI.")
+    root = tk.Tk()  # type: ignore
     app = InteractiveCalibrationGUI(root)
 
     try:
-        root.mainloop()
+        root.mainloop()  # type: ignore
     except KeyboardInterrupt:
         pass
     finally:
