@@ -39,7 +39,7 @@ class Point2D:
         """Convert to tuple representation."""
         return (self.x, self.y)
 
-    def to_array(self) -> np.ndarray:
+    def to_array(self) -> NDArray[np.float64]:
         """Convert to numpy array."""
         return np.array([self.x, self.y], dtype=np.float32)
 
@@ -72,7 +72,7 @@ class Point3D:
         """Convert to tuple representation."""
         return (self.x, self.y, self.z)
 
-    def to_array(self) -> np.ndarray:
+    def to_array(self) -> NDArray[np.float64]:
         """Convert to numpy array."""
         return np.array([self.x, self.y, self.z], dtype=np.float32)
 
@@ -92,7 +92,7 @@ class TransformationMatrix:
     calibration_error: Optional[float] = None
     timestamp: Optional[float] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate transformation matrix."""
         if self.is_homogeneous:
             if self.matrix.shape not in [(3, 3), (4, 4)]:
@@ -151,7 +151,7 @@ class CoordinateTransformer:
     correction, and coordinate system conversions.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize coordinate transformer."""
         # Transformation matrices
         self.transformations: dict[
@@ -376,7 +376,7 @@ class CoordinateTransformer:
 
     def compute_perspective_transform(
         self, source_points: list[Point2D], target_points: list[Point2D]
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Compute perspective transformation matrix.
 
         Args:
@@ -405,7 +405,7 @@ class CoordinateTransformer:
         return cv2.getPerspectiveTransform(src_pts, dst_pts)
 
     def apply_perspective_transform(
-        self, points: list[Point2D], transform_matrix: np.ndarray
+        self, points: list[Point2D], transform_matrix: NDArray[np.float64]
     ) -> list[Point2D]:
         """Apply perspective transformation to points.
 
@@ -467,7 +467,10 @@ class CoordinateTransformer:
         return normal, distance
 
     def project_to_table_plane(
-        self, point_3d: Point3D, plane_normal: np.ndarray, plane_distance: float
+        self,
+        point_3d: Point3D,
+        plane_normal: NDArray[np.float64],
+        plane_distance: float,
     ) -> Point3D:
         """Project a 3D point onto the table plane.
 
@@ -706,7 +709,7 @@ class CoordinateTransformer:
 
 def create_perspective_matrix(
     source_corners: list[tuple[float, float]], target_corners: list[tuple[float, float]]
-) -> np.ndarray:
+) -> NDArray[np.float64]:
     """Create perspective transformation matrix from corner points.
 
     Args:

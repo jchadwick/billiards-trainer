@@ -537,6 +537,8 @@ class CollisionResolver:
         self, ball1: BallState, ball2: BallState, collision: CollisionResult
     ) -> CollisionResult:
         """Basic ball collision resolution without advanced spin effects."""
+        if collision.point is None:
+            return collision
         normal = collision.point.normal
 
         # Calculate relative velocity
@@ -603,6 +605,9 @@ class CollisionResolver:
             # Create collision object for spin calculator
             from ..models import Collision
 
+            if collision.point is None:
+                return collision
+
             spin_collision = Collision(
                 time=collision.time,
                 position=collision.point.position,
@@ -652,6 +657,8 @@ class CollisionResolver:
         self, ball: BallState, collision: CollisionResult
     ) -> CollisionResult:
         """Basic cushion collision resolution."""
+        if collision.point is None:
+            return collision
         normal = collision.point.normal
 
         # Velocity components
@@ -698,6 +705,9 @@ class CollisionResolver:
         try:
             # Update ball velocity from collision result
             ball.velocity = collision.ball1_velocity
+
+            if collision.point is None:
+                return collision
 
             # Handle spin changes due to cushion interaction
             self.spin_calculator.handle_cushion_collision(ball, collision.point.normal)
@@ -811,15 +821,20 @@ class CollisionResolver:
 
         for collision in sorted_collisions:
             if collision.collision_type == CollisionType.BALL_BALL:
-                ball1 = ball_dict.get(collision.ball1_id)
-                ball2 = ball_dict.get(collision.ball2_id)
+                ball1 = (
+                    ball_dict.get(collision.ball1_id) if collision.ball1_id else None
+                )
+                ball2 = (
+                    ball_dict.get(collision.ball2_id) if collision.ball2_id else None
+                )
                 if ball1 and ball2:
                     resolved_collision = self.resolve_ball_collision(
                         ball1, ball2, collision
                     )
                     # Update ball states for subsequent collision resolutions
                     ball1.velocity = resolved_collision.ball1_velocity
-                    ball2.velocity = resolved_collision.ball2_velocity
+                    if resolved_collision.ball2_velocity:
+                        ball2.velocity = resolved_collision.ball2_velocity
                     if resolved_collision.ball1_spin:
                         ball1.spin = resolved_collision.ball1_spin
                     if resolved_collision.ball2_spin:
@@ -827,7 +842,7 @@ class CollisionResolver:
                 else:
                     resolved_collision = collision
             else:  # BALL_CUSHION
-                ball = ball_dict.get(collision.ball1_id)
+                ball = ball_dict.get(collision.ball1_id) if collision.ball1_id else None
                 if ball:
                     resolved_collision = self.resolve_cushion_collision(ball, collision)
                     # Update ball state
@@ -882,7 +897,7 @@ class CollisionPredictor:
             velocity=Vector2D(ball.velocity.x, ball.velocity.y),
             radius=ball.radius,
             mass=ball.mass,
-            spin=Vector2D(ball.spin.x, ball.spin.y) if ball.spin else None,
+            spin=Vector2D(ball.spin.x, ball.spin.y) if ball.spin else Vector2D(0, 0),
             is_cue_ball=ball.is_cue_ball,
             is_pocketed=ball.is_pocketed,
             number=ball.number,
@@ -970,12 +985,12 @@ class CollisionPredictor:
 class CollisionOptimizer:
     """Performance optimizations for real-time collision detection."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize collision optimizer."""
         self.spatial_grid_size = 100.0  # mm
-        self.spatial_grid = {}
+        self.spatial_grid: dict = {}
 
-    def build_spatial_grid(self, balls: list[BallState]):
+    def build_spatial_grid(self, balls: list[BallState]) -> None:
         """Build spatial partitioning grid for efficient collision detection.
 
         Args:

@@ -95,7 +95,7 @@ class CameraCapture:
     - Configurable frame rates and resolutions
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize camera with configuration.
 
         Args:
@@ -665,7 +665,7 @@ class CameraCapture:
             self._error_count += 1
             return False
 
-    def get_depth_frame(self) -> Optional[np.ndarray]:
+    def get_depth_frame(self) -> Optional[NDArray[np.float64]]:
         """Get latest depth frame from Kinect v2.
 
         Returns:
@@ -709,16 +709,16 @@ class CameraCapture:
 
         return self._kinect2.get_calibration_data()
 
-    def __enter__(self):
+    def __enter__(self) -> "PerformanceTimer":
         """Context manager entry."""
         self.start_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Context manager exit."""
         self.stop_capture()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Destructor - ensure resources are cleaned up."""
         with contextlib.suppress(Exception):
             self.stop_capture()

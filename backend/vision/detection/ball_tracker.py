@@ -78,7 +78,7 @@ class BallTrackingSystem:
     with high accuracy and robustness requirements.
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         """Initialize ball tracking system.
 
         Args:
@@ -116,7 +116,7 @@ class BallTrackingSystem:
 
         logger.info("Ball tracking system initialized")
 
-    def _initialize_components(self):
+    def _initialize_components(self) -> None:
         """Initialize detection and tracking components."""
         # Ball detector
         detector_config = {
@@ -154,7 +154,7 @@ class BallTrackingSystem:
 
     def process_frame(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         frame_number: Optional[int] = None,
         timestamp: Optional[float] = None,
     ) -> DetectionResult:
@@ -260,7 +260,7 @@ class BallTrackingSystem:
             logger.error(f"Frame processing failed: {e}")
             return self._create_error_result(frame_number, timestamp, str(e))
 
-    def _apply_roi(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply region of interest masking."""
         if self.table_roi is None:
             return frame
@@ -319,7 +319,9 @@ class BallTrackingSystem:
 
         return validated_balls
 
-    def _calculate_frame_quality(self, balls: list[Ball], frame: np.ndarray) -> float:
+    def _calculate_frame_quality(
+        self, balls: list[Ball], frame: NDArray[np.uint8]
+    ) -> float:
         """Calculate overall frame quality score."""
         if not balls:
             return 0.0
@@ -340,7 +342,7 @@ class BallTrackingSystem:
         quality = avg_confidence * 0.5 + blur_quality * 0.3 + detection_quality * 0.2
         return min(1.0, quality)
 
-    def _update_metrics(self, balls: list[Ball], statistics: FrameStatistics):
+    def _update_metrics(self, balls: list[Ball], statistics: FrameStatistics) -> None:
         """Update performance metrics."""
         self.metrics["total_frames_processed"] += 1
         self.metrics["total_balls_detected"] += len(balls)
@@ -365,7 +367,7 @@ class BallTrackingSystem:
             fps = 1000.0 / statistics.processing_time
             self.metrics["fps_samples"].append(fps)
 
-    def _monitor_quality(self, balls: list[Ball], statistics: FrameStatistics):
+    def _monitor_quality(self, balls: list[Ball], statistics: FrameStatistics) -> None:
         """Monitor detection quality and trigger alerts if needed."""
         current_time = time.time()
 
@@ -387,7 +389,7 @@ class BallTrackingSystem:
             self._log_quality_summary()
             self.quality_monitor["last_quality_check"] = current_time
 
-    def _log_quality_summary(self):
+    def _log_quality_summary(self) -> None:
         """Log quality summary."""
         if self.metrics["total_frames_processed"] > 0:
             avg_balls = (
@@ -407,7 +409,9 @@ class BallTrackingSystem:
                 f"Accuracy violations: {self.quality_monitor['total_accuracy_violations']}"
             )
 
-    def _create_debug_visualization(self, frame: np.ndarray, result: DetectionResult):
+    def _create_debug_visualization(
+        self, frame: NDArray[np.uint8], result: DetectionResult
+    ) -> None:
         """Create debug visualization."""
         debug_frame = frame.copy()
 

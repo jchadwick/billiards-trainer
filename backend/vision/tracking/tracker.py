@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Any, Optional
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
 from .kalman import KalmanFilter
@@ -58,13 +59,15 @@ class Track:
     creation_time: float = field(default_factory=time.time)
     last_update_time: float = field(default_factory=time.time)
     last_frame_number: int = 0
-    confidence_history: deque = field(default_factory=lambda: deque(maxlen=10))
-    position_history: deque = field(default_factory=lambda: deque(maxlen=50))
+    confidence_history: deque[float] = field(default_factory=lambda: deque(maxlen=10))
+    position_history: deque[tuple[float, float]] = field(
+        default_factory=lambda: deque(maxlen=50)
+    )
     detection_count: int = 0
     miss_count: int = 0
-    radius_history: deque = field(default_factory=lambda: deque(maxlen=10))
+    radius_history: deque[float] = field(default_factory=lambda: deque(maxlen=10))
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize track after creation."""
         self.confidence_history.append(self.kalman_filter.confidence)
         self.position_history.append(self.kalman_filter.get_position())
@@ -72,26 +75,26 @@ class Track:
     @property
     def age(self) -> int:
         """Get track age in frames."""
-        return self.kalman_filter.age
+        return int(self.kalman_filter.age)
 
     @property
     def time_since_update(self) -> int:
         """Get frames since last update."""
-        return self.kalman_filter.time_since_update
+        return int(self.kalman_filter.time_since_update)
 
     @property
     def average_confidence(self) -> float:
         """Get average confidence over history."""
         if not self.confidence_history:
             return 0.0
-        return sum(self.confidence_history) / len(self.confidence_history)
+        return float(sum(self.confidence_history) / len(self.confidence_history))
 
     @property
     def average_radius(self) -> float:
         """Get average radius over history."""
         if not self.radius_history:
             return 15.0  # Default ball radius
-        return sum(self.radius_history) / len(self.radius_history)
+        return float(sum(self.radius_history) / len(self.radius_history))
 
     def update_with_detection(self, detection: Ball, frame_number: int) -> None:
         """Update track with new detection."""
@@ -118,7 +121,7 @@ class Track:
         """Predict track position."""
         predicted_pos = self.kalman_filter.predict(dt)
         self.position_history.append(predicted_pos)
-        return predicted_pos
+        return (float(predicted_pos[0]), float(predicted_pos[1]))
 
     def mark_missed(self) -> None:
         """Mark track as missed in current frame."""
@@ -176,7 +179,7 @@ class ObjectTracker:
     - Velocity and acceleration estimation
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize tracker with configuration.
 
         Args:
@@ -309,7 +312,7 @@ class ObjectTracker:
 
         return matched_tracks, list(unmatched_detections), list(unmatched_tracks)
 
-    def _build_cost_matrix(self, detections: list[Ball]) -> np.ndarray:
+    def _build_cost_matrix(self, detections: list[Ball]) -> NDArray[np.float64]:
         """Build cost matrix for Hungarian algorithm."""
         valid_tracks = [i for i, track in enumerate(self.tracks) if track.is_valid()]
 
@@ -547,7 +550,8 @@ class ObjectTracker:
         """
         for track in self.tracks:
             if track.track_id == track_id and track.is_valid():
-                return track.kalman_filter.predict_trajectory(time_steps, dt)
+                trajectory = track.kalman_filter.predict_trajectory(time_steps, dt)
+                return list(trajectory)
 
         return []
 
@@ -573,7 +577,7 @@ class ObjectTracker:
         )
 
         # Add ball type distribution
-        ball_type_counts = defaultdict(int)
+        ball_type_counts: dict[str, int] = defaultdict(int)
         for track in self.tracks:
             if track.state == TrackState.CONFIRMED:
                 # Handle both enum and string ball types
@@ -583,7 +587,7 @@ class ObjectTracker:
                     else str(track.ball_type)
                 )
                 ball_type_counts[ball_type_value] += 1
-        stats["ball_type_distribution"] = dict(ball_type_counts)
+        stats["ball_type_distribution"] = dict(ball_type_counts)  # type: ignore[assignment]
 
         return stats
 

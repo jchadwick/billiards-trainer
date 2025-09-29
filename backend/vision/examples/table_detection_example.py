@@ -33,7 +33,7 @@ from vision.detection.utils import DetectionUtils
 from vision.utils.visualization import TableVisualization
 
 
-def create_realistic_table_image() -> np.ndarray:
+def create_realistic_table_image() -> NDArray[np.float64]:
     """Create a more realistic synthetic table image for demonstration."""
     # Create base image with realistic background
     image = np.zeros((600, 1200, 3), dtype=np.uint8)

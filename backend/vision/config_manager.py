@@ -36,7 +36,7 @@ class VisionConfigurationManager:
     enabling type-safe configuration management and real-time updates.
     """
 
-    def __init__(self, config_manager: Optional["ConfigurationManager"] = None):
+    def __init__(self, config_manager: Optional["ConfigurationManager"] = None) -> None:
         """Initialize vision configuration manager.
 
         Args:

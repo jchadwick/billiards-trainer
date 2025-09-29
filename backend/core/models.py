@@ -41,7 +41,7 @@ class Vector2D:
     y: float
 
     def magnitude(self) -> float:
-        """Calculate the magnitude (length) of the vector."""
+        """Calculate the length of the vector."""
         return math.sqrt(self.x**2 + self.y**2)
 
     def magnitude_squared(self) -> float:
@@ -146,7 +146,7 @@ class BallState:
     confidence: float = 1.0  # Detection confidence [0.0-1.0]
     last_update: float = field(default_factory=lambda: datetime.now().timestamp())
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate ball state after initialization."""
         if self.radius <= 0:
             raise ValueError("Ball radius must be positive")
@@ -192,7 +192,7 @@ class BallState:
             velocity=Vector2D(self.velocity.x, self.velocity.y),
             radius=self.radius,
             mass=self.mass,
-            spin=Vector2D(self.spin.x, self.spin.y) if self.spin else None,
+            spin=Vector2D(self.spin.x, self.spin.y) if self.spin else Vector2D(0, 0),
             is_cue_ball=self.is_cue_ball,
             is_pocketed=self.is_pocketed,
             number=self.number,
@@ -254,7 +254,7 @@ class TableState:
         0.064  # Height of cushions in meters (converted from rail_height)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate table state after initialization and handle legacy fields."""
         # Convert legacy mm measurements to meters if needed
         if self.width > 10:  # Assume values > 10 are in mm
@@ -312,7 +312,7 @@ class TableState:
         }
 
         # Find closest cushion
-        closest_cushion = min(distances, key=distances.get)
+        closest_cushion = min(distances, key=lambda k: distances[k])
         closest_distance = distances[closest_cushion]
 
         # Get normal vector pointing into the table
@@ -390,7 +390,7 @@ class CueState:
     confidence: float = 1.0  # Detection confidence [0.0-1.0]
     last_update: float = field(default_factory=lambda: datetime.now().timestamp())
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate cue state after initialization."""
         if self.length <= 0:
             raise ValueError("Cue length must be positive")
@@ -513,7 +513,7 @@ class GameState:
     validation_errors: list[str] = field(default_factory=list)
     state_confidence: float = 1.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate game state after initialization."""
         if self.frame_number < 0:
             raise ValueError("Frame number must be non-negative")
@@ -521,9 +521,6 @@ class GameState:
             raise ValueError("State confidence must be between 0.0 and 1.0")
         if self.timestamp < 0:
             raise ValueError("Timestamp must be non-negative")
-        # Handle legacy validation_errors None
-        if self.validation_errors is None:
-            self.validation_errors = []
 
     def get_ball_by_id(self, ball_id: str) -> Optional[BallState]:
         """Get a ball by its ID."""
@@ -592,7 +589,10 @@ class GameState:
         return {1: remaining, 2: remaining}  # Both players target same balls
 
     def add_event(
-        self, event: str, event_type: str = "info", data: dict[str, Any] = None
+        self,
+        event: str,
+        event_type: str = "info",
+        data: Optional[dict[str, Any]] = None,
     ) -> None:
         """Add a game event to the history."""
         if data is None:
@@ -793,7 +793,7 @@ class Collision:
     impact_force: float = 0.0  # Force of impact in Newtons
     confidence: float = 1.0  # Prediction confidence [0.0-1.0]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate collision data after initialization."""
         valid_types = {"ball", "cushion", "pocket"}
         if self.type not in valid_types:
@@ -881,7 +881,7 @@ class Trajectory:
     total_distance: float = 0.0  # Total distance traveled
     confidence: float = 1.0  # Prediction confidence [0.0-1.0]
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate and calculate derived properties after initialization."""
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Confidence must be between 0.0 and 1.0")
@@ -1005,7 +1005,7 @@ class ShotAnalysis:
     cue_ball_final_position: Optional[Vector2D] = None
     shot_confidence: float = 1.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate shot analysis after initialization."""
         if not 0.0 <= self.difficulty <= 1.0:
             raise ValueError("Difficulty must be between 0.0 and 1.0")
@@ -1117,7 +1117,7 @@ def serialize_to_json(
     return json.dumps(obj.to_dict(), indent=2)
 
 
-def deserialize_from_json(json_str: str, model_class) -> Any:
+def deserialize_from_json(json_str: str, model_class: Any) -> Any:
     """Deserialize JSON string to model object."""
     data = json.loads(json_str)
     return model_class.from_dict(data)

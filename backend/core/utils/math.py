@@ -1,7 +1,7 @@
 """Mathematical utility functions for billiards calculations."""
 
 import math
-from typing import Optional
+from typing import Callable, Optional
 
 from ..models import Vector2D
 
@@ -187,7 +187,7 @@ class MathUtils:
 
     @staticmethod
     def find_roots_bisection(
-        func,
+        func: Callable[[float], float],
         left: float,
         right: float,
         tolerance: float = 1e-6,
@@ -384,13 +384,15 @@ class MathUtils:
         return impact_parameter
 
     @staticmethod
-    def numerical_derivative(func, x: float, h: float = 1e-8) -> float:
+    def numerical_derivative(
+        func: Callable[[float], float], x: float, h: float = 1e-8
+    ) -> float:
         """Calculate numerical derivative using central difference."""
-        return (func(x + h) - func(x - h)) / (2 * h)
+        return float((func(x + h) - func(x - h)) / (2 * h))
 
     @staticmethod
     def numerical_integration_trapezoidal(
-        func, a: float, b: float, n: int = 1000
+        func: Callable[[float], float], a: float, b: float, n: int = 1000
     ) -> float:
         """Numerical integration using trapezoidal rule."""
         h = (b - a) / n
@@ -400,7 +402,7 @@ class MathUtils:
             x = a + i * h
             result += func(x)
 
-        return result * h
+        return float(result * h)
 
     @staticmethod
     def weighted_average(values: list[float], weights: list[float]) -> float:

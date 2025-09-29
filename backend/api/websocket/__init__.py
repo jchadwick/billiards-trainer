@@ -138,7 +138,7 @@ __all__ = [
 ]
 
 
-async def initialize_websocket_system():
+async def initialize_websocket_system() -> None:
     """Initialize the complete WebSocket system."""
     # Start the message broadcaster
     await message_broadcaster.start_streaming()
@@ -149,7 +149,7 @@ async def initialize_websocket_system():
     print("WebSocket system initialized successfully")
 
 
-async def shutdown_websocket_system():
+async def shutdown_websocket_system() -> None:
     """Gracefully shutdown the WebSocket system."""
     # Stop the message broadcaster
     await message_broadcaster.stop_streaming()

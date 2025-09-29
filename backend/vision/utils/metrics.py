@@ -54,7 +54,7 @@ class MetricValue:
     value: float
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate metric value."""
         if not isinstance(self.value, (int, float)):
             raise ValueError(f"Metric value must be numeric, got {type(self.value)}")
@@ -133,12 +133,12 @@ class DetectionAccuracyMetrics:
     @property
     def average_confidence(self) -> float:
         """Calculate average confidence score."""
-        return np.mean(self.confidence_scores) if self.confidence_scores else 0.0
+        return float(np.mean(self.confidence_scores)) if self.confidence_scores else 0.0
 
     @property
     def average_detection_time(self) -> float:
         """Calculate average detection time."""
-        return np.mean(self.detection_times) if self.detection_times else 0.0
+        return float(np.mean(self.detection_times)) if self.detection_times else 0.0
 
 
 class PerformanceTimer:
@@ -163,13 +163,13 @@ class PerformanceTimer:
         self.start_time = 0.0
         self.start_memory = 0.0
 
-    def __enter__(self):
+    def __enter__(self) -> "PerformanceTimer":
         """Start timing."""
         self.start_time = time.perf_counter()
         self.start_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Stop timing and record metric."""
         end_time = time.perf_counter()
         end_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
@@ -208,7 +208,7 @@ class VisionMetricsCollector:
     - Thread-safe metric collection
     """
 
-    def __init__(self, max_history_size: int = 10000):
+    def __init__(self, max_history_size: int = 10000) -> None:
         """Initialize metrics collector.
 
         Args:
@@ -418,21 +418,21 @@ class VisionMetricsCollector:
 
             # Calculate aggregation
             if aggregation == AggregationType.MEAN:
-                return np.mean(numeric_values)
+                return float(np.mean(numeric_values))
             elif aggregation == AggregationType.MEDIAN:
-                return np.median(numeric_values)
+                return float(np.median(numeric_values))
             elif aggregation == AggregationType.MIN:
-                return np.min(numeric_values)
+                return float(np.min(numeric_values))
             elif aggregation == AggregationType.MAX:
-                return np.max(numeric_values)
+                return float(np.max(numeric_values))
             elif aggregation == AggregationType.STD:
-                return np.std(numeric_values)
+                return float(np.std(numeric_values))
             elif aggregation == AggregationType.PERCENTILE_95:
-                return np.percentile(numeric_values, 95)
+                return float(np.percentile(numeric_values, 95))
             elif aggregation == AggregationType.PERCENTILE_99:
-                return np.percentile(numeric_values, 99)
+                return float(np.percentile(numeric_values, 99))
             elif aggregation == AggregationType.SUM:
-                return np.sum(numeric_values)
+                return float(np.sum(numeric_values))
             elif aggregation == AggregationType.COUNT:
                 return len(numeric_values)
             else:
@@ -685,12 +685,12 @@ class VisionMetricsCollector:
                 logger.warning(f"System monitoring error: {e}")
                 time.sleep(1.0)
 
-    def __enter__(self):
+    def __enter__(self) -> "PerformanceTimer":
         """Context manager entry."""
         self.start_monitoring()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Context manager exit."""
         self.stop_monitoring()
 
@@ -719,7 +719,9 @@ def reset_global_metrics() -> None:
 
 
 # Convenience functions for common operations
-def time_function(func: Callable, component_name: Optional[str] = None) -> Callable:
+def time_function(
+    func: Callable[..., Any], component_name: Optional[str] = None
+) -> Callable[..., Any]:
     """Decorator to time function execution.
 
     Args:

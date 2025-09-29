@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 @dataclass
@@ -13,7 +14,7 @@ class KalmanState:
     position: tuple[float, float]
     velocity: tuple[float, float]
     acceleration: tuple[float, float]
-    covariance: np.ndarray
+    covariance: NDArray[np.float64]
     confidence: float
 
 
@@ -167,7 +168,7 @@ class KalmanFilter:
     def get_speed(self) -> float:
         """Get current speed (magnitude of velocity)."""
         vx, vy = self.get_velocity()
-        return np.sqrt(vx**2 + vy**2)
+        return float(np.sqrt(vx**2 + vy**2))
 
     def get_state(self) -> KalmanState:
         """Get complete filter state."""
@@ -179,11 +180,11 @@ class KalmanFilter:
             confidence=self.confidence,
         )
 
-    def get_position_covariance(self) -> np.ndarray:
+    def get_position_covariance(self) -> NDArray[np.float64]:
         """Get position covariance matrix."""
         return self.P[0:2, 0:2]
 
-    def get_velocity_covariance(self) -> np.ndarray:
+    def get_velocity_covariance(self) -> NDArray[np.float64]:
         """Get velocity covariance matrix."""
         return self.P[2:4, 2:4]
 
@@ -208,12 +209,14 @@ class KalmanFilter:
 
         try:
             mahal_dist = np.sqrt(innovation.T @ np.linalg.inv(S) @ innovation)
-            return mahal_dist < max_mahalanobis
+            return bool(mahal_dist < max_mahalanobis)
         except np.linalg.LinAlgError:
             # If covariance is singular, be conservative
             return False
 
-    def predict_trajectory(self, time_steps: int, dt: float) -> list:
+    def predict_trajectory(
+        self, time_steps: int, dt: float
+    ) -> list[tuple[float, float]]:
         """Predict future trajectory for multiple time steps.
 
         Args:
@@ -235,10 +238,10 @@ class KalmanFilter:
         temp_F[2, 4] = dt
         temp_F[3, 5] = dt
 
-        trajectory = []
+        trajectory: list[tuple[float, float]] = []
         for _ in range(time_steps):
             temp_state = temp_F @ temp_state
-            trajectory.append((temp_state[0], temp_state[1]))
+            trajectory.append((float(temp_state[0]), float(temp_state[1])))
 
         return trajectory
 

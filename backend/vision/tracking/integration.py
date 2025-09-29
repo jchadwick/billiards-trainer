@@ -58,7 +58,7 @@ class IntegratedTracker:
     - Comprehensive monitoring
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize integrated tracker.
 
         Args:
@@ -332,7 +332,7 @@ class TrackingResult:
 class TrajectorySmoothing:
     """Trajectory smoothing utilities."""
 
-    def __init__(self, window_size: int = 5):
+    def __init__(self, window_size: int = 5) -> None:
         """Initialize trajectory smoother.
 
         Args:
@@ -396,7 +396,7 @@ class TrajectorySmoothing:
 
         return tuple(smoothed)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset smoothing history."""
         self.position_history.clear()
 
@@ -404,7 +404,7 @@ class TrajectorySmoothing:
 class MissingDetectionPredictor:
     """Predict missing detections based on track history."""
 
-    def __init__(self, confidence_threshold: float = 0.5):
+    def __init__(self, confidence_threshold: float = 0.5) -> None:
         """Initialize missing detection predictor.
 
         Args:
@@ -468,7 +468,7 @@ class MissingDetectionPredictor:
             logger.warning(f"Failed to create predicted detection: {e}")
             return None
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset predictor state."""
         pass
 

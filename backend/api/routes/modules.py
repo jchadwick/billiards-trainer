@@ -19,10 +19,14 @@ from ..models.responses import BaseResponse
 
 # Try to import system orchestrator with fallback
 try:
-    from ...system.orchestrator import SystemOrchestrator
+    from ...system.orchestrator import SystemOrchestrator as _SystemOrchestrator
+
+    SystemOrchestrator: Optional[type[_SystemOrchestrator]] = _SystemOrchestrator
 except ImportError:
     try:
-        from system.orchestrator import SystemOrchestrator
+        from system.orchestrator import SystemOrchestrator as _SystemOrchestrator
+
+        SystemOrchestrator: Optional[type[_SystemOrchestrator]] = _SystemOrchestrator
     except ImportError:
         SystemOrchestrator = None
 
@@ -67,7 +71,7 @@ class ModuleListResponse(BaseResponse):
 
 
 # Helper functions
-async def get_system_orchestrator() -> Optional[SystemOrchestrator]:
+async def get_system_orchestrator() -> Optional[Any]:
     """Get system orchestrator instance."""
     app_state = get_app_state()
     # In a real implementation, this would get the orchestrator from the app state
@@ -141,7 +145,7 @@ async def list_modules(
             ]
 
             modules = [
-                format_module_status(mod["name"], mod)
+                format_module_status(str(mod["name"]), mod)
                 for mod in default_modules
                 if not status_filter or mod["state"] == status_filter
             ]
@@ -176,8 +180,6 @@ async def list_modules(
         running_count = sum(1 for m in modules if m.state == "running")
 
         return ModuleListResponse(
-            success=True,
-            message=f"Retrieved {len(modules)} modules",
             modules=modules,
             total_modules=len(modules),
             healthy_modules=healthy_count,
@@ -312,7 +314,7 @@ async def start_module(
                 )
 
         # Use real orchestrator to start module
-        async def start_module_task():
+        async def start_module_task() -> None:
             try:
                 success = await orchestrator._start_module(module_id)
                 logger.info(
@@ -380,7 +382,7 @@ async def stop_module(
             )
 
         # Use real orchestrator to stop module
-        async def stop_module_task():
+        async def stop_module_task() -> None:
             try:
                 success = await orchestrator._stop_module(module_id)
                 logger.info(f"Module '{module_id}' stop operation completed: {success}")
@@ -446,7 +448,7 @@ async def restart_module(
             )
 
         # Use real orchestrator to restart module
-        async def restart_module_task():
+        async def restart_module_task() -> None:
             try:
                 # Stop then start the module
                 await orchestrator._stop_module(module_id)
@@ -486,7 +488,7 @@ async def get_module_logs(
     level: Optional[str] = Query(
         None, description="Filter by log level (DEBUG, INFO, WARNING, ERROR)"
     ),
-):
+) -> dict[str, Any]:
     """Get recent log entries for a specific module.
 
     Args:

@@ -65,9 +65,9 @@ class Kinect2FrameInfo:
 class Kinect2Frame:
     """Combined color and depth frame from Kinect v2."""
 
-    color: Optional[np.ndarray]  # RGB color image
-    depth: Optional[np.ndarray]  # Depth map in millimeters
-    infrared: Optional[np.ndarray]  # Infrared image
+    color: Optional[NDArray[np.float64]]  # RGB color image
+    depth: Optional[NDArray[np.float64]]  # Depth map in millimeters
+    infrared: Optional[NDArray[np.float64]]  # Infrared image
     frame_info: Kinect2FrameInfo
 
 
@@ -82,7 +82,7 @@ class Kinect2Capture:
     - Automatic calibration assistance
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize Kinect v2 capture.
 
         Args:
@@ -552,16 +552,16 @@ class Kinect2Capture:
             logger.error(f"Depth to 3D conversion error: {e}")
             return None
 
-    def __enter__(self):
+    def __enter__(self) -> "PerformanceTimer":
         """Context manager entry."""
         self.start_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Context manager exit."""
         self.stop_capture()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Destructor - ensure resources are cleaned up."""
         with contextlib.suppress(Exception):
             self.stop_capture()

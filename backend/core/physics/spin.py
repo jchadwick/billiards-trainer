@@ -11,7 +11,7 @@ This module implements comprehensive spin physics for billiards balls including:
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -458,7 +458,7 @@ class SpinCalculator:
             config: Configuration parameters
         """
         self.physics = SpinPhysics(config)
-        self.spin_states = {}  # Track spin for each ball
+        self.spin_states: dict[str, Vector2D] = {}  # Track spin for each ball
 
     def apply_english(
         self,

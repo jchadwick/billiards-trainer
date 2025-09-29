@@ -81,7 +81,7 @@ class AccuracyValidator:
 
         return frame, ground_truth
 
-    def _draw_realistic_ball(self, frame, center, radius, color):
+    def _draw_realistic_ball(self, frame, center, radius, color) -> None:
         """Draw a realistic-looking ball with shading."""
         x, y = center
 
@@ -105,7 +105,7 @@ class AccuracyValidator:
                 gradient_color = tuple(max(0, c - i * 5) for c in color)
                 cv2.circle(frame, center, gradient_radius, gradient_color, 1)
 
-    def generate_test_scenarios(self, num_scenarios=50):
+    def generate_test_scenarios(self, num_scenarios=50) -> None:
         """Generate diverse test scenarios."""
         scenarios = []
 
@@ -153,7 +153,7 @@ class AccuracyValidator:
 
         return scenarios
 
-    def test_detection_accuracy(self, scenarios):
+    def test_detection_accuracy(self, scenarios) -> None:
         """Test detection accuracy across multiple scenarios."""
         results = {
             "total_scenarios": len(scenarios),
@@ -231,7 +231,7 @@ class AccuracyValidator:
 
         return results
 
-    def test_tracking_accuracy(self, num_frames=20):
+    def test_tracking_accuracy(self, num_frames=20) -> None:
         """Test tracking accuracy over multiple frames."""
         print(f"Testing tracking accuracy over {num_frames} frames...")
 
@@ -285,7 +285,7 @@ class AccuracyValidator:
 
         return tracking_results
 
-    def test_performance_requirements(self):
+    def test_performance_requirements(self) -> None:
         """Test performance requirements (processing speed)."""
         print("Testing performance requirements...")
 
@@ -319,7 +319,9 @@ class AccuracyValidator:
             "meets_30fps_requirement": avg_fps >= 30,
         }
 
-    def print_results(self, detection_results, tracking_results, performance_results):
+    def print_results(
+        self, detection_results, tracking_results, performance_results
+    ) -> None:
         """Print comprehensive results."""
         print("\n" + "=" * 80)
         print("BALL DETECTION ACCURACY VALIDATION RESULTS")

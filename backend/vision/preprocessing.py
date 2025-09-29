@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class ImagePreprocessor:
     - Performance optimization with scaling
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize preprocessor with configuration.
 
         Args:
@@ -118,13 +119,13 @@ class ImagePreprocessor:
         }
 
         # Debug storage
-        self.debug_images = []
+        self.debug_images: list[tuple[str, NDArray[np.uint8]]] = []
 
         logger.info(
             f"Image preprocessor initialized with target color space: {self.config.target_color_space}"
         )
 
-    def _initialize_pipeline(self):
+    def _initialize_pipeline(self) -> None:
         """Initialize the preprocessing pipeline components."""
         # Create morphological kernel
         self.morph_kernel = cv2.getStructuringElement(
@@ -144,7 +145,7 @@ class ImagePreprocessor:
 
         logger.debug("Preprocessing pipeline components initialized")
 
-    def process(self, frame: np.ndarray) -> np.ndarray:
+    def process(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply complete preprocessing pipeline to frame.
 
         Args:
@@ -236,7 +237,9 @@ class ImagePreprocessor:
             logger.error(f"Preprocessing failed: {e}")
             return frame  # Return original frame on error
 
-    def convert_color_space(self, frame: np.ndarray, target: str = "HSV") -> np.ndarray:
+    def convert_color_space(
+        self, frame: NDArray[np.uint8], target: str = "HSV"
+    ) -> NDArray[np.float64]:
         """Convert frame to target color space.
 
         Args:
@@ -254,8 +257,8 @@ class ImagePreprocessor:
             return frame
 
     def apply_noise_reduction(
-        self, frame: np.ndarray, method: Optional[str] = None
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], method: Optional[str] = None
+    ) -> NDArray[np.float64]:
         """Apply noise reduction filters.
 
         Args:
@@ -275,8 +278,8 @@ class ImagePreprocessor:
         return self._apply_noise_reduction(frame)
 
     def normalize_brightness(
-        self, frame: np.ndarray, target_brightness: float = 128.0
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], target_brightness: float = 128.0
+    ) -> NDArray[np.float64]:
         """Normalize frame brightness to target level.
 
         Args:
@@ -303,7 +306,9 @@ class ImagePreprocessor:
 
         return frame
 
-    def enhance_contrast(self, frame: np.ndarray, alpha: float = 1.5) -> np.ndarray:
+    def enhance_contrast(
+        self, frame: NDArray[np.uint8], alpha: float = 1.5
+    ) -> NDArray[np.float64]:
         """Enhance frame contrast.
 
         Args:
@@ -317,8 +322,8 @@ class ImagePreprocessor:
         return enhanced
 
     def apply_gamma_correction(
-        self, frame: np.ndarray, gamma: float = 1.0
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], gamma: float = 1.0
+    ) -> NDArray[np.float64]:
         """Apply gamma correction to frame.
 
         Args:
@@ -342,7 +347,7 @@ class ImagePreprocessor:
         """Get debug images from last preprocessing run."""
         return self.debug_images
 
-    def clear_debug_images(self):
+    def clear_debug_images(self) -> None:
         """Clear debug image storage."""
         self.debug_images.clear()
 
@@ -352,7 +357,9 @@ class ImagePreprocessor:
 
     # Private helper methods
 
-    def _convert_color_space(self, frame: np.ndarray, target: ColorSpace) -> np.ndarray:
+    def _convert_color_space(
+        self, frame: NDArray[np.uint8], target: ColorSpace
+    ) -> NDArray[np.float64]:
         """Convert frame to target color space."""
         if len(frame.shape) == 2:  # Already grayscale
             if target == ColorSpace.GRAY:
@@ -385,7 +392,7 @@ class ImagePreprocessor:
         logger.warning(f"Conversion to {target} not implemented")
         return frame
 
-    def _apply_white_balance(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_white_balance(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply automatic white balance correction."""
         try:
             # Simple white balance using gray world assumption
@@ -395,7 +402,7 @@ class ImagePreprocessor:
             # Fallback method if opencv-contrib not available
             return self._simple_white_balance(frame)
 
-    def _simple_white_balance(self, frame: np.ndarray) -> np.ndarray:
+    def _simple_white_balance(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Simple white balance implementation."""
         # Calculate average for each channel
         avg_b = np.mean(frame[:, :, 0])
@@ -421,7 +428,9 @@ class ImagePreprocessor:
 
         return balanced
 
-    def _correct_exposure_contrast(self, frame: np.ndarray) -> np.ndarray:
+    def _correct_exposure_contrast(
+        self, frame: NDArray[np.uint8]
+    ) -> NDArray[np.float64]:
         """Apply exposure and contrast correction."""
         corrected = frame.copy()
 
@@ -446,13 +455,13 @@ class ImagePreprocessor:
 
         return corrected
 
-    def _apply_noise_reduction(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_noise_reduction(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply configured noise reduction method."""
         return self._apply_specific_noise_reduction(frame, self.config.noise_method)
 
     def _apply_specific_noise_reduction(
-        self, frame: np.ndarray, method: NoiseReductionMethod
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], method: NoiseReductionMethod
+    ) -> NDArray[np.float64]:
         """Apply specific noise reduction method."""
         if method == NoiseReductionMethod.GAUSSIAN:
             return cv2.GaussianBlur(
@@ -482,13 +491,13 @@ class ImagePreprocessor:
             logger.warning(f"Unknown noise reduction method: {method}")
             return frame
 
-    def _apply_sharpening(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_sharpening(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply sharpening filter."""
         if hasattr(self, "sharpen_kernel"):
             return cv2.filter2D(frame, -1, self.sharpen_kernel)
         return frame
 
-    def _apply_morphology(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_morphology(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply morphological operations."""
         # Apply closing to fill small gaps
         closed = cv2.morphologyEx(
@@ -508,7 +517,7 @@ class ImagePreprocessor:
 
         return opened
 
-    def _update_stats(self, processing_time: float):
+    def _update_stats(self, processing_time: float) -> None:
         """Update processing statistics."""
         self.stats["frames_processed"] += 1
 

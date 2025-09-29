@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class InteractiveCalibrationGUI:
     """Interactive GUI for comprehensive calibration system."""
 
-    def __init__(self, master: tk.Tk):
+    def __init__(self, master: tk.Tk) -> None:
         """Initialize calibration GUI.
 
         Args:
@@ -51,7 +51,7 @@ class InteractiveCalibrationGUI:
         self.setup_gui()
         self.setup_opencv_windows()
 
-    def setup_gui(self):
+    def setup_gui(self) -> None:
         """Setup the main GUI layout."""
         # Create main notebook for tabs
         self.notebook = ttk.Notebook(self.master)
@@ -85,7 +85,7 @@ class InteractiveCalibrationGUI:
         )
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-    def setup_camera_tab(self):
+    def setup_camera_tab(self) -> None:
         """Setup camera calibration tab."""
         # Camera controls
         camera_control_frame = ttk.LabelFrame(self.camera_frame, text="Camera Controls")
@@ -138,7 +138,7 @@ class InteractiveCalibrationGUI:
         self.camera_status_text.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-    def setup_color_tab(self):
+    def setup_color_tab(self) -> None:
         """Setup color calibration tab."""
         # Color controls
         color_control_frame = ttk.LabelFrame(self.color_frame, text="Color Calibration")
@@ -229,7 +229,7 @@ class InteractiveCalibrationGUI:
 
         threshold_frame.columnconfigure(1, weight=1)
 
-    def setup_geometry_tab(self):
+    def setup_geometry_tab(self) -> None:
         """Setup geometry calibration tab."""
         # Geometry controls
         geometry_control_frame = ttk.LabelFrame(
@@ -284,7 +284,7 @@ class InteractiveCalibrationGUI:
         self.corners_text.pack(side="left", fill="both", expand=True)
         corners_scrollbar.pack(side="right", fill="y")
 
-    def setup_validation_tab(self):
+    def setup_validation_tab(self) -> None:
         """Setup validation tab."""
         # Validation controls
         validation_control_frame = ttk.LabelFrame(
@@ -326,13 +326,13 @@ class InteractiveCalibrationGUI:
         self.validation_results_text.pack(side="left", fill="both", expand=True)
         validation_scrollbar.pack(side="right", fill="y")
 
-    def setup_opencv_windows(self):
+    def setup_opencv_windows(self) -> None:
         """Setup OpenCV windows for interactive selection."""
         # Initialize OpenCV windows
         cv2.namedWindow("Calibration View", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Calibration View", 800, 600)
 
-    def start_camera(self):
+    def start_camera(self) -> None:
         """Start camera capture."""
         try:
             if self.cap is not None:
@@ -355,7 +355,7 @@ class InteractiveCalibrationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to start camera: {e}")
 
-    def stop_camera(self):
+    def stop_camera(self) -> None:
         """Stop camera capture."""
         self.is_capturing = False
         if self.cap is not None:
@@ -366,7 +366,7 @@ class InteractiveCalibrationGUI:
         self.status_var.set("Camera stopped")
         self.update_camera_status("Camera capture stopped")
 
-    def capture_loop(self):
+    def capture_loop(self) -> None:
         """Main camera capture loop."""
         while self.is_capturing and self.cap is not None:
             ret, frame = self.cap.read()
@@ -392,7 +392,7 @@ class InteractiveCalibrationGUI:
                 cv2.imshow("Calibration View", display_frame)
                 cv2.waitKey(1)
 
-    def capture_calibration_image(self):
+    def capture_calibration_image(self) -> None:
         """Capture current frame for camera calibration."""
         if self.current_frame is not None:
             self.calibration_images.append(self.current_frame.copy())
@@ -401,7 +401,7 @@ class InteractiveCalibrationGUI:
             )
             self.status_var.set(f"Calibration images: {len(self.calibration_images)}")
 
-    def load_calibration_images(self):
+    def load_calibration_images(self) -> None:
         """Load calibration images from files."""
         file_paths = filedialog.askopenfilenames(
             title="Select Calibration Images",
@@ -416,13 +416,13 @@ class InteractiveCalibrationGUI:
         self.update_camera_status(f"Loaded {len(file_paths)} calibration images")
         self.status_var.set(f"Calibration images: {len(self.calibration_images)}")
 
-    def clear_calibration_images(self):
+    def clear_calibration_images(self) -> None:
         """Clear all calibration images."""
         self.calibration_images.clear()
         self.update_camera_status("Cleared all calibration images")
         self.status_var.set("Calibration images: 0")
 
-    def calibrate_camera(self):
+    def calibrate_camera(self) -> None:
         """Perform camera calibration."""
         if len(self.calibration_images) < 10:
             messagebox.showwarning("Warning", "Need at least 10 calibration images")
@@ -451,7 +451,7 @@ class InteractiveCalibrationGUI:
             self.update_camera_status(f"Calibration error: {e}")
             messagebox.showerror("Error", f"Calibration failed: {e}")
 
-    def auto_calibrate_table_color(self):
+    def auto_calibrate_table_color(self) -> None:
         """Auto-calibrate table color."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available for calibration")
@@ -476,7 +476,7 @@ class InteractiveCalibrationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Auto-calibration failed: {e}")
 
-    def open_color_picker(self):
+    def open_color_picker(self) -> None:
         """Open interactive color picker."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available")
@@ -491,7 +491,7 @@ class InteractiveCalibrationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Color picker failed: {e}")
 
-    def select_ball_regions(self):
+    def select_ball_regions(self) -> None:
         """Select regions for ball color calibration."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available")
@@ -528,7 +528,7 @@ class InteractiveCalibrationGUI:
             self.color_samples[ball_type] = regions
             self.status_var.set(f"Selected {len(regions)} regions for {ball_type}")
 
-    def update_color_preview(self, *args):
+    def update_color_preview(self, *args) -> None:
         """Update color threshold preview."""
         if self.current_frame is None:
             return
@@ -552,7 +552,7 @@ class InteractiveCalibrationGUI:
         # Show preview
         cv2.imshow("Color Preview", mask)
 
-    def save_color_profile(self):
+    def save_color_profile(self) -> None:
         """Save current color profile."""
         if self.color_calibrator.current_profile is None:
             messagebox.showwarning("Warning", "No color profile to save")
@@ -573,7 +573,7 @@ class InteractiveCalibrationGUI:
             else:
                 messagebox.showerror("Error", "Failed to save color profile")
 
-    def load_color_profile(self):
+    def load_color_profile(self) -> None:
         """Load color profile."""
         filename = filedialog.askopenfilename(
             title="Load Color Profile", filetypes=[("JSON files", "*.json")]
@@ -586,7 +586,7 @@ class InteractiveCalibrationGUI:
             else:
                 messagebox.showerror("Error", "Failed to load color profile")
 
-    def auto_detect_table(self):
+    def auto_detect_table(self) -> None:
         """Auto-detect table corners."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available")
@@ -600,7 +600,7 @@ class InteractiveCalibrationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Table detection failed: {e}")
 
-    def manual_corner_selection(self):
+    def manual_corner_selection(self) -> None:
         """Manual table corner selection."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available")
@@ -635,7 +635,7 @@ class InteractiveCalibrationGUI:
         cv2.setMouseCallback("Corner Selection", mouse_callback, frame_copy)
         cv2.imshow("Corner Selection", frame_copy)
 
-    def calibrate_geometry(self):
+    def calibrate_geometry(self) -> None:
         """Perform geometric calibration."""
         if len(self.selected_corners) != 4:
             messagebox.showwarning("Warning", "Need 4 table corners")
@@ -653,7 +653,7 @@ class InteractiveCalibrationGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Geometric calibration failed: {e}")
 
-    def update_corners_display(self):
+    def update_corners_display(self) -> None:
         """Update corners display in text widget."""
         self.corners_text.delete(1.0, tk.END)
         if self.selected_corners:
@@ -673,7 +673,7 @@ class InteractiveCalibrationGUI:
                 f"Table Dimensions: {cal.table_dimensions_real[0]:.2f} x {cal.table_dimensions_real[1]:.2f} m\n",
             )
 
-    def validate_camera(self):
+    def validate_camera(self) -> None:
         """Validate camera calibration."""
         if not self.calibration_images:
             messagebox.showwarning("Warning", "No calibration images available")
@@ -687,7 +687,7 @@ class InteractiveCalibrationGUI:
         )
         self.display_validation_result(result)
 
-    def validate_colors(self):
+    def validate_colors(self) -> None:
         """Validate color calibration."""
         if self.current_frame is None:
             messagebox.showwarning("Warning", "No frame available")
@@ -712,7 +712,7 @@ class InteractiveCalibrationGUI:
                 "Warning", "No color samples available for validation"
             )
 
-    def validate_geometry(self):
+    def validate_geometry(self) -> None:
         """Validate geometric calibration."""
         if len(self.selected_corners) != 4:
             messagebox.showwarning("Warning", "No geometric calibration available")
@@ -737,7 +737,7 @@ class InteractiveCalibrationGUI:
         )
         self.display_validation_result(result)
 
-    def full_validation(self):
+    def full_validation(self) -> None:
         """Perform full system validation."""
         self.validation_results_text.insert(tk.END, "Starting full validation...\n")
 
@@ -770,7 +770,7 @@ class InteractiveCalibrationGUI:
         else:
             messagebox.showwarning("Warning", "No data available for validation")
 
-    def display_validation_result(self, result):
+    def display_validation_result(self, result) -> None:
         """Display validation result in text widget."""
         self.validation_results_text.insert(
             tk.END, f"\n=== {result.test_name.upper()} ===\n"
@@ -794,7 +794,7 @@ class InteractiveCalibrationGUI:
         self.validation_results_text.insert(tk.END, "\n" + "=" * 50 + "\n")
         self.validation_results_text.see(tk.END)
 
-    def display_validation_report(self, report):
+    def display_validation_report(self, report) -> None:
         """Display comprehensive validation report."""
         self.validation_results_text.insert(
             tk.END, "\n=== COMPREHENSIVE VALIDATION REPORT ===\n"
@@ -813,12 +813,12 @@ class InteractiveCalibrationGUI:
         self.validation_results_text.insert(tk.END, "\n" + "=" * 50 + "\n")
         self.validation_results_text.see(tk.END)
 
-    def update_camera_status(self, message):
+    def update_camera_status(self, message) -> None:
         """Update camera status display."""
         self.camera_status_text.insert(tk.END, f"{message}\n")
         self.camera_status_text.see(tk.END)
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup when GUI is destroyed."""
         self.stop_camera()
 

@@ -120,7 +120,7 @@ class CalibrationMath:
     @staticmethod
     def calculate_homography(
         src_points: list[tuple[float, float]], dst_points: list[tuple[float, float]]
-    ) -> Optional[np.ndarray]:
+    ) -> Optional["np.ndarray[Any, Any]"]:
         """Calculate homography matrix from source to destination points using OpenCV."""
         try:
             if len(src_points) != len(dst_points) or len(src_points) < 4:
@@ -149,7 +149,8 @@ class CalibrationMath:
             logger.info(
                 f"Successfully calculated homography matrix for {len(src_points)} point pairs"
             )
-            return homography
+            # OpenCV returns np.ndarray but mypy sees it as Any
+            return homography  # type: ignore[no-any-return]
 
         except Exception as e:
             logger.error(f"Failed to calculate homography: {e}")
@@ -157,7 +158,8 @@ class CalibrationMath:
 
     @staticmethod
     def calculate_accuracy(
-        calibration_points: list[dict], test_points: Optional[list[dict]] = None
+        calibration_points: list[dict[str, Any]],
+        test_points: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, float]:
         """Calculate calibration accuracy metrics using real homography validation."""
         if not calibration_points:
@@ -168,14 +170,15 @@ class CalibrationMath:
             }
 
         # Extract source and destination points for homography calculation
-        src_points = []
-        dst_points = []
+        src_points: list[tuple[float, float]] = []
+        dst_points: list[tuple[float, float]] = []
 
         for point in calibration_points:
             src_points.append((point.get("screen_x", 0), point.get("screen_y", 0)))
             dst_points.append((point.get("world_x", 0), point.get("world_y", 0)))
 
         # Calculate homography and reprojection error if we have enough points
+        errors: list[float]
         if len(src_points) >= 4:
             homography = CalibrationMath.calculate_homography(src_points, dst_points)
             if homography is not None:
@@ -240,7 +243,7 @@ class CalibrationMath:
         return {"accuracy": accuracy, "max_error": max_error, "mean_error": mean_error}
 
     @staticmethod
-    def _validate_homography(homography: np.ndarray) -> bool:
+    def _validate_homography(homography: "np.ndarray[Any, Any]") -> bool:
         """Validate that homography matrix is reasonable."""
         if homography is None or homography.shape != (3, 3):
             return False
@@ -262,8 +265,8 @@ class CalibrationMath:
     def calculate_reprojection_error(
         src_points: list[tuple[float, float]],
         dst_points: list[tuple[float, float]],
-        homography: np.ndarray,
-    ) -> dict[str, float]:
+        homography: "np.ndarray[Any, Any]",
+    ) -> dict[str, Any]:
         """Calculate reprojection error for homography validation."""
         try:
             src_pts = np.array(src_points, dtype=np.float32).reshape(-1, 1, 2)
@@ -309,7 +312,7 @@ async def validate_calibration_session(
             detail=create_error_response(
                 "Calibration Session Not Found",
                 f"Calibration session '{session_id}' not found",
-                ErrorCode.RES_NOT_FOUND,
+                ErrorCode.RESOURCE_NOT_FOUND,
                 {"session_id": session_id},
             ),
         )
@@ -332,7 +335,7 @@ async def validate_calibration_session(
             detail=create_error_response(
                 "Invalid Session Status",
                 f"Expected session status '{required_status}', but found '{session['status']}'",
-                ErrorCode.VAL_INVALID_FORMAT,
+                ErrorCode.VALIDATION_INVALID_FORMAT,
                 {
                     "expected_status": required_status,
                     "actual_status": session["status"],
@@ -380,7 +383,7 @@ async def start_calibration_sequence(
                 detail=create_error_response(
                     "Calibration Already In Progress",
                     f"Active calibration session exists: {active_sessions[0]}. Use force_restart=true to override.",
-                    ErrorCode.RES_ALREADY_EXISTS,
+                    ErrorCode.RESOURCE_ALREADY_EXISTS,
                     {"active_session_id": active_sessions[0]},
                 ),
             )
@@ -482,7 +485,7 @@ async def start_calibration_sequence(
             detail=create_error_response(
                 "Calibration Start Failed",
                 "Unable to start calibration sequence",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -516,7 +519,7 @@ async def capture_calibration_point(
                 detail=create_error_response(
                     "Invalid Screen Position",
                     "Screen position must have exactly 2 coordinates [x, y]",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"provided_length": len(screen_position)},
                 ),
             )
@@ -527,7 +530,7 @@ async def capture_calibration_point(
                 detail=create_error_response(
                     "Invalid World Position",
                     "World position must have exactly 2 coordinates [x, y]",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"provided_length": len(world_position)},
                 ),
             )
@@ -546,7 +549,7 @@ async def capture_calibration_point(
                 detail=create_error_response(
                     "Invalid Screen Coordinates",
                     "Screen coordinates out of reasonable range",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
+                    ErrorCode.VALIDATION_OUT_OF_RANGE,
                     {"screen_position": screen_position},
                 ),
             )
@@ -557,7 +560,7 @@ async def capture_calibration_point(
                 detail=create_error_response(
                     "Invalid World Coordinates",
                     "World coordinates out of reasonable range (meters)",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
+                    ErrorCode.VALIDATION_OUT_OF_RANGE,
                     {"world_position": world_position},
                 ),
             )
@@ -645,7 +648,7 @@ async def capture_calibration_point(
             detail=create_error_response(
                 "Point Capture Failed",
                 "Unable to capture calibration point",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -676,7 +679,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Calibration Session Not Found",
                     f"Calibration session '{session_id}' not found",
-                    ErrorCode.RES_NOT_FOUND,
+                    ErrorCode.RESOURCE_NOT_FOUND,
                     {"session_id": session_id},
                 ),
             )
@@ -687,7 +690,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Calibration Not Ready",
                     f"Calibration must be completed before applying. Current status: {session['status']}",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"current_status": session["status"]},
                 ),
             )
@@ -699,7 +702,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Insufficient Calibration Points",
                     "Need at least 4 calibration points to apply transformation",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
+                    ErrorCode.VALIDATION_OUT_OF_RANGE,
                     {
                         "points_captured": session["points_captured"],
                         "minimum_required": 4,
@@ -720,7 +723,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Low Calibration Accuracy",
                     f"Calibration accuracy ({session['accuracy']:.2f}) below threshold ({accuracy_threshold}). Use force_apply=true to override.",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
+                    ErrorCode.VALIDATION_OUT_OF_RANGE,
                     {"accuracy": session["accuracy"], "threshold": accuracy_threshold},
                 ),
             )
@@ -769,7 +772,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Transformation Calculation Failed",
                     f"Failed to calculate transformation matrix: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
+                    ErrorCode.SYSTEM_INTERNAL_ERROR,
                     {"error": str(e)},
                 ),
             )
@@ -792,7 +795,7 @@ async def apply_calibration_transformations(
                 detail=create_error_response(
                     "Calibration Application Failed",
                     f"Failed to apply calibration to system: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
+                    ErrorCode.SYSTEM_INTERNAL_ERROR,
                     {"error": str(e)},
                 ),
             )
@@ -827,7 +830,7 @@ async def apply_calibration_transformations(
             detail=create_error_response(
                 "Calibration Apply Failed",
                 "Unable to apply calibration transformations",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -857,7 +860,7 @@ async def validate_calibration_accuracy(
                 detail=create_error_response(
                     "Calibration Session Not Found",
                     f"Calibration session '{session_id}' not found",
-                    ErrorCode.RES_NOT_FOUND,
+                    ErrorCode.RESOURCE_NOT_FOUND,
                     {"session_id": session_id},
                 ),
             )
@@ -868,13 +871,13 @@ async def validate_calibration_accuracy(
                 detail=create_error_response(
                     "Calibration Not Ready for Validation",
                     f"Calibration must be completed before validation. Current status: {session['status']}",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"current_status": session["status"]},
                 ),
             )
 
         # Prepare test points
-        test_points_data = []
+        test_points_data: list[dict[str, Any]] = []
         if test_points:
             for i, point in enumerate(test_points):
                 if "screen" not in point or "world" not in point:
@@ -883,7 +886,7 @@ async def validate_calibration_accuracy(
                         detail=create_error_response(
                             "Invalid Test Point Format",
                             f"Test point {i} must have 'screen' and 'world' coordinates",
-                            ErrorCode.VAL_INVALID_FORMAT,
+                            ErrorCode.VALIDATION_INVALID_FORMAT,
                             {"point_index": i, "required_fields": ["screen", "world"]},
                         ),
                     )
@@ -960,8 +963,13 @@ async def validate_calibration_accuracy(
         # Add test points results if provided
         if test_points_data:
             for point in test_points_data:
-                error = abs(point["expected_x"] - point["actual_x"]) + abs(
-                    point["expected_y"] - point["actual_y"]
+                # Type narrowing for dict access
+                expected_x: Any = point["expected_x"]
+                actual_x: Any = point["actual_x"]
+                expected_y: Any = point["expected_y"]
+                actual_y: Any = point["actual_y"]
+                error = abs(float(expected_x) - float(actual_x)) + abs(
+                    float(expected_y) - float(actual_y)
                 )
                 test_results.append(
                     {
@@ -1039,7 +1047,7 @@ async def validate_calibration_accuracy(
             detail=create_error_response(
                 "Calibration Validation Failed",
                 "Unable to validate calibration accuracy",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -1078,7 +1086,7 @@ async def get_calibration_session(
             detail=create_error_response(
                 "Session Retrieval Failed",
                 "Unable to retrieve calibration session",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -1139,7 +1147,7 @@ async def list_calibration_sessions(
             detail=create_error_response(
                 "Session List Failed",
                 "Unable to list calibration sessions",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
@@ -1162,9 +1170,11 @@ async def delete_calibration_session(
             f"Calibration session deleted by user {current_user.get('username', 'unknown')}: {session_id}"
         )
 
-        return create_success_response(
-            f"Calibration session {session_id} deleted successfully",
-            {
+        return SuccessResponse(
+            success=True,
+            message=f"Calibration session {session_id} deleted successfully",
+            timestamp=datetime.now(timezone.utc),
+            data={
                 "session_id": session_id,
                 "deleted_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -1179,13 +1189,13 @@ async def delete_calibration_session(
             detail=create_error_response(
                 "Session Deletion Failed",
                 "Unable to delete calibration session",
-                ErrorCode.SYS_INTERNAL_ERROR,
+                ErrorCode.SYSTEM_INTERNAL_ERROR,
                 {"error": str(e)},
             ),
         )
 
 
-async def cleanup_expired_sessions():
+async def cleanup_expired_sessions() -> None:
     """Background task to clean up expired calibration sessions."""
     try:
         now = datetime.now(timezone.utc)
@@ -1221,6 +1231,6 @@ async def cleanup_expired_sessions():
 
 # Startup task to clean up any existing expired sessions
 @router.on_event("startup")
-async def startup_cleanup():
+async def startup_cleanup() -> None:
     """Clean up expired sessions on startup."""
     await cleanup_expired_sessions()
