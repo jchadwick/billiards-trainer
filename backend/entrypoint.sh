@@ -1,16 +1,24 @@
 #!/bin/bash
 set -e
 
+# Set default values
+WORKERS=${WORKERS:-1}
+HOST=${API_HOST:-0.0.0.0}
+PORT=${API_PORT:-8000}
+LOG_LEVEL=${LOG_LEVEL:-info}
+JWT_SECRET_KEY=${JWT_SECRET_KEY:-top_secret_key}
+
+
 echo "🚀 Starting Billiards Trainer Backend API..."
 echo "Environment: ${ENVIRONMENT:-production}"
 echo "Debug Mode: ${DEBUG:-false}"
 echo "API Host: ${API_HOST:-0.0.0.0}"
 echo "API Port: ${API_PORT:-8000}"
+echo "Config Dir: ${CONFIG_DIR}"
+echo "Data Dir: ${DATA_DIR}"
+echo "Log Dir: ${LOG_DIR}"
+echo "Temp Dir: ${TEMP_DIR}"
 
-# Validate required environment variables in production
-if [ "$ENVIRONMENT" = "production" ] && [ -z "$JWT_SECRET_KEY" ]; then
-    echo "⚠️  WARNING: JWT_SECRET_KEY not set, using default (not secure for production)"
-fi
 
 # Create directories if they don't exist
 mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$TEMP_DIR"
@@ -44,25 +52,12 @@ except ImportError as e:
 print('✅ Health check completed')
 "
 
-# Set default values
-WORKERS=${WORKERS:-1}
-HOST=${API_HOST:-0.0.0.0}
-PORT=${API_PORT:-8000}
-LOG_LEVEL=${LOG_LEVEL:-info}
-
 echo "🌟 Starting server with ${WORKERS} worker(s) on ${HOST}:${PORT}"
 
-# Start the application
-if [ "$ENVIRONMENT" = "development" ]; then
-    # Development mode with hot reload
-    exec python dev_server.py --host "$HOST" --port "$PORT" --log-level "$LOG_LEVEL"
-else
-    # Production mode
-    exec uvicorn api.main:app \
-        --host "$HOST" \
-        --port "$PORT" \
-        --workers "$WORKERS" \
-        --log-level "$LOG_LEVEL" \
-        --access-log \
-        --no-use-colors
-fi
+exec uvicorn api.main:app \
+    --host "$HOST" \
+    --port "$PORT" \
+    --workers "$WORKERS" \
+    --log-level "$LOG_LEVEL" \
+    --access-log \
+    --no-use-colors
