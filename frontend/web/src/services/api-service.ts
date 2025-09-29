@@ -19,9 +19,9 @@ import {
   CalibrationPointResponse,
   CalibrationApplyResponse,
   LoginRequest,
-  MessageType,
   VALID_STREAM_TYPES,
 } from '../types/api';
+import type { MessageType } from '../types/api';
 
 export interface ApiServiceConfig {
   apiBaseUrl: string;
@@ -153,8 +153,14 @@ export class ApiService {
 
   private setupWebSocketHandlers(): void {
     // Handle all message types through data processor
-    Object.values(MessageType).forEach(messageType => {
-      this.wsClient.on(messageType as MessageType, (message) => {
+    const messageTypes: MessageType[] = [
+      'frame', 'state', 'trajectory', 'alert', 'config', 'metrics',
+      'connection', 'ping', 'pong', 'subscribe', 'unsubscribe',
+      'subscribed', 'unsubscribed', 'status', 'error'
+    ];
+
+    messageTypes.forEach(messageType => {
+      this.wsClient.on(messageType, (message) => {
         this.updateConnectionStatus({ lastWebSocketMessage: new Date() });
         this.dataProcessor.processMessage(message);
       });

@@ -9,6 +9,48 @@ version: '3.8'
 # Services Configuration
 # ========================
 services:
+  # Frontend Web Application
+  # ------------------------
+  frontend:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+      target: production
+    image: billiards-trainer/frontend:${BUILD_VERSION:-latest}
+    container_name: billiards-trainer-frontend
+    restart: unless-stopped
+
+    # Port mappings
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+
+    # Network configuration
+    networks:
+      - billiards-net
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # Dependencies - frontend needs backend to be available
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEMORY_LIMIT:-512M}
+          cpus: ${FRONTEND_CPU_LIMIT:-0.5}
+        reservations:
+          memory: ${FRONTEND_MEMORY_RESERVATION:-128M}
+          cpus: ${FRONTEND_CPU_RESERVATION:-0.1}
+
   # Backend API Service
   # ------------------
   backend:
@@ -262,7 +304,28 @@ services:
 # ========================
 # Development Override
 # ========================
-  # Development service with hot reload
+  # Frontend development service with hot reload
+  frontend-dev:
+    build:
+      context: ./frontend/web
+      dockerfile: Dockerfile
+      target: development
+    container_name: billiards-trainer-frontend-dev
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - ./frontend/web:/app
+      - /app/node_modules
+
+    networks:
+      - billiards-net
+
+    profiles:
+      - development
+
+  # Backend development service with hot reload
   backend-dev:
     build:
       context: ./backend
@@ -322,11 +385,14 @@ volumes:
 # Usage Examples
 # ========================
 #
-# Production deployment:
+# Production deployment (full stack):
+#   docker-compose up -d frontend backend redis
+#
+# Production deployment (backend only):
 #   docker-compose up -d backend redis
 #
 # Development with hot reload:
-#   docker-compose --profile development up backend-dev redis
+#   docker-compose --profile development up frontend-dev backend-dev redis
 #
 # Full stack with monitoring:
 #   docker-compose --profile monitoring up -d
@@ -335,7 +401,7 @@ volumes:
 #   docker-compose up -d --scale backend=3
 #
 # View logs:
-#   docker-compose logs -f backend
+#   docker-compose logs -f frontend backend
 #
 # Stop all services:
 #   docker-compose down
