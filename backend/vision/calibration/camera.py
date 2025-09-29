@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
 

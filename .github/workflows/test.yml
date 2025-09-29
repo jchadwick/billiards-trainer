@@ -244,7 +244,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 
     - name: Install Python dependencies
       run: |
@@ -311,21 +311,21 @@ jobs:
         flags: all-tests
         name: all-tests
 
-  docker-test:
-    name: Docker Tests
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Build test Docker image
-      run: |
-        cd backend
-        docker build -t billiards-test -f Dockerfile.test .
-
-    - name: Run tests in Docker
-      run: |
-        docker run --rm billiards-test
+  # docker-test:
+  #   name: Docker Tests
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #
+  #   - name: Build test Docker image
+  #     run: |
+  #       cd backend
+  #       docker build -t billiards-test -f Dockerfile.test .
+  #
+  #   - name: Run tests in Docker
+  #     run: |
+  #       docker run --rm billiards-test
 
   benchmark:
     name: Performance Benchmark

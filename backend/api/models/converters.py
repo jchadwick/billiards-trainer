@@ -45,7 +45,10 @@ except ImportError:
     )
 
 from .common import Coordinate2D, ValidationResult
-from .responses import BallInfo, CueInfo
+from .responses import (
+    BallInfo,
+    CueInfo,
+)
 from .responses import GameEvent as APIGameEvent
 from .responses import (
     GameStateResponse,
