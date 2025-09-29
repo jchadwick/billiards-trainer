@@ -270,7 +270,7 @@ class KeystoneCalibrator:
         Returns:
             Transformed (x, y) coordinates
         """
-        if not self.homography_matrix is not None:
+        if self.homography_matrix is None:
             return x, y
 
         try:

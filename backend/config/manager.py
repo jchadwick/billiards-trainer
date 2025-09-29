@@ -15,6 +15,8 @@ from .models.schemas import (
     ConfigValue,
     create_default_config,
 )
+from .loader.cli import CLILoader
+from .loader.env import EnvironmentLoader
 from .profiles import ProfileManager, ProfileManagerError
 from .storage.backup import BackupError, BackupMetadata, ConfigBackup
 from .storage.persistence import ConfigPersistence, ConfigPersistenceError
@@ -48,6 +50,10 @@ class ConfigurationModule:
 
         # Initialize persistence system
         self._persistence = ConfigPersistence(base_dir=self.config_dir)
+
+        # Initialize loaders
+        self._env_loader = EnvironmentLoader(prefix=self._settings.sources.env_prefix)
+        self._cli_loader = CLILoader()
 
         # Initialize backup system
         self._backup = ConfigBackup(
@@ -404,26 +410,39 @@ class ConfigurationModule:
         return changes
 
     def load_environment_variables(self) -> None:
-        """Load configuration from environment variables."""
-        prefix = self._settings.sources.env_prefix
-
-        for env_key, env_value in os.environ.items():
-            if env_key.startswith(prefix):
-                # Remove prefix and convert to lowercase with dots
-                config_key = env_key[len(prefix) :].lower().replace("_", ".")
-
-                # Try to parse as JSON first, then as string
-                try:
-                    value = json.loads(env_value)
-                except json.JSONDecodeError:
-                    value = env_value
-
+        """Load configuration from environment variables using EnvironmentLoader."""
+        try:
+            env_config = self._env_loader.load_environment()
+            for key, value in env_config.items():
                 self._set_internal(
-                    key=config_key,
+                    key=key,
                     value=value,
                     source=ConfigSource.ENVIRONMENT,
                     persist=False,
                 )
+        except Exception as e:
+            print(f"Warning: Failed to load environment variables: {e}")
+
+    def load_cli_arguments(self, args: Optional[list[str]] = None) -> None:
+        """Load configuration from CLI arguments using CLILoader."""
+        try:
+            # Update CLI loader with current schema if available
+            if self._schemas:
+                self._cli_loader = CLILoader(schema=self._schemas)
+
+            cli_config = self._cli_loader.load(args)
+            for key, value in cli_config.items():
+                self._set_internal(
+                    key=key,
+                    value=value,
+                    source=ConfigSource.CLI,
+                    persist=False,
+                )
+        except SystemExit:
+            # Re-raise SystemExit to allow help/version exits
+            raise
+        except Exception as e:
+            print(f"Warning: Failed to load CLI arguments: {e}")
 
     def validate(
         self, key: Optional[str] = None, schema: Optional[dict] = None

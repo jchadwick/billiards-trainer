@@ -417,7 +417,7 @@ export class ApiClient {
     sessionId: string,
     point: CalibrationPointRequest
   ): Promise<CalibrationPointResponse> {
-    return this.post<CalibrationPointResponse>(`/calibration/${sessionId}/point`, point);
+    return this.post<CalibrationPointResponse>(`/calibration/${sessionId}/points`, point);
   }
 
   async applyCalibration(sessionId: string): Promise<CalibrationApplyResponse> {

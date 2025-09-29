@@ -2,13 +2,13 @@
  * WebSocket client with auto-reconnection and comprehensive error handling
  */
 
-import {
+import type {
   WebSocketMessage,
   MessageType,
   SubscribeRequest,
   UnsubscribeRequest,
-  isWebSocketMessage,
 } from '../types/api';
+import { isWebSocketMessage } from '../types/api';
 
 export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error' | 'reconnecting';
 
