@@ -233,20 +233,20 @@ jobs:
   #         EOF
 
   # Cleanup old images
-  cleanup:
-    runs-on: ubuntu-latest
-    #needs: [deploy]
-    if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main')
+  # cleanup:
+  #   runs-on: ubuntu-latest
+  #   needs: [build]
+  #   if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
-    permissions:
-      contents: read
-      packages: write
+  #   permissions:
+  #     contents: read
+  #     packages: write
 
-    steps:
-      - name: Delete old container images
-        uses: actions/delete-package-versions@v4
-        with:
-          package-name: ${{ env.IMAGE_NAME }}/backend
-          package-type: container
-          min-versions-to-keep: 10
-          delete-only-untagged-versions: true
+  #   steps:
+  #     - name: Delete old container images
+  #       uses: actions/delete-package-versions@v4
+  #       with:
+  #         package-name: ${{ env.IMAGE_NAME }}/backend
+  #         package-type: container
+  #         min-versions-to-keep: 10
+  #         delete-only-untagged-versions: true
