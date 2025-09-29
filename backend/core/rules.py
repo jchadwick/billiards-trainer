@@ -1,5 +1,7 @@
 """Game rules engine for different billiards games."""
 
+from typing import Optional
+
 from .models import BallState, GameState, GameType
 
 
@@ -91,11 +93,13 @@ class GameRules:
         """Get the ball group assigned to a player ('solids', 'stripes', or 'undetermined')."""
         # Check if player has pocketed any balls yet to determine their group
         pocketed_solids = sum(
-            1 for ball in game_state.balls
+            1
+            for ball in game_state.balls
             if ball.number and 1 <= ball.number <= 7 and ball.is_pocketed
         )
         pocketed_stripes = sum(
-            1 for ball in game_state.balls
+            1
+            for ball in game_state.balls
             if ball.number and 9 <= ball.number <= 15 and ball.is_pocketed
         )
 
@@ -120,21 +124,25 @@ class GameRules:
         if player_group == "solids":
             # Check if all solid balls (1-7) are pocketed
             remaining_solids = sum(
-                1 for ball in game_state.balls
+                1
+                for ball in game_state.balls
                 if ball.number and 1 <= ball.number <= 7 and not ball.is_pocketed
             )
             return remaining_solids == 0
         elif player_group == "stripes":
             # Check if all stripe balls (9-15) are pocketed
             remaining_stripes = sum(
-                1 for ball in game_state.balls
+                1
+                for ball in game_state.balls
                 if ball.number and 9 <= ball.number <= 15 and not ball.is_pocketed
             )
             return remaining_stripes == 0
 
         return False
 
-    def detect_fouls(self, game_state: GameState, first_ball_hit: BallState = None) -> list[str]:
+    def detect_fouls(
+        self, game_state: GameState, first_ball_hit: BallState = None
+    ) -> list[str]:
         """Detect fouls in the current game state for 8-ball."""
         if self.game_type != GameType.EIGHT_BALL:
             return []
@@ -147,14 +155,21 @@ class GameRules:
             fouls.append("cue_ball_pocketed")
 
         # Check if wrong ball was hit first
-        if (game_state.current_player and first_ball_hit and
-            not self._validate_eight_ball_shot(game_state, first_ball_hit)):
+        if (
+            game_state.current_player
+            and first_ball_hit
+            and not self._validate_eight_ball_shot(game_state, first_ball_hit)
+        ):
             fouls.append("wrong_ball_hit_first")
 
         # Check if 8-ball was pocketed prematurely
         eight_ball = next((ball for ball in game_state.balls if ball.number == 8), None)
-        if (eight_ball and eight_ball.is_pocketed and game_state.current_player and
-            not self._player_group_cleared(game_state, game_state.current_player)):
+        if (
+            eight_ball
+            and eight_ball.is_pocketed
+            and game_state.current_player
+            and not self._player_group_cleared(game_state, game_state.current_player)
+        ):
             fouls.append("eight_ball_pocketed_early")
 
         # Check if no balls were pocketed and no rail contact (basic implementation)
@@ -182,7 +197,9 @@ class GameRules:
 
         return None
 
-    def should_continue_turn(self, game_state: GameState, balls_pocketed: list[BallState]) -> bool:
+    def should_continue_turn(
+        self, game_state: GameState, balls_pocketed: list[BallState]
+    ) -> bool:
         """Determine if the current player should continue their turn."""
         if self.game_type != GameType.EIGHT_BALL:
             return False
@@ -207,8 +224,11 @@ class GameRules:
                 return True
             elif player_group == "stripes" and 9 <= ball.number <= 15:
                 return True
-            elif (player_group != "undetermined" and ball.number == 8 and
-                  self._player_group_cleared(game_state, game_state.current_player)):
+            elif (
+                player_group != "undetermined"
+                and ball.number == 8
+                and self._player_group_cleared(game_state, game_state.current_player)
+            ):
                 return True
 
         return False
