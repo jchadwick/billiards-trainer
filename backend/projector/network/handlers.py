@@ -7,8 +7,8 @@ from typing import Any, Optional, Protocol
 
 # Import core models with fallback for different import contexts
 try:
-    from backend.core.game_state import BallState
-    from backend.core.physics.trajectory import Trajectory
+    from ...core.game_state import BallState
+    from ...core.physics.trajectory import Trajectory
 except ImportError:
     # If running from the backend directory directly
     from core.game_state import BallState
@@ -487,8 +487,8 @@ class ProjectorMessageHandlers:
             trajectory_id = data.get("ball_id", "cue")
 
             # Create trajectory object (simplified - adapt to your actual Trajectory class)
-            from backend.core.models import Vector2D
-            from backend.core.physics.trajectory import Trajectory
+            from ...core.models import Vector2D
+            from ...core.physics.trajectory import Trajectory
 
             # Convert first line to start position
             first_line = lines[0]
@@ -541,7 +541,7 @@ class ProjectorMessageHandlers:
             collision.get("ball_id", "unknown")
 
             # Create position object for projector
-            from backend.projector.rendering.renderer import Point2D
+            from ..rendering.renderer import Point2D
 
             collision_point = Point2D(position[0], position[1])
 
@@ -608,8 +608,8 @@ class ProjectorMessageHandlers:
         """Update trajectory rendering configuration."""
         try:
             # Extract trajectory configuration
-            from backend.projector.rendering.renderer import Color
-            from backend.projector.rendering.trajectory import TrajectoryVisualConfig
+            from ..rendering.renderer import Color
+            from ..rendering.trajectory import TrajectoryVisualConfig
 
             # Create new trajectory config
             trajectory_config = TrajectoryVisualConfig()
@@ -646,7 +646,7 @@ class ProjectorMessageHandlers:
         """Update effects configuration."""
         try:
             # Update effects settings
-            from backend.projector.rendering.effects import EffectsConfig
+            from ..rendering.effects import EffectsConfig
 
             effects_config = EffectsConfig()
 
@@ -669,7 +669,7 @@ class ProjectorMessageHandlers:
     def _create_ball_state(self, ball_data: dict[str, Any]) -> Optional[BallState]:
         """Create BallState object from ball data."""
         try:
-            from backend.core.models import Vector2D
+            from ...core.models import Vector2D
 
             # Extract ball data
             position = ball_data.get("position", [0, 0])

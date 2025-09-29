@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, TableState, Vector2D
+from ..models import BallState, TableState, Vector2D
+from .spin import SpinCalculator, SpinState
 
 
 class CollisionType(Enum):
@@ -225,6 +226,9 @@ class CollisionDetector:
         Returns:
             CollisionResult if collision detected, None otherwise
         """
+        if table is None:
+            return None
+
         # Create cushion segments from table boundaries
         cushions = self._create_table_cushions(table)
 
@@ -460,13 +464,14 @@ class CollisionDetector:
                 if collision:
                     collisions.append(collision)
 
-        # Ball-to-cushion collisions
-        for ball in balls:
-            if ball.is_pocketed:
-                continue
-            collision = self.detect_cushion_collision(ball, table, dt)
-            if collision:
-                collisions.append(collision)
+        # Ball-to-cushion collisions (only if table is provided)
+        if table is not None:
+            for ball in balls:
+                if ball.is_pocketed:
+                    continue
+                collision = self.detect_cushion_collision(ball, table, dt)
+                if collision:
+                    collisions.append(collision)
 
         # Sort by collision time
         collisions.sort(key=lambda c: c.time)
@@ -477,17 +482,30 @@ class CollisionDetector:
 class CollisionResolver:
     """Advanced collision response calculations with realistic physics."""
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(
+        self,
+        config: Optional[dict[str, Any]] = None,
+        spin_calculator: Optional[SpinCalculator] = None,
+    ):
         """Initialize collision resolver with configuration.
 
         Args:
             config: Configuration dictionary with physics parameters
+            spin_calculator: Spin calculator for advanced spin effects
         """
         self.config = config or {}
         self.energy_loss_factor = self.config.get("energy_loss_factor", 0.02)
         self.spin_transfer_factor = self.config.get("spin_transfer_factor", 0.3)
         self.default_restitution = self.config.get("default_restitution", 0.95)
         self.friction_coefficient = self.config.get("friction_coefficient", 0.1)
+
+        # Advanced physics features
+        self.spin_calculator = spin_calculator or SpinCalculator(config)
+        self.enable_advanced_physics = self.config.get("enable_advanced_physics", True)
+        self.enable_spin_effects = self.config.get("enable_spin_effects", True)
+        self.multi_ball_collision_threshold = self.config.get(
+            "multi_ball_collision_threshold", 0.0001
+        )
 
     def resolve_ball_collision(
         self, ball1: BallState, ball2: BallState, collision: CollisionResult
@@ -505,6 +523,20 @@ class CollisionResolver:
         if not collision.point:
             raise ValueError("Collision point required for ball collision resolution")
 
+        # Update ball velocities first
+        ball1.velocity = collision.ball1_velocity or ball1.velocity
+        ball2.velocity = collision.ball2_velocity or ball2.velocity
+
+        # Use advanced spin physics if enabled
+        if self.enable_advanced_physics and self.enable_spin_effects:
+            return self._resolve_advanced_ball_collision(ball1, ball2, collision)
+        else:
+            return self._resolve_basic_ball_collision(ball1, ball2, collision)
+
+    def _resolve_basic_ball_collision(
+        self, ball1: BallState, ball2: BallState, collision: CollisionResult
+    ) -> CollisionResult:
+        """Basic ball collision resolution without advanced spin effects."""
         normal = collision.point.normal
 
         # Calculate relative velocity
@@ -552,31 +584,44 @@ class CollisionResolver:
         )
         energy_lost = kinetic_before - kinetic_after
 
-        # Handle spin transfer (simplified model)
-        new_spin1 = ball1.spin
-        new_spin2 = ball2.spin
-
-        if (
-            abs(vel_along_normal) > 0.1 and ball1.spin and ball2.spin
-        ):  # Only transfer spin for significant collisions
-            # Transfer some spin between balls
-            spin_transfer = self.spin_transfer_factor * abs(vel_along_normal)
-
-            # Tangential component of relative velocity affects spin
-            tangent = Vector2D(-normal.y, normal.x)  # Perpendicular to normal
-            rel_vel_tangent = rel_vel.x * tangent.x + rel_vel.y * tangent.y
-
-            # Apply spin changes (simplified - real physics would be more complex)
-            spin_change = rel_vel_tangent * spin_transfer / ball1.radius
-            new_spin1 = Vector2D(ball1.spin.x, ball1.spin.y + spin_change)
-            new_spin2 = Vector2D(ball2.spin.x, ball2.spin.y - spin_change)
-
         # Update collision result
         collision.ball1_velocity = new_vel1
         collision.ball2_velocity = new_vel2
-        collision.ball1_spin = new_spin1
-        collision.ball2_spin = new_spin2
         collision.energy_lost = energy_lost
+
+        return collision
+
+    def _resolve_advanced_ball_collision(
+        self, ball1: BallState, ball2: BallState, collision: CollisionResult
+    ) -> CollisionResult:
+        """Advanced ball collision resolution with comprehensive spin effects."""
+        # Calculate basic collision dynamics
+        collision = self._resolve_basic_ball_collision(ball1, ball2, collision)
+
+        # Apply advanced spin transfer using the spin calculator
+        try:
+            # Create collision object for spin calculator
+            from ..models import Collision
+
+            spin_collision = Collision(
+                time=collision.time,
+                position=collision.point.position,
+                ball1_id=ball1.id,
+                ball2_id=ball2.id,
+                type="ball",
+            )
+
+            # Transfer spin between balls
+            self.spin_calculator.transfer_spin(ball1, ball2, spin_collision)
+
+            # Update collision result with new spin states
+            collision.ball1_spin = ball1.spin
+            collision.ball2_spin = ball2.spin
+
+        except Exception:
+            # Fallback to basic spin handling if advanced system fails
+            collision.ball1_spin = ball1.spin
+            collision.ball2_spin = ball2.spin
 
         return collision
 
@@ -597,6 +642,16 @@ class CollisionResolver:
                 "Collision point required for cushion collision resolution"
             )
 
+        # Use advanced spin physics if enabled
+        if self.enable_advanced_physics and self.enable_spin_effects:
+            return self._resolve_advanced_cushion_collision(ball, collision)
+        else:
+            return self._resolve_basic_cushion_collision(ball, collision)
+
+    def _resolve_basic_cushion_collision(
+        self, ball: BallState, collision: CollisionResult
+    ) -> CollisionResult:
+        """Basic cushion collision resolution."""
         normal = collision.point.normal
 
         # Velocity components
@@ -625,19 +680,34 @@ class CollisionResolver:
         kinetic_after = 0.5 * ball.mass * new_velocity.magnitude() ** 2
         energy_lost = kinetic_before - kinetic_after
 
-        # Update spin (cushion interaction affects spin)
-        new_spin = ball.spin
-        if abs(vel_tangent) > 0.1 and ball.spin:
-            # Cushion friction affects ball spin
-            spin_change = friction_force / ball.radius
-            new_spin = Vector2D(
-                ball.spin.x, ball.spin.y + math.copysign(spin_change, vel_tangent)
-            )
-
         # Update collision result
         collision.ball1_velocity = new_velocity
-        collision.ball1_spin = new_spin
+        collision.ball1_spin = ball.spin
         collision.energy_lost = energy_lost
+
+        return collision
+
+    def _resolve_advanced_cushion_collision(
+        self, ball: BallState, collision: CollisionResult
+    ) -> CollisionResult:
+        """Advanced cushion collision resolution with comprehensive spin effects."""
+        # Start with basic collision
+        collision = self._resolve_basic_cushion_collision(ball, collision)
+
+        # Apply advanced spin changes using the spin calculator
+        try:
+            # Update ball velocity from collision result
+            ball.velocity = collision.ball1_velocity
+
+            # Handle spin changes due to cushion interaction
+            self.spin_calculator.handle_cushion_collision(ball, collision.point.normal)
+
+            # Update collision result with new spin
+            collision.ball1_spin = ball.spin
+
+        except Exception:
+            # Fallback to basic spin handling
+            collision.ball1_spin = ball.spin
 
         return collision
 

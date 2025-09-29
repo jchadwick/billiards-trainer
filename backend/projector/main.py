@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
@@ -11,8 +12,8 @@ import pygame
 
 # Import core models with fallback for different import contexts
 try:
-    from backend.core.game_state import BallState
-    from backend.core.physics.trajectory import PredictedCollision, Trajectory
+    from ..core.game_state import BallState
+    from ..core.physics.trajectory import PredictedCollision, Trajectory
 except ImportError:
     # If running from the backend directory directly
     from core.game_state import BallState
@@ -24,6 +25,12 @@ from .network.client import WebSocketClient
 from .network.handlers import HandlerConfig, ProjectorMessageHandlers
 from .rendering.effects import EffectsConfig, EffectsSystem
 from .rendering.renderer import BasicRenderer, Color, Point2D
+from .rendering.text import (
+    FontDescriptor,
+    TextRenderer,
+    TextStyle,
+    create_info_text_style,
+)
 from .rendering.trajectory import TrajectoryRenderer, TrajectoryVisualConfig
 
 logger = logging.getLogger(__name__)
@@ -40,6 +47,71 @@ class LineStyle(Enum):
     DASHED = "dashed"
     DOTTED = "dotted"
     ARROW = "arrow"
+
+
+class RenderQuality(Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    ULTRA = "ultra"
+
+
+@dataclass
+class CalibrationPoints:
+    """Projector calibration corner points."""
+
+    top_left: Point2D
+    top_right: Point2D
+    bottom_right: Point2D
+    bottom_left: Point2D
+
+
+@dataclass
+class Line:
+    """Rendered line segment."""
+
+    start: Point2D
+    end: Point2D
+    color: tuple[int, int, int, int]  # RGBA
+    width: float
+    style: LineStyle
+    glow: bool = False
+    animated: bool = False
+
+
+@dataclass
+class Circle:
+    """Rendered circle (for balls, impact points)."""
+
+    center: Point2D
+    radius: float
+    color: tuple[int, int, int, int]
+    filled: bool
+    width: float = 1.0
+
+
+@dataclass
+class Text:
+    """Rendered text overlay."""
+
+    position: Point2D
+    content: str
+    size: int
+    color: tuple[int, int, int, int]
+    background: Optional[tuple[int, int, int, int]] = None
+    anchor: str = "center"  # center, left, right
+
+
+@dataclass
+class RenderFrame:
+    """Complete frame to be rendered."""
+
+    trajectories: list[Line]
+    collision_points: list[Circle]
+    ghost_balls: list[Circle]
+    text_overlays: list[Text]
+    highlight_zones: list[dict]
+    timestamp: float
 
 
 class ProjectorModule:
@@ -67,6 +139,7 @@ class ProjectorModule:
         self.display_manager: Optional[DisplayManager] = None
         self.calibration_manager: Optional[CalibrationManager] = None
         self.basic_renderer: Optional[BasicRenderer] = None
+        self.text_renderer: Optional[TextRenderer] = None
         self.trajectory_renderer: Optional[TrajectoryRenderer] = None
         self.effects_system: Optional[EffectsSystem] = None
 
@@ -119,6 +192,9 @@ class ProjectorModule:
 
             # Initialize basic renderer
             self.basic_renderer = BasicRenderer(self._gl_context)
+
+            # Initialize text renderer
+            self.text_renderer = TextRenderer(self.basic_renderer)
 
             # Initialize trajectory renderer
             trajectory_config = TrajectoryVisualConfig()
@@ -679,6 +755,434 @@ class ProjectorModule:
             and self.websocket_client is not None
             and self.websocket_client.connected
         )
+
+    # Specification-required interface methods
+
+    def calibrate(self, interactive: bool = True) -> CalibrationPoints:
+        """Run calibration procedure and return calibration points.
+
+        Args:
+            interactive: Whether to run interactive calibration
+
+        Returns:
+            CalibrationPoints with corner coordinates
+
+        Raises:
+            RuntimeError: If calibration fails or is not initialized
+        """
+        if not self.calibration_manager:
+            if not self.display_manager:
+                raise RuntimeError("Display manager not initialized")
+
+            # Initialize calibration manager from display manager
+            self.calibration_manager = self.display_manager.calibration_manager
+
+            if not self.calibration_manager:
+                raise RuntimeError("Calibration manager not available")
+
+        try:
+            if interactive:
+                # Enable calibration mode in display manager
+                if (
+                    self.display_manager
+                    and not self.display_manager.enable_calibration_mode()
+                ):
+                    raise RuntimeError("Failed to enable calibration mode")
+
+                # Start calibration process
+                if not self.calibration_manager.start_calibration():
+                    raise RuntimeError("Failed to start calibration process")
+
+                logger.info(
+                    "Interactive calibration started - use display interface to complete"
+                )
+
+                # For interactive mode, we would typically wait for user input
+                # This is a simplified version that returns default corners
+                # In a real implementation, this would integrate with the interactive UI
+
+            # Get calibration data
+            calibration_data = self.calibration_manager.get_calibration_data()
+            keystone_data = calibration_data.get("keystone", {})
+            corner_points = keystone_data.get("corner_points", {})
+
+            if not corner_points:
+                # Return default calibration points based on display size
+                width = self.display_manager.width if self.display_manager else 1920
+                height = self.display_manager.height if self.display_manager else 1080
+
+                return CalibrationPoints(
+                    top_left=Point2D(0, 0),
+                    top_right=Point2D(width, 0),
+                    bottom_right=Point2D(width, height),
+                    bottom_left=Point2D(0, height),
+                )
+
+            # Convert from calibration format to CalibrationPoints
+            return CalibrationPoints(
+                top_left=Point2D(
+                    corner_points.get("top_left", {}).get("x", 0),
+                    corner_points.get("top_left", {}).get("y", 0),
+                ),
+                top_right=Point2D(
+                    corner_points.get("top_right", {}).get("x", 1920),
+                    corner_points.get("top_right", {}).get("y", 0),
+                ),
+                bottom_right=Point2D(
+                    corner_points.get("bottom_right", {}).get("x", 1920),
+                    corner_points.get("bottom_right", {}).get("y", 1080),
+                ),
+                bottom_left=Point2D(
+                    corner_points.get("bottom_left", {}).get("x", 0),
+                    corner_points.get("bottom_left", {}).get("y", 1080),
+                ),
+            )
+
+        except Exception as e:
+            logger.error(f"Calibration failed: {e}")
+            raise RuntimeError(f"Calibration failed: {e}")
+
+    def set_calibration(self, points: CalibrationPoints) -> None:
+        """Apply calibration points to the projector.
+
+        Args:
+            points: Calibration corner points to apply
+
+        Raises:
+            RuntimeError: If calibration application fails
+        """
+        if not self.calibration_manager:
+            raise RuntimeError("Calibration manager not initialized")
+
+        try:
+            # Convert CalibrationPoints to calibration manager format
+            from .calibration.keystone import CornerPoints
+
+            corner_points = CornerPoints(
+                top_left=(points.top_left.x, points.top_left.y),
+                top_right=(points.top_right.x, points.top_right.y),
+                bottom_right=(points.bottom_right.x, points.bottom_right.y),
+                bottom_left=(points.bottom_left.x, points.bottom_left.y),
+            )
+
+            # Apply to calibration manager
+            if not self.calibration_manager.setup_keystone_corners(corner_points):
+                raise RuntimeError("Failed to setup keystone corners")
+
+            if not self.calibration_manager.complete_keystone_calibration():
+                raise RuntimeError("Failed to complete keystone calibration")
+
+            # Save calibration
+            if not self.calibration_manager.save_calibration():
+                logger.warning("Failed to save calibration")
+
+            logger.info("Calibration points applied successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to apply calibration: {e}")
+            raise RuntimeError(f"Failed to apply calibration: {e}")
+
+    def render_text(
+        self,
+        text: str,
+        position: Point2D,
+        size: int = 24,
+        color: tuple[int, int, int, int] = (255, 255, 255, 255),
+    ) -> None:
+        """Render text overlay on the display.
+
+        Args:
+            text: Text content to render
+            position: Position to render text at
+            size: Font size in pixels
+            color: RGBA color tuple
+        """
+        if not self.text_renderer:
+            logger.warning("Text renderer not initialized")
+            return
+
+        try:
+            # Create text style for rendering
+            style = TextStyle(font=FontDescriptor(size=size), color=color)
+
+            # Use the proper text renderer
+            self.text_renderer.render_text(text, position, style)
+
+            logger.debug(f"Text rendered: '{text}' at ({position.x}, {position.y})")
+
+        except Exception as e:
+            logger.error(f"Failed to render text: {e}")
+            # Fallback to basic indicator
+            if self.basic_renderer:
+                text_color = Color.from_rgb(color[0], color[1], color[2], color[3])
+                self.basic_renderer.draw_circle(position, 5.0, text_color)
+
+    def set_render_quality(self, quality: RenderQuality) -> None:
+        """Set rendering quality level.
+
+        Args:
+            quality: Target rendering quality
+        """
+        try:
+            # Update quality settings based on the quality level
+            if quality == RenderQuality.LOW:
+                self._target_fps = 30
+                # Disable effects for performance
+                if self.effects_system:
+                    config = self.effects_system._config
+                    config.trail_enabled = False
+                    config.collision_effects_enabled = False
+                    self.effects_system.set_config(config)
+
+            elif quality == RenderQuality.MEDIUM:
+                self._target_fps = 45
+                if self.effects_system:
+                    config = self.effects_system._config
+                    config.trail_enabled = True
+                    config.collision_effects_enabled = True
+                    config.particle_count_multiplier = 0.5
+                    self.effects_system.set_config(config)
+
+            elif quality == RenderQuality.HIGH:
+                self._target_fps = 60
+                if self.effects_system:
+                    config = self.effects_system._config
+                    config.trail_enabled = True
+                    config.collision_effects_enabled = True
+                    config.particle_count_multiplier = 1.0
+                    self.effects_system.set_config(config)
+
+            elif quality == RenderQuality.ULTRA:
+                self._target_fps = 120
+                if self.effects_system:
+                    config = self.effects_system._config
+                    config.trail_enabled = True
+                    config.collision_effects_enabled = True
+                    config.particle_count_multiplier = 2.0
+                    self.effects_system.set_config(config)
+
+            logger.info(f"Render quality set to {quality.value}")
+
+        except Exception as e:
+            logger.error(f"Failed to set render quality: {e}")
+
+    def get_display_info(self) -> dict:
+        """Get display device information.
+
+        Returns:
+            Dictionary with display information and status
+        """
+        try:
+            info = {
+                "initialized": self._initialized,
+                "running": self._running,
+                "fps": self._current_fps,
+                "target_fps": self._target_fps,
+                "frame_count": self._frame_count,
+            }
+
+            # Add display manager info if available
+            if self.display_manager:
+                display_info = self.display_manager.get_display_info()
+                info.update(display_info)
+
+            # Add calibration info
+            info["calibration"] = {
+                "enabled": bool(self.calibration_manager),
+                "valid": (
+                    self.calibration_manager.is_calibration_valid()
+                    if self.calibration_manager
+                    else False
+                ),
+            }
+
+            # Add rendering stats
+            if self.basic_renderer:
+                info["renderer"] = self.basic_renderer.get_stats()
+
+            if self.trajectory_renderer:
+                info[
+                    "trajectory_renderer"
+                ] = self.trajectory_renderer.get_render_stats()
+
+            if self.effects_system:
+                info["effects"] = self.effects_system.get_stats()
+
+            return info
+
+        except Exception as e:
+            logger.error(f"Failed to get display info: {e}")
+            return {"error": str(e)}
+
+    def render_frame(self, frame: RenderFrame) -> None:
+        """Render a complete frame with all visual elements.
+
+        Args:
+            frame: RenderFrame containing all elements to render
+        """
+        if not self._running or not self.basic_renderer:
+            return
+
+        try:
+            frame_start = time.time()
+
+            # Clear frame
+            self._gl_context.clear(0.0, 0.0, 0.0, 1.0)
+            self.basic_renderer.begin_frame()
+
+            # Render trajectories
+            for trajectory_line in frame.trajectories:
+                line_color = Color.from_rgb(*trajectory_line.color)
+                self.basic_renderer.draw_line(
+                    trajectory_line.start,
+                    trajectory_line.end,
+                    line_color,
+                    trajectory_line.width,
+                )
+
+            # Render collision points
+            for collision_point in frame.collision_points:
+                point_color = Color.from_rgb(*collision_point.color)
+                if collision_point.filled:
+                    self.basic_renderer.draw_circle(
+                        collision_point.center, collision_point.radius, point_color
+                    )
+                else:
+                    # Draw circle outline
+                    self.basic_renderer.draw_circle(
+                        collision_point.center, collision_point.radius, point_color
+                    )
+
+            # Render ghost balls
+            for ghost_ball in frame.ghost_balls:
+                ghost_color = Color.from_rgb(*ghost_ball.color)
+                self.basic_renderer.draw_circle(
+                    ghost_ball.center, ghost_ball.radius, ghost_color
+                )
+
+            # Render text overlays
+            for text_overlay in frame.text_overlays:
+                self.render_text(
+                    text_overlay.content,
+                    text_overlay.position,
+                    text_overlay.size,
+                    text_overlay.color,
+                )
+
+            # Render highlight zones (simplified)
+            for zone in frame.highlight_zones:
+                if "center" in zone and "radius" in zone:
+                    center = Point2D(zone["center"]["x"], zone["center"]["y"])
+                    radius = zone["radius"]
+                    color = zone.get("color", (255, 255, 0, 128))
+                    zone_color = Color.from_rgb(*color)
+                    self.basic_renderer.draw_circle(center, radius, zone_color)
+
+            self.basic_renderer.end_frame()
+            pygame.display.flip()
+
+            # Update performance stats
+            self._update_performance_stats(frame_start)
+
+            logger.debug(
+                f"Frame rendered with {len(frame.trajectories)} trajectories, "
+                f"{len(frame.collision_points)} collision points, "
+                f"{len(frame.text_overlays)} text overlays"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to render frame: {e}")
+
+    def render_collision(
+        self,
+        position: Point2D,
+        radius: float = 20,
+        color: tuple[int, int, int, int] = (255, 0, 0, 128),
+    ) -> None:
+        """Render collision indicator at specified position.
+
+        Args:
+            position: Position to render collision indicator
+            radius: Radius of collision indicator
+            color: RGBA color for the indicator
+        """
+        if not self.basic_renderer:
+            logger.warning("Basic renderer not initialized")
+            return
+
+        try:
+            collision_color = Color.from_rgb(*color)
+            self.basic_renderer.draw_circle(position, radius, collision_color)
+            logger.debug(
+                f"Collision indicator rendered at ({position.x}, {position.y})"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to render collision indicator: {e}")
+
+    def connect_to_backend(self, url: str) -> bool:
+        """Connect to backend WebSocket.
+
+        Args:
+            url: WebSocket URL to connect to
+
+        Returns:
+            True if connection successful
+        """
+        try:
+            if not self._network_enabled:
+                logger.warning("Network is disabled")
+                return False
+
+            # Update network config with new URL
+            self._network_config["api_url"] = url
+
+            # Reinitialize network components if needed
+            if not self.websocket_client:
+                self._initialize_network()
+
+            # Start network connection (async)
+            async def connect_async():
+                return await self.start_network()
+
+            # Run async connection
+            import asyncio
+
+            try:
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(connect_async())
+            except RuntimeError:
+                # No event loop running, create new one
+                return asyncio.run(connect_async())
+
+        except Exception as e:
+            logger.error(f"Failed to connect to backend: {e}")
+            return False
+
+    def disconnect_from_backend(self) -> None:
+        """Disconnect from backend WebSocket."""
+        try:
+            if self.websocket_client:
+                # Stop network connection (async)
+                async def disconnect_async():
+                    await self.stop_network()
+
+                # Run async disconnection
+                import asyncio
+
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(disconnect_async())
+                except RuntimeError:
+                    # No event loop running, create new one
+                    asyncio.run(disconnect_async())
+
+                logger.info("Disconnected from backend")
+            else:
+                logger.warning("No active connection to disconnect")
+
+        except Exception as e:
+            logger.error(f"Failed to disconnect from backend: {e}")
 
     def __enter__(self):
         """Context manager entry."""

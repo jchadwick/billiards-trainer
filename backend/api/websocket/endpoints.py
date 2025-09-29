@@ -119,8 +119,8 @@ async def authenticate_websocket(
     token: Optional[str] = None, websocket: Optional[WebSocket] = None
 ) -> tuple[Optional[str], dict[str, Any]]:
     """Authenticate WebSocket connection and return user_id and user_info."""
-    from backend.api.dependencies import _get_unauthenticated_user, _is_auth_enabled
-    from backend.api.middleware.authentication import verify_jwt_token
+    from ..dependencies import _get_unauthenticated_user, _is_auth_enabled
+    from ..middleware.authentication import verify_jwt_token
 
     # Check if authentication is enabled
     if not _is_auth_enabled():
@@ -186,7 +186,7 @@ async def websocket_endpoint(
         user_id, user_info = await authenticate_websocket(token, websocket)
 
         # Check if authentication is required but failed
-        from backend.api.dependencies import _is_auth_enabled
+        from ..dependencies import _is_auth_enabled
 
         if _is_auth_enabled() and not user_id:
             await websocket.close(

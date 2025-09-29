@@ -21,11 +21,11 @@ except ImportError:
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from backend.api.dependencies import ApplicationState, get_app_state
+from ..dependencies import ApplicationState, get_app_state
 
 # Try to import health monitor with fallback
 try:
-    from backend.system.health_monitor import health_monitor
+    from ...system.health_monitor import health_monitor
 except (ImportError, TypeError):
     try:
         from system.health_monitor import health_monitor
@@ -46,7 +46,7 @@ except (ImportError, TypeError):
                 return 0
 
         health_monitor = MockHealthMonitor()
-from backend.api.models.responses import (
+from ..models.responses import (
     CapabilityInfo,
     ComponentHealth,
     HealthResponse,
@@ -55,7 +55,7 @@ from backend.api.models.responses import (
     SystemMetrics,
     VersionResponse,
 )
-from backend.api.shutdown import get_shutdown_progress, shutdown_coordinator
+from ..shutdown import get_shutdown_progress, shutdown_coordinator
 
 logger = logging.getLogger(__name__)
 

@@ -13,8 +13,7 @@ This module tests all aspects of the error correction system including:
 import math
 import time
 
-from backend.core.models import BallState, GameState, TableState, Vector2D
-
+from ..models import BallState, GameState, TableState, Vector2D
 from .correction import CorrectionStrategy, ErrorCorrector
 from .manager import ValidationManager
 

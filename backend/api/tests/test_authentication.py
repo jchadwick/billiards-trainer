@@ -6,11 +6,11 @@ from datetime import timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
-from backend.api.middleware.authentication import session_manager
+from ..main import create_app
+from ..middleware.authentication import session_manager
 
 # Import the modules we're testing
-from backend.api.utils.security import (
+from ..utils.security import (
     APIKeyUtils,
     JWTUtils,
     PasswordPolicy,
@@ -407,11 +407,11 @@ class TestSecurityUtilities:
         assert not constant_time_compare("short", "much_longer_string")
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 class TestAPIEndpoints:
     """Test API endpoints with authentication."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def client(self):
         """Create test client."""
         app = create_app()
@@ -521,11 +521,11 @@ class TestAPIEndpoints:
         assert response.status_code == 200
 
 
-@pytest.mark.asyncio
+@pytest.mark.asyncio()
 class TestRateLimiting:
     """Test rate limiting functionality."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def client(self):
         """Create test client with rate limiting."""
         app = create_app()

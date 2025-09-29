@@ -8,19 +8,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from backend.api.middleware.cors import CORSConfig, setup_cors_middleware
-from backend.api.middleware.error_handler import (
-    ErrorHandlerConfig,
-    setup_error_handling,
-)
-from backend.api.middleware.logging import LoggingConfig, setup_logging_middleware
-from backend.api.middleware.performance import (
-    PerformanceConfig,
-    setup_performance_monitoring,
-)
-from backend.api.middleware.rate_limit import RateLimitConfig, setup_rate_limiting
-from backend.api.middleware.security import SecurityConfig, setup_security_headers
-from backend.api.middleware.tracing import TracingConfig, setup_tracing_middleware
+from ...middleware.cors import CORSConfig, setup_cors_middleware
+from ...middleware.error_handler import ErrorHandlerConfig, setup_error_handling
+from ...middleware.logging import LoggingConfig, setup_logging_middleware
+from ...middleware.performance import PerformanceConfig, setup_performance_monitoring
+from ...middleware.rate_limit import RateLimitConfig, setup_rate_limiting
+from ...middleware.security import SecurityConfig, setup_security_headers
+from ...middleware.tracing import TracingConfig, setup_tracing_middleware
 
 
 class TestModel(BaseModel):
@@ -243,7 +237,7 @@ class TestMiddlewareIntegration:
         time_value = float(response_time.replace("ms", ""))
         assert 0 < time_value < 1000  # Should be under 1 second for simple request
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_slow_request_detection(self):
         """Test slow request detection."""
         with patch("backend.api.middleware.performance.logging"):

@@ -8,11 +8,7 @@ import os
 
 import pytest
 
-from backend.config.loader.env import (
-    EnvironmentError,
-    EnvironmentLoader,
-    TypeConversionError,
-)
+from ..loader.env import EnvironmentError, EnvironmentLoader, TypeConversionError
 
 
 class TestEnvironmentLoader:

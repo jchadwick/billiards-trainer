@@ -177,16 +177,35 @@ export class VideoStore {
     this.clearErrors();
 
     try {
-      this.streamUrl = `${baseUrl}/api/v1/stream/video`;
+      const { apiClient } = await import('../api/client');
 
-      // Test connection first
-      const response = await fetch(`${baseUrl}/api/v1/stream/video/status`);
-      if (!response.ok) {
-        throw new Error(`Failed to connect to stream: ${response.statusText}`);
+      // Update API client base URL if needed
+      if (baseUrl && baseUrl !== 'http://localhost:8080') {
+        // Would need to create a new client instance or update the existing one
+        console.log('Custom base URL requested:', baseUrl);
       }
+
+      // Check stream status first
+      const statusResponse = await apiClient.getStreamStatus();
+      if (!statusResponse.success) {
+        throw new Error(`Failed to get stream status: ${statusResponse.error}`);
+      }
+
+      // Start video capture if not already running
+      const startResponse = await apiClient.startVideoCapture();
+      if (!startResponse.success) {
+        console.warn('Video capture start failed, but continuing:', startResponse.error);
+      }
+
+      // Set stream URL using API client
+      this.streamUrl = apiClient.getVideoStreamUrl(
+        this.getQualityValue(this.config.quality),
+        this.config.fps
+      );
 
       runInAction(() => {
         this.status.connected = true;
+        this.status.streaming = true;
         this.setLoading(false);
       });
 
@@ -201,6 +220,7 @@ export class VideoStore {
       runInAction(() => {
         this.addError(videoError);
         this.status.connected = false;
+        this.status.streaming = false;
         this.setLoading(false);
       });
 
@@ -212,10 +232,19 @@ export class VideoStore {
     }
   }
 
-  disconnect(): void {
-    this.status.connected = false;
-    this.status.streaming = false;
-    this.currentFrame = null;
+  async disconnect(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      await apiClient.stopVideoCapture();
+    } catch (error) {
+      console.warn('Failed to stop video capture:', error);
+    }
+
+    runInAction(() => {
+      this.status.connected = false;
+      this.status.streaming = false;
+      this.currentFrame = null;
+    });
 
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -230,13 +259,71 @@ export class VideoStore {
 
   setFPS(fps: number): void {
     this.config.fps = Math.max(1, Math.min(60, fps));
+
+    // Update stream URL if connected
+    if (this.status.connected) {
+      this.updateStreamUrl();
+    }
+  }
+
+  async refreshStreamStatus(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getStreamStatus();
+
+      if (response.success && response.data) {
+        runInAction(() => {
+          this.status.connected = response.data.camera?.connected || false;
+          this.status.streaming = response.data.streaming?.active_streams > 0 || false;
+          this.status.fps = response.data.vision?.processing_fps || 0;
+          this.status.latency = response.data.streaming?.avg_fps || 0;
+        });
+      }
+    } catch (error) {
+      const videoError: VideoError = {
+        code: 'STATUS_REFRESH_FAILED',
+        message: error instanceof Error ? error.message : 'Failed to refresh status',
+        timestamp: Date.now(),
+        recoverable: true,
+      };
+      this.addError(videoError);
+    }
+  }
+
+  async captureFrame(): Promise<string | null> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const frameUrl = apiClient.getSingleFrameUrl(
+        this.getQualityValue(this.config.quality)
+      );
+
+      return frameUrl;
+    } catch (error) {
+      const videoError: VideoError = {
+        code: 'FRAME_CAPTURE_FAILED',
+        message: error instanceof Error ? error.message : 'Failed to capture frame',
+        timestamp: Date.now(),
+        recoverable: true,
+      };
+      this.addError(videoError);
+      return null;
+    }
+  }
+
+  private updateStreamUrl(): void {
+    if (this.streamUrl) {
+      const { apiClient } = require('../api/client');
+      this.streamUrl = apiClient.getVideoStreamUrl(
+        this.getQualityValue(this.config.quality),
+        this.config.fps
+      );
+    }
   }
 
   // Internal methods
   private updateFPSCalculation(): void {
     // Simple FPS calculation based on frame timestamps
     const now = Date.now();
-    const frameTime = this.currentFrame?.timestamp || now;
 
     if (this.status.lastFrameTime > 0) {
       const deltaTime = (now - this.status.lastFrameTime) / 1000;
@@ -264,7 +351,6 @@ export class VideoStore {
   private startPerformanceMonitoring(): void {
     this.performanceInterval = setInterval(() => {
       // Update performance metrics
-      const now = performance.now();
 
       // Simple memory usage estimation (if available)
       if ('memory' in performance) {

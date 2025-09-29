@@ -3,15 +3,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from backend.core.models import (
-    BallState,
-    GameState,
-    GameType,
-    ShotType,
-    TableState,
-    Vector2D,
-)
-
+from ..models import BallState, GameState, GameType, ShotType, TableState, Vector2D
 from .assistance import AssistanceEngine, AssistanceLevel
 from .prediction import OutcomePredictor
 from .shot import ShotAnalyzer

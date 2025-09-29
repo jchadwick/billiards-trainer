@@ -9,7 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import health monitor with fallback
 try:
-    from backend.system.health_monitor import health_monitor
+    from ...system.health_monitor import health_monitor
 except ImportError:
     try:
         from system.health_monitor import health_monitor

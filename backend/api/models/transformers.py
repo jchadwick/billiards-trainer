@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from backend.config.models.schemas import ConfigProfile, ConfigValue
-from backend.core.analysis.shot import ShotAnalysis
+from ...config.models.schemas import ConfigProfile, ConfigValue
+from ...core.analysis.shot import ShotAnalysis
 
 # Backend model imports
-from backend.core.models import (
+from ...core.models import (
     BallState,
     CueState,
     GameState,
@@ -16,12 +16,11 @@ from backend.core.models import (
     TableState,
     Vector2D,
 )
-from backend.core.physics.trajectory import Trajectory
-from backend.vision.models import Ball as VisionBall
-from backend.vision.models import CueStick as VisionCue
-from backend.vision.models import DetectionResult as VisionDetectionResult
-from backend.vision.models import Table as VisionTable
-
+from ...core.physics.trajectory import Trajectory
+from ...vision.models import Ball as VisionBall
+from ...vision.models import CueStick as VisionCue
+from ...vision.models import DetectionResult as VisionDetectionResult
+from ...vision.models import Table as VisionTable
 from .config_models import (
     ConfigProfileModel,
     ConfigSourceEnum,

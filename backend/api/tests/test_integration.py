@@ -6,7 +6,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from backend.api.integration import (
+from ...config import ConfigurationModule
+from ...core import CoreModule
+from ...vision import VisionModule
+from ..integration import (
     APIIntegration,
     ConfigurationService,
     DetectionService,
@@ -15,15 +18,12 @@ from backend.api.integration import (
     IntegrationError,
     ServiceUnavailableError,
 )
-from backend.config import ConfigurationModule
-from backend.core import CoreModule
-from backend.vision import VisionModule
 
 
 class TestAPIIntegration:
     """Test suite for API Integration."""
 
-    @pytest.fixture
+    @pytest.fixture()
     async def integration_config(self):
         """Test integration configuration."""
         return IntegrationConfig(
@@ -36,7 +36,7 @@ class TestAPIIntegration:
             auto_recovery=True,
         )
 
-    @pytest.fixture
+    @pytest.fixture()
     async def mock_modules(self):
         """Mock backend modules."""
         config_module = Mock(spec=ConfigurationModule)
@@ -59,7 +59,7 @@ class TestAPIIntegration:
 
         return {"config": config_module, "core": core_module, "vision": vision_module}
 
-    @pytest.fixture
+    @pytest.fixture()
     async def integration(self, integration_config, mock_modules):
         """Create integration instance with mocked modules."""
         with (
@@ -215,7 +215,7 @@ class TestAPIIntegration:
 class TestGameStateService:
     """Test suite for Game State Service."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_core_module(self):
         """Mock core module for testing."""
         mock = Mock(spec=CoreModule)
@@ -225,7 +225,7 @@ class TestGameStateService:
         mock.suggest_shots = AsyncMock(return_value=[])
         return mock
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_integration(self):
         """Mock integration for testing."""
         mock = Mock(spec=APIIntegration)
@@ -233,7 +233,7 @@ class TestGameStateService:
         mock.set_cached = AsyncMock()
         return mock
 
-    @pytest.fixture
+    @pytest.fixture()
     def game_service(self, mock_core_module, mock_integration):
         """Create game service with mocks."""
         return GameStateService(mock_core_module, mock_integration)
@@ -314,7 +314,7 @@ class TestGameStateService:
 class TestConfigurationService:
     """Test suite for Configuration Service."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_config_module(self):
         """Mock configuration module."""
         mock = Mock(spec=ConfigurationModule)
@@ -323,14 +323,14 @@ class TestConfigurationService:
         mock.get_all = Mock(return_value={"key1": "value1", "key2": "value2"})
         return mock
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_integration(self):
         """Mock integration for testing."""
         mock = Mock(spec=APIIntegration)
         mock.clear_cache = AsyncMock()
         return mock
 
-    @pytest.fixture
+    @pytest.fixture()
     def config_service(self, mock_config_module, mock_integration):
         """Create configuration service with mocks."""
         return ConfigurationService(mock_config_module, mock_integration)
@@ -368,7 +368,7 @@ class TestConfigurationService:
 class TestDetectionService:
     """Test suite for Detection Service."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_vision_module(self):
         """Mock vision module."""
         mock = Mock(spec=VisionModule)
@@ -378,12 +378,12 @@ class TestDetectionService:
         mock.get_statistics = Mock(return_value={"frames_processed": 100})
         return mock
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_integration(self):
         """Mock integration for testing."""
         return Mock(spec=APIIntegration)
 
-    @pytest.fixture
+    @pytest.fixture()
     def detection_service(self, mock_vision_module, mock_integration):
         """Create detection service with mocks."""
         return DetectionService(mock_vision_module, mock_integration)

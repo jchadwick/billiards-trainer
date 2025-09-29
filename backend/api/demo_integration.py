@@ -382,7 +382,7 @@ class IntegrationDemo:
         try:
             # Demo Vector2D transformation
             logger.info("📐 Vector2D transformation...")
-            from backend.core.models import Vector2D
+            from ..core.models import Vector2D
 
             # Backend to API
             backend_vector = Vector2D(x=100.5, y=200.7)

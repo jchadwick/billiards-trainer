@@ -8,6 +8,12 @@ import { VideoStore } from '../../stores/VideoStore';
 import { VideoStream } from './VideoStream';
 import { StreamControls } from './StreamControls';
 import { OverlayCanvas } from './OverlayCanvas';
+import { SkipLinkTarget } from '../accessibility/SkipLinks';
+import { VideoStatusRegion, GameStatusRegion } from '../accessibility/AnnouncementRegion';
+import { ScreenReaderOnly, VisualDescription } from '../accessibility/ScreenReaderOnly';
+import { FocusManager } from '../accessibility/FocusManager';
+import { useAccessibility } from '../../hooks/useAccessibility';
+import { createVideoControlAria, createVisualDescription } from '../../utils/accessibility';
 import type { Size2D, ViewportTransform, OverlayConfig, Point2D, VideoError } from '../../types/video';
 
 interface LiveViewProps {
@@ -68,6 +74,7 @@ export const LiveView = observer<LiveViewProps>(({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const videoStreamRef = useRef<any>(null);
+  const { announce, reducedMotion } = useAccessibility();
 
   // Viewport transform for zoom/pan
   const [transform, setTransform] = useState<ViewportTransform>({
@@ -110,13 +117,15 @@ export const LiveView = observer<LiveViewProps>(({
     if (!isFullscreen) {
       if (containerRef.current.requestFullscreen) {
         containerRef.current.requestFullscreen();
+        announce('Entered fullscreen mode. Press Escape to exit.');
       }
     } else {
       if (document.exitFullscreen) {
         document.exitFullscreen();
+        announce('Exited fullscreen mode.');
       }
     }
-  }, [isFullscreen]);
+  }, [isFullscreen, announce]);
 
   // Handle fullscreen change events
   useEffect(() => {
@@ -187,90 +196,198 @@ export const LiveView = observer<LiveViewProps>(({
     }));
   }, []);
 
+  // Handle keyboard shortcuts
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.target !== document.body && !(e.target as Element).closest('.video-container')) return;
+
+    switch (e.key) {
+      case 'f':
+      case 'F':
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+          e.preventDefault();
+          handleFullscreen();
+        }
+        break;
+      case 's':
+      case 'S':
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+          e.preventDefault();
+          handleScreenshot();
+        }
+        break;
+      case 'b':
+      case 'B':
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+          e.preventDefault();
+          updateOverlayConfig('balls', { visible: !overlayConfig.balls.visible });
+          announce(`Ball overlay ${overlayConfig.balls.visible ? 'hidden' : 'shown'}`);
+        }
+        break;
+      case 't':
+      case 'T':
+        if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+          e.preventDefault();
+          updateOverlayConfig('trajectories', { visible: !overlayConfig.trajectories.visible });
+          announce(`Trajectory overlay ${overlayConfig.trajectories.visible ? 'hidden' : 'shown'}`);
+        }
+        break;
+      case 'Escape':
+        if (isFullscreen) {
+          handleFullscreen();
+        }
+        break;
+    }
+  }, [handleFullscreen, handleScreenshot, overlayConfig, updateOverlayConfig, announce, isFullscreen]);
+
   return (
-    <div className={`flex flex-col h-full ${className}`}>
+    <div
+      className={`flex flex-col h-full ${className}`}
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
+      {/* Accessibility Status Regions */}
+      <VideoStatusRegion
+        isPlaying={videoStore.isStreaming}
+        isMuted={false}
+      />
+      <GameStatusRegion
+        ballCount={videoStore.currentBalls?.length}
+        detectedObjects={{
+          balls: videoStore.currentBalls?.length || 0,
+          trajectories: videoStore.currentTrajectories?.length || 0,
+          table: !!videoStore.currentTable,
+          cue: !!videoStore.currentCue?.detected
+        }}
+      />
+
       {/* Controls */}
-      <div className="flex-none p-4 bg-gray-100 border-b">
+      <SkipLinkTarget id="video-controls" className="flex-none p-4 bg-gray-100 border-b">
         <StreamControls
           videoStore={videoStore}
           showAdvanced={true}
           onFullscreen={handleFullscreen}
           onScreenshot={handleScreenshot}
         />
-      </div>
+        <ScreenReaderOnly>
+          Video controls. Use keyboard shortcuts: F for fullscreen, S for screenshot, B to toggle ball overlay, T to toggle trajectory overlay
+        </ScreenReaderOnly>
+      </SkipLinkTarget>
 
       {/* Main view area */}
       <div className="flex-1 flex">
         {/* Video and overlay container */}
-        <div
+        <SkipLinkTarget
+          id="video-player"
+          className={`relative flex-1 bg-black video-container ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
           ref={containerRef}
-          className={`relative flex-1 bg-black ${isFullscreen ? 'fixed inset-0 z-50' : ''}`}
         >
-          {/* Video stream */}
-          <VideoStream
-            ref={videoStreamRef}
-            videoStore={videoStore}
-            className="absolute inset-0"
-            onError={handleVideoError}
-            onLoad={handleVideoLoad}
-            onResize={(size) => {
-              handleContainerResize(size);
-              setVideoSize(size);
-            }}
-          />
-
-          {/* Overlay canvas */}
-          {videoStore.isStreaming && containerSize.width > 0 && containerSize.height > 0 && (
-            <OverlayCanvas
-              videoStore={videoStore}
-              videoSize={videoSize}
-              canvasSize={containerSize}
-              transform={transform}
-              config={overlayConfig}
-              className="absolute inset-0"
-              onClick={handleCanvasClick}
-              onDoubleClick={handleCanvasDoubleClick}
-            />
-          )}
-
-          {/* Status overlay */}
-          {!videoStore.isConnected && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
-              <div className="text-white text-center">
-                <div className="text-xl mb-2">Not Connected</div>
-                <div className="text-sm">Use controls above to connect to video stream</div>
+          <FocusManager
+            trapFocus={isFullscreen}
+            onEscape={isFullscreen ? handleFullscreen : undefined}
+          >
+            {/* Screen reader description */}
+            <ScreenReaderOnly>
+              <div role="img" aria-label="Billiards video stream with overlay analysis">
+                {videoStore.isConnected ? (
+                  `Live video stream showing billiards table. ${videoStore.currentBalls?.length || 0} balls detected.
+                   ${videoStore.currentTrajectories?.length || 0} trajectory predictions available.
+                   ${videoStore.currentTable ? 'Table boundaries detected.' : 'Table boundaries not detected.'}
+                   ${videoStore.currentCue?.detected ? 'Cue stick detected.' : 'Cue stick not detected.'}`
+                ) : (
+                  'Video stream not connected. Use controls to connect to video source.'
+                )}
               </div>
-            </div>
-          )}
-        </div>
+            </ScreenReaderOnly>
+
+            {/* Video stream */}
+            <VideoStream
+              ref={videoStreamRef}
+              videoStore={videoStore}
+              className="absolute inset-0"
+              onError={handleVideoError}
+              onLoad={handleVideoLoad}
+              onResize={(size) => {
+                handleContainerResize(size);
+                setVideoSize(size);
+              }}
+            />
+
+            {/* Overlay canvas */}
+            {videoStore.isStreaming && containerSize.width > 0 && containerSize.height > 0 && (
+              <OverlayCanvas
+                videoStore={videoStore}
+                videoSize={videoSize}
+                canvasSize={containerSize}
+                transform={transform}
+                config={overlayConfig}
+                className="absolute inset-0"
+                onClick={handleCanvasClick}
+                onDoubleClick={handleCanvasDoubleClick}
+                role="img"
+                aria-label="Interactive overlay showing ball positions, trajectories, and table analysis"
+              />
+            )}
+
+            {/* Status overlay */}
+            {!videoStore.isConnected && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
+                <div className="text-white text-center" role="status" aria-live="polite">
+                  <div className="text-xl mb-2">Not Connected</div>
+                  <div className="text-sm">Use controls above to connect to video stream</div>
+                </div>
+              </div>
+            )}
+          </FocusManager>
+        </SkipLinkTarget>
 
         {/* Side panel with overlay controls */}
         <div className={`flex-none w-80 bg-white border-l overflow-y-auto ${isFullscreen ? 'hidden' : ''}`}>
           <div className="p-4">
-            <h3 className="text-lg font-semibold mb-4">Overlay Settings</h3>
+            <h3 className="text-lg font-semibold mb-4" id="overlay-settings-heading">
+              Overlay Settings
+            </h3>
+            <ScreenReaderOnly>
+              Control panel for configuring video overlay display options
+            </ScreenReaderOnly>
 
             {/* Ball overlays */}
-            <div className="mb-6">
-              <h4 className="font-medium mb-2">Balls</h4>
-              <div className="space-y-2">
+            <fieldset className="mb-6">
+              <legend className="font-medium mb-2">Ball Display Options</legend>
+              <div className="space-y-2" role="group" aria-labelledby="ball-options-heading">
+                <h4 id="ball-options-heading" className="sr-only">Ball overlay controls</h4>
+
                 <label className="flex items-center">
                   <input
                     type="checkbox"
                     checked={overlayConfig.balls.visible}
-                    onChange={(e) => updateOverlayConfig('balls', { visible: e.target.checked })}
-                    className="mr-2"
+                    onChange={(e) => {
+                      updateOverlayConfig('balls', { visible: e.target.checked });
+                      announce(`Ball overlay ${e.target.checked ? 'enabled' : 'disabled'}`);
+                    }}
+                    className="mr-2 focus:ring-2 focus:ring-blue-500"
+                    aria-describedby="show-balls-desc"
                   />
-                  Show balls
+                  <span>Show balls</span>
+                  <ScreenReaderOnly id="show-balls-desc">
+                    Toggle visibility of ball position markers on the video
+                  </ScreenReaderOnly>
                 </label>
 
                 <label className="flex items-center">
                   <input
                     type="checkbox"
                     checked={overlayConfig.balls.showLabels}
-                    onChange={(e) => updateOverlayConfig('balls', { showLabels: e.target.checked })}
-                    className="mr-2"
+                    onChange={(e) => {
+                      updateOverlayConfig('balls', { showLabels: e.target.checked });
+                      announce(`Ball numbers ${e.target.checked ? 'shown' : 'hidden'}`);
+                    }}
+                    className="mr-2 focus:ring-2 focus:ring-blue-500"
+                    aria-describedby="show-numbers-desc"
                   />
-                  Show numbers
+                  <span>Show numbers</span>
+                  <ScreenReaderOnly id="show-numbers-desc">
+                    Display ball numbers on each detected ball
+                  </ScreenReaderOnly>
                 </label>
 
                 <label className="flex items-center">
@@ -307,7 +424,7 @@ export const LiveView = observer<LiveViewProps>(({
                   <span className="text-sm w-10">{Math.round(overlayConfig.balls.opacity * 100)}%</span>
                 </div>
               </div>
-            </div>
+            </fieldset>
 
             {/* Trajectory overlays */}
             <div className="mb-6">

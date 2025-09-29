@@ -53,6 +53,7 @@ export class ConfigStore {
     makeAutoObservable(this, {}, { autoBind: true });
 
     this.loadDefaultProfiles();
+    this.loadFromBackend();
   }
 
   // Computed values
@@ -272,6 +273,24 @@ export class ConfigStore {
       }
 
       const profileConfig = JSON.parse(JSON.stringify(this.config));
+
+      // Save to backend if possible
+      try {
+        const { apiClient } = await import('../api/client');
+        const response = await apiClient.updateConfiguration(
+          { profiles: { [name]: profileConfig } },
+          'profiles',
+          false,
+          true
+        );
+
+        if (!response.success) {
+          console.warn('Failed to save profile to backend:', response.error);
+          // Continue with local save as fallback
+        }
+      } catch (error) {
+        console.warn('Backend not available, saving profile locally only:', error);
+      }
 
       runInAction(() => {
         this.configProfiles[name] = profileConfig;
@@ -544,5 +563,170 @@ export class ConfigStore {
     }
 
     return errors;
+  }
+
+  // Backend integration methods
+  async loadFromBackend(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getConfiguration();
+
+      if (response.success && response.data) {
+        runInAction(() => {
+          // Merge backend config with local config
+          if (response.data.values) {
+            // Update individual sections if they exist in backend
+            if (response.data.values.camera) {
+              Object.assign(this.config.camera, response.data.values.camera);
+            }
+            if (response.data.values.detection) {
+              Object.assign(this.config.detection, response.data.values.detection);
+            }
+            if (response.data.values.game) {
+              Object.assign(this.config.game, response.data.values.game);
+            }
+            if (response.data.values.ui) {
+              Object.assign(this.config.ui, response.data.values.ui);
+            }
+            if (response.data.values.profiles) {
+              this.configProfiles = { ...this.configProfiles, ...response.data.values.profiles };
+            }
+          }
+          this.isDirty = false;
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to load configuration from backend:', error);
+    }
+  }
+
+  async saveToBackend(): Promise<ActionResult> {
+    try {
+      if (!this.isValid) {
+        throw new Error('Cannot save invalid configuration');
+      }
+
+      const { apiClient } = await import('../api/client');
+      const configData = {
+        camera: this.config.camera,
+        detection: this.config.detection,
+        game: this.config.game,
+        ui: this.config.ui,
+        profiles: this.configProfiles
+      };
+
+      const response = await apiClient.updateConfiguration(configData);
+
+      if (response.success) {
+        runInAction(() => {
+          this.isDirty = false;
+        });
+
+        return {
+          success: true,
+          data: response.data,
+          timestamp: new Date()
+        };
+      } else {
+        throw new Error(response.error || 'Failed to save configuration');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to save configuration to backend',
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async resetToBackendDefaults(): Promise<ActionResult> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.resetConfiguration(true, true, 'all');
+
+      if (response.success) {
+        // Reload configuration from backend
+        await this.loadFromBackend();
+
+        return {
+          success: true,
+          data: response.data,
+          timestamp: new Date()
+        };
+      } else {
+        throw new Error(response.error || 'Failed to reset configuration');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to reset configuration on backend',
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async exportToFile(format: 'json' | 'yaml' = 'json'): Promise<ActionResult> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.exportConfiguration(format);
+
+      if (response.success && response.data) {
+        // Create and trigger download
+        const dataStr = format === 'json'
+          ? JSON.stringify(response.data.data, null, 2)
+          : JSON.stringify(response.data.data); // Would need yaml library for proper YAML export
+
+        const dataBlob = new Blob([dataStr], { type: `application/${format}` });
+        const url = URL.createObjectURL(dataBlob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `billiards-config-${new Date().toISOString().split('T')[0]}.${format}`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        return {
+          success: true,
+          data: { format, size: response.data.size },
+          timestamp: new Date()
+        };
+      } else {
+        throw new Error(response.error || 'Failed to export configuration');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to export configuration',
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async importFromFile(file: File, mergeStrategy: 'replace' | 'merge' = 'merge'): Promise<ActionResult> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.importConfiguration(file, mergeStrategy);
+
+      if (response.success) {
+        // Reload configuration from backend to get the updated values
+        await this.loadFromBackend();
+
+        return {
+          success: true,
+          data: response.data,
+          timestamp: new Date()
+        };
+      } else {
+        throw new Error(response.error || 'Failed to import configuration');
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to import configuration',
+        timestamp: new Date()
+      };
+    }
   }
 }

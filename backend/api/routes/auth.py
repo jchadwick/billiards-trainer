@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 
-from backend.api.database import (
+from ..database import (
     APIKeyCreateRequest,
     APIKeyResponse,
     PasswordResetConfirm,
@@ -21,9 +21,9 @@ from backend.api.database import (
     UserUpdateRequest,
     get_db,
 )
-from backend.api.middleware.authentication import get_current_user, require_admin
-from backend.api.services.auth_service import AuthenticationService
-from backend.api.utils.security import (
+from ..middleware.authentication import get_current_user, require_admin
+from ..services.auth_service import AuthenticationService
+from ..utils.security import (
     JWTUtils,
     PasswordUtils,
     SecurityEventType,

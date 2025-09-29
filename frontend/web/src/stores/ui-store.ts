@@ -488,7 +488,7 @@ export class UIStore {
         return;
       }
 
-      const { key, ctrlKey, metaKey, shiftKey, altKey } = event;
+      const { key, ctrlKey, metaKey, shiftKey } = event;
       const cmdOrCtrl = ctrlKey || metaKey;
 
       // Toggle navigation: Ctrl/Cmd + B

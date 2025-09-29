@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from backend.core.models import BallState, CueState, GameState, TableState
+from ..models import BallState, CueState, GameState, TableState
 
 logger = logging.getLogger(__name__)
 

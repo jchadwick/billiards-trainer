@@ -21,9 +21,9 @@ from functools import wraps
 from typing import Any, Callable, Optional
 
 # Backend module imports
-from backend.config import ConfigurationModule
-from backend.core import CoreModule, CoreModuleConfig
-from backend.vision import VisionModule
+from ..config import ConfigurationModule
+from ..core import CoreModule, CoreModuleConfig
+from ..vision import VisionModule
 
 # Set up logging
 logger = logging.getLogger(__name__)

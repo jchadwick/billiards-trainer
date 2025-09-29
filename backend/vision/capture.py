@@ -25,11 +25,7 @@ import numpy as np
 
 # Import configuration types
 try:
-    from backend.config.models.schemas import (
-        CameraBackend,
-        CameraSettings,
-        ExposureMode,
-    )
+    from ..config.models.schemas import CameraBackend, CameraSettings, ExposureMode
 except ImportError:
     # Fallback for development/testing
     from enum import Enum

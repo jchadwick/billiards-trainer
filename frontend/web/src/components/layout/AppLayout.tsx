@@ -6,6 +6,9 @@ import { Sidebar } from './Sidebar'
 import { MainContent } from './MainContent'
 import { Footer } from './Footer'
 import { FullScreenLoading } from '../ui/LoadingSpinner'
+import { SkipLinks, SkipLinkTarget } from '../accessibility/SkipLinks'
+import { AnnouncementRegion } from '../accessibility/AnnouncementRegion'
+import { useKeyboardDetection } from '../../hooks/useAccessibility'
 import type { SystemInfo } from '../../types'
 
 export interface AppLayoutProps {
@@ -22,16 +25,25 @@ export const AppLayout = observer<AppLayoutProps>(({
   showFooter = true,
 }) => {
   const uiStore = useUIStore()
+  const isKeyboardUser = useKeyboardDetection()
 
   return (
-    <div className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${className}`}>
+    <div className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${className} ${isKeyboardUser ? 'keyboard-user' : ''}`}>
+      {/* Skip Links for keyboard navigation */}
+      <SkipLinks />
+
+      {/* Accessibility Announcement Region */}
+      <AnnouncementRegion />
+
       {/* Global Loading Overlay */}
       {uiStore.globalLoading && (
         <FullScreenLoading text={uiStore.loadingText} />
       )}
 
       {/* Header */}
-      <Header />
+      <SkipLinkTarget id="main-navigation" as="header">
+        <Header />
+      </SkipLinkTarget>
 
       {/* Sidebar */}
       <Sidebar />
@@ -39,11 +51,11 @@ export const AppLayout = observer<AppLayoutProps>(({
       {/* Main Content Area */}
       <div className="flex flex-col min-h-screen">
         {/* Main content */}
-        <div className="flex-1">
+        <SkipLinkTarget id="main-content" as="main" className="flex-1">
           <MainContent>
             {children}
           </MainContent>
-        </div>
+        </SkipLinkTarget>
 
         {/* Footer */}
         {showFooter && (

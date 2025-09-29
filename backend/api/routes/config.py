@@ -18,17 +18,9 @@ import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from backend.api.dependencies import (
-    dev_admin_required,
-    dev_viewer_required,
-    get_config_module,
-)
-from backend.api.models.common import (
-    ErrorCode,
-    create_error_response,
-    create_success_response,
-)
-from backend.api.models.responses import (
+from ..dependencies import dev_admin_required, dev_viewer_required, get_config_module
+from ..models.common import ErrorCode, create_error_response, create_success_response
+from ..models.responses import (
     ConfigExportResponse,
     ConfigResponse,
     ConfigUpdateResponse,
@@ -36,7 +28,7 @@ from backend.api.models.responses import (
 )
 
 try:
-    from backend.config import ConfigurationModule
+    from ...config import ConfigurationModule
 except ImportError:
     from config import ConfigurationModule
 

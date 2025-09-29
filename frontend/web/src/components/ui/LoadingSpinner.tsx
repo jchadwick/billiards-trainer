@@ -43,7 +43,7 @@ export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({
         />
       </svg>
       {text && (
-        <p className="mt-2 text-sm text-secondary-600 dark:text-secondary-400">
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
           {text}
         </p>
       )}
@@ -66,7 +66,7 @@ export interface FullScreenLoadingProps {
 }
 
 export const FullScreenLoading: React.FC<FullScreenLoadingProps> = ({ text = 'Loading...' }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-secondary-900/80 backdrop-blur-sm">
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
     <LoadingSpinner size="xl" text={text} />
   </div>
 )

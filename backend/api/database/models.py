@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
-from backend.api.utils.security import PasswordUtils, UserRole, input_validator
+from ..utils.security import PasswordUtils, UserRole, input_validator
 
 Base = declarative_base()
 

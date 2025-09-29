@@ -8,8 +8,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from backend.api.utils.security import SecurityEvent, SecurityEventType, security_logger
-
+from ..utils.security import SecurityEvent, SecurityEventType, security_logger
 from .enhanced_session import SessionData, SessionStatus
 
 logger = logging.getLogger(__name__)

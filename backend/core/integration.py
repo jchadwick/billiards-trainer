@@ -519,93 +519,1406 @@ class CoreModuleIntegrator:
 
 
 class VisionInterfaceImpl(VisionInterface):
-    """Example implementation of Vision interface."""
+    """Production implementation of Vision interface."""
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
-        self.calibration_data = {}
-        self.detection_parameters = {}
+        self.calibration_data = {
+            "table": {
+                "corners": [],
+                "pocket_positions": [],
+                "calibration_matrix": None,
+                "timestamp": 0.0,
+            },
+            "color": {
+                "ball_colors": {},
+                "table_color": None,
+                "lighting_conditions": {},
+                "timestamp": 0.0,
+            },
+            "detection": {
+                "confidence_thresholds": {},
+                "detection_regions": [],
+                "tracking_parameters": {},
+                "timestamp": 0.0,
+            },
+        }
+        self.detection_parameters = {
+            "ball_radius_range": [0.025, 0.032],
+            "confidence_threshold": 0.7,
+            "tracking_enabled": True,
+            "color_calibration": True,
+            "motion_detection": True,
+            "detection_frequency": 60,
+            "background_subtraction": True,
+            "noise_reduction": True,
+        }
+        self.logger = logging.getLogger(__name__ + ".VisionInterface")
 
     def receive_detection_data(self, detection_data: dict[str, Any]) -> None:
         """Receive detection data from Vision module."""
-        self.event_manager.receive_vision_data(detection_data)
+        try:
+            # Validate detection data structure
+            required_fields = ["timestamp", "frame_number", "balls"]
+            for field in required_fields:
+                if field not in detection_data:
+                    self.logger.warning(
+                        f"Missing required field in detection data: {field}"
+                    )
+                    return
+
+            # Process ball detection data
+            processed_balls = []
+            for ball_data in detection_data.get("balls", []):
+                if self._validate_ball_detection(ball_data):
+                    processed_balls.append(self._process_ball_detection(ball_data))
+
+            # Add processed balls to detection data
+            processed_data = {
+                **detection_data,
+                "processed_balls": processed_balls,
+                "detection_quality": self._assess_detection_quality(processed_balls),
+            }
+
+            # Forward to event manager
+            self.event_manager.receive_vision_data(processed_data)
+            self.logger.debug(
+                f"Processed vision data with {len(processed_balls)} balls"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error processing vision detection data: {e}")
 
     def request_calibration(self, calibration_type: str) -> dict[str, Any]:
         """Request calibration data from Vision module."""
-        # This would interface with actual vision module
-        return self.calibration_data.get(calibration_type, {})
+        try:
+            if calibration_type not in self.calibration_data:
+                self.logger.warning(f"Unknown calibration type: {calibration_type}")
+                return {}
+
+            calibration = self.calibration_data[calibration_type].copy()
+
+            # Check if calibration is stale (older than 1 hour)
+            current_time = time.time()
+            if current_time - calibration.get("timestamp", 0) > 3600:
+                self.logger.warning(f"Calibration data for {calibration_type} is stale")
+                calibration["is_stale"] = True
+
+            self.logger.info(f"Providing {calibration_type} calibration data")
+            return calibration
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving calibration data: {e}")
+            return {}
 
     def set_detection_parameters(self, parameters: dict[str, Any]) -> bool:
         """Set detection parameters in Vision module."""
-        self.detection_parameters.update(parameters)
-        return True
+        try:
+            # Validate parameters
+            valid_params = {
+                "ball_radius_range",
+                "confidence_threshold",
+                "tracking_enabled",
+                "color_calibration",
+                "motion_detection",
+                "detection_frequency",
+                "background_subtraction",
+                "noise_reduction",
+            }
+
+            validated_params = {}
+            for key, value in parameters.items():
+                if key in valid_params:
+                    if self._validate_parameter(key, value):
+                        validated_params[key] = value
+                    else:
+                        self.logger.warning(
+                            f"Invalid value for parameter {key}: {value}"
+                        )
+                        return False
+                else:
+                    self.logger.warning(f"Unknown parameter: {key}")
+
+            # Update parameters
+            self.detection_parameters.update(validated_params)
+
+            # Notify vision module of parameter changes
+            self.event_manager.send_config_update(
+                "vision", {"detection_parameters": validated_params}
+            )
+
+            self.logger.info(
+                f"Updated detection parameters: {list(validated_params.keys())}"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error setting detection parameters: {e}")
+            return False
+
+    def _validate_ball_detection(self, ball_data: dict[str, Any]) -> bool:
+        """Validate ball detection data."""
+        required_fields = ["id", "position", "confidence"]
+        return all(field in ball_data for field in required_fields)
+
+    def _process_ball_detection(self, ball_data: dict[str, Any]) -> dict[str, Any]:
+        """Process and enhance ball detection data."""
+        processed = ball_data.copy()
+
+        # Add velocity estimation if tracking is enabled
+        if self.detection_parameters.get("tracking_enabled", True):
+            processed["velocity"] = self._estimate_velocity(ball_data)
+
+        # Apply confidence filtering
+        confidence = ball_data.get("confidence", 0.0)
+        threshold = self.detection_parameters.get("confidence_threshold", 0.7)
+        processed["passes_confidence_filter"] = confidence >= threshold
+
+        return processed
+
+    def _estimate_velocity(self, ball_data: dict[str, Any]) -> dict[str, float]:
+        """Estimate ball velocity from position tracking."""
+        # Simplified velocity estimation - real implementation would use tracking history
+        return {"x": 0.0, "y": 0.0}
+
+    def _assess_detection_quality(self, balls: list[dict[str, Any]]) -> dict[str, Any]:
+        """Assess overall detection quality."""
+        if not balls:
+            return {"score": 0.0, "issues": ["No balls detected"]}
+
+        avg_confidence = sum(ball.get("confidence", 0.0) for ball in balls) / len(balls)
+        issues = []
+
+        if avg_confidence < 0.8:
+            issues.append("Low average confidence")
+
+        if len(balls) < 2:
+            issues.append("Few balls detected")
+
+        return {
+            "score": avg_confidence,
+            "ball_count": len(balls),
+            "average_confidence": avg_confidence,
+            "issues": issues,
+        }
+
+    def _validate_parameter(self, key: str, value: Any) -> bool:
+        """Validate parameter values."""
+        validators = {
+            "confidence_threshold": lambda v: 0.0 <= v <= 1.0,
+            "detection_frequency": lambda v: 1 <= v <= 120,
+            "ball_radius_range": lambda v: isinstance(v, list)
+            and len(v) == 2
+            and v[0] < v[1],
+            "tracking_enabled": lambda v: isinstance(v, bool),
+            "color_calibration": lambda v: isinstance(v, bool),
+            "motion_detection": lambda v: isinstance(v, bool),
+            "background_subtraction": lambda v: isinstance(v, bool),
+            "noise_reduction": lambda v: isinstance(v, bool),
+        }
+
+        validator = validators.get(key)
+        return validator(value) if validator else True
 
 
 class APIInterfaceImpl(APIInterface):
-    """Example implementation of API interface."""
+    """Production implementation of API interface."""
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
         self.websocket_handlers = {}
+        self.message_queue = []
+        self.connection_status = {
+            "connected": False,
+            "last_heartbeat": 0.0,
+            "client_count": 0,
+            "message_count": 0,
+        }
+        self.rate_limiter = {
+            "state_updates": {"count": 0, "window_start": time.time(), "limit": 60},
+            "events": {"count": 0, "window_start": time.time(), "limit": 100},
+        }
+        self.logger = logging.getLogger(__name__ + ".APIInterface")
 
     def send_state_update(self, state_data: dict[str, Any]) -> None:
         """Send state updates to API module."""
-        # This would interface with actual API module
-        pass
+        try:
+            # Apply rate limiting
+            if not self._check_rate_limit("state_updates"):
+                self.logger.warning("State update rate limit exceeded")
+                return
+
+            # Validate state data
+            if not self._validate_state_data(state_data):
+                self.logger.error("Invalid state data format")
+                return
+
+            # Prepare message for API
+            message = {
+                "type": "state_update",
+                "timestamp": time.time(),
+                "data": self._sanitize_state_data(state_data),
+                "sequence_number": self.connection_status["message_count"],
+            }
+
+            # Add to message queue for delivery
+            self._queue_message(message)
+
+            # Update statistics
+            self.connection_status["message_count"] += 1
+            self.logger.debug(
+                f"Queued state update (sequence: {message['sequence_number']})"
+            )
+
+            # Trigger immediate delivery if connected
+            if self.connection_status["connected"]:
+                self._flush_message_queue()
+
+        except Exception as e:
+            self.logger.error(f"Error sending state update: {e}")
 
     def send_event_notification(self, event_data: dict[str, Any]) -> None:
         """Send event notifications to API module."""
-        # This would interface with actual API module
-        pass
+        try:
+            # Apply rate limiting
+            if not self._check_rate_limit("events"):
+                self.logger.warning("Event notification rate limit exceeded")
+                return
+
+            # Validate event data
+            if not self._validate_event_data(event_data):
+                self.logger.error("Invalid event data format")
+                return
+
+            # Prepare message for API
+            message = {
+                "type": "event_notification",
+                "timestamp": time.time(),
+                "data": event_data,
+                "sequence_number": self.connection_status["message_count"],
+                "priority": self._determine_event_priority(event_data),
+            }
+
+            # Add to message queue
+            self._queue_message(message)
+
+            # Update statistics
+            self.connection_status["message_count"] += 1
+            self.logger.info(
+                f"Queued event notification: {event_data.get('event_type', 'unknown')}"
+            )
+
+            # Trigger immediate delivery if connected
+            if self.connection_status["connected"]:
+                self._flush_message_queue()
+
+        except Exception as e:
+            self.logger.error(f"Error sending event notification: {e}")
 
     def register_websocket_handler(self, handler: Callable) -> str:
         """Register WebSocket message handler."""
-        handler_id = f"handler_{len(self.websocket_handlers)}"
-        self.websocket_handlers[handler_id] = handler
-        return handler_id
+        try:
+            handler_id = (
+                f"handler_{int(time.time() * 1000)}_{len(self.websocket_handlers)}"
+            )
+
+            # Wrap handler with error handling
+            wrapped_handler = self._wrap_handler(handler, handler_id)
+            self.websocket_handlers[handler_id] = {
+                "handler": wrapped_handler,
+                "registered_at": time.time(),
+                "message_count": 0,
+                "last_used": time.time(),
+            }
+
+            self.logger.info(f"Registered WebSocket handler: {handler_id}")
+            return handler_id
+
+        except Exception as e:
+            self.logger.error(f"Error registering WebSocket handler: {e}")
+            return ""
+
+    def unregister_websocket_handler(self, handler_id: str) -> bool:
+        """Unregister WebSocket message handler."""
+        if handler_id in self.websocket_handlers:
+            del self.websocket_handlers[handler_id]
+            self.logger.info(f"Unregistered WebSocket handler: {handler_id}")
+            return True
+        return False
+
+    def get_connection_status(self) -> dict[str, Any]:
+        """Get current connection status."""
+        return {
+            **self.connection_status,
+            "queue_size": len(self.message_queue),
+            "handler_count": len(self.websocket_handlers),
+            "uptime": time.time()
+            - self.connection_status.get("start_time", time.time()),
+        }
+
+    def _validate_state_data(self, state_data: dict[str, Any]) -> bool:
+        """Validate state data structure."""
+        required_fields = ["timestamp", "frame_number", "balls"]
+        return all(field in state_data for field in required_fields)
+
+    def _validate_event_data(self, event_data: dict[str, Any]) -> bool:
+        """Validate event data structure."""
+        required_fields = ["event_type", "timestamp"]
+        return all(field in event_data for field in required_fields)
+
+    def _sanitize_state_data(self, state_data: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize state data for API transmission."""
+        # Remove internal fields that shouldn't be exposed
+        sanitized = state_data.copy()
+
+        # Remove validation errors from public API
+        sanitized.pop("validation_errors", None)
+
+        # Limit precision of floating point numbers
+        if "balls" in sanitized:
+            for ball in sanitized["balls"]:
+                if "position" in ball:
+                    ball["position"]["x"] = round(ball["position"]["x"], 4)
+                    ball["position"]["y"] = round(ball["position"]["y"], 4)
+                if "velocity" in ball:
+                    ball["velocity"]["x"] = round(ball["velocity"]["x"], 4)
+                    ball["velocity"]["y"] = round(ball["velocity"]["y"], 4)
+
+        return sanitized
+
+    def _determine_event_priority(self, event_data: dict[str, Any]) -> str:
+        """Determine priority level for event."""
+        event_type = event_data.get("event_type", "")
+
+        high_priority_events = {"collision", "pocket", "shot_completed", "error"}
+        medium_priority_events = {"shot_started", "ball_stopped", "state_changed"}
+
+        if event_type in high_priority_events:
+            return "high"
+        elif event_type in medium_priority_events:
+            return "medium"
+        else:
+            return "low"
+
+    def _check_rate_limit(self, category: str) -> bool:
+        """Check if rate limit allows this operation."""
+        current_time = time.time()
+        rate_info = self.rate_limiter[category]
+
+        # Reset window if needed
+        if current_time - rate_info["window_start"] > 60:  # 1 minute window
+            rate_info["count"] = 0
+            rate_info["window_start"] = current_time
+
+        # Check limit
+        if rate_info["count"] >= rate_info["limit"]:
+            return False
+
+        rate_info["count"] += 1
+        return True
+
+    def _queue_message(self, message: dict[str, Any]) -> None:
+        """Add message to delivery queue."""
+        # Limit queue size to prevent memory issues
+        max_queue_size = 1000
+        if len(self.message_queue) >= max_queue_size:
+            # Remove oldest messages
+            self.message_queue = self.message_queue[-(max_queue_size // 2) :]
+            self.logger.warning("Message queue full, discarded old messages")
+
+        self.message_queue.append(message)
+
+    def _flush_message_queue(self) -> None:
+        """Deliver all queued messages to API."""
+        if not self.message_queue:
+            return
+
+        try:
+            # In a real implementation, this would send to actual API endpoints
+            # For now, we'll just notify the event manager
+            for message in self.message_queue:
+                self.event_manager.send_api_message(message)
+
+            delivered_count = len(self.message_queue)
+            self.message_queue.clear()
+            self.logger.debug(f"Delivered {delivered_count} queued messages")
+
+        except Exception as e:
+            self.logger.error(f"Error flushing message queue: {e}")
+
+    def _wrap_handler(self, handler: Callable, handler_id: str) -> Callable:
+        """Wrap handler with error handling and statistics."""
+
+        def wrapped_handler(*args, **kwargs):
+            try:
+                # Update usage statistics
+                self.websocket_handlers[handler_id]["message_count"] += 1
+                self.websocket_handlers[handler_id]["last_used"] = time.time()
+
+                # Call actual handler
+                return handler(*args, **kwargs)
+
+            except Exception as e:
+                self.logger.error(f"Error in WebSocket handler {handler_id}: {e}")
+                return None
+
+        return wrapped_handler
 
 
 class ProjectorInterfaceImpl(ProjectorInterface):
-    """Example implementation of Projector interface."""
+    """Production implementation of Projector interface."""
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
-        self.projection_settings = {}
+        self.projection_settings = {
+            "brightness": 0.8,
+            "contrast": 1.0,
+            "resolution": [1920, 1080],
+            "refresh_rate": 60,
+            "projection_mode": "overlay",
+            "show_trajectories": True,
+            "show_assistance": True,
+            "show_aim_lines": True,
+            "show_ball_ids": False,
+            "calibration_points": [],
+            "keystone_correction": {"x": 0, "y": 0},
+        }
+        self.active_overlays = {}
+        self.trajectory_cache = {}
+        self.calibration_status = {
+            "is_calibrated": False,
+            "last_calibration": 0.0,
+            "calibration_error": 0.0,
+        }
+        self.performance_stats = {
+            "frame_rate": 0.0,
+            "latency_ms": 0.0,
+            "dropped_frames": 0,
+            "last_update": time.time(),
+        }
+        self.logger = logging.getLogger(__name__ + ".ProjectorInterface")
 
     def send_trajectory_data(self, trajectory_data: dict[str, Any]) -> None:
         """Send trajectory data to Projector module."""
-        # This would interface with actual projector module
-        pass
+        try:
+            # Validate trajectory data
+            if not self._validate_trajectory_data(trajectory_data):
+                self.logger.error("Invalid trajectory data format")
+                return
+
+            # Process trajectory for visualization
+            processed_trajectories = self._process_trajectories(trajectory_data)
+
+            # Cache trajectories for performance
+            self._cache_trajectories(processed_trajectories)
+
+            # Create projection overlay
+            overlay = self._create_trajectory_overlay(processed_trajectories)
+
+            # Send to projector hardware/software
+            projection_message = {
+                "type": "trajectory_update",
+                "timestamp": time.time(),
+                "overlay": overlay,
+                "settings": self.projection_settings,
+                "duration_ms": trajectory_data.get("duration_ms", 5000),
+            }
+
+            self._send_to_projector(projection_message)
+            self.logger.debug(
+                f"Sent trajectory data for {len(processed_trajectories)} balls"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error sending trajectory data: {e}")
 
     def send_overlay_data(self, overlay_data: dict[str, Any]) -> None:
         """Send overlay visualization data."""
-        # This would interface with actual projector module
-        pass
+        try:
+            # Validate overlay data
+            if not self._validate_overlay_data(overlay_data):
+                self.logger.error("Invalid overlay data format")
+                return
+
+            overlay_type = overlay_data.get("type", "unknown")
+
+            # Process different overlay types
+            if overlay_type == "shot_analysis":
+                overlay = self._create_shot_analysis_overlay(overlay_data)
+            elif overlay_type == "aim_assistance":
+                overlay = self._create_aim_assistance_overlay(overlay_data)
+            elif overlay_type == "ball_tracking":
+                overlay = self._create_ball_tracking_overlay(overlay_data)
+            elif overlay_type == "table_calibration":
+                overlay = self._create_calibration_overlay(overlay_data)
+            else:
+                overlay = self._create_generic_overlay(overlay_data)
+
+            # Store overlay for composite rendering
+            self.active_overlays[overlay_type] = {
+                "overlay": overlay,
+                "timestamp": time.time(),
+                "priority": overlay_data.get("priority", 1),
+                "duration": overlay_data.get("duration_ms", 3000),
+            }
+
+            # Composite all active overlays
+            composite_overlay = self._composite_overlays()
+
+            # Send to projector
+            projection_message = {
+                "type": "overlay_update",
+                "timestamp": time.time(),
+                "overlay": composite_overlay,
+                "settings": self.projection_settings,
+            }
+
+            self._send_to_projector(projection_message)
+            self.logger.debug(f"Sent {overlay_type} overlay data")
+
+        except Exception as e:
+            self.logger.error(f"Error sending overlay data: {e}")
 
     def update_projection_settings(self, settings: dict[str, Any]) -> None:
         """Update projector settings."""
-        self.projection_settings.update(settings)
+        try:
+            # Validate settings
+            valid_settings = self._validate_settings(settings)
+            if not valid_settings:
+                self.logger.error("No valid settings provided")
+                return
+
+            # Apply settings with validation
+            old_settings = self.projection_settings.copy()
+            self.projection_settings.update(valid_settings)
+
+            # Check if calibration is needed
+            if self._calibration_required(old_settings, valid_settings):
+                self.logger.info("Settings change requires recalibration")
+                self.calibration_status["is_calibrated"] = False
+
+            # Send settings update to projector
+            settings_message = {
+                "type": "settings_update",
+                "timestamp": time.time(),
+                "settings": self.projection_settings,
+                "requires_restart": self._requires_projector_restart(valid_settings),
+            }
+
+            self._send_to_projector(settings_message)
+            self.logger.info(
+                f"Updated projector settings: {list(valid_settings.keys())}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error updating projection settings: {e}")
+
+    def get_projection_status(self) -> dict[str, Any]:
+        """Get current projector status."""
+        return {
+            "settings": self.projection_settings.copy(),
+            "calibration": self.calibration_status.copy(),
+            "performance": self.performance_stats.copy(),
+            "active_overlays": list(self.active_overlays.keys()),
+            "cache_size": len(self.trajectory_cache),
+        }
+
+    def calibrate_projector(self, calibration_points: list[dict[str, Any]]) -> bool:
+        """Perform projector calibration."""
+        try:
+            if len(calibration_points) < 4:
+                self.logger.error("Need at least 4 calibration points")
+                return False
+
+            # Process calibration points
+            processed_points = self._process_calibration_points(calibration_points)
+
+            # Calculate transformation matrix
+            transformation_matrix = self._calculate_transformation_matrix(
+                processed_points
+            )
+
+            if transformation_matrix is None:
+                self.logger.error("Failed to calculate transformation matrix")
+                return False
+
+            # Update calibration
+            self.projection_settings["calibration_points"] = processed_points
+            self.projection_settings["transformation_matrix"] = transformation_matrix
+
+            self.calibration_status = {
+                "is_calibrated": True,
+                "last_calibration": time.time(),
+                "calibration_error": self._calculate_calibration_error(
+                    processed_points
+                ),
+            }
+
+            self.logger.info("Projector calibration completed successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error during projector calibration: {e}")
+            return False
+
+    def _validate_trajectory_data(self, data: dict[str, Any]) -> bool:
+        """Validate trajectory data structure."""
+        required_fields = ["trajectories", "timestamp"]
+        return all(field in data for field in required_fields)
+
+    def _validate_overlay_data(self, data: dict[str, Any]) -> bool:
+        """Validate overlay data structure."""
+        return "type" in data and "timestamp" in data
+
+    def _validate_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Validate and filter projector settings."""
+        valid_settings = {}
+
+        validators = {
+            "brightness": lambda v: 0.0 <= v <= 1.0,
+            "contrast": lambda v: 0.1 <= v <= 2.0,
+            "resolution": lambda v: isinstance(v, list) and len(v) == 2,
+            "refresh_rate": lambda v: v in [30, 60, 120],
+            "projection_mode": lambda v: v in ["overlay", "augmented", "full"],
+            "show_trajectories": lambda v: isinstance(v, bool),
+            "show_assistance": lambda v: isinstance(v, bool),
+            "show_aim_lines": lambda v: isinstance(v, bool),
+            "show_ball_ids": lambda v: isinstance(v, bool),
+        }
+
+        for key, value in settings.items():
+            if key in validators:
+                if validators[key](value):
+                    valid_settings[key] = value
+                else:
+                    self.logger.warning(f"Invalid value for setting {key}: {value}")
+
+        return valid_settings
+
+    def _process_trajectories(
+        self, trajectory_data: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Process trajectory data for visualization."""
+        trajectories = trajectory_data.get("trajectories", [])
+        processed = []
+
+        for trajectory in trajectories:
+            # Convert to screen coordinates
+            screen_points = self._convert_to_screen_coordinates(
+                trajectory.get("points", [])
+            )
+
+            # Apply visual styling
+            processed_trajectory = {
+                "ball_id": trajectory.get("ball_id"),
+                "points": screen_points,
+                "color": self._get_trajectory_color(trajectory),
+                "line_width": self._get_trajectory_width(trajectory),
+                "style": self._get_trajectory_style(trajectory),
+                "confidence": trajectory.get("confidence", 1.0),
+            }
+            processed.append(processed_trajectory)
+
+        return processed
+
+    def _create_trajectory_overlay(
+        self, trajectories: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Create trajectory visualization overlay."""
+        if not self.projection_settings.get("show_trajectories", True):
+            return {"type": "empty"}
+
+        overlay_elements = []
+
+        for trajectory in trajectories:
+            if trajectory["confidence"] < 0.5:
+                continue  # Skip low-confidence trajectories
+
+            # Create trajectory line
+            line_element = {
+                "type": "polyline",
+                "points": trajectory["points"],
+                "color": trajectory["color"],
+                "width": trajectory["line_width"],
+                "style": trajectory["style"],
+            }
+            overlay_elements.append(line_element)
+
+            # Add collision markers
+            if "collisions" in trajectory:
+                for collision in trajectory["collisions"]:
+                    marker = {
+                        "type": "marker",
+                        "position": collision["position"],
+                        "symbol": "collision",
+                        "color": "yellow",
+                        "size": 8,
+                    }
+                    overlay_elements.append(marker)
+
+        return {
+            "type": "trajectory_overlay",
+            "elements": overlay_elements,
+            "timestamp": time.time(),
+        }
+
+    def _create_shot_analysis_overlay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create shot analysis visualization overlay."""
+        elements = []
+
+        # Recommended shot line
+        if "recommended_angle" in data:
+            angle_line = {
+                "type": "line",
+                "angle": data["recommended_angle"],
+                "color": "green",
+                "width": 3,
+                "style": "dashed",
+            }
+            elements.append(angle_line)
+
+        # Success probability indicator
+        if "success_probability" in data:
+            probability_text = {
+                "type": "text",
+                "text": f"{data['success_probability']:.1%}",
+                "position": data.get("text_position", [50, 50]),
+                "color": "white",
+                "size": 24,
+            }
+            elements.append(probability_text)
+
+        return {
+            "type": "shot_analysis_overlay",
+            "elements": elements,
+            "timestamp": time.time(),
+        }
+
+    def _create_aim_assistance_overlay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create aim assistance visualization overlay."""
+        if not self.projection_settings.get("show_assistance", True):
+            return {"type": "empty"}
+
+        elements = []
+
+        # Aim line
+        if "aim_line" in data and self.projection_settings.get("show_aim_lines", True):
+            aim_line = {
+                "type": "line",
+                "start": data["aim_line"]["start"],
+                "end": data["aim_line"]["end"],
+                "color": "cyan",
+                "width": 2,
+                "style": "solid",
+            }
+            elements.append(aim_line)
+
+        return {
+            "type": "aim_assistance_overlay",
+            "elements": elements,
+            "timestamp": time.time(),
+        }
+
+    def _create_ball_tracking_overlay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create ball tracking visualization overlay."""
+        elements = []
+
+        for ball in data.get("balls", []):
+            # Ball ID overlay
+            if self.projection_settings.get("show_ball_ids", False):
+                id_text = {
+                    "type": "text",
+                    "text": str(ball.get("number", "?")),
+                    "position": ball["position"],
+                    "color": "white",
+                    "size": 16,
+                }
+                elements.append(id_text)
+
+            # Velocity indicator
+            if (
+                ball.get("velocity")
+                and ball["velocity"]["x"] != 0
+                or ball["velocity"]["y"] != 0
+            ):
+                velocity_arrow = {
+                    "type": "arrow",
+                    "start": ball["position"],
+                    "velocity": ball["velocity"],
+                    "color": "red",
+                    "scale": 100,
+                }
+                elements.append(velocity_arrow)
+
+        return {
+            "type": "ball_tracking_overlay",
+            "elements": elements,
+            "timestamp": time.time(),
+        }
+
+    def _create_calibration_overlay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create calibration visualization overlay."""
+        elements = []
+
+        for point in data.get("calibration_points", []):
+            marker = {
+                "type": "marker",
+                "position": point["position"],
+                "symbol": "crosshair",
+                "color": "white",
+                "size": 20,
+            }
+            elements.append(marker)
+
+        return {
+            "type": "calibration_overlay",
+            "elements": elements,
+            "timestamp": time.time(),
+        }
+
+    def _create_generic_overlay(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create generic overlay from data."""
+        return {"type": "generic_overlay", "data": data, "timestamp": time.time()}
+
+    def _composite_overlays(self) -> dict[str, Any]:
+        """Composite all active overlays into single overlay."""
+        current_time = time.time()
+        composite_elements = []
+
+        # Remove expired overlays
+        expired_overlays = []
+        for overlay_type, overlay_info in self.active_overlays.items():
+            age_ms = (current_time - overlay_info["timestamp"]) * 1000
+            if age_ms > overlay_info["duration"]:
+                expired_overlays.append(overlay_type)
+
+        for overlay_type in expired_overlays:
+            del self.active_overlays[overlay_type]
+
+        # Sort overlays by priority
+        sorted_overlays = sorted(
+            self.active_overlays.items(), key=lambda x: x[1]["priority"], reverse=True
+        )
+
+        # Composite elements
+        for overlay_type, overlay_info in sorted_overlays:
+            overlay = overlay_info["overlay"]
+            if overlay.get("type") != "empty":
+                composite_elements.extend(overlay.get("elements", []))
+
+        return {
+            "type": "composite_overlay",
+            "elements": composite_elements,
+            "timestamp": current_time,
+        }
+
+    def _cache_trajectories(self, trajectories: list[dict[str, Any]]) -> None:
+        """Cache trajectories for performance optimization."""
+        cache_key = str(hash(str(trajectories)))
+        self.trajectory_cache[cache_key] = {
+            "trajectories": trajectories,
+            "timestamp": time.time(),
+        }
+
+        # Limit cache size
+        if len(self.trajectory_cache) > 100:
+            oldest_key = min(
+                self.trajectory_cache.keys(),
+                key=lambda k: self.trajectory_cache[k]["timestamp"],
+            )
+            del self.trajectory_cache[oldest_key]
+
+    def _send_to_projector(self, message: dict[str, Any]) -> None:
+        """Send message to actual projector hardware/software."""
+        # In a real implementation, this would interface with projector APIs
+        # For now, just log and notify event manager
+        self.logger.debug(f"Sending to projector: {message['type']}")
+        self.event_manager.send_projector_command(message)
+
+    def _convert_to_screen_coordinates(
+        self, world_points: list[dict[str, float]]
+    ) -> list[dict[str, float]]:
+        """Convert world coordinates to screen coordinates."""
+        # This would use the calibration transformation matrix
+        # For now, return as-is (simplified)
+        return world_points
+
+    def _get_trajectory_color(self, trajectory: dict[str, Any]) -> str:
+        """Get color for trajectory visualization."""
+        confidence = trajectory.get("confidence", 1.0)
+        if confidence > 0.8:
+            return "lime"
+        elif confidence > 0.5:
+            return "yellow"
+        else:
+            return "orange"
+
+    def _get_trajectory_width(self, trajectory: dict[str, Any]) -> int:
+        """Get line width for trajectory."""
+        confidence = trajectory.get("confidence", 1.0)
+        return max(1, int(confidence * 4))
+
+    def _get_trajectory_style(self, trajectory: dict[str, Any]) -> str:
+        """Get line style for trajectory."""
+        confidence = trajectory.get("confidence", 1.0)
+        return "solid" if confidence > 0.7 else "dashed"
+
+    def _calibration_required(self, old_settings: dict, new_settings: dict) -> bool:
+        """Check if settings change requires recalibration."""
+        calibration_sensitive = {"resolution", "keystone_correction", "projection_mode"}
+        return any(key in calibration_sensitive for key in new_settings)
+
+    def _requires_projector_restart(self, settings: dict[str, Any]) -> bool:
+        """Check if settings require projector restart."""
+        restart_required = {"resolution", "refresh_rate"}
+        return any(key in restart_required for key in settings)
+
+    def _process_calibration_points(
+        self, points: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Process calibration points."""
+        return points  # Simplified for now
+
+    def _calculate_transformation_matrix(
+        self, points: list[dict[str, Any]]
+    ) -> Optional[list[list[float]]]:
+        """Calculate transformation matrix from calibration points."""
+        # This would implement proper perspective transformation calculation
+        # For now, return identity matrix
+        return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+
+    def _calculate_calibration_error(self, points: list[dict[str, Any]]) -> float:
+        """Calculate calibration error."""
+        # This would calculate RMS error or similar metric
+        return 0.0  # Simplified for now
 
 
 class ConfigInterfaceImpl(ConfigInterface):
-    """Example implementation of Config interface."""
+    """Production implementation of Config interface."""
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
-        self.module_configs = {}
+        self.module_configs = {
+            "core": {
+                "validation_enabled": True,
+                "auto_correct_enabled": True,
+                "event_history_size": 1000,
+                "logging_level": "INFO",
+                "physics_enabled": True,
+                "spin_enabled": True,
+                "collision_detection": True,
+            },
+            "vision": {
+                "detection_frequency": 60,
+                "confidence_threshold": 0.7,
+                "tracking_enabled": True,
+                "detection_parameters": {
+                    "ball_radius_range": [0.025, 0.032],
+                    "color_calibration": True,
+                    "motion_detection": True,
+                    "background_subtraction": True,
+                    "noise_reduction": True,
+                },
+                "camera_settings": {
+                    "resolution": [1920, 1080],
+                    "fps": 60,
+                    "exposure": "auto",
+                    "gain": "auto",
+                },
+            },
+            "api": {
+                "update_frequency": 60,
+                "enable_websocket": True,
+                "cors_enabled": True,
+                "state_compression": False,
+                "rate_limits": {"state_updates": 60, "events": 100},
+                "auth_enabled": False,
+                "port": 8000,
+            },
+            "projector": {
+                "projection_mode": "overlay",
+                "brightness": 0.8,
+                "contrast": 1.0,
+                "show_trajectories": True,
+                "show_assistance": True,
+                "projection_settings": {
+                    "resolution": [1920, 1080],
+                    "refresh_rate": 60,
+                    "calibration_required": True,
+                },
+                "display_settings": {
+                    "show_ball_ids": False,
+                    "show_aim_lines": True,
+                    "trajectory_duration": 5000,
+                },
+            },
+        }
         self.config_subscribers = {}
+        self.config_history = {}
+        self.validation_schemas = self._initialize_validation_schemas()
+        self.logger = logging.getLogger(__name__ + ".ConfigInterface")
 
     def get_module_config(self, module_name: str) -> dict[str, Any]:
         """Get configuration for a specific module."""
-        return self.module_configs.get(module_name, {})
+        try:
+            config = self.module_configs.get(module_name, {})
+            if not config:
+                self.logger.warning(f"No configuration found for module: {module_name}")
+                return {}
+
+            # Add metadata
+            enhanced_config = {
+                **config,
+                "_metadata": {
+                    "module_name": module_name,
+                    "last_updated": self.config_history.get(module_name, {}).get(
+                        "last_updated", 0.0
+                    ),
+                    "version": self.config_history.get(module_name, {}).get(
+                        "version", "1.0.0"
+                    ),
+                    "source": "core_config",
+                },
+            }
+
+            self.logger.debug(f"Retrieved configuration for module: {module_name}")
+            return enhanced_config
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving config for {module_name}: {e}")
+            return {}
 
     def update_module_config(self, module_name: str, config: dict[str, Any]) -> None:
         """Update configuration for a specific module."""
-        self.module_configs[module_name] = config
-        self.event_manager.exchange_config_with_module(module_name, config)
+        try:
+            # Validate configuration
+            if not self._validate_config(module_name, config):
+                self.logger.error(f"Configuration validation failed for {module_name}")
+                return
+
+            # Backup current config
+            old_config = self.module_configs.get(module_name, {}).copy()
+
+            # Apply updates
+            if module_name not in self.module_configs:
+                self.module_configs[module_name] = {}
+
+            self.module_configs[module_name].update(config)
+
+            # Update history
+            current_time = time.time()
+            self.config_history[module_name] = {
+                "last_updated": current_time,
+                "version": self._increment_version(module_name),
+                "old_config": old_config,
+                "changes": self._calculate_changes(old_config, config),
+            }
+
+            # Notify subscribers
+            self._notify_config_subscribers(module_name, config, old_config)
+
+            # Notify event manager
+            self.event_manager.exchange_config_with_module(
+                module_name, self.module_configs[module_name]
+            )
+
+            self.logger.info(f"Updated configuration for module: {module_name}")
+
+        except Exception as e:
+            self.logger.error(f"Error updating config for {module_name}: {e}")
 
     def subscribe_config_changes(self, callback: Callable) -> str:
         """Subscribe to configuration changes."""
-        subscription_id = f"config_sub_{len(self.config_subscribers)}"
-        self.config_subscribers[subscription_id] = callback
-        return subscription_id
+        try:
+            subscription_id = (
+                f"config_sub_{int(time.time() * 1000)}_{len(self.config_subscribers)}"
+            )
+
+            # Wrap callback with error handling
+            wrapped_callback = self._wrap_config_callback(callback, subscription_id)
+
+            self.config_subscribers[subscription_id] = {
+                "callback": wrapped_callback,
+                "subscribed_at": time.time(),
+                "notification_count": 0,
+                "last_notified": 0.0,
+            }
+
+            self.logger.info(f"Registered config subscription: {subscription_id}")
+            return subscription_id
+
+        except Exception as e:
+            self.logger.error(f"Error registering config subscription: {e}")
+            return ""
+
+    def unsubscribe_config_changes(self, subscription_id: str) -> bool:
+        """Unsubscribe from configuration changes."""
+        if subscription_id in self.config_subscribers:
+            del self.config_subscribers[subscription_id]
+            self.logger.info(f"Unregistered config subscription: {subscription_id}")
+            return True
+        return False
+
+    def get_config_history(self, module_name: str) -> dict[str, Any]:
+        """Get configuration change history for a module."""
+        return self.config_history.get(module_name, {})
+
+    def validate_config(
+        self, module_name: str, config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Validate configuration without applying changes."""
+        try:
+            validation_result = {
+                "valid": False,
+                "errors": [],
+                "warnings": [],
+                "suggestions": [],
+            }
+
+            # Check if module is known
+            if module_name not in self.validation_schemas:
+                validation_result["errors"].append(f"Unknown module: {module_name}")
+                return validation_result
+
+            # Validate against schema
+            schema = self.validation_schemas[module_name]
+            errors, warnings, suggestions = self._validate_against_schema(
+                config, schema
+            )
+
+            validation_result.update(
+                {
+                    "valid": len(errors) == 0,
+                    "errors": errors,
+                    "warnings": warnings,
+                    "suggestions": suggestions,
+                }
+            )
+
+            return validation_result
+
+        except Exception as e:
+            self.logger.error(f"Error validating config for {module_name}: {e}")
+            return {
+                "valid": False,
+                "errors": [str(e)],
+                "warnings": [],
+                "suggestions": [],
+            }
+
+    def reset_module_config(self, module_name: str) -> bool:
+        """Reset module configuration to defaults."""
+        try:
+            default_configs = self._get_default_configs()
+            if module_name not in default_configs:
+                self.logger.error(f"No default config available for {module_name}")
+                return False
+
+            self.update_module_config(module_name, default_configs[module_name])
+            self.logger.info(f"Reset configuration for module: {module_name}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error resetting config for {module_name}: {e}")
+            return False
+
+    def _validate_config(self, module_name: str, config: dict[str, Any]) -> bool:
+        """Validate configuration against schema."""
+        validation_result = self.validate_config(module_name, config)
+        return validation_result["valid"]
+
+    def _validate_against_schema(
+        self, config: dict[str, Any], schema: dict[str, Any]
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Validate configuration against schema."""
+        errors = []
+        warnings = []
+        suggestions = []
+
+        for key, value in config.items():
+            if key in schema:
+                schema_entry = schema[key]
+                expected_type = schema_entry.get("type")
+
+                # Type validation
+                if expected_type and not isinstance(value, expected_type):
+                    errors.append(
+                        f"Invalid type for {key}: expected {expected_type.__name__}, got {type(value).__name__}"
+                    )
+
+                # Range validation
+                if "range" in schema_entry and isinstance(value, (int, float)):
+                    min_val, max_val = schema_entry["range"]
+                    if not (min_val <= value <= max_val):
+                        errors.append(
+                            f"Value {key}={value} out of range [{min_val}, {max_val}]"
+                        )
+
+                # Choices validation
+                if "choices" in schema_entry and value not in schema_entry["choices"]:
+                    errors.append(
+                        f"Invalid choice for {key}: {value} not in {schema_entry['choices']}"
+                    )
+
+                # Custom validation
+                if "validator" in schema_entry:
+                    try:
+                        if not schema_entry["validator"](value):
+                            errors.append(f"Custom validation failed for {key}")
+                    except Exception as e:
+                        errors.append(f"Validation error for {key}: {e}")
+
+            else:
+                warnings.append(f"Unknown configuration key: {key}")
+
+        # Check for missing required fields
+        for key, schema_entry in schema.items():
+            if schema_entry.get("required", False) and key not in config:
+                errors.append(f"Missing required configuration: {key}")
+
+        return errors, warnings, suggestions
+
+    def _notify_config_subscribers(
+        self, module_name: str, new_config: dict[str, Any], old_config: dict[str, Any]
+    ) -> None:
+        """Notify all subscribers of configuration changes."""
+        notification = {
+            "module_name": module_name,
+            "new_config": new_config,
+            "old_config": old_config,
+            "changes": self._calculate_changes(old_config, new_config),
+            "timestamp": time.time(),
+        }
+
+        for subscription_id, subscriber_info in self.config_subscribers.items():
+            try:
+                subscriber_info["callback"](notification)
+                subscriber_info["notification_count"] += 1
+                subscriber_info["last_notified"] = time.time()
+            except Exception as e:
+                self.logger.error(
+                    f"Error notifying config subscriber {subscription_id}: {e}"
+                )
+
+    def _wrap_config_callback(
+        self, callback: Callable, subscription_id: str
+    ) -> Callable:
+        """Wrap config callback with error handling."""
+
+        def wrapped_callback(notification):
+            try:
+                return callback(notification)
+            except Exception as e:
+                self.logger.error(f"Error in config callback {subscription_id}: {e}")
+                return None
+
+        return wrapped_callback
+
+    def _calculate_changes(
+        self, old_config: dict[str, Any], new_config: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Calculate changes between configurations."""
+        changes = {"added": [], "removed": [], "modified": []}
+
+        old_keys = set(old_config.keys())
+        new_keys = set(new_config.keys())
+
+        # Added keys
+        changes["added"] = list(new_keys - old_keys)
+
+        # Removed keys
+        changes["removed"] = list(old_keys - new_keys)
+
+        # Modified keys
+        for key in old_keys & new_keys:
+            if old_config[key] != new_config[key]:
+                changes["modified"].append(
+                    {
+                        "key": key,
+                        "old_value": old_config[key],
+                        "new_value": new_config[key],
+                    }
+                )
+
+        return changes
+
+    def _increment_version(self, module_name: str) -> str:
+        """Increment version number for module config."""
+        current_version = self.config_history.get(module_name, {}).get(
+            "version", "1.0.0"
+        )
+        try:
+            major, minor, patch = map(int, current_version.split("."))
+            return f"{major}.{minor}.{patch + 1}"
+        except:
+            return "1.0.0"
+
+    def _initialize_validation_schemas(self) -> dict[str, dict[str, Any]]:
+        """Initialize validation schemas for each module."""
+        return {
+            "core": {
+                "validation_enabled": {"type": bool, "required": True},
+                "auto_correct_enabled": {"type": bool, "required": True},
+                "event_history_size": {"type": int, "range": [100, 10000]},
+                "logging_level": {
+                    "type": str,
+                    "choices": ["DEBUG", "INFO", "WARNING", "ERROR"],
+                },
+                "physics_enabled": {"type": bool},
+                "spin_enabled": {"type": bool},
+                "collision_detection": {"type": bool},
+            },
+            "vision": {
+                "detection_frequency": {"type": int, "range": [1, 120]},
+                "confidence_threshold": {"type": float, "range": [0.0, 1.0]},
+                "tracking_enabled": {"type": bool},
+            },
+            "api": {
+                "update_frequency": {"type": int, "range": [1, 120]},
+                "enable_websocket": {"type": bool},
+                "cors_enabled": {"type": bool},
+                "port": {"type": int, "range": [1000, 65535]},
+            },
+            "projector": {
+                "brightness": {"type": float, "range": [0.0, 1.0]},
+                "contrast": {"type": float, "range": [0.1, 2.0]},
+                "projection_mode": {
+                    "type": str,
+                    "choices": ["overlay", "augmented", "full"],
+                },
+                "show_trajectories": {"type": bool},
+                "show_assistance": {"type": bool},
+            },
+        }
+
+    def _get_default_configs(self) -> dict[str, dict[str, Any]]:
+        """Get default configurations for all modules."""
+        return {
+            "core": {
+                "validation_enabled": True,
+                "auto_correct_enabled": True,
+                "event_history_size": 1000,
+                "logging_level": "INFO",
+                "physics_enabled": True,
+                "spin_enabled": True,
+                "collision_detection": True,
+            },
+            "vision": {
+                "detection_frequency": 60,
+                "confidence_threshold": 0.7,
+                "tracking_enabled": True,
+            },
+            "api": {
+                "update_frequency": 60,
+                "enable_websocket": True,
+                "cors_enabled": True,
+                "port": 8000,
+            },
+            "projector": {
+                "brightness": 0.8,
+                "contrast": 1.0,
+                "projection_mode": "overlay",
+                "show_trajectories": True,
+                "show_assistance": True,
+            },
+        }

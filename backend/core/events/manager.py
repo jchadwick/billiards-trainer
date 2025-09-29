@@ -639,6 +639,31 @@ class EventManager:
             priority=EventPriority.HIGH,
         )
 
+    def send_config_update(self, module_name: str, config: dict[str, Any]) -> None:
+        """Send configuration update to module."""
+        self.emit_enhanced_event(
+            EventType.CONFIG_CHANGED,
+            {"module": module_name, "config": config, "timestamp": time.time()},
+        )
+
+    def send_projector_command(self, command: dict[str, Any]) -> None:
+        """Send command to projector module."""
+        self.emit_enhanced_event(
+            EventType.CUSTOM,
+            {"command": command, "timestamp": time.time()},
+            source_module="core",
+            target_modules=["projector"],
+        )
+
+    def send_api_message(self, message: dict[str, Any]) -> None:
+        """Send message through API interface."""
+        self.emit_enhanced_event(
+            EventType.CUSTOM,
+            {"message": message, "timestamp": time.time()},
+            source_module="core",
+            target_modules=["api"],
+        )
+
     # Cleanup
     def __del__(self):
         """Cleanup resources."""

@@ -66,12 +66,12 @@ export const Modal = observer<ModalProps>(({
       {/* Modal */}
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className={`relative w-full ${sizeClass} transform overflow-hidden rounded-lg bg-white dark:bg-secondary-800 shadow-xl transition-all ${className}`}
+          className={`relative w-full ${sizeClass} transform overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-xl transition-all ${className}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
           {(title || closable) && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-secondary-200 dark:border-secondary-700">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               {title && (
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {title}
@@ -80,7 +80,7 @@ export const Modal = observer<ModalProps>(({
               {closable && (
                 <button
                   onClick={onClose}
-                  className="rounded-md p-2 text-secondary-400 hover:text-secondary-600 hover:bg-secondary-100 dark:hover:bg-secondary-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  className="rounded-md p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
                   aria-label="Close modal"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -98,7 +98,7 @@ export const Modal = observer<ModalProps>(({
 
           {/* Footer */}
           {footer && (
-            <div className="px-6 py-4 border-t border-secondary-200 dark:border-secondary-700 bg-secondary-50 dark:bg-secondary-900/50">
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
               {footer}
             </div>
           )}
@@ -153,7 +153,7 @@ export const ConfirmModal = observer<ConfirmModalProps>(({
         </div>
       }
     >
-      <p className="text-secondary-700 dark:text-secondary-300">
+      <p className="text-gray-700 dark:text-gray-300">
         {message}
       </p>
     </Modal>

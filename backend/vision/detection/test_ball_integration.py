@@ -13,8 +13,7 @@ import numpy as np
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
 try:
-    from backend.vision.models import BallType
-
+    from ..models import BallType
     from .ball_tracker import BallTrackingSystem
     from .balls import BallDetector, DetectionMethod
 

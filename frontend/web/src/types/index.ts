@@ -51,3 +51,8 @@ export interface SystemInfo {
   environment: string
   apiVersion?: string
 }
+
+// Re-export types from other modules
+export * from './api'
+export * from './video'
+export * from './monitoring'

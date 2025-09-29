@@ -4,8 +4,10 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from backend.core.game_state import BallState, TableState, Vector2D
-from backend.core.models import Collision
+from ..game_state import BallState, TableState, Vector2D
+from ..models import Collision
+from .collision import CollisionDetector, CollisionResolver
+from .spin import SpinCalculator
 
 
 class PhysicsConstants:
@@ -54,7 +56,21 @@ class PhysicsEngine:
             "max_simulation_time", 30.0
         )  # seconds
         self.friction_enabled = self.config.get("friction_enabled", True)
-        self.spin_enabled = self.config.get("spin_enabled", False)  # Advanced feature
+        self.spin_enabled = self.config.get(
+            "spin_enabled", True
+        )  # Now enabled by default
+
+        # Advanced physics components
+        self.spin_calculator = SpinCalculator(self.config)
+        self.collision_detector = CollisionDetector(self.config)
+        self.collision_resolver = CollisionResolver(self.config, self.spin_calculator)
+
+        # Advanced features
+        self.enable_masse_shots = self.config.get("enable_masse_shots", True)
+        self.enable_advanced_collisions = self.config.get(
+            "enable_advanced_collisions", True
+        )
+        self.magnus_effect_enabled = self.config.get("magnus_effect_enabled", True)
 
     def calculate_trajectory(
         self,
@@ -157,6 +173,265 @@ class PhysicsEngine:
                 current_time += remaining_time
 
         return trajectory
+
+    def calculate_masse_shot(
+        self,
+        cue_ball: BallState,
+        target_position: Vector2D,
+        cue_elevation: float,
+        english_amount: float = 0.0,
+        force: float = 10.0,
+    ) -> tuple[Vector2D, list[TrajectoryPoint]]:
+        """Calculate a masse shot trajectory.
+
+        Args:
+            cue_ball: Cue ball state
+            target_position: Target position for the masse shot
+            cue_elevation: Cue elevation angle in degrees (high angle for masse)
+            english_amount: Amount of English/side spin (-1.0 to 1.0)
+            force: Force of the shot
+
+        Returns:
+            Tuple of (initial_velocity, trajectory_points)
+        """
+        if not self.enable_masse_shots:
+            raise ValueError("Masse shots are not enabled in physics configuration")
+
+        # Calculate masse shot parameters using spin calculator
+        initial_velocity, initial_spin = self.spin_calculator.calculate_masse_shot(
+            cue_ball, target_position, cue_elevation, english_amount
+        )
+
+        # Create a copy of the cue ball with masse shot parameters
+        masse_ball = self._copy_ball_state(cue_ball)
+        masse_ball.velocity = initial_velocity
+        masse_ball.spin = initial_spin
+
+        # Calculate trajectory with enhanced physics
+        trajectory = self.calculate_trajectory_with_spin(
+            masse_ball, cue_ball.table if hasattr(cue_ball, "table") else None, []
+        )
+
+        return initial_velocity, trajectory
+
+    def calculate_trajectory_with_spin(
+        self,
+        ball_state: BallState,
+        table_state: Optional[TableState],
+        other_balls: list[BallState],
+        time_limit: float = 10.0,
+    ) -> list[TrajectoryPoint]:
+        """Calculate trajectory with full spin physics integration.
+
+        Args:
+            ball_state: Initial ball state
+            table_state: Table configuration
+            other_balls: Other balls on the table
+            time_limit: Maximum simulation time
+
+        Returns:
+            List of trajectory points with spin effects
+        """
+        if not self.spin_enabled:
+            # Fall back to basic trajectory calculation
+            return self.calculate_trajectory(
+                ball_state, table_state, other_balls, time_limit
+            )
+
+        trajectory = []
+        current_ball = self._copy_ball_state(ball_state)
+        sim_balls = [
+            self._copy_ball_state(ball) for ball in other_balls if not ball.is_pocketed
+        ]
+        current_time = 0.0
+
+        while current_time < min(time_limit, self.max_simulation_time):
+            # Record current state
+            trajectory.append(
+                TrajectoryPoint(
+                    time=current_time,
+                    position=Vector2D(current_ball.position.x, current_ball.position.y),
+                    velocity=Vector2D(current_ball.velocity.x, current_ball.velocity.y),
+                )
+            )
+
+            # Check if ball has stopped
+            if current_ball.velocity.magnitude() < self.constants.MIN_VELOCITY:
+                break
+
+            # Apply Magnus force if spin is present
+            if self.magnus_effect_enabled and current_ball.spin:
+                magnus_force = self.spin_calculator.update_ball_motion(
+                    current_ball, self.time_step
+                )
+                # Apply Magnus force as acceleration
+                if magnus_force.magnitude() > 0:
+                    acceleration = Vector2D(
+                        magnus_force.x / current_ball.mass,
+                        magnus_force.y / current_ball.mass,
+                    )
+                    current_ball.velocity = Vector2D(
+                        current_ball.velocity.x + acceleration.x * self.time_step,
+                        current_ball.velocity.y + acceleration.y * self.time_step,
+                    )
+
+            # Detect collisions using advanced collision detector
+            if self.enable_advanced_collisions:
+                all_balls = [current_ball] + sim_balls
+                collisions = self.collision_detector.detect_multiple_collisions(
+                    all_balls, table_state, self.time_step
+                )
+            else:
+                # Use basic collision detection
+                collision = self._detect_next_collision(
+                    current_ball, sim_balls, table_state, self.time_step
+                )
+                collisions = [collision] if collision else []
+
+            if not collisions:
+                # No collision, advance ball using numerical integration
+                self._integrate_motion_with_spin(
+                    current_ball, table_state, self.time_step
+                )
+                current_time += self.time_step
+            else:
+                # Handle first collision
+                first_collision = min(collisions, key=lambda c: c.time)
+                collision_time = first_collision.time
+
+                if collision_time > 0:
+                    self._integrate_motion_with_spin(
+                        current_ball, table_state, collision_time
+                    )
+                    current_time += collision_time
+
+                # Resolve collision with advanced physics
+                if self.enable_advanced_collisions:
+                    resolved_collisions = (
+                        self.collision_resolver.resolve_simultaneous_collisions(
+                            [first_collision], [current_ball] + sim_balls
+                        )
+                    )
+                    if resolved_collisions:
+                        resolved = resolved_collisions[0]
+                        current_ball.velocity = resolved.ball1_velocity
+                        if resolved.ball1_spin:
+                            current_ball.spin = resolved.ball1_spin
+                else:
+                    # Basic collision handling
+                    self._handle_collision(
+                        current_ball, sim_balls, first_collision, table_state
+                    )
+
+                # Record collision point
+                trajectory.append(
+                    TrajectoryPoint(
+                        time=current_time,
+                        position=Vector2D(
+                            current_ball.position.x, current_ball.position.y
+                        ),
+                        velocity=Vector2D(
+                            current_ball.velocity.x, current_ball.velocity.y
+                        ),
+                        collision_type=first_collision.collision_type.value
+                        if hasattr(first_collision, "collision_type")
+                        else first_collision.type,
+                    )
+                )
+
+                # Check if ball was pocketed
+                if hasattr(first_collision, "collision_type"):
+                    if first_collision.collision_type.value == "ball_pocket":
+                        break
+                elif first_collision.type == "pocket":
+                    break
+
+                current_time += self.time_step - collision_time
+
+        return trajectory
+
+    def _integrate_motion_with_spin(
+        self, ball: BallState, table: Optional[TableState], dt: float
+    ) -> None:
+        """Integrate ball motion with spin effects."""
+        if not self.spin_enabled or not ball.spin:
+            # Fall back to basic integration
+            if table:
+                self._integrate_motion(ball, table, dt)
+            else:
+                # Simple ballistic motion
+                ball.position.x += ball.velocity.x * dt
+                ball.position.y += ball.velocity.y * dt
+            return
+
+        # Update spin and get Magnus force
+        magnus_force = self.spin_calculator.update_ball_motion(ball, dt)
+
+        # Apply Magnus force as additional acceleration
+        if self.magnus_effect_enabled and magnus_force.magnitude() > 0:
+            acceleration = Vector2D(
+                magnus_force.x / ball.mass, magnus_force.y / ball.mass
+            )
+            ball.velocity = Vector2D(
+                ball.velocity.x + acceleration.x * dt,
+                ball.velocity.y + acceleration.y * dt,
+            )
+
+        # Apply friction and update position
+        if table and self.friction_enabled:
+            self._integrate_motion(ball, table, dt)
+        else:
+            # Simple ballistic motion
+            ball.position.x += ball.velocity.x * dt
+            ball.position.y += ball.velocity.y * dt
+
+    def apply_english_to_cue_ball(
+        self,
+        cue_ball: BallState,
+        impact_point: Vector2D,
+        force: float,
+        cue_angle: float = 0.0,
+        cue_elevation: float = 0.0,
+    ) -> None:
+        """Apply English (spin) to the cue ball from cue impact.
+
+        Args:
+            cue_ball: Cue ball to apply English to
+            impact_point: Point where cue hits ball (relative to ball center)
+            force: Force of cue impact
+            cue_angle: Cue angle in degrees
+            cue_elevation: Cue elevation in degrees
+        """
+        if self.spin_enabled:
+            self.spin_calculator.apply_english(
+                cue_ball, impact_point, force, cue_angle, cue_elevation
+            )
+
+    def get_spin_effects_summary(self, ball_id: str) -> dict[str, Any]:
+        """Get summary of spin effects for a ball.
+
+        Args:
+            ball_id: Ball ID to get spin summary for
+
+        Returns:
+            Dictionary with spin information
+        """
+        if not self.spin_enabled:
+            return {"spin_enabled": False}
+
+        spin_state = self.spin_calculator.get_spin_state(ball_id)
+        if not spin_state:
+            return {"spin_enabled": True, "has_spin": False}
+
+        return {
+            "spin_enabled": True,
+            "has_spin": True,
+            "spin_magnitude": spin_state.magnitude(),
+            "top_spin": spin_state.top_spin,
+            "side_spin": spin_state.side_spin,
+            "back_spin": spin_state.back_spin,
+            "decay_rate": spin_state.decay_rate,
+        }
 
     def _copy_ball_state(self, ball: BallState) -> BallState:
         """Create a deep copy of a ball state for simulation."""

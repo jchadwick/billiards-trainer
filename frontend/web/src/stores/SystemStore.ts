@@ -17,12 +17,20 @@ export class SystemStore {
     errors: []
   };
 
+  // Additional state for real API integration
+  lastMetrics: any = null;
+  lastMetricsUpdate: Date | null = null;
+  lastHealthCheck: any = null;
+  lastHealthUpdate: Date | null = null;
+
   private websocket: WebSocket | null = null;
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
+  private websocketUrl: string | null = null;
+  private messageRouter: ((message: any) => void) | null = null;
 
   constructor() {
     makeAutoObservable(this, {}, { autoBind: true });
@@ -57,8 +65,11 @@ export class SystemStore {
   async connect(websocketUrl: string): Promise<ActionResult> {
     try {
       this.updateWebSocketStatus('connecting');
+      this.websocketUrl = websocketUrl;
 
-      this.websocket = new WebSocket(websocketUrl);
+      // Use API client for WebSocket creation
+      const { apiClient } = await import('../api/client');
+      this.websocket = apiClient.createWebSocket();
 
       this.websocket.onopen = () => {
         runInAction(() => {
@@ -220,11 +231,10 @@ export class SystemStore {
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts); // Exponential backoff
     this.reconnectAttempts++;
 
-    this.reconnectTimeout = setTimeout(() => {
-      if (this.status.websocketStatus === 'disconnected') {
+    this.reconnectTimeout = setTimeout(async () => {
+      if (this.status.websocketStatus === 'disconnected' && this.websocketUrl) {
         this.addInfo('System', `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        // Note: In a real implementation, you'd need to store the websocket URL
-        // For now, this is a placeholder that would need the URL to be passed
+        await this.connect(this.websocketUrl);
       }
     }, delay);
   }
@@ -236,10 +246,21 @@ export class SystemStore {
     }
   }
 
+  // Public method to set message router
+  addMessageRouter = (router: (message: any) => void): void => {
+    this.messageRouter = router;
+  }
+
   private handleWebSocketMessage(event: MessageEvent): void {
     try {
       const message = JSON.parse(event.data) as WebSocketMessage;
 
+      // First, route message to other stores if router is available
+      if (this.messageRouter) {
+        this.messageRouter(message);
+      }
+
+      // Then handle system-specific messages
       switch (message.type) {
         case 'heartbeat_response':
           runInAction(() => {
@@ -258,7 +279,8 @@ export class SystemStore {
           break;
 
         default:
-          // Other message types will be handled by other stores
+          // Unknown message types are logged but not handled
+          console.debug('Unknown WebSocket message type:', message.type);
           break;
       }
     } catch (error) {
@@ -312,6 +334,110 @@ export class SystemStore {
       const logMethod = level === 'error' || level === 'critical' ? 'error' :
                        level === 'warning' ? 'warn' : 'log';
       console[logMethod](`[${component}] ${message}`, details);
+    }
+  }
+
+  // Monitoring methods for dashboard integration
+  async refreshMetrics(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getMetrics();
+
+      if (response.success && response.data) {
+        // Store metrics data for use by dashboard components
+        runInAction(() => {
+          this.lastMetrics = response.data;
+          this.lastMetricsUpdate = new Date();
+        });
+        this.addInfo('System', 'Metrics refreshed successfully');
+      } else {
+        this.addError('System', `Failed to refresh metrics: ${response.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      this.addError('System', `Failed to refresh metrics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async refreshModuleStatus(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getHealth(true, false);
+
+      if (response.success && response.data) {
+        runInAction(() => {
+          this.status.backendVersion = response.data.version;
+          this.lastHealthCheck = response.data;
+          this.lastHealthUpdate = new Date();
+        });
+        this.addInfo('System', 'Module status refreshed successfully');
+      } else {
+        this.addError('System', `Failed to refresh module status: ${response.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      this.addError('System', `Failed to refresh module status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async getHealthStatus(): Promise<any> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getHealth(true, true);
+
+      if (response.success && response.data) {
+        // Update internal state
+        runInAction(() => {
+          this.status.backendVersion = response.data.version;
+          this.lastHealthCheck = response.data;
+          this.lastHealthUpdate = new Date();
+        });
+
+        return {
+          status: response.data?.status || 'unknown',
+          timestamp: response.data?.timestamp || new Date().toISOString(),
+          uptime: response.data?.uptime || 0,
+          version: response.data?.version || 'unknown',
+          components: response.data?.components || {},
+          metrics: response.data?.metrics
+        };
+      } else {
+        // Return fallback data based on current connection state
+        return {
+          status: this.isHealthy ? 'healthy' : 'unhealthy',
+          timestamp: new Date().toISOString(),
+          uptime: this.connectionUptime / 1000,
+          version: this.status.backendVersion || 'unknown',
+          components: {
+            api: {
+              name: 'API Server',
+              status: this.status.isConnected ? 'healthy' : 'unhealthy',
+              message: this.status.isConnected ? 'All endpoints responding' : 'Server unreachable',
+              last_check: new Date().toISOString(),
+              uptime: this.status.isConnected ? this.connectionUptime / 1000 : 0,
+              errors: this.status.isConnected ? [] : ['Connection failed'],
+            },
+            websocket: {
+              name: 'WebSocket Server',
+              status: this.status.websocketStatus === 'connected' ? 'healthy' : 'unhealthy',
+              message: this.status.websocketStatus === 'connected' ? 'WebSocket active' : 'WebSocket disconnected',
+              last_check: new Date().toISOString(),
+              uptime: this.status.websocketStatus === 'connected' ? this.connectionUptime / 1000 : 0,
+              errors: this.status.websocketStatus !== 'connected' ? ['WebSocket disconnected'] : [],
+            },
+          },
+        };
+      }
+    } catch (error) {
+      this.addError('System', `Failed to get health status: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      // Return fallback data
+      return {
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        uptime: 0,
+        version: 'unknown',
+        components: {},
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
   }
 

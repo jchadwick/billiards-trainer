@@ -10,8 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-from backend.core.models import GameState
-
+from ..models import GameState
 from .correction import CorrectionStrategy, ErrorCorrector
 from .physics import PhysicsValidator
 from .physics import ValidationError as PhysicsValidationError

@@ -81,7 +81,7 @@ class HealthMonitor:
         self._startup_time = time.time()
 
         # Health data
-        self._system_health = SystemHealth()
+        self._system_health = SystemHealth(overall_status="healthy")
         self._component_health: dict[str, ComponentHealth] = {}
         self._health_history: list[SystemHealth] = []
         self._max_history = 100

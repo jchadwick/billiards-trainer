@@ -22,11 +22,7 @@ except ImportError:
 
 import contextlib
 
-from backend.config.models.schemas import (
-    ApplicationConfig,
-    ConfigFormat,
-    ConfigProfileEnhanced,
-)
+from ..models.schemas import ApplicationConfig, ConfigFormat, ConfigProfileEnhanced
 
 
 class ConfigPersistenceError(Exception):

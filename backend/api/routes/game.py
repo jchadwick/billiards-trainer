@@ -18,10 +18,10 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from backend.api.dependencies import dev_viewer_required, get_core_module
-from backend.api.middleware.authentication import OperatorRequired, ViewerRequired
-from backend.api.models.common import ErrorCode, create_error_response
-from backend.api.models.responses import (
+from ..dependencies import dev_viewer_required, get_core_module
+from ..middleware.authentication import OperatorRequired, ViewerRequired
+from ..models.common import ErrorCode, create_error_response
+from ..models.responses import (
     BallInfo,
     CueInfo,
     GameEvent,
@@ -33,8 +33,8 @@ from backend.api.models.responses import (
 )
 
 try:
-    from backend.core import CoreModule
-    from backend.core.models import BallState, CueState, GameState, GameType, TableState
+    from ...core import CoreModule
+    from ...core.models import BallState, CueState, GameState, GameType, TableState
 except ImportError:
     from core import CoreModule
     from core.models import BallState, CueState, GameState, GameType, TableState
@@ -137,13 +137,13 @@ async def get_current_game_state(
             game_state = core_module.get_current_state()
         else:
             # Fallback: create a basic game state
-            from backend.core.models import GameState, GameType, TableState
+            from ...core.models import GameState, GameType, TableState
 
             game_state = GameState.create_initial_state(GameType.PRACTICE)
 
         if not game_state:
             # Return empty state if no game is active
-            from backend.core.models import TableState
+            from ...core.models import TableState
 
             empty_table = TableState.standard_9ft_table()
 

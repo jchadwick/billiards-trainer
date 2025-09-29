@@ -15,13 +15,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
-from backend.core.game_state import Vector2D
-from backend.core.physics.trajectory import (
-    CollisionType,
-    PredictedCollision,
-    Trajectory,
-)
-
+from ...core.game_state import Vector2D
+from ...core.physics.trajectory import CollisionType, PredictedCollision, Trajectory
 from .renderer import BasicRenderer, Color, Colors, Point2D
 
 logger = logging.getLogger(__name__)

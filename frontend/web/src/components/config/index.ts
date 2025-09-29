@@ -1,0 +1,11 @@
+// Configuration component exports
+export { ConfigurationLayout, ConfigIcons, type ConfigSection, type ConfigurationLayoutProps } from './ConfigurationLayout'
+export { SystemSettings } from './SystemSettings'
+export { CameraConfig } from './CameraConfig'
+export { TableConfig } from './TableConfig'
+export { PhysicsConfig } from './PhysicsConfig'
+export { ProjectorConfig } from './ProjectorConfig'
+export { VisionConfig } from './VisionConfig'
+export { ConfigProfiles } from './ConfigProfiles'
+export { ConfigImportExport } from './ConfigImportExport'
+export { CalibrationWizard } from './calibration/CalibrationWizard'

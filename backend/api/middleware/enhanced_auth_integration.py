@@ -6,8 +6,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request, status
 
-from backend.api.utils.security import UserRole
-
+from ..utils.security import UserRole
 from .enhanced_session import (
     EnhancedSessionManager,
     SessionData,

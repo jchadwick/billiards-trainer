@@ -681,13 +681,29 @@ class VisionModule:
                     surface_color=(60, 200, 100),
                 )
 
+            # Create frame statistics
+            statistics = FrameStatistics(
+                frame_number=frame_number,
+                timestamp=timestamp,
+                processing_time=processing_time,
+                balls_detected=len(detected_balls),
+                balls_tracked=len(
+                    [b for b in detected_balls if b.track_id is not None]
+                ),
+                cue_detected=detected_cue is not None,
+                table_detected=detected_table is not None,
+                detection_confidence=sum(self.stats.detection_accuracy.values())
+                / max(len(self.stats.detection_accuracy), 1),
+                frame_quality=1.0 if detected_table is not None else 0.5,
+            )
+
             result = DetectionResult(
                 frame_number=frame_number,
                 timestamp=timestamp,
                 balls=detected_balls,
                 cue=detected_cue,
                 table=detected_table,
-                processing_time=processing_time,
+                statistics=statistics,
             )
 
             return result

@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, GameState, ShotType, TableState, Vector2D
-from backend.core.physics.trajectory import TrajectoryCalculator
-from backend.core.utils.geometry import GeometryUtils
+from ..models import BallState, GameState, ShotType, TableState, Vector2D
+from ..physics.trajectory import TrajectoryCalculator
+from ..utils.geometry import GeometryUtils
 
 
 class OutcomeType(Enum):

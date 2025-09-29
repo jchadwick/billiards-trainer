@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 # Import the modules to test
-from backend.vision.preprocessing import (
+from ..preprocessing import (
     ColorSpace,
     ImagePreprocessor,
     NoiseReductionMethod,

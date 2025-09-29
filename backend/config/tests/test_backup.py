@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.config.manager import ConfigurationModule
-from backend.config.models.schemas import ConfigSource
-from backend.config.storage.backup import BackupNotFoundError, ConfigBackup
+from ..manager import ConfigurationModule
+from ..models.schemas import ConfigSource
+from ..storage.backup import BackupNotFoundError, ConfigBackup
 
 
 class TestConfigBackup:

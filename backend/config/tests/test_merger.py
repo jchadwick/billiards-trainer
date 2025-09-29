@@ -8,12 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from backend.config.loader.merger import (
-    ConfigSource,
-    ConfigurationMerger,
-    MergeError,
-    MergeStrategy,
-)
+from ..loader.merger import ConfigSource, ConfigurationMerger, MergeError, MergeStrategy
 
 
 class TestMergeStrategy:

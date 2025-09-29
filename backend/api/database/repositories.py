@@ -8,8 +8,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
-from backend.api.utils.security import APIKeyUtils, UserRole
-
+from ..utils.security import APIKeyUtils, UserRole
 from .models import APIKey, PasswordReset, SecurityEvent, User, UserSession
 
 

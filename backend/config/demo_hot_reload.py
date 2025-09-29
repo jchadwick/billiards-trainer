@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from backend.config.manager import ConfigurationModule
+from .manager import ConfigurationModule
 
 
 def demo_change_handler(change):

@@ -32,9 +32,8 @@ export class ConnectionStore {
     this.state.error = undefined
 
     try {
-      // TODO: Replace with actual connection logic
-      // For now, simulate connection attempt
-      await this.simulateConnection()
+      // Test actual connection to backend
+      await this.testConnection()
 
       this.state.isConnected = true
       this.state.lastConnected = new Date()
@@ -63,13 +62,16 @@ export class ConnectionStore {
     }
   }
 
-  private async simulateConnection(): Promise<void> {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000))
+  private async testConnection(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const response = await apiClient.getHealth();
 
-    // Simulate occasional connection failures for testing
-    if (Math.random() < 0.1) {
-      throw new Error('Network timeout')
+      if (!response.success) {
+        throw new Error(response.error || 'Health check failed');
+      }
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : 'Connection test failed');
     }
   }
 
@@ -124,6 +126,59 @@ export class ConnectionStore {
         return 'text-secondary-500'
       default:
         return 'text-secondary-500'
+    }
+  }
+
+  // Monitoring dashboard methods
+  async refreshStatus(): Promise<void> {
+    // Refresh connection status by attempting to connect if disconnected
+    if (!this.state.isConnected && !this.state.isConnecting) {
+      await this.connect();
+    }
+  }
+
+  getConnectionMetrics() {
+    return {
+      status: this.connectionStatus,
+      isConnected: this.state.isConnected,
+      isConnecting: this.state.isConnecting,
+      lastConnected: this.state.lastConnected,
+      error: this.state.error,
+      retryCount: this.retryCount,
+    };
+  }
+
+  // Get detailed connection info from backend
+  async getDetailedConnectionInfo(): Promise<any> {
+    try {
+      const { apiClient } = await import('../api/client');
+      const [healthResponse, metricsResponse] = await Promise.all([
+        apiClient.getHealth(true, false),
+        apiClient.getMetrics()
+      ]);
+
+      return {
+        health: healthResponse.data,
+        metrics: metricsResponse.data,
+        connectionState: this.getConnectionMetrics(),
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : 'Failed to get connection info',
+        connectionState: this.getConnectionMetrics(),
+        timestamp: new Date().toISOString()
+      };
+    }
+  }
+
+  // Test connection without changing state
+  async testConnectionHealth(): Promise<boolean> {
+    try {
+      await this.testConnection();
+      return true;
+    } catch (error) {
+      return false;
     }
   }
 }

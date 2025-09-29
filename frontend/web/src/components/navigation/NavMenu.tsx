@@ -1,6 +1,8 @@
 import React from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { observer } from 'mobx-react-lite'
+import { createNavigationAria, createListItemAria } from '../../utils/accessibility'
+import { ScreenReaderOnly } from '../accessibility/ScreenReaderOnly'
 import type { NavItem } from '../../types'
 
 export interface NavMenuProps {
@@ -10,7 +12,7 @@ export interface NavMenuProps {
   onItemClick?: (item: NavItem) => void
 }
 
-const NavIcon: React.FC<{ name?: string; className?: string }> = ({ name, className = 'w-5 h-5' }) => {
+const NavIcon: React.FC<{ name?: string; className?: string; label?: string }> = ({ name, className = 'w-5 h-5', label }) => {
   if (!name) return null
 
   // Icon mapping - replace with your preferred icon library
@@ -38,7 +40,15 @@ const NavIcon: React.FC<{ name?: string; className?: string }> = ({ name, classN
     ),
   }
 
-  return icons[name] || null
+  const icon = icons[name] || null
+
+  if (!icon) return null
+
+  return (
+    <span role="img" aria-label={label || `${name} icon`} aria-hidden={!label}>
+      {icon}
+    </span>
+  )
 }
 
 export const NavMenuItem: React.FC<{
@@ -66,17 +76,38 @@ export const NavMenuItem: React.FC<{
       className={`${baseClasses} ${activeClasses} ${disabledClasses}`}
       onClick={item.disabled ? (e) => e.preventDefault() : handleClick}
       aria-disabled={item.disabled}
+      aria-current={isActive ? 'page' : undefined}
+      role="menuitem"
+      tabIndex={item.disabled ? -1 : 0}
     >
-      <NavIcon name={item.icon} className="w-5 h-5 flex-shrink-0" />
+      <NavIcon
+        name={item.icon}
+        className="w-5 h-5 flex-shrink-0"
+        label={collapsed ? item.label : undefined}
+      />
       {!collapsed && (
         <>
           <span className="ml-3 flex-1">{item.label}</span>
           {item.badge && (
-            <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-200">
+            <span
+              className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 dark:bg-primary-900 dark:text-primary-200"
+              aria-label={`${item.badge} notifications`}
+            >
               {item.badge}
             </span>
           )}
         </>
+      )}
+      {collapsed && (
+        <ScreenReaderOnly>
+          {item.label}
+          {item.badge && ` (${item.badge} notifications)`}
+        </ScreenReaderOnly>
+      )}
+      {isActive && (
+        <ScreenReaderOnly>
+          Current page
+        </ScreenReaderOnly>
       )}
     </Link>
   )
@@ -91,19 +122,38 @@ export const NavMenu = observer<NavMenuProps>(({
   const router = useRouterState()
   const currentPath = router.location.pathname
 
+  const navigationAria = createNavigationAria({
+    label: collapsed ? 'Main navigation (collapsed)' : 'Main navigation'
+  })
+
   return (
-    <nav className={`space-y-1 ${className}`}>
-      {items.map((item) => {
+    <nav
+      className={`space-y-1 ${className}`}
+      {...navigationAria}
+      role="menu"
+    >
+      <ScreenReaderOnly>
+        Navigation menu with {items.length} items
+        {collapsed && ' (collapsed view)'}
+      </ScreenReaderOnly>
+
+      {items.map((item, index) => {
         const isActive = currentPath === item.path
+        const listItemAria = createListItemAria({
+          position: index + 1,
+          total: items.length,
+          current: isActive
+        })
 
         return (
-          <NavMenuItem
-            key={item.id}
-            item={item}
-            collapsed={collapsed}
-            isActive={isActive}
-            onItemClick={onItemClick}
-          />
+          <div key={item.id} {...listItemAria}>
+            <NavMenuItem
+              item={item}
+              collapsed={collapsed}
+              isActive={isActive}
+              onItemClick={onItemClick}
+            />
+          </div>
         )
       })}
     </nav>

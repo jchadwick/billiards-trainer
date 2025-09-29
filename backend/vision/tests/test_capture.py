@@ -16,13 +16,13 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.vision.capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
+from ..capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
 
 
 class TestCameraCapture:
     """Test suite for CameraCapture class."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def basic_config(self):
         """Basic camera configuration for testing."""
         return {
@@ -38,7 +38,7 @@ class TestCameraCapture:
             "max_reconnect_attempts": 3,
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_video_capture(self):
         """Mock cv2.VideoCapture for testing."""
         with patch("cv2.VideoCapture") as mock_cap:
@@ -469,7 +469,7 @@ class TestCameraHealth:
 
 
 # Integration test markers
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestCameraIntegration:
     """Integration tests requiring actual camera hardware."""
 

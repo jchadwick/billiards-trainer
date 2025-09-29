@@ -17,7 +17,7 @@ from typing import Any, Union
 
 # Import core models with fallback for different import contexts
 try:
-    from backend.core.models import (
+    from ...core.models import (
         BallState,
         Collision,
         CueState,
