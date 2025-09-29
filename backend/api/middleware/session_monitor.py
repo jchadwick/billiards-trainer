@@ -475,9 +475,9 @@ class SessionMonitor:
                 "from_address", "security@billiardstrainer.com"
             )
             msg["To"] = ", ".join(email_config.get("to_addresses", []))
-            msg[
-                "Subject"
-            ] = f"Security Alert: {alert.event_type} - {alert.severity.value.upper()}"
+            msg["Subject"] = (
+                f"Security Alert: {alert.event_type} - {alert.severity.value.upper()}"
+            )
 
             # Create HTML and text body
             html_body = f"""

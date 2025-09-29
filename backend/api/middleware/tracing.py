@@ -419,9 +419,9 @@ class TracingMiddleware(BaseHTTPMiddleware):
 
             # Add tracing headers to response
             response.headers[self.config.trace_header_name] = trace_context.trace_id
-            response.headers[
-                self.config.request_id_header_name
-            ] = trace_context.request_id
+            response.headers[self.config.request_id_header_name] = (
+                trace_context.request_id
+            )
 
             # Finish the root span
             status = "completed" if response.status_code < 400 else "error"

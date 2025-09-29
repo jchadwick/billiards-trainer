@@ -333,9 +333,7 @@ class SessionSecurityValidator:
         threat_level = (
             SecurityThreatLevel.HIGH
             if score >= 0.6
-            else SecurityThreatLevel.MEDIUM
-            if score >= 0.3
-            else SecurityThreatLevel.LOW
+            else SecurityThreatLevel.MEDIUM if score >= 0.3 else SecurityThreatLevel.LOW
         )
 
         return SecurityValidationResult(
@@ -383,9 +381,7 @@ class SessionSecurityValidator:
         threat_level = (
             SecurityThreatLevel.HIGH
             if score >= 0.6
-            else SecurityThreatLevel.MEDIUM
-            if score >= 0.3
-            else SecurityThreatLevel.LOW
+            else SecurityThreatLevel.MEDIUM if score >= 0.3 else SecurityThreatLevel.LOW
         )
 
         return SecurityValidationResult(
@@ -433,9 +429,7 @@ class SessionSecurityValidator:
         threat_level = (
             SecurityThreatLevel.HIGH
             if score >= 0.6
-            else SecurityThreatLevel.MEDIUM
-            if score >= 0.3
-            else SecurityThreatLevel.LOW
+            else SecurityThreatLevel.MEDIUM if score >= 0.3 else SecurityThreatLevel.LOW
         )
 
         return SecurityValidationResult(
@@ -494,9 +488,7 @@ class SessionSecurityValidator:
         threat_level = (
             SecurityThreatLevel.HIGH
             if score >= 0.6
-            else SecurityThreatLevel.MEDIUM
-            if score >= 0.3
-            else SecurityThreatLevel.LOW
+            else SecurityThreatLevel.MEDIUM if score >= 0.3 else SecurityThreatLevel.LOW
         )
 
         return SecurityValidationResult(
@@ -854,9 +846,7 @@ class SessionSecurityValidator:
         threat_level = (
             SecurityThreatLevel.HIGH
             if score >= 0.6
-            else SecurityThreatLevel.MEDIUM
-            if score >= 0.3
-            else SecurityThreatLevel.LOW
+            else SecurityThreatLevel.MEDIUM if score >= 0.3 else SecurityThreatLevel.LOW
         )
 
         return SecurityValidationResult(

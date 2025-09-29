@@ -219,13 +219,13 @@ async def websocket_endpoint(
         )
 
         # Start monitoring for this client
-        connection_monitor.client_metrics[
-            client_id
-        ] = connection_monitor.client_metrics.get(
-            client_id,
-            connection_monitor.client_metrics.__class__.__dict__[
-                "__dataclass_fields__"
-            ]["client_id"].default_factory(),
+        connection_monitor.client_metrics[client_id] = (
+            connection_monitor.client_metrics.get(
+                client_id,
+                connection_monitor.client_metrics.__class__.__dict__[
+                    "__dataclass_fields__"
+                ]["client_id"].default_factory(),
+            )
         )
 
         logger.info(f"WebSocket connection established: {client_id} from {client_ip}")

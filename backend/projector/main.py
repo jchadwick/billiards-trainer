@@ -1001,9 +1001,9 @@ class ProjectorModule:
                 info["renderer"] = self.basic_renderer.get_stats()
 
             if self.trajectory_renderer:
-                info[
-                    "trajectory_renderer"
-                ] = self.trajectory_renderer.get_render_stats()
+                info["trajectory_renderer"] = (
+                    self.trajectory_renderer.get_render_stats()
+                )
 
             if self.effects_system:
                 info["effects"] = self.effects_system.get_stats()

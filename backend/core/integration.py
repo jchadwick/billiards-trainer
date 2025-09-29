@@ -1184,9 +1184,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
                 # Update calibration
                 self.projection_settings["calibration_points"] = processed_points
-                self.projection_settings[
-                    "transformation_matrix"
-                ] = transformation_matrix
+                self.projection_settings["transformation_matrix"] = (
+                    transformation_matrix
+                )
 
                 self.calibration_status = {
                     "is_calibrated": True,
