@@ -100,6 +100,20 @@ _geometric_calibrator = GeometricCalibrator()
 _calibration_sessions: dict[str, dict[str, Any]] = {}
 
 
+async def load_calibration_session_from_db(session_id: str) -> Optional[dict[str, Any]]:
+    """Load calibration session from database (stub for future implementation)."""
+    # TODO: Implement database loading
+    return None
+
+
+async def update_calibration_session_in_db(
+    session_id: str, updates: dict[str, Any]
+) -> None:
+    """Update calibration session in database (stub for future implementation)."""
+    # TODO: Implement database updates
+    pass
+
+
 class CalibrationMath:
     """Mathematical functions for calibration calculations."""
 
