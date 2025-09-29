@@ -37,6 +37,7 @@ class MessageFormatVerifier:
     """Verifies WebSocket message formats between frontend and backend."""
 
     def __init__(self):
+        """Initialize the message format verifier."""
         self.verification_results: dict[str, dict[str, Any]] = {}
 
     def verify_frame_message(self) -> dict[str, Any]:
