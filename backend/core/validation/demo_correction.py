@@ -8,8 +8,7 @@ demonstrating various error scenarios and their corrections.
 import time
 from datetime import datetime
 
-from backend.core.models import BallState, GameState, TableState, Vector2D
-
+from ..models import BallState, GameState, TableState, Vector2D
 from .manager import ValidationManager, validate_game_state
 
 

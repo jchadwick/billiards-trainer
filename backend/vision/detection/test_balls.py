@@ -18,16 +18,15 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.vision.models import Ball, BallType
-from backend.vision.tracking.tracker import ObjectTracker
-
+from ..models import Ball, BallType
+from ..tracking.tracker import ObjectTracker
 from .balls import BallDetector, DetectionMethod
 
 
 class TestBallDetection:
     """Test ball detection accuracy and robustness."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def test_config(self):
         """Standard test configuration."""
         return {
@@ -40,12 +39,12 @@ class TestBallDetection:
             "debug_mode": False,
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def ball_detector(self, test_config):
         """Ball detector instance for testing."""
         return BallDetector(test_config)
 
-    @pytest.fixture
+    @pytest.fixture()
     def synthetic_frame(self):
         """Generate synthetic test frame with known ball positions."""
         frame = np.zeros((600, 800, 3), dtype=np.uint8)
@@ -246,7 +245,7 @@ class TestBallDetection:
 class TestBallClassification:
     """Test ball type and number classification."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def ball_detector(self):
         return BallDetector({"detection_method": DetectionMethod.HOUGH_CIRCLES})
 
@@ -405,7 +404,7 @@ class TestBallClassification:
 class TestBallTracking:
     """Test ball tracking with Kalman filters."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def tracker_config(self):
         return {
             "max_age": 30,
@@ -415,7 +414,7 @@ class TestBallTracking:
             "measurement_noise": 10.0,
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def object_tracker(self, tracker_config):
         return ObjectTracker(tracker_config)
 
@@ -575,7 +574,7 @@ class TestBallTracking:
 class TestPerformanceAndMetrics:
     """Test performance characteristics and metrics."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def ball_detector(self):
         return BallDetector(
             {"detection_method": DetectionMethod.COMBINED, "debug_mode": True}

@@ -2,9 +2,8 @@
 
 import time
 
-from backend.core.models import BallState, CueState, TableState, Vector2D
-from backend.core.utils.cache import CacheManager
-
+from ..models import BallState, CueState, TableState, Vector2D
+from ..utils.cache import CacheManager
 from .trajectory import (
     CollisionType,
     TrajectoryCalculator,

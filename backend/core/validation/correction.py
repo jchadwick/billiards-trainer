@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from backend.core.models import BallState, GameState, TableState, Vector2D
+from ..models import BallState, GameState, TableState, Vector2D
 
 
 class CorrectionStrategy(Enum):

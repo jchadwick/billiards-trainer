@@ -110,8 +110,8 @@ class WebSocketHandler:
         self, websocket: WebSocket, token: Optional[str] = None
     ) -> Optional[str]:
         """Authenticate WebSocket connection and return user_id if valid."""
-        from backend.api.dependencies import _get_unauthenticated_user, _is_auth_enabled
-        from backend.api.middleware.authentication import verify_jwt_token
+        from ..dependencies import _get_unauthenticated_user, _is_auth_enabled
+        from ..middleware.authentication import verify_jwt_token
 
         # Check if authentication is enabled
         if not _is_auth_enabled():

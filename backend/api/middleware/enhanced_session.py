@@ -35,12 +35,7 @@ except ImportError:
 
 from pydantic import BaseModel, Field
 
-from backend.api.utils.security import (
-    SecurityEvent,
-    SecurityEventType,
-    UserRole,
-    security_logger,
-)
+from ..utils.security import SecurityEvent, SecurityEventType, UserRole, security_logger
 
 logger = logging.getLogger(__name__)
 

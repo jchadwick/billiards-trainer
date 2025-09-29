@@ -99,8 +99,7 @@ class DatabaseManager:
 
     def _create_default_users(self) -> None:
         """Create default admin user if no users exist."""
-        from backend.api.utils.security import UserRole
-
+        from ..utils.security import UserRole
         from .repositories import UserRepository
 
         session = self.get_session()

@@ -18,11 +18,11 @@ from fastapi.responses import StreamingResponse
 
 # Import vision module
 try:
-    from backend.vision import CameraStatus, VisionConfig, VisionModule
+    from ...vision import CameraStatus, VisionConfig, VisionModule
 except ImportError:
     # Fallback for development/testing
     try:
-        from backend.vision import CameraStatus, VisionConfig, VisionModule
+        from ...vision import CameraStatus, VisionConfig, VisionModule
     except ImportError:
         # Another fallback for direct execution
         import os
@@ -31,8 +31,8 @@ except ImportError:
         sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from vision import CameraStatus, VisionModule
 
-from backend.api.dependencies import ApplicationState, get_app_state
-from backend.api.middleware.rate_limit import rate_limit
+from ..dependencies import ApplicationState, get_app_state
+from ..middleware.rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 

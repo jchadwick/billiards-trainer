@@ -36,6 +36,21 @@ export function useRootStore(): RootStore {
   return context;
 }
 
+// All stores hook for convenience
+export function useStores() {
+  const rootStore = useRootStore();
+  return {
+    rootStore,
+    systemStore: rootStore.system,
+    gameStore: rootStore.game,
+    visionStore: rootStore.vision,
+    configStore: rootStore.config,
+    authStore: rootStore.auth,
+    uiStore: rootStore.ui,
+    connectionStore: rootStore.connection,
+  };
+}
+
 // Individual store hooks
 export function useSystemStore(): SystemStore {
   const rootStore = useRootStore();

@@ -73,7 +73,17 @@ class ConfigurationModule:
 
         # Initialize hot reload if enabled
         if self._enable_hot_reload:
-            self._init_hot_reload()
+            try:
+                if hasattr(self, "_init_hot_reload") and callable(
+                    getattr(self, "_init_hot_reload", None)
+                ):
+                    self._init_hot_reload()
+                else:
+                    print("Warning: _init_hot_reload method not found or not callable")
+                    self._enable_hot_reload = False
+            except Exception as e:
+                print(f"Error initializing hot reload during construction: {e}")
+                self._enable_hot_reload = False
 
     def _init_directories(self) -> None:
         """Initialize required directories."""
@@ -1087,37 +1097,74 @@ class ConfigurationModule:
     # =============================================================================
 
     def _init_hot_reload(self) -> None:
-        """Initialize hot reload functionality."""
+        """Initialize hot reload functionality.
+
+        This method is called during initialization when hot reload is enabled.
+        It sets up file watching capabilities for configuration files.
+        """
         try:
+            # Ensure we have the required attributes
+            if not hasattr(self, "_watched_files"):
+                print(
+                    "Warning: _watched_files attribute not found, initializing empty list"
+                )
+                self._watched_files = []
+
+            if not hasattr(self, "_settings"):
+                print(
+                    "Warning: _settings attribute not found, cannot initialize hot reload"
+                )
+                return
+
             if not self._watched_files:
                 # No configuration files to watch
+                print("Hot reload: No configuration files to watch")
                 return
 
             # Get hot reload settings from configuration
-            hot_reload_config = self._settings.hot_reload
-            debounce_delay = (
-                hot_reload_config.reload_delay / 1000.0
-            )  # Convert ms to seconds
+            try:
+                hot_reload_config = self._settings.hot_reload
+                debounce_delay = (
+                    hot_reload_config.reload_delay / 1000.0
+                )  # Convert ms to seconds
+            except AttributeError as e:
+                print(f"Warning: Hot reload settings not found in configuration: {e}")
+                debounce_delay = 1.0  # Default debounce delay
 
             # Initialize configuration watcher
-            self._config_watcher = ConfigWatcher(debounce_delay=debounce_delay)
+            try:
+                self._config_watcher = ConfigWatcher(debounce_delay=debounce_delay)
+            except Exception as e:
+                print(f"Error creating ConfigWatcher: {e}")
+                self._config_watcher = None
+                return
 
-            # Register callbacks
-            self._config_watcher.on_file_changed(self._handle_config_file_change)
-            self._config_watcher.on_validation_needed(self._validate_config_file)
-            self._config_watcher.on_rollback_needed(self._handle_config_rollback)
+            # Register callbacks with error handling
+            try:
+                self._config_watcher.on_file_changed(self._handle_config_file_change)
+                self._config_watcher.on_validation_needed(self._validate_config_file)
+                self._config_watcher.on_rollback_needed(self._handle_config_rollback)
+            except Exception as e:
+                print(f"Error registering hot reload callbacks: {e}")
+                self._config_watcher = None
+                return
 
             # Start watching files
-            if self._config_watcher.start_watching(self._watched_files):
-                print(
-                    f"Hot reload enabled for {len(self._watched_files)} configuration files"
-                )
-            else:
-                print("Failed to start hot reload functionality")
+            try:
+                if self._config_watcher.start_watching(self._watched_files):
+                    print(
+                        f"Hot reload enabled for {len(self._watched_files)} configuration files"
+                    )
+                else:
+                    print("Failed to start hot reload functionality")
+                    self._config_watcher = None
+            except Exception as e:
+                print(f"Error starting file watching: {e}")
                 self._config_watcher = None
 
         except Exception as e:
             print(f"Error initializing hot reload: {e}")
+            # Ensure watcher is cleared on any error
             self._config_watcher = None
 
     def _handle_config_file_change(self, event: ConfigChangeEvent) -> None:

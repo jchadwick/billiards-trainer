@@ -1,7 +1,6 @@
 """Final verification of trajectory calculation system."""
 
-from backend.core.models import BallState, CueState, TableState, Vector2D
-
+from ..models import BallState, CueState, TableState, Vector2D
 from .trajectory import TrajectoryCalculator, TrajectoryQuality
 
 

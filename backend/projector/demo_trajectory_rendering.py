@@ -20,15 +20,14 @@ import pygame
 # Add the project root to the path
 sys.path.append("/Users/jchadwick/code/billiards-trainer")
 
-from backend.core.game_state import BallState, TableState, Vector2D
-from backend.core.physics.trajectory import (
+from ..core.game_state import BallState, TableState, Vector2D
+from ..core.physics.trajectory import (
     CollisionType,
     PredictedCollision,
     Trajectory,
     TrajectoryPoint,
     TrajectoryQuality,
 )
-
 from .main import DisplayMode, ProjectorModule
 from .utils.performance import PerformanceMonitor
 

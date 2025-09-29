@@ -9,9 +9,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from backend.config.manager import ConfigurationModule
-from backend.config.models.schemas import ConfigSource
-from backend.config.utils.watcher import ConfigChangeEvent, ConfigWatcher
+from ..manager import ConfigurationModule
+from ..models.schemas import ConfigSource
+from ..utils.watcher import ConfigChangeEvent, ConfigWatcher
 
 
 class TestConfigWatcher:
@@ -248,7 +248,7 @@ class TestConfigurationModuleHotReload:
             invalid_config = "not a dictionary"
             assert not config_module._validate_config_file(config_file, invalid_config)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_force_reload(self):
         """Test force reload functionality."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -384,7 +384,7 @@ class TestConfigurationModuleHotReload:
             # Unsubscribe
             assert config_module.unsubscribe(subscription_id)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_debounced_file_changes(self):
         """Test that rapid file changes are debounced."""
         watcher = ConfigWatcher(debounce_delay=0.1)
@@ -415,7 +415,7 @@ class TestConfigurationModuleHotReload:
 class TestIntegrationScenarios:
     """Integration tests for hot reload functionality."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_end_to_end_hot_reload_simulation(self):
         """Test complete hot reload workflow simulation."""
         with tempfile.TemporaryDirectory() as temp_dir:

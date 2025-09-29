@@ -1,8 +1,7 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import type {
   UIState,
-  Notification,
-  ActionResult
+  Notification
 } from './types';
 
 export class UIStore {
@@ -333,7 +332,7 @@ export class UIStore {
     }
   }
 
-  private savePreferences(): void {
+  savePreferences(): void {
     try {
       const preferences = this.getPersistedUIState();
       localStorage.setItem('billiards-ui-preferences', JSON.stringify(preferences));

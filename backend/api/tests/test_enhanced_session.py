@@ -6,26 +6,17 @@ from unittest.mock import Mock
 
 import pytest
 
-from backend.api.middleware.enhanced_auth_integration import (
-    EnhancedAuthenticationManager,
-)
-from backend.api.middleware.enhanced_session import (
+from ..middleware.enhanced_auth_integration import EnhancedAuthenticationManager
+from ..middleware.enhanced_session import (
     EnhancedSessionManager,
     MemorySessionStorage,
     SessionData,
     SessionPolicy,
     SessionStatus,
 )
-from backend.api.middleware.session_monitor import (
-    MonitoringLevel,
-    SessionEvent,
-    SessionMonitor,
-)
-from backend.api.middleware.session_security import (
-    SecurityThreatLevel,
-    SessionSecurityValidator,
-)
-from backend.api.utils.security import UserRole
+from ..middleware.session_monitor import MonitoringLevel, SessionEvent, SessionMonitor
+from ..middleware.session_security import SecurityThreatLevel, SessionSecurityValidator
+from ..utils.security import UserRole
 
 
 class TestSessionData:
@@ -106,12 +97,12 @@ class TestSessionPolicy:
 class TestMemorySessionStorage:
     """Test memory session storage implementation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def storage(self):
         """Create storage instance for testing."""
         return MemorySessionStorage()
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_session(self):
         """Create sample session data."""
         now = datetime.now(timezone.utc)
@@ -237,7 +228,7 @@ class TestMemorySessionStorage:
 class TestEnhancedSessionManager:
     """Test enhanced session manager."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def session_manager(self):
         """Create session manager for testing."""
         policy = SessionPolicy(
@@ -375,7 +366,7 @@ class TestEnhancedSessionManager:
 class TestSessionMonitor:
     """Test session monitoring system."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def monitor(self):
         """Create session monitor for testing."""
         return SessionMonitor(MonitoringLevel.DETAILED)
@@ -458,12 +449,12 @@ class TestSessionMonitor:
 class TestSessionSecurityValidator:
     """Test session security validation."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def validator(self):
         """Create security validator for testing."""
         return SessionSecurityValidator()
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_session(self):
         """Create sample session for testing."""
         now = datetime.now(timezone.utc)
@@ -543,7 +534,7 @@ class TestSessionSecurityValidator:
 class TestEnhancedAuthenticationManager:
     """Test enhanced authentication manager integration."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def auth_manager(self):
         """Create enhanced authentication manager for testing."""
         policy = SessionPolicy(
@@ -554,7 +545,7 @@ class TestEnhancedAuthenticationManager:
         )
         return EnhancedAuthenticationManager(policy=policy)
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_request(self):
         """Create mock request object."""
         request = Mock()
@@ -638,7 +629,7 @@ class TestEnhancedAuthenticationManager:
 class TestSessionManagementIntegration:
     """Integration tests for the complete session management system."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def auth_manager(self):
         """Create configured authentication manager."""
         policy = SessionPolicy(
@@ -648,7 +639,7 @@ class TestSessionManagementIntegration:
         )
         return EnhancedAuthenticationManager(policy=policy)
 
-    @pytest.fixture
+    @pytest.fixture()
     def mock_request(self):
         """Create mock request."""
         request = Mock()

@@ -11,13 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.config.loader.env import EnvironmentLoader
-from backend.config.loader.file import FileLoader
-from backend.config.loader.merger import (
-    ConfigSource,
-    ConfigurationMerger,
-    MergeStrategy,
-)
+from ..loader.env import EnvironmentLoader
+from ..loader.file import FileLoader
+from ..loader.merger import ConfigSource, ConfigurationMerger, MergeStrategy
 
 
 class TestConfigurationSystemIntegration:

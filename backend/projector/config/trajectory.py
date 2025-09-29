@@ -12,12 +12,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Union
 
-from backend.core.config.base import ConfigBase
-from backend.projector.rendering.trajectory import (
-    GhostBallStyle,
-    PowerIndicatorStyle,
-    TrajectoryStyle,
-)
+from ...core.config.base import ConfigBase
+from ..rendering.trajectory import GhostBallStyle, PowerIndicatorStyle, TrajectoryStyle
 
 logger = logging.getLogger(__name__)
 

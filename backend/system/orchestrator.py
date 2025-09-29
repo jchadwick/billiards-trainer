@@ -10,10 +10,10 @@ from typing import Any, Callable, Optional
 
 # Import core modules (API will be imported dynamically to avoid circular imports)
 try:
-    from backend.config import ConfigurationModule
-    from backend.core import CoreModule, CoreModuleConfig
-    from backend.projector import ProjectorModule
-    from backend.vision import VisionModule
+    from ..config import ConfigurationModule
+    from ..core import CoreModule, CoreModuleConfig
+    from ..projector import ProjectorModule
+    from ..vision import VisionModule
 except ImportError:
     # If running from backend directory directly
     from core import CoreModule, CoreModuleConfig
@@ -468,7 +468,7 @@ class SystemOrchestrator:
         try:
             # Import API dynamically to avoid circular imports
             try:
-                from backend.api.main import create_app as create_api_app
+                from ..api.main import create_app as create_api_app
             except ImportError:
                 from api.main import create_app as create_api_app
 

@@ -29,7 +29,7 @@ export const Card: React.FC<CardProps> = ({
   shadow = 'md',
   hover = false,
 }) => {
-  const baseClasses = 'bg-white dark:bg-secondary-800 rounded-lg border border-secondary-200 dark:border-secondary-700'
+  const baseClasses = 'bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700'
   const paddingClass = paddingClasses[padding]
   const shadowClass = shadowClasses[shadow]
   const hoverClass = hover ? 'transition-shadow hover:shadow-lg' : ''
@@ -85,7 +85,7 @@ export interface CardFooterProps {
 }
 
 export const CardFooter: React.FC<CardFooterProps> = ({ children, className = '' }) => (
-  <div className={`mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-700 ${className}`}>
+  <div className={`mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 ${className}`}>
     {children}
   </div>
 )

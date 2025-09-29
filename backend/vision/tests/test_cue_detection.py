@@ -6,19 +6,14 @@ import cv2
 import numpy as np
 import pytest
 
-from backend.vision.detection.cue import (
-    CueDetector,
-    ExtendedCueStick,
-    ExtendedShotEvent,
-    ShotType,
-)
-from backend.vision.models import CueState, CueStick
+from ..detection.cue import CueDetector, ExtendedCueStick, ExtendedShotEvent, ShotType
+from ..models import CueState, CueStick
 
 
 class TestCueDetector:
     """Test cases for the CueDetector class."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def default_config(self):
         """Default configuration for cue detector."""
         return {
@@ -42,12 +37,12 @@ class TestCueDetector:
             "temporal_smoothing": 0.7,
         }
 
-    @pytest.fixture
+    @pytest.fixture()
     def detector(self, default_config):
         """Create a CueDetector instance."""
         return CueDetector(default_config)
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_frame(self):
         """Create a sample frame with a cue stick."""
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -61,7 +56,7 @@ class TestCueDetector:
 
         return frame
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_lines(self):
         """Sample line detections that could represent cue sticks."""
         return [
@@ -739,7 +734,7 @@ class TestShotTypeEnum:
 class TestIntegration:
     """Integration tests for the complete cue detection pipeline."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def detector_with_config(self):
         """Detector with comprehensive config."""
         config = {

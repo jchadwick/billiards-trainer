@@ -6,17 +6,17 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
+from ..main import create_app
 
 
-@pytest.fixture
+@pytest.fixture()
 def client():
     """Create test client."""
     app = create_app()
     return TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_app_state():
     """Mock application state for testing."""
     mock_state = Mock()

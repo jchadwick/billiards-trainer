@@ -10,8 +10,8 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 # Internal imports
 try:
-    from backend.config import ConfigurationModule
-    from backend.core import CoreModule, CoreModuleConfig
+    from ..config import ConfigurationModule
+    from ..core import CoreModule, CoreModuleConfig
 except ImportError:
     # If running from the backend directory directly
     from core import CoreModule, CoreModuleConfig
@@ -40,7 +40,7 @@ from .websocket.endpoints import websocket_router
 
 # Import health monitor with fallback
 try:
-    from backend.system.health_monitor import health_monitor
+    from ..system.health_monitor import health_monitor
 except ImportError:
     try:
         from system.health_monitor import health_monitor

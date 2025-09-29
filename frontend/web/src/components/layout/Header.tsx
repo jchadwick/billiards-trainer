@@ -1,8 +1,9 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useUIStore } from '../../hooks/useStores'
 import { ConnectionStatus, UserMenu, NotificationCenter } from '../navigation'
 import { Button } from '../ui/Button'
+import { AccessibilitySettings, AccessibilityToggle } from '../accessibility/AccessibilitySettings'
 
 export interface HeaderProps {
   className?: string
@@ -10,6 +11,7 @@ export interface HeaderProps {
 
 export const Header = observer<HeaderProps>(({ className = '' }) => {
   const uiStore = useUIStore()
+  const [accessibilitySettingsOpen, setAccessibilitySettingsOpen] = useState(false)
 
   const handleToggleSidebar = () => {
     uiStore.toggleSidebar()
@@ -17,6 +19,14 @@ export const Header = observer<HeaderProps>(({ className = '' }) => {
 
   const handleToggleMobileSidebar = () => {
     uiStore.toggleMobileSidebar()
+  }
+
+  const handleOpenAccessibilitySettings = () => {
+    setAccessibilitySettingsOpen(true)
+  }
+
+  const handleCloseAccessibilitySettings = () => {
+    setAccessibilitySettingsOpen(false)
   }
 
   return (
@@ -86,6 +96,12 @@ export const Header = observer<HeaderProps>(({ className = '' }) => {
               size="md"
             />
 
+            {/* Accessibility Settings */}
+            <AccessibilityToggle
+              onOpen={handleOpenAccessibilitySettings}
+              className="hidden sm:flex"
+            />
+
             {/* Notifications */}
             <NotificationCenter />
 
@@ -99,6 +115,12 @@ export const Header = observer<HeaderProps>(({ className = '' }) => {
       <div className="sm:hidden px-4 pb-2">
         <ConnectionStatus showText={true} size="sm" />
       </div>
+
+      {/* Accessibility Settings Modal */}
+      <AccessibilitySettings
+        isOpen={accessibilitySettingsOpen}
+        onClose={handleCloseAccessibilitySettings}
+      />
     </header>
   )
 })

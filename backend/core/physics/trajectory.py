@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from backend.core.game_state import BallState, CueState, TableState, Vector2D
-from backend.core.utils.cache import CacheManager
-from backend.core.utils.geometry import GeometryUtils
-from backend.core.utils.math import MathUtils
+from ..game_state import BallState, CueState, TableState, Vector2D
+from ..utils.cache import CacheManager
+from ..utils.geometry import GeometryUtils
+from ..utils.math import MathUtils
 
 
 class CollisionType(Enum):

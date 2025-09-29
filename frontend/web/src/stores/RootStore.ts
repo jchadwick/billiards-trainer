@@ -5,6 +5,7 @@ import { VisionStore } from './VisionStore';
 import { ConfigStore } from './ConfigStore';
 import { AuthStore } from './AuthStore';
 import { UIStore } from './UIStore';
+import { ConnectionStore } from './ConnectionStore';
 import type { PersistedState } from './types';
 
 export class RootStore {
@@ -15,6 +16,7 @@ export class RootStore {
   config: ConfigStore;
   auth: AuthStore;
   ui: UIStore;
+  connection: ConnectionStore;
 
   // Store initialization state
   isInitialized: boolean = false;
@@ -28,6 +30,7 @@ export class RootStore {
     this.config = new ConfigStore();
     this.auth = new AuthStore();
     this.ui = new UIStore();
+    this.connection = new ConnectionStore();
 
     makeAutoObservable(this, {
       system: false,
@@ -35,7 +38,8 @@ export class RootStore {
       vision: false,
       config: false,
       auth: false,
-      ui: false
+      ui: false,
+      connection: false
     });
 
     // Initialize the root store
@@ -99,24 +103,145 @@ export class RootStore {
 
   private setupStoreConnections(): void {
     // Set up WebSocket message routing
-    // When system receives messages, route them to appropriate stores
-    // This would be expanded based on message types
+    this.setupWebSocketMessageHandlers();
 
-    // Example: Game updates from backend
-    // this.system.onMessage('game_update', (message) => {
-    //   this.game.handleGameUpdate(message);
-    // });
+    // Set up MobX reactions for cross-store dependencies
+    this.setupMobXReactions();
+  }
 
-    // Example: Vision updates from backend
-    // this.system.onMessage('detection_frame', (message) => {
-    //   this.vision.updateDetectionFrame(message.data);
-    // });
+  private setupWebSocketMessageHandlers(): void {
+    // Set up message routing by extending the system store's message handling
+    // We'll add a custom message router that hooks into the WebSocket connection
 
-    // Config changes should trigger UI theme updates
-    // Note: This would be implemented with MobX reactions in a real app
+    // Add a message router function to handle cross-store communication
+    this.system.addMessageRouter = (message: any) => {
+      try {
+        // Route messages to appropriate stores based on type
+        switch (message.type) {
+          case 'game_update':
+            if (this.game.handleGameUpdate) {
+              this.game.handleGameUpdate(message);
+            }
+            break;
 
-    // Auth changes should trigger system connection updates
-    // Note: This would be implemented with MobX reactions in a real app
+          case 'detection_frame':
+            if (this.vision.updateDetectionFrame) {
+              this.vision.updateDetectionFrame(message.data);
+            }
+            // Also update video store with frame data if it has setCurrentFrame method
+            if ('setCurrentFrame' in this.vision) {
+              const videoFrame = {
+                ...message.data,
+                timestamp: Date.now()
+              };
+              (this.vision as any).setCurrentFrame(videoFrame);
+            }
+            break;
+
+          case 'config_update':
+            // Reload configuration when backend config changes
+            if (this.config.loadFromBackend) {
+              this.config.loadFromBackend().catch(console.error);
+            }
+            break;
+
+          case 'system_alert':
+            this.ui.showNotification(
+              message.data.level || 'info',
+              'System Alert',
+              message.data.message,
+              { autoHide: true, duration: 5000 }
+            );
+            break;
+
+          case 'vision_status':
+            if (message.data.camera_status) {
+              // Update vision store camera status
+              if ('updateCameraStatus' in this.vision) {
+                (this.vision as any).updateCameraStatus(message.data.camera_status);
+              }
+            }
+            break;
+
+          default:
+            // Unknown message types are handled by SystemStore
+            break;
+        }
+      } catch (error) {
+        console.error('Error routing WebSocket message:', error);
+      }
+    };
+  }
+
+  private setupMobXReactions(): void {
+    // Import reaction from mobx
+    import('mobx').then(({ reaction }) => {
+      // React to theme changes and apply them to UI
+      reaction(
+        () => this.config.theme,
+        (theme) => {
+          this.ui.applyTheme(theme);
+        }
+      );
+
+      // React to auth state changes and manage system connections
+      reaction(
+        () => this.auth.isAuthenticated,
+        (isAuthenticated) => {
+          if (isAuthenticated && !this.system.status.isConnected) {
+            // Auto-connect when authenticated
+            const websocketUrl = 'ws://localhost:8080/api/v1/ws';
+            this.system.connect(websocketUrl).catch(error => {
+              console.error('Auto-connect failed:', error);
+            });
+          } else if (!isAuthenticated && this.system.status.isConnected) {
+            // Disconnect when logged out
+            this.system.disconnect();
+          }
+        }
+      );
+
+      // React to config changes and mark them as dirty
+      reaction(
+        () => [
+          this.config.config.camera,
+          this.config.config.detection,
+          this.config.config.game,
+          this.config.config.ui
+        ],
+        () => {
+          // Auto-save configuration changes to backend after a delay
+          this.debounceConfigSave();
+        }
+      );
+
+      // React to system errors and show notifications
+      reaction(
+        () => this.system.status.errors.length,
+        () => {
+          const latestError = this.system.status.errors[this.system.status.errors.length - 1];
+          if (latestError && latestError.level === 'critical') {
+            this.ui.showError('Critical System Error', latestError.message);
+          }
+        }
+      );
+    }).catch(console.error);
+  }
+
+  private configSaveTimeout: NodeJS.Timeout | null = null;
+
+  private debounceConfigSave(): void {
+    if (this.configSaveTimeout) {
+      clearTimeout(this.configSaveTimeout);
+    }
+
+    this.configSaveTimeout = setTimeout(() => {
+      if (this.config.hasUnsavedChanges && this.config.isValid) {
+        this.config.saveToBackend().catch(error => {
+          console.error('Auto-save configuration failed:', error);
+        });
+      }
+    }, 2000); // Save after 2 seconds of no changes
   }
 
   // State persistence

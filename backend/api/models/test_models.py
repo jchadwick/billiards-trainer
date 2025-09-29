@@ -62,13 +62,13 @@ from .websocket import (
 # =============================================================================
 
 
-@pytest.fixture
+@pytest.fixture()
 def valid_login_data():
     """Valid login request data."""
     return {"username": "testuser", "password": "testpass123", "remember_me": False}
 
 
-@pytest.fixture
+@pytest.fixture()
 def invalid_login_data():
     """Invalid login request data."""
     return {
@@ -78,7 +78,7 @@ def invalid_login_data():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def valid_config_data():
     """Valid configuration data."""
     return {
@@ -87,7 +87,7 @@ def valid_config_data():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def valid_ball_data():
     """Valid ball state data."""
     return {
@@ -102,7 +102,7 @@ def valid_ball_data():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def valid_websocket_frame_data():
     """Valid WebSocket frame message data."""
     return {
@@ -458,7 +458,7 @@ class TestModelConverters:
 
     def test_coordinate_conversion(self):
         """Test coordinate conversions."""
-        from backend.core.models import Vector2D
+        from ...core.models import Vector2D
 
         # Test Vector2D to Coordinate2D
         vector = Vector2D(1.5, 2.3)

@@ -3,12 +3,12 @@
 import pytest
 from sqlalchemy.orm import Session
 
-from backend.api.database.connection import setup_test_database
-from backend.api.services.auth_service import AuthenticationService
-from backend.api.utils.security import UserRole
+from ..database.connection import setup_test_database
+from ..services.auth_service import AuthenticationService
+from ..utils.security import UserRole
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_db():
     """Create test database."""
     db_manager = setup_test_database()
@@ -19,13 +19,13 @@ def test_db():
         session.close()
 
 
-@pytest.fixture
+@pytest.fixture()
 def auth_service(test_db: Session):
     """Create authentication service with test database."""
     return AuthenticationService(test_db)
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_user(auth_service: AuthenticationService):
     """Create a test user."""
     user = auth_service.create_user(

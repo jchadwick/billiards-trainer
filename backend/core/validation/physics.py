@@ -9,8 +9,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
-from backend.core.models import BallState, Collision, TableState, Trajectory, Vector2D
-from backend.core.physics.engine import PhysicsConstants, TrajectoryPoint
+from ..models import BallState, Collision, TableState, Trajectory, Vector2D
+from ..physics.engine import PhysicsConstants, TrajectoryPoint
 
 
 @dataclass

@@ -30,10 +30,12 @@ from .display import (
 )
 
 # Main projector interface
+from .main import CalibrationPoints, Circle
 from .main import DisplayMode as MainDisplayMode
+from .main import Line
 from .main import LineStyle as MainLineStyle
 from .main import Point2D as MainPoint2D
-from .main import ProjectorModule
+from .main import ProjectorModule, RenderFrame, RenderQuality, Text
 from .rendering import (
     BasicRenderer,
     BlendMode,
@@ -43,6 +45,25 @@ from .rendering import (
     Point2D,
     RendererError,
     RenderStats,
+)
+from .rendering.text import (
+    FontDescriptor,
+    FontWeight,
+    TextAlign,
+    TextRenderer,
+    TextStyle,
+    VerticalAlign,
+    create_debug_text_style,
+    create_error_text_style,
+    create_heading_text_style,
+    create_info_text_style,
+)
+from .utils import (
+    BilliardsPalette,
+    ColorPalette,
+    ColorUtils,
+    GeometryUtils,
+    TrajectoryColors,
 )
 
 # Set up module logging
@@ -106,6 +127,30 @@ __all__ = [
     "BlendMode",
     "RenderStats",
     "RendererError",
+    # Text rendering
+    "TextRenderer",
+    "TextStyle",
+    "FontDescriptor",
+    "FontWeight",
+    "TextAlign",
+    "VerticalAlign",
+    "create_info_text_style",
+    "create_heading_text_style",
+    "create_debug_text_style",
+    "create_error_text_style",
+    # Specification data classes
+    "CalibrationPoints",
+    "RenderFrame",
+    "RenderQuality",
+    "Line",
+    "Circle",
+    "Text",
+    # Utilities
+    "ColorUtils",
+    "ColorPalette",
+    "BilliardsPalette",
+    "TrajectoryColors",
+    "GeometryUtils",
     # Compatibility exports from main.py
     "MainDisplayMode",
     "MainLineStyle",

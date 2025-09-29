@@ -7,8 +7,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 # Import modules with fallback for different import contexts
 try:
-    from backend.config import ConfigurationModule
-    from backend.core import CoreModule
+    from ..config import ConfigurationModule
+    from ..core import CoreModule
 except ImportError:
     # If running from the backend directory directly
     from core import CoreModule

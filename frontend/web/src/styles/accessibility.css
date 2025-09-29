@@ -1,0 +1,450 @@
+/**
+ * Accessibility-specific CSS styles
+ * Provides visual enhancements for accessibility features
+ */
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Show screen reader content when focused */
+.sr-only.focus\:not-sr-only:focus,
+.focus-within\:not-sr-only:focus-within .sr-only {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Skip links styling */
+.skip-links a {
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.skip-links a:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  text-decoration: underline;
+}
+
+/* High contrast mode */
+.high-contrast {
+  --bg-primary: #000000;
+  --bg-secondary: #ffffff;
+  --text-primary: #ffffff;
+  --text-secondary: #000000;
+  --border-color: #ffffff;
+  --focus-color: #ffff00;
+}
+
+.high-contrast * {
+  border-color: var(--border-color) !important;
+}
+
+.high-contrast .bg-gray-50,
+.high-contrast .bg-gray-100,
+.high-contrast .bg-gray-200 {
+  background-color: var(--bg-secondary) !important;
+}
+
+.high-contrast .bg-gray-800,
+.high-contrast .bg-gray-900 {
+  background-color: var(--bg-primary) !important;
+}
+
+.high-contrast .text-gray-700,
+.high-contrast .text-gray-800,
+.high-contrast .text-gray-900 {
+  color: var(--text-secondary) !important;
+}
+
+.high-contrast .text-gray-100,
+.high-contrast .text-gray-200,
+.high-contrast .text-gray-300 {
+  color: var(--text-primary) !important;
+}
+
+/* Reduced motion */
+.reduced-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+.reduced-motion .transition-all,
+.reduced-motion .transition-colors,
+.reduced-motion .transition-opacity,
+.reduced-motion .transition-transform {
+  transition: none !important;
+}
+
+/* Keyboard navigation indicators */
+.keyboard-user *:focus,
+.keyboard-navigation *:focus {
+  outline: 2px solid #2563eb !important;
+  outline-offset: 2px !important;
+}
+
+.keyboard-user button:focus,
+.keyboard-navigation button:focus {
+  background-color: #dbeafe !important;
+}
+
+.keyboard-user .dark button:focus,
+.keyboard-navigation .dark button:focus {
+  background-color: #1e3a8a !important;
+}
+
+/* Focus visible for better keyboard navigation */
+.focus-visible:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Enhanced focus indicators for interactive elements */
+.keyboard-user a:focus,
+.keyboard-navigation a:focus,
+.keyboard-user button:focus,
+.keyboard-navigation button:focus,
+.keyboard-user input:focus,
+.keyboard-navigation input:focus,
+.keyboard-user select:focus,
+.keyboard-navigation select:focus,
+.keyboard-user textarea:focus,
+.keyboard-navigation textarea:focus {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.2);
+}
+
+/* Skip link target styling */
+.skip-link-target:focus {
+  outline: 2px dashed #2563eb;
+  outline-offset: 4px;
+}
+
+/* Screen reader optimized mode */
+.screen-reader-optimized {
+  line-height: 1.6;
+}
+
+.screen-reader-optimized * {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.screen-reader-optimized button,
+.screen-reader-optimized input,
+.screen-reader-optimized select,
+.screen-reader-optimized textarea {
+  padding: 12px 16px;
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Color blindness support */
+[data-color-mode="protanopia"] {
+  filter: url(#protanopia-filter);
+}
+
+[data-color-mode="deuteranopia"] {
+  filter: url(#deuteranopia-filter);
+}
+
+[data-color-mode="tritanopia"] {
+  filter: url(#tritanopia-filter);
+}
+
+/* Font size adjustments */
+:root {
+  --font-size-base: 16px;
+}
+
+body {
+  font-size: var(--font-size-base);
+}
+
+/* Focus trapping styles */
+.focus-trap-active {
+  overflow: hidden;
+}
+
+.focus-trap-active .focus-trap-boundary {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Live region styling */
+[role="status"],
+[role="alert"],
+[aria-live] {
+  position: absolute !important;
+  clip: rect(1px, 1px, 1px, 1px) !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Error states for accessibility */
+[aria-invalid="true"] {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 1px #dc2626 !important;
+}
+
+[aria-invalid="true"]:focus {
+  outline-color: #dc2626 !important;
+  box-shadow: 0 0 0 1px #dc2626, 0 0 0 3px rgba(220, 38, 38, 0.2) !important;
+}
+
+/* Required field indicators */
+[aria-required="true"] {
+  position: relative;
+}
+
+[aria-required="true"]::after {
+  content: "*";
+  color: #dc2626;
+  margin-left: 4px;
+  font-weight: bold;
+}
+
+/* Progress indicators */
+[role="progressbar"] {
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: #e5e7eb;
+}
+
+.high-contrast [role="progressbar"] {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+/* Table accessibility */
+table {
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: bold;
+}
+
+th, td {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+}
+
+.high-contrast th,
+.high-contrast td {
+  border-color: var(--border-color);
+}
+
+/* Tooltip accessibility */
+[role="tooltip"] {
+  position: absolute;
+  z-index: 10000;
+  max-width: 250px;
+  padding: 8px 12px;
+  background-color: #1f2937;
+  color: #ffffff;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.high-contrast [role="tooltip"] {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+/* Modal accessibility */
+[role="dialog"] {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow: auto;
+  background-color: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.high-contrast [role="dialog"] {
+  background-color: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Animation preferences */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast media query */
+@media (prefers-contrast: high) {
+  :root {
+    --focus-color: #ffff00;
+  }
+
+  *:focus {
+    outline-color: var(--focus-color) !important;
+  }
+}
+
+/* Print accessibility */
+@media print {
+  .sr-only {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    clip: auto !important;
+  }
+
+  [aria-hidden="true"] {
+    display: none !important;
+  }
+}
+
+/* Video overlay accessibility */
+.video-container canvas {
+  pointer-events: auto;
+}
+
+.video-container canvas:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+/* Overlay element descriptions */
+.overlay-element {
+  position: relative;
+}
+
+.overlay-element[aria-label]::after {
+  content: attr(aria-label);
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1000;
+}
+
+.overlay-element:focus::after,
+.overlay-element:hover::after {
+  opacity: 1;
+}
+
+.reduced-motion .overlay-element::after {
+  transition: none;
+}
+
+/* Ensure sufficient color contrast */
+.text-gray-500 {
+  color: #6b7280 !important;
+}
+
+.high-contrast .text-gray-500 {
+  color: var(--text-secondary) !important;
+}
+
+/* Button accessibility */
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button:disabled:focus {
+  outline: 2px solid #9ca3af;
+}
+
+/* Form accessibility */
+fieldset {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 16px;
+  margin: 8px 0;
+}
+
+legend {
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.high-contrast fieldset {
+  border-color: var(--border-color);
+}
+
+/* Custom focus styles for video controls */
+.video-controls button:focus {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.video-controls input[type="range"]:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Accessibility for dark mode */
+.dark .high-contrast {
+  --bg-primary: #ffffff;
+  --bg-secondary: #000000;
+  --text-primary: #000000;
+  --text-secondary: #ffffff;
+}

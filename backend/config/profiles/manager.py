@@ -15,9 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from backend.config.models.schemas import ConfigFormat, ConfigProfileEnhanced
-from backend.config.storage.persistence import ConfigPersistence, ConfigPersistenceError
-
+from ..models.schemas import ConfigFormat, ConfigProfileEnhanced
+from ..storage.persistence import ConfigPersistence, ConfigPersistenceError
 from .conditions import ProfileConditions
 
 

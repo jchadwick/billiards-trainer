@@ -24,7 +24,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-from backend.vision.models import Ball, BallType
+from ..models import Ball, BallType
 
 logger = logging.getLogger(__name__)
 
@@ -288,17 +288,30 @@ class BallDetector:
         Returns:
             Ball number (1-15) or None if not identifiable
         """
-        # This is a simplified implementation
-        # A full implementation would use OCR or template matching
-        # to identify numbers and stripe patterns
-
         if ball_type == BallType.CUE:
             return None  # Cue ball has no number
         elif ball_type == BallType.EIGHT:
             return 8
-        else:
-            # For now, return None - would need advanced pattern recognition
-            # to distinguish between solid/stripe numbers of same color
+
+        try:
+            # Preprocess ball region for number recognition
+            preprocessed = self._preprocess_for_number_recognition(ball_region)
+
+            # Try template matching first (faster but less robust)
+            number = self._template_match_number(preprocessed, ball_type)
+            if number is not None:
+                return number
+
+            # Fall back to simple OCR-like approach
+            number = self._ocr_recognize_number(preprocessed, ball_type)
+            if number is not None:
+                return number
+
+            # If all methods fail, try color-based number inference
+            return self._infer_number_from_color(ball_region, ball_type)
+
+        except Exception as e:
+            self.logger.debug(f"Ball number recognition failed: {e}")
             return None
 
     # Private helper methods
@@ -601,6 +614,278 @@ class BallDetector:
             cv2.circle(debug_frame, (int(x), int(y)), 2, (0, 0, 255), 3)
 
         self.debug_images.append(("candidates", debug_frame))
+
+    def _preprocess_for_number_recognition(self, ball_region: np.ndarray) -> np.ndarray:
+        """Preprocess ball region to enhance number visibility."""
+        # Resize to standard size for consistent processing
+        size = (64, 64)
+        resized = cv2.resize(ball_region, size)
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+
+        # Apply CLAHE to improve contrast
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        enhanced = clahe.apply(gray)
+
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
+
+        # Apply adaptive thresholding to create binary image
+        binary = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        )
+
+        return binary
+
+    def _template_match_number(
+        self, preprocessed: np.ndarray, ball_type: BallType
+    ) -> Optional[int]:
+        """Use template matching to identify ball numbers."""
+        # This would require pre-created templates for each number
+        # For now, implement a simplified approach based on contour analysis
+
+        # Find contours that might be numbers
+        contours, _ = cv2.findContours(
+            preprocessed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return None
+
+        # Filter contours by size and aspect ratio
+        number_contours = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if 50 < area < 500:  # Reasonable size for numbers
+                x, y, w, h = cv2.boundingRect(contour)
+                aspect_ratio = float(w) / h
+                if 0.3 < aspect_ratio < 2.0:  # Reasonable aspect ratio for digits
+                    number_contours.append(contour)
+
+        if not number_contours:
+            return None
+
+        # Analyze the largest contour for number characteristics
+        largest_contour = max(number_contours, key=cv2.contourArea)
+
+        # Simple shape analysis for common numbers
+        return self._analyze_contour_for_number(largest_contour, ball_type)
+
+    def _analyze_contour_for_number(
+        self, contour: np.ndarray, ball_type: BallType
+    ) -> Optional[int]:
+        """Analyze contour shape to infer number."""
+        # Calculate shape descriptors
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, True)
+
+        if perimeter == 0:
+            return None
+
+        # Compactness (circularity)
+        compactness = 4 * math.pi * area / (perimeter * perimeter)
+
+        # Convex hull ratio
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        solidity = float(area) / hull_area if hull_area > 0 else 0
+
+        # Aspect ratio
+        x, y, w, h = cv2.boundingRect(contour)
+        aspect_ratio = float(w) / h if h > 0 else 0
+
+        # Simple heuristics based on shape characteristics
+        # These would need to be calibrated with real data
+        if ball_type == BallType.SOLID:
+            # Solid balls: numbers 1-7
+            if compactness > 0.7:  # Round shapes like 0, 6
+                return 6
+            elif aspect_ratio < 0.5:  # Tall shapes like 1
+                return 1
+            elif solidity < 0.8:  # Numbers with holes like 4
+                return 4
+            else:
+                return 2  # Default for solids
+        else:  # STRIPE
+            # Striped balls: numbers 9-15
+            if compactness > 0.7:
+                return 9
+            elif aspect_ratio < 0.5:
+                return 11
+            elif solidity < 0.8:
+                return 14
+            else:
+                return 12  # Default for stripes
+
+    def _ocr_recognize_number(
+        self, preprocessed: np.ndarray, ball_type: BallType
+    ) -> Optional[int]:
+        """Simple OCR-like number recognition using contour analysis."""
+        # Find all contours
+        contours, _ = cv2.findContours(
+            preprocessed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            return None
+
+        # Look for digit-like contours
+        digit_contours = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if 30 < area < 1000:  # Reasonable size for digits
+                x, y, w, h = cv2.boundingRect(contour)
+                aspect_ratio = float(w) / h
+                if 0.2 < aspect_ratio < 1.5:  # Reasonable aspect ratio for digits
+                    digit_contours.append((contour, x, y, w, h))
+
+        if not digit_contours:
+            return None
+
+        # Sort by x position (left to right)
+        digit_contours.sort(key=lambda x: x[1])
+
+        # For single digit recognition, use the largest/most central contour
+        if len(digit_contours) == 1:
+            contour, x, y, w, h = digit_contours[0]
+            return self._classify_single_digit(
+                contour, preprocessed[y : y + h, x : x + w]
+            )
+
+        # For two digits (10-15), combine them
+        elif len(digit_contours) == 2:
+            # First digit should be "1"
+            first_digit = self._classify_single_digit(
+                digit_contours[0][0],
+                preprocessed[
+                    digit_contours[0][2] : digit_contours[0][2] + digit_contours[0][4],
+                    digit_contours[0][1] : digit_contours[0][1] + digit_contours[0][3],
+                ],
+            )
+            second_digit = self._classify_single_digit(
+                digit_contours[1][0],
+                preprocessed[
+                    digit_contours[1][2] : digit_contours[1][2] + digit_contours[1][4],
+                    digit_contours[1][1] : digit_contours[1][1] + digit_contours[1][3],
+                ],
+            )
+
+            if first_digit == 1 and second_digit is not None and 0 <= second_digit <= 5:
+                return 10 + second_digit
+
+        return None
+
+    def _classify_single_digit(
+        self, contour: np.ndarray, digit_region: np.ndarray
+    ) -> Optional[int]:
+        """Classify a single digit based on its shape."""
+        # Calculate shape features
+        area = cv2.contourArea(contour)
+        perimeter = cv2.arcLength(contour, True)
+
+        if perimeter == 0:
+            return None
+
+        # Moments for shape analysis
+        moments = cv2.moments(contour)
+        if moments["m00"] == 0:
+            return None
+
+        # Hu moments for rotation invariant features
+        cv2.HuMoments(moments)
+
+        # Bounding rectangle features
+        x, y, w, h = cv2.boundingRect(contour)
+        aspect_ratio = float(w) / h
+
+        # Convexity
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        solidity = area / hull_area if hull_area > 0 else 0
+
+        # Simple classification based on shape characteristics
+        # This is a heuristic approach - a real implementation would use ML
+        if aspect_ratio < 0.4:  # Very tall
+            return 1
+        elif solidity < 0.6:  # Has significant concavity (holes)
+            if aspect_ratio > 0.8:  # Wide with holes
+                return 0
+            else:
+                return 4 if area > 200 else 6
+        elif aspect_ratio > 1.2:  # Very wide
+            return 7 if solidity > 0.8 else 2
+        elif 0.7 < aspect_ratio < 1.1:  # Nearly square
+            if solidity > 0.85:
+                return 8 if area > 300 else 0
+            else:
+                return 9 if area > 250 else 6
+        else:  # Medium aspect ratio
+            if solidity > 0.8:
+                return 3 if aspect_ratio < 0.7 else 5
+            else:
+                return 2
+
+    def _infer_number_from_color(
+        self, ball_region: np.ndarray, ball_type: BallType
+    ) -> Optional[int]:
+        """Infer ball number based on dominant color and type."""
+        # Extract dominant color
+        hsv = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
+
+        # Calculate color histogram
+        hist = cv2.calcHist([hsv], [0], None, [180], [0, 180])
+        dominant_hue = np.argmax(hist)
+
+        # Map colors to likely numbers based on standard pool ball colors
+        color_to_number = {
+            # Solid balls (1-7)
+            "yellow": 1,  # Yellow
+            "blue": 2,  # Blue
+            "red": 3,  # Red
+            "purple": 4,  # Purple
+            "orange": 5,  # Orange
+            "green": 6,  # Green
+            "maroon": 7,  # Maroon/Brown
+            # Striped balls (9-15)
+            "yellow_stripe": 9,  # Yellow stripe
+            "blue_stripe": 10,  # Blue stripe
+            "red_stripe": 11,  # Red stripe
+            "purple_stripe": 12,  # Purple stripe
+            "orange_stripe": 13,  # Orange stripe
+            "green_stripe": 14,  # Green stripe
+            "maroon_stripe": 15,  # Maroon stripe
+        }
+
+        # Simple hue to color mapping
+        if 15 <= dominant_hue <= 35:  # Yellow range
+            return color_to_number[
+                "yellow_stripe" if ball_type == BallType.STRIPE else "yellow"
+            ]
+        elif 100 <= dominant_hue <= 130:  # Blue range
+            return color_to_number[
+                "blue_stripe" if ball_type == BallType.STRIPE else "blue"
+            ]
+        elif 0 <= dominant_hue <= 15 or 160 <= dominant_hue <= 180:  # Red range
+            return color_to_number[
+                "red_stripe" if ball_type == BallType.STRIPE else "red"
+            ]
+        elif 130 <= dominant_hue <= 160:  # Purple range
+            return color_to_number[
+                "purple_stripe" if ball_type == BallType.STRIPE else "purple"
+            ]
+        elif 35 <= dominant_hue <= 65:  # Green range
+            return color_to_number[
+                "green_stripe" if ball_type == BallType.STRIPE else "green"
+            ]
+
+        # Default fallback based on ball type
+        if ball_type == BallType.SOLID:
+            return 2  # Default solid
+        elif ball_type == BallType.STRIPE:
+            return 10  # Default stripe
+
+        return None
 
     def _update_stats(self, balls: list[Ball]):
         """Update detection statistics."""

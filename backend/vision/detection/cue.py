@@ -19,7 +19,7 @@ import cv2
 import numpy as np
 
 # Import from models to use consistent data structures
-from backend.vision.models import CueState, CueStick
+from ..models import CueState, CueStick
 
 
 class ShotType(Enum):
@@ -1186,8 +1186,42 @@ class CueDetector:
         if angle_deg < 0:
             angle_deg += 360
 
-        # TODO: Add table coordinate transformation when table detection is integrated
-        # This would convert from image coordinates to table coordinates
+        # Apply table coordinate transformation if reference frame is available
+        if reference_frame is not None:
+            try:
+                # Try to detect table in reference frame to get transformation matrix
+                from ..detection.table import TableDetector
+
+                table_detector = TableDetector()
+                table_result = table_detector.detect_complete_table(reference_frame)
+
+                if table_result and table_result.perspective_transform is not None:
+                    # Transform the line endpoints to table coordinates
+                    points = np.array([[x1, y1], [x2, y2]], dtype=np.float32)
+                    points = points.reshape(-1, 1, 2)
+
+                    # Apply perspective transformation
+                    transformed_points = cv2.perspectiveTransform(
+                        points, table_result.perspective_transform
+                    )
+                    transformed_points = transformed_points.reshape(-1, 2)
+
+                    # Recalculate angle in table coordinates
+                    tx1, ty1 = transformed_points[0]
+                    tx2, ty2 = transformed_points[1]
+
+                    table_angle_rad = math.atan2(ty2 - ty1, tx2 - tx1)
+                    table_angle_deg = math.degrees(table_angle_rad)
+
+                    # Normalize to 0-360 range
+                    if table_angle_deg < 0:
+                        table_angle_deg += 360
+
+                    return table_angle_deg
+
+            except Exception as e:
+                # Fall back to image coordinates if transformation fails
+                self.logger.debug(f"Table coordinate transformation failed: {e}")
 
         return angle_deg
 

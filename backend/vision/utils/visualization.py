@@ -10,12 +10,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from backend.vision.detection.table import (
-    Pocket,
-    PocketType,
-    TableCorners,
-    TableDetectionResult,
-)
+from ..detection.table import Pocket, PocketType, TableCorners, TableDetectionResult
 
 
 class TableVisualization:
