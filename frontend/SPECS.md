@@ -38,6 +38,27 @@ The Frontend Web Application provides a zero-installation, browser-based interfa
 - **FR-UI-019**: Display calibration test patterns
 - **FR-UI-020**: Save and load calibration profiles
 
+#### 2.1a Advanced Camera Calibration
+- **FR-UI-016a**: Interactive geometric calibration with click-to-set points
+- **FR-UI-016b**: ROI (Region of Interest) configuration with visual feedback
+- **FR-UI-016c**: Perspective correction controls with real-time preview
+- **FR-UI-016d**: Multiple camera backend selection and configuration
+- **FR-UI-016e**: Camera exposure and white balance fine-tuning
+
+#### 2.1b Projector Calibration Management
+- **FR-UI-017a**: Interactive geometric calibration for projector alignment
+- **FR-UI-017b**: Keystone correction controls with corner adjustment
+- **FR-UI-017c**: Multi-monitor display configuration and selection
+- **FR-UI-017d**: Perspective correction with test pattern overlay
+- **FR-UI-017e**: Alignment validation with accuracy measurements
+
+#### 2.1c Color & Detection Calibration
+- **FR-UI-018a**: HSV color range calibration with live preview
+- **FR-UI-018b**: Ball detection sensitivity adjustment
+- **FR-UI-018c**: Table boundary detection parameter tuning
+- **FR-UI-018d**: Cue stick detection configuration
+- **FR-UI-018e**: Lighting condition adaptation controls
+
 #### 2.2 Configuration Management
 - **FR-UI-021**: Display all system settings in organized categories
 - **FR-UI-022**: Provide form-based configuration editing
@@ -45,12 +66,47 @@ The Frontend Web Application provides a zero-installation, browser-based interfa
 - **FR-UI-024**: Show setting descriptions and help text
 - **FR-UI-025**: Support configuration import/export
 
+#### 2.2a Advanced Configuration Features
+- **FR-UI-021a**: Hot reload configuration without system restart
+- **FR-UI-021b**: Configuration profile inheritance and merging
+- **FR-UI-021c**: Real-time validation with detailed error feedback
+- **FR-UI-021d**: Configuration rollback and version history
+- **FR-UI-021e**: Diff views for configuration changes
+
+#### 2.2b Environment & Source Management
+- **FR-UI-022a**: Environment variable management interface
+- **FR-UI-022b**: CLI argument visualization and editing
+- **FR-UI-022c**: Configuration source precedence display
+- **FR-UI-022d**: Multi-source configuration merging preview
+- **FR-UI-022e**: Configuration override management
+
+#### 2.2c Profile & Template Management
+- **FR-UI-023a**: Named configuration profile creation and management
+- **FR-UI-023b**: Profile switching with validation checks
+- **FR-UI-023c**: Configuration template library
+- **FR-UI-023d**: Conditional profile activation rules
+- **FR-UI-023e**: Profile export/import with dependency tracking
+
 #### 2.3 System Operations
 - **FR-UI-026**: Start/stop detection processing
 - **FR-UI-027**: Reset game state
 - **FR-UI-028**: Clear trajectory predictions
 - **FR-UI-029**: Switch between assistance levels
 - **FR-UI-030**: Control projector output on/off
+
+#### 2.3a Module-Specific Controls
+- **FR-UI-026a**: Vision module camera device selection and switching
+- **FR-UI-026b**: Physics engine parameter tuning (gravity, friction, spin)
+- **FR-UI-026c**: Force estimation and collision detection controls
+- **FR-UI-026d**: Projector display quality and effects configuration
+- **FR-UI-026e**: Real-time parameter adjustment with live preview
+
+#### 2.3b Advanced System Control
+- **FR-UI-027a**: Hot reload configuration without system restart
+- **FR-UI-027b**: Module dependency management and startup ordering
+- **FR-UI-027c**: Performance profiling and optimization controls
+- **FR-UI-027d**: Emergency shutdown procedures with data preservation
+- **FR-UI-027e**: System recovery and diagnostic modes
 
 ### 3. Monitoring Dashboard
 
@@ -114,6 +170,105 @@ The Frontend Web Application provides a zero-installation, browser-based interfa
 - **FR-UI-069**: Support Edge 90+
 - **FR-UI-070**: Graceful degradation for older browsers
 
+### 6. Module Orchestration & System Control
+
+#### 6.1 Module Management
+- **FR-UI-071**: Display all backend modules with health status
+- **FR-UI-072**: Start/stop individual modules (API, Core, Vision, Projector, Config)
+- **FR-UI-073**: Restart modules with graceful shutdown procedures
+- **FR-UI-074**: Show module initialization sequence and dependencies
+- **FR-UI-075**: Display module startup/shutdown logs in real-time
+
+#### 6.2 System Health Dashboard
+- **FR-UI-076**: Show system-wide health overview with color-coded status
+- **FR-UI-077**: Display inter-module communication status
+- **FR-UI-078**: Monitor module resource usage (CPU, memory, GPU)
+- **FR-UI-079**: Show module dependency graph with status indicators
+- **FR-UI-080**: Alert on module failures with automatic restart options
+
+#### 6.3 Service Management
+- **FR-UI-081**: Control core services (authentication, database, WebSocket)
+- **FR-UI-082**: Manage background processes and scheduled tasks
+- **FR-UI-083**: Configure service discovery and load balancing
+- **FR-UI-084**: Monitor service performance metrics
+- **FR-UI-085**: Handle service failover and recovery procedures
+
+### 7. System Diagnostics & Troubleshooting
+
+#### 7.1 Automated Diagnostics
+- **FR-UI-086**: Run automated system health checks
+- **FR-UI-087**: Execute diagnostic procedures for each module
+- **FR-UI-088**: Validate hardware connections and configuration
+- **FR-UI-089**: Test network connectivity and bandwidth
+- **FR-UI-090**: Perform end-to-end system validation
+
+#### 7.2 Interactive Troubleshooting
+- **FR-UI-091**: Provide step-by-step troubleshooting wizards
+- **FR-UI-092**: Display system repair suggestions based on detected issues
+- **FR-UI-093**: Guide users through calibration recovery procedures
+- **FR-UI-094**: Offer automated fixes for common problems
+- **FR-UI-095**: Provide escalation paths for complex issues
+
+#### 7.3 Hardware Detection & Validation
+- **FR-UI-096**: Auto-detect cameras, projectors, and displays
+- **FR-UI-097**: Validate hardware compatibility and drivers
+- **FR-UI-098**: Test camera capture capabilities and settings
+- **FR-UI-099**: Verify projector output and alignment
+- **FR-UI-100**: Monitor hardware health and temperature
+
+#### 7.4 Network & Performance Diagnostics
+- **FR-UI-101**: Test WebSocket connection stability
+- **FR-UI-102**: Measure system latency and throughput
+- **FR-UI-103**: Identify performance bottlenecks
+- **FR-UI-104**: Monitor resource usage patterns
+- **FR-UI-105**: Generate performance reports
+
+### 8. Data Management & Persistence
+
+#### 8.1 Backup Management
+- **FR-UI-106**: Schedule automatic backups of configuration and calibration data
+- **FR-UI-107**: Create manual backup snapshots with descriptions
+- **FR-UI-108**: Restore from backup with preview and validation
+- **FR-UI-109**: Manage backup retention policies
+- **FR-UI-110**: Monitor backup integrity and status
+
+#### 8.2 Data Migration & Export
+- **FR-UI-111**: Export configuration in multiple formats (JSON, YAML, XML)
+- **FR-UI-112**: Import configuration with validation and conflict resolution
+- **FR-UI-113**: Migrate data between system versions
+- **FR-UI-114**: Generate system reports and documentation
+- **FR-UI-115**: Archive historical data with compression
+
+#### 8.3 Storage Management
+- **FR-UI-116**: Monitor disk usage and available space
+- **FR-UI-117**: Clean up temporary files and logs
+- **FR-UI-118**: Manage log rotation and retention
+- **FR-UI-119**: Compress and archive old data
+- **FR-UI-120**: Configure storage quotas and alerts
+
+### 9. User Management & Access Control
+
+#### 9.1 Role-Based Access Control
+- **FR-UI-121**: Create and manage user roles (Admin, Operator, Viewer)
+- **FR-UI-122**: Assign permissions for specific system functions
+- **FR-UI-123**: Configure module-level access restrictions
+- **FR-UI-124**: Manage API access keys and tokens
+- **FR-UI-125**: Audit permission changes and access attempts
+
+#### 9.2 Session & Activity Management
+- **FR-UI-126**: Monitor active user sessions
+- **FR-UI-127**: Configure session timeouts and security policies
+- **FR-UI-128**: Log user activities and system changes
+- **FR-UI-129**: Generate audit trails and compliance reports
+- **FR-UI-130**: Manage concurrent session limits
+
+#### 9.3 User Preferences & Profiles
+- **FR-UI-131**: Save and restore user interface preferences
+- **FR-UI-132**: Manage personal configuration profiles
+- **FR-UI-133**: Configure notification preferences
+- **FR-UI-134**: Customize dashboard layouts per user
+- **FR-UI-135**: Synchronize preferences across devices
+
 ## Non-Functional Requirements
 
 ### Performance Requirements
@@ -157,6 +312,9 @@ interface SystemState {
   projector: ProjectorState;
   detection: DetectionState;
   performance: PerformanceMetrics;
+  modules: ModuleState[];
+  services: ServiceState[];
+  diagnostics: DiagnosticsState;
 }
 
 interface ConnectionState {
@@ -215,6 +373,102 @@ interface Configuration {
   vision: VisionConfig;
   display: DisplayConfig;
   assistance: AssistanceConfig;
+  modules: ModuleConfig[];
+  profiles: ConfigurationProfile[];
+}
+
+// New interfaces for system management
+interface ModuleState {
+  id: string;
+  name: 'api' | 'core' | 'vision' | 'projector' | 'config';
+  status: 'running' | 'stopped' | 'starting' | 'stopping' | 'error';
+  health: 'healthy' | 'warning' | 'critical';
+  uptime: number;
+  resources: ResourceUsage;
+  dependencies: string[];
+  logs: LogEntry[];
+}
+
+interface ServiceState {
+  id: string;
+  name: string;
+  type: 'authentication' | 'database' | 'websocket' | 'background';
+  status: 'active' | 'inactive' | 'failed';
+  pid?: number;
+  port?: number;
+  startTime: Date;
+}
+
+interface DiagnosticsState {
+  lastCheck: Date;
+  overallHealth: 'healthy' | 'warning' | 'critical';
+  checks: DiagnosticCheck[];
+  recommendations: string[];
+}
+
+interface DiagnosticCheck {
+  id: string;
+  name: string;
+  category: 'hardware' | 'network' | 'performance' | 'configuration';
+  status: 'pass' | 'warning' | 'fail';
+  message: string;
+  details?: any;
+}
+
+interface ResourceUsage {
+  cpu: number;
+  memory: number;
+  gpu?: number;
+  network: NetworkUsage;
+}
+
+interface NetworkUsage {
+  bytesIn: number;
+  bytesOut: number;
+  connectionsActive: number;
+}
+
+interface ConfigurationProfile {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
+  inherits?: string[];
+  settings: Record<string, any>;
+  created: Date;
+  modified: Date;
+}
+
+interface BackupInfo {
+  id: string;
+  name: string;
+  description: string;
+  timestamp: Date;
+  size: number;
+  type: 'automatic' | 'manual';
+  integrity: 'verified' | 'corrupted' | 'unknown';
+}
+
+interface UserRole {
+  id: string;
+  name: 'admin' | 'operator' | 'viewer';
+  permissions: Permission[];
+  modules: string[];
+}
+
+interface Permission {
+  resource: string;
+  actions: ('read' | 'write' | 'execute' | 'delete')[];
+}
+
+interface UserSession {
+  id: string;
+  userId: string;
+  startTime: Date;
+  lastActivity: Date;
+  ipAddress: string;
+  userAgent: string;
+  active: boolean;
 }
 
 interface UserPreferences {
@@ -223,6 +477,7 @@ interface UserPreferences {
   videoQuality: 'auto' | 'high' | 'medium' | 'low';
   notifications: boolean;
   shortcuts: KeyboardShortcuts;
+  dashboardLayout: DashboardLayout;
 }
 ```
 
@@ -248,6 +503,41 @@ class APIClient {
   startCalibration(): Promise<CalibrationSession>;
   getSystemStatus(): Promise<SystemState>;
   exportData(format: 'json' | 'csv'): Promise<Blob>;
+
+  // System management methods
+  getModules(): Promise<ModuleState[]>;
+  startModule(moduleId: string): Promise<void>;
+  stopModule(moduleId: string): Promise<void>;
+  restartModule(moduleId: string): Promise<void>;
+  getModuleLogs(moduleId: string, limit?: number): Promise<LogEntry[]>;
+
+  // Service management
+  getServices(): Promise<ServiceState[]>;
+  controlService(serviceId: string, action: 'start' | 'stop' | 'restart'): Promise<void>;
+
+  // Diagnostics
+  runDiagnostics(): Promise<DiagnosticsState>;
+  runSpecificCheck(checkId: string): Promise<DiagnosticCheck>;
+  getSystemHealth(): Promise<{ overall: string; details: any }>;
+
+  // Configuration profiles
+  getProfiles(): Promise<ConfigurationProfile[]>;
+  createProfile(profile: Omit<ConfigurationProfile, 'id' | 'created' | 'modified'>): Promise<string>;
+  updateProfile(id: string, updates: Partial<ConfigurationProfile>): Promise<void>;
+  deleteProfile(id: string): Promise<void>;
+  activateProfile(id: string): Promise<void>;
+
+  // Backup management
+  getBackups(): Promise<BackupInfo[]>;
+  createBackup(name: string, description?: string): Promise<string>;
+  restoreBackup(backupId: string): Promise<void>;
+  deleteBackup(backupId: string): Promise<void>;
+
+  // User management
+  getUserSessions(): Promise<UserSession[]>;
+  terminateSession(sessionId: string): Promise<void>;
+  getUserRoles(): Promise<UserRole[]>;
+  updateUserRole(userId: string, roleId: string): Promise<void>;
 }
 
 // WebSocket message types
@@ -257,7 +547,15 @@ type WSMessage =
   | { type: 'trajectory'; data: TrajectoryData }
   | { type: 'metrics'; data: PerformanceMetrics }
   | { type: 'alert'; data: Alert }
-  | { type: 'config'; data: Configuration };
+  | { type: 'config'; data: Configuration }
+  | { type: 'moduleStatus'; data: ModuleState }
+  | { type: 'serviceStatus'; data: ServiceState }
+  | { type: 'diagnostics'; data: DiagnosticsState }
+  | { type: 'resourceUsage'; data: ResourceUsage }
+  | { type: 'systemHealth'; data: { overall: string; details: any } }
+  | { type: 'backup'; data: BackupInfo }
+  | { type: 'userSession'; data: UserSession }
+  | { type: 'configurationChange'; data: { profileId: string; changes: any } };
 
 // REST endpoints
 const API_ENDPOINTS = {
@@ -266,7 +564,32 @@ const API_ENDPOINTS = {
   calibration: '/api/v1/calibration',
   gameState: '/api/v1/game/state',
   system: '/api/v1/system',
-  profiles: '/api/v1/profiles'
+  profiles: '/api/v1/profiles',
+
+  // System management endpoints
+  modules: '/api/v1/modules',
+  moduleControl: '/api/v1/modules/{id}/control',
+  moduleLogs: '/api/v1/modules/{id}/logs',
+
+  services: '/api/v1/services',
+  serviceControl: '/api/v1/services/{id}/control',
+
+  diagnostics: '/api/v1/diagnostics',
+  diagnosticsRun: '/api/v1/diagnostics/run',
+  diagnosticsCheck: '/api/v1/diagnostics/check/{id}',
+
+  configProfiles: '/api/v1/config/profiles',
+  configProfile: '/api/v1/config/profiles/{id}',
+  profileActivate: '/api/v1/config/profiles/{id}/activate',
+
+  backups: '/api/v1/backups',
+  backup: '/api/v1/backups/{id}',
+  backupRestore: '/api/v1/backups/{id}/restore',
+
+  users: '/api/v1/users',
+  userSessions: '/api/v1/users/sessions',
+  userSession: '/api/v1/users/sessions/{id}',
+  userRoles: '/api/v1/users/roles'
 };
 ```
 

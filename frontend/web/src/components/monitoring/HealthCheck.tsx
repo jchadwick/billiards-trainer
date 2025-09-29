@@ -9,6 +9,7 @@ import { useStores } from '../../stores/context';
 import { StatusIndicator } from './StatusIndicator';
 import { ProgressBar } from './ProgressBar';
 import { StatCard } from './StatCard';
+import { apiClient } from '../../services/api-client';
 import type { ComponentHealth, HealthStatus } from '../../types/api';
 
 interface HealthTest {
@@ -221,44 +222,31 @@ export const HealthCheck: React.FC = observer(() => {
   };
 
   const loadSystemHealth = async () => {
-    // Simulate loading system health from API
-    const mockHealth: ComponentHealth[] = [
-      {
-        name: 'API Server',
-        status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
-        message: connectionStore.state.isConnected ? 'All endpoints responding' : 'Server unreachable',
-        last_check: new Date().toISOString(),
-        uptime: connectionStore.state.isConnected ? 3600 : 0,
-        errors: connectionStore.state.error ? [connectionStore.state.error] : [],
-      },
-      {
-        name: 'Database',
-        status: 'healthy',
-        message: 'Connection pool healthy',
-        last_check: new Date().toISOString(),
-        uptime: 3600,
-        errors: [],
-      },
-      {
-        name: 'Vision System',
-        status: 'healthy',
-        message: 'Camera operational, tracking active',
-        last_check: new Date().toISOString(),
-        uptime: 3580,
-        errors: [],
-      },
-      {
-        name: 'Projector',
-        status: 'degraded',
-        message: 'Minor calibration drift detected',
-        last_check: new Date().toISOString(),
-        uptime: 3400,
-        errors: ['Calibration accuracy: 95%'],
-      },
-    ];
+    try {
+      // Fetch real health data from backend with component details
+      const healthResponse = await apiClient.get('/health?include_details=true');
 
-    setSystemHealth(mockHealth);
-    setLastHealthCheck(new Date());
+      // Convert backend component health to frontend format
+      const componentHealthArray: ComponentHealth[] = Object.values(healthResponse.components);
+
+      setSystemHealth(componentHealthArray);
+      setLastHealthCheck(new Date());
+    } catch (error) {
+      console.error('Failed to load system health:', error);
+      // Fallback to connection store data only
+      const fallbackHealth: ComponentHealth[] = [
+        {
+          name: 'API Server',
+          status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
+          message: connectionStore.state.isConnected ? 'All endpoints responding' : 'Server unreachable',
+          last_check: new Date().toISOString(),
+          uptime: connectionStore.state.isConnected ? 3600 : 0,
+          errors: connectionStore.state.error ? [connectionStore.state.error] : [],
+        },
+      ];
+      setSystemHealth(fallbackHealth);
+      setLastHealthCheck(new Date());
+    }
   };
 
   const runDiagnosticSuite = async (suiteId: string) => {

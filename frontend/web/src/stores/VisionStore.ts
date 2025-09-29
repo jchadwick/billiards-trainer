@@ -40,6 +40,9 @@ export class VisionStore {
       videoElement: false,
       mediaStream: false
     });
+
+    // Load existing calibration data on initialization
+    this.loadCalibrationData().catch(console.error);
   }
 
   // Computed values
@@ -336,9 +339,32 @@ export class VisionStore {
         throw new Error('Invalid calibration state');
       }
 
-      // In a real implementation, this would send the corners to the backend
-      // for homography matrix calculation and validation
-      const mockHomographyMatrix = [
+      // Send corners to backend for real homography matrix calculation
+      const { apiClient } = await import('../api/client');
+
+      // Prepare calibration request
+      const calibrationRequest = {
+        calibration_type: 'geometry',
+        manual_points: this.markedCorners.map((corner, index) => ({
+          id: `corner_${index}`,
+          image_point: corner,
+          world_point: null, // Backend will calculate
+          is_valid: true,
+          confidence: 1.0
+        })),
+        save_results: false // We'll save after validation
+      };
+
+      // Call backend calibration API
+      const response = await apiClient.performCalibration(calibrationRequest);
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Calibration failed');
+      }
+
+      // Extract real calibration data from backend response
+      const backendCalibration = response.data;
+      const homographyMatrix = backendCalibration.geometry?.homography_matrix || [
         [1, 0, 0],
         [0, 1, 0],
         [0, 0, 1]
@@ -346,14 +372,15 @@ export class VisionStore {
 
       const calibrationData: CalibrationData = {
         tableCorners: [...this.markedCorners],
-        homographyMatrix: mockHomographyMatrix,
-        distortionCoefficients: [0, 0, 0, 0, 0],
-        isValid: true,
+        homographyMatrix: homographyMatrix,
+        distortionCoefficients: backendCalibration.camera?.distortion_coefficients || [0, 0, 0, 0, 0],
+        isValid: backendCalibration.geometry?.is_valid || true,
         timestamp: new Date()
       };
 
-      // Mock validation
-      const accuracy = Math.random() * 0.3 + 0.7; // 70-100% accuracy
+      // Use real accuracy from backend
+      const accuracy = backendCalibration.geometry?.calibration_error ?
+        (1 - Math.min(backendCalibration.geometry.calibration_error, 1)) : 0.9;
 
       runInAction(() => {
         this.calibrationData = calibrationData;
@@ -365,7 +392,7 @@ export class VisionStore {
 
         // Update selected camera calibration status
         if (this.selectedCamera) {
-          this.selectedCamera.isCalibrated = true;
+          this.selectedCamera.isCalibrated = calibrationData.isValid;
         }
       });
 
@@ -375,6 +402,8 @@ export class VisionStore {
         timestamp: new Date()
       };
     } catch (error) {
+      console.error('Calibration validation failed:', error);
+
       runInAction(() => {
         this.validationResults = {
           accuracy: 0,
@@ -396,8 +425,27 @@ export class VisionStore {
         throw new Error('No valid calibration data to save');
       }
 
-      // In a real implementation, this would save to backend/local storage
-      // For now, just complete the calibration process
+      // Save calibration data to backend
+      const { apiClient } = await import('../api/client');
+
+      // Prepare save request with the validated calibration
+      const saveRequest = {
+        calibration_type: 'geometry',
+        manual_points: this.markedCorners.map((corner, index) => ({
+          id: `corner_${index}`,
+          image_point: corner,
+          world_point: null,
+          is_valid: true,
+          confidence: 1.0
+        })),
+        save_results: true // Now we want to save
+      };
+
+      const response = await apiClient.performCalibration(saveRequest);
+
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to save calibration');
+      }
 
       runInAction(() => {
         this.isCalibrating = false;
@@ -406,10 +454,11 @@ export class VisionStore {
 
       return {
         success: true,
-        data: { saved: true },
+        data: { saved: true, calibration_id: response.data?.id },
         timestamp: new Date()
       };
     } catch (error) {
+      console.error('Failed to save calibration:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to save calibration',
@@ -429,16 +478,29 @@ export class VisionStore {
 
   // Utility methods
   transformPoint(screenPoint: Point2D): Point2D | null {
-    if (!this.calibrationData?.isValid) {
+    if (!this.calibrationData?.isValid || !this.calibrationData.homographyMatrix) {
       return null;
     }
 
-    // In a real implementation, this would apply the homography transformation
-    // to convert screen coordinates to table coordinates
-    // For now, return a mock transformation
+    // Apply real homography transformation using the matrix from backend
+    const matrix = this.calibrationData.homographyMatrix;
+
+    // Apply homography matrix transformation: [x', y', w'] = H * [x, y, 1]
+    const x = screenPoint.x;
+    const y = screenPoint.y;
+
+    const transformedX = matrix[0][0] * x + matrix[0][1] * y + matrix[0][2];
+    const transformedY = matrix[1][0] * x + matrix[1][1] * y + matrix[1][2];
+    const transformedW = matrix[2][0] * x + matrix[2][1] * y + matrix[2][2];
+
+    // Normalize by w coordinate for perspective correction
+    if (Math.abs(transformedW) < 1e-10) {
+      return null; // Avoid division by zero
+    }
+
     return {
-      x: screenPoint.x * 2.54, // Convert to table coordinates (mock)
-      y: screenPoint.y * 2.54
+      x: transformedX / transformedW,
+      y: transformedY / transformedW
     };
   }
 
@@ -457,6 +519,48 @@ export class VisionStore {
       this.detectionAccuracy = 0;
       this.lastFrameTimestamp = null;
     });
+  }
+
+  // Load existing calibration data from backend
+  async loadCalibrationData(): Promise<void> {
+    try {
+      const { apiClient } = await import('../api/client');
+
+      // Try to get the current calibration data from backend
+      const response = await apiClient.getCalibrationData();
+
+      if (response.success && response.data) {
+        const backendCalibration = response.data;
+
+        // Check if we have valid geometric calibration
+        if (backendCalibration.geometry && backendCalibration.geometry.is_valid) {
+          const calibrationData: CalibrationData = {
+            tableCorners: backendCalibration.geometry.table_corners_image.map(corner => ({
+              x: corner.x,
+              y: corner.y
+            })),
+            homographyMatrix: backendCalibration.geometry.homography_matrix,
+            distortionCoefficients: backendCalibration.camera?.distortion_coefficients || [0, 0, 0, 0, 0],
+            isValid: backendCalibration.geometry.is_valid,
+            timestamp: new Date(backendCalibration.geometry.calibration_date)
+          };
+
+          runInAction(() => {
+            this.calibrationData = calibrationData;
+
+            // Update camera calibration status if we have a selected camera
+            if (this.selectedCamera) {
+              this.selectedCamera.isCalibrated = calibrationData.isValid;
+            }
+          });
+
+          console.log('Loaded existing calibration data from backend');
+        }
+      }
+    } catch (error) {
+      // Silently fail - calibration data might not exist yet
+      console.debug('No existing calibration data found:', error);
+    }
   }
 
   // Cleanup

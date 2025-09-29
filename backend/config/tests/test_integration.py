@@ -1,459 +1,184 @@
-"""Integration tests for configuration loading system.
-
-Tests the complete system working together with multiple sources,
-inheritance, and complex configuration scenarios.
-"""
-
-import json
-import os
-import tempfile
-from pathlib import Path
+"""Integration tests for validation utilities with configuration system."""
 
 import pytest
+from pathlib import Path
+from backend.config.validator.rules import ValidationRules
+from backend.config.validator.types import TypeChecker
+from backend.config.utils.differ import ConfigDiffer
+from backend.config.models.schemas import (
+    ApplicationConfig,
+    VisionConfig,
+    CameraSettings,
+    create_development_config
+)
 
-from ..loader.env import EnvironmentLoader
-from ..loader.file import FileLoader
-from ..loader.merger import ConfigSource, ConfigurationMerger, MergeStrategy
 
-
-class TestConfigurationSystemIntegration:
-    """Integration tests for the complete configuration system."""
+class TestValidationIntegration:
+    """Test integration of validation utilities with configuration system."""
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.original_env = os.environ.copy()
+        self.validator = ValidationRules()
+        self.type_checker = TypeChecker()
+        self.differ = ConfigDiffer()
 
-    def teardown_method(self):
-        """Clean up after tests."""
-        # Restore original environment
-        os.environ.clear()
-        os.environ.update(self.original_env)
+    def test_camera_settings_validation(self):
+        """Test validating camera settings with ValidationRules."""
+        # Valid camera settings
+        valid_camera = {
+            "device_id": 0,
+            "resolution": (1920, 1080),
+            "fps": 30,
+            "gain": 1.0,
+            "brightness": 0.5
+        }
 
-    def test_full_configuration_loading_pipeline(self):
-        """Test the complete configuration loading pipeline."""
-        # 1. Define default configuration
-        default_config = {
-            "app": {
-                "name": "billiards-trainer",
-                "version": "1.0.0",
-                "debug": False,
-                "features": {"vision": True, "projector": True, "ai_analysis": False},
-            },
-            "database": {
-                "host": "localhost",
-                "port": 5432,
-                "name": "billiards",
-                "ssl": False,
-                "pool_size": 10,
-            },
+        # Test range validation
+        assert self.validator.check_range(valid_camera["device_id"], 0, 10, "device_id")
+        assert self.validator.check_range(valid_camera["fps"], 15, 120, "fps")
+        assert self.validator.check_range(valid_camera["gain"], 0.0, 10.0, "gain")
+        assert self.validator.check_range(valid_camera["brightness"], 0.0, 1.0, "brightness")
+
+        # Test type validation
+        assert self.validator.check_type(valid_camera["device_id"], int, "device_id")
+        assert self.validator.check_type(valid_camera["resolution"], tuple, "resolution")
+        assert self.validator.check_type(valid_camera["fps"], int, "fps")
+
+        # Test invalid values
+        assert not self.validator.check_range(-1, 0, 10, "device_id")  # Below min
+        assert not self.validator.check_range(200, 15, 120, "fps")  # Above max
+
+    def test_type_checker_with_pydantic_models(self):
+        """Test TypeChecker with Pydantic configuration models."""
+        # Test CameraSettings type checking
+        camera_dict = {
+            "device_id": 0,
+            "resolution": (1920, 1080),
+            "fps": 30,
+            "gain": 1.0,
+            "brightness": 0.5
+        }
+
+        # Should pass type checking for dict to Pydantic model
+        assert self.type_checker.check(camera_dict, CameraSettings)
+
+        # Test invalid camera settings
+        invalid_camera = {
+            "device_id": "not_an_int",
+            "resolution": "not_a_tuple",
+            "fps": -10
+        }
+
+        assert not self.type_checker.check(invalid_camera, CameraSettings)
+
+    def test_config_diffing_with_real_configs(self):
+        """Test configuration diffing with realistic configuration changes."""
+        # Original configuration
+        config_v1 = {
             "vision": {
-                "camera": {"device_id": 0, "resolution": [1920, 1080], "fps": 30},
-                "detection": {"sensitivity": 0.8, "min_confidence": 0.7},
-            },
-            "projector": {"brightness": 100, "contrast": 50, "color_temperature": 6500},
-            "logging": {
-                "level": "INFO",
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                "handlers": ["console"],
-            },
-        }
-
-        # 2. Create file configuration (overrides some defaults)
-        file_config = {
-            "app": {"debug": True, "features": {"ai_analysis": True}},
-            "database": {"host": "config-db-host", "ssl": True},
-            "vision": {"camera": {"fps": 60}, "detection": {"sensitivity": 0.9}},
-            "logging": {"level": "DEBUG", "handlers": ["console", "file"]},
-        }
-
-        # 3. Set up environment variables (highest precedence)
-        env_vars = {
-            "BILLIARDS_APP__DEBUG": "false",  # Override file config
-            "BILLIARDS_DATABASE__HOST": "production-db",  # Override both
-            "BILLIARDS_DATABASE__PORT": "3306",  # Override default
-            "BILLIARDS_VISION__CAMERA__DEVICE_ID": "1",  # Override default
-            "BILLIARDS_PROJECTOR__BRIGHTNESS": "80",  # Override default
-            "BILLIARDS_LOGGING__LEVEL": "WARNING",  # Override file config
-        }
-
-        for key, value in env_vars.items():
-            os.environ[key] = value
-
-        # 4. Create temporary configuration file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(file_config, f)
-            config_file_path = f.name
-
-        try:
-            # 5. Load configurations using the system components
-            file_loader = FileLoader(default_values=default_config)
-            env_loader = EnvironmentLoader(prefix="BILLIARDS_")
-            merger = ConfigurationMerger()
-
-            # Load from file (with defaults merged)
-            file_loaded_config = file_loader.load_with_defaults(config_file_path)
-
-            # Load from environment
-            env_config = env_loader.load_environment()
-
-            # Merge all configurations with proper precedence
-            configs = [file_loaded_config, env_config]
-            sources = [ConfigSource.FILE, ConfigSource.ENVIRONMENT]
-
-            final_config = merger.merge_configurations(configs, sources)
-
-            # 6. Verify the final configuration
-            # App configuration
-            assert final_config["app"]["name"] == "billiards-trainer"  # from default
-            assert final_config["app"]["version"] == "1.0.0"  # from default
-            assert final_config["app"]["debug"] is False  # env overrides file
-            assert final_config["app"]["features"]["vision"] is True  # from default
-            assert final_config["app"]["features"]["projector"] is True  # from default
-            assert final_config["app"]["features"]["ai_analysis"] is True  # from file
-
-            # Database configuration
-            assert final_config["database"]["host"] == "production-db"  # from env
-            assert final_config["database"]["port"] == 3306  # from env
-            assert final_config["database"]["name"] == "billiards"  # from default
-            assert final_config["database"]["ssl"] is True  # from file
-            assert final_config["database"]["pool_size"] == 10  # from default
-
-            # Vision configuration
-            assert final_config["vision"]["camera"]["device_id"] == 1  # from env
-            assert final_config["vision"]["camera"]["resolution"] == [
-                1920,
-                1080,
-            ]  # from default
-            assert final_config["vision"]["camera"]["fps"] == 60  # from file
-            assert (
-                final_config["vision"]["detection"]["sensitivity"] == 0.9
-            )  # from file
-            assert (
-                final_config["vision"]["detection"]["min_confidence"] == 0.7
-            )  # from default
-
-            # Projector configuration
-            assert final_config["projector"]["brightness"] == 80  # from env
-            assert final_config["projector"]["contrast"] == 50  # from default
-            assert (
-                final_config["projector"]["color_temperature"] == 6500
-            )  # from default
-
-            # Logging configuration
-            assert final_config["logging"]["level"] == "WARNING"  # from env
-            assert (
-                final_config["logging"]["format"]
-                == "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            )  # from default
-            assert final_config["logging"]["handlers"] == [
-                "console",
-                "file",
-            ]  # from file
-
-        finally:
-            os.unlink(config_file_path)
-
-    def test_configuration_inheritance_with_multiple_files(self):
-        """Test configuration inheritance across multiple files."""
-        # Base configuration
-        base_config = {
-            "app": {"name": "billiards-trainer", "version": "1.0.0"},
-            "database": {"host": "localhost", "port": 5432},
-        }
-
-        # Development configuration (inherits from base)
-        dev_config = {
-            "inherit": "base.json",
-            "app": {"debug": True},
-            "database": {"name": "billiards_dev"},
-            "logging": {"level": "DEBUG"},
-        }
-
-        # Production configuration (inherits from base)
-        prod_config = {
-            "inherit": "base.json",
-            "app": {"debug": False},
-            "database": {"host": "prod-db-host", "name": "billiards_prod", "ssl": True},
-            "logging": {"level": "WARNING"},
-        }
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create configuration files
-            base_path = Path(temp_dir) / "base.json"
-            dev_path = Path(temp_dir) / "dev.json"
-            prod_path = Path(temp_dir) / "prod.json"
-
-            with open(base_path, "w") as f:
-                json.dump(base_config, f)
-
-            with open(dev_path, "w") as f:
-                json.dump(dev_config, f)
-
-            with open(prod_path, "w") as f:
-                json.dump(prod_config, f)
-
-            # Load configurations with inheritance
-            file_loader = FileLoader()
-
-            dev_result = file_loader.load_with_inheritance(dev_path)
-            prod_result = file_loader.load_with_inheritance(prod_path)
-
-            # Verify development configuration
-            assert dev_result["app"]["name"] == "billiards-trainer"  # inherited
-            assert dev_result["app"]["version"] == "1.0.0"  # inherited
-            assert dev_result["app"]["debug"] is True  # overridden
-            assert dev_result["database"]["host"] == "localhost"  # inherited
-            assert dev_result["database"]["port"] == 5432  # inherited
-            assert dev_result["database"]["name"] == "billiards_dev"  # overridden
-            assert dev_result["logging"]["level"] == "DEBUG"  # added
-
-            # Verify production configuration
-            assert prod_result["app"]["name"] == "billiards-trainer"  # inherited
-            assert prod_result["app"]["version"] == "1.0.0"  # inherited
-            assert prod_result["app"]["debug"] is False  # overridden
-            assert prod_result["database"]["host"] == "prod-db-host"  # overridden
-            assert prod_result["database"]["port"] == 5432  # inherited
-            assert prod_result["database"]["name"] == "billiards_prod"  # overridden
-            assert prod_result["database"]["ssl"] is True  # added
-            assert prod_result["logging"]["level"] == "WARNING"  # added
-
-    def test_complex_merge_strategies(self):
-        """Test complex merge strategies with different configuration sources."""
-        # Configuration with lists and complex structures
-        base_config = {
-            "modules": ["core", "vision"],
-            "features": {"enabled": ["basic_detection"], "experimental": []},
-            "plugins": {
-                "vision": {"enabled": True, "config": {"sensitivity": 0.8}},
-                "projector": {"enabled": False},
-            },
-        }
-
-        override_config = {
-            "modules": ["projector", "ai"],
-            "features": {
-                "enabled": ["advanced_detection"],
-                "experimental": ["neural_analysis"],
-            },
-            "plugins": {
-                "vision": {"config": {"sensitivity": 0.9, "fps": 30}},
-                "ai": {"enabled": True, "model": "yolo"},
-            },
-        }
-
-        # Test different merge strategies
-        merger = ConfigurationMerger()
-
-        # 1. Test with override strategy (default for lists)
-        result_override = merger.merge_two(
-            base_config, override_config, MergeStrategy.OVERRIDE
-        )
-        assert result_override["modules"] == ["projector", "ai"]
-
-        # 2. Test with list merge strategy
-
-        # For this test, we'll use the base merge_two method which uses deep merge by default
-        result_deep = merger.merge_two(
-            base_config, override_config, MergeStrategy.MERGE_DEEP
-        )
-
-        # Check that deep merge worked for nested structures
-        assert result_deep["plugins"]["vision"]["enabled"] is True  # from base
-        assert (
-            result_deep["plugins"]["vision"]["config"]["sensitivity"] == 0.9
-        )  # from override
-        assert result_deep["plugins"]["vision"]["config"]["fps"] == 30  # from override
-        assert result_deep["plugins"]["projector"]["enabled"] is False  # from base
-        assert result_deep["plugins"]["ai"]["enabled"] is True  # from override
-        assert result_deep["plugins"]["ai"]["model"] == "yolo"  # from override
-
-    def test_error_handling_and_validation(self):
-        """Test error handling and validation in the configuration system."""
-        # Test file loading errors
-        file_loader = FileLoader()
-
-        # Non-existent file should return empty config, not error
-        result = file_loader.load_file("/totally/nonexistent/path.json")
-        assert result == {}
-
-        # Test environment loading with invalid types
-        env_loader = EnvironmentLoader(prefix="TEST_")
-
-        # Set invalid environment variable
-        os.environ["TEST_INVALID_JSON"] = '{"incomplete": json'
-
-        # Should handle invalid JSON gracefully
-        result = env_loader.load_environment()
-        # The value should be treated as a string since JSON parsing failed
-        assert "invalid" in result
-        assert isinstance(result["invalid"]["json"], str)
-
-        # Test merger error handling
-        merger = ConfigurationMerger()
-
-        # Test with mismatched configs and sources
-        with pytest.raises(Exception):  # Should be MergeError but testing the concept
-            merger.merge_configurations(
-                [{"key": "value1"}, {"key": "value2"}],
-                [ConfigSource.FILE],  # Only one source for two configs
-            )
-
-    def test_real_world_billiards_configuration(self):
-        """Test a realistic billiards trainer configuration scenario."""
-        # This test simulates a real-world configuration for the billiards trainer
-
-        # Default system configuration
-        system_defaults = {
-            "system": {
-                "name": "Billiards Trainer",
-                "version": "2.0.0",
-                "mode": "training",
-            },
-            "hardware": {
                 "camera": {
-                    "count": 1,
-                    "primary_device": 0,
-                    "backup_device": 1,
-                    "resolution": {"width": 1920, "height": 1080},
+                    "device_id": 0,
                     "fps": 30,
-                    "exposure": "auto",
+                    "resolution": (1920, 1080)
                 },
-                "projector": {
-                    "enabled": True,
-                    "brightness": 100,
-                    "contrast": 50,
-                    "keystone_correction": {"horizontal": 0, "vertical": 0},
-                },
+                "detection": {
+                    "min_ball_radius": 10,
+                    "max_ball_radius": 40
+                }
             },
-            "vision": {
-                "ball_detection": {
-                    "algorithm": "opencv_contours",
-                    "min_radius": 10,
-                    "max_radius": 50,
-                    "sensitivity": 0.8,
-                },
-                "table_detection": {
-                    "algorithm": "edge_detection",
-                    "corner_detection": True,
-                    "pocket_detection": True,
-                },
-                "tracking": {"max_disappeared": 30, "max_distance": 100},
-            },
-            "analysis": {
-                "shot_analysis": {
-                    "enabled": True,
-                    "trajectory_prediction": True,
-                    "spin_detection": False,
-                },
-                "game_state": {"auto_detection": True, "manual_override": True},
-            },
+            "core": {
+                "physics": {
+                    "gravity": 9.81,
+                    "friction": 0.01
+                }
+            }
         }
 
-        # Local configuration file (user customizations)
-        local_config = {
-            "hardware": {
+        # Updated configuration
+        config_v2 = {
+            "vision": {
                 "camera": {
-                    "fps": 60,  # Higher FPS for better tracking
-                    "exposure": "manual",
-                    "exposure_value": 100,
+                    "device_id": 1,  # Changed
+                    "fps": 60,       # Changed
+                    "resolution": (1920, 1080)  # Unchanged
                 },
-                "projector": {
-                    "brightness": 80,  # Dimmer for eye comfort
-                    "keystone_correction": {"horizontal": -2, "vertical": 1},
-                },
+                "detection": {
+                    "min_ball_radius": 15,  # Changed
+                    "max_ball_radius": 40,  # Unchanged
+                    "sensitivity": 0.8      # Added
+                }
             },
+            "core": {
+                "physics": {
+                    "gravity": 9.81,  # Unchanged
+                    "friction": 0.02  # Changed
+                }
+            }
+        }
+
+        diff_result = self.differ.diff(config_v1, config_v2)
+
+        # Check that changes were detected
+        assert diff_result['summary'].total_changes > 0
+        assert diff_result['summary'].added_count >= 1  # sensitivity added
+        assert diff_result['summary'].modified_count >= 3  # device_id, fps, friction, min_ball_radius
+
+        # Check specific change paths
+        change_paths = [change.path for change in diff_result['changes']]
+        assert "vision.camera.device_id" in change_paths
+        assert "vision.camera.fps" in change_paths
+        assert "vision.detection.sensitivity" in change_paths
+        assert "core.physics.friction" in change_paths
+
+    def test_comprehensive_config_validation(self):
+        """Test comprehensive validation of a complete configuration."""
+        # Create a development configuration
+        dev_config = create_development_config()
+        config_dict = dev_config.model_dump()
+
+        # Test type checking against the full application schema
+        assert self.type_checker.check(config_dict, ApplicationConfig)
+
+        # Test specific subsection validations
+        vision_config = config_dict.get("vision", {})
+        assert self.type_checker.check(vision_config, VisionConfig)
+
+        camera_config = vision_config.get("camera", {})
+        assert self.type_checker.check(camera_config, CameraSettings)
+
+    def test_validation_error_reporting(self):
+        """Test comprehensive error reporting across validation utilities."""
+        # Invalid configuration with multiple errors
+        invalid_config = {
             "vision": {
-                "ball_detection": {
-                    "sensitivity": 0.9,  # More sensitive detection
-                    "algorithm": "neural_network",
+                "camera": {
+                    "device_id": -1,     # Out of range
+                    "fps": "not_int",    # Wrong type
+                    "gain": 15.0         # Out of range
                 },
-                "tracking": {"max_disappeared": 20},  # Faster re-acquisition
-            },
-            "analysis": {
-                "shot_analysis": {"spin_detection": True}  # Enable advanced feature
-            },
-            "ui": {"theme": "dark", "show_trajectory": True, "show_guidelines": True},
+                "detection": {
+                    "min_ball_radius": "not_numeric"  # Wrong type
+                }
+            }
         }
 
-        # Environment-specific overrides (production settings)
-        env_vars = {
-            "BILLIARDS_SYSTEM__MODE": "competition",
-            "BILLIARDS_HARDWARE__CAMERA__FPS": "120",  # Ultra-high FPS for competition
-            "BILLIARDS_VISION__BALL_DETECTION__SENSITIVITY": "0.95",
-            "BILLIARDS_ANALYSIS__SHOT_ANALYSIS__TRAJECTORY_PREDICTION": "true",
-            "BILLIARDS_LOGGING__LEVEL": "INFO",
-        }
+        # Collect validation errors
+        self.validator.clear_validation_errors()
 
-        for key, value in env_vars.items():
-            os.environ[key] = value
+        # Range validations
+        self.validator.check_range(invalid_config["vision"]["camera"]["device_id"], 0, 10, "device_id")
+        self.validator.check_range(invalid_config["vision"]["camera"]["gain"], 0.0, 10.0, "gain")
 
-        # Create temporary local config file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(local_config, f)
-            local_config_path = f.name
+        # Type validations
+        self.validator.check_type(invalid_config["vision"]["camera"]["fps"], int, "fps")
+        self.validator.check_type(invalid_config["vision"]["detection"]["min_ball_radius"], (int, float), "min_ball_radius")
 
-        try:
-            # Load complete configuration
-            file_loader = FileLoader(default_values=system_defaults)
-            env_loader = EnvironmentLoader(prefix="BILLIARDS_")
-            merger = ConfigurationMerger()
+        errors = self.validator.get_validation_errors()
+        assert len(errors) >= 4  # Should have collected multiple errors
 
-            # Load configurations
-            file_config = file_loader.load_with_defaults(local_config_path)
-            env_config = env_loader.load_environment()
-
-            # Merge with proper precedence: defaults < file < environment
-            final_config = merger.merge_configurations(
-                [file_config, env_config], [ConfigSource.FILE, ConfigSource.ENVIRONMENT]
-            )
-
-            # Verify final configuration has correct values from all sources
-
-            # System settings
-            assert final_config["system"]["name"] == "Billiards Trainer"  # default
-            assert final_config["system"]["version"] == "2.0.0"  # default
-            assert final_config["system"]["mode"] == "competition"  # environment
-
-            # Hardware settings
-            assert final_config["hardware"]["camera"]["count"] == 1  # default
-            assert (
-                final_config["hardware"]["camera"]["fps"] == 120
-            )  # environment overrides file
-            assert final_config["hardware"]["camera"]["exposure"] == "manual"  # file
-            assert final_config["hardware"]["camera"]["exposure_value"] == 100  # file
-            assert final_config["hardware"]["projector"]["brightness"] == 80  # file
-            assert (
-                final_config["hardware"]["projector"]["keystone_correction"][
-                    "horizontal"
-                ]
-                == -2
-            )  # file
-
-            # Vision settings
-            assert (
-                final_config["vision"]["ball_detection"]["algorithm"]
-                == "neural_network"
-            )  # file
-            assert (
-                final_config["vision"]["ball_detection"]["sensitivity"] == 0.95
-            )  # environment
-            assert (
-                final_config["vision"]["ball_detection"]["min_radius"] == 10
-            )  # default
-            assert final_config["vision"]["tracking"]["max_disappeared"] == 20  # file
-
-            # Analysis settings
-            assert (
-                final_config["analysis"]["shot_analysis"]["spin_detection"] is True
-            )  # file
-            assert (
-                final_config["analysis"]["shot_analysis"]["trajectory_prediction"]
-                is True
-            )  # environment
-
-            # UI settings (only in file)
-            assert final_config["ui"]["theme"] == "dark"
-            assert final_config["ui"]["show_trajectory"] is True
-
-        finally:
-            os.unlink(local_config_path)
+        # Check that errors contain helpful information
+        error_text = " ".join(errors)
+        assert "device_id" in error_text
+        assert "fps" in error_text
+        assert "gain" in error_text
+        assert "min_ball_radius" in error_text

@@ -1,6 +1,7 @@
 """Integration interfaces for core module communication with other backend modules."""
 
 import logging
+import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -46,17 +47,17 @@ class VisionInterface(ABC):
     @abstractmethod
     def receive_detection_data(self, detection_data: dict[str, Any]) -> None:
         """Receive detection data from Vision module."""
-        pass
+        raise NotImplementedError("Vision interface must implement receive_detection_data")
 
     @abstractmethod
     def request_calibration(self, calibration_type: str) -> dict[str, Any]:
         """Request calibration data from Vision module."""
-        pass
+        raise NotImplementedError("Vision interface must implement request_calibration")
 
     @abstractmethod
     def set_detection_parameters(self, parameters: dict[str, Any]) -> bool:
         """Set detection parameters in Vision module."""
-        pass
+        raise NotImplementedError("Vision interface must implement set_detection_parameters")
 
 
 class APIInterface(ABC):
@@ -65,17 +66,17 @@ class APIInterface(ABC):
     @abstractmethod
     def send_state_update(self, state_data: dict[str, Any]) -> None:
         """Send state updates to API module."""
-        pass
+        raise NotImplementedError("API interface must implement send_state_update")
 
     @abstractmethod
     def send_event_notification(self, event_data: dict[str, Any]) -> None:
         """Send event notifications to API module."""
-        pass
+        raise NotImplementedError("API interface must implement send_event_notification")
 
     @abstractmethod
     def register_websocket_handler(self, handler: Callable) -> str:
         """Register WebSocket message handler."""
-        pass
+        raise NotImplementedError("API interface must implement register_websocket_handler")
 
 
 class ProjectorInterface(ABC):
@@ -84,17 +85,17 @@ class ProjectorInterface(ABC):
     @abstractmethod
     def send_trajectory_data(self, trajectory_data: dict[str, Any]) -> None:
         """Send trajectory data to Projector module."""
-        pass
+        raise NotImplementedError("Projector interface must implement send_trajectory_data")
 
     @abstractmethod
     def send_overlay_data(self, overlay_data: dict[str, Any]) -> None:
         """Send overlay visualization data."""
-        pass
+        raise NotImplementedError("Projector interface must implement send_overlay_data")
 
     @abstractmethod
     def update_projection_settings(self, settings: dict[str, Any]) -> None:
         """Update projector settings."""
-        pass
+        raise NotImplementedError("Projector interface must implement update_projection_settings")
 
 
 class ConfigInterface(ABC):
@@ -103,17 +104,17 @@ class ConfigInterface(ABC):
     @abstractmethod
     def get_module_config(self, module_name: str) -> dict[str, Any]:
         """Get configuration for a specific module."""
-        pass
+        raise NotImplementedError("Config interface must implement get_module_config")
 
     @abstractmethod
     def update_module_config(self, module_name: str, config: dict[str, Any]) -> None:
         """Update configuration for a specific module."""
-        pass
+        raise NotImplementedError("Config interface must implement update_module_config")
 
     @abstractmethod
     def subscribe_config_changes(self, callback: Callable) -> str:
         """Subscribe to configuration changes."""
-        pass
+        raise NotImplementedError("Config interface must implement subscribe_config_changes")
 
 
 class CoreModuleIntegrator:
@@ -523,6 +524,7 @@ class VisionInterfaceImpl(VisionInterface):
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
+        self._lock = threading.RLock()  # Thread safety
         self.calibration_data = {
             "table": {
                 "corners": [],
@@ -557,104 +559,107 @@ class VisionInterfaceImpl(VisionInterface):
 
     def receive_detection_data(self, detection_data: dict[str, Any]) -> None:
         """Receive detection data from Vision module."""
-        try:
-            # Validate detection data structure
-            required_fields = ["timestamp", "frame_number", "balls"]
-            for field in required_fields:
-                if field not in detection_data:
-                    self.logger.warning(
-                        f"Missing required field in detection data: {field}"
-                    )
-                    return
+        with self._lock:
+            try:
+                # Validate detection data structure
+                required_fields = ["timestamp", "frame_number", "balls"]
+                for field in required_fields:
+                    if field not in detection_data:
+                        self.logger.warning(
+                            f"Missing required field in detection data: {field}"
+                        )
+                        return
 
-            # Process ball detection data
-            processed_balls = []
-            for ball_data in detection_data.get("balls", []):
-                if self._validate_ball_detection(ball_data):
-                    processed_balls.append(self._process_ball_detection(ball_data))
+                # Process ball detection data
+                processed_balls = []
+                for ball_data in detection_data.get("balls", []):
+                    if self._validate_ball_detection(ball_data):
+                        processed_balls.append(self._process_ball_detection(ball_data))
 
-            # Add processed balls to detection data
-            processed_data = {
-                **detection_data,
-                "processed_balls": processed_balls,
-                "detection_quality": self._assess_detection_quality(processed_balls),
-            }
+                # Add processed balls to detection data
+                processed_data = {
+                    **detection_data,
+                    "processed_balls": processed_balls,
+                    "detection_quality": self._assess_detection_quality(processed_balls),
+                }
 
-            # Forward to event manager
-            self.event_manager.receive_vision_data(processed_data)
-            self.logger.debug(
-                f"Processed vision data with {len(processed_balls)} balls"
-            )
+                # Forward to event manager
+                self.event_manager.receive_vision_data(processed_data)
+                self.logger.debug(
+                    f"Processed vision data with {len(processed_balls)} balls"
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error processing vision detection data: {e}")
+            except Exception as e:
+                self.logger.error(f"Error processing vision detection data: {e}")
 
     def request_calibration(self, calibration_type: str) -> dict[str, Any]:
         """Request calibration data from Vision module."""
-        try:
-            if calibration_type not in self.calibration_data:
-                self.logger.warning(f"Unknown calibration type: {calibration_type}")
+        with self._lock:
+            try:
+                if calibration_type not in self.calibration_data:
+                    self.logger.warning(f"Unknown calibration type: {calibration_type}")
+                    return {}
+
+                calibration = self.calibration_data[calibration_type].copy()
+
+                # Check if calibration is stale (older than 1 hour)
+                current_time = time.time()
+                if current_time - calibration.get("timestamp", 0) > 3600:
+                    self.logger.warning(f"Calibration data for {calibration_type} is stale")
+                    calibration["is_stale"] = True
+
+                self.logger.info(f"Providing {calibration_type} calibration data")
+                return calibration
+
+            except Exception as e:
+                self.logger.error(f"Error retrieving calibration data: {e}")
                 return {}
-
-            calibration = self.calibration_data[calibration_type].copy()
-
-            # Check if calibration is stale (older than 1 hour)
-            current_time = time.time()
-            if current_time - calibration.get("timestamp", 0) > 3600:
-                self.logger.warning(f"Calibration data for {calibration_type} is stale")
-                calibration["is_stale"] = True
-
-            self.logger.info(f"Providing {calibration_type} calibration data")
-            return calibration
-
-        except Exception as e:
-            self.logger.error(f"Error retrieving calibration data: {e}")
-            return {}
 
     def set_detection_parameters(self, parameters: dict[str, Any]) -> bool:
         """Set detection parameters in Vision module."""
-        try:
-            # Validate parameters
-            valid_params = {
-                "ball_radius_range",
-                "confidence_threshold",
-                "tracking_enabled",
-                "color_calibration",
-                "motion_detection",
-                "detection_frequency",
-                "background_subtraction",
-                "noise_reduction",
-            }
+        with self._lock:
+            try:
+                # Validate parameters
+                valid_params = {
+                    "ball_radius_range",
+                    "confidence_threshold",
+                    "tracking_enabled",
+                    "color_calibration",
+                    "motion_detection",
+                    "detection_frequency",
+                    "background_subtraction",
+                    "noise_reduction",
+                }
 
-            validated_params = {}
-            for key, value in parameters.items():
-                if key in valid_params:
-                    if self._validate_parameter(key, value):
-                        validated_params[key] = value
+                validated_params = {}
+                for key, value in parameters.items():
+                    if key in valid_params:
+                        if self._validate_parameter(key, value):
+                            validated_params[key] = value
+                        else:
+                            self.logger.warning(
+                                f"Invalid value for parameter {key}: {value}"
+                            )
+                            return False
                     else:
-                        self.logger.warning(
-                            f"Invalid value for parameter {key}: {value}"
-                        )
-                        return False
-                else:
-                    self.logger.warning(f"Unknown parameter: {key}")
+                        self.logger.warning(f"Unknown parameter: {key}")
 
-            # Update parameters
-            self.detection_parameters.update(validated_params)
+                # Update parameters
+                self.detection_parameters.update(validated_params)
 
-            # Notify vision module of parameter changes
-            self.event_manager.send_config_update(
-                "vision", {"detection_parameters": validated_params}
-            )
+                # Notify vision module of parameter changes
+                self.event_manager.send_config_update(
+                    "vision", {"detection_parameters": validated_params}
+                )
 
-            self.logger.info(
-                f"Updated detection parameters: {list(validated_params.keys())}"
-            )
-            return True
+                self.logger.info(
+                    f"Updated detection parameters: {list(validated_params.keys())}"
+                )
+                return True
 
-        except Exception as e:
-            self.logger.error(f"Error setting detection parameters: {e}")
-            return False
+            except Exception as e:
+                self.logger.error(f"Error setting detection parameters: {e}")
+                return False
 
     def _validate_ball_detection(self, ball_data: dict[str, Any]) -> bool:
         """Validate ball detection data."""
@@ -726,6 +731,7 @@ class APIInterfaceImpl(APIInterface):
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
+        self._lock = threading.RLock()  # Thread safety
         self.websocket_handlers = {}
         self.message_queue = []
         self.connection_status = {
@@ -742,109 +748,113 @@ class APIInterfaceImpl(APIInterface):
 
     def send_state_update(self, state_data: dict[str, Any]) -> None:
         """Send state updates to API module."""
-        try:
-            # Apply rate limiting
-            if not self._check_rate_limit("state_updates"):
-                self.logger.warning("State update rate limit exceeded")
-                return
+        with self._lock:
+            try:
+                # Apply rate limiting
+                if not self._check_rate_limit("state_updates"):
+                    self.logger.warning("State update rate limit exceeded")
+                    return
 
-            # Validate state data
-            if not self._validate_state_data(state_data):
-                self.logger.error("Invalid state data format")
-                return
+                # Validate state data
+                if not self._validate_state_data(state_data):
+                    self.logger.error("Invalid state data format")
+                    return
 
-            # Prepare message for API
-            message = {
-                "type": "state_update",
-                "timestamp": time.time(),
-                "data": self._sanitize_state_data(state_data),
-                "sequence_number": self.connection_status["message_count"],
-            }
+                # Prepare message for API
+                message = {
+                    "type": "state_update",
+                    "timestamp": time.time(),
+                    "data": self._sanitize_state_data(state_data),
+                    "sequence_number": self.connection_status["message_count"],
+                }
 
-            # Add to message queue for delivery
-            self._queue_message(message)
+                # Add to message queue for delivery
+                self._queue_message(message)
 
-            # Update statistics
-            self.connection_status["message_count"] += 1
-            self.logger.debug(
-                f"Queued state update (sequence: {message['sequence_number']})"
-            )
+                # Update statistics
+                self.connection_status["message_count"] += 1
+                self.logger.debug(
+                    f"Queued state update (sequence: {message['sequence_number']})"
+                )
 
-            # Trigger immediate delivery if connected
-            if self.connection_status["connected"]:
-                self._flush_message_queue()
+                # Trigger immediate delivery if connected
+                if self.connection_status["connected"]:
+                    self._flush_message_queue()
 
-        except Exception as e:
-            self.logger.error(f"Error sending state update: {e}")
+            except Exception as e:
+                self.logger.error(f"Error sending state update: {e}")
 
     def send_event_notification(self, event_data: dict[str, Any]) -> None:
         """Send event notifications to API module."""
-        try:
-            # Apply rate limiting
-            if not self._check_rate_limit("events"):
-                self.logger.warning("Event notification rate limit exceeded")
-                return
+        with self._lock:
+            try:
+                # Apply rate limiting
+                if not self._check_rate_limit("events"):
+                    self.logger.warning("Event notification rate limit exceeded")
+                    return
 
-            # Validate event data
-            if not self._validate_event_data(event_data):
-                self.logger.error("Invalid event data format")
-                return
+                # Validate event data
+                if not self._validate_event_data(event_data):
+                    self.logger.error("Invalid event data format")
+                    return
 
-            # Prepare message for API
-            message = {
-                "type": "event_notification",
-                "timestamp": time.time(),
-                "data": event_data,
-                "sequence_number": self.connection_status["message_count"],
-                "priority": self._determine_event_priority(event_data),
-            }
+                # Prepare message for API
+                message = {
+                    "type": "event_notification",
+                    "timestamp": time.time(),
+                    "data": event_data,
+                    "sequence_number": self.connection_status["message_count"],
+                    "priority": self._determine_event_priority(event_data),
+                }
 
-            # Add to message queue
-            self._queue_message(message)
+                # Add to message queue
+                self._queue_message(message)
 
-            # Update statistics
-            self.connection_status["message_count"] += 1
-            self.logger.info(
-                f"Queued event notification: {event_data.get('event_type', 'unknown')}"
-            )
+                # Update statistics
+                self.connection_status["message_count"] += 1
+                self.logger.info(
+                    f"Queued event notification: {event_data.get('event_type', 'unknown')}"
+                )
 
-            # Trigger immediate delivery if connected
-            if self.connection_status["connected"]:
-                self._flush_message_queue()
+                # Trigger immediate delivery if connected
+                if self.connection_status["connected"]:
+                    self._flush_message_queue()
 
-        except Exception as e:
-            self.logger.error(f"Error sending event notification: {e}")
+            except Exception as e:
+                self.logger.error(f"Error sending event notification: {e}")
 
     def register_websocket_handler(self, handler: Callable) -> str:
         """Register WebSocket message handler."""
-        try:
-            handler_id = (
-                f"handler_{int(time.time() * 1000)}_{len(self.websocket_handlers)}"
-            )
+        with self._lock:
+            try:
+                handler_id = (
+                    f"handler_{int(time.time() * 1000)}_{len(self.websocket_handlers)}"
+                )
 
-            # Wrap handler with error handling
-            wrapped_handler = self._wrap_handler(handler, handler_id)
-            self.websocket_handlers[handler_id] = {
-                "handler": wrapped_handler,
-                "registered_at": time.time(),
-                "message_count": 0,
-                "last_used": time.time(),
-            }
+                # Wrap handler with error handling
+                wrapped_handler = self._wrap_handler(handler, handler_id)
+                self.websocket_handlers[handler_id] = {
+                    "handler": wrapped_handler,
+                    "registered_at": time.time(),
+                    "message_count": 0,
+                    "last_used": time.time(),
+                }
 
-            self.logger.info(f"Registered WebSocket handler: {handler_id}")
-            return handler_id
+                self.logger.info(f"Registered WebSocket handler: {handler_id}")
+                return handler_id
 
-        except Exception as e:
-            self.logger.error(f"Error registering WebSocket handler: {e}")
-            return ""
+            except Exception as e:
+                self.logger.error(f"Error registering WebSocket handler: {e}")
+                return ""
 
     def unregister_websocket_handler(self, handler_id: str) -> bool:
         """Unregister WebSocket message handler."""
-        if handler_id in self.websocket_handlers:
-            del self.websocket_handlers[handler_id]
-            self.logger.info(f"Unregistered WebSocket handler: {handler_id}")
-            return True
-        return False
+        with self._lock:
+            if handler_id in self.websocket_handlers:
+                del self.websocket_handlers[handler_id]
+                self.logger.info(f"Unregistered WebSocket handler: {handler_id}")
+                return True
+            return False
 
     def get_connection_status(self) -> dict[str, Any]:
         """Get current connection status."""
@@ -970,6 +980,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
+        self._lock = threading.RLock()  # Thread safety
         self.projection_settings = {
             "brightness": 0.8,
             "contrast": 1.0,
@@ -1000,166 +1011,171 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
     def send_trajectory_data(self, trajectory_data: dict[str, Any]) -> None:
         """Send trajectory data to Projector module."""
-        try:
-            # Validate trajectory data
-            if not self._validate_trajectory_data(trajectory_data):
-                self.logger.error("Invalid trajectory data format")
-                return
+        with self._lock:
+            try:
+                # Validate trajectory data
+                if not self._validate_trajectory_data(trajectory_data):
+                    self.logger.error("Invalid trajectory data format")
+                    return
 
-            # Process trajectory for visualization
-            processed_trajectories = self._process_trajectories(trajectory_data)
+                # Process trajectory for visualization
+                processed_trajectories = self._process_trajectories(trajectory_data)
 
-            # Cache trajectories for performance
-            self._cache_trajectories(processed_trajectories)
+                # Cache trajectories for performance
+                self._cache_trajectories(processed_trajectories)
 
-            # Create projection overlay
-            overlay = self._create_trajectory_overlay(processed_trajectories)
+                # Create projection overlay
+                overlay = self._create_trajectory_overlay(processed_trajectories)
 
-            # Send to projector hardware/software
-            projection_message = {
-                "type": "trajectory_update",
-                "timestamp": time.time(),
-                "overlay": overlay,
-                "settings": self.projection_settings,
-                "duration_ms": trajectory_data.get("duration_ms", 5000),
-            }
+                # Send to projector hardware/software
+                projection_message = {
+                    "type": "trajectory_update",
+                    "timestamp": time.time(),
+                    "overlay": overlay,
+                    "settings": self.projection_settings,
+                    "duration_ms": trajectory_data.get("duration_ms", 5000),
+                }
 
-            self._send_to_projector(projection_message)
-            self.logger.debug(
-                f"Sent trajectory data for {len(processed_trajectories)} balls"
-            )
+                self._send_to_projector(projection_message)
+                self.logger.debug(
+                    f"Sent trajectory data for {len(processed_trajectories)} balls"
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error sending trajectory data: {e}")
+            except Exception as e:
+                self.logger.error(f"Error sending trajectory data: {e}")
 
     def send_overlay_data(self, overlay_data: dict[str, Any]) -> None:
         """Send overlay visualization data."""
-        try:
-            # Validate overlay data
-            if not self._validate_overlay_data(overlay_data):
-                self.logger.error("Invalid overlay data format")
-                return
+        with self._lock:
+            try:
+                # Validate overlay data
+                if not self._validate_overlay_data(overlay_data):
+                    self.logger.error("Invalid overlay data format")
+                    return
 
-            overlay_type = overlay_data.get("type", "unknown")
+                overlay_type = overlay_data.get("type", "unknown")
 
-            # Process different overlay types
-            if overlay_type == "shot_analysis":
-                overlay = self._create_shot_analysis_overlay(overlay_data)
-            elif overlay_type == "aim_assistance":
-                overlay = self._create_aim_assistance_overlay(overlay_data)
-            elif overlay_type == "ball_tracking":
-                overlay = self._create_ball_tracking_overlay(overlay_data)
-            elif overlay_type == "table_calibration":
-                overlay = self._create_calibration_overlay(overlay_data)
-            else:
-                overlay = self._create_generic_overlay(overlay_data)
+                # Process different overlay types
+                if overlay_type == "shot_analysis":
+                    overlay = self._create_shot_analysis_overlay(overlay_data)
+                elif overlay_type == "aim_assistance":
+                    overlay = self._create_aim_assistance_overlay(overlay_data)
+                elif overlay_type == "ball_tracking":
+                    overlay = self._create_ball_tracking_overlay(overlay_data)
+                elif overlay_type == "table_calibration":
+                    overlay = self._create_calibration_overlay(overlay_data)
+                else:
+                    overlay = self._create_generic_overlay(overlay_data)
 
-            # Store overlay for composite rendering
-            self.active_overlays[overlay_type] = {
-                "overlay": overlay,
-                "timestamp": time.time(),
-                "priority": overlay_data.get("priority", 1),
-                "duration": overlay_data.get("duration_ms", 3000),
-            }
+                # Store overlay for composite rendering
+                self.active_overlays[overlay_type] = {
+                    "overlay": overlay,
+                    "timestamp": time.time(),
+                    "priority": overlay_data.get("priority", 1),
+                    "duration": overlay_data.get("duration_ms", 3000),
+                }
 
-            # Composite all active overlays
-            composite_overlay = self._composite_overlays()
+                # Composite all active overlays
+                composite_overlay = self._composite_overlays()
 
-            # Send to projector
-            projection_message = {
-                "type": "overlay_update",
-                "timestamp": time.time(),
-                "overlay": composite_overlay,
-                "settings": self.projection_settings,
-            }
+                # Send to projector
+                projection_message = {
+                    "type": "overlay_update",
+                    "timestamp": time.time(),
+                    "overlay": composite_overlay,
+                    "settings": self.projection_settings,
+                }
 
-            self._send_to_projector(projection_message)
-            self.logger.debug(f"Sent {overlay_type} overlay data")
+                self._send_to_projector(projection_message)
+                self.logger.debug(f"Sent {overlay_type} overlay data")
 
-        except Exception as e:
-            self.logger.error(f"Error sending overlay data: {e}")
+            except Exception as e:
+                self.logger.error(f"Error sending overlay data: {e}")
 
     def update_projection_settings(self, settings: dict[str, Any]) -> None:
         """Update projector settings."""
-        try:
-            # Validate settings
-            valid_settings = self._validate_settings(settings)
-            if not valid_settings:
-                self.logger.error("No valid settings provided")
-                return
+        with self._lock:
+            try:
+                # Validate settings
+                valid_settings = self._validate_settings(settings)
+                if not valid_settings:
+                    self.logger.error("No valid settings provided")
+                    return
 
-            # Apply settings with validation
-            old_settings = self.projection_settings.copy()
-            self.projection_settings.update(valid_settings)
+                # Apply settings with validation
+                old_settings = self.projection_settings.copy()
+                self.projection_settings.update(valid_settings)
 
-            # Check if calibration is needed
-            if self._calibration_required(old_settings, valid_settings):
-                self.logger.info("Settings change requires recalibration")
-                self.calibration_status["is_calibrated"] = False
+                # Check if calibration is needed
+                if self._calibration_required(old_settings, valid_settings):
+                    self.logger.info("Settings change requires recalibration")
+                    self.calibration_status["is_calibrated"] = False
 
-            # Send settings update to projector
-            settings_message = {
-                "type": "settings_update",
-                "timestamp": time.time(),
-                "settings": self.projection_settings,
-                "requires_restart": self._requires_projector_restart(valid_settings),
-            }
+                # Send settings update to projector
+                settings_message = {
+                    "type": "settings_update",
+                    "timestamp": time.time(),
+                    "settings": self.projection_settings,
+                    "requires_restart": self._requires_projector_restart(valid_settings),
+                }
 
-            self._send_to_projector(settings_message)
-            self.logger.info(
-                f"Updated projector settings: {list(valid_settings.keys())}"
-            )
+                self._send_to_projector(settings_message)
+                self.logger.info(
+                    f"Updated projector settings: {list(valid_settings.keys())}"
+                )
 
-        except Exception as e:
-            self.logger.error(f"Error updating projection settings: {e}")
+            except Exception as e:
+                self.logger.error(f"Error updating projection settings: {e}")
 
     def get_projection_status(self) -> dict[str, Any]:
         """Get current projector status."""
-        return {
-            "settings": self.projection_settings.copy(),
-            "calibration": self.calibration_status.copy(),
-            "performance": self.performance_stats.copy(),
-            "active_overlays": list(self.active_overlays.keys()),
-            "cache_size": len(self.trajectory_cache),
-        }
+        with self._lock:
+            return {
+                "settings": self.projection_settings.copy(),
+                "calibration": self.calibration_status.copy(),
+                "performance": self.performance_stats.copy(),
+                "active_overlays": list(self.active_overlays.keys()),
+                "cache_size": len(self.trajectory_cache),
+            }
 
     def calibrate_projector(self, calibration_points: list[dict[str, Any]]) -> bool:
         """Perform projector calibration."""
-        try:
-            if len(calibration_points) < 4:
-                self.logger.error("Need at least 4 calibration points")
-                return False
+        with self._lock:
+            try:
+                if len(calibration_points) < 4:
+                    self.logger.error("Need at least 4 calibration points")
+                    return False
 
-            # Process calibration points
-            processed_points = self._process_calibration_points(calibration_points)
+                # Process calibration points
+                processed_points = self._process_calibration_points(calibration_points)
 
-            # Calculate transformation matrix
-            transformation_matrix = self._calculate_transformation_matrix(
-                processed_points
-            )
-
-            if transformation_matrix is None:
-                self.logger.error("Failed to calculate transformation matrix")
-                return False
-
-            # Update calibration
-            self.projection_settings["calibration_points"] = processed_points
-            self.projection_settings["transformation_matrix"] = transformation_matrix
-
-            self.calibration_status = {
-                "is_calibrated": True,
-                "last_calibration": time.time(),
-                "calibration_error": self._calculate_calibration_error(
+                # Calculate transformation matrix
+                transformation_matrix = self._calculate_transformation_matrix(
                     processed_points
-                ),
-            }
+                )
 
-            self.logger.info("Projector calibration completed successfully")
-            return True
+                if transformation_matrix is None:
+                    self.logger.error("Failed to calculate transformation matrix")
+                    return False
 
-        except Exception as e:
-            self.logger.error(f"Error during projector calibration: {e}")
-            return False
+                # Update calibration
+                self.projection_settings["calibration_points"] = processed_points
+                self.projection_settings["transformation_matrix"] = transformation_matrix
+
+                self.calibration_status = {
+                    "is_calibrated": True,
+                    "last_calibration": time.time(),
+                    "calibration_error": self._calculate_calibration_error(
+                        processed_points
+                    ),
+                }
+
+                self.logger.info("Projector calibration completed successfully")
+                return True
+
+            except Exception as e:
+                self.logger.error(f"Error during projector calibration: {e}")
+                return False
 
     def _validate_trajectory_data(self, data: dict[str, Any]) -> bool:
         """Validate trajectory data structure."""
@@ -1382,6 +1398,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
     def _composite_overlays(self) -> dict[str, Any]:
         """Composite all active overlays into single overlay."""
+        # Note: _lock is already held when this is called
         current_time = time.time()
         composite_elements = []
 
@@ -1414,6 +1431,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
     def _cache_trajectories(self, trajectories: list[dict[str, Any]]) -> None:
         """Cache trajectories for performance optimization."""
+        # Note: _lock is already held when this is called
         cache_key = str(hash(str(trajectories)))
         self.trajectory_cache[cache_key] = {
             "trajectories": trajectories,
@@ -1498,6 +1516,7 @@ class ConfigInterfaceImpl(ConfigInterface):
 
     def __init__(self, event_manager: EventManager):
         self.event_manager = event_manager
+        self._lock = threading.RLock()  # Thread safety
         self.module_configs = {
             "core": {
                 "validation_enabled": True,
@@ -1560,167 +1579,174 @@ class ConfigInterfaceImpl(ConfigInterface):
 
     def get_module_config(self, module_name: str) -> dict[str, Any]:
         """Get configuration for a specific module."""
-        try:
-            config = self.module_configs.get(module_name, {})
-            if not config:
-                self.logger.warning(f"No configuration found for module: {module_name}")
+        with self._lock:
+            try:
+                config = self.module_configs.get(module_name, {})
+                if not config:
+                    self.logger.warning(f"No configuration found for module: {module_name}")
+                    return {}
+
+                # Add metadata
+                enhanced_config = {
+                    **config,
+                    "_metadata": {
+                        "module_name": module_name,
+                        "last_updated": self.config_history.get(module_name, {}).get(
+                            "last_updated", 0.0
+                        ),
+                        "version": self.config_history.get(module_name, {}).get(
+                            "version", "1.0.0"
+                        ),
+                        "source": "core_config",
+                    },
+                }
+
+                self.logger.debug(f"Retrieved configuration for module: {module_name}")
+                return enhanced_config
+
+            except Exception as e:
+                self.logger.error(f"Error retrieving config for {module_name}: {e}")
                 return {}
-
-            # Add metadata
-            enhanced_config = {
-                **config,
-                "_metadata": {
-                    "module_name": module_name,
-                    "last_updated": self.config_history.get(module_name, {}).get(
-                        "last_updated", 0.0
-                    ),
-                    "version": self.config_history.get(module_name, {}).get(
-                        "version", "1.0.0"
-                    ),
-                    "source": "core_config",
-                },
-            }
-
-            self.logger.debug(f"Retrieved configuration for module: {module_name}")
-            return enhanced_config
-
-        except Exception as e:
-            self.logger.error(f"Error retrieving config for {module_name}: {e}")
-            return {}
 
     def update_module_config(self, module_name: str, config: dict[str, Any]) -> None:
         """Update configuration for a specific module."""
-        try:
-            # Validate configuration
-            if not self._validate_config(module_name, config):
-                self.logger.error(f"Configuration validation failed for {module_name}")
-                return
+        with self._lock:
+            try:
+                # Validate configuration
+                if not self._validate_config(module_name, config):
+                    self.logger.error(f"Configuration validation failed for {module_name}")
+                    return
 
-            # Backup current config
-            old_config = self.module_configs.get(module_name, {}).copy()
+                # Backup current config
+                old_config = self.module_configs.get(module_name, {}).copy()
 
-            # Apply updates
-            if module_name not in self.module_configs:
-                self.module_configs[module_name] = {}
+                # Apply updates
+                if module_name not in self.module_configs:
+                    self.module_configs[module_name] = {}
 
-            self.module_configs[module_name].update(config)
+                self.module_configs[module_name].update(config)
 
-            # Update history
-            current_time = time.time()
-            self.config_history[module_name] = {
-                "last_updated": current_time,
-                "version": self._increment_version(module_name),
-                "old_config": old_config,
-                "changes": self._calculate_changes(old_config, config),
-            }
+                # Update history
+                current_time = time.time()
+                self.config_history[module_name] = {
+                    "last_updated": current_time,
+                    "version": self._increment_version(module_name),
+                    "old_config": old_config,
+                    "changes": self._calculate_changes(old_config, config),
+                }
 
-            # Notify subscribers
-            self._notify_config_subscribers(module_name, config, old_config)
+                # Notify subscribers
+                self._notify_config_subscribers(module_name, config, old_config)
 
-            # Notify event manager
-            self.event_manager.exchange_config_with_module(
-                module_name, self.module_configs[module_name]
-            )
+                # Notify event manager
+                self.event_manager.exchange_config_with_module(
+                    module_name, self.module_configs[module_name]
+                )
 
-            self.logger.info(f"Updated configuration for module: {module_name}")
+                self.logger.info(f"Updated configuration for module: {module_name}")
 
-        except Exception as e:
-            self.logger.error(f"Error updating config for {module_name}: {e}")
+            except Exception as e:
+                self.logger.error(f"Error updating config for {module_name}: {e}")
 
     def subscribe_config_changes(self, callback: Callable) -> str:
         """Subscribe to configuration changes."""
-        try:
-            subscription_id = (
-                f"config_sub_{int(time.time() * 1000)}_{len(self.config_subscribers)}"
-            )
+        with self._lock:
+            try:
+                subscription_id = (
+                    f"config_sub_{int(time.time() * 1000)}_{len(self.config_subscribers)}"
+                )
 
-            # Wrap callback with error handling
-            wrapped_callback = self._wrap_config_callback(callback, subscription_id)
+                # Wrap callback with error handling
+                wrapped_callback = self._wrap_config_callback(callback, subscription_id)
 
-            self.config_subscribers[subscription_id] = {
-                "callback": wrapped_callback,
-                "subscribed_at": time.time(),
-                "notification_count": 0,
-                "last_notified": 0.0,
-            }
+                self.config_subscribers[subscription_id] = {
+                    "callback": wrapped_callback,
+                    "subscribed_at": time.time(),
+                    "notification_count": 0,
+                    "last_notified": 0.0,
+                }
 
-            self.logger.info(f"Registered config subscription: {subscription_id}")
-            return subscription_id
+                self.logger.info(f"Registered config subscription: {subscription_id}")
+                return subscription_id
 
-        except Exception as e:
-            self.logger.error(f"Error registering config subscription: {e}")
-            return ""
+            except Exception as e:
+                self.logger.error(f"Error registering config subscription: {e}")
+                return ""
 
     def unsubscribe_config_changes(self, subscription_id: str) -> bool:
         """Unsubscribe from configuration changes."""
-        if subscription_id in self.config_subscribers:
-            del self.config_subscribers[subscription_id]
-            self.logger.info(f"Unregistered config subscription: {subscription_id}")
-            return True
-        return False
+        with self._lock:
+            if subscription_id in self.config_subscribers:
+                del self.config_subscribers[subscription_id]
+                self.logger.info(f"Unregistered config subscription: {subscription_id}")
+                return True
+            return False
 
     def get_config_history(self, module_name: str) -> dict[str, Any]:
         """Get configuration change history for a module."""
-        return self.config_history.get(module_name, {})
+        with self._lock:
+            return self.config_history.get(module_name, {})
 
     def validate_config(
         self, module_name: str, config: dict[str, Any]
     ) -> dict[str, Any]:
         """Validate configuration without applying changes."""
-        try:
-            validation_result = {
-                "valid": False,
-                "errors": [],
-                "warnings": [],
-                "suggestions": [],
-            }
+        with self._lock:
+            try:
+                validation_result = {
+                    "valid": False,
+                    "errors": [],
+                    "warnings": [],
+                    "suggestions": [],
+                }
 
-            # Check if module is known
-            if module_name not in self.validation_schemas:
-                validation_result["errors"].append(f"Unknown module: {module_name}")
+                # Check if module is known
+                if module_name not in self.validation_schemas:
+                    validation_result["errors"].append(f"Unknown module: {module_name}")
+                    return validation_result
+
+                # Validate against schema
+                schema = self.validation_schemas[module_name]
+                errors, warnings, suggestions = self._validate_against_schema(
+                    config, schema
+                )
+
+                validation_result.update(
+                    {
+                        "valid": len(errors) == 0,
+                        "errors": errors,
+                        "warnings": warnings,
+                        "suggestions": suggestions,
+                    }
+                )
+
                 return validation_result
 
-            # Validate against schema
-            schema = self.validation_schemas[module_name]
-            errors, warnings, suggestions = self._validate_against_schema(
-                config, schema
-            )
-
-            validation_result.update(
-                {
-                    "valid": len(errors) == 0,
-                    "errors": errors,
-                    "warnings": warnings,
-                    "suggestions": suggestions,
+            except Exception as e:
+                self.logger.error(f"Error validating config for {module_name}: {e}")
+                return {
+                    "valid": False,
+                    "errors": [str(e)],
+                    "warnings": [],
+                    "suggestions": [],
                 }
-            )
-
-            return validation_result
-
-        except Exception as e:
-            self.logger.error(f"Error validating config for {module_name}: {e}")
-            return {
-                "valid": False,
-                "errors": [str(e)],
-                "warnings": [],
-                "suggestions": [],
-            }
 
     def reset_module_config(self, module_name: str) -> bool:
         """Reset module configuration to defaults."""
-        try:
-            default_configs = self._get_default_configs()
-            if module_name not in default_configs:
-                self.logger.error(f"No default config available for {module_name}")
+        with self._lock:
+            try:
+                default_configs = self._get_default_configs()
+                if module_name not in default_configs:
+                    self.logger.error(f"No default config available for {module_name}")
+                    return False
+
+                self.update_module_config(module_name, default_configs[module_name])
+                self.logger.info(f"Reset configuration for module: {module_name}")
+                return True
+
+            except Exception as e:
+                self.logger.error(f"Error resetting config for {module_name}: {e}")
                 return False
-
-            self.update_module_config(module_name, default_configs[module_name])
-            self.logger.info(f"Reset configuration for module: {module_name}")
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Error resetting config for {module_name}: {e}")
-            return False
 
     def _validate_config(self, module_name: str, config: dict[str, Any]) -> bool:
         """Validate configuration against schema."""
@@ -1782,6 +1808,7 @@ class ConfigInterfaceImpl(ConfigInterface):
         self, module_name: str, new_config: dict[str, Any], old_config: dict[str, Any]
     ) -> None:
         """Notify all subscribers of configuration changes."""
+        # Note: _lock is already held when this is called
         notification = {
             "module_name": module_name,
             "new_config": new_config,
