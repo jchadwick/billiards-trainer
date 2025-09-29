@@ -13,7 +13,7 @@ from vision.models import CameraFrame
 from vision.tracking.tracker import BallTracker
 
 
-@pytest.mark.integration
+@pytest.mark.integration()
 class TestVisionCoreIntegration:
     """Test integration between vision and core modules."""
 
@@ -165,7 +165,7 @@ class TestVisionCoreIntegration:
             assert updated_ball.velocity_x > 0  # Should be moving right
             assert updated_ball.velocity_y > 0  # Should be moving down
 
-    @pytest.mark.opencv_available
+    @pytest.mark.opencv_available()
     def test_real_time_detection_pipeline(self, mock_cv2_camera):
         """Test real-time detection pipeline integration."""
         detector = BallDetector()

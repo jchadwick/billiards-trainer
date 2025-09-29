@@ -28,7 +28,16 @@ from .middleware.performance import PerformanceConfig, setup_performance_monitor
 from .middleware.rate_limit import RateLimitConfig, setup_rate_limiting
 from .middleware.security import SecurityConfig, setup_security_headers
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import auth, calibration, config, diagnostics, game, health, stream
+from .routes import (
+    auth,
+    calibration,
+    config,
+    diagnostics,
+    game,
+    health,
+    modules,
+    stream,
+)
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -359,6 +368,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
+    app.include_router(modules.router, prefix="/api/v1")
     app.include_router(diagnostics.router, prefix="/api/v1")
 
     # Include WebSocket management endpoints

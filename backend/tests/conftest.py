@@ -32,14 +32,14 @@ def event_loop():
     loop.close()
 
 
-@pytest.fixture
+@pytest.fixture()
 def temp_dir():
     """Create a temporary directory for tests."""
     with tempfile.TemporaryDirectory() as tmpdir:
         yield Path(tmpdir)
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_config():
     """Create a mock configuration for testing."""
     return {
@@ -106,7 +106,7 @@ def mock_config():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def config_module(mock_config, temp_dir):
     """Create a configuration module instance for testing."""
     config_file = temp_dir / "test_config.yaml"
@@ -123,7 +123,7 @@ def config_module(mock_config, temp_dir):
     return config_module
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_camera_frame():
     """Create a mock camera frame for vision tests."""
     # Create a realistic test image (green table with white ball)
@@ -143,7 +143,7 @@ def mock_camera_frame():
     }
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_detection_result():
     """Create a mock detection result for testing."""
     from vision.models import FrameStatistics
@@ -164,7 +164,7 @@ def mock_detection_result():
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_game_state():
     """Create a mock game state for testing."""
     table = TableState.standard_9ft_table()
@@ -186,7 +186,7 @@ def mock_game_state():
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_shot():
     """Create a mock shot for testing."""
     from core.models import ShotType
@@ -201,14 +201,14 @@ def mock_shot():
     )
 
 
-@pytest.fixture
+@pytest.fixture()
 def test_client():
     """Create a test client for API testing."""
     # Skip for now due to circular imports
     return None
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_cv2_camera():
     """Mock cv2.VideoCapture for camera tests."""
     mock_cap = MagicMock()
@@ -220,7 +220,7 @@ def mock_cv2_camera():
         yield mock_cap
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_websocket():
     """Mock WebSocket for real-time communication tests."""
     mock_ws = AsyncMock()
@@ -233,7 +233,7 @@ def mock_websocket():
     return mock_ws
 
 
-@pytest.fixture
+@pytest.fixture()
 def performance_timer():
     """Timer fixture for performance tests."""
 
@@ -262,7 +262,7 @@ def performance_timer():
     return Timer()
 
 
-@pytest.fixture
+@pytest.fixture()
 def mock_opengl_context():
     """Mock OpenGL context for projector tests."""
     with patch("moderngl.create_context") as mock_ctx:
@@ -293,7 +293,7 @@ def assert_fps(frame_count: int, total_time: float, min_fps: float):
 
 
 # Memory monitoring
-@pytest.fixture
+@pytest.fixture()
 def memory_monitor():
     """Monitor memory usage during tests."""
     import psutil
