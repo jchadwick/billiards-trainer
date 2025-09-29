@@ -9,7 +9,7 @@ Provides module lifecycle management including:
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
