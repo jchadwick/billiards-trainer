@@ -1,8 +1,10 @@
 """Tests for validation rules."""
 
-import pytest
 from pathlib import Path
-from backend.config.validator.rules import ValidationRules, ValidationError
+
+import pytest
+
+from backend.config.validator.rules import ValidationError, ValidationRules
 
 
 class TestValidationRules:
@@ -125,7 +127,9 @@ class TestValidationRules:
         assert result is False
 
         # String to Path
-        result = self.auto_correct_validator.check_type("/path/to/file", Path, "test_field")
+        result = self.auto_correct_validator.check_type(
+            "/path/to/file", Path, "test_field"
+        )
         assert result == Path("/path/to/file")
 
     def test_check_type_tuple_of_types(self):
@@ -145,7 +149,9 @@ class TestValidationRules:
     def test_validate_pattern_valid(self):
         """Test pattern validation with valid patterns."""
         assert self.validator.validate_pattern("hello123", r"^hello\d+$", "test_field")
-        assert self.validator.validate_pattern("test@example.com", r"^[\w\.-]+@[\w\.-]+\.\w+$", "test_field")
+        assert self.validator.validate_pattern(
+            "test@example.com", r"^[\w\.-]+@[\w\.-]+\.\w+$", "test_field"
+        )
 
     def test_validate_pattern_invalid(self):
         """Test pattern validation with invalid patterns."""
@@ -193,7 +199,9 @@ class TestValidationRules:
         """Test length validation with lists."""
         assert self.validator.validate_length([1, 2, 3], 2, 5, "test_field")
         assert not self.validator.validate_length([1], 2, 5, "test_field")
-        assert not self.validator.validate_length([1, 2, 3, 4, 5, 6], 2, 5, "test_field")
+        assert not self.validator.validate_length(
+            [1, 2, 3, 4, 5, 6], 2, 5, "test_field"
+        )
 
     def test_validate_length_dict(self):
         """Test length validation with dictionaries."""
@@ -212,21 +220,14 @@ class TestValidationRules:
         schema = {
             "name": {"type": "str", "required": True},
             "age": {"type": "int", "min": 0, "max": 150},
-            "email": {"type": "str", "pattern": r"^[\w\.-]+@[\w\.-]+\.\w+$"}
+            "email": {"type": "str", "pattern": r"^[\w\.-]+@[\w\.-]+\.\w+$"},
         }
-        data = {
-            "name": "John Doe",
-            "age": 30,
-            "email": "john@example.com"
-        }
+        data = {"name": "John Doe", "age": 30, "email": "john@example.com"}
         assert self.validator.validate_nested(data, schema, "person")
 
     def test_validate_nested_missing_required(self):
         """Test nested validation with missing required field."""
-        schema = {
-            "name": {"type": "str", "required": True},
-            "age": {"type": "int"}
-        }
+        schema = {"name": {"type": "str", "required": True}, "age": {"type": "int"}}
         data = {"age": 30}
         assert not self.validator.validate_nested(data, schema, "person")
         errors = self.validator.get_validation_errors()
@@ -234,14 +235,8 @@ class TestValidationRules:
 
     def test_validate_nested_wrong_type(self):
         """Test nested validation with wrong type."""
-        schema = {
-            "name": {"type": "str"},
-            "age": {"type": "int"}
-        }
-        data = {
-            "name": "John Doe",
-            "age": "thirty"  # Should be int
-        }
+        schema = {"name": {"type": "str"}, "age": {"type": "int"}}
+        data = {"name": "John Doe", "age": "thirty"}  # Should be int
         assert not self.validator.validate_nested(data, schema, "person")
 
     def test_validate_nested_non_dict(self):
@@ -254,6 +249,7 @@ class TestValidationRules:
 
     def test_validate_custom_valid(self):
         """Test custom validation with valid function."""
+
         def is_even(value):
             return isinstance(value, int) and value % 2 == 0
 
@@ -262,6 +258,7 @@ class TestValidationRules:
 
     def test_validate_custom_exception(self):
         """Test custom validation with function that raises exception."""
+
         def always_fails(value):
             raise ValueError("Custom validation failed")
 

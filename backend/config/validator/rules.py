@@ -1,9 +1,9 @@
 """Validation rules for configuration."""
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
 import re
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 logger = logging.getLogger(__name__)
 
@@ -30,30 +30,34 @@ class ValidationRules:
         """
         self.strict_mode = strict_mode
         self.auto_correct = auto_correct
-        self._validation_errors: List[str] = []
+        self._validation_errors: list[str] = []
 
         # Mapping of string type names to Python types
         self._type_mapping = {
-            'str': str,
-            'string': str,
-            'int': int,
-            'integer': int,
-            'float': float,
-            'number': (int, float),
-            'bool': bool,
-            'boolean': bool,
-            'list': list,
-            'array': list,
-            'dict': dict,
-            'object': dict,
-            'path': (str, Path),
-            'none': type(None),
-            'null': type(None),
+            "str": str,
+            "string": str,
+            "int": int,
+            "integer": int,
+            "float": float,
+            "number": (int, float),
+            "bool": bool,
+            "boolean": bool,
+            "list": list,
+            "array": list,
+            "dict": dict,
+            "object": dict,
+            "path": (str, Path),
+            "none": type(None),
+            "null": type(None),
         }
 
-    def check_range(self, value: Any, min_val: Optional[Union[int, float]] = None,
-                   max_val: Optional[Union[int, float]] = None,
-                   field_name: str = "value") -> bool:
+    def check_range(
+        self,
+        value: Any,
+        min_val: Optional[Union[int, float]] = None,
+        max_val: Optional[Union[int, float]] = None,
+        field_name: str = "value",
+    ) -> bool:
         """Check if numeric value is within specified range.
 
         Args:
@@ -72,7 +76,7 @@ class ValidationRules:
             # Convert value to numeric if possible
             if isinstance(value, str):
                 try:
-                    if '.' in value:
+                    if "." in value:
                         value = float(value)
                     else:
                         value = int(value)
@@ -89,7 +93,9 @@ class ValidationRules:
             # Check minimum value
             if min_val is not None and value < min_val:
                 if self.auto_correct:
-                    logger.warning(f"Auto-correcting {field_name}: {value} -> {min_val} (below minimum)")
+                    logger.warning(
+                        f"Auto-correcting {field_name}: {value} -> {min_val} (below minimum)"
+                    )
                     return min_val
                 error_msg = f"Value {value} below minimum {min_val}"
                 self._handle_validation_error(field_name, error_msg, value)
@@ -98,7 +104,9 @@ class ValidationRules:
             # Check maximum value
             if max_val is not None and value > max_val:
                 if self.auto_correct:
-                    logger.warning(f"Auto-correcting {field_name}: {value} -> {max_val} (above maximum)")
+                    logger.warning(
+                        f"Auto-correcting {field_name}: {value} -> {max_val} (above maximum)"
+                    )
                     return max_val
                 error_msg = f"Value {value} above maximum {max_val}"
                 self._handle_validation_error(field_name, error_msg, value)
@@ -112,8 +120,12 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def check_type(self, value: Any, expected_type: Union[Type, str, Tuple[Type, ...]],
-                  field_name: str = "value") -> bool:
+    def check_type(
+        self,
+        value: Any,
+        expected_type: Union[type, str, tuple[type, ...]],
+        field_name: str = "value",
+    ) -> bool:
         """Check if value matches expected type.
 
         Args:
@@ -140,7 +152,9 @@ class ValidationRules:
 
             # Check type match
             if isinstance(value, expected_type):
-                logger.debug(f"Type validation passed for {field_name}: {type(value).__name__}")
+                logger.debug(
+                    f"Type validation passed for {field_name}: {type(value).__name__}"
+                )
                 return True
 
             # Special handling for numeric conversions
@@ -149,11 +163,15 @@ class ValidationRules:
                     try:
                         if expected_type == int:
                             corrected_value = int(float(value))  # Handle "1.0" -> 1
-                            logger.warning(f"Auto-correcting {field_name}: '{value}' -> {corrected_value}")
+                            logger.warning(
+                                f"Auto-correcting {field_name}: '{value}' -> {corrected_value}"
+                            )
                             return corrected_value
                         elif expected_type == float:
                             corrected_value = float(value)
-                            logger.warning(f"Auto-correcting {field_name}: '{value}' -> {corrected_value}")
+                            logger.warning(
+                                f"Auto-correcting {field_name}: '{value}' -> {corrected_value}"
+                            )
                             return corrected_value
                     except ValueError:
                         pass
@@ -168,23 +186,33 @@ class ValidationRules:
             if expected_type == bool and self.auto_correct:
                 if isinstance(value, str):
                     lower_val = value.lower()
-                    if lower_val in ('true', '1', 'yes', 'on', 'enabled'):
-                        logger.warning(f"Auto-correcting {field_name}: '{value}' -> True")
+                    if lower_val in ("true", "1", "yes", "on", "enabled"):
+                        logger.warning(
+                            f"Auto-correcting {field_name}: '{value}' -> True"
+                        )
                         return True
-                    elif lower_val in ('false', '0', 'no', 'off', 'disabled'):
-                        logger.warning(f"Auto-correcting {field_name}: '{value}' -> False")
+                    elif lower_val in ("false", "0", "no", "off", "disabled"):
+                        logger.warning(
+                            f"Auto-correcting {field_name}: '{value}' -> False"
+                        )
                         return False
                 elif isinstance(value, (int, float)):
                     corrected_value = bool(value)
-                    logger.warning(f"Auto-correcting {field_name}: {value} -> {corrected_value}")
+                    logger.warning(
+                        f"Auto-correcting {field_name}: {value} -> {corrected_value}"
+                    )
                     return corrected_value
 
             # Type mismatch
             if isinstance(expected_type, tuple):
                 expected_names = [t.__name__ for t in expected_type]
-                error_msg = f"Expected one of {expected_names}, got {type(value).__name__}"
+                error_msg = (
+                    f"Expected one of {expected_names}, got {type(value).__name__}"
+                )
             else:
-                error_msg = f"Expected {expected_type.__name__}, got {type(value).__name__}"
+                error_msg = (
+                    f"Expected {expected_type.__name__}, got {type(value).__name__}"
+                )
 
             self._handle_validation_error(field_name, error_msg, value)
             return False
@@ -194,7 +222,9 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def validate_pattern(self, value: str, pattern: str, field_name: str = "value") -> bool:
+    def validate_pattern(
+        self, value: str, pattern: str, field_name: str = "value"
+    ) -> bool:
         """Validate string against regex pattern.
 
         Args:
@@ -228,8 +258,9 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def validate_enum(self, value: Any, allowed_values: List[Any],
-                     field_name: str = "value") -> bool:
+    def validate_enum(
+        self, value: Any, allowed_values: list[Any], field_name: str = "value"
+    ) -> bool:
         """Validate value is in allowed set.
 
         Args:
@@ -254,8 +285,13 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def validate_length(self, value: Union[str, list, dict], min_length: Optional[int] = None,
-                       max_length: Optional[int] = None, field_name: str = "value") -> bool:
+    def validate_length(
+        self,
+        value: Union[str, list, dict],
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+        field_name: str = "value",
+    ) -> bool:
         """Validate length of string, list, or dict.
 
         Args:
@@ -268,7 +304,7 @@ class ValidationRules:
             True if length is valid, False otherwise
         """
         try:
-            if not hasattr(value, '__len__'):
+            if not hasattr(value, "__len__"):
                 error_msg = f"Length validation requires object with length, got {type(value).__name__}"
                 self._handle_validation_error(field_name, error_msg, value)
                 return False
@@ -293,8 +329,9 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def validate_nested(self, value: dict, schema: Dict[str, Dict[str, Any]],
-                       field_name: str = "value") -> bool:
+    def validate_nested(
+        self, value: dict, schema: dict[str, dict[str, Any]], field_name: str = "value"
+    ) -> bool:
         """Validate nested dictionary against schema.
 
         Args:
@@ -307,7 +344,9 @@ class ValidationRules:
         """
         try:
             if not isinstance(value, dict):
-                error_msg = f"Nested validation requires dictionary, got {type(value).__name__}"
+                error_msg = (
+                    f"Nested validation requires dictionary, got {type(value).__name__}"
+                )
                 self._handle_validation_error(field_name, error_msg, value)
                 return False
 
@@ -317,8 +356,8 @@ class ValidationRules:
                 nested_field_name = f"{field_name}.{key}"
 
                 # Check if field is required
-                if rules.get('required', False) and key not in value:
-                    error_msg = f"Required field missing"
+                if rules.get("required", False) and key not in value:
+                    error_msg = "Required field missing"
                     self._handle_validation_error(nested_field_name, error_msg, None)
                     all_valid = False
                     continue
@@ -329,25 +368,40 @@ class ValidationRules:
                 field_value = value[key]
 
                 # Apply all rules to the field
-                if 'type' in rules:
-                    if not self.check_type(field_value, rules['type'], nested_field_name):
+                if "type" in rules:
+                    if not self.check_type(
+                        field_value, rules["type"], nested_field_name
+                    ):
                         all_valid = False
 
-                if 'min' in rules or 'max' in rules:
-                    if not self.check_range(field_value, rules.get('min'), rules.get('max'), nested_field_name):
+                if "min" in rules or "max" in rules:
+                    if not self.check_range(
+                        field_value,
+                        rules.get("min"),
+                        rules.get("max"),
+                        nested_field_name,
+                    ):
                         all_valid = False
 
-                if 'pattern' in rules:
-                    if not self.validate_pattern(field_value, rules['pattern'], nested_field_name):
+                if "pattern" in rules:
+                    if not self.validate_pattern(
+                        field_value, rules["pattern"], nested_field_name
+                    ):
                         all_valid = False
 
-                if 'enum' in rules:
-                    if not self.validate_enum(field_value, rules['enum'], nested_field_name):
+                if "enum" in rules:
+                    if not self.validate_enum(
+                        field_value, rules["enum"], nested_field_name
+                    ):
                         all_valid = False
 
-                if 'min_length' in rules or 'max_length' in rules:
-                    if not self.validate_length(field_value, rules.get('min_length'),
-                                               rules.get('max_length'), nested_field_name):
+                if "min_length" in rules or "max_length" in rules:
+                    if not self.validate_length(
+                        field_value,
+                        rules.get("min_length"),
+                        rules.get("max_length"),
+                        nested_field_name,
+                    ):
                         all_valid = False
 
             return all_valid
@@ -357,8 +411,9 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def validate_custom(self, value: Any, validator_func: callable,
-                       field_name: str = "value") -> bool:
+    def validate_custom(
+        self, value: Any, validator_func: callable, field_name: str = "value"
+    ) -> bool:
         """Validate using custom validation function.
 
         Args:
@@ -375,7 +430,7 @@ class ValidationRules:
                 logger.debug(f"Custom validation passed for {field_name}")
                 return True
             else:
-                error_msg = f"Custom validation failed"
+                error_msg = "Custom validation failed"
                 self._handle_validation_error(field_name, error_msg, value)
                 return False
 
@@ -384,7 +439,7 @@ class ValidationRules:
             self._handle_validation_error(field_name, error_msg, value)
             return False
 
-    def get_validation_errors(self) -> List[str]:
+    def get_validation_errors(self) -> list[str]:
         """Get list of validation errors from last validation run.
 
         Returns:
@@ -396,7 +451,9 @@ class ValidationRules:
         """Clear validation error list."""
         self._validation_errors.clear()
 
-    def _handle_validation_error(self, field_name: str, message: str, value: Any) -> None:
+    def _handle_validation_error(
+        self, field_name: str, message: str, value: Any
+    ) -> None:
         """Handle validation error according to configured mode.
 
         Args:

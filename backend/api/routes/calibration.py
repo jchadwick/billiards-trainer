@@ -78,9 +78,7 @@ class CalibrationMath:
                 homography = cv2.getPerspectiveTransform(src_pts, dst_pts)
             else:
                 # For more than 4 points, use findHomography with RANSAC
-                homography, mask = cv2.findHomography(
-                    src_pts, dst_pts, cv2.RANSAC, 5.0
-                )
+                homography, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
                 if homography is None:
                     logger.error("OpenCV findHomography failed to find solution")
                     return None
@@ -90,7 +88,9 @@ class CalibrationMath:
                 logger.error("Calculated homography matrix is invalid")
                 return None
 
-            logger.info(f"Successfully calculated homography matrix for {len(src_points)} point pairs")
+            logger.info(
+                f"Successfully calculated homography matrix for {len(src_points)} point pairs"
+            )
             return homography
 
         except Exception as e:
@@ -130,8 +130,16 @@ class CalibrationMath:
                 errors = []
                 for point in calibration_points:
                     error = math.sqrt(
-                        (point.get("expected_x", point.get("world_x", 0)) - point.get("actual_x", point.get("world_x", 0))) ** 2
-                        + (point.get("expected_y", point.get("world_y", 0)) - point.get("actual_y", point.get("world_y", 0))) ** 2
+                        (
+                            point.get("expected_x", point.get("world_x", 0))
+                            - point.get("actual_x", point.get("world_x", 0))
+                        )
+                        ** 2
+                        + (
+                            point.get("expected_y", point.get("world_y", 0))
+                            - point.get("actual_y", point.get("world_y", 0))
+                        )
+                        ** 2
                     )
                     errors.append(error)
         else:
@@ -139,8 +147,16 @@ class CalibrationMath:
             errors = []
             for point in calibration_points:
                 error = math.sqrt(
-                    (point.get("expected_x", point.get("world_x", 0)) - point.get("actual_x", point.get("world_x", 0))) ** 2
-                    + (point.get("expected_y", point.get("world_y", 0)) - point.get("actual_y", point.get("world_y", 0))) ** 2
+                    (
+                        point.get("expected_x", point.get("world_x", 0))
+                        - point.get("actual_x", point.get("world_x", 0))
+                    )
+                    ** 2
+                    + (
+                        point.get("expected_y", point.get("world_y", 0))
+                        - point.get("actual_y", point.get("world_y", 0))
+                    )
+                    ** 2
                 )
                 errors.append(error)
 
@@ -188,7 +204,7 @@ class CalibrationMath:
     def calculate_reprojection_error(
         src_points: list[tuple[float, float]],
         dst_points: list[tuple[float, float]],
-        homography: np.ndarray
+        homography: np.ndarray,
     ) -> dict[str, float]:
         """Calculate reprojection error for homography validation."""
         try:
@@ -207,11 +223,17 @@ class CalibrationMath:
                 "max_error": float(np.max(errors)),
                 "std_error": float(np.std(errors)),
                 "rms_error": float(np.sqrt(np.mean(errors**2))),
-                "errors": errors.tolist()
+                "errors": errors.tolist(),
             }
         except Exception as e:
             logger.error(f"Failed to calculate reprojection error: {e}")
-            return {"mean_error": float('inf'), "max_error": float('inf'), "std_error": 0.0, "rms_error": float('inf'), "errors": []}
+            return {
+                "mean_error": float("inf"),
+                "max_error": float("inf"),
+                "std_error": 0.0,
+                "rms_error": float("inf"),
+                "errors": [],
+            }
 
 
 def validate_calibration_session(
@@ -509,10 +531,16 @@ async def capture_calibration_point(
                 )
                 # Convert RMS error to accuracy score (0.0-1.0)
                 max_acceptable_error = 5.0  # pixels
-                point_accuracy = max(0.0, 1.0 - (error_metrics["rms_error"] / max_acceptable_error))
-                point_accuracy = min(point_accuracy, confidence)  # Don't exceed detection confidence
+                point_accuracy = max(
+                    0.0, 1.0 - (error_metrics["rms_error"] / max_acceptable_error)
+                )
+                point_accuracy = min(
+                    point_accuracy, confidence
+                )  # Don't exceed detection confidence
             else:
-                point_accuracy = confidence * 0.8  # Reduced confidence if homography fails
+                point_accuracy = (
+                    confidence * 0.8
+                )  # Reduced confidence if homography fails
         else:
             # For first few points, use confidence as baseline
             point_accuracy = confidence
@@ -826,7 +854,9 @@ async def validate_calibration_accuracy(
         if homography is not None:
             for point in session["points"]:
                 # Real transformation using calculated homography
-                screen_pos = np.array([[point["screen_x"], point["screen_y"]]], dtype=np.float32).reshape(-1, 1, 2)
+                screen_pos = np.array(
+                    [[point["screen_x"], point["screen_y"]]], dtype=np.float32
+                ).reshape(-1, 1, 2)
                 transformed_world = cv2.perspectiveTransform(screen_pos, homography)
                 transformed_pos = transformed_world.reshape(-1, 2)[0]
 
@@ -842,7 +872,9 @@ async def validate_calibration_accuracy(
                         "world_position": [point["world_x"], point["world_y"]],
                         "transformed_position": transformed_pos.tolist(),
                         "error_pixels": float(error_pixels),
-                        "error_mm": float(error_pixels * 0.264583),  # Convert pixels to mm (approximate)
+                        "error_mm": float(
+                            error_pixels * 0.264583
+                        ),  # Convert pixels to mm (approximate)
                     }
                 )
         else:
