@@ -105,7 +105,7 @@ class Effect:
 
     @property
     def progress(self) -> float:
-        """Get effect progress (0.0 = start, 1.0 = complete)."""
+        """Get effect progress from 0.0 (start) to 1.0 (complete)."""
         return min(1.0, self.age / self.duration) if self.duration > 0 else 1.0
 
     @property

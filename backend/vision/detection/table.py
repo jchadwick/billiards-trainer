@@ -3,10 +3,11 @@
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
 
 class PocketType(Enum):
@@ -50,13 +51,13 @@ class TableDetectionResult:
     width: float  # Table width in pixels
     height: float  # Table height in pixels
     confidence: float  # Overall detection confidence
-    perspective_transform: Optional[np.ndarray] = None  # Transformation matrix
+    perspective_transform: Optional[NDArray[np.float64]] = None  # Transformation matrix
 
 
 class TableDetector:
     """Pool table detection and boundary identification."""
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize table detector with configuration."""
         self.config = config
 
@@ -105,9 +106,11 @@ class TableDetector:
 
         # Debug settings
         self.debug_mode = config.get("debug", False)
-        self.debug_images = []
+        self.debug_images: list[tuple[str, NDArray[np.uint8]]] = []
 
-    def detect_table_boundaries(self, frame: np.ndarray) -> Optional[TableCorners]:
+    def detect_table_boundaries(
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[TableCorners]:
         """Detect table edges and corners (FR-VIS-011, FR-VIS-012).
 
         Uses combined color and edge detection for robust boundary identification.
@@ -144,8 +147,8 @@ class TableDetector:
         return corners
 
     def detect_table_surface(
-        self, frame: np.ndarray
-    ) -> Optional[tuple[np.ndarray, tuple[int, int, int]]]:
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[tuple[NDArray[np.uint8], tuple[int, int, int]]]:
         """Distinguish table surface from surrounding environment (FR-VIS-013).
 
         Returns binary mask and average color of detected table surface.
@@ -175,7 +178,7 @@ class TableDetector:
                 area = cv2.contourArea(largest_contour)
 
                 if area > best_area:
-                    best_area = area
+                    best_area = float(area)
                     best_mask = mask
                     # Calculate average color in the masked region
                     mean_color = cv2.mean(hsv, mask=mask)
@@ -194,7 +197,7 @@ class TableDetector:
         return None
 
     def detect_pockets(
-        self, frame: np.ndarray, table_corners: TableCorners
+        self, frame: NDArray[np.uint8], table_corners: TableCorners
     ) -> list[Pocket]:
         """Detect pocket locations (FR-VIS-016 to FR-VIS-019).
 
@@ -265,7 +268,7 @@ class TableDetector:
 
     def handle_occlusions(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         previous_detection: Optional[TableDetectionResult] = None,
     ) -> Optional[TableDetectionResult]:
         """Handle partial table visibility and occlusions (FR-VIS-014).
@@ -290,7 +293,7 @@ class TableDetector:
         return self._validate_table_geometry(corners)
 
     def detect_complete_table(
-        self, frame: np.ndarray
+        self, frame: NDArray[np.uint8]
     ) -> Optional[TableDetectionResult]:
         """Complete table detection pipeline combining all detection methods."""
         # Detect table boundaries
@@ -332,7 +335,7 @@ class TableDetector:
             perspective_transform=transform,
         )
 
-    def calibrate_table(self, frame: np.ndarray) -> dict:
+    def calibrate_table(self, frame: NDArray[np.uint8]) -> dict:
         """Perform table calibration for perspective correction."""
         detection = self.detect_complete_table(frame)
 
@@ -359,13 +362,13 @@ class TableDetector:
         """Get debug visualization images."""
         return self.debug_images
 
-    def clear_debug_images(self):
+    def clear_debug_images(self) -> None:
         """Clear debug image buffer."""
         self.debug_images.clear()
 
     # Private helper methods
 
-    def _create_table_color_mask(self, hsv: np.ndarray) -> np.ndarray:
+    def _create_table_color_mask(self, hsv: NDArray[np.float64]) -> NDArray[np.float64]:
         """Create binary mask for table surface color."""
         masks = []
 
@@ -385,7 +388,9 @@ class TableDetector:
 
         return combined_mask
 
-    def _find_table_contour(self, mask: np.ndarray) -> Optional[np.ndarray]:
+    def _find_table_contour(
+        self, mask: NDArray[np.uint8]
+    ) -> Optional[NDArray[np.float64]]:
         """Find the largest table contour from color mask."""
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -405,7 +410,7 @@ class TableDetector:
         return largest_contour
 
     def _refine_corners_with_edges(
-        self, frame: np.ndarray, contour: np.ndarray
+        self, frame: NDArray[np.uint8], contour: NDArray[np.float64]
     ) -> Optional[TableCorners]:
         """Refine corner detection using edge detection for sub-pixel accuracy."""
         # Approximate contour to quadrilateral
@@ -444,7 +449,7 @@ class TableDetector:
             bottom_right=tuple(refined_corners[3]),
         )
 
-    def _sort_corners(self, corners: np.ndarray) -> np.ndarray:
+    def _sort_corners(self, corners: NDArray[np.float64]) -> NDArray[np.float64]:
         """Sort corners to consistent order: top-left, top-right, bottom-left, bottom-right."""
         # Calculate center point
         center = np.mean(corners, axis=0)
@@ -475,8 +480,11 @@ class TableDetector:
         return np.array(sorted_corners)
 
     def _refine_corner_subpixel(
-        self, gray: np.ndarray, corner: np.ndarray, window_size: int = 5
-    ) -> np.ndarray:
+        self,
+        gray: NDArray[np.float64],
+        corner: NDArray[np.float64],
+        window_size: int = 5,
+    ) -> NDArray[np.float64]:
         """Refine corner position to sub-pixel accuracy."""
         x, y = int(corner[0]), int(corner[1])
 
@@ -535,7 +543,7 @@ class TableDetector:
 
     def _create_table_roi_mask(
         self, image_shape: tuple[int, int], corners: TableCorners
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Create a mask for the table region of interest."""
         mask = np.zeros(image_shape, dtype=np.uint8)
 
@@ -629,7 +637,10 @@ class TableDetector:
         return (height1 + height2) / 2
 
     def _calculate_detection_confidence(
-        self, corners: TableCorners, pockets: list[Pocket], surface_mask: np.ndarray
+        self,
+        corners: TableCorners,
+        pockets: list[Pocket],
+        surface_mask: NDArray[np.float64],
     ) -> float:
         """Calculate overall detection confidence."""
         # Base confidence from geometry validation
@@ -656,7 +667,7 @@ class TableDetector:
 
     def _generate_perspective_transform(
         self, corners: TableCorners, width: float, height: float
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Generate perspective transformation matrix for table rectification."""
         # Source points (detected corners)
         src_points = np.array(corners.to_list(), dtype=np.float32)
@@ -678,7 +689,7 @@ class TableDetector:
         return transform
 
     def _validate_previous_detection(
-        self, frame: np.ndarray, previous: TableDetectionResult
+        self, frame: NDArray[np.uint8], previous: TableDetectionResult
     ) -> bool:
         """Validate if previous detection is still valid for current frame."""
         # Simple validation - check if the previous corners still make sense

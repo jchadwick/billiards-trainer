@@ -93,7 +93,7 @@ class CalibrationManager:
     - Session management
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
+    def __init__(self, base_dir: Optional[str] = None) -> None:
         """Initialize calibration manager.
 
         Args:
@@ -175,7 +175,7 @@ class CalibrationManager:
 
     def calibrate_colors(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         ball_samples: Optional[dict[str, list[tuple[int, int, int, int]]]] = None,
         profile_name: str = "default",
         save_session: bool = True,
@@ -231,7 +231,7 @@ class CalibrationManager:
 
     def calibrate_geometry(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         table_corners: Optional[list[tuple[float, float]]] = None,
         table_dimensions: Optional[tuple[float, float]] = None,
         save_session: bool = True,
@@ -313,7 +313,7 @@ class CalibrationManager:
             logger.error(f"System validation failed: {e}")
             return None
 
-    def process_frame(self, frame: np.ndarray) -> np.ndarray:
+    def process_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Process frame with all calibrations applied.
 
         Args:
@@ -610,7 +610,7 @@ class CalibrationManager:
             return False
 
     def adaptive_recalibration(
-        self, frame: np.ndarray, lighting_threshold: float = 0.3
+        self, frame: NDArray[np.uint8], lighting_threshold: float = 0.3
     ) -> bool:
         """Perform adaptive recalibration based on current conditions.
 
@@ -654,11 +654,11 @@ class CalibrationManager:
 
         return False
 
-    def __enter__(self):
+    def __enter__(self) -> "PerformanceTimer":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Context manager exit - save session if active."""
         if self.current_session:
             self.save_current_session()

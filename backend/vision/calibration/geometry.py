@@ -127,7 +127,7 @@ class GeometricCalibrator:
     - Geometric validation and accuracy testing
     """
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: Optional[str] = None) -> None:
         """Initialize geometric calibrator.
 
         Args:
@@ -144,7 +144,7 @@ class GeometricCalibrator:
 
     def detect_table_corners(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         manual_corners: Optional[list[tuple[float, float]]] = None,
     ) -> list[tuple[float, float]]:
         """Detect or use manually specified table corners.
@@ -311,9 +311,9 @@ class GeometricCalibrator:
 
     def _calculate_correction_quality(
         self,
-        src_points: np.ndarray,
-        dst_points: np.ndarray,
-        transform_matrix: np.ndarray,
+        src_points: NDArray[np.float64],
+        dst_points: NDArray[np.float64],
+        transform_matrix: NDArray[np.float64],
     ) -> float:
         """Calculate the quality of perspective correction."""
         # Transform source points and compare with target
@@ -333,8 +333,8 @@ class GeometricCalibrator:
         return quality
 
     def correct_keystone_distortion(
-        self, frame: np.ndarray, correction: PerspectiveCorrection
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], correction: PerspectiveCorrection
+    ) -> NDArray[np.float64]:
         """Apply keystone correction to frame.
 
         Args:
@@ -499,7 +499,7 @@ class GeometricCalibrator:
 
     def calibrate_table_geometry(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         table_corners: Optional[list[tuple[float, float]]] = None,
         table_dimensions: Optional[tuple[float, float]] = None,
     ) -> GeometricCalibration:
@@ -608,8 +608,8 @@ class GeometricCalibrator:
         }
 
     def correct_barrel_distortion(
-        self, frame: np.ndarray, k1: float = 0.0, k2: float = 0.0
-    ) -> np.ndarray:
+        self, frame: NDArray[np.uint8], k1: float = 0.0, k2: float = 0.0
+    ) -> NDArray[np.float64]:
         """Correct barrel/pincushion distortion.
 
         Args:
@@ -639,7 +639,7 @@ class GeometricCalibrator:
 
     def create_rectification_grid(
         self, frame_size: tuple[int, int], grid_size: int = 20
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Create rectification grid for visual calibration assessment.
 
         Args:
@@ -662,7 +662,7 @@ class GeometricCalibrator:
 
         return grid
 
-    def _save_calibration(self):
+    def _save_calibration(self) -> None:
         """Save current calibration to cache."""
         if self.current_calibration:
             cache_file = self.cache_dir / "geometric_calibration.json"

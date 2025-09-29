@@ -33,7 +33,7 @@ class ColorThresholds:
         """Create from dictionary."""
         return cls(**data)
 
-    def apply_mask(self, hsv_image: np.ndarray) -> np.ndarray:
+    def apply_mask(self, hsv_image: NDArray[np.float64]) -> NDArray[np.float64]:
         """Apply color mask to HSV image."""
         # Handle hue wraparound (red color)
         if self.hue_min > self.hue_max:
@@ -96,7 +96,7 @@ class ColorProfile:
 class ColorSample:
     """Helper class for collecting color samples."""
 
-    def __init__(self, roi: tuple[int, int, int, int], label: str):
+    def __init__(self, roi: tuple[int, int, int, int], label: str) -> None:
         """Initialize color sample.
 
         Args:
@@ -107,7 +107,7 @@ class ColorSample:
         self.label = label
         self.pixels: list[tuple[int, int, int]] = []
 
-    def add_pixels(self, hsv_image: np.ndarray):
+    def add_pixels(self, hsv_image: NDArray[np.float64]) -> None:
         """Extract pixels from ROI."""
         x, y, w, h = self.roi
         roi_pixels = hsv_image[y : y + h, x : x + w].reshape(-1, 3)
@@ -138,7 +138,7 @@ class ColorCalibrator:
     - Save and load calibration profiles
     """
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: Optional[str] = None) -> None:
         """Initialize color calibrator.
 
         Args:
@@ -164,7 +164,7 @@ class ColorCalibrator:
         self.color_samples: list[ColorSample] = []
 
     def auto_calibrate_table_color(
-        self, frame: np.ndarray, table_mask: Optional[np.ndarray] = None
+        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
     ) -> ColorThresholds:
         """Auto-detect optimal table color thresholds.
 
@@ -226,7 +226,7 @@ class ColorCalibrator:
 
     def calibrate_ball_colors(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         ball_samples: dict[str, list[tuple[int, int, int, int]]],
     ) -> dict[str, ColorThresholds]:
         """Calibrate color thresholds for different ball types.
@@ -291,7 +291,7 @@ class ColorCalibrator:
         return ball_thresholds
 
     def adapt_to_lighting(
-        self, frame: np.ndarray, reference_profile: ColorProfile
+        self, frame: NDArray[np.uint8], reference_profile: ColorProfile
     ) -> ColorProfile:
         """Adapt color thresholds to current lighting conditions.
 
@@ -367,7 +367,7 @@ class ColorCalibrator:
             v_max,
         )
 
-    def _estimate_ambient_light(self, frame: np.ndarray) -> float:
+    def _estimate_ambient_light(self, frame: NDArray[np.uint8]) -> float:
         """Estimate ambient lighting level from frame."""
         # Convert to grayscale and calculate mean brightness
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -383,7 +383,7 @@ class ColorCalibrator:
         return weighted_sum / total_pixels if total_pixels > 0 else 128.0
 
     def create_color_picker_interface(
-        self, frame: np.ndarray, window_name: str = "Color Picker"
+        self, frame: NDArray[np.uint8], window_name: str = "Color Picker"
     ) -> dict[str, Any]:
         """Create interactive color picker interface.
 
@@ -457,7 +457,7 @@ class ColorCalibrator:
         return selected_colors
 
     def optimize_thresholds(
-        self, frame: np.ndarray, target_objects: list[dict]
+        self, frame: NDArray[np.uint8], target_objects: list[dict]
     ) -> dict[str, ColorThresholds]:
         """Optimize color thresholds for target objects.
 
@@ -614,7 +614,7 @@ class ColorCalibrator:
         return [f.name for f in self.cache_dir.glob("*.json")]
 
     def create_default_profile(
-        self, frame: np.ndarray, profile_name: str = "default"
+        self, frame: NDArray[np.uint8], profile_name: str = "default"
     ) -> ColorProfile:
         """Create default color profile from frame.
 

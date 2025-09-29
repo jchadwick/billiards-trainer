@@ -36,7 +36,7 @@ class TrackingOptimizer:
     - Adaptive algorithm selection
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize tracking optimizer.
 
         Args:
@@ -82,7 +82,9 @@ class TrackingOptimizer:
 
         self.metrics.prediction_time = time.time() - start_time
 
-    def optimize_association_phase(self, tracks: list, detections: list) -> np.ndarray:
+    def optimize_association_phase(
+        self, tracks: list, detections: list
+    ) -> NDArray[np.float64]:
         """Optimize detection-track association using efficient algorithms.
 
         Args:
@@ -252,7 +254,7 @@ class TrackingOptimizer:
 
     def _vectorized_cost_computation(
         self, tracks: list, detections: list
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Compute cost matrix using vectorized operations.
 
         Args:
@@ -331,7 +333,7 @@ class TrackingOptimizer:
 
         return recommendations
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup thread pool on deletion."""
         if self.thread_pool:
             self.thread_pool.shutdown(wait=True)
@@ -340,7 +342,7 @@ class TrackingOptimizer:
 class MemoryPool:
     """Memory pool for reusing numpy arrays to reduce allocation overhead."""
 
-    def __init__(self, max_arrays: int = 100):
+    def __init__(self, max_arrays: int = 100) -> None:
         """Initialize memory pool.
 
         Args:
@@ -351,7 +353,9 @@ class MemoryPool:
         self.arrays_1d = {}  # size -> list of arrays
         self._lock = threading.Lock()
 
-    def get_array_2d(self, shape: tuple[int, int], dtype=np.float64) -> np.ndarray:
+    def get_array_2d(
+        self, shape: tuple[int, int], dtype=np.float64
+    ) -> NDArray[np.float64]:
         """Get a 2D array from pool or create new one.
 
         Args:
@@ -371,7 +375,7 @@ class MemoryPool:
             else:
                 return np.zeros(shape, dtype=dtype)
 
-    def return_array_2d(self, array: np.ndarray) -> None:
+    def return_array_2d(self, array: NDArray[np.float64]) -> None:
         """Return array to pool for reuse.
 
         Args:
@@ -386,7 +390,7 @@ class MemoryPool:
             if len(self.arrays_2d[size_key]) < self.max_arrays:
                 self.arrays_2d[size_key].append(array)
 
-    def get_array_1d(self, size: int, dtype=np.float64) -> np.ndarray:
+    def get_array_1d(self, size: int, dtype=np.float64) -> NDArray[np.float64]:
         """Get a 1D array from pool or create new one."""
         with self._lock:
             size_key = (size, dtype)
@@ -398,7 +402,7 @@ class MemoryPool:
             else:
                 return np.zeros(size, dtype=dtype)
 
-    def return_array_1d(self, array: np.ndarray) -> None:
+    def return_array_1d(self, array: NDArray[np.float64]) -> None:
         """Return 1D array to pool for reuse."""
         with self._lock:
             size_key = (array.shape[0], array.dtype)
@@ -419,7 +423,7 @@ class MemoryPool:
 class AdaptiveParameterTuning:
     """Adaptive parameter tuning for tracking algorithms based on performance."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize adaptive parameter tuning."""
         self.performance_history = deque(maxlen=50)
         self.parameter_history = deque(maxlen=50)

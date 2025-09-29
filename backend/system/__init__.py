@@ -9,8 +9,12 @@ This module provides the primary interface for:
 """
 
 import logging
+from typing import TYPE_CHECKING, Any, Optional
 
 from .health import HealthMonitor, HealthStatus, ModuleHealth, SystemHealth
+
+if TYPE_CHECKING:
+    from .orchestrator import SystemOrchestrator
 from .monitoring import (
     AlertManager,
     MetricsCollector,
@@ -26,16 +30,18 @@ logger = logging.getLogger(__name__)
 
 
 # Lazy import for orchestrator to avoid circular imports
-def create_orchestrator(config=None):
+def create_orchestrator(
+    config: Optional[dict[str, Any]] = None
+) -> "SystemOrchestrator":
     """Create system orchestrator with lazy import."""
     from .orchestrator import SystemConfig, SystemOrchestrator
 
     if config is None:
-        config = SystemConfig()
-    elif isinstance(config, dict):
-        config = SystemConfig(**config)
+        config_obj = SystemConfig()
+    else:
+        config_obj = SystemConfig(**config)
 
-    return SystemOrchestrator(config)
+    return SystemOrchestrator(config_obj)
 
 
 # Export main classes

@@ -619,7 +619,7 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
 
 
 @router.post("/test/download/{size_mb}")
-async def test_download_endpoint(size_mb: int):
+async def test_download_endpoint(size_mb: int) -> dict[str, Any]:
     """Test endpoint for bandwidth testing - simulates downloading data."""
     if size_mb > 100:  # Limit size for safety
         raise HTTPException(status_code=400, detail="Size too large")
@@ -631,7 +631,7 @@ async def test_download_endpoint(size_mb: int):
 
 
 @router.post("/test/upload")
-async def test_upload_endpoint():
+async def test_upload_endpoint() -> dict[str, Any]:
     """Test endpoint for bandwidth testing - simulates uploading data."""
     # In real implementation, would receive and process uploaded data
     return {"message": "Upload test completed", "received_size": 0}

@@ -115,7 +115,7 @@ class CalibrationValidator:
     - End-to-end system integration
     """
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: Optional[str] = None) -> None:
         """Initialize calibration validator.
 
         Args:
@@ -291,7 +291,9 @@ class CalibrationValidator:
             )
 
     def _test_distortion_correction(
-        self, camera_calibrator: CameraCalibrator, test_image: Optional[np.ndarray]
+        self,
+        camera_calibrator: CameraCalibrator,
+        test_image: Optional[NDArray[np.float64]],
     ) -> float:
         """Test quality of distortion correction."""
         if test_image is None or camera_calibrator.camera_params is None:
@@ -341,7 +343,7 @@ class CalibrationValidator:
     def validate_color_calibration(
         self,
         color_calibrator: ColorCalibrator,
-        test_frame: np.ndarray,
+        test_frame: NDArray[np.float64],
         ground_truth_labels: dict[str, list[tuple[int, int, int, int]]],
     ) -> ValidationResult:
         """Validate color calibration accuracy.
@@ -599,7 +601,7 @@ class CalibrationValidator:
         camera_calibrator: CameraCalibrator,
         color_calibrator: ColorCalibrator,
         geometry_calibrator: GeometricCalibrator,
-        test_frame: np.ndarray,
+        test_frame: NDArray[np.float64],
         ground_truth: dict[str, Any],
     ) -> ValidationResult:
         """Validate end-to-end calibration integration.
@@ -695,7 +697,7 @@ class CalibrationValidator:
             )
 
     def _detect_balls_with_color_calibration(
-        self, frame: np.ndarray, color_calibrator: ColorCalibrator
+        self, frame: NDArray[np.uint8], color_calibrator: ColorCalibrator
     ) -> list[tuple[float, float]]:
         """Detect balls using color calibration."""
         if not color_calibrator.current_profile:
@@ -934,7 +936,7 @@ class CalibrationValidator:
 
         return recommendations
 
-    def _save_report(self, report: CalibrationReport):
+    def _save_report(self, report: CalibrationReport) -> None:
         """Save validation report to cache."""
         try:
             report_file = (

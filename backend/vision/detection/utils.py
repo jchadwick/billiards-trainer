@@ -32,8 +32,8 @@ class DetectionUtils:
 
     @staticmethod
     def apply_color_threshold(
-        frame: np.ndarray, lower: tuple, upper: tuple, color_space: str = "HSV"
-    ) -> np.ndarray:
+        frame: NDArray[np.uint8], lower: tuple, upper: tuple, color_space: str = "HSV"
+    ) -> NDArray[np.float64]:
         """Apply color thresholding to frame."""
         if frame is None or frame.size == 0:
             return np.array([])
@@ -57,7 +57,7 @@ class DetectionUtils:
 
     @staticmethod
     def find_circles(
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         min_radius: int,
         max_radius: int,
         param1: float = 50,
@@ -115,7 +115,7 @@ class DetectionUtils:
 
     @staticmethod
     def find_lines(
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         threshold: int = 50,
         min_line_length: int = 30,
         max_line_gap: int = 10,
@@ -168,7 +168,7 @@ class DetectionUtils:
         return detected_lines
 
     @staticmethod
-    def calculate_contour_center(contour: np.ndarray) -> tuple[float, float]:
+    def calculate_contour_center(contour: NDArray[np.float64]) -> tuple[float, float]:
         """Calculate center point of contour using moments."""
         if contour is None or len(contour) == 0:
             return (0.0, 0.0)
@@ -228,11 +228,11 @@ class DetectionUtils:
 
     @staticmethod
     def apply_morphological_operations(
-        mask: np.ndarray,
+        mask: NDArray[np.uint8],
         operation: str = "close",
         kernel_size: int = 5,
         iterations: int = 1,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Apply morphological operations to clean up binary masks."""
         if mask is None or mask.size == 0:
             return mask
@@ -295,8 +295,8 @@ class DetectionUtils:
 
     @staticmethod
     def find_quadrilateral_corners(
-        contour: np.ndarray, epsilon_factor: float = 0.02
-    ) -> Optional[np.ndarray]:
+        contour: NDArray[np.float64], epsilon_factor: float = 0.02
+    ) -> Optional[NDArray[np.float64]]:
         """Approximate contour to quadrilateral and return corners."""
         if contour is None or len(contour) < 4:
             return None
@@ -312,8 +312,8 @@ class DetectionUtils:
 
     @staticmethod
     def enhance_contrast(
-        image: np.ndarray, alpha: float = 1.5, beta: int = 0
-    ) -> np.ndarray:
+        image: NDArray[np.uint8], alpha: float = 1.5, beta: int = 0
+    ) -> NDArray[np.float64]:
         """Enhance contrast using linear transformation."""
         if image is None or image.size == 0:
             return image
@@ -321,8 +321,8 @@ class DetectionUtils:
 
     @staticmethod
     def apply_gaussian_blur(
-        image: np.ndarray, kernel_size: int = 5, sigma: float = 0
-    ) -> np.ndarray:
+        image: NDArray[np.uint8], kernel_size: int = 5, sigma: float = 0
+    ) -> NDArray[np.float64]:
         """Apply Gaussian blur for noise reduction."""
         if image is None or image.size == 0:
             return image
@@ -333,7 +333,7 @@ class DetectionUtils:
     @staticmethod
     def create_roi_mask(
         image_shape: tuple[int, int], roi_points: list[tuple[float, float]]
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Create a region of interest mask."""
         mask = np.zeros(image_shape[:2], dtype=np.uint8)
         if len(roi_points) >= 3:
@@ -343,7 +343,7 @@ class DetectionUtils:
 
     @staticmethod
     def _calculate_circle_confidence(
-        gray: np.ndarray, center: tuple[int, int], radius: int
+        gray: NDArray[np.float64], center: tuple[int, int], radius: int
     ) -> float:
         """Calculate confidence score for detected circle based on edge strength."""
         try:

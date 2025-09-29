@@ -87,7 +87,7 @@ class CueDetector:
     - False positive filtering
     """
 
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, config: dict[str, Any]) -> None:
         """Initialize cue detector with configuration.
 
         Args:
@@ -154,7 +154,9 @@ class CueDetector:
             self.lsd = None
 
     def detect_cue(
-        self, frame: np.ndarray, cue_ball_pos: Optional[tuple[float, float]] = None
+        self,
+        frame: NDArray[np.uint8],
+        cue_ball_pos: Optional[tuple[float, float]] = None,
     ) -> Optional[CueStick]:
         """Detect cue stick in frame using multiple algorithms.
 
@@ -227,7 +229,7 @@ class CueDetector:
             self.logger.error(f"Cue detection failed: {e}")
             return None
 
-    def _preprocess_frame(self, frame: np.ndarray) -> np.ndarray:
+    def _preprocess_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Preprocess frame for line detection.
 
         Args:
@@ -250,7 +252,7 @@ class CueDetector:
 
         return enhanced
 
-    def _detect_lines_multi_method(self, frame: np.ndarray) -> list[np.ndarray]:
+    def _detect_lines_multi_method(self, frame: NDArray[np.uint8]) -> list[np.ndarray]:
         """Detect lines using multiple algorithms.
 
         Args:
@@ -279,7 +281,9 @@ class CueDetector:
 
         return all_lines
 
-    def _detect_lines_hough(self, frame: np.ndarray) -> Optional[list[np.ndarray]]:
+    def _detect_lines_hough(
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[list[np.ndarray]]:
         """Detect lines using Canny edge detection + Probabilistic Hough Transform."""
         try:
             # Canny edge detection
@@ -303,7 +307,7 @@ class CueDetector:
 
         return None
 
-    def _detect_lines_lsd(self, frame: np.ndarray) -> Optional[list[np.ndarray]]:
+    def _detect_lines_lsd(self, frame: NDArray[np.uint8]) -> Optional[list[np.ndarray]]:
         """Detect lines using Line Segment Detector (LSD)."""
         try:
             lines = self.lsd.detect(frame)[0]
@@ -322,7 +326,7 @@ class CueDetector:
         return None
 
     def _detect_lines_morphological(
-        self, frame: np.ndarray
+        self, frame: NDArray[np.uint8]
     ) -> Optional[list[np.ndarray]]:
         """Detect lines using morphological operations."""
         try:
@@ -465,7 +469,7 @@ class CueDetector:
 
     def _calculate_line_confidence(
         self,
-        line: np.ndarray,
+        line: NDArray[np.float64],
         frame_shape: tuple[int, ...],
         cue_ball_pos: Optional[tuple[float, float]] = None,
     ) -> float:
@@ -548,7 +552,7 @@ class CueDetector:
         return min(1.0, confidence)
 
     def _point_to_line_distance(
-        self, point: tuple[float, float], line: np.ndarray
+        self, point: tuple[float, float], line: NDArray[np.float64]
     ) -> float:
         """Calculate distance from point to line segment."""
         x0, y0 = point
@@ -560,7 +564,7 @@ class CueDetector:
 
         if dx == 0 and dy == 0:
             # Line is a point
-            return np.sqrt((x0 - x1) ** 2 + (y0 - y1) ** 2)
+            return float(np.sqrt(x0 - x1) ** 2 + (y0 - y1) ** 2)
 
         # Parameter t for closest point on line
         t = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
@@ -571,10 +575,10 @@ class CueDetector:
         closest_y = y1 + t * dy
 
         # Distance to closest point
-        return np.sqrt((x0 - closest_x) ** 2 + (y0 - closest_y) ** 2)
+        return float(np.sqrt(x0 - closest_x) ** 2 + (y0 - closest_y) ** 2)
 
     def _select_best_cue(
-        self, candidates: list[ExtendedCueStick], frame: np.ndarray
+        self, candidates: list[ExtendedCueStick], frame: NDArray[np.uint8]
     ) -> Optional[ExtendedCueStick]:
         """Select the best cue candidate from the list.
 
@@ -601,7 +605,9 @@ class CueDetector:
         # Return highest confidence validated candidate
         return validated_candidates[0]
 
-    def _validate_cue_candidate(self, cue: ExtendedCueStick, frame: np.ndarray) -> bool:
+    def _validate_cue_candidate(
+        self, cue: ExtendedCueStick, frame: NDArray[np.uint8]
+    ) -> bool:
         """Additional validation for cue candidate.
 
         Args:
@@ -627,7 +633,9 @@ class CueDetector:
             self.logger.debug(f"Cue validation failed: {e}")
             return False
 
-    def _check_line_thickness(self, cue: ExtendedCueStick, frame: np.ndarray) -> bool:
+    def _check_line_thickness(
+        self, cue: ExtendedCueStick, frame: NDArray[np.uint8]
+    ) -> bool:
         """Check if line has reasonable thickness for a cue stick."""
         # Sample perpendicular profiles at multiple points along the line
         x1, y1 = cue.tip_position
@@ -666,7 +674,7 @@ class CueDetector:
 
     def _measure_line_thickness_at_point(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         point: tuple[float, float],
         perpendicular: tuple[float, float],
     ) -> float:
@@ -709,13 +717,17 @@ class CueDetector:
 
         return 0
 
-    def _check_line_texture(self, cue: ExtendedCueStick, frame: np.ndarray) -> bool:
+    def _check_line_texture(
+        self, cue: ExtendedCueStick, frame: NDArray[np.uint8]
+    ) -> bool:
         """Check for consistent texture along the line (simplified check)."""
         # For now, just check that the line region has reasonable contrast
         # More sophisticated texture analysis could be added later
         return True
 
-    def _check_cue_position(self, cue: ExtendedCueStick, frame: np.ndarray) -> bool:
+    def _check_cue_position(
+        self, cue: ExtendedCueStick, frame: NDArray[np.uint8]
+    ) -> bool:
         """Check if cue position is reasonable (not intersecting table boundaries too much)."""
         # This would need table detection integration
         # For now, just check it's not entirely at the frame edge
@@ -1071,7 +1083,9 @@ class CueDetector:
 
         return follow_draw
 
-    def get_multiple_cues(self, frame: np.ndarray, max_cues: int = 2) -> list[CueStick]:
+    def get_multiple_cues(
+        self, frame: NDArray[np.uint8], max_cues: int = 2
+    ) -> list[CueStick]:
         """Detect multiple cue sticks in frame (FR-VIS-034).
 
         Args:
@@ -1165,7 +1179,9 @@ class CueDetector:
         return unique_cues
 
     def estimate_cue_angle(
-        self, cue_line: np.ndarray, reference_frame: Optional[np.ndarray] = None
+        self,
+        cue_line: NDArray[np.float64],
+        reference_frame: Optional[NDArray[np.float64]] = None,
     ) -> float:
         """Calculate cue angle relative to table coordinate system.
 
@@ -1299,10 +1315,10 @@ class CueDetector:
 
     def visualize_detection(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         cue: CueStick,
         shot_event: Optional[ExtendedShotEvent] = None,
-    ) -> np.ndarray:
+    ) -> NDArray[np.float64]:
         """Visualize cue detection results on frame.
 
         Args:

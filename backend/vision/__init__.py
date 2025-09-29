@@ -113,7 +113,7 @@ class VisionModule:
     including table detection, ball tracking, and cue stick detection.
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None):
+    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         """Initialize the Vision Module.
 
         Args:
@@ -140,12 +140,12 @@ class VisionModule:
         self._lock = threading.Lock()
 
         # Current state
-        self._current_frame: Optional[np.ndarray] = None
+        self._current_frame: Optional[NDArray[np.float64]] = None
         self._current_result: Optional[DetectionResult] = None
         self._frame_number = 0
 
         # Event callbacks
-        self._callbacks: dict[str, list[Callable]] = {
+        self._callbacks: dict[str, list[Callable[..., Any]]] = {
             "frame_processed": [],
             "detection_complete": [],
             "error_occurred": [],
@@ -156,7 +156,7 @@ class VisionModule:
 
         logger.info("Vision Module initialized successfully")
 
-    def _initialize_components(self):
+    def _initialize_components(self) -> None:
         """Initialize all vision processing components."""
         try:
             # Camera capture
@@ -321,7 +321,7 @@ class VisionModule:
             self._emit_event("error_occurred", {"error": str(e)})
             return None
 
-    def get_current_frame(self) -> Optional[np.ndarray]:
+    def get_current_frame(self) -> Optional[NDArray[np.float64]]:
         """Get latest captured frame.
 
         Returns:
@@ -368,7 +368,9 @@ class VisionModule:
             self.stats.last_error = str(e)
             return False
 
-    def calibrate_colors(self, sample_image: Optional[np.ndarray] = None) -> dict:
+    def calibrate_colors(
+        self, sample_image: Optional[NDArray[np.float64]] = None
+    ) -> dict:
         """Auto-calibrate color thresholds.
 
         Args:
@@ -448,7 +450,9 @@ class VisionModule:
             "camera_connected": self.camera.is_connected() if self.camera else False,
         }
 
-    def subscribe_to_events(self, event_type: str, callback: Callable) -> bool:
+    def subscribe_to_events(
+        self, event_type: str, callback: Callable[..., Any]
+    ) -> bool:
         """Subscribe to vision events.
 
         Args:
@@ -463,7 +467,7 @@ class VisionModule:
             return True
         return False
 
-    def _capture_loop(self):
+    def _capture_loop(self) -> None:
         """Main capture loop running in separate thread."""
         logger.info("Starting capture loop")
 
@@ -518,7 +522,7 @@ class VisionModule:
 
         logger.info("Capture loop ended")
 
-    def _processing_loop(self):
+    def _processing_loop(self) -> None:
         """Main processing loop running in separate thread."""
         logger.info("Starting processing loop")
 
@@ -576,7 +580,7 @@ class VisionModule:
 
     def _process_single_frame(
         self,
-        frame: np.ndarray,
+        frame: NDArray[np.uint8],
         frame_number: Optional[int] = None,
         timestamp: Optional[float] = None,
     ) -> Optional[DetectionResult]:
@@ -713,7 +717,7 @@ class VisionModule:
             self.stats.last_error = str(e)
             return None
 
-    def _apply_roi(self, frame: np.ndarray) -> np.ndarray:
+    def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply region of interest cropping to frame."""
         if not self._roi_corners or len(self._roi_corners) != 4:
             return frame
@@ -732,7 +736,7 @@ class VisionModule:
             logger.warning(f"Failed to apply ROI: {e}")
             return frame
 
-    def _emit_event(self, event_type: str, data: dict[str, Any]):
+    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit event to registered callbacks."""
         if event_type in self._callbacks:
             for callback in self._callbacks[event_type]:
@@ -741,7 +745,7 @@ class VisionModule:
                 except Exception as e:
                     logger.warning(f"Error in event callback for {event_type}: {e}")
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on destruction."""
         with contextlib.suppress(Exception):
             self.stop_capture()

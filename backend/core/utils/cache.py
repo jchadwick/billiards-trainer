@@ -1,6 +1,6 @@
 """Caching utilities for core calculations."""
 
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 
 class CalculationCache:
@@ -8,8 +8,8 @@ class CalculationCache:
 
     def __init__(self, max_size: int = 1000):
         self.max_size = max_size
-        self._cache = {}
-        self._access_order = []
+        self._cache: dict[str, Any] = {}
+        self._access_order: list[str] = []
 
     def get(self, key: str) -> Optional[Any]:
         """Get cached value."""
@@ -42,7 +42,7 @@ class CalculationCache:
         self._cache.clear()
         self._access_order.clear()
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
             "size": len(self._cache),

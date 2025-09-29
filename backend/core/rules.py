@@ -53,12 +53,16 @@ class GameRules:
 
         return False
 
-    def _get_lowest_numbered_ball(self, game_state: GameState) -> BallState:
+    def _get_lowest_numbered_ball(self, game_state: GameState) -> Optional[BallState]:
         """Get the lowest numbered ball on the table."""
-        lowest_ball = None
+        lowest_ball: Optional[BallState] = None
         for ball in game_state.balls:
             if not ball.is_cue_ball and not ball.is_pocketed:
-                if lowest_ball is None or ball.number < lowest_ball.number:
+                if lowest_ball is None or (
+                    ball.number
+                    and lowest_ball.number
+                    and ball.number < lowest_ball.number
+                ):
                     lowest_ball = ball
         return lowest_ball
 
@@ -141,7 +145,7 @@ class GameRules:
         return False
 
     def detect_fouls(
-        self, game_state: GameState, first_ball_hit: BallState = None
+        self, game_state: GameState, first_ball_hit: Optional[BallState] = None
     ) -> list[str]:
         """Detect fouls in the current game state for 8-ball."""
         if self.game_type != GameType.EIGHT_BALL:
@@ -211,6 +215,9 @@ class GameRules:
 
         # Check if any legal balls were pocketed
         if not balls_pocketed:
+            return False
+
+        if game_state.current_player is None:
             return False
 
         player_group = self._get_player_group(game_state, game_state.current_player)

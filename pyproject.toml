@@ -214,6 +214,14 @@ warn_return_any = true
 warn_unreachable = true
 strict_equality = true
 show_error_codes = true
+exclude = [
+    "^backend/tests/",
+    "^backend/.*/tests/",
+    "^backend/.*_test\\.py$",
+    "^backend/test_.*\\.py$",
+    "^backend/.*demo.*\\.py$",
+    "^backend/.*/examples/",
+]
 
 [[tool.mypy.overrides]]
 module = [
