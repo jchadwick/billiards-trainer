@@ -441,6 +441,225 @@ export class SystemStore {
     }
   }
 
+  // Module management methods
+  async startModule(moduleName: string): Promise<ActionResult> {
+    try {
+      const { apiClient } = await import('../api/client');
+      let response: any;
+
+      switch (moduleName.toLowerCase()) {
+        case 'vision':
+          // Start vision detection
+          response = await apiClient.startDetection();
+          break;
+
+        case 'video':
+        case 'stream':
+          // Start video capture
+          response = await apiClient.startVideoCapture();
+          break;
+
+        case 'api':
+        case 'core':
+        case 'config':
+        case 'projector':
+          // These modules don't have individual start/stop endpoints
+          // They're managed as part of the overall system
+          this.addInfo('System', `Module ${moduleName} is managed automatically by the system`);
+          return {
+            success: true,
+            timestamp: new Date()
+          };
+
+        default:
+          this.addWarning('System', `Unknown module: ${moduleName}`);
+          return {
+            success: false,
+            error: `Unknown module: ${moduleName}`,
+            timestamp: new Date()
+          };
+      }
+
+      if (response.success) {
+        this.addInfo('System', `Module ${moduleName} started successfully`);
+        return {
+          success: true,
+          timestamp: new Date()
+        };
+      } else {
+        this.addError('System', `Failed to start module ${moduleName}: ${response.error}`);
+        return {
+          success: false,
+          error: response.error || `Failed to start module ${moduleName}`,
+          timestamp: new Date()
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.addError('System', `Error starting module ${moduleName}: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async stopModule(moduleName: string): Promise<ActionResult> {
+    try {
+      const { apiClient } = await import('../api/client');
+      let response: any;
+
+      switch (moduleName.toLowerCase()) {
+        case 'vision':
+          // Stop vision detection
+          response = await apiClient.stopDetection();
+          break;
+
+        case 'video':
+        case 'stream':
+          // Stop video capture
+          response = await apiClient.stopVideoCapture();
+          break;
+
+        case 'api':
+        case 'core':
+        case 'config':
+        case 'projector':
+          // These modules don't have individual start/stop endpoints
+          this.addWarning('System', `Module ${moduleName} cannot be stopped individually - it's part of the core system`);
+          return {
+            success: false,
+            error: `Module ${moduleName} cannot be stopped individually`,
+            timestamp: new Date()
+          };
+
+        default:
+          this.addWarning('System', `Unknown module: ${moduleName}`);
+          return {
+            success: false,
+            error: `Unknown module: ${moduleName}`,
+            timestamp: new Date()
+          };
+      }
+
+      if (response.success) {
+        this.addInfo('System', `Module ${moduleName} stopped successfully`);
+        return {
+          success: true,
+          timestamp: new Date()
+        };
+      } else {
+        this.addError('System', `Failed to stop module ${moduleName}: ${response.error}`);
+        return {
+          success: false,
+          error: response.error || `Failed to stop module ${moduleName}`,
+          timestamp: new Date()
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.addError('System', `Error stopping module ${moduleName}: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+        timestamp: new Date()
+      };
+    }
+  }
+
+  async restartModule(moduleName: string): Promise<ActionResult> {
+    try {
+      // For restartable modules, stop then start
+      if (['vision', 'video', 'stream'].includes(moduleName.toLowerCase())) {
+        this.addInfo('System', `Restarting module ${moduleName}...`);
+
+        // First stop the module
+        const stopResult = await this.stopModule(moduleName);
+        if (!stopResult.success) {
+          return stopResult;
+        }
+
+        // Wait a brief moment
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Then start it again
+        const startResult = await this.startModule(moduleName);
+        if (startResult.success) {
+          this.addInfo('System', `Module ${moduleName} restarted successfully`);
+        }
+        return startResult;
+      } else {
+        // For non-restartable modules
+        this.addWarning('System', `Module ${moduleName} cannot be restarted individually`);
+        return {
+          success: false,
+          error: `Module ${moduleName} cannot be restarted individually`,
+          timestamp: new Date()
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.addError('System', `Error restarting module ${moduleName}: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+        timestamp: new Date()
+      };
+    }
+  }
+
+  // Get module status for management interface
+  getModuleStatus(moduleName: string): {
+    status: 'running' | 'stopped' | 'error' | 'starting' | 'stopping' | 'unknown';
+    canStart: boolean;
+    canStop: boolean;
+    canRestart: boolean;
+    lastAction?: Date;
+  } {
+    // This would ideally get real status from the backend
+    // For now, provide reasonable defaults based on system connection
+    const isSystemConnected = this.status.isConnected;
+
+    switch (moduleName.toLowerCase()) {
+      case 'vision':
+      case 'video':
+      case 'stream':
+        return {
+          status: isSystemConnected ? 'running' : 'stopped',
+          canStart: !isSystemConnected,
+          canStop: isSystemConnected,
+          canRestart: true,
+        };
+
+      case 'api':
+        return {
+          status: isSystemConnected ? 'running' : 'stopped',
+          canStart: false,
+          canStop: false,
+          canRestart: false,
+        };
+
+      case 'core':
+      case 'config':
+      case 'projector':
+        return {
+          status: isSystemConnected ? 'running' : 'unknown',
+          canStart: false,
+          canStop: false,
+          canRestart: false,
+        };
+
+      default:
+        return {
+          status: 'unknown',
+          canStart: false,
+          canStop: false,
+          canRestart: false,
+        };
+    }
+  }
+
   // Cleanup method
   destroy(): void {
     this.disconnect();

@@ -419,11 +419,348 @@ class SessionMonitor:
             await self._send_alert_notification(alert)
 
     async def _send_alert_notification(self, alert: SecurityAlert):
-        """Send alert notification (placeholder for notification system)."""
+        """Send alert notification through configured notification channels."""
+        # Always log the alert
         logger.warning(
             f"SECURITY ALERT [{alert.severity.value.upper()}]: {alert.message}"
         )
-        # TODO: Implement actual notification system (email, Slack, etc.)
+
+        # Send notifications through configured channels
+        notification_tasks = []
+
+        if hasattr(self, "_notification_config"):
+            config = self._notification_config
+
+            # Email notifications
+            if config.get("email", {}).get("enabled", False):
+                notification_tasks.append(
+                    self._send_email_notification(alert, config["email"])
+                )
+
+            # Slack notifications
+            if config.get("slack", {}).get("enabled", False):
+                notification_tasks.append(
+                    self._send_slack_notification(alert, config["slack"])
+                )
+
+            # Discord notifications
+            if config.get("discord", {}).get("enabled", False):
+                notification_tasks.append(
+                    self._send_discord_notification(alert, config["discord"])
+                )
+
+            # Custom webhook notifications
+            if config.get("webhook", {}).get("enabled", False):
+                notification_tasks.append(
+                    self._send_webhook_notification(alert, config["webhook"])
+                )
+
+        # Execute all notification tasks concurrently
+        if notification_tasks:
+            try:
+                await asyncio.gather(*notification_tasks, return_exceptions=True)
+            except Exception as e:
+                logger.error(f"Error sending security notifications: {e}")
+
+    async def _send_email_notification(self, alert: SecurityAlert, email_config: dict):
+        """Send email notification for security alert."""
+        try:
+            import smtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            # Create message
+            msg = MIMEMultipart()
+            msg["From"] = email_config.get(
+                "from_address", "security@billiardstrainer.com"
+            )
+            msg["To"] = ", ".join(email_config.get("to_addresses", []))
+            msg[
+                "Subject"
+            ] = f"Security Alert: {alert.event_type} - {alert.severity.value.upper()}"
+
+            # Create HTML and text body
+            html_body = f"""
+            <html>
+                <body>
+                    <h2>🔒 Security Alert</h2>
+                    <p><strong>Severity:</strong> {alert.severity.value.upper()}</p>
+                    <p><strong>Event Type:</strong> {alert.event_type}</p>
+                    <p><strong>Time:</strong> {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+                    <p><strong>User:</strong> {alert.user_id or 'Unknown'}</p>
+                    <p><strong>IP Address:</strong> {alert.ip_address or 'Unknown'}</p>
+                    <p><strong>Message:</strong> {alert.message}</p>
+                    <hr>
+                    <p><small>Details: {alert.details}</small></p>
+                </body>
+            </html>
+            """
+
+            text_body = f"""
+            Security Alert: {alert.event_type}
+
+            Severity: {alert.severity.value.upper()}
+            Time: {alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}
+            User: {alert.user_id or 'Unknown'}
+            IP Address: {alert.ip_address or 'Unknown'}
+            Message: {alert.message}
+
+            Details: {alert.details}
+            """
+
+            msg.attach(MIMEText(text_body, "plain"))
+            msg.attach(MIMEText(html_body, "html"))
+
+            # Send email
+            smtp_server = email_config.get("smtp_server", "localhost")
+            smtp_port = email_config.get("smtp_port", 587)
+            use_tls = email_config.get("use_tls", True)
+            username = email_config.get("username")
+            password = email_config.get("password")
+
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            if use_tls:
+                server.starttls()
+            if username and password:
+                server.login(username, password)
+
+            server.send_message(msg)
+            server.quit()
+
+            logger.info(f"Security alert email sent for {alert.event_type}")
+
+        except ImportError:
+            logger.warning("Email notifications require smtplib (usually built-in)")
+        except Exception as e:
+            logger.error(f"Failed to send email notification: {e}")
+
+    async def _send_slack_notification(self, alert: SecurityAlert, slack_config: dict):
+        """Send Slack notification for security alert."""
+        try:
+            import aiohttp
+
+            webhook_url = slack_config.get("webhook_url")
+            if not webhook_url:
+                logger.error("Slack webhook URL not configured")
+                return
+
+            # Create Slack message
+            color = {
+                "low": "#36a64f",  # green
+                "medium": "#ff9500",  # orange
+                "high": "#ff0000",  # red
+                "critical": "#8b0000",  # dark red
+            }.get(alert.severity.value, "#cccccc")
+
+            payload = {
+                "username": "Security Bot",
+                "icon_emoji": ":warning:",
+                "attachments": [
+                    {
+                        "color": color,
+                        "title": f"🔒 Security Alert: {alert.event_type}",
+                        "fields": [
+                            {
+                                "title": "Severity",
+                                "value": alert.severity.value.upper(),
+                                "short": True,
+                            },
+                            {
+                                "title": "Time",
+                                "value": alert.timestamp.strftime(
+                                    "%Y-%m-%d %H:%M:%S UTC"
+                                ),
+                                "short": True,
+                            },
+                            {
+                                "title": "User",
+                                "value": alert.user_id or "Unknown",
+                                "short": True,
+                            },
+                            {
+                                "title": "IP Address",
+                                "value": alert.ip_address or "Unknown",
+                                "short": True,
+                            },
+                            {
+                                "title": "Message",
+                                "value": alert.message,
+                                "short": False,
+                            },
+                        ],
+                        "footer": "Billiards Trainer Security",
+                        "ts": int(alert.timestamp.timestamp()),
+                    }
+                ],
+            }
+
+            # Send to Slack
+            async with aiohttp.ClientSession() as session:
+                async with session.post(webhook_url, json=payload) as response:
+                    if response.status == 200:
+                        logger.info(
+                            f"Security alert Slack notification sent for {alert.event_type}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to send Slack notification: {response.status}"
+                        )
+
+        except ImportError:
+            logger.warning("Slack notifications require aiohttp package")
+        except Exception as e:
+            logger.error(f"Failed to send Slack notification: {e}")
+
+    async def _send_discord_notification(
+        self, alert: SecurityAlert, discord_config: dict
+    ):
+        """Send Discord notification for security alert."""
+        try:
+            import aiohttp
+
+            webhook_url = discord_config.get("webhook_url")
+            if not webhook_url:
+                logger.error("Discord webhook URL not configured")
+                return
+
+            # Create Discord embed
+            color_map = {
+                "low": 0x36A64F,  # green
+                "medium": 0xFF9500,  # orange
+                "high": 0xFF0000,  # red
+                "critical": 0x8B0000,  # dark red
+            }
+
+            embed = {
+                "title": f"🔒 Security Alert: {alert.event_type}",
+                "description": alert.message,
+                "color": color_map.get(alert.severity.value, 0xCCCCCC),
+                "timestamp": alert.timestamp.isoformat(),
+                "fields": [
+                    {
+                        "name": "Severity",
+                        "value": alert.severity.value.upper(),
+                        "inline": True,
+                    },
+                    {
+                        "name": "User",
+                        "value": alert.user_id or "Unknown",
+                        "inline": True,
+                    },
+                    {
+                        "name": "IP Address",
+                        "value": alert.ip_address or "Unknown",
+                        "inline": True,
+                    },
+                ],
+                "footer": {"text": "Billiards Trainer Security"},
+            }
+
+            payload = {"username": "Security Bot", "embeds": [embed]}
+
+            # Send to Discord
+            async with aiohttp.ClientSession() as session:
+                async with session.post(webhook_url, json=payload) as response:
+                    if response.status == 204:  # Discord returns 204 on success
+                        logger.info(
+                            f"Security alert Discord notification sent for {alert.event_type}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to send Discord notification: {response.status}"
+                        )
+
+        except ImportError:
+            logger.warning("Discord notifications require aiohttp package")
+        except Exception as e:
+            logger.error(f"Failed to send Discord notification: {e}")
+
+    async def _send_webhook_notification(
+        self, alert: SecurityAlert, webhook_config: dict
+    ):
+        """Send custom webhook notification for security alert."""
+        try:
+            import aiohttp
+
+            webhook_url = webhook_config.get("url")
+            if not webhook_url:
+                logger.error("Webhook URL not configured")
+                return
+
+            # Create webhook payload
+            payload = {
+                "event_type": "security_alert",
+                "timestamp": alert.timestamp.isoformat(),
+                "severity": alert.severity.value,
+                "alert_type": alert.event_type,
+                "message": alert.message,
+                "user_id": alert.user_id,
+                "ip_address": alert.ip_address,
+                "details": alert.details,
+                "source": "billiards_trainer_security",
+            }
+
+            # Add custom headers if configured
+            headers = webhook_config.get("headers", {})
+            if "Content-Type" not in headers:
+                headers["Content-Type"] = "application/json"
+
+            # Send webhook
+            timeout = aiohttp.ClientTimeout(total=webhook_config.get("timeout", 10))
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    webhook_url, json=payload, headers=headers
+                ) as response:
+                    if 200 <= response.status < 300:
+                        logger.info(
+                            f"Security alert webhook notification sent for {alert.event_type}"
+                        )
+                    else:
+                        logger.error(
+                            f"Failed to send webhook notification: {response.status}"
+                        )
+
+        except ImportError:
+            logger.warning("Webhook notifications require aiohttp package")
+        except Exception as e:
+            logger.error(f"Failed to send webhook notification: {e}")
+
+    def configure_notifications(self, config: dict):
+        """Configure notification channels for security alerts.
+
+        Args:
+            config: Dictionary with notification configuration.
+
+        Example config:
+            {
+                "email": {
+                    "enabled": True,
+                    "smtp_server": "smtp.gmail.com",
+                    "smtp_port": 587,
+                    "use_tls": True,
+                    "username": "alerts@company.com",
+                    "password": "app_password",
+                    "from_address": "security@billiardstrainer.com",
+                    "to_addresses": ["admin@company.com", "security@company.com"]
+                },
+                "slack": {
+                    "enabled": True,
+                    "webhook_url": "https://hooks.slack.com/services/..."
+                },
+                "discord": {
+                    "enabled": True,
+                    "webhook_url": "https://discord.com/api/webhooks/..."
+                },
+                "webhook": {
+                    "enabled": True,
+                    "url": "https://your-monitoring-system.com/alerts",
+                    "headers": {"Authorization": "Bearer token"},
+                    "timeout": 10
+                }
+            }
+        """
+        self._notification_config = config
+        logger.info("Security notification configuration updated")
 
     async def _cleanup_old_data(self):
         """Clean up old monitoring data."""

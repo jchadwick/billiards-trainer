@@ -1,6 +1,7 @@
 """Enhanced session management system with advanced features."""
 
 import asyncio
+import json
 import logging
 import secrets
 from dataclasses import asdict, dataclass
@@ -283,6 +284,515 @@ class MemorySessionStorage(SessionStorage):
         return count
 
 
+class RedisSessionStorage(SessionStorage):
+    """Redis-based session storage implementation."""
+
+    def __init__(
+        self, redis_url: str = "redis://localhost:6379/0", key_prefix: str = "session:"
+    ):
+        self.key_prefix = key_prefix
+        self._redis = None
+        self._redis_url = redis_url
+        self._encryption_key = Fernet.generate_key()
+        self._cipher = Fernet(self._encryption_key)
+
+    async def _get_redis(self):
+        """Get Redis connection with lazy initialization."""
+        if self._redis is None:
+            try:
+                import redis.asyncio as redis
+
+                self._redis = redis.from_url(self._redis_url, decode_responses=True)
+                # Test connection
+                await self._redis.ping()
+            except ImportError:
+                logger.error(
+                    "redis package not installed, falling back to memory storage"
+                )
+                raise NotImplementedError("Redis backend requires 'redis' package")
+            except Exception as e:
+                logger.error(f"Failed to connect to Redis: {e}")
+                raise
+        return self._redis
+
+    def _serialize_session(self, session_data: SessionData) -> str:
+        """Serialize and encrypt session data."""
+        session_dict = {
+            "jti": session_data.jti,
+            "user_id": session_data.user_id,
+            "username": session_data.username,
+            "role": session_data.role,
+            "permissions": list(session_data.permissions),
+            "created_at": session_data.created_at.isoformat(),
+            "last_activity": session_data.last_activity.isoformat(),
+            "expires_at": session_data.expires_at.isoformat(),
+            "absolute_expires_at": session_data.absolute_expires_at.isoformat(),
+            "ip_address": session_data.ip_address,
+            "user_agent": session_data.user_agent,
+            "metadata": session_data.metadata,
+            "status": session_data.status.value,
+        }
+        json_str = json.dumps(session_dict)
+        encrypted = self._cipher.encrypt(json_str.encode())
+        return encrypted.decode()
+
+    def _deserialize_session(self, encrypted_data: str) -> SessionData:
+        """Decrypt and deserialize session data."""
+        decrypted = self._cipher.decrypt(encrypted_data.encode())
+        session_dict = json.loads(decrypted.decode())
+
+        return SessionData(
+            jti=session_dict["jti"],
+            user_id=session_dict["user_id"],
+            username=session_dict["username"],
+            role=session_dict["role"],
+            permissions=set(session_dict["permissions"]),
+            created_at=datetime.fromisoformat(session_dict["created_at"]),
+            last_activity=datetime.fromisoformat(session_dict["last_activity"]),
+            expires_at=datetime.fromisoformat(session_dict["expires_at"]),
+            absolute_expires_at=datetime.fromisoformat(
+                session_dict["absolute_expires_at"]
+            ),
+            ip_address=session_dict["ip_address"],
+            user_agent=session_dict["user_agent"],
+            metadata=session_dict["metadata"],
+            status=SessionStatus(session_dict["status"]),
+        )
+
+    async def store_session(self, session_data: SessionData) -> bool:
+        """Store session data in Redis."""
+        try:
+            redis = await self._get_redis()
+            key = f"{self.key_prefix}{session_data.jti}"
+            user_key = f"{self.key_prefix}user:{session_data.user_id}"
+
+            # Store session data
+            serialized = self._serialize_session(session_data)
+
+            # Calculate TTL in seconds
+            ttl = int(
+                (
+                    session_data.absolute_expires_at - datetime.now(timezone.utc)
+                ).total_seconds()
+            )
+            if ttl <= 0:
+                return False
+
+            # Store session with expiration
+            await redis.setex(key, ttl, serialized)
+
+            # Add to user sessions set
+            await redis.sadd(user_key, session_data.jti)
+            await redis.expire(user_key, ttl)
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to store session {session_data.jti}: {e}")
+            return False
+
+    async def get_session(self, jti: str) -> Optional[SessionData]:
+        """Retrieve session data from Redis."""
+        try:
+            redis = await self._get_redis()
+            key = f"{self.key_prefix}{jti}"
+            encrypted_data = await redis.get(key)
+
+            if not encrypted_data:
+                return None
+
+            return self._deserialize_session(encrypted_data)
+        except Exception as e:
+            logger.error(f"Failed to retrieve session {jti}: {e}")
+            return None
+
+    async def update_session(self, jti: str, session_data: SessionData) -> bool:
+        """Update session data in Redis."""
+        try:
+            redis = await self._get_redis()
+            key = f"{self.key_prefix}{jti}"
+
+            # Check if session exists
+            exists = await redis.exists(key)
+            if not exists:
+                return False
+
+            # Update session
+            return await self.store_session(session_data)
+        except Exception as e:
+            logger.error(f"Failed to update session {jti}: {e}")
+            return False
+
+    async def delete_session(self, jti: str) -> bool:
+        """Delete session data from Redis."""
+        try:
+            redis = await self._get_redis()
+            key = f"{self.key_prefix}{jti}"
+
+            # Get session to find user_id
+            session = await self.get_session(jti)
+            if session:
+                user_key = f"{self.key_prefix}user:{session.user_id}"
+                await redis.srem(user_key, jti)
+
+            # Delete session
+            result = await redis.delete(key)
+            return result > 0
+        except Exception as e:
+            logger.error(f"Failed to delete session {jti}: {e}")
+            return False
+
+    async def get_user_sessions(self, user_id: str) -> list[SessionData]:
+        """Get all sessions for a user from Redis."""
+        try:
+            redis = await self._get_redis()
+            user_key = f"{self.key_prefix}user:{user_id}"
+
+            session_ids = await redis.smembers(user_key)
+            sessions = []
+
+            for jti in session_ids:
+                session = await self.get_session(jti)
+                if session:
+                    sessions.append(session)
+
+            return sessions
+        except Exception as e:
+            logger.error(f"Failed to get user sessions for {user_id}: {e}")
+            return []
+
+    async def get_all_sessions(self) -> list[SessionData]:
+        """Get all sessions from Redis."""
+        try:
+            redis = await self._get_redis()
+            pattern = f"{self.key_prefix}*"
+
+            # Get all session keys (exclude user: keys)
+            keys = []
+            async for key in redis.scan_iter(match=pattern):
+                if not key.startswith(f"{self.key_prefix}user:"):
+                    keys.append(key)
+
+            sessions = []
+            for key in keys:
+                jti = key.replace(self.key_prefix, "")
+                session = await self.get_session(jti)
+                if session:
+                    sessions.append(session)
+
+            return sessions
+        except Exception as e:
+            logger.error(f"Failed to get all sessions: {e}")
+            return []
+
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions in Redis."""
+        # Redis handles TTL automatically, but we clean up user mappings
+        try:
+            redis = await self._get_redis()
+            count = 0
+
+            # Get all user keys
+            user_pattern = f"{self.key_prefix}user:*"
+            async for user_key in redis.scan_iter(match=user_pattern):
+                # Get all session IDs for this user
+                session_ids = await redis.smembers(user_key)
+
+                # Check which sessions still exist
+                valid_sessions = []
+                for jti in session_ids:
+                    session_key = f"{self.key_prefix}{jti}"
+                    if await redis.exists(session_key):
+                        valid_sessions.append(jti)
+                    else:
+                        count += 1
+
+                # Update user sessions set
+                if valid_sessions != list(session_ids):
+                    await redis.delete(user_key)
+                    if valid_sessions:
+                        await redis.sadd(user_key, *valid_sessions)
+
+            return count
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired sessions: {e}")
+            return 0
+
+
+class DatabaseSessionStorage(SessionStorage):
+    """Database-based session storage implementation."""
+
+    def __init__(self, database_url: str = "sqlite:///sessions.db"):
+        self.database_url = database_url
+        self._engine = None
+        self._session_factory = None
+        self._encryption_key = Fernet.generate_key()
+        self._cipher = Fernet(self._encryption_key)
+
+    async def _get_db_session(self):
+        """Get database session with lazy initialization."""
+        if self._engine is None:
+            try:
+                from sqlalchemy import Column, DateTime, MetaData, String, Table, Text
+                from sqlalchemy.ext.asyncio import (
+                    async_sessionmaker,
+                    create_async_engine,
+                )
+                from sqlalchemy.ext.declarative import declarative_base
+
+                # Modify database URL for async if needed
+                if self.database_url.startswith("sqlite:"):
+                    db_url = self.database_url.replace("sqlite:", "sqlite+aiosqlite:")
+                elif self.database_url.startswith("postgresql:"):
+                    db_url = self.database_url.replace(
+                        "postgresql:", "postgresql+asyncpg:"
+                    )
+                else:
+                    db_url = self.database_url
+
+                self._engine = create_async_engine(db_url, echo=False)
+                self._session_factory = async_sessionmaker(self._engine)
+
+                # Create tables if they don't exist
+                await self._create_tables()
+
+            except ImportError as e:
+                logger.error(f"Required database packages not installed: {e}")
+                raise NotImplementedError(
+                    "Database backend requires SQLAlchemy and async database driver"
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize database: {e}")
+                raise
+
+        return self._session_factory()
+
+    async def _create_tables(self):
+        """Create session tables if they don't exist."""
+        from sqlalchemy import text
+
+        create_sessions_table = text(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                jti TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                encrypted_data TEXT NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """
+        )
+
+        create_index = text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)
+        """
+        )
+
+        create_expires_index = text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)
+        """
+        )
+
+        async with self._engine.begin() as conn:
+            await conn.execute(create_sessions_table)
+            await conn.execute(create_index)
+            await conn.execute(create_expires_index)
+
+    def _serialize_session(self, session_data: SessionData) -> str:
+        """Serialize and encrypt session data."""
+        session_dict = {
+            "jti": session_data.jti,
+            "user_id": session_data.user_id,
+            "username": session_data.username,
+            "role": session_data.role,
+            "permissions": list(session_data.permissions),
+            "created_at": session_data.created_at.isoformat(),
+            "last_activity": session_data.last_activity.isoformat(),
+            "expires_at": session_data.expires_at.isoformat(),
+            "absolute_expires_at": session_data.absolute_expires_at.isoformat(),
+            "ip_address": session_data.ip_address,
+            "user_agent": session_data.user_agent,
+            "metadata": session_data.metadata,
+            "status": session_data.status.value,
+        }
+        json_str = json.dumps(session_dict)
+        encrypted = self._cipher.encrypt(json_str.encode())
+        return encrypted.decode()
+
+    def _deserialize_session(self, encrypted_data: str) -> SessionData:
+        """Decrypt and deserialize session data."""
+        decrypted = self._cipher.decrypt(encrypted_data.encode())
+        session_dict = json.loads(decrypted.decode())
+
+        return SessionData(
+            jti=session_dict["jti"],
+            user_id=session_dict["user_id"],
+            username=session_dict["username"],
+            role=session_dict["role"],
+            permissions=set(session_dict["permissions"]),
+            created_at=datetime.fromisoformat(session_dict["created_at"]),
+            last_activity=datetime.fromisoformat(session_dict["last_activity"]),
+            expires_at=datetime.fromisoformat(session_dict["expires_at"]),
+            absolute_expires_at=datetime.fromisoformat(
+                session_dict["absolute_expires_at"]
+            ),
+            ip_address=session_dict["ip_address"],
+            user_agent=session_dict["user_agent"],
+            metadata=session_dict["metadata"],
+            status=SessionStatus(session_dict["status"]),
+        )
+
+    async def store_session(self, session_data: SessionData) -> bool:
+        """Store session data in database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                encrypted_data = self._serialize_session(session_data)
+
+                query = text(
+                    """
+                    INSERT OR REPLACE INTO sessions (jti, user_id, encrypted_data, expires_at)
+                    VALUES (:jti, :user_id, :encrypted_data, :expires_at)
+                """
+                )
+
+                await session.execute(
+                    query,
+                    {
+                        "jti": session_data.jti,
+                        "user_id": session_data.user_id,
+                        "encrypted_data": encrypted_data,
+                        "expires_at": session_data.absolute_expires_at,
+                    },
+                )
+                await session.commit()
+
+                return True
+        except Exception as e:
+            logger.error(f"Failed to store session {session_data.jti}: {e}")
+            return False
+
+    async def get_session(self, jti: str) -> Optional[SessionData]:
+        """Retrieve session data from database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                query = text(
+                    """
+                    SELECT encrypted_data FROM sessions
+                    WHERE jti = :jti AND expires_at > CURRENT_TIMESTAMP
+                """
+                )
+
+                result = await session.execute(query, {"jti": jti})
+                row = result.fetchone()
+
+                if not row:
+                    return None
+
+                return self._deserialize_session(row[0])
+        except Exception as e:
+            logger.error(f"Failed to retrieve session {jti}: {e}")
+            return None
+
+    async def update_session(self, jti: str, session_data: SessionData) -> bool:
+        """Update session data in database."""
+        return await self.store_session(session_data)
+
+    async def delete_session(self, jti: str) -> bool:
+        """Delete session data from database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                query = text("DELETE FROM sessions WHERE jti = :jti")
+                result = await session.execute(query, {"jti": jti})
+                await session.commit()
+
+                return result.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to delete session {jti}: {e}")
+            return False
+
+    async def get_user_sessions(self, user_id: str) -> list[SessionData]:
+        """Get all sessions for a user from database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                query = text(
+                    """
+                    SELECT encrypted_data FROM sessions
+                    WHERE user_id = :user_id AND expires_at > CURRENT_TIMESTAMP
+                """
+                )
+
+                result = await session.execute(query, {"user_id": user_id})
+                sessions = []
+
+                for row in result.fetchall():
+                    try:
+                        session_data = self._deserialize_session(row[0])
+                        sessions.append(session_data)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to deserialize session for user {user_id}: {e}"
+                        )
+
+                return sessions
+        except Exception as e:
+            logger.error(f"Failed to get user sessions for {user_id}: {e}")
+            return []
+
+    async def get_all_sessions(self) -> list[SessionData]:
+        """Get all sessions from database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                query = text(
+                    """
+                    SELECT encrypted_data FROM sessions
+                    WHERE expires_at > CURRENT_TIMESTAMP
+                """
+                )
+
+                result = await session.execute(query)
+                sessions = []
+
+                for row in result.fetchall():
+                    try:
+                        session_data = self._deserialize_session(row[0])
+                        sessions.append(session_data)
+                    except Exception as e:
+                        logger.warning(f"Failed to deserialize session: {e}")
+
+                return sessions
+        except Exception as e:
+            logger.error(f"Failed to get all sessions: {e}")
+            return []
+
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions from database."""
+        try:
+            from sqlalchemy import text
+
+            async with await self._get_db_session() as session:
+                query = text(
+                    "DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP"
+                )
+                result = await session.execute(query)
+                await session.commit()
+
+                return result.rowcount
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired sessions: {e}")
+            return 0
+
+
 class EnhancedSessionManager:
     """Enhanced session manager with advanced features."""
 
@@ -302,9 +812,30 @@ class EnhancedSessionManager:
         """Create appropriate storage backend."""
         if backend == SessionStorageBackend.MEMORY:
             return MemorySessionStorage()
+        elif backend == SessionStorageBackend.REDIS:
+            try:
+                return RedisSessionStorage()
+            except NotImplementedError as e:
+                logger.error(f"Redis backend not available: {e}")
+                logger.warning("Falling back to memory storage")
+                return MemorySessionStorage()
+            except Exception as e:
+                logger.error(f"Failed to initialize Redis backend: {e}")
+                logger.warning("Falling back to memory storage")
+                return MemorySessionStorage()
+        elif backend == SessionStorageBackend.DATABASE:
+            try:
+                return DatabaseSessionStorage()
+            except NotImplementedError as e:
+                logger.error(f"Database backend not available: {e}")
+                logger.warning("Falling back to memory storage")
+                return MemorySessionStorage()
+            except Exception as e:
+                logger.error(f"Failed to initialize Database backend: {e}")
+                logger.warning("Falling back to memory storage")
+                return MemorySessionStorage()
         else:
-            # Future: Add Redis, Database, File backends
-            logger.warning(f"Storage backend {backend} not implemented, using memory")
+            logger.warning(f"Unknown storage backend {backend}, using memory")
             return MemorySessionStorage()
 
     def _start_cleanup_task(self):

@@ -430,19 +430,26 @@ class TextRenderer:
                     style.background_color[:3] if style.background_color else None,
                 )
 
-                # Convert pygame surface to texture and render
-                # Note: This is a simplified implementation
-                # In a full implementation, we would convert the pygame surface to OpenGL texture
+                # Convert pygame surface to OpenGL texture and render
+                try:
+                    # Convert pygame surface to OpenGL texture
+                    texture = self._surface_to_texture(text_surface)
 
-                # For now, draw a placeholder rectangle
-                text_color = Color.from_rgb(*color)
-                char_width = style.font.size * 0.6
-                text_width = len(line) * char_width
+                    if texture:
+                        # Render the texture to the screen
+                        self._render_texture_at_position(
+                            texture, x, current_y, text_rect.width, text_rect.height
+                        )
+                    else:
+                        raise Exception("Failed to create texture from surface")
 
-                # Draw placeholder rectangle representing text
-                self.basic_renderer.draw_rectangle(
-                    x, current_y, text_width, style.font.size, text_color
-                )
+                except Exception as tex_error:
+                    logger.warning(f"Failed to render text as texture: {tex_error}")
+                    # Fallback to rectangle placeholder
+                    text_color = Color.from_rgb(*color)
+                    self.basic_renderer.draw_rectangle(
+                        x, current_y, text_rect.width, text_rect.height, text_color
+                    )
 
             current_y += line_height
 
@@ -594,6 +601,157 @@ class TextRenderer:
         self._text_cache.clear()
         self.font_manager._font_cache.clear()
         logger.debug("Text rendering cache cleared")
+
+    def _surface_to_texture(self, surface) -> Optional[moderngl.Texture]:
+        """Convert pygame surface to OpenGL texture.
+
+        Args:
+            surface: Pygame surface containing rendered text
+
+        Returns:
+            ModernGL texture object or None if conversion fails
+        """
+        try:
+            # Get surface data
+            width, height = surface.get_size()
+
+            # Convert surface to raw texture data
+            # Pygame surfaces are typically in RGBA format
+            raw_data = pygame.image.tostring(surface, "RGBA", flipped=True)
+
+            # Create OpenGL texture
+            texture = self.basic_renderer.ctx.texture((width, height), 4, raw_data)
+            texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+
+            return texture
+
+        except Exception as e:
+            logger.error(f"Failed to convert surface to texture: {e}")
+            return None
+
+    def _render_texture_at_position(
+        self, texture: moderngl.Texture, x: float, y: float, width: float, height: float
+    ) -> None:
+        """Render a texture at the specified position.
+
+        Args:
+            texture: OpenGL texture to render
+            x: X position
+            y: Y position
+            width: Width of the rendered texture
+            height: Height of the rendered texture
+        """
+        try:
+            # Get OpenGL context
+            ctx = self.basic_renderer.ctx
+
+            # Create vertex data for a quad
+            vertices = np.array(
+                [
+                    # Position (x, y)    # Texture coords (u, v)
+                    x,
+                    y,
+                    0.0,
+                    1.0,  # Bottom-left
+                    x + width,
+                    y,
+                    1.0,
+                    1.0,  # Bottom-right
+                    x + width,
+                    y + height,
+                    1.0,
+                    0.0,  # Top-right
+                    x,
+                    y + height,
+                    0.0,
+                    0.0,  # Top-left
+                ],
+                dtype=np.float32,
+            )
+
+            # Create indices for two triangles making a quad
+            indices = np.array([0, 1, 2, 2, 3, 0], dtype=np.uint32)
+
+            # Create vertex buffer and vertex array
+            vbo = ctx.buffer(vertices.tobytes())
+            ibo = ctx.buffer(indices.tobytes())
+
+            # Create a simple shader program for texture rendering
+            vertex_shader = """
+            #version 330 core
+            in vec2 position;
+            in vec2 texcoord;
+            out vec2 uv;
+            uniform mat4 projection;
+
+            void main() {
+                gl_Position = projection * vec4(position, 0.0, 1.0);
+                uv = texcoord;
+            }
+            """
+
+            fragment_shader = """
+            #version 330 core
+            in vec2 uv;
+            out vec4 fragColor;
+            uniform sampler2D textTexture;
+
+            void main() {
+                fragColor = texture(textTexture, uv);
+            }
+            """
+
+            # Create shader program
+            program = ctx.program(
+                vertex_shader=vertex_shader, fragment_shader=fragment_shader
+            )
+
+            # Create vertex array object
+            vao = ctx.vertex_array(
+                program, [(vbo, "2f 2f", "position", "texcoord")], ibo
+            )
+
+            # Set up OpenGL state for blending (for text transparency)
+            ctx.enable(moderngl.BLEND)
+            ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
+
+            # Bind texture and set uniforms
+            texture.use(0)
+            program["textTexture"].value = 0
+
+            # Set projection matrix (should match the basic renderer's projection)
+            if hasattr(self.basic_renderer, "projection_matrix"):
+                program["projection"].write(
+                    self.basic_renderer.projection_matrix.tobytes()
+                )
+            else:
+                # Create a simple orthographic projection if not available
+                # This assumes a coordinate system where (0,0) is bottom-left
+                proj = np.array(
+                    [
+                        [2.0 / 1920, 0, 0, -1],
+                        [0, 2.0 / 1080, 0, -1],
+                        [0, 0, -1, 0],
+                        [0, 0, 0, 1],
+                    ],
+                    dtype=np.float32,
+                )
+                program["projection"].write(proj.tobytes())
+
+            # Render the quad
+            vao.render()
+
+            # Clean up
+            vao.release()
+            vbo.release()
+            ibo.release()
+            program.release()
+
+        except Exception as e:
+            logger.error(f"Failed to render texture: {e}")
+            # Fallback: render as a colored rectangle
+            color = Color.from_rgb(255, 255, 255)
+            self.basic_renderer.draw_rectangle(x, y, width, height, color)
 
 
 # Convenience functions for common text rendering tasks
