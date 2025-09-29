@@ -7,6 +7,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .loader.cli import CLILoader
+from .loader.env import EnvironmentLoader
 from .models.schemas import (
     ConfigChange,
     ConfigFormat,
@@ -15,8 +17,6 @@ from .models.schemas import (
     ConfigValue,
     create_default_config,
 )
-from .loader.cli import CLILoader
-from .loader.env import EnvironmentLoader
 from .profiles import ProfileManager, ProfileManagerError
 from .storage.backup import BackupError, BackupMetadata, ConfigBackup
 from .storage.persistence import ConfigPersistence, ConfigPersistenceError

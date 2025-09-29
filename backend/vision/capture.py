@@ -23,6 +23,9 @@ from typing import Any, Callable, Optional
 import cv2
 import numpy as np
 
+# Import Kinect v2 support
+from .kinect2_capture import KINECT2_AVAILABLE, Kinect2Capture, Kinect2Status
+
 # Import configuration types
 try:
     from ..config.models.schemas import CameraBackend, CameraSettings, ExposureMode
@@ -36,6 +39,7 @@ except ImportError:
         DSHOW = "dshow"
         GSTREAMER = "gstreamer"
         OPENCV = "opencv"
+        KINECT2 = "kinect2"
 
     class ExposureMode(str, Enum):
         AUTO = "auto"
@@ -123,10 +127,12 @@ class CameraCapture:
 
         # Camera state
         self._cap: Optional[cv2.VideoCapture] = None
+        self._kinect2: Optional[Kinect2Capture] = None
         self._status = CameraStatus.DISCONNECTED
         self._capture_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._frame_queue = queue.Queue(maxsize=self._buffer_size)
+        self._use_kinect2 = self._backend == "kinect2"
 
         # Health monitoring
         self._start_time = time.time()
@@ -175,6 +181,7 @@ class CameraCapture:
             "dshow": cv2.CAP_DSHOW,
             "gstreamer": cv2.CAP_GSTREAMER,
             "opencv": cv2.CAP_OPENCV_MJPEG,
+            "kinect2": -1,  # Special case handled separately
         }
         return backend_map.get(self._backend.lower(), cv2.CAP_ANY)
 
@@ -222,10 +229,63 @@ class CameraCapture:
             self._error_count += 1
             return False
 
+    def _connect_kinect2(self) -> bool:
+        """Connect to Kinect v2 device."""
+        if not KINECT2_AVAILABLE:
+            logger.error("Kinect v2 support not available - install pylibfreenect2")
+            return False
+
+        try:
+            # Create Kinect v2 configuration from main config
+            kinect_config = {
+                "enable_color": True,
+                "enable_depth": True,
+                "enable_infrared": False,
+                "min_depth": 500,
+                "max_depth": 4000,
+                "depth_smoothing": True,
+                "auto_reconnect": self._auto_reconnect,
+            }
+
+            self._kinect2 = Kinect2Capture(kinect_config)
+
+            # Set up status callback to mirror to main status
+            def kinect_status_callback(kinect_status: Kinect2Status):
+                if kinect_status == Kinect2Status.CONNECTED:
+                    self._update_status(CameraStatus.CONNECTED)
+                elif kinect_status == Kinect2Status.DISCONNECTED:
+                    self._update_status(CameraStatus.DISCONNECTED)
+                elif kinect_status == Kinect2Status.ERROR:
+                    self._update_status(CameraStatus.ERROR)
+                elif kinect_status == Kinect2Status.RECONNECTING:
+                    self._update_status(CameraStatus.RECONNECTING)
+
+            self._kinect2.set_status_callback(kinect_status_callback)
+
+            if self._kinect2.start_capture():
+                logger.info("Kinect v2 connected successfully")
+                return True
+            else:
+                logger.error("Failed to start Kinect v2 capture")
+                return False
+
+        except Exception as e:
+            logger.error(f"Kinect v2 connection failed: {e}")
+            self._last_error = str(e)
+            self._error_count += 1
+            self._kinect2 = None
+            return False
+
     def _connect_camera(self) -> bool:
         """Establish camera connection."""
         try:
             self._connection_attempts += 1
+
+            # Handle Kinect v2 connection
+            if self._use_kinect2:
+                return self._connect_kinect2()
+
+            # Handle regular camera connection
             backend = self._get_opencv_backend()
 
             logger.info(
@@ -267,33 +327,68 @@ class CameraCapture:
 
         while not self._stop_event.is_set():
             try:
-                if not self._cap or not self._cap.isOpened():
-                    if self._auto_reconnect:
-                        self._update_status(CameraStatus.RECONNECTING)
-                        if self._connect_camera():
-                            self._update_status(CameraStatus.CONNECTED)
+                # Check connection status
+                if self._use_kinect2:
+                    if not self._kinect2 or not self._kinect2.is_connected():
+                        if self._auto_reconnect:
+                            self._update_status(CameraStatus.RECONNECTING)
+                            if self._connect_camera():
+                                self._update_status(CameraStatus.CONNECTED)
+                            else:
+                                time.sleep(self._reconnect_delay)
+                                continue
                         else:
-                            time.sleep(self._reconnect_delay)
-                            continue
-                    else:
-                        self._update_status(CameraStatus.ERROR)
-                        break
+                            self._update_status(CameraStatus.ERROR)
+                            break
+                else:
+                    if not self._cap or not self._cap.isOpened():
+                        if self._auto_reconnect:
+                            self._update_status(CameraStatus.RECONNECTING)
+                            if self._connect_camera():
+                                self._update_status(CameraStatus.CONNECTED)
+                            else:
+                                time.sleep(self._reconnect_delay)
+                                continue
+                        else:
+                            self._update_status(CameraStatus.ERROR)
+                            break
 
                 # Capture frame
-                ret, frame = self._cap.read()
                 current_time = time.time()
+                frame = None
 
-                if not ret or frame is None:
-                    logger.warning("Failed to capture frame")
-                    self._error_count += 1
-                    self._last_error = "Frame capture failed"
-
-                    if self._auto_reconnect:
-                        self._update_status(CameraStatus.RECONNECTING)
-                        time.sleep(self._reconnect_delay)
-                        continue
+                if self._use_kinect2:
+                    # Get frame from Kinect v2
+                    kinect_frame = self._kinect2.get_latest_frame()
+                    if kinect_frame and kinect_frame.color is not None:
+                        frame = kinect_frame.color
+                        # Convert RGB to BGR for OpenCV compatibility
+                        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                     else:
-                        break
+                        logger.warning("Failed to capture Kinect v2 frame")
+                        self._error_count += 1
+                        self._last_error = "Kinect v2 frame capture failed"
+
+                        if self._auto_reconnect:
+                            self._update_status(CameraStatus.RECONNECTING)
+                            time.sleep(self._reconnect_delay)
+                            continue
+                        else:
+                            break
+                else:
+                    # Get frame from regular camera
+                    ret, frame = self._cap.read()
+                    if not ret or frame is None:
+                        logger.warning("Failed to capture frame")
+                        self._error_count += 1
+                        self._last_error = "Frame capture failed"
+
+                        if self._auto_reconnect:
+                            self._update_status(CameraStatus.RECONNECTING)
+                            time.sleep(self._reconnect_delay)
+                            continue
+                        else:
+                            break
 
                 # Update statistics
                 self._frames_captured += 1
@@ -399,8 +494,11 @@ class CameraCapture:
                 if self._capture_thread.is_alive():
                     logger.warning("Capture thread did not stop gracefully")
 
-            # Release camera
-            if self._cap:
+            # Release camera resources
+            if self._use_kinect2 and self._kinect2:
+                self._kinect2.stop_capture()
+                self._kinect2 = None
+            elif self._cap:
                 self._cap.release()
                 self._cap = None
 
@@ -434,11 +532,18 @@ class CameraCapture:
     def is_connected(self) -> bool:
         """Check if camera is connected and capturing."""
         with self._lock:
-            return (
-                self._status == CameraStatus.CONNECTED
-                and self._cap is not None
-                and self._cap.isOpened()
-            )
+            if self._use_kinect2:
+                return (
+                    self._status == CameraStatus.CONNECTED
+                    and self._kinect2 is not None
+                    and self._kinect2.is_connected()
+                )
+            else:
+                return (
+                    self._status == CameraStatus.CONNECTED
+                    and self._cap is not None
+                    and self._cap.isOpened()
+                )
 
     def get_status(self) -> CameraStatus:
         """Get current camera status."""
@@ -472,28 +577,53 @@ class CameraCapture:
 
     def get_camera_info(self) -> dict[str, Any]:
         """Get camera device information."""
-        if not self._cap or not self._cap.isOpened():
-            return {}
+        if self._use_kinect2:
+            if not self._kinect2 or not self._kinect2.is_connected():
+                return {}
 
-        try:
-            return {
-                "device_id": self._device_id,
-                "backend": self._backend,
-                "resolution": (
-                    int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
-                    int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
-                ),
-                "fps": self._cap.get(cv2.CAP_PROP_FPS),
-                "exposure": self._cap.get(cv2.CAP_PROP_EXPOSURE),
-                "gain": self._cap.get(cv2.CAP_PROP_GAIN),
-                "brightness": self._cap.get(cv2.CAP_PROP_BRIGHTNESS),
-                "contrast": self._cap.get(cv2.CAP_PROP_CONTRAST),
-                "saturation": self._cap.get(cv2.CAP_PROP_SATURATION),
-                "buffer_size": int(self._cap.get(cv2.CAP_PROP_BUFFERSIZE)),
-            }
-        except Exception as e:
-            logger.error(f"Error getting camera info: {e}")
-            return {}
+            try:
+                kinect_info = self._kinect2.get_device_info()
+                return {
+                    "device_id": "kinect2",
+                    "backend": self._backend,
+                    "device_type": "Microsoft Kinect v2",
+                    "has_depth": True,
+                    "has_color": True,
+                    "depth_range": kinect_info.get("depth_range", "500-4000mm"),
+                    "color_resolution": kinect_info.get("color_resolution", "1080p"),
+                    "depth_enabled": kinect_info.get("depth_enabled", True),
+                    "color_enabled": kinect_info.get("color_enabled", True),
+                    "infrared_enabled": kinect_info.get("infrared_enabled", False),
+                }
+            except Exception as e:
+                logger.error(f"Error getting Kinect v2 info: {e}")
+                return {}
+        else:
+            if not self._cap or not self._cap.isOpened():
+                return {}
+
+            try:
+                return {
+                    "device_id": self._device_id,
+                    "backend": self._backend,
+                    "device_type": "Standard Camera",
+                    "has_depth": False,
+                    "has_color": True,
+                    "resolution": (
+                        int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                        int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+                    ),
+                    "fps": self._cap.get(cv2.CAP_PROP_FPS),
+                    "exposure": self._cap.get(cv2.CAP_PROP_EXPOSURE),
+                    "gain": self._cap.get(cv2.CAP_PROP_GAIN),
+                    "brightness": self._cap.get(cv2.CAP_PROP_BRIGHTNESS),
+                    "contrast": self._cap.get(cv2.CAP_PROP_CONTRAST),
+                    "saturation": self._cap.get(cv2.CAP_PROP_SATURATION),
+                    "buffer_size": int(self._cap.get(cv2.CAP_PROP_BUFFERSIZE)),
+                }
+            except Exception as e:
+                logger.error(f"Error getting camera info: {e}")
+                return {}
 
     def update_config(self, config: dict[str, Any]) -> bool:
         """Update camera configuration at runtime.
@@ -534,6 +664,50 @@ class CameraCapture:
             self._last_error = str(e)
             self._error_count += 1
             return False
+
+    def get_depth_frame(self) -> Optional[np.ndarray]:
+        """Get latest depth frame from Kinect v2.
+
+        Returns:
+            Depth frame as numpy array in millimeters, or None if not available
+        """
+        if not self._use_kinect2 or not self._kinect2:
+            logger.warning("Depth frame requested but Kinect v2 not available")
+            return None
+
+        kinect_frame = self._kinect2.get_latest_frame()
+        if kinect_frame and kinect_frame.depth is not None:
+            return kinect_frame.depth
+        return None
+
+    def get_3d_point(
+        self, u: int, v: int, depth: float
+    ) -> Optional[tuple[float, float, float]]:
+        """Convert depth pixel to 3D world coordinates using Kinect v2.
+
+        Args:
+            u, v: Pixel coordinates in depth image
+            depth: Depth value in millimeters
+
+        Returns:
+            (x, y, z) coordinates in millimeters, or None if not available
+        """
+        if not self._use_kinect2 or not self._kinect2:
+            logger.warning("3D point conversion requested but Kinect v2 not available")
+            return None
+
+        return self._kinect2.depth_to_3d(u, v, depth)
+
+    def get_kinect_calibration(self) -> Optional[dict]:
+        """Get Kinect v2 calibration parameters for 3D reconstruction.
+
+        Returns:
+            Dictionary with camera parameters, or None if not available
+        """
+        if not self._use_kinect2 or not self._kinect2:
+            return None
+
+        return self._kinect2.get_calibration_data()
 
     def __enter__(self):
         """Context manager entry."""

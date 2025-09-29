@@ -19,7 +19,7 @@ from . import CoreModule, CoreModuleConfig, CoreModuleError, GameType, Vector2D
 class TestCoreModuleIntegration:
     """Integration tests for the complete CoreModule."""
 
-    @pytest.fixture
+    @pytest.fixture()
     def core_module(self):
         """Create a CoreModule instance for testing."""
         config = CoreModuleConfig(
@@ -29,7 +29,7 @@ class TestCoreModuleIntegration:
         )
         return CoreModule(config)
 
-    @pytest.fixture
+    @pytest.fixture()
     def sample_detection_data(self):
         """Sample detection data for testing."""
         return {
@@ -73,7 +73,7 @@ class TestCoreModuleIntegration:
         assert core_module.event_manager is not None
         assert core_module.get_current_state() is None
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_state_update_workflow(self, core_module, sample_detection_data):
         """Test the complete state update workflow."""
         # Update state with detection data
@@ -94,7 +94,7 @@ class TestCoreModuleIntegration:
         assert second_state.frame_number == 2
         assert second_state.balls[0].position.x == 110.0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_trajectory_calculation(self, core_module, sample_detection_data):
         """Test trajectory calculation functionality."""
         # Set up initial state
@@ -109,7 +109,7 @@ class TestCoreModuleIntegration:
         assert len(trajectory) > 0
         assert all(isinstance(point, Vector2D) for point in trajectory)
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_shot_analysis(self, core_module, sample_detection_data):
         """Test shot analysis functionality."""
         # Set up initial state
@@ -122,7 +122,7 @@ class TestCoreModuleIntegration:
         assert hasattr(analysis, "difficulty")
         assert hasattr(analysis, "success_probability")
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_outcome_prediction(self, core_module, sample_detection_data):
         """Test outcome prediction functionality."""
         # Set up initial state
@@ -136,7 +136,7 @@ class TestCoreModuleIntegration:
         assert predictions is not None
         assert len(predictions) <= 3
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_shot_suggestions(self, core_module, sample_detection_data):
         """Test shot suggestion functionality."""
         # Set up initial state
@@ -150,7 +150,7 @@ class TestCoreModuleIntegration:
         assert suggestions is not None
         assert len(suggestions) <= 2
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_state_validation(self, core_module, sample_detection_data):
         """Test state validation functionality."""
         # Set up initial state
@@ -194,7 +194,7 @@ class TestCoreModuleIntegration:
         updated_metrics = core_module.get_performance_metrics()
         assert updated_metrics.total_updates > 0
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_event_subscription(self, core_module, sample_detection_data):
         """Test event subscription and emission."""
         events_received = []
@@ -218,7 +218,7 @@ class TestCoreModuleIntegration:
         unsubscribed = core_module.unsubscribe(subscription_id)
         assert unsubscribed
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_game_reset(self, core_module, sample_detection_data):
         """Test game reset functionality."""
         # Set up initial state
@@ -246,7 +246,7 @@ class TestCoreModuleIntegration:
         with pytest.raises(CoreModuleError):
             asyncio.run(core_module.analyze_shot())
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_caching_functionality(self, core_module, sample_detection_data):
         """Test caching behavior."""
         # Set up initial state
@@ -273,7 +273,7 @@ class TestCoreModuleIntegration:
         # Note: This might not always be true in test environment
         # assert second_time < first_time
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_async_processing_toggle(self):
         """Test switching between sync and async processing."""
         # Test with async processing enabled
@@ -318,7 +318,7 @@ class TestCoreModuleIntegration:
 class TestCoreModuleStressTest:
     """Stress tests for CoreModule performance and stability."""
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_rapid_state_updates(self):
         """Test rapid consecutive state updates."""
         config = CoreModuleConfig(async_processing=False, cache_size=10)
@@ -344,7 +344,7 @@ class TestCoreModuleStressTest:
             state = await core_module.update_state(sample_data)
             assert state.frame_number == i + 1
 
-    @pytest.mark.asyncio
+    @pytest.mark.asyncio()
     async def test_memory_usage_stability(self):
         """Test that memory usage remains stable with many operations."""
         import gc

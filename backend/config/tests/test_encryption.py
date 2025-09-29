@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from ..storage.encryption import (
     ConfigEncryption,
     ConfigEncryptionError,
@@ -14,7 +16,6 @@ from ..storage.encryption import (
     KeyDerivationError,
 )
 from ..storage.persistence import ConfigPersistence
-import pytest
 
 
 class TestEncryptionKeyManager(unittest.TestCase):
