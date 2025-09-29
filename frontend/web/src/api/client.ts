@@ -448,6 +448,93 @@ export class ApiClient {
       };
     }
   }
+
+  // Vision and Calibration endpoints
+  async performCalibration(calibrationData: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/vision/calibration`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify(calibrationData),
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  async getCalibrationData(): Promise<ApiResponse<any>> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/vision/calibration`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  async getVisionStatus(): Promise<ApiResponse<any>> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/vision/status`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  async startDetection(): Promise<ApiResponse<any>> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/vision/detection/start`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  async stopDetection(): Promise<ApiResponse<any>> {
+    try {
+      const response = await fetch(`${this.baseURL}/api/v1/vision/detection/stop`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+      });
+
+      return this.handleResponse(response);
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Network error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
 }
 
 // Create singleton instance

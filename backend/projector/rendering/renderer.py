@@ -72,6 +72,10 @@ class Color:
         """Return a new color with different alpha."""
         return Color(self.r, self.g, self.b, alpha)
 
+    def to_dict(self) -> dict[str, float]:
+        """Convert to dictionary representation."""
+        return {"r": self.r, "g": self.g, "b": self.b, "a": self.a}
+
 
 @dataclass
 class Point2D:

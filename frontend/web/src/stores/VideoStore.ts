@@ -3,6 +3,7 @@
  */
 
 import { makeAutoObservable, action, computed, runInAction } from 'mobx';
+import { WebSocketClient, createWebSocketClient } from '../services/websocket-client';
 import type {
   VideoStreamConfig,
   VideoStreamStatus,
@@ -15,6 +16,16 @@ import type {
   VideoError,
   PerformanceMetrics,
 } from '../types/video';
+import type {
+  WebSocketMessage,
+  GameStateData,
+  TrajectoryData,
+  BallData,
+  CueData,
+  TableData,
+  isGameStateMessage,
+  isTrajectoryMessage,
+} from '../types/api';
 
 export class VideoStore {
   // Stream configuration
@@ -43,6 +54,10 @@ export class VideoStore {
   private streamUrl = '';
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private performanceInterval: NodeJS.Timeout | null = null;
+
+  // WebSocket connection for real-time detection data
+  private wsClient: WebSocketClient | null = null;
+  private isWebSocketConnected = false;
 
   // Performance tracking
   performance: PerformanceMetrics = {
@@ -203,6 +218,9 @@ export class VideoStore {
         this.config.fps
       );
 
+      // Initialize WebSocket connection for real-time detection data
+      await this.connectWebSocket(baseUrl);
+
       runInAction(() => {
         this.status.connected = true;
         this.status.streaming = true;
@@ -239,6 +257,9 @@ export class VideoStore {
     } catch (error) {
       console.warn('Failed to stop video capture:', error);
     }
+
+    // Disconnect WebSocket
+    this.disconnectWebSocket();
 
     runInAction(() => {
       this.status.connected = false;
@@ -311,12 +332,16 @@ export class VideoStore {
   }
 
   private updateStreamUrl(): void {
-    if (this.streamUrl) {
-      const { apiClient } = require('../api/client');
-      this.streamUrl = apiClient.getVideoStreamUrl(
-        this.getQualityValue(this.config.quality),
-        this.config.fps
-      );
+    if (this.status.connected) {
+      try {
+        const { apiClient } = require('../api/client');
+        this.streamUrl = apiClient.getVideoStreamUrl(
+          this.getQualityValue(this.config.quality),
+          this.config.fps
+        );
+      } catch (error) {
+        console.error('Failed to update stream URL:', error);
+      }
     }
   }
 
@@ -368,6 +393,220 @@ export class VideoStore {
     }, 1000);
   }
 
+  // WebSocket connection management
+  private async connectWebSocket(baseUrl: string): Promise<void> {
+    try {
+      // Create WebSocket URL from base URL
+      const wsUrl = baseUrl.replace(/^http/, 'ws') + '/api/v1/ws';
+
+      // Initialize WebSocket client
+      this.wsClient = createWebSocketClient({
+        url: wsUrl,
+        autoReconnect: true,
+        maxReconnectAttempts: 10,
+        reconnectDelay: 1000,
+        heartbeatInterval: 30000,
+      });
+
+      // Set up message handlers
+      this.wsClient.on('state', this.handleGameStateMessage.bind(this));
+      this.wsClient.on('trajectory', this.handleTrajectoryMessage.bind(this));
+      this.wsClient.onConnectionState(this.handleWebSocketStateChange.bind(this));
+
+      // Connect and subscribe to real-time data streams
+      await this.wsClient.connect();
+
+      // Subscribe to detection data streams
+      this.wsClient.subscribe(['state', 'trajectory'], {
+        quality: 'high',
+        frame_rate: this.config.fps,
+      });
+
+      runInAction(() => {
+        this.isWebSocketConnected = true;
+      });
+
+      console.log('WebSocket connected for real-time detection data');
+
+    } catch (error) {
+      console.error('Failed to connect WebSocket:', error);
+      const videoError: VideoError = {
+        code: 'WEBSOCKET_CONNECTION_FAILED',
+        message: `WebSocket connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now(),
+        recoverable: true,
+      };
+      this.addError(videoError);
+    }
+  }
+
+  private disconnectWebSocket(): void {
+    if (this.wsClient) {
+      this.wsClient.disconnect();
+      this.wsClient = null;
+    }
+
+    runInAction(() => {
+      this.isWebSocketConnected = false;
+    });
+  }
+
+  private handleWebSocketStateChange(state: string, error?: Error): void {
+    runInAction(() => {
+      this.isWebSocketConnected = state === 'connected';
+
+      if (error) {
+        const videoError: VideoError = {
+          code: 'WEBSOCKET_ERROR',
+          message: `WebSocket error: ${error.message}`,
+          timestamp: Date.now(),
+          recoverable: true,
+        };
+        this.addError(videoError);
+      }
+    });
+  }
+
+  private handleGameStateMessage(message: WebSocketMessage): void {
+    if (!isGameStateMessage(message)) return;
+
+    const gameState = message.data as GameStateData;
+
+    // Convert WebSocket ball data to frontend ball format
+    const balls: Ball[] = gameState.balls.map((ballData: BallData) => ({
+      id: ballData.id,
+      position: { x: ballData.position[0], y: ballData.position[1] },
+      radius: ballData.radius,
+      type: this.inferBallType(ballData.id, ballData.color),
+      number: this.inferBallNumber(ballData.id, ballData.color),
+      velocity: ballData.velocity ? { x: ballData.velocity[0], y: ballData.velocity[1] } : { x: 0, y: 0 },
+      confidence: ballData.confidence,
+      color: ballData.color,
+    }));
+
+    // Convert cue data
+    let cue: CueStick | null = null;
+    if (gameState.cue && gameState.cue.detected) {
+      cue = {
+        tipPosition: { x: gameState.cue.position[0], y: gameState.cue.position[1] },
+        tailPosition: gameState.cue.tip_position
+          ? { x: gameState.cue.tip_position[0], y: gameState.cue.tip_position[1] }
+          : { x: gameState.cue.position[0] - Math.cos(gameState.cue.angle) * (gameState.cue.length || 100),
+              y: gameState.cue.position[1] - Math.sin(gameState.cue.angle) * (gameState.cue.length || 100) },
+        angle: gameState.cue.angle,
+        elevation: 0,
+        detected: gameState.cue.detected,
+        confidence: gameState.cue.confidence,
+        length: gameState.cue.length || 100,
+      };
+    }
+
+    // Convert table data
+    let table: Table | null = null;
+    if (gameState.table && gameState.table.calibrated) {
+      table = {
+        corners: gameState.table.corners.map(corner => ({ x: corner[0], y: corner[1] })),
+        pockets: gameState.table.pockets.map(pocket => ({ x: pocket[0], y: pocket[1] })),
+        bounds: { x: 0, y: 0, width: 0, height: 0 }, // Will be calculated
+        rails: [], // Will be populated if available
+        detected: gameState.table.calibrated,
+        confidence: 0.9, // Default high confidence for calibrated table
+      };
+
+      // Calculate table bounds from corners
+      if (table.corners.length >= 4) {
+        const xs = table.corners.map(c => c.x);
+        const ys = table.corners.map(c => c.y);
+        table.bounds = {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
+        };
+      }
+    }
+
+    // Create detection frame
+    const detectionFrame: DetectionFrame = {
+      balls,
+      cue,
+      table,
+      trajectories: [], // Will be updated by trajectory messages
+      timestamp: Date.now(),
+      frameNumber: gameState.frame_number || 0,
+      processingTime: 0, // Not provided in game state
+    };
+
+    runInAction(() => {
+      this.setCurrentFrame(detectionFrame);
+    });
+  }
+
+  private handleTrajectoryMessage(message: WebSocketMessage): void {
+    if (!isTrajectoryMessage(message)) return;
+
+    const trajectoryData = message.data as TrajectoryData;
+
+    // Convert trajectory data to frontend format
+    const trajectories: Trajectory[] = trajectoryData.lines.map((line, index) => ({
+      ballId: `trajectory_${index}`,
+      points: [
+        { x: line.start[0], y: line.start[1] },
+        { x: line.end[0], y: line.end[1] },
+      ],
+      collisions: trajectoryData.collisions.map(collision => ({
+        position: { x: collision.position[0], y: collision.position[1] },
+        type: collision.ball_id ? 'ball' : 'rail' as 'ball' | 'rail' | 'pocket',
+        targetId: collision.ball_id,
+        angle: collision.angle,
+        impulse: 0, // Not provided
+      })),
+      type: line.type,
+      probability: line.confidence,
+      color: this.getTrajectoryColor(line.type),
+    }));
+
+    // Update current frame with trajectory data
+    runInAction(() => {
+      if (this.currentFrame) {
+        this.currentFrame.trajectories = trajectories;
+      }
+    });
+  }
+
+  private inferBallType(id: string, color: string): Ball['type'] {
+    if (id.toLowerCase().includes('cue') || id === '0') return 'cue';
+    if (id === '8' || id === 'eight') return 'eight';
+
+    // Check if it's a stripe ball (numbers 9-15)
+    const ballNumber = parseInt(id);
+    if (!isNaN(ballNumber) && ballNumber >= 9 && ballNumber <= 15) return 'stripe';
+
+    // Default to solid for other numbered balls
+    if (!isNaN(ballNumber) && ballNumber >= 1 && ballNumber <= 7) return 'solid';
+
+    return 'solid'; // Default fallback
+  }
+
+  private inferBallNumber(id: string, color: string): number | undefined {
+    const ballNumber = parseInt(id);
+    if (!isNaN(ballNumber)) return ballNumber;
+
+    if (id.toLowerCase().includes('cue')) return 0;
+    if (id.toLowerCase().includes('eight')) return 8;
+
+    return undefined;
+  }
+
+  private getTrajectoryColor(type: string): string {
+    const colors = {
+      primary: '#00FF00',
+      reflection: '#0080FF',
+      collision: '#FF8000',
+    };
+    return colors[type as keyof typeof colors] || '#00FF00';
+  }
+
   // Cleanup
   dispose(): void {
     this.disconnect();
@@ -385,7 +624,18 @@ export class VideoStore {
 
   // Utility methods for external components
   getStreamUrl(params?: Record<string, string | number>): string {
-    if (!this.streamUrl) return '';
+    if (!this.streamUrl) {
+      // If no stream URL is set, try to generate one using the API client
+      try {
+        const { apiClient } = require('../api/client');
+        return apiClient.getVideoStreamUrl(
+          this.getQualityValue(this.config.quality),
+          this.config.fps
+        );
+      } catch {
+        return '';
+      }
+    }
 
     const url = new URL(this.streamUrl);
 

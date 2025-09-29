@@ -10,6 +10,7 @@ import { StatCard } from './StatCard';
 import { StatusIndicator } from './StatusIndicator';
 import { AlertPanel } from './AlertPanel';
 import { MetricsChart } from './MetricsChart';
+import { apiClient } from '../../services/api-client';
 import type { Alert, MetricPoint } from '../../types/monitoring';
 import type { HealthResponse, SystemMetrics } from '../../types/api';
 
@@ -30,82 +31,63 @@ export const SystemOverview: React.FC = observer(() => {
 
   const loadSystemData = async () => {
     try {
-      // In a real implementation, these would come from the API client
-      // For now, we'll simulate the data structure
-      const mockHealth: HealthResponse = {
-        status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
-        timestamp: new Date().toISOString(),
-        uptime: 3600, // 1 hour
-        version: '1.0.0',
-        components: {
-          database: {
-            name: 'Database',
-            status: 'healthy',
-            message: 'Connected to PostgreSQL',
-            last_check: new Date().toISOString(),
-            uptime: 3600,
-            errors: [],
-          },
-          vision: {
-            name: 'Vision System',
-            status: 'healthy',
-            message: 'Camera active, tracking enabled',
-            last_check: new Date().toISOString(),
-            uptime: 3580,
-            errors: [],
-          },
-          projector: {
-            name: 'Projector',
-            status: 'degraded',
-            message: 'Minor calibration drift detected',
-            last_check: new Date().toISOString(),
-            uptime: 3600,
-            errors: ['Calibration accuracy: 95%'],
-          },
-          websocket: {
-            name: 'WebSocket Server',
-            status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
-            message: connectionStore.state.isConnected ? 'Active connections: 2' : 'No connections',
-            last_check: new Date().toISOString(),
-            uptime: 3600,
-            errors: connectionStore.state.error ? [connectionStore.state.error] : [],
-          },
-        },
-      };
+      // Fetch real health and metrics data from backend
+      const [healthResponse, metricsResponse] = await Promise.all([
+        apiClient.get('/health?include_details=true&include_metrics=true'),
+        apiClient.get('/health/metrics')
+      ]);
 
-      const mockMetrics: SystemMetrics = {
-        cpu_usage: 45 + Math.random() * 20, // 45-65%
-        memory_usage: 60 + Math.random() * 15, // 60-75%
-        disk_usage: 30,
-        network_io: {
-          bytes_sent: 1024000,
-          bytes_received: 2048000,
-        },
-        api_requests_per_second: 5 + Math.random() * 10,
-        websocket_connections: connectionStore.state.isConnected ? 2 : 0,
-        average_response_time: 50 + Math.random() * 100, // 50-150ms
-      };
-
-      setSystemHealth(mockHealth);
-      setSystemMetrics(mockMetrics);
+      setSystemHealth(healthResponse);
+      setSystemMetrics(metricsResponse);
 
       // Update CPU and memory history
       const now = new Date();
       setCpuHistory(prev => [
         ...prev.slice(-49), // Keep last 49 points
-        { timestamp: now, value: mockMetrics.cpu_usage }
+        { timestamp: now, value: metricsResponse.cpu_usage }
       ]);
       setMemoryHistory(prev => [
         ...prev.slice(-49),
-        { timestamp: now, value: mockMetrics.memory_usage }
+        { timestamp: now, value: metricsResponse.memory_usage }
       ]);
 
       // Generate alerts based on system status
-      updateAlerts(mockHealth, mockMetrics);
+      updateAlerts(healthResponse, metricsResponse);
 
       setLoading(false);
     } catch (error) {
       console.error('Failed to load system data:', error);
+
+      // Fallback to minimal data based on connection state
+      const fallbackHealth: HealthResponse = {
+        status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
+        timestamp: new Date().toISOString(),
+        uptime: 0,
+        version: '1.0.0',
+        components: {
+          api: {
+            name: 'API Server',
+            status: connectionStore.state.isConnected ? 'healthy' : 'unhealthy',
+            message: connectionStore.state.isConnected ? 'Connected' : 'Disconnected',
+            last_check: new Date().toISOString(),
+            uptime: 0,
+            errors: connectionStore.state.error ? [connectionStore.state.error] : [],
+          },
+        },
+      };
+
+      const fallbackMetrics: SystemMetrics = {
+        cpu_usage: 0,
+        memory_usage: 0,
+        disk_usage: 0,
+        network_io: {},
+        api_requests_per_second: 0,
+        websocket_connections: connectionStore.state.isConnected ? 1 : 0,
+        average_response_time: 0,
+      };
+
+      setSystemHealth(fallbackHealth);
+      setSystemMetrics(fallbackMetrics);
       setLoading(false);
     }
   };

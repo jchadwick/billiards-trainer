@@ -6,7 +6,10 @@ import { ConfigStore } from './ConfigStore';
 import { AuthStore } from './AuthStore';
 import { UIStore } from './UIStore';
 import { ConnectionStore } from './ConnectionStore';
+import { CalibrationStore } from './calibration-store';
+import { VideoStore } from './VideoStore';
 import type { PersistedState } from './types';
+import type { CalibrationStartRequest, CalibrationStartResponse, CalibrationPointResponse, CalibrationApplyResponse } from '../types/api';
 
 export class RootStore {
   // Core stores
@@ -17,6 +20,69 @@ export class RootStore {
   auth: AuthStore;
   ui: UIStore;
   connection: ConnectionStore;
+  calibrationStore: CalibrationStore;
+  videoStore: VideoStore;
+
+  // API Service mock for calibration
+  apiService = {
+    startCalibration: async (request: CalibrationStartRequest): Promise<CalibrationStartResponse> => {
+      // Mock implementation
+      return {
+        session: {
+          session_id: `cal_${Date.now()}`,
+          calibration_type: request.calibration_type,
+          status: 'in_progress',
+          created_at: new Date(),
+          expires_at: new Date(Date.now() + request.timeout_seconds * 1000),
+          points_captured: 0,
+          points_required: 4,
+          accuracy: null,
+          errors: []
+        },
+        instructions: [
+          "Click on the top-left corner of the billiard table",
+          "Click on the top-right corner of the billiard table",
+          "Click on the bottom-right corner of the billiard table",
+          "Click on the bottom-left corner of the billiard table"
+        ],
+        expected_points: 4,
+        timeout: request.timeout_seconds
+      };
+    },
+
+    captureCalibrationPoint: async (sessionId: string, request: any): Promise<CalibrationPointResponse> => {
+      // Mock implementation
+      return {
+        success: true,
+        point_id: `point_${Date.now()}`,
+        accuracy: 0.9 + Math.random() * 0.1,
+        total_points: Math.floor(Math.random() * 4) + 1,
+        remaining_points: Math.max(0, 4 - Math.floor(Math.random() * 4) - 1),
+        can_proceed: Math.random() > 0.5
+      };
+    },
+
+    applyCalibration: async (sessionId: string): Promise<CalibrationApplyResponse> => {
+      // Mock implementation
+      return {
+        success: true,
+        accuracy: 0.92,
+        backup_created: true,
+        applied_at: new Date(),
+        transformation_matrix: [
+          [1, 0, 0],
+          [0, 1, 0],
+          [0, 0, 1]
+        ],
+        errors: []
+      };
+    },
+
+    cancelCalibration: async (sessionId: string): Promise<void> => {
+      // Mock implementation
+      return Promise.resolve();
+    }
+  };
 
   // Store initialization state
   isInitialized: boolean = false;
@@ -31,6 +97,8 @@ export class RootStore {
     this.auth = new AuthStore();
     this.ui = new UIStore();
     this.connection = new ConnectionStore();
+    this.calibrationStore = new CalibrationStore(this);
+    this.videoStore = new VideoStore();
 
     makeAutoObservable(this, {
       system: false,
@@ -39,7 +107,9 @@ export class RootStore {
       config: false,
       auth: false,
       ui: false,
-      connection: false
+      connection: false,
+      calibrationStore: false,
+      videoStore: false
     });
 
     // Initialize the root store

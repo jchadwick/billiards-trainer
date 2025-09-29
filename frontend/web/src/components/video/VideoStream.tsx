@@ -50,13 +50,17 @@ export const VideoStream = observer<VideoStreamProps>(({
   useEffect(() => {
     if (videoStore.isConnected && autoPlay) {
       const newSrc = videoStore.getStreamUrl();
-      if (newSrc !== currentSrc) {
+      if (newSrc && newSrc !== currentSrc) {
+        console.log('Updating video stream source:', newSrc);
         setCurrentSrc(newSrc);
         setIsLoaded(false);
       }
     } else {
-      setCurrentSrc('');
-      setIsLoaded(false);
+      if (currentSrc) {
+        console.log('Clearing video stream source');
+        setCurrentSrc('');
+        setIsLoaded(false);
+      }
     }
   }, [videoStore.isConnected, videoStore.config.quality, videoStore.config.fps, autoPlay, currentSrc]);
 
@@ -107,9 +111,11 @@ export const VideoStream = observer<VideoStreamProps>(({
 
   // Handle image error
   const handleImageError = useCallback((event: React.SyntheticEvent<HTMLImageElement>) => {
+    console.error('Video stream image error:', event);
+
     const error: VideoError = {
       code: 'STREAM_ERROR',
-      message: 'Failed to load video stream',
+      message: 'Failed to load video stream - check if camera is connected and backend is running',
       timestamp: Date.now(),
       recoverable: true,
     };
@@ -118,7 +124,18 @@ export const VideoStream = observer<VideoStreamProps>(({
     videoStore.setStatus({ streaming: false });
     onError?.(error);
     setIsLoaded(false);
-  }, [onError, videoStore]);
+
+    // Attempt to reconnect if auto-reconnect is enabled
+    if (videoStore.config.autoReconnect && videoStore.isConnected) {
+      console.log('Attempting to reconnect video stream...');
+      setTimeout(() => {
+        const newSrc = videoStore.getStreamUrl();
+        if (newSrc && newSrc !== currentSrc) {
+          setCurrentSrc(newSrc);
+        }
+      }, videoStore.config.reconnectDelay);
+    }
+  }, [onError, videoStore, currentSrc]);
 
   // Calculate image styling for best fit
   const imageStyle = React.useMemo(() => {
