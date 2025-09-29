@@ -727,18 +727,20 @@ class ProjectorMessageHandlers:
                         "position": {"x": position.x + 15, "y": position.y + 45},
                         "max_width": width - 30,
                     },
-                    "code": {
-                        "content": code_text,
-                        "color": config["text_color"].with_alpha(0.8).to_dict(),
-                        "font_size": 10,
-                        "font_weight": "normal",
-                        "position": {
-                            "x": position.x + 15,
-                            "y": position.y + height - 20,
-                        },
-                    }
-                    if code_text
-                    else None,
+                    "code": (
+                        {
+                            "content": code_text,
+                            "color": config["text_color"].with_alpha(0.8).to_dict(),
+                            "font_size": 10,
+                            "font_weight": "normal",
+                            "position": {
+                                "x": position.x + 15,
+                                "y": position.y + height - 20,
+                            },
+                        }
+                        if code_text
+                        else None
+                    ),
                 },
                 "animation": {
                     "pulsing": config["pulsing"],

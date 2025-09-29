@@ -679,9 +679,9 @@ class ConfigPersistence:
         info = {
             "encryption_enabled": self.enable_encryption,
             "encryption_ready": self.is_encryption_enabled(),
-            "secure_fields": list(self.encryption.get_secure_fields())
-            if self.encryption
-            else [],
+            "secure_fields": (
+                list(self.encryption.get_secure_fields()) if self.encryption else []
+            ),
             "encryption_available": self.encryption is not None,
         }
 

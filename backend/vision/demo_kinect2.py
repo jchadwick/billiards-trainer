@@ -90,9 +90,9 @@ def detect_table_with_depth(color_frame: np.ndarray, depth_frame: np.ndarray) ->
         "table_depth": float(table_depth),
         "table_mask": table_mask,
         "table_contour": largest_contour,
-        "table_corners": table_corners.reshape(-1, 2)
-        if len(table_corners) == 4
-        else None,
+        "table_corners": (
+            table_corners.reshape(-1, 2) if len(table_corners) == 4 else None
+        ),
         "table_area": cv2.contourArea(largest_contour),
     }
 

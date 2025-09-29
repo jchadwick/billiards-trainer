@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Lazy import for orchestrator to avoid circular imports
 def create_orchestrator(
-    config: Optional[dict[str, Any]] = None
+    config: Optional[dict[str, Any]] = None,
 ) -> "SystemOrchestrator":
     """Create system orchestrator with lazy import."""
     from .orchestrator import SystemConfig, SystemOrchestrator
