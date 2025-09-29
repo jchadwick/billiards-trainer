@@ -235,7 +235,7 @@ jobs:
   # Cleanup old images
   cleanup:
     runs-on: ubuntu-latest
-    needs: [deploy]
+    #needs: [deploy]
     if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
     permissions:
