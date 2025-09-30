@@ -268,7 +268,7 @@ class TestConfigCoreIntegration:
             yaml.dump(new_config, f)
 
         # Reload configuration
-        config_module.load_from_file(str(config_file))
+        config_module.load_config(config_file)
 
         # Reconfigure physics engine
         updated_friction = config_module.get("physics.friction")

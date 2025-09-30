@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import numpy as np
 import pytest
-from vision.calibration.color import ColorCalibrator as ProjectorColorCalibrator
-from projector.calibration.geometry import GeometryCalibrator
+from projector.calibration.geometric import GeometricCalibrator
 from projector.config.manager import ProjectorConfigManager
 from projector.models import Overlay, ProjectorState, RenderObject
 from projector.rendering.opengl.renderer import OpenGLRenderer
 from projector.rendering.opengl.shaders import ShaderManager
 from projector.rendering.opengl.textures import TextureManager
 from projector.utils.math import create_projection_matrix, transform_point
+from vision.calibration.color import ColorCalibrator as ProjectorColorCalibrator
 
 
 @pytest.mark.unit()
@@ -532,55 +532,86 @@ class TestGeometryCalibrator:
 
     def test_calibrator_creation(self):
         """Test creating geometry calibrator."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
         assert calibrator is not None
 
     def test_add_calibration_point(self):
         """Test adding calibration points."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
 
-        # Add real-world to screen mappings
-        calibrator.add_point(
-            real_world=(0, 0), screen=(100, 100)  # Table corner  # Screen position
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
         )
 
-        assert len(calibrator.calibration_points) == 1
+        # Add real-world to screen mappings
+        calibrator.add_calibration_target(
+            table_x=0, table_y=0, display_x=100, display_y=100, label="Table corner"
+        )
+
+        assert len(calibrator.calibration_targets) == 1
 
     def test_calculate_transformation_matrix(self):
         """Test calculating transformation matrix."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
 
         # Add four corner points for perspective transform
-        calibrator.add_point((0, 0), (100, 100))  # Top-left
-        calibrator.add_point((2.84, 0), (500, 100))  # Top-right
-        calibrator.add_point((2.84, 1.42), (500, 300))  # Bottom-right
-        calibrator.add_point((0, 1.42), (100, 300))  # Bottom-left
+        calibrator.add_calibration_target(0, 0, 100, 100, "Top-left")  # Top-left
+        calibrator.add_calibration_target(2.84, 0, 500, 100, "Top-right")  # Top-right
+        calibrator.add_calibration_target(
+            2.84, 1.42, 500, 300, "Bottom-right"
+        )  # Bottom-right
+        calibrator.add_calibration_target(
+            0, 1.42, 100, 300, "Bottom-left"
+        )  # Bottom-left
 
-        matrix = calibrator.calculate_transform_matrix()
-        assert matrix is not None
-        assert matrix.shape == (3, 3)
+        success = calibrator.calculate_transform()
+        assert success is True
+        assert calibrator.transform_matrix is not None
+        assert calibrator.transform_matrix.shape == (3, 3)
 
     def test_transform_point(self):
         """Test transforming points."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
 
         # Mock transformation matrix
         calibrator.transform_matrix = np.array([[1, 0, 100], [0, 1, 100], [0, 0, 1]])
 
         # Transform point
-        screen_point = calibrator.real_to_screen(1.0, 0.5)
+        screen_point = calibrator.table_to_display(1.0, 0.5)
         assert screen_point is not None
 
     def test_inverse_transform(self):
         """Test inverse transformation."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
 
         # Set up simple transformation
         calibrator.transform_matrix = np.array([[100, 0, 0], [0, 100, 0], [0, 0, 1]])
+        calibrator.inverse_transform = np.linalg.inv(calibrator.transform_matrix)
 
         # Transform and inverse transform
-        screen_point = calibrator.real_to_screen(1.0, 0.5)
-        real_point = calibrator.screen_to_real(screen_point[0], screen_point[1])
+        screen_point = calibrator.table_to_display(1.0, 0.5)
+        real_point = calibrator.display_to_table(screen_point[0], screen_point[1])
 
         # Should get back original point (approximately)
         assert abs(real_point[0] - 1.0) < 0.01
@@ -588,34 +619,48 @@ class TestGeometryCalibrator:
 
     def test_calibration_accuracy(self):
         """Test calibration accuracy measurement."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
 
         # Add calibration points
         for i in range(4):
-            calibrator.add_point((i, i), (i * 100, i * 100))
+            calibrator.add_calibration_target(
+                i * 0.5, i * 0.5, i * 100, i * 100, f"point_{i}"
+            )
 
-        calibrator.calculate_transform_matrix()
+        calibrator.calculate_transform()
 
-        accuracy = calibrator.get_accuracy()
-        assert 0 <= accuracy <= 1
+        # Calibration error should be a reasonable value
+        assert calibrator.calibration_error >= 0
 
     def test_save_load_calibration(self, temp_dir):
         """Test saving and loading calibration."""
-        calibrator = GeometryCalibrator()
+        from projector.calibration.geometric import TableDimensions
+
+        table_dims = TableDimensions(length=2.84, width=1.42)
+        calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
 
         # Add some calibration data
-        calibrator.add_point((0, 0), (100, 100))
-        calibrator.add_point((1, 1), (200, 200))
+        calibrator.add_calibration_target(0, 0, 100, 100, "point_1")
+        calibrator.add_calibration_target(1, 1, 200, 200, "point_2")
 
-        # Save calibration
-        calibration_file = temp_dir / "geometry_calibration.json"
-        calibrator.save_calibration(str(calibration_file))
+        # Get calibration data
+        calibration_data = calibrator.get_calibration_data()
 
         # Load calibration
-        new_calibrator = GeometryCalibrator()
-        new_calibrator.load_calibration(str(calibration_file))
+        new_calibrator = GeometricCalibrator(
+            table_dims, display_width=1920, display_height=1080
+        )
+        success = new_calibrator.load_calibration_data(calibration_data)
 
-        assert len(new_calibrator.calibration_points) == 2
+        assert success is True
+        assert len(new_calibrator.calibration_targets) == 2
 
 
 @pytest.mark.unit()

@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
@@ -343,6 +344,7 @@ class SecurityEventLogger:
     """Security event logging utility."""
 
     def __init__(self):
+        """Initialize the security event logger with dedicated logger instance."""
         self.logger = logging.getLogger("security")
 
     def log_event(self, event: SecurityEvent) -> None:
@@ -534,3 +536,152 @@ def generate_secure_random_string(length: int = 32) -> str:
 def constant_time_compare(a: str, b: str) -> bool:
     """Constant time string comparison to prevent timing attacks."""
     return hmac.compare_digest(a.encode(), b.encode())
+
+
+class SecurityUtils:
+    """Unified security utilities wrapper class for backward compatibility.
+
+    This class provides a unified interface to the individual security utility
+    classes (PasswordUtils, JWTUtils, APIKeyUtils) for easier testing and
+    backward compatibility.
+    """
+
+    def __init__(self):
+        """Initialize security utilities with rate limiting tracking."""
+        self._rate_limit_tracker: dict[str, list[float]] = {}
+        self._rate_limit_window = 60.0  # 1 minute window
+        self._rate_limit_max_requests = 100  # Max requests per window
+
+    def generate_token(self, payload: dict[str, Any]) -> str:
+        """Generate a JWT token from payload.
+
+        Args:
+            payload: Token payload containing user_id, exp, etc.
+
+        Returns:
+            Encoded JWT token string
+        """
+        # Extract required fields with defaults
+        subject = payload.get("user_id", payload.get("sub", "anonymous"))
+        role = payload.get("role", UserRole.VIEWER)
+
+        # Handle role conversion
+        if isinstance(role, str):
+            try:
+                role = UserRole(role)
+            except ValueError:
+                role = UserRole.VIEWER
+
+        # Calculate expiration
+        exp = payload.get("exp")
+        if exp:
+            if isinstance(exp, (int, float)):
+                expire_time = datetime.fromtimestamp(exp, tz=timezone.utc)
+                expires_delta = expire_time - datetime.now(timezone.utc)
+            else:
+                expires_delta = None
+        else:
+            expires_delta = None
+
+        return JWTUtils.create_access_token(subject, role, expires_delta)
+
+    def validate_token(self, token: str) -> bool:
+        """Validate a JWT token.
+
+        Args:
+            token: JWT token string to validate
+
+        Returns:
+            True if token is valid and not expired, False otherwise
+        """
+        token_data = JWTUtils.decode_token(token)
+        if token_data is None:
+            return False
+
+        # Check if token is expired
+        return not JWTUtils.is_token_expired(token_data)
+
+    def hash_password(self, password: str) -> str:
+        """Hash a password using bcrypt.
+
+        Args:
+            password: Plain text password to hash
+
+        Returns:
+            Hashed password string
+        """
+        return PasswordUtils.hash_password(password)
+
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verify a password against its hash.
+
+        Args:
+            plain_password: Plain text password to verify
+            hashed_password: Hashed password to compare against
+
+        Returns:
+            True if password matches hash, False otherwise
+        """
+        return PasswordUtils.verify_password(plain_password, hashed_password)
+
+    def check_rate_limit(self, client_id: str) -> bool:
+        """Check if a client has exceeded rate limits.
+
+        Args:
+            client_id: Unique identifier for the client
+
+        Returns:
+            True if client is within rate limits, False if exceeded
+        """
+        current_time = time.time()
+
+        # Initialize tracker for new clients
+        if client_id not in self._rate_limit_tracker:
+            self._rate_limit_tracker[client_id] = []
+
+        # Get request history
+        request_times = self._rate_limit_tracker[client_id]
+
+        # Remove requests outside the time window
+        cutoff_time = current_time - self._rate_limit_window
+        request_times = [t for t in request_times if t > cutoff_time]
+
+        # Check if limit exceeded
+        if len(request_times) >= self._rate_limit_max_requests:
+            return False
+
+        # Add current request
+        request_times.append(current_time)
+        self._rate_limit_tracker[client_id] = request_times
+
+        return True
+
+    def generate_api_key(self) -> str:
+        """Generate a new API key.
+
+        Returns:
+            Generated API key string with prefix
+        """
+        return APIKeyUtils.generate_api_key()
+
+    def hash_api_key(self, api_key: str) -> str:
+        """Hash an API key for secure storage.
+
+        Args:
+            api_key: API key to hash
+
+        Returns:
+            Hashed API key string
+        """
+        return APIKeyUtils.hash_api_key(api_key)
+
+    def verify_api_key_format(self, api_key: str) -> bool:
+        """Verify API key format is valid.
+
+        Args:
+            api_key: API key to validate
+
+        Returns:
+            True if format is valid, False otherwise
+        """
+        return APIKeyUtils.verify_api_key_format(api_key)

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 
 class MessageType(str, Enum):
@@ -61,8 +61,10 @@ class WebSocketMessage(BaseModel):
     sequence: Optional[int] = Field(None, description="Message sequence number")
     data: dict[str, Any] = Field(..., description="Message payload data")
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    @field_serializer("timestamp")
+    def serialize_timestamp(self, timestamp: datetime) -> str:
+        """Serialize timestamp to ISO format."""
+        return timestamp.isoformat()
 
 
 # Data stream message schemas
@@ -78,8 +80,10 @@ class FrameData(BaseModel):
     fps: float = Field(30.0, ge=0, description="Current frames per second")
     size_bytes: int = Field(..., ge=0, description="Original image size in bytes")
 
-    @validator("format")
+    @field_validator("format")
+    @classmethod
     def validate_format(cls, v):
+        """Validate image format is one of the supported types."""
         allowed_formats = ["jpeg", "jpg", "png", "webp"]
         if v.lower() not in allowed_formats:
             raise ValueError(f"Format must be one of: {allowed_formats}")
@@ -91,18 +95,20 @@ class BallData(BaseModel):
 
     id: str = Field(..., description="Ball identifier (cue, 1, 2, ..., 8ball, etc.)")
     position: list[float] = Field(
-        ..., min_items=2, max_items=2, description="[x, y] position"
+        ..., min_length=2, max_length=2, description="[x, y] position"
     )
     radius: float = Field(..., gt=0, description="Ball radius in pixels")
     color: str = Field(..., description="Ball color name or hex code")
     velocity: Optional[list[float]] = Field(
-        None, min_items=2, max_items=2, description="[vx, vy] velocity"
+        None, min_length=2, max_length=2, description="[vx, vy] velocity"
     )
     confidence: float = Field(1.0, ge=0, le=1, description="Detection confidence")
     visible: bool = Field(True, description="Whether ball is visible/detected")
 
-    @validator("position", "velocity")
+    @field_validator("position", "velocity")
+    @classmethod
     def validate_coordinates(cls, v):
+        """Validate coordinate arrays are exactly [x, y] format."""
         if v is not None and len(v) != 2:
             raise ValueError("Coordinates must be [x, y] format")
         return v
@@ -113,7 +119,7 @@ class CueData(BaseModel):
 
     angle: float = Field(..., description="Cue angle in degrees")
     position: list[float] = Field(
-        ..., min_items=2, max_items=2, description="[x, y] cue position"
+        ..., min_length=2, max_length=2, description="[x, y] cue position"
     )
     detected: bool = Field(True, description="Whether cue is detected")
     confidence: float = Field(1.0, ge=0, le=1, description="Detection confidence")
@@ -121,7 +127,7 @@ class CueData(BaseModel):
         None, gt=0, description="Detected cue length in pixels"
     )
     tip_position: Optional[list[float]] = Field(
-        None, min_items=2, max_items=2, description="Cue tip position"
+        None, min_length=2, max_length=2, description="Cue tip position"
     )
 
 
@@ -129,7 +135,7 @@ class TableData(BaseModel):
     """Pool table data structure."""
 
     corners: list[list[float]] = Field(
-        ..., min_items=4, max_items=4, description="Table corner coordinates"
+        ..., min_length=4, max_length=4, description="Table corner coordinates"
     )
     pockets: list[list[float]] = Field(..., description="Pocket center coordinates")
     rails: Optional[list[dict[str, Any]]] = Field(None, description="Rail segment data")
@@ -138,8 +144,10 @@ class TableData(BaseModel):
         None, description="Real-world table dimensions"
     )
 
-    @validator("corners")
+    @field_validator("corners")
+    @classmethod
     def validate_corners(cls, v):
+        """Validate table has exactly 4 corners with [x, y] coordinates."""
         if len(v) != 4:
             raise ValueError("Table must have exactly 4 corners")
         for corner in v:
@@ -162,10 +170,10 @@ class TrajectoryLine(BaseModel):
     """Individual trajectory line segment."""
 
     start: list[float] = Field(
-        ..., min_items=2, max_items=2, description="Line start coordinates"
+        ..., min_length=2, max_length=2, description="Line start coordinates"
     )
     end: list[float] = Field(
-        ..., min_items=2, max_items=2, description="Line end coordinates"
+        ..., min_length=2, max_length=2, description="Line end coordinates"
     )
     type: Literal["primary", "reflection", "collision"] = Field(
         ..., description="Line type"
@@ -177,7 +185,7 @@ class CollisionData(BaseModel):
     """Ball collision prediction data."""
 
     position: list[float] = Field(
-        ..., min_items=2, max_items=2, description="Collision point"
+        ..., min_length=2, max_length=2, description="Collision point"
     )
     ball_id: str = Field(..., description="ID of ball being hit")
     angle: float = Field(..., description="Collision angle in degrees")
