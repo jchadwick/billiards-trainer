@@ -8,7 +8,7 @@ import { UIStore } from './UIStore';
 import { ConnectionStore } from './ConnectionStore';
 import { CalibrationStore } from './calibration-store';
 import { VideoStore } from './VideoStore';
-import { ApiService } from '../services/api-service';
+import { ApiService, createApiService } from '../services/api-service';
 import type { PersistedState } from './types';
 import type { CalibrationStartRequest, CalibrationStartResponse, CalibrationPointResponse, CalibrationApplyResponse } from '../types/api';
 
@@ -33,7 +33,7 @@ export class RootStore {
 
   constructor() {
     // Initialize API service first as other stores may depend on it
-    this.apiService = new ApiService({
+    this.apiService = createApiService({
       apiBaseUrl: process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api/v1',
       wsBaseUrl: process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws',
       enableCaching: true,
@@ -47,7 +47,7 @@ export class RootStore {
     this.game = new GameStore();
     this.vision = new VisionStore();
     this.config = new ConfigStore();
-    this.auth = new AuthStore();
+    this.auth = new AuthStore(this);
     this.ui = new UIStore();
     this.connection = new ConnectionStore();
     this.calibrationStore = new CalibrationStore(this);
@@ -390,7 +390,7 @@ export class RootStore {
       this.game = new GameStore();
       this.vision = new VisionStore();
       this.config = new ConfigStore();
-      this.auth = new AuthStore();
+      this.auth = new AuthStore(this);
       this.ui = new UIStore();
 
       this.isInitialized = false;

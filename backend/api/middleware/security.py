@@ -81,11 +81,11 @@ class SecurityConfig(BaseModel):
     )
     permissions_policy: dict[str, list[str]] = Field(
         default_factory=lambda: {
-            "camera": ["'none'"],
-            "microphone": ["'none'"],
-            "geolocation": ["'none'"],
-            "payment": ["'none'"],
-            "usb": ["'none'"],
+            "camera": [],
+            "microphone": [],
+            "geolocation": [],
+            "payment": [],
+            "usb": [],
         },
         description="Permissions policy directives",
     )
@@ -287,12 +287,14 @@ class SecurityHeadersManager:
                     response.headers["Server"] = self.config.custom_server_header
                 else:
                     # Remove server header if present
-                    response.headers.pop("Server", None)
+                    if "Server" in response.headers:
+                        del response.headers["Server"]
                 headers_applied.append("Server")
 
             # X-Powered-By removal
             if self.config.hide_powered_by:
-                response.headers.pop("X-Powered-By", None)
+                if "X-Powered-By" in response.headers:
+                    del response.headers["X-Powered-By"]
                 headers_applied.append("X-Powered-By-Hidden")
 
             # Custom headers
@@ -317,7 +319,12 @@ class SecurityHeadersManager:
             enable_hsts=False,  # Don't require HTTPS in dev
             csp_directives={
                 "default-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
-                "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"],
+                "script-src": [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "'unsafe-eval'",
+                    "https://cdn.jsdelivr.net",
+                ],
                 "style-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
                 "img-src": ["'self'", "data:", "blob:", "https:"],
                 "font-src": ["'self'", "https://cdn.jsdelivr.net"],

@@ -267,3 +267,5 @@ distortion_coefficients.json
 # Frontend build output
 backend/static/
 frontend/web/dist/
+
+.playwright-mcp/
