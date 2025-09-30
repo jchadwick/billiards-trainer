@@ -2,11 +2,10 @@
 # =================================================================
 # Billiards Trainer Setup Script for Ubuntu
 # =================================================================
-# This script verifies system dependencies, versions, and environment
-# configuration for the Billiards Trainer application.
+# This script automatically installs all dependencies and sets up
+# the development environment.
 #
-# Usage: ./setup.sh [--fix]
-#   --fix: Attempt to automatically install missing dependencies
+# Usage: ./setup.sh
 # =================================================================
 
 set -e
@@ -19,24 +18,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Flags
-FIX_MODE=false
 HAS_ERRORS=false
 HAS_WARNINGS=false
-
-# Parse arguments
-for arg in "$@"; do
-    case $arg in
-        --fix)
-            FIX_MODE=true
-            shift
-            ;;
-        --help)
-            echo "Usage: $0 [--fix]"
-            echo "  --fix: Attempt to automatically install missing dependencies"
-            exit 0
-            ;;
-    esac
-done
 
 # =================================================================
 # Helper Functions
@@ -99,12 +82,8 @@ version_gte() {
 
 install_package() {
     local package=$1
-    if [ "$FIX_MODE" = true ]; then
-        print_info "Installing $package..."
-        sudo apt-get install -y "$package"
-    else
-        print_info "Run with --fix to automatically install $package"
-    fi
+    print_info "Installing $package..."
+    sudo apt-get install -y "$package"
 }
 
 # =================================================================
@@ -153,11 +132,9 @@ fi
 # Node.js
 if ! check_command node "Node.js" "18.0"; then
     print_error "Node.js not found or version too old (need >=18.0)"
-    if [ "$FIX_MODE" = true ]; then
-        print_info "Installing Node.js 20.x..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-        sudo apt-get install -y nodejs
-    fi
+    print_info "Installing Node.js 20.x..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    sudo apt-get install -y nodejs
 fi
 
 # npm
@@ -250,23 +227,10 @@ fi
 # Check if virtual environment exists
 if [ -d "$VENV_PATH" ]; then
     print_success "Virtual environment exists at $VENV_PATH/"
-
-    # Check if it's activated
-    if [ -n "$VIRTUAL_ENV" ]; then
-        print_success "Virtual environment is activated"
-    else
-        print_info "Activate with: source $VENV_PATH/bin/activate"
-    fi
 else
-    print_warning "Virtual environment not found at $VENV_PATH/"
-    if [ "$FIX_MODE" = true ]; then
-        print_info "Creating virtual environment..."
-        $PYTHON_CMD -m venv "$VENV_PATH"
-        print_success "Virtual environment created at $VENV_PATH/"
-        print_info "Activate with: source $VENV_PATH/bin/activate"
-    else
-        print_info "Create with: python3 -m venv $VENV_PATH"
-    fi
+    print_info "Creating virtual environment..."
+    $PYTHON_CMD -m venv "$VENV_PATH"
+    print_success "Virtual environment created at $VENV_PATH/"
 fi
 
 # =================================================================
@@ -304,23 +268,17 @@ if [ -f "backend/requirements.txt" ]; then
         "pygame:2.5.0"
     )
 
-    for pkg_info in "${PYTHON_PACKAGES[@]}"; do
-        IFS=':' read -r pkg min_ver <<< "$pkg_info"
-        if $PYTHON_CMD -c "import $pkg" 2>/dev/null; then
-            version=$($PYTHON_CMD -c "import $pkg; print($pkg.__version__)" 2>/dev/null || echo "unknown")
-            print_success "$pkg installed: $version"
-        else
-            print_error "$pkg not installed"
-            if [ "$FIX_MODE" = true ]; then
-                print_info "Installing $pkg>=$min_ver..."
-                $PIP_CMD install "$pkg>=$min_ver"
-            else
-                print_info "Install with: $PIP_CMD install -r backend/requirements.txt"
-            fi
-        fi
-    done
+    # Install all Python dependencies
+    print_info "Installing Python dependencies from requirements.txt..."
+    $PIP_CMD install -r backend/requirements.txt
+    print_success "Python dependencies installed"
+
+    # Install the project in editable mode
+    print_info "Installing billiards-trainer in editable mode..."
+    $PIP_CMD install -e .
+    print_success "Project installed"
 else
-    print_warning "backend/requirements.txt not found"
+    print_error "backend/requirements.txt not found"
 fi
 
 # =================================================================
@@ -331,13 +289,11 @@ print_header "Node.js Dependencies"
 
 if [ -f "frontend/web/package.json" ]; then
     if [ -d "frontend/web/node_modules" ]; then
-        print_success "node_modules directory exists"
+        print_success "Node.js dependencies already installed"
     else
-        print_warning "node_modules not found. Run: cd frontend/web && npm install"
-        if [ "$FIX_MODE" = true ]; then
-            print_info "Installing Node.js dependencies..."
-            (cd frontend/web && npm install)
-        fi
+        print_info "Installing Node.js dependencies..."
+        (cd frontend/web && npm install)
+        print_success "Node.js dependencies installed"
     fi
 else
     print_warning "frontend/web/package.json not found"
@@ -378,10 +334,8 @@ if groups | grep -q video; then
     print_success "User is in 'video' group"
 else
     print_warning "User is not in 'video' group"
-    if [ "$FIX_MODE" = true ]; then
-        sudo usermod -aG video "$USER"
-        print_info "Added user to video group. Log out and back in for changes to take effect."
-    fi
+    sudo usermod -aG video "$USER"
+    print_info "Added user to video group. Log out and back in for changes to take effect."
 fi
 
 # Test camera access with v4l2
@@ -426,12 +380,12 @@ if [ -f ".env" ]; then
     done
 else
     print_warning ".env file not found"
-    print_info "Create .env file with required configuration"
-
-    if [ "$FIX_MODE" = true ] && [ -f ".env.example" ]; then
+    if [ -f ".env.example" ]; then
         print_info "Copying .env.example to .env..."
         cp .env.example .env
-        print_info "Please edit .env and set required values"
+        print_info "Please edit .env and set JWT_SECRET_KEY and other required values"
+    else
+        print_error ".env.example not found - cannot create .env"
     fi
 fi
 
@@ -449,17 +403,15 @@ fi
 print_header "Docker Environment"
 
 # Check Docker daemon
-if systemctl is-active --quiet docker; then
+if systemctl is-active --quiet docker 2>/dev/null; then
     print_success "Docker daemon is running"
 elif service docker status &> /dev/null; then
     print_success "Docker daemon is running"
 else
-    print_error "Docker daemon is not running"
-    if [ "$FIX_MODE" = true ]; then
-        print_info "Starting Docker daemon..."
-        sudo systemctl start docker
-        sudo systemctl enable docker
-    fi
+    print_warning "Docker daemon is not running"
+    print_info "Starting Docker daemon..."
+    sudo systemctl start docker 2>/dev/null || sudo service docker start
+    sudo systemctl enable docker 2>/dev/null || true
 fi
 
 # Check Docker permissions
@@ -467,13 +419,9 @@ if docker ps &> /dev/null; then
     print_success "User can run Docker commands"
 else
     print_warning "User cannot run Docker commands without sudo"
-    if [ "$FIX_MODE" = true ]; then
-        print_info "Adding user to docker group..."
-        sudo usermod -aG docker "$USER"
-        print_info "Log out and back in for changes to take effect"
-    else
-        print_info "Add user to docker group: sudo usermod -aG docker \$USER"
-    fi
+    print_info "Adding user to docker group..."
+    sudo usermod -aG docker "$USER"
+    print_info "Log out and back in for changes to take effect"
 fi
 
 # =================================================================
@@ -547,11 +495,9 @@ for dir in "${REQUIRED_DIRS[@]}"; do
     if [ -d "$dir" ]; then
         print_success "$dir/ exists"
     else
-        print_warning "$dir/ not found"
-        if [ "$FIX_MODE" = true ]; then
-            mkdir -p "$dir"
-            print_info "Created $dir/"
-        fi
+        print_info "Creating $dir/..."
+        mkdir -p "$dir"
+        print_success "Created $dir/"
     fi
 done
 
@@ -570,27 +516,38 @@ done
 
 print_header "Setup Summary"
 
+echo ""
+echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}Setup Complete!${NC}"
+echo -e "${GREEN}========================================${NC}"
+echo ""
+
 if [ "$HAS_ERRORS" = true ]; then
-    echo -e "${RED}Setup verification found errors that need to be addressed.${NC}"
-    if [ "$FIX_MODE" = false ]; then
-        echo -e "${YELLOW}Run '$0 --fix' to automatically fix some issues.${NC}"
-    fi
+    echo -e "${RED}Some errors were encountered during setup.${NC}"
+    echo -e "${YELLOW}Review the output above and fix any critical issues.${NC}"
+    echo ""
+fi
+
+if [ "$HAS_WARNINGS" = true ]; then
+    echo -e "${YELLOW}Some warnings were issued during setup.${NC}"
+    echo -e "${YELLOW}Review them if needed, but you should be able to proceed.${NC}"
+    echo ""
+fi
+
+echo -e "${CYAN}Quick Start Commands:${NC}"
+echo ""
+echo -e "  ${GREEN}source venv/bin/activate${NC}   # Activate virtual environment"
+echo -e "  ${GREEN}make run${NC}                    # Start the application"
+echo ""
+echo -e "${CYAN}Alternative Commands:${NC}"
+echo ""
+echo -e "  ${YELLOW}docker-compose up -d${NC}       # Run with Docker"
+echo -e "  ${YELLOW}make test${NC}                  # Run tests"
+echo -e "  ${YELLOW}make help${NC}                  # See all available commands"
+echo ""
+
+if [ "$HAS_ERRORS" = true ]; then
     exit 1
-elif [ "$HAS_WARNINGS" = true ]; then
-    echo -e "${YELLOW}Setup verification completed with warnings.${NC}"
-    echo -e "${YELLOW}Review warnings above and address as needed.${NC}"
-    exit 0
 else
-    echo -e "${GREEN}All checks passed! System is ready.${NC}"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Create/activate virtual environment: python3 -m venv venv && source venv/bin/activate"
-    echo "  2. Install Python dependencies: make install"
-    echo "  3. Install Node.js dependencies: cd frontend/web && npm install"
-    echo "  4. Configure .env file with your settings"
-    echo "  5. Start services: docker-compose up -d"
-    echo ""
-    echo "Or use the quick setup:"
-    echo "  make quickstart"
     exit 0
 fi
