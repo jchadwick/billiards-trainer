@@ -751,6 +751,43 @@ class SystemOrchestrator:
                         result = data.get("result")
                         frame_number = data.get("frame_number", 0)
 
+                        # Broadcast frame if message_broadcaster is available
+                        # Get API module from self.modules at callback time
+                        api_mod = self.modules.get("api")
+                        if (
+                            api_mod
+                            and hasattr(api_mod, "message_broadcaster")
+                            and hasattr(vision_module, "get_current_frame")
+                        ):
+                            try:
+                                import asyncio
+
+                                frame = vision_module.get_current_frame()
+                                if frame is not None and api_mod.message_broadcaster:
+                                    # Get frame dimensions
+                                    height, width = (
+                                        frame.shape[:2] if len(frame.shape) >= 2 else (0, 0)
+                                    )
+                                    if width > 0 and height > 0:
+                                        # Schedule async frame broadcast
+                                        try:
+                                            loop = asyncio.get_event_loop()
+                                            loop.create_task(
+                                                api_mod.message_broadcaster.broadcast_frame(
+                                                    image_data=frame,
+                                                    width=width,
+                                                    height=height,
+                                                    quality=75,  # Moderate quality for performance
+                                                )
+                                            )
+                                        except RuntimeError:
+                                            # No event loop running, skip frame broadcast
+                                            pass
+                            except Exception as frame_error:
+                                logger.debug(
+                                    f"Could not broadcast frame: {frame_error}"
+                                )  # Debug level to avoid spam
+
                         if result:
                             # Convert DetectionResult to dict format expected by integration layer
                             detection_data = {
