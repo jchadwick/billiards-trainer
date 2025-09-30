@@ -540,8 +540,9 @@ class CoreModuleIntegrator:
 class VisionInterfaceImpl(VisionInterface):
     """Production implementation of Vision interface."""
 
-    def __init__(self, event_manager: EventManager):
+    def __init__(self, event_manager: EventManager, vision_module: Any = None):
         self.event_manager = event_manager
+        self.vision_module = vision_module
         self._lock = threading.RLock()  # Thread safety
         self.calibration_data = {
             "table": {
@@ -616,6 +617,26 @@ class VisionInterfaceImpl(VisionInterface):
         """Request calibration data from Vision module."""
         with self._lock:
             try:
+                # If vision module is available, get live calibration data
+                if self.vision_module and hasattr(
+                    self.vision_module, "get_calibration_data"
+                ):
+                    try:
+                        live_calibration = self.vision_module.get_calibration_data(
+                            calibration_type
+                        )
+                        if live_calibration:
+                            self.logger.info(
+                                f"Retrieved live {calibration_type} calibration from vision module"
+                            )
+                            return live_calibration
+                    except Exception as vision_error:
+                        self.logger.warning(
+                            f"Failed to get live calibration from vision module: {vision_error}"
+                        )
+                        # Fall through to cached data
+
+                # Fall back to cached calibration data
                 if calibration_type not in self.calibration_data:
                     self.logger.warning(f"Unknown calibration type: {calibration_type}")
                     return {}
@@ -630,7 +651,9 @@ class VisionInterfaceImpl(VisionInterface):
                     )
                     calibration["is_stale"] = True
 
-                self.logger.info(f"Providing {calibration_type} calibration data")
+                self.logger.info(
+                    f"Providing cached {calibration_type} calibration data"
+                )
                 return calibration
 
             except Exception as e:
@@ -669,7 +692,21 @@ class VisionInterfaceImpl(VisionInterface):
                 # Update parameters
                 self.detection_parameters.update(validated_params)
 
-                # Notify vision module of parameter changes
+                # If vision module is available, apply parameters directly
+                if self.vision_module and hasattr(
+                    self.vision_module, "update_detection_parameters"
+                ):
+                    try:
+                        self.vision_module.update_detection_parameters(validated_params)
+                        self.logger.info(
+                            "Applied detection parameters directly to vision module"
+                        )
+                    except Exception as vision_error:
+                        self.logger.warning(
+                            f"Failed to apply parameters to vision module: {vision_error}"
+                        )
+
+                # Also notify via event system for other listeners
                 self.event_manager.send_config_update(
                     "vision", {"detection_parameters": validated_params}
                 )
@@ -751,8 +788,9 @@ class VisionInterfaceImpl(VisionInterface):
 class APIInterfaceImpl(APIInterface):
     """Production implementation of API interface."""
 
-    def __init__(self, event_manager: EventManager):
+    def __init__(self, event_manager: EventManager, websocket_manager: Any = None):
         self.event_manager = event_manager
+        self.websocket_manager = websocket_manager
         self._lock = threading.RLock()  # Thread safety
         self.websocket_handlers = {}
         self.message_queue = []
@@ -951,6 +989,28 @@ class APIInterfaceImpl(APIInterface):
 
     def _queue_message(self, message: dict[str, Any]) -> None:
         """Add message to delivery queue."""
+        # If websocket_manager is available, send immediately
+        if self.websocket_manager:
+            try:
+                message_type = message.get("type", "")
+                if message_type == "state_update" and hasattr(
+                    self.websocket_manager, "broadcast_game_state"
+                ):
+                    self.websocket_manager.broadcast_game_state(message.get("data", {}))
+                elif message_type == "event_notification" and hasattr(
+                    self.websocket_manager, "broadcast_alert"
+                ):
+                    self.websocket_manager.broadcast_alert(message.get("data", {}))
+                elif hasattr(self.websocket_manager, "broadcast"):
+                    self.websocket_manager.broadcast(message)
+                self.logger.debug(
+                    f"Sent message directly to websocket_manager: {message_type}"
+                )
+                return
+            except Exception as ws_error:
+                self.logger.warning(f"Failed to send via websocket_manager: {ws_error}")
+                # Fall through to queueing
+
         # Limit queue size to prevent memory issues
         max_queue_size = 1000
         if len(self.message_queue) >= max_queue_size:
@@ -1000,8 +1060,9 @@ class APIInterfaceImpl(APIInterface):
 class ProjectorInterfaceImpl(ProjectorInterface):
     """Production implementation of Projector interface."""
 
-    def __init__(self, event_manager: EventManager):
+    def __init__(self, event_manager: EventManager, projector_module: Any = None):
         self.event_manager = event_manager
+        self.projector_module = projector_module
         self._lock = threading.RLock()  # Thread safety
         self.projection_settings = {
             "brightness": 0.8,
@@ -1474,8 +1535,30 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
     def _send_to_projector(self, message: dict[str, Any]) -> None:
         """Send message to actual projector hardware/software."""
-        # In a real implementation, this would interface with projector APIs
-        # For now, just log and notify event manager
+        # If projector module is available, call it directly
+        if self.projector_module:
+            try:
+                message_type = message.get("type", "")
+                if message_type == "trajectory_update" and hasattr(
+                    self.projector_module, "render_trajectory"
+                ):
+                    self.projector_module.render_trajectory(message.get("overlay", {}))
+                elif message_type == "overlay_update" and hasattr(
+                    self.projector_module, "render_overlay"
+                ):
+                    self.projector_module.render_overlay(message.get("overlay", {}))
+                elif hasattr(self.projector_module, "send_message"):
+                    self.projector_module.send_message(message)
+                else:
+                    self.logger.debug(
+                        f"Projector module doesn't have handler for: {message_type}"
+                    )
+            except Exception as projector_error:
+                self.logger.warning(
+                    f"Failed to send to projector module: {projector_error}"
+                )
+
+        # Also notify via event system for other listeners
         self.logger.debug(f"Sending to projector: {message['type']}")
         self.event_manager.send_projector_command(message)
 
@@ -1540,8 +1623,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 class ConfigInterfaceImpl(ConfigInterface):
     """Production implementation of Config interface."""
 
-    def __init__(self, event_manager: EventManager):
+    def __init__(self, event_manager: EventManager, config_module: Any = None):
         self.event_manager = event_manager
+        self.config_module = config_module
         self._lock = threading.RLock()  # Thread safety
         self.module_configs = {
             "core": {
@@ -1607,6 +1691,24 @@ class ConfigInterfaceImpl(ConfigInterface):
         """Get configuration for a specific module."""
         with self._lock:
             try:
+                # If config module is available, get live configuration
+                if self.config_module and hasattr(
+                    self.config_module, "get_module_config"
+                ):
+                    try:
+                        live_config = self.config_module.get_module_config(module_name)
+                        if live_config:
+                            self.logger.debug(
+                                f"Retrieved live configuration for module: {module_name}"
+                            )
+                            return live_config
+                    except Exception as config_error:
+                        self.logger.warning(
+                            f"Failed to get live config from config module: {config_error}"
+                        )
+                        # Fall through to cached config
+
+                # Fall back to cached configuration
                 config = self.module_configs.get(module_name, {})
                 if not config:
                     self.logger.warning(
@@ -1625,11 +1727,13 @@ class ConfigInterfaceImpl(ConfigInterface):
                         "version": self.config_history.get(module_name, {}).get(
                             "version", "1.0.0"
                         ),
-                        "source": "core_config",
+                        "source": "cached_config",
                     },
                 }
 
-                self.logger.debug(f"Retrieved configuration for module: {module_name}")
+                self.logger.debug(
+                    f"Retrieved cached configuration for module: {module_name}"
+                )
                 return enhanced_config
 
             except Exception as e:
@@ -1650,11 +1754,25 @@ class ConfigInterfaceImpl(ConfigInterface):
                 # Backup current config
                 old_config = self.module_configs.get(module_name, {}).copy()
 
-                # Apply updates
+                # Apply updates to cache
                 if module_name not in self.module_configs:
                     self.module_configs[module_name] = {}
 
                 self.module_configs[module_name].update(config)
+
+                # If config module is available, persist configuration
+                if self.config_module and hasattr(
+                    self.config_module, "update_module_config"
+                ):
+                    try:
+                        self.config_module.update_module_config(module_name, config)
+                        self.logger.info(
+                            f"Persisted configuration to config module for: {module_name}"
+                        )
+                    except Exception as config_error:
+                        self.logger.warning(
+                            f"Failed to persist config to config module: {config_error}"
+                        )
 
                 # Update history
                 current_time = time.time()

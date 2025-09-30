@@ -49,6 +49,7 @@ export class VideoStore {
 
   // Current detection data
   currentFrame: DetectionFrame | null = null;
+  currentFrameImage: string | null = null; // For WebSocket frame streaming
 
   // Stream URL and connection
   private streamUrl = '';
@@ -409,16 +410,19 @@ export class VideoStore {
       });
 
       // Set up message handlers
+      this.wsClient.on('frame', this.handleFrameMessage.bind(this));
       this.wsClient.on('state', this.handleGameStateMessage.bind(this));
       this.wsClient.on('trajectory', this.handleTrajectoryMessage.bind(this));
+      this.wsClient.on('metrics', this.handleMetricsMessage.bind(this));
+      this.wsClient.on('alert', this.handleAlertMessage.bind(this));
       this.wsClient.onConnectionState(this.handleWebSocketStateChange.bind(this));
 
       // Connect and subscribe to real-time data streams
       await this.wsClient.connect();
 
-      // Subscribe to detection data streams
-      this.wsClient.subscribe(['state', 'trajectory'], {
-        quality: 'high',
+      // Subscribe to detection data streams including video frames
+      this.wsClient.subscribe(['frame', 'state', 'trajectory', 'metrics', 'alert'], {
+        quality: this.config.quality,
         frame_rate: this.config.fps,
       });
 
@@ -572,6 +576,69 @@ export class VideoStore {
         this.currentFrame.trajectories = trajectories;
       }
     });
+  }
+
+  private handleFrameMessage(message: WebSocketMessage): void {
+    if (!message || message.type !== 'frame') return;
+
+    try {
+      const frameData = message.data as any;
+
+      // Decode base64 image and create data URL
+      const imageUrl = `data:image/${frameData.format || 'jpeg'};base64,${frameData.image}`;
+
+      // Update frame image for rendering
+      runInAction(() => {
+        this.currentFrameImage = imageUrl;
+        this.status.fps = frameData.fps || this.status.fps;
+        this.status.lastFrameTime = Date.now();
+
+        // Update performance metrics
+        this.updateFPSCalculation();
+      });
+    } catch (error) {
+      console.error('Failed to process frame message:', error);
+    }
+  }
+
+  private handleMetricsMessage(message: WebSocketMessage): void {
+    if (!message || message.type !== 'metrics') return;
+
+    try {
+      const metricsData = message.data as any;
+
+      // Update performance metrics from server
+      runInAction(() => {
+        if (metricsData.fps !== undefined) this.status.fps = metricsData.fps;
+        if (metricsData.latency_ms !== undefined) this.status.latency = metricsData.latency_ms;
+        if (metricsData.dropped_frames !== undefined) this.status.droppedFrames = metricsData.dropped_frames;
+      });
+    } catch (error) {
+      console.error('Failed to process metrics message:', error);
+    }
+  }
+
+  private handleAlertMessage(message: WebSocketMessage): void {
+    if (!message || message.type !== 'alert') return;
+
+    try {
+      const alertData = message.data as any;
+
+      // Handle alerts by converting to errors if needed
+      if (alertData.level === 'error' || alertData.level === 'critical') {
+        const videoError: VideoError = {
+          code: alertData.code || 'SYSTEM_ALERT',
+          message: alertData.message,
+          timestamp: Date.now(),
+          recoverable: alertData.level !== 'critical',
+        };
+        this.addError(videoError);
+      }
+
+      console.log(`Alert received: ${alertData.level} - ${alertData.message}`);
+    } catch (error) {
+      console.error('Failed to process alert message:', error);
+    }
   }
 
   private inferBallType(id: string, color: string): Ball['type'] {
