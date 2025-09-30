@@ -3,7 +3,7 @@
 import math
 
 import pytest
-from core.analysis.assistance import ShotAssistant
+from core.analysis.assistance import AssistanceEngine
 from core.analysis.prediction import ShotPredictor
 from core.events.manager import EventManager
 from core.game_state import GameStateManager
@@ -423,12 +423,12 @@ class TestShotAssistant:
 
     def test_assistant_creation(self):
         """Test creating shot assistant."""
-        assistant = ShotAssistant()
+        assistant = AssistanceEngine()
         assert assistant is not None
 
     def test_suggest_shots(self, mock_game_state):
         """Test suggesting possible shots."""
-        assistant = ShotAssistant()
+        assistant = AssistanceEngine()
 
         suggestions = assistant.suggest_shots(mock_game_state)
         assert isinstance(suggestions, list)
@@ -441,7 +441,7 @@ class TestShotAssistant:
 
     def test_analyze_shot_difficulty(self, mock_game_state):
         """Test analyzing shot difficulty."""
-        assistant = ShotAssistant()
+        assistant = AssistanceEngine()
 
         cue_ball = mock_game_state.get_cue_ball()
         target_ball = mock_game_state.get_ball("8")
@@ -454,7 +454,7 @@ class TestShotAssistant:
 
     def test_find_best_shot(self, mock_game_state):
         """Test finding the best shot."""
-        assistant = ShotAssistant()
+        assistant = AssistanceEngine()
 
         best_shot = assistant.find_best_shot(mock_game_state)
 

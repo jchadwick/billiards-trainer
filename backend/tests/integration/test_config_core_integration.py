@@ -2,7 +2,7 @@
 
 import pytest
 from core.game_state import GameStateManager
-from core.models import Ball, Table
+from core.models import BallState, Table
 from core.physics.engine import PhysicsEngine
 
 
@@ -48,7 +48,7 @@ class TestConfigCoreIntegration:
         balls = []
 
         # Create cue ball
-        cue_ball = Ball(
+        cue_ball = BallState(
             id="cue",
             x=table_config["width"] / 2,
             y=table_config["height"] / 2,
@@ -59,7 +59,7 @@ class TestConfigCoreIntegration:
 
         # Create numbered balls
         for i in range(1, 9):
-            ball = Ball(
+            ball = BallState(
                 id=str(i),
                 x=table_config["width"] * 0.3 + i * 0.1,
                 y=table_config["height"] * 0.5,
@@ -117,7 +117,7 @@ class TestConfigCoreIntegration:
         )
 
         # Create ball with config radius
-        ball = Ball(
+        ball = BallState(
             id="test",
             x=1.0,
             y=0.5,
@@ -179,7 +179,7 @@ class TestConfigCoreIntegration:
             ],
         )
 
-        cue_ball = Ball(
+        cue_ball = BallState(
             id="cue",
             x=table_config["width"] / 4,
             y=table_config["height"] / 2,
@@ -189,7 +189,7 @@ class TestConfigCoreIntegration:
             velocity_y=0.0,
         )
 
-        target_ball = Ball(
+        target_ball = BallState(
             id="1",
             x=table_config["width"] * 3 / 4,
             y=table_config["height"] / 2,
@@ -226,7 +226,7 @@ class TestConfigCoreIntegration:
         """Test that core modules validate configuration values."""
         # Test invalid ball radius
         with pytest.raises(ValueError):
-            Ball(
+            BallState(
                 id="test",
                 x=1.0,
                 y=0.5,
@@ -282,7 +282,7 @@ class TestConfigCoreIntegration:
         ball_radius = config_module.get("balls.radius")
 
         # Create components that use ball radius
-        ball = Ball(id="test", x=1.0, y=0.5, radius=ball_radius, color="white")
+        ball = BallState(id="test", x=1.0, y=0.5, radius=ball_radius, color="white")
 
         physics_engine = PhysicsEngine()
         physics_engine.configure(ball_radius=ball_radius)

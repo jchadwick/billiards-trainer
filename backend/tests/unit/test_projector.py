@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import numpy as np
 import pytest
-from projector.calibration.color import ColorCalibrator as ProjectorColorCalibrator
+from vision.calibration.color import ColorCalibrator as ProjectorColorCalibrator
 from projector.calibration.geometry import GeometryCalibrator
 from projector.config.manager import ProjectorConfigManager
 from projector.models import Overlay, ProjectorState, RenderObject

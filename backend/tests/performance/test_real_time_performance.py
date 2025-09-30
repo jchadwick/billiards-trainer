@@ -10,7 +10,7 @@ import pytest
 from api.websocket.handler import WebSocketHandler
 from core.physics.engine import PhysicsEngine
 from vision.detection.balls import BallDetector
-from vision.tracking.tracker import BallTracker
+from vision.tracking.tracker import ObjectTracker
 
 
 @pytest.mark.performance()
@@ -21,7 +21,7 @@ class TestCameraProcessingPerformance:
     def test_30_fps_camera_processing(self, performance_timer, memory_monitor):
         """Test maintaining 30+ FPS camera processing."""
         detector = BallDetector()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
 
         # Create test frames
         frames = []
@@ -471,10 +471,10 @@ class TestMemoryUsagePerformance:
         """Test memory stability during continuous operation."""
         from core.game_state import GameStateManager
         from vision.detection.balls import BallDetector
-        from vision.tracking.tracker import BallTracker
+        from vision.tracking.tracker import ObjectTracker
 
         detector = BallDetector()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
         GameStateManager()
 
         memory_monitor.start()
@@ -556,7 +556,7 @@ class TestCPUUtilizationPerformance:
         initial_cpu = psutil.cpu_percent(interval=1)
 
         detector = BallDetector()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
 
         performance_timer.start()
 

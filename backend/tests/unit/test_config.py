@@ -7,7 +7,7 @@ import yaml
 from config.loader.env import EnvironmentLoader
 from config.loader.file import FileLoader
 from config.manager import ConfigurationModule
-from config.storage.persistence import PersistenceManager
+from config.storage.persistence import ConfigPersistence
 from config.validator.schema import SchemaValidator
 
 
@@ -248,7 +248,7 @@ class TestPersistenceManager:
         """Test saving and loading configuration."""
         config_data = {"camera": {"device_id": 0}, "table": {"width": 2.84}}
 
-        persistence = PersistenceManager(base_dir=str(temp_dir))
+        persistence = ConfigPersistence(base_dir=str(temp_dir))
 
         # Save configuration
         persistence.save("test_config", config_data)
@@ -260,14 +260,14 @@ class TestPersistenceManager:
 
     def test_load_nonexistent_config(self, temp_dir):
         """Test loading non-existent configuration."""
-        persistence = PersistenceManager(base_dir=str(temp_dir))
+        persistence = ConfigPersistence(base_dir=str(temp_dir))
 
         with pytest.raises(FileNotFoundError):
             persistence.load("nonexistent_config")
 
     def test_list_configurations(self, temp_dir):
         """Test listing saved configurations."""
-        persistence = PersistenceManager(base_dir=str(temp_dir))
+        persistence = ConfigPersistence(base_dir=str(temp_dir))
 
         # Save multiple configurations
         persistence.save("config1", {"key": "value1"})
@@ -279,7 +279,7 @@ class TestPersistenceManager:
 
     def test_delete_configuration(self, temp_dir):
         """Test deleting saved configuration."""
-        persistence = PersistenceManager(base_dir=str(temp_dir))
+        persistence = ConfigPersistence(base_dir=str(temp_dir))
 
         # Save and delete configuration
         persistence.save("test_config", {"key": "value"})
@@ -292,7 +292,7 @@ class TestPersistenceManager:
         """Test configuration backup and restore."""
         config_data = {"camera": {"device_id": 0}, "table": {"width": 2.84}}
 
-        persistence = PersistenceManager(base_dir=str(temp_dir))
+        persistence = ConfigPersistence(base_dir=str(temp_dir))
 
         # Save original configuration
         persistence.save("main_config", config_data)

@@ -1,0 +1,464 @@
+{
+  "analysis_metadata": {
+    "run_id": "18117672492",
+    "run_url": "https://github.com/jchadwick/billiards-trainer/actions/runs/18117672492",
+    "commit": "c13a516b0d1fe0ead1206855b8d755a0f1663651",
+    "branch": "main",
+    "analyzed_at": "2025-09-29T23:26:00-04:00",
+    "total_jobs": 7,
+    "failed_jobs": 7,
+    "passing_jobs": 0
+  },
+  "summary": {
+    "critical_import_errors": 7,
+    "code_quality_issues": 1,
+    "runtime_errors": 12,
+    "total_issues": 20,
+    "blocking_issues": 8,
+    "tests_executed": 0,
+    "tests_collected": 0
+  },
+  "failures_by_category": {
+    "import_errors": {
+      "count": 7,
+      "severity": "CRITICAL",
+      "blocks_testing": true,
+      "issues": [
+        {
+          "id": "IE-001",
+          "type": "ModuleNotFoundError",
+          "message": "No module named 'api.middleware.auth'",
+          "file": "tests/unit/test_api.py",
+          "line": 9,
+          "expected": "api.middleware.auth",
+          "actual": "api.middleware.authentication",
+          "fix_type": "rename_import",
+          "fix_command": "sed -i '' 's/from api\\.middleware\\.auth/from api.middleware.authentication/' tests/unit/test_api.py",
+          "priority": "P0",
+          "estimated_fix_time_minutes": 2,
+          "automated": true
+        },
+        {
+          "id": "IE-002",
+          "type": "ImportError",
+          "message": "cannot import name 'PersistenceManager' from 'config.storage.persistence'",
+          "file": "tests/unit/test_config.py",
+          "line": 10,
+          "expected": "PersistenceManager",
+          "actual": "ConfigPersistence",
+          "fix_type": "rename_class",
+          "fix_commands": [
+            "sed -i '' 's/from config\\.storage\\.persistence import PersistenceManager/from config.storage.persistence import ConfigPersistence/' tests/unit/test_config.py",
+            "sed -i '' 's/PersistenceManager/ConfigPersistence/g' tests/unit/test_config.py"
+          ],
+          "priority": "P0",
+          "estimated_fix_time_minutes": 5,
+          "automated": true
+        },
+        {
+          "id": "IE-003",
+          "type": "ImportError",
+          "message": "cannot import name 'ShotAssistant' from 'core.analysis.assistance'",
+          "file": "tests/unit/test_core.py",
+          "line": 6,
+          "expected": "ShotAssistant",
+          "actual": "AssistanceEngine",
+          "fix_type": "rename_class_with_alias",
+          "fix_command": "sed -i '' 's/from core\\.analysis\\.assistance import ShotAssistant/from core.analysis.assistance import AssistanceEngine\\nShotAssistant = AssistanceEngine/' tests/unit/test_core.py",
+          "priority": "P0",
+          "estimated_fix_time_minutes": 5,
+          "automated": true
+        },
+        {
+          "id": "IE-004",
+          "type": "ModuleNotFoundError",
+          "message": "No module named 'projector.calibration.color'",
+          "file": "tests/unit/test_projector.py",
+          "line": 8,
+          "expected": "projector.calibration.color",
+          "actual": "vision.calibration.color",
+          "fix_type": "redirect_import",
+          "fix_command": "sed -i '' 's/from projector\\.calibration\\.color/from vision.calibration.color/' tests/unit/test_projector.py",
+          "priority": "P0",
+          "estimated_fix_time_minutes": 10,
+          "automated": true,
+          "notes": "Projector module doesn't have color calibration; use vision's implementation"
+        },
+        {
+          "id": "IE-005",
+          "type": "ImportError",
+          "message": "cannot import name 'CameraFrame' from 'vision.models'",
+          "file": "tests/unit/test_vision.py",
+          "line": 13,
+          "expected": "CameraFrame",
+          "actual": "FrameStatistics",
+          "fix_type": "manual_decision_required",
+          "fix_options": [
+            {
+              "option": "A",
+              "description": "Use FrameStatistics instead",
+              "command": "sed -i '' 's/from vision\\.models import CameraFrame/from vision.models import FrameStatistics/' tests/unit/test_vision.py",
+              "estimated_time_minutes": 5,
+              "recommended": true
+            },
+            {
+              "option": "B",
+              "description": "Implement CameraFrame class",
+              "files_to_modify": ["vision/models.py"],
+              "estimated_time_minutes": 20,
+              "recommended": false
+            }
+          ],
+          "priority": "P0",
+          "estimated_fix_time_minutes": 10,
+          "automated": false
+        },
+        {
+          "id": "IE-006",
+          "type": "ImportError",
+          "message": "cannot import name 'Ball' from 'core.models'",
+          "files": [
+            "tests/integration/test_config_core_integration.py",
+            "tests/integration/test_vision_core_integration.py"
+          ],
+          "expected": "Ball",
+          "actual": "BallState",
+          "fix_type": "rename_class_with_alias",
+          "fix_commands": [
+            "find tests/integration -name '*.py' -exec sed -i '' 's/from core\\.models import Ball/from core.models import BallState\\nBall = BallState/' {} \\;"
+          ],
+          "priority": "P0",
+          "estimated_fix_time_minutes": 5,
+          "automated": true
+        },
+        {
+          "id": "IE-007",
+          "type": "ImportError",
+          "message": "cannot import name 'BallTracker' from 'vision.tracking.tracker'",
+          "files": [
+            "tests/performance/test_real_time_performance.py"
+          ],
+          "expected": "BallTracker",
+          "actual": "ObjectTracker",
+          "fix_type": "rename_class_with_alias",
+          "fix_commands": [
+            "find tests/performance -name '*.py' -exec sed -i '' 's/from vision\\.tracking\\.tracker import BallTracker/from vision.tracking.tracker import ObjectTracker\\nBallTracker = ObjectTracker/' {} \\;"
+          ],
+          "priority": "P0",
+          "estimated_fix_time_minutes": 5,
+          "automated": true
+        }
+      ]
+    },
+    "code_quality": {
+      "count": 1,
+      "severity": "HIGH",
+      "blocks_merge": true,
+      "issues": [
+        {
+          "id": "CQ-001",
+          "type": "black_formatting",
+          "message": "would reformat system/orchestrator.py",
+          "file": "system/orchestrator.py",
+          "line_range": "764-773",
+          "fix_type": "run_formatter",
+          "fix_command": "black system/orchestrator.py",
+          "priority": "P1",
+          "estimated_fix_time_minutes": 1,
+          "automated": true
+        }
+      ]
+    },
+    "runtime_errors": {
+      "count": 12,
+      "severity": "MEDIUM",
+      "blocks_system_tests": true,
+      "issues": [
+        {
+          "id": "RE-001",
+          "type": "AttributeError",
+          "message": "'ConfigurationModule' object has no attribute 'load_from_file'",
+          "file": "tests/system/test_end_to_end.py",
+          "affected_tests": 7,
+          "fix_type": "implement_method",
+          "priority": "P1",
+          "estimated_fix_time_minutes": 20,
+          "automated": false,
+          "notes": "Need to implement load_from_file method in ConfigurationModule or update tests to use correct method"
+        },
+        {
+          "id": "RE-002",
+          "type": "AttributeError",
+          "message": "'SubscriptionManager' object has no attribute 'subscribe'",
+          "file": "tests/system/test_end_to_end.py",
+          "test": "TestCompleteWorkflow::test_websocket_integration_workflow",
+          "fix_type": "update_method_call",
+          "priority": "P2",
+          "estimated_fix_time_minutes": 10,
+          "automated": false
+        },
+        {
+          "id": "RE-003",
+          "type": "AttributeError",
+          "message": "'NoneType' object has no attribute 'get'",
+          "file": "tests/system/test_end_to_end.py",
+          "tests": [
+            "test_configuration_workflow",
+            "test_performance_under_load"
+          ],
+          "fix_type": "fix_test_fixtures",
+          "priority": "P2",
+          "estimated_fix_time_minutes": 30,
+          "automated": false
+        }
+      ]
+    }
+  },
+  "jobs": [
+    {
+      "name": "Unit Tests",
+      "job_id": "51556482666",
+      "status": "failed",
+      "duration_seconds": 105,
+      "exit_code": 2,
+      "error_count": 5,
+      "errors": ["IE-001", "IE-002", "IE-003", "IE-004", "IE-005"],
+      "blocks_testing": true
+    },
+    {
+      "name": "Code Quality",
+      "job_id": "51556482684",
+      "status": "failed",
+      "duration_seconds": 51,
+      "exit_code": 1,
+      "error_count": 1,
+      "errors": ["CQ-001"],
+      "blocks_merge": true
+    },
+    {
+      "name": "Performance Tests",
+      "job_id": "51556482704",
+      "status": "failed",
+      "duration_seconds": 69,
+      "exit_code": 2,
+      "error_count": 1,
+      "errors": ["IE-007"],
+      "blocks_testing": true
+    },
+    {
+      "name": "Integration Tests",
+      "job_id": "51556482712",
+      "status": "failed",
+      "duration_seconds": 75,
+      "exit_code": 2,
+      "error_count": 1,
+      "errors": ["IE-006"],
+      "blocks_testing": true
+    },
+    {
+      "name": "System Tests",
+      "job_id": "51556482729",
+      "status": "failed",
+      "duration_seconds": 64,
+      "exit_code": 1,
+      "error_count": 12,
+      "errors": ["RE-001", "RE-002", "RE-003"],
+      "blocks_testing": false
+    },
+    {
+      "name": "Performance Benchmark",
+      "job_id": "51556482736",
+      "status": "failed",
+      "duration_seconds": 43,
+      "exit_code": 2,
+      "error_count": 1,
+      "errors": ["IE-007"],
+      "blocks_testing": true
+    },
+    {
+      "name": "Test Matrix (ubuntu-latest, 3.11)",
+      "job_id": "51556482757",
+      "status": "failed",
+      "duration_seconds": 77,
+      "exit_code": 2,
+      "error_count": 7,
+      "errors": ["IE-001", "IE-002", "IE-003", "IE-004", "IE-005", "IE-006", "IE-007"],
+      "blocks_testing": true
+    }
+  ],
+  "fix_phases": [
+    {
+      "phase": 1,
+      "name": "Critical Import Fixes",
+      "priority": "P0",
+      "must_complete_before_phase": 2,
+      "can_parallelize": true,
+      "estimated_time_minutes": 40,
+      "issues": ["IE-001", "IE-002", "IE-003", "IE-004", "IE-005", "IE-006", "IE-007"],
+      "automated_fix_script": "./fix_build_failures.sh",
+      "verification_command": "pytest tests/unit/ tests/integration/ tests/performance/ --collect-only"
+    },
+    {
+      "phase": 2,
+      "name": "Code Quality Fix",
+      "priority": "P1",
+      "must_complete_before_phase": 3,
+      "can_parallelize": false,
+      "estimated_time_minutes": 1,
+      "issues": ["CQ-001"],
+      "automated_fix_script": "black system/orchestrator.py",
+      "verification_command": "black --check --diff ."
+    },
+    {
+      "phase": 3,
+      "name": "System Test Fixes",
+      "priority": "P1-P2",
+      "must_complete_before_phase": null,
+      "can_parallelize": false,
+      "estimated_time_minutes": 60,
+      "issues": ["RE-001", "RE-002", "RE-003"],
+      "automated_fix_script": null,
+      "verification_command": "pytest tests/system/ -v"
+    }
+  ],
+  "files_requiring_changes": {
+    "phase_1": [
+      {
+        "file": "tests/unit/test_api.py",
+        "changes": ["Update import on line 9"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/unit/test_config.py",
+        "changes": ["Update import on line 10", "Replace all class references"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/unit/test_core.py",
+        "changes": ["Update import on line 6", "Add compatibility alias"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/unit/test_projector.py",
+        "changes": ["Update import on line 8"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/unit/test_vision.py",
+        "changes": ["Update import on line 13 - MANUAL DECISION REQUIRED"],
+        "priority": "P0",
+        "automated": false
+      },
+      {
+        "file": "tests/integration/test_config_core_integration.py",
+        "changes": ["Update Ball import", "Add compatibility alias"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/integration/test_vision_core_integration.py",
+        "changes": ["Update Ball import", "Add compatibility alias"],
+        "priority": "P0",
+        "automated": true
+      },
+      {
+        "file": "tests/performance/test_real_time_performance.py",
+        "changes": ["Update BallTracker import", "Add compatibility alias"],
+        "priority": "P0",
+        "automated": true
+      }
+    ],
+    "phase_2": [
+      {
+        "file": "system/orchestrator.py",
+        "changes": ["Run black formatter"],
+        "priority": "P1",
+        "automated": true
+      }
+    ],
+    "phase_3": [
+      {
+        "file": "config/manager.py",
+        "changes": ["Implement or document load_from_file method"],
+        "priority": "P1",
+        "automated": false
+      },
+      {
+        "file": "api/websocket/subscriptions.py",
+        "changes": ["Implement or document subscribe method"],
+        "priority": "P2",
+        "automated": false
+      },
+      {
+        "file": "tests/system/test_end_to_end.py",
+        "changes": ["Fix test fixtures returning None"],
+        "priority": "P2",
+        "automated": false
+      }
+    ]
+  },
+  "verification_checklist": [
+    {
+      "step": 1,
+      "action": "Run automated fix script",
+      "command": "./fix_build_failures.sh",
+      "expected": "6/7 import errors fixed automatically"
+    },
+    {
+      "step": 2,
+      "action": "Manually fix CameraFrame",
+      "command": "Edit tests/unit/test_vision.py line 13",
+      "expected": "All import errors resolved"
+    },
+    {
+      "step": 3,
+      "action": "Verify test collection",
+      "command": "pytest tests/unit/ --collect-only",
+      "expected": "collected N items (no errors)"
+    },
+    {
+      "step": 4,
+      "action": "Run unit tests",
+      "command": "pytest tests/unit/ -v",
+      "expected": "Tests execute (may pass or fail)"
+    },
+    {
+      "step": 5,
+      "action": "Verify formatting",
+      "command": "black --check --diff .",
+      "expected": "All done! ✨ 🍰 ✨"
+    },
+    {
+      "step": 6,
+      "action": "Commit and push",
+      "command": "git add tests/ system/ && git commit -m 'fix: resolve CI build failures' && git push",
+      "expected": "CI pipeline turns green"
+    }
+  ],
+  "prevention_recommendations": [
+    {
+      "recommendation": "Add import verification to pre-commit hooks",
+      "implementation": "pytest --collect-only tests/",
+      "priority": "HIGH"
+    },
+    {
+      "recommendation": "Run test collection in CI before full execution",
+      "implementation": "Add 'pytest --collect-only' step to workflow",
+      "priority": "HIGH"
+    },
+    {
+      "recommendation": "Maintain backward compatibility aliases",
+      "implementation": "When renaming classes, add OldName = NewName aliases",
+      "priority": "MEDIUM"
+    },
+    {
+      "recommendation": "Document breaking changes in CHANGELOG",
+      "implementation": "Update CHANGELOG.md with class/module renames",
+      "priority": "MEDIUM"
+    }
+  ]
+}

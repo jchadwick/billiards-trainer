@@ -193,6 +193,46 @@ class Table:
 
 
 @dataclass
+class CameraFrame:
+    """Container for camera frame with metadata.
+
+    Wraps a numpy frame array with metadata for passing through the vision pipeline.
+    Provides convenient properties for frame dimensions and manipulation.
+    """
+
+    frame: NDArray[np.uint8]  # The actual image data
+    timestamp: float
+    frame_id: int
+    width: int
+    height: int
+
+    @property
+    def aspect_ratio(self) -> float:
+        """Calculate frame aspect ratio."""
+        return self.width / self.height if self.height > 0 else 0.0
+
+    @property
+    def center(self) -> tuple[int, int]:
+        """Get frame center coordinates."""
+        return (self.width // 2, self.height // 2)
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """Get frame dimensions as (width, height) tuple."""
+        return (self.width, self.height)
+
+    def copy(self) -> "CameraFrame":
+        """Create a deep copy of the camera frame."""
+        return CameraFrame(
+            frame=self.frame.copy(),
+            timestamp=self.timestamp,
+            frame_id=self.frame_id,
+            width=self.width,
+            height=self.height,
+        )
+
+
+@dataclass
 class FrameStatistics:
     """Frame processing performance statistics."""
 
