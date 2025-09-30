@@ -7,10 +7,10 @@ import cv2
 import numpy as np
 import pytest
 from core.game_state import GameStateManager
-from core.models import Ball, GameState, Table
+from core.models import BallState, GameState, Table
 from vision.detection.balls import BallDetector
 from vision.models import CameraFrame
-from vision.tracking.tracker import BallTracker
+from vision.tracking.tracker import ObjectTracker
 
 
 @pytest.mark.integration()
@@ -33,7 +33,7 @@ class TestVisionCoreIntegration:
             real_x = detected_ball.x / 1920 * 2.84
             real_y = detected_ball.y / 1080 * 1.42
 
-            ball = Ball(
+            ball = BallState(
                 id=detected_ball.id,
                 x=real_x,
                 y=real_y,
@@ -59,7 +59,7 @@ class TestVisionCoreIntegration:
     def test_tracking_state_updates(self):
         """Test updating game state from ball tracking."""
         game_manager = GameStateManager()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
 
         # Set up initial game state
         table = Table(
@@ -68,7 +68,7 @@ class TestVisionCoreIntegration:
             corners=[(0, 0), (2.84, 0), (2.84, 1.42), (0, 1.42)],
         )
 
-        cue_ball = Ball(id="cue", x=1.42, y=0.71, radius=0.028575, color="white")
+        cue_ball = BallState(id="cue", x=1.42, y=0.71, radius=0.028575, color="white")
 
         game_state = GameState(
             table=table,
@@ -105,7 +105,7 @@ class TestVisionCoreIntegration:
 
     def test_velocity_calculation_from_tracking(self):
         """Test calculating ball velocity from tracking data."""
-        tracker = BallTracker()
+        tracker = ObjectTracker()
         game_manager = GameStateManager()
 
         # Set up game state
@@ -114,7 +114,7 @@ class TestVisionCoreIntegration:
             height=1.42,
             corners=[(0, 0), (2.84, 0), (2.84, 1.42), (0, 1.42)],
         )
-        cue_ball = Ball(id="cue", x=1.0, y=0.5, radius=0.028575, color="white")
+        cue_ball = BallState(id="cue", x=1.0, y=0.5, radius=0.028575, color="white")
         game_state = GameState(
             table=table,
             balls=[cue_ball],
@@ -208,7 +208,7 @@ class TestVisionCoreIntegration:
                     real_x = detection.get("x", 0) / 1920 * 2.84
                     real_y = detection.get("y", 0) / 1080 * 1.42
 
-                    ball = Ball(
+                    ball = BallState(
                         id=detection.get("id", f"ball_{len(current_balls)}"),
                         x=real_x,
                         y=real_y,
@@ -299,7 +299,7 @@ class TestVisionCoreIntegration:
             real_x = detection["x"] / 1920 * 2.84
             real_y = detection["y"] / 1080 * 1.42
 
-            ball = Ball(
+            ball = BallState(
                 id=detection["id"],
                 x=real_x,
                 y=real_y,
@@ -319,7 +319,7 @@ class TestVisionCoreIntegration:
     def test_ball_disappearance_handling(self):
         """Test handling when balls disappear from vision (pocketed)."""
         game_manager = GameStateManager()
-        tracker = BallTracker(max_age=1.0)  # 1 second timeout
+        tracker = ObjectTracker(max_age=1.0)  # 1 second timeout
 
         # Set up game state with multiple balls
         table = Table(
@@ -328,9 +328,9 @@ class TestVisionCoreIntegration:
             corners=[(0, 0), (2.84, 0), (2.84, 1.42), (0, 1.42)],
         )
         balls = [
-            Ball(id="cue", x=1.42, y=0.71, radius=0.028575, color="white"),
-            Ball(id="1", x=1.0, y=0.5, radius=0.028575, color="yellow"),
-            Ball(id="8", x=2.0, y=0.9, radius=0.028575, color="black"),
+            BallState(id="cue", x=1.42, y=0.71, radius=0.028575, color="white"),
+            BallState(id="1", x=1.0, y=0.5, radius=0.028575, color="yellow"),
+            BallState(id="8", x=2.0, y=0.9, radius=0.028575, color="black"),
         ]
         game_state = GameState(
             table=table,
@@ -398,7 +398,7 @@ class TestVisionCoreIntegration:
     def test_detection_noise_filtering(self):
         """Test filtering noisy detections before updating game state."""
         game_manager = GameStateManager()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
 
         # Set up game state
         table = Table(
@@ -406,7 +406,7 @@ class TestVisionCoreIntegration:
             height=1.42,
             corners=[(0, 0), (2.84, 0), (2.84, 1.42), (0, 1.42)],
         )
-        cue_ball = Ball(id="cue", x=1.42, y=0.71, radius=0.028575, color="white")
+        cue_ball = BallState(id="cue", x=1.42, y=0.71, radius=0.028575, color="white")
         game_state = GameState(
             table=table,
             balls=[cue_ball],
@@ -466,7 +466,7 @@ class TestVisionCoreIntegration:
     def test_multi_ball_tracking_consistency(self):
         """Test consistent tracking of multiple balls."""
         game_manager = GameStateManager()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
 
         # Set up game state with multiple balls
         table = Table(
@@ -475,9 +475,9 @@ class TestVisionCoreIntegration:
             corners=[(0, 0), (2.84, 0), (2.84, 1.42), (0, 1.42)],
         )
         balls = [
-            Ball(id="cue", x=1.0, y=0.7, radius=0.028575, color="white"),
-            Ball(id="1", x=2.0, y=0.4, radius=0.028575, color="yellow"),
-            Ball(id="2", x=1.5, y=1.0, radius=0.028575, color="blue"),
+            BallState(id="cue", x=1.0, y=0.7, radius=0.028575, color="white"),
+            BallState(id="1", x=2.0, y=0.4, radius=0.028575, color="yellow"),
+            BallState(id="2", x=1.5, y=1.0, radius=0.028575, color="blue"),
         ]
         game_state = GameState(
             table=table,
@@ -538,7 +538,7 @@ class TestVisionCoreIntegration:
     def test_vision_core_performance_integration(self, performance_timer):
         """Test performance of vision-core integration pipeline."""
         detector = BallDetector()
-        tracker = BallTracker()
+        tracker = ObjectTracker()
         game_manager = GameStateManager()
 
         # Set up game state
@@ -590,7 +590,7 @@ class TestVisionCoreIntegration:
                 real_x = track_data["x"] / 1920 * 2.84
                 real_y = track_data["y"] / 1080 * 1.42
 
-                ball = Ball(
+                ball = BallState(
                     id=track_id,
                     x=real_x,
                     y=real_y,
