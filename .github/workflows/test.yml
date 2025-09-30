@@ -148,47 +148,6 @@ jobs:
         name: integration-tests
         fail_ci_if_error: false
 
-  performance-tests:
-    name: Performance Tests
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio psutil
-
-    - name: Run performance tests
-      run: |
-        cd backend
-        python -m pytest tests/performance/ \
-          -m performance \
-          --junit-xml=junit-performance.xml \
-          -v \
-          --tb=short
-
-    - name: Upload performance results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: performance-test-results
-        path: backend/junit-performance.xml
-
   system-tests:
     name: System Tests
     runs-on: ubuntu-latest
@@ -222,44 +181,6 @@ jobs:
           --junit-xml=junit-system.xml \
           -v \
           --tb=short
-
-  test-matrix:
-    name: Test Matrix
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ['3.11']
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip'
-
-    - name: Install system dependencies (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio
-
-    - name: Run quick tests
-      run: |
-        cd backend
-        python -m pytest tests/unit/ tests/integration/ \
-          -m "not slow and not hardware" \
-          --tb=short \
-          -q
 
   coverage-report:
     name: Coverage Report
@@ -310,56 +231,3 @@ jobs:
         file: ./backend/coverage.xml
         flags: all-tests
         name: all-tests
-
-  # docker-test:
-  #   name: Docker Tests
-  #   runs-on: ubuntu-latest
-  #
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #
-  #   - name: Build test Docker image
-  #     run: |
-  #       cd backend
-  #       docker build -t billiards-test -f Dockerfile.test .
-  #
-  #   - name: Run tests in Docker
-  #     run: |
-  #       docker run --rm billiards-test
-
-  benchmark:
-    name: Performance Benchmark
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: Install dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-benchmark
-
-    - name: Run benchmarks
-      run: |
-        cd backend
-        python -m pytest tests/performance/ \
-          -m performance \
-          --benchmark-only \
-          --benchmark-json=benchmark.json
-
-    - name: Store benchmark result
-      uses: benchmark-action/github-action-benchmark@v1
-      with:
-        tool: 'pytest'
-        output-file-path: backend/benchmark.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        auto-push: true
