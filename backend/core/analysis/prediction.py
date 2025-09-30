@@ -66,6 +66,7 @@ class OutcomePredictor:
     """Game outcome prediction engine."""
 
     def __init__(self):
+        """Initialize the outcome predictor with physics calculators and simulation parameters."""
         self.trajectory_calculator = TrajectoryCalculator()
         self.geometry_utils = GeometryUtils()
 
@@ -585,3 +586,7 @@ class OutcomePredictor:
         elif collision["type"] == "pocket":
             # Ball pocketed - already handled in detection
             pass
+
+
+# Alias for backward compatibility with tests
+ShotPredictor = OutcomePredictor

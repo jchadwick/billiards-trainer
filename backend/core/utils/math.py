@@ -6,6 +6,38 @@ from typing import Callable, Optional
 from ..models import Vector2D
 
 
+# Convenience functions that wrap MathUtils methods
+def clamp(value: float, min_val: float, max_val: float) -> float:
+    """Clamp value between min and max."""
+    return max(min_val, min(max_val, value))
+
+
+def lerp(a: float, b: float, t: float) -> float:
+    """Linear interpolation between a and b."""
+    return a + t * (b - a)
+
+
+def normalize_angle(
+    angle: float, min_angle: float = 0.0, max_angle: float = 360.0
+) -> float:
+    """Normalize angle to specified range (default: [0, 360) for degrees).
+
+    Args:
+        angle: Angle to normalize
+        min_angle: Minimum angle in range (default 0.0)
+        max_angle: Maximum angle in range (default 360.0)
+
+    Returns:
+        Angle normalized to [min_angle, max_angle) range
+    """
+    range_size = max_angle - min_angle
+    while angle < min_angle:
+        angle += range_size
+    while angle >= max_angle:
+        angle -= range_size
+    return angle
+
+
 class MathUtils:
     """Mathematical calculations and utilities for billiards physics."""
 

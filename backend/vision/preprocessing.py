@@ -87,7 +87,7 @@ class PreprocessingConfig:
 
 
 class ImagePreprocessor:
-    """Image preprocessing for vision pipeline with comprehensive filtering and optimization.
+    """Image preprocessing for vision pipeline with comprehensive filtering.
 
     Features:
     - Multi-color space conversion
@@ -98,14 +98,15 @@ class ImagePreprocessor:
     - Performance optimization with scaling
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
         """Initialize preprocessor with configuration.
 
         Args:
-            config: Configuration dictionary containing preprocessing parameters
+            config: Configuration dictionary containing preprocessing parameters.
+                   If None, uses default configuration.
         """
         # Convert config dict to structured config
-        self.config = PreprocessingConfig(**config)
+        self.config = PreprocessingConfig(**config) if config else PreprocessingConfig()
 
         # Initialize processing pipeline
         self._initialize_pipeline()
@@ -121,9 +122,8 @@ class ImagePreprocessor:
         # Debug storage
         self.debug_images: list[tuple[str, NDArray[np.uint8]]] = []
 
-        logger.info(
-            f"Image preprocessor initialized with target color space: {self.config.target_color_space}"
-        )
+        target_space = self.config.target_color_space
+        logger.info(f"Image preprocessor initialized with target: {target_space}")
 
     def _initialize_pipeline(self) -> None:
         """Initialize the preprocessing pipeline components."""
@@ -355,6 +355,67 @@ class ImagePreprocessor:
         """Get preprocessing statistics."""
         return self.stats.copy()
 
+    def reduce_noise(
+        self, frame: NDArray[np.uint8], method: Optional[str] = None
+    ) -> NDArray[np.uint8]:
+        """Apply noise reduction to frame.
+
+        Alias for apply_noise_reduction for backward compatibility.
+
+        Args:
+            frame: Input frame
+            method: Noise reduction method (optional)
+
+        Returns:
+            Noise-reduced frame
+        """
+        result = self.apply_noise_reduction(frame, method)
+        return result.astype(np.uint8) if result.dtype != np.uint8 else result
+
+    def correct_lighting(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Correct uneven lighting in frame.
+
+        Applies exposure and contrast correction to normalize lighting.
+
+        Args:
+            frame: Input frame
+
+        Returns:
+            Lighting-corrected frame
+        """
+        result = self._correct_exposure_contrast(frame)
+        return result.astype(np.uint8) if result.dtype != np.uint8 else result
+
+    def extract_roi(
+        self,
+        frame: NDArray[np.uint8],
+        center: tuple[int, int],
+        size: tuple[int, int],
+    ) -> NDArray[np.uint8]:
+        """Extract region of interest from frame.
+
+        Args:
+            frame: Input frame
+            center: Center point (x, y) of ROI
+            size: Size (width, height) of ROI
+
+        Returns:
+            Extracted ROI
+        """
+        x, y = center
+        width, height = size
+
+        # Calculate bounds
+        x1 = max(0, x - width // 2)
+        y1 = max(0, y - height // 2)
+        x2 = min(frame.shape[1], x + width // 2)
+        y2 = min(frame.shape[0], y + height // 2)
+
+        # Extract ROI
+        roi = frame[y1:y2, x1:x2]
+
+        return roi
+
     # Private helper methods
 
     def _convert_color_space(
@@ -526,3 +587,7 @@ class ImagePreprocessor:
         self.stats["avg_processing_time"] = (
             self.stats["avg_processing_time"] * (total_frames - 1) + processing_time
         ) / total_frames
+
+
+# Alias for backward compatibility with tests
+FramePreprocessor = ImagePreprocessor

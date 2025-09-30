@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Optional
 
-from ...core.game_state import Vector2D
-from ...core.physics.trajectory import CollisionType, PredictedCollision, Trajectory
+from core.game_state import Vector2D
+from core.physics.trajectory import CollisionType, PredictedCollision, Trajectory
+
 from .renderer import BasicRenderer, Color, Colors, Point2D
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,7 @@ class EffectsConfig:
     """Configuration for visual effects system."""
 
     def __init__(self):
+        """Initialize effects configuration with default values."""
         # Ball trail effects
         self.trail_enabled = True
         self.trail_length = 10  # Number of trail segments

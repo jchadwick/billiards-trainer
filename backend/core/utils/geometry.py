@@ -5,6 +5,80 @@ import math
 from ..models import Vector2D
 
 
+# Convenience functions for simple coordinate-based calculations
+def angle_between_points(x1: float, y1: float, x2: float, y2: float) -> float:
+    """Calculate angle in degrees from point (x1, y1) to point (x2, y2).
+
+    Args:
+        x1: X coordinate of first point
+        y1: Y coordinate of first point
+        x2: X coordinate of second point
+        y2: Y coordinate of second point
+
+    Returns:
+        Angle in degrees from point 1 to point 2
+    """
+    return math.degrees(math.atan2(y2 - y1, x2 - x1))
+
+
+def distance(x1: float, y1: float, x2: float, y2: float) -> float:
+    """Calculate Euclidean distance between two points.
+
+    Args:
+        x1: X coordinate of first point
+        y1: Y coordinate of first point
+        x2: X coordinate of second point
+        y2: Y coordinate of second point
+
+    Returns:
+        Distance between the two points
+    """
+    return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+
+def normalize_vector(x: float, y: float) -> tuple[float, float]:
+    """Normalize a 2D vector.
+
+    Args:
+        x: X component of vector
+        y: Y component of vector
+
+    Returns:
+        Tuple of (normalized_x, normalized_y). Returns (0, 0) for zero vector.
+    """
+    magnitude = math.sqrt(x**2 + y**2)
+    if magnitude == 0:
+        return (0.0, 0.0)
+    return (x / magnitude, y / magnitude)
+
+
+def point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
+    """Check if point (x, y) is inside polygon using ray casting algorithm.
+
+    Args:
+        x: X coordinate of point to test
+        y: Y coordinate of point to test
+        polygon: List of (x, y) tuples defining the polygon vertices
+
+    Returns:
+        True if point is inside polygon, False otherwise
+    """
+    n = len(polygon)
+    inside = False
+
+    p1x, p1y = polygon[0]
+    for i in range(1, n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y) and y <= max(p1y, p2y) and x <= max(p1x, p2x):
+            if p1y != p2y:
+                xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+            if p1x == p2x or x <= xinters:
+                inside = not inside
+        p1x, p1y = p2x, p2y
+
+    return inside
+
+
 class GeometryUtils:
     """Geometric calculations and utilities for billiards physics."""
 

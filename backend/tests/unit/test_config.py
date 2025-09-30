@@ -29,7 +29,7 @@ class TestConfigurationModule:
             yaml.dump(mock_config, f)
 
         config = ConfigurationModule()
-        config.load_from_file(str(config_file))
+        config.load_config(config_file)
 
         assert config.get("camera.device_id") == 0
         assert config.get("table.width") == 2.84

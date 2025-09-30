@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import JSON, Boolean, Column, DateTime
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, Integer, String, Text
@@ -298,7 +298,8 @@ class UserCreateRequest(BaseModel):
     last_name: Optional[str] = Field(None, max_length=100)
     role: UserRole = UserRole.VIEWER
 
-    @validator("username")
+    @field_validator("username")
+    @classmethod
     def validate_username(cls, v):
         """Validate username format."""
         sanitized = input_validator.sanitize_string(v, max_length=50)
@@ -314,7 +315,8 @@ class UserCreateRequest(BaseModel):
 
         return sanitized
 
-    @validator("password")
+    @field_validator("password")
+    @classmethod
     def validate_password(cls, v):
         """Validate password strength."""
         is_valid, errors = PasswordUtils.validate_password_strength(v)
@@ -374,7 +376,8 @@ class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str = Field(..., min_length=8)
 
-    @validator("new_password")
+    @field_validator("new_password")
+    @classmethod
     def validate_password(cls, v):
         """Validate new password strength."""
         is_valid, errors = PasswordUtils.validate_password_strength(v)
@@ -416,7 +419,8 @@ class APIKeyCreateRequest(BaseModel):
     role: UserRole
     expires_days: Optional[int] = Field(None, ge=1, le=365)
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def validate_name(cls, v):
         """Validate API key name."""
         sanitized = input_validator.sanitize_string(v, max_length=100)

@@ -5,14 +5,9 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
-# Import core models with fallback for different import contexts
-try:
-    from ...core.game_state import BallState
-    from ...core.physics.trajectory import Trajectory
-except ImportError:
-    # If running from the backend directory directly
-    from core.game_state import BallState
-    from core.physics.trajectory import Trajectory
+# Import core models
+from core.game_state import BallState
+from core.physics.trajectory import Trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -22,27 +17,38 @@ try:
 except ImportError:
     # Create fallback classes for testing
     class Color:
+        """RGBA color representation."""
+
         def __init__(self, r, g, b, a=1.0):
+            """Initialize color with RGBA components."""
             self.r = r
             self.g = g
             self.b = b
             self.a = a
 
         def with_alpha(self, alpha):
+            """Create new color with specified alpha value."""
             return Color(self.r, self.g, self.b, alpha)
 
         def to_dict(self):
+            """Convert color to dictionary representation."""
             return {"r": self.r, "g": self.g, "b": self.b, "a": self.a}
 
     class Point2D:
+        """2D point representation."""
+
         def __init__(self, x, y):
+            """Initialize point with x and y coordinates."""
             self.x = x
             self.y = y
 
         def to_tuple(self):
+            """Convert point to tuple (x, y)."""
             return (self.x, self.y)
 
     class Colors:
+        """Collection of predefined colors."""
+
         RED = Color(1.0, 0.0, 0.0, 1.0)
         GREEN = Color(0.0, 1.0, 0.0, 1.0)
         BLUE = Color(0.0, 0.0, 1.0, 1.0)
@@ -523,8 +529,7 @@ class ProjectorMessageHandlers:
             trajectory_id = data.get("ball_id", "cue")
 
             # Create trajectory object (simplified - adapt to your actual Trajectory class)
-            from ...core.models import Vector2D
-            from ...core.physics.trajectory import Trajectory
+            from core.models import Vector2D
 
             # Convert first line to start position
             first_line = lines[0]
@@ -821,7 +826,8 @@ class ProjectorMessageHandlers:
             elif level == "info":
                 # Create subtle blue effect
                 try:
-                    from ...core.models import Vector2D
+                    from core.models import Vector2D
+
                     from ..rendering.effects import Effect, EffectType, Particle
                     from ..rendering.renderer import Colors
                 except ImportError:
@@ -974,7 +980,7 @@ class ProjectorMessageHandlers:
     def _create_ball_state(self, ball_data: dict[str, Any]) -> Optional[BallState]:
         """Create BallState object from ball data."""
         try:
-            from ...core.models import Vector2D
+            from core.models import Vector2D
 
             # Extract ball data
             position = ball_data.get("position", [0, 0])
