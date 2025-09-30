@@ -737,27 +737,45 @@ class SystemOrchestrator:
         try:
             # Register Vision interface if vision module is available
             if "vision" in self.modules:
-                vision_interface = VisionInterfaceImpl(core_module.event_manager)
+                vision_module = self.modules["vision"]
+                vision_interface = VisionInterfaceImpl(
+                    core_module.event_manager, vision_module=vision_module
+                )
                 self.module_integrator.register_vision_interface(vision_interface)
-                logger.info("Vision interface registered")
+                logger.info("Vision interface registered with vision module")
 
             # Register API interface if API module is available
+            # Note: WebSocket manager will be injected when API module starts
             if "api" in self.modules:
-                api_interface = APIInterfaceImpl(core_module.event_manager)
+                # Get websocket manager from API app if available
+                websocket_manager = None
+                api_module = self.modules.get("api")
+                if api_module and hasattr(api_module, "websocket_manager"):
+                    websocket_manager = api_module.websocket_manager
+
+                api_interface = APIInterfaceImpl(
+                    core_module.event_manager, websocket_manager=websocket_manager
+                )
                 self.module_integrator.register_api_interface(api_interface)
-                logger.info("API interface registered")
+                logger.info("API interface registered with websocket manager")
 
             # Register Projector interface if projector module is available
             if "projector" in self.modules:
-                projector_interface = ProjectorInterfaceImpl(core_module.event_manager)
+                projector_module = self.modules["projector"]
+                projector_interface = ProjectorInterfaceImpl(
+                    core_module.event_manager, projector_module=projector_module
+                )
                 self.module_integrator.register_projector_interface(projector_interface)
-                logger.info("Projector interface registered")
+                logger.info("Projector interface registered with projector module")
 
             # Register Config interface if config module is available
             if "config" in self.modules:
-                config_interface = ConfigInterfaceImpl(core_module.event_manager)
+                config_module = self.modules["config"]
+                config_interface = ConfigInterfaceImpl(
+                    core_module.event_manager, config_module=config_module
+                )
                 self.module_integrator.register_config_interface(config_interface)
-                logger.info("Config interface registered")
+                logger.info("Config interface registered with config module")
 
         except Exception as e:
             logger.error(f"Failed to register integration interfaces: {e}")
