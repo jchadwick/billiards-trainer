@@ -742,7 +742,94 @@ class SystemOrchestrator:
                     core_module.event_manager, vision_module=vision_module
                 )
                 self.module_integrator.register_vision_interface(vision_interface)
-                logger.info("Vision interface registered with vision module")
+
+                # Wire vision module detection callbacks to integration layer
+                def on_detection_complete(data: dict) -> None:
+                    """Callback for when vision module completes detection."""
+                    try:
+                        # Extract detection result and convert to expected format
+                        result = data.get("result")
+                        frame_number = data.get("frame_number", 0)
+
+                        if result:
+                            # Convert DetectionResult to dict format expected by integration layer
+                            detection_data = {
+                                "timestamp": (
+                                    result.timestamp
+                                    if hasattr(result, "timestamp")
+                                    else 0.0
+                                ),
+                                "frame_number": frame_number,
+                                "balls": (
+                                    [
+                                        {
+                                            "id": ball.id if hasattr(ball, "id") else i,
+                                            "position": {
+                                                "x": ball.position[0],
+                                                "y": ball.position[1],
+                                            },
+                                            "number": (
+                                                ball.number
+                                                if hasattr(ball, "number")
+                                                else 0
+                                            ),
+                                            "type": (
+                                                ball.type.value
+                                                if hasattr(ball, "type")
+                                                else "unknown"
+                                            ),
+                                            "confidence": (
+                                                ball.confidence
+                                                if hasattr(ball, "confidence")
+                                                else 1.0
+                                            ),
+                                        }
+                                        for i, ball in enumerate(result.balls)
+                                    ]
+                                    if hasattr(result, "balls")
+                                    else []
+                                ),
+                                "table": (
+                                    {
+                                        "corners": (
+                                            result.table.corners
+                                            if hasattr(result, "table") and result.table
+                                            else []
+                                        ),
+                                    }
+                                    if hasattr(result, "table")
+                                    else None
+                                ),
+                                "cue": (
+                                    {
+                                        "position": (
+                                            result.cue.position
+                                            if hasattr(result, "cue") and result.cue
+                                            else None
+                                        ),
+                                        "angle": (
+                                            result.cue.angle
+                                            if hasattr(result, "cue") and result.cue
+                                            else None
+                                        ),
+                                    }
+                                    if hasattr(result, "cue")
+                                    else None
+                                ),
+                            }
+
+                            # Forward to integration layer
+                            vision_interface.receive_detection_data(detection_data)
+                    except Exception as e:
+                        logger.error(f"Error in vision detection callback: {e}")
+
+                # Subscribe to vision module events
+                vision_module.subscribe_to_events(
+                    "detection_complete", on_detection_complete
+                )
+                logger.info(
+                    "Vision interface registered with vision module and callbacks wired"
+                )
 
             # Register API interface if API module is available
             # Note: WebSocket manager will be injected when API module starts
