@@ -604,3 +604,7 @@ class ObjectTracker:
             "current_active_tracks": 0,
             "average_track_length": 0.0,
         }
+
+
+# Backward compatibility alias
+BallTracker = ObjectTracker
