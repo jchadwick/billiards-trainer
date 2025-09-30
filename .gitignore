@@ -263,3 +263,7 @@ distortion_coefficients.json
 .idea/tasks.xml
 .idea/dictionaries/
 .idea/shelf/
+
+# Frontend build output
+backend/static/
+frontend/web/dist/
