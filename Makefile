@@ -156,6 +156,15 @@ test-fast: ## Run fast tests only (exclude slow tests)
 	@echo "$(BLUE)Running fast tests...$(RESET)"
 	pytest -m "not slow"
 
+# ===== Build =====
+
+build-frontend: ## Build the frontend web app
+	@echo "$(BLUE)Building frontend...$(RESET)"
+	cd frontend/web && npm install && npm run build
+	@echo "$(GREEN)Frontend built to backend/static/$(RESET)"
+
+build: build-frontend ## Build the entire application
+
 # ===== Development Server =====
 
 run: ## Run the main application
@@ -165,6 +174,10 @@ run: ## Run the main application
 run-api: ## Run API server only
 	@echo "$(BLUE)Starting API server...$(RESET)"
 	uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+
+run-frontend: ## Run frontend dev server only
+	@echo "$(BLUE)Starting frontend dev server...$(RESET)"
+	cd frontend/web && npm run dev
 
 run-vision: ## Run vision system only
 	@echo "$(BLUE)Starting vision system...$(RESET)"
@@ -243,7 +256,13 @@ clean-data: ## Clean data and temporary files
 	rm -rf debug_images/*
 	@echo "$(GREEN)Data files cleaned!$(RESET)"
 
-clean-all: clean clean-logs ## Clean everything
+clean-frontend: ## Clean frontend build artifacts
+	@echo "$(BLUE)Cleaning frontend build artifacts...$(RESET)"
+	rm -rf backend/static/
+	rm -rf frontend/web/dist/
+	@echo "$(GREEN)Frontend artifacts cleaned!$(RESET)"
+
+clean-all: clean clean-logs clean-frontend ## Clean everything
 
 # ===== Docker =====
 
