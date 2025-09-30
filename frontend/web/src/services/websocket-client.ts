@@ -74,8 +74,15 @@ export class WebSocketClient {
     };
 
     // Initialize message handlers map
-    Object.values(MessageType).forEach(type => {
-      this.messageHandlers.set(type as MessageType, new Set());
+    // MessageType is a TypeScript type, not a runtime enum, so we need to list values explicitly
+    const messageTypes: MessageType[] = [
+      'frame', 'state', 'trajectory', 'alert', 'config', 'metrics',
+      'connection', 'ping', 'pong', 'subscribe', 'unsubscribe',
+      'subscribed', 'unsubscribed', 'status', 'error'
+    ];
+
+    messageTypes.forEach(type => {
+      this.messageHandlers.set(type, new Set());
     });
   }
 
