@@ -31,8 +31,3 @@ Use a subagent for each task. Each subagent should have a clear purpose and oper
 
 When creating subagents, provide them with all the context they need to complete their tasks. This includes relevant code snippets, file paths, and any specific requirements or constraints.
 </agents>
-
-<references>
-This is a port of an existing project that lives at ../cassapa.
-Whenever you have questions about the intended functionality or design decisions, refer to the original project for guidance.
-</references>
