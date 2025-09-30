@@ -20,7 +20,7 @@ class TestCameraProcessingPerformance:
     @pytest.mark.opencv_available()
     def test_30_fps_camera_processing(self, performance_timer, memory_monitor):
         """Test maintaining 30+ FPS camera processing."""
-        detector = BallDetector()
+        detector = BallDetector(config={})
         tracker = ObjectTracker()
 
         # Create test frames
@@ -44,16 +44,16 @@ class TestCameraProcessingPerformance:
             frame_start = time.perf_counter()
 
             # Detection
-            detections = detector.detect(frame)
+            detections = detector.detect_balls(frame)
 
             # Tracking
             timestamp = time.time() + frame_id * 0.033
             for detection in detections:
                 detection_data = {
-                    "id": detection.get("id", "cue"),
-                    "x": detection.get("x", 0),
-                    "y": detection.get("y", 0),
-                    "confidence": detection.get("confidence", 0.9),
+                    "id": detection.ball_type.value if detection.ball_type else "cue",
+                    "x": detection.position[0],
+                    "y": detection.position[1],
+                    "confidence": detection.confidence,
                     "timestamp": timestamp,
                 }
 
@@ -88,7 +88,7 @@ class TestCameraProcessingPerformance:
 
     def test_60_fps_camera_processing(self, performance_timer):
         """Test maintaining 60 FPS camera processing for high-performance mode."""
-        detector = BallDetector()
+        detector = BallDetector(config={})
 
         # Create lightweight test frames
         frames = []
@@ -109,7 +109,7 @@ class TestCameraProcessingPerformance:
             frame_start = time.perf_counter()
 
             # Lightweight detection
-            detector.detect(frame)
+            detector.detect_balls(frame)
 
             frame_end = time.perf_counter()
             frame_time = (frame_end - frame_start) * 1000
@@ -128,7 +128,7 @@ class TestCameraProcessingPerformance:
 
     def test_batch_processing_performance(self, performance_timer):
         """Test batch processing performance for analysis."""
-        detector = BallDetector()
+        detector = BallDetector(config={})
 
         # Create batch of frames
         batch_size = 100
@@ -144,7 +144,7 @@ class TestCameraProcessingPerformance:
         # Process batch
         all_detections = []
         for frame in frames:
-            detections = detector.detect(frame)
+            detections = detector.detect_balls(frame)
             all_detections.append(detections)
 
         performance_timer.stop()
@@ -159,11 +159,11 @@ class TestCameraProcessingPerformance:
 
     def test_concurrent_processing_performance(self, performance_timer):
         """Test concurrent frame processing performance."""
-        detector = BallDetector()
+        detector = BallDetector(config={})
 
         def process_frame(frame_data):
             frame_id, frame = frame_data
-            return detector.detect(frame)
+            return detector.detect_balls(frame)
 
         # Create frames
         frames = []
@@ -196,7 +196,7 @@ class TestWebSocketLatencyPerformance:
         handler = WebSocketHandler()
 
         # Mock WebSocket
-        mock_websocket = MagicMock()
+        mock_websocket = AsyncMock()
         mock_websocket.send_json = AsyncMock()
 
         await handler.connect(mock_websocket)
@@ -233,7 +233,7 @@ class TestWebSocketLatencyPerformance:
         # Create multiple mock clients
         clients = []
         for _i in range(10):
-            mock_ws = MagicMock()
+            mock_ws = AsyncMock()
             mock_ws.send_json = AsyncMock()
             await handler.connect(mock_ws)
             clients.append(mock_ws)
@@ -269,7 +269,7 @@ class TestWebSocketLatencyPerformance:
         performance_timer.start()
 
         for _i in range(num_connections):
-            mock_ws = MagicMock()
+            mock_ws = AsyncMock()
             mock_ws.send_json = AsyncMock()
             await handler.connect(mock_ws)
             clients.append(mock_ws)
@@ -294,7 +294,7 @@ class TestWebSocketLatencyPerformance:
         """Test WebSocket message throughput."""
         handler = WebSocketHandler()
 
-        mock_websocket = MagicMock()
+        mock_websocket = AsyncMock()
         mock_websocket.send_json = AsyncMock()
         await handler.connect(mock_websocket)
 
@@ -473,7 +473,7 @@ class TestMemoryUsagePerformance:
         from vision.detection.balls import BallDetector
         from vision.tracking.tracker import ObjectTracker
 
-        detector = BallDetector()
+        detector = BallDetector(config={})
         tracker = ObjectTracker()
         GameStateManager()
 
@@ -489,16 +489,16 @@ class TestMemoryUsagePerformance:
             cv2.circle(frame, (960, 540), 25, (255, 255, 255), -1)
 
             # Process frame
-            detections = detector.detect(frame)
+            detections = detector.detect_balls(frame)
 
             # Update tracking
             timestamp = time.time() + frame_id * 0.033
             for detection in detections:
                 detection_data = {
-                    "id": detection.get("id", "cue"),
-                    "x": detection.get("x", 960),
-                    "y": detection.get("y", 540),
-                    "confidence": 0.9,
+                    "id": detection.ball_type.value if detection.ball_type else "cue",
+                    "x": detection.position[0],
+                    "y": detection.position[1],
+                    "confidence": detection.confidence,
                     "timestamp": timestamp,
                 }
 
@@ -520,7 +520,7 @@ class TestMemoryUsagePerformance:
 
     def test_memory_leak_detection(self, memory_monitor):
         """Test for memory leaks in core operations."""
-        detector = BallDetector()
+        detector = BallDetector(config={})
 
         memory_monitor.start()
 
@@ -529,7 +529,7 @@ class TestMemoryUsagePerformance:
             # Create and process many frames
             for _i in range(10):
                 frame = np.random.randint(0, 256, (480, 640, 3), dtype=np.uint8)
-                detector.detect(frame)
+                detector.detect_balls(frame)
 
             # Force garbage collection periodically
             if cycle % 20 == 0:
@@ -555,7 +555,7 @@ class TestCPUUtilizationPerformance:
         # Get initial CPU usage
         initial_cpu = psutil.cpu_percent(interval=1)
 
-        detector = BallDetector()
+        detector = BallDetector(config={})
         tracker = ObjectTracker()
 
         performance_timer.start()
@@ -566,15 +566,15 @@ class TestCPUUtilizationPerformance:
             frame[:, :] = [34, 139, 34]
             cv2.circle(frame, (400 + i * 10, 400), 25, (255, 255, 255), -1)
 
-            detections = detector.detect(frame)
+            detections = detector.detect_balls(frame)
 
             timestamp = time.time() + i * 0.033
             for detection in detections:
                 detection_data = {
-                    "id": "cue",
-                    "x": detection.get("x", 960),
-                    "y": detection.get("y", 540),
-                    "confidence": 0.9,
+                    "id": detection.ball_type.value if detection.ball_type else "cue",
+                    "x": detection.position[0],
+                    "y": detection.position[1],
+                    "confidence": detection.confidence,
                     "timestamp": timestamp,
                 }
 

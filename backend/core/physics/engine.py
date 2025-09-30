@@ -387,6 +387,209 @@ class PhysicsEngine:
             ball.position.x += ball.velocity.x * dt
             ball.position.y += ball.velocity.y * dt
 
+    def simulate_step(self, game_state: Any, dt: float) -> None:
+        """Simulate one physics timestep for all balls in the game state.
+
+        Args:
+            game_state: Game state containing balls and table information
+            dt: Time step duration in seconds
+        """
+        if not hasattr(game_state, "balls") or not hasattr(game_state, "table"):
+            return
+
+        # Convert GameState balls to BallState if needed
+        balls = game_state.balls
+        table = game_state.table
+
+        # Update each ball's position based on velocity and physics
+        for ball in balls:
+            if ball.is_pocketed:
+                continue
+
+            # Skip stationary balls
+            if ball.velocity.magnitude() < self.constants.MIN_VELOCITY:
+                continue
+
+            # Integrate motion for this ball
+            self._integrate_motion(ball, table, dt)
+
+            # Check for and handle collisions with table cushions
+            cushion_collision = self._detect_cushion_collision(ball, table, dt)
+            if cushion_collision:
+                self._resolve_cushion_collision(ball, cushion_collision, table)
+
+            # Check for pocket collisions
+            pocket_collision = self._detect_pocket_collision(ball, table, dt)
+            if pocket_collision:
+                self._resolve_pocket_collision(ball, pocket_collision)
+
+        # Check for ball-to-ball collisions
+        for i, ball1 in enumerate(balls):
+            if ball1.is_pocketed:
+                continue
+            for ball2 in balls[i + 1 :]:
+                if ball2.is_pocketed:
+                    continue
+
+                # Check if balls are colliding
+                dx = ball2.position.x - ball1.position.x
+                dy = ball2.position.y - ball1.position.y
+                distance = math.sqrt(dx**2 + dy**2)
+
+                if distance <= ball1.radius + ball2.radius:
+                    # Collision detected, resolve it
+                    collision = Collision(
+                        time=0.0,
+                        position=ball1.position,
+                        ball1_id=ball1.id,
+                        ball2_id=ball2.id,
+                        type="ball",
+                    )
+                    self._resolve_ball_collision(ball1, balls, collision)
+
+    def detect_ball_collision(self, ball1: Any, ball2: Any) -> Optional[Any]:
+        """Detect collision between two balls.
+
+        Args:
+            ball1: First ball
+            ball2: Second ball
+
+        Returns:
+            Collision object if collision detected, None otherwise
+        """
+        # Calculate distance between balls
+        dx = (
+            ball2.x - ball1.x
+            if hasattr(ball1, "x")
+            else ball2.position.x - ball1.position.x
+        )
+        dy = (
+            ball2.y - ball1.y
+            if hasattr(ball1, "y")
+            else ball2.position.y - ball1.position.y
+        )
+        distance = math.sqrt(dx**2 + dy**2)
+
+        # Check if balls are touching or overlapping
+        radius1 = ball1.radius
+        radius2 = ball2.radius
+
+        if distance <= radius1 + radius2:
+            # Create collision result
+            from dataclasses import dataclass
+
+            @dataclass
+            class CollisionResult:
+                ball1: Any
+                ball2: Any
+                distance: float
+
+            return CollisionResult(ball1=ball1, ball2=ball2, distance=distance)
+
+        return None
+
+    def resolve_ball_collision(self, ball1: Any, ball2: Any) -> None:
+        """Resolve collision between two balls.
+
+        Args:
+            ball1: First ball
+            ball2: Second ball
+        """
+        # Handle both Ball and BallState types
+        if hasattr(ball1, "x"):
+            # Legacy Ball type
+            dx = ball2.x - ball1.x
+            dy = ball2.y - ball1.y
+        else:
+            # BallState type
+            dx = ball2.position.x - ball1.position.x
+            dy = ball2.position.y - ball1.position.y
+
+        distance = math.sqrt(dx**2 + dy**2)
+
+        if distance == 0:
+            return  # Balls at same position, skip
+
+        # Unit normal vector
+        nx = dx / distance
+        ny = dy / distance
+
+        # Unit tangent vector
+        tx = -ny
+        ty = nx
+
+        # Get velocities
+        if hasattr(ball1, "velocity_x"):
+            # Legacy Ball type
+            v1x, v1y = ball1.velocity_x, ball1.velocity_y
+            v2x, v2y = ball2.velocity_x, ball2.velocity_y
+        else:
+            # BallState type
+            v1x, v1y = ball1.velocity.x, ball1.velocity.y
+            v2x, v2y = ball2.velocity.x, ball2.velocity.y
+
+        # Project velocities onto normal and tangent directions
+        v1n = v1x * nx + v1y * ny
+        v1t = v1x * tx + v1y * ty
+        v2n = v2x * nx + v2y * ny
+        v2t = v2x * tx + v2y * ty
+
+        # Conservation of momentum in normal direction
+        m1 = ball1.mass if hasattr(ball1, "mass") else self.constants.BALL_MASS
+        m2 = ball2.mass if hasattr(ball2, "mass") else self.constants.BALL_MASS
+
+        v1n_new = ((m1 - m2) * v1n + 2 * m2 * v2n) / (m1 + m2)
+        v2n_new = ((m2 - m1) * v2n + 2 * m1 * v1n) / (m1 + m2)
+
+        # Apply restitution
+        restitution = self.constants.BALL_RESTITUTION
+        v1n_new *= restitution
+        v2n_new *= restitution
+
+        # Tangent velocities remain unchanged
+        v1t_new = v1t
+        v2t_new = v2t
+
+        # Convert back to x,y coordinates
+        new_v1x = v1n_new * nx + v1t_new * tx
+        new_v1y = v1n_new * ny + v1t_new * ty
+        new_v2x = v2n_new * nx + v2t_new * tx
+        new_v2y = v2n_new * ny + v2t_new * ty
+
+        # Update velocities
+        if hasattr(ball1, "velocity_x"):
+            # Legacy Ball type
+            ball1.velocity_x = new_v1x
+            ball1.velocity_y = new_v1y
+            ball2.velocity_x = new_v2x
+            ball2.velocity_y = new_v2y
+        else:
+            # BallState type
+            ball1.velocity.x = new_v1x
+            ball1.velocity.y = new_v1y
+            ball2.velocity.x = new_v2x
+            ball2.velocity.y = new_v2y
+
+        # Separate balls to prevent overlap
+        radius1 = ball1.radius
+        radius2 = ball2.radius
+        overlap = (radius1 + radius2) - distance
+
+        if overlap > 0:
+            separation = overlap / 2.0
+            if hasattr(ball1, "x"):
+                # Legacy Ball type
+                ball1.x -= separation * nx
+                ball1.y -= separation * ny
+                ball2.x += separation * nx
+                ball2.y += separation * ny
+            else:
+                # BallState type
+                ball1.position.x -= separation * nx
+                ball1.position.y -= separation * ny
+                ball2.position.x += separation * nx
+                ball2.position.y += separation * ny
+
     def apply_english_to_cue_ball(
         self,
         cue_ball: BallState,

@@ -14,6 +14,8 @@ from typing import Any, Optional, Union
 
 
 class ShotType(Enum):
+    """Types of billiards shots categorized by technique and strategy."""
+
     BREAK = "break"
     DIRECT = "direct"
     BANK = "bank"
@@ -23,6 +25,8 @@ class ShotType(Enum):
 
 
 class GameType(Enum):
+    """Types of billiards games with different rules and objectives."""
+
     EIGHT_BALL = "8ball"
     NINE_BALL = "9ball"
     STRAIGHT_POOL = "straight"
@@ -1191,3 +1195,8 @@ def create_standard_ball_set() -> list[BallState]:
         balls.append(ball)
 
     return balls
+
+
+# Backward compatibility aliases
+Table = TableState
+Ball = BallState

@@ -119,7 +119,7 @@ def config_module(mock_config, temp_dir):
 
     # Create config module
     config_module = ConfigurationModule()
-    config_module.load_from_file(str(config_file))
+    config_module.load_config(config_file)
     return config_module
 
 

@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from ...core.game_state import Vector2D
-from ...core.physics.trajectory import Trajectory, TrajectoryPoint
+from core.game_state import Vector2D
+from core.physics.trajectory import Trajectory, TrajectoryPoint
 
 logger = logging.getLogger(__name__)
 
