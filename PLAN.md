@@ -4,363 +4,389 @@
 
 ## Executive Summary
 
-Detailed analysis by 10 specialized agents reveals **exceptional implementation quality** with production-ready foundations. The system is approximately **83-87% complete** overall, with most modules showing sophisticated, well-architected implementations.
+Detailed analysis by 10 specialized agents reveals **high-quality implementation** with substantial progress. The system is approximately **80-85% complete** overall, with most modules showing well-architected implementations using real algorithms rather than placeholders.
 
-**Critical Finding**: The main gap is **module integration wiring** - individual modules are nearly complete but not fully connected. Backend module control APIs exist but frontend integration needs completion. WebSocket infrastructure is solid but frame streaming needs final wiring.
+**Critical Finding**: Individual modules are largely complete, but **integration wiring has gaps** preventing end-to-end functionality. WebSocket infrastructure exists but frame streaming isn't fully wired. Frontend needs video feed integration in calibration wizard.
 
-## Current Implementation Status
+## Current Implementation Status by Module
 
-**Backend Modules (Analyzed by specialized agents):**
-- **Vision Module**: **85% complete** - Exceptional computer vision pipeline with Kinect v2 support, needs format converters
-- **Core Module**: **85-90% complete** - Sophisticated physics engine, integration interfaces exist but not wired
-- **API Module**: **85% complete** - Production-ready REST/WebSocket, module control endpoints exist
-- **Configuration Module**: **92-95% complete** - Production-ready config system, nearly feature-complete
-- **Projector Module**: **85-90% complete** - Advanced rendering system, text rendering needs fixes
-- **System Orchestrator**: **85% complete** - Module lifecycle management complete, interface wiring partial
-- **Integration Layer**: **85% complete** - Interfaces implemented, need connection to actual modules
+### Backend Modules (Verified by Agents)
 
-**Frontend Module:**
-- **Web Application**: **75% complete** - Sophisticated React app, missing monitoring dashboard visualizations
+| Module | Completion | Status | Critical Gaps |
+|--------|-----------|--------|---------------|
+| **Vision** | 85% | ✅ Strong | Ball number recognition (heuristic-based), camera-to-table transform partial |
+| **Core** | 75% | ✅ Solid | Integration interfaces not wired, spin physics needs calibration |
+| **API** | 90% | ✅ Excellent | Minor placeholders (frame export, session metrics), OpenCV calibration is real |
+| **Config** | 85% | ✅ Strong | Type converter incomplete, schema validator needs verification |
+| **Projector** | 85% | ✅ Solid | Text rendering incomplete, interactive calibration partial |
+| **System** | 95% | ✅ Excellent | Memory threshold config (1-line fix), otherwise production-ready |
+| **Integration** | 75% | ⚠️ Partial | WebSocket state broadcast not wired, frame streaming missing |
 
-## Priority 1: Critical Blockers (IMMEDIATE - System Won't Function)
+### Frontend Module
 
-### **🚨 CRITICAL: Backend Module Integration Wiring**
-**Status**: Interface implementations exist but not connected to actual module instances
-**Location**: `backend/system/orchestrator.py:738-764`, `backend/core/integration.py`
+| Component | Completion | Status | Critical Gaps |
+|-----------|-----------|--------|---------------|
+| **Web UI** | 85% | ✅ Strong | Video feed in calibration wizard (placeholder canvas), monitoring uses simulated data |
+| **Components** | 100% | ✅ Complete | All UI components fully implemented |
+| **Stores** | 100% | ✅ Complete | MobX stores complete, state migration not implemented |
+| **Routing** | 100% | ✅ Complete | All routes working |
 
-**Current State**:
-```python
-# Lines 738-760 - Interfaces are created but not wired to modules
-vision_interface = VisionInterfaceImpl(core_module.event_manager)  # ✅ Created
-api_interface = APIInterfaceImpl(core_module.event_manager)        # ✅ Created
-projector_interface = ProjectorInterfaceImpl(core_module.event_manager)  # ✅ Created
-config_interface = ConfigInterfaceImpl(core_module.event_manager)  # ✅ Created
-```
+### Testing Infrastructure
 
-**Missing**: Pass actual module instances to interface implementations
+| Category | Status | Coverage |
+|----------|--------|----------|
+| **Backend Unit Tests** | ✅ Good | ~1,863 tests across 89 files |
+| **Backend Integration** | ✅ Excellent | 304 tests across 12 files |
+| **Backend E2E** | ⚠️ Limited | 12 test classes (basic coverage) |
+| **Performance Tests** | ✅ Excellent | 15 test classes with real timing |
+| **Frontend Tests** | ❌ Poor | Only 56 integration tests, no component tests |
 
-**Tasks**:
-- [ ] **Pass vision_module to VisionInterfaceImpl** - Connect detection callbacks
-- [ ] **Pass projector_module to ProjectorInterfaceImpl** - Connect rendering methods
-- [ ] **Pass config_module to ConfigInterfaceImpl** - Connect persistence layer
-- [ ] **Pass FastAPI app to APIInterfaceImpl** - Connect WebSocket manager
-- [ ] **Wire VisionModule callbacks** - Call vision_interface.receive_detection_data()
-- [ ] **Wire event subscriptions** - Connect module instances to targeted events
-- [ ] **Test end-to-end data flow** - Vision → Core → API/Projector
+### Calibration System
 
+| Feature | Status | Automation Level |
+|---------|--------|------------------|
+| **Camera Calibration** | ✅ Complete | 20% auto (needs manual chessboard capture) |
+| **Geometric Calibration** | ✅ Complete | 30% auto (manual corner selection) |
+| **Color Calibration** | ✅ Complete | 40% auto (K-means + manual HSV tuning) |
+| **Projector Calibration** | ✅ Complete | 10% auto (manual keystone adjustment) |
+| **Adaptive Recalibration** | ✅ Complete | Detects 30% lighting changes |
+| **Video Feed in Wizard** | ❌ Missing | Placeholder canvas only |
+
+**Setup Time**: 20-45 minutes with ~30 manual actions
+**Ease of Setup**: 4/10 (Moderate-Difficult)
+
+---
+
+## Priority 1: Critical Blockers (IMMEDIATE - Prevents Basic Functionality)
+
+### 🔴 **CRITICAL: WebSocket Integration Wiring**
+**Severity**: BLOCKS real-time data flow
+**Estimated Effort**: 4-7 hours
+
+#### Issues:
+1. **WebSocket state broadcasting not wired** (`backend/core/integration.py:998`)
+   - `message_broadcaster.broadcast_game_state()` exists but never called
+   - Integration layer routes through `websocket_manager` only
+   - Frontend won't receive state updates
+
+2. **Frame streaming not wired** (`backend/system/orchestrator.py:747`)
+   - Vision frames never reach WebSocket broadcaster
+   - `message_broadcaster.broadcast_frame()` exists but uncalled
+   - No frame extraction in detection callback
+
+3. **Frontend WebSocket connection incomplete** (`frontend/web/src/stores/VideoStore.ts:187`)
+   - `VideoStore.connect()` uses HTTP API, not WebSocket
+   - No WebSocket stream subscription on mount
+   - Backend endpoint exists at `ws://localhost:8000/ws`
+
+#### Tasks:
+- [ ] **Wire WebSocket state broadcast** (1-2 hours)
+  - Modify `integration.py:998` to call `message_broadcaster.broadcast_game_state()`
+
+- [ ] **Wire frame streaming** (2-3 hours)
+  - Add frame extraction in `orchestrator.py:747` callback
+  - Call `message_broadcaster.broadcast_frame()` with frame data
+
+- [ ] **Wire frontend WebSocket** (1-2 hours)
+  - Modify `VideoStore.ts:187` to create WebSocket connection
+  - Subscribe to `state` and `frame` streams
+
+**Verification**: Start system, open frontend, confirm state updates and video frames appear in WebSocket messages
+
+---
+
+### 🟠 **HIGH: Frontend Video Feed in Calibration Wizard**
+**Severity**: BLOCKS usable calibration
+**Estimated Effort**: 2-4 hours
+
+#### Issue:
+- `CalibrationWizard.tsx:62-102` draws placeholder grid pattern
+- No actual camera feed integration
+- Users calibrating blind without visual feedback
+
+#### Tasks:
+- [ ] **Integrate camera feed** (2-3 hours)
+  - Replace placeholder canvas with MJPEG stream or WebSocket frames
+  - Add real-time detection overlay
+
+- [ ] **Test calibration workflow** (1 hour)
+  - Verify corner selection on real video
+  - Verify color picker on real video
+
+---
+
+### 🟠 **HIGH: Vision Ball Number Recognition**
+**Severity**: AFFECTS game state accuracy
+**Estimated Effort**: 8-16 hours
+
+#### Issue:
+- `detection/balls.py:283-898` uses heuristic guesses
+- Template matching returns shape-based guesses (lines 651-683)
+- OCR uses shape analysis without real ML (lines 731-837)
+- Cannot accurately identify specific balls
+
+#### Tasks:
+- [ ] **Implement real number recognition** (6-12 hours)
+  - Add ML-based template matching or OCR
+  - Train on real billiard ball images
+  - Integrate with existing detection pipeline
+
+- [ ] **Test with real footage** (2-4 hours)
+  - Validate >90% accuracy requirement
+
+---
+
+### 🟡 **MEDIUM: Config Module Type Converter**
+**Severity**: MAY AFFECT type coercion
 **Estimated Effort**: 4-6 hours
-**Impact**: HIGH - Enables actual module communication
+
+#### Issue:
+- `/Users/jchadwick/code/billiards-trainer/backend/config/utils/converter.py` has multiple `pass` statements
+- Type conversion logic incomplete (lines 14, 121, 127, 133, 139, 146, 262, 288)
+- Affects validation and auto-correction features
+
+#### Tasks:
+- [ ] **Implement type converter** (3-5 hours)
+  - Complete conversion logic for all types
+  - Add unit tests
+
+- [ ] **Verify config validation** (1 hour)
+  - Test with various config formats
 
 ---
 
-### **🚨 CRITICAL: WebSocket Frame Streaming Completion**
-**Status**: Backend broadcasts frames, frontend doesn't subscribe
-**Location**: `frontend/web/src/stores/VideoStore.ts:420`, `backend/api/websocket/handler.py:341`
+### 🟡 **MEDIUM: Projector Text Rendering**
+**Severity**: TEXT OVERLAYS won't work
+**Estimated Effort**: 6-8 hours
 
-**Issues Found**:
-1. **Frontend doesn't subscribe to frames** - Only subscribes to `['state', 'trajectory']`
-2. **No frame message handler** - Frontend can't process frame messages
-3. **Missing broadcast_message() method** - Backend method called but not implemented
+#### Issue:
+- `rendering/text.py:448` - "Fallback to rectangle placeholder"
+- Actual text rendering to texture not implemented
+- Affects shot statistics, probabilities, instructions display
 
-**Tasks**:
-- [ ] **Add broadcast_message() to WebSocketHandler** - Fix backend method (10 min)
-- [ ] **Subscribe to 'frame' stream** - Update VideoStore subscription (5 min)
-- [ ] **Implement handleFrameMessage()** - Decode base64 and display frames (20 min)
-- [ ] **Test frame streaming** - Verify end-to-end video over WebSocket (30 min)
-- [ ] **Add metrics/alert handlers** - Complete WebSocket message types (20 min)
+#### Tasks:
+- [ ] **Implement text rendering** (5-7 hours)
+  - Surface-to-texture conversion after line 150
+  - GPU text rendering
+  - Multi-line text layout
 
-**Estimated Effort**: 1.5-2 hours
-**Impact**: HIGH - Enables WebSocket video streaming
-
----
-
-### **🚨 CRITICAL: Frontend Monitoring Dashboard Visualization**
-**Status**: Components exist but no Chart.js integration
-**Location**: `frontend/web/src/components/monitoring/`
-
-**Missing Features**:
-- ❌ Real-time FPS counter display
-- ❌ Performance metrics graphs (Chart.js not integrated)
-- ❌ CPU/memory usage visualization
-- ❌ Event log filtering/export
-
-**Tasks**:
-- [ ] **Integrate Chart.js/Recharts** - Add charting library (1 hour)
-- [ ] **Implement MetricsVisualization** - Real-time performance graphs (3 hours)
-- [ ] **Complete EventLog filtering** - Add type/severity filters (2 hours)
-- [ ] **Add hardware status displays** - Camera/projector health indicators (1 hour)
-- [ ] **Implement export functionality** - Event log export (1 hour)
-
-**Estimated Effort**: 8-10 hours
-**Impact**: MEDIUM - Monitoring works without visualization but UX suffers
+- [ ] **Test text overlays** (1 hour)
+  - Verify readable text on projector
 
 ---
 
-## Priority 2: High-Impact Completions (HIGH - Core Features)
+## Priority 2: High-Impact Completions (Core Features)
 
-### **Backend API Module Completions**
-**Current Status**: 85% complete with production-ready implementation
+### Frontend Testing Infrastructure (8-12 hours)
+**Current**: Only 56 integration tests, no component tests
+**Target**: 80%+ component coverage
 
-- [ ] **Calibration Session Persistence** (`routes/calibration_original.py:105-114`): Implement database load/save (4-6 hours)
-- [ ] **Session Monitor Metrics** (`middleware/session_monitor.py:878-879`): Implement blocked attempts tracking (3-4 hours)
-- [ ] **Module Log Reading** (`routes/modules.py:522-560`): Replace mock logs with actual file reading (2-4 hours)
+- [ ] **Add React component tests** (6-8 hours)
+  - Test all major components with React Testing Library
+  - Focus on LiveView, CalibrationWizard, VideoStream
 
-**Estimated Effort**: 9-14 hours
+- [ ] **Add store tests** (2-4 hours)
+  - Test all MobX stores
+  - Test state updates and side effects
 
----
+### Backend Test Coverage (6-10 hours)
+**Gaps**: Projector module (90% missing), API middleware (60% missing)
 
-### **Backend Projector Module Completions**
-**Current Status**: 85-90% complete - sophisticated rendering system
+- [ ] **Add projector module tests** (4-6 hours)
+  - OpenGL renderer tests (with mocking)
+  - Display manager tests
+  - Trajectory rendering tests
 
-- [ ] **Text Rendering Fix** (`rendering/text.py:448-452`): Fix surface-to-texture conversion (6-8 hours)
-- [ ] **Interactive Calibration UI** (`calibration/interactive.py`): Complete interactive corner adjustment (3-4 hours)
-- [ ] **Hardware Projector Testing**: Test with actual projector hardware (2-3 days)
+- [ ] **Add API middleware tests** (2-4 hours)
+  - Test rate limiting, security, logging
+  - Test session monitoring
 
-**Estimated Effort**: 9-12 hours (excluding hardware testing)
+### Calibration Auto-Setup Improvements (4-6 hours)
+**Goal**: Reduce setup time from 30 min to 5 min
 
----
+- [ ] **Add default calibration profiles** (1-2 hours)
+  - Ship with "Standard 9-Foot Table" preset
+  - Include common lighting profiles
 
-### **Vision Module Feature Completions**
-**Current Status**: 85% complete - exceptional implementation
+- [ ] **Implement auto-load last calibration** (1-2 hours)
+  - Load most recent on startup
+  - Show calibration status indicator
 
-- [ ] **Format Converters** (`tracking/integration.py:535-550`): Implement OpenCV/YOLO/custom format conversion (6-8 hours)
-- [ ] **Stripe Ball Detection** (`detection/balls.py:604-609`): Enhance stripe vs solid detection (8-12 hours)
-- [ ] **Kinect v2 Hardware Testing**: Test depth-based detection with real hardware (1-2 days)
+- [ ] **Add quick setup mode** (2 hours)
+  - Express setup with defaults + 4 corner clicks
+  - Skip camera calibration for initial testing
 
-**Estimated Effort**: 14-20 hours (excluding hardware testing)
+### Vision Module Completions (14-20 hours)
 
----
+- [ ] **Format converters** (`tracking/integration.py:535-550`) - 6-8 hours
+  - Implement OpenCV/YOLO/custom format conversion
 
-### **System Module Completions**
-**Current Status**: 85% complete
+- [ ] **Stripe ball detection** (`detection/balls.py:604-609`) - 8-12 hours
+  - Enhance stripe vs solid detection with pattern recognition
 
-- [ ] **State Persistence on Shutdown** (`api/shutdown.py:373-386`): Implement actual state save (4-6 hours)
-- [ ] **Auto-recovery Testing**: Verify module restart functionality (2-3 hours)
+### API Module Completions (9-14 hours)
 
-**Estimated Effort**: 6-9 hours
+- [ ] **Calibration session persistence** (`routes/calibration_original.py:105-114`) - 4-6 hours
+  - Implement database load/save
 
----
+- [ ] **Session monitor metrics** (`middleware/session_monitor.py:878-879`) - 3-4 hours
+  - Implement blocked attempts tracking
 
-## Priority 3: Feature Completions (MEDIUM - Enhanced Functionality)
-
-### **Frontend Feature Completions**
-**Current Status**: 75% complete
-
-- [ ] **Configuration Format Support** (`ConfigImportExport.tsx:201-207`): Add YAML/TOML parsing (2-3 hours)
-- [ ] **Calibration Wizard Completion** (`CalibrationWizard.tsx:72`): Remove placeholder, add test patterns (2 days)
-- [ ] **State Migration** (`persistence.ts:271`): Implement version migration (4-6 hours)
-- [ ] **Navigation Enhancements**: Breadcrumbs, context help (1-2 days)
-
-**Estimated Effort**: 3-4 days
-
----
-
-### **Backend Core Module Enhancements**
-**Current Status**: 85-90% complete
-
-- [ ] **Physics Validation Completeness** (`physics/validation.py:327`): Implement actual energy conservation checks (6-8 hours)
-- [ ] **Cache Hit Ratio Tracking** (`__init__.py:765`): Add hit/miss counting (1 hour)
-- [ ] **Advanced Physics**: Enhance masse shots, multi-ball optimization (6-8 hours)
-
-**Estimated Effort**: 13-17 hours
+- [ ] **Module log reading** (`routes/modules.py:522-560`) - 2-4 hours
+  - Replace mock logs with actual file reading
 
 ---
 
-### **Backend API Enhancements**
-**Current Status**: 85% complete
+## Priority 3: Feature Completions (Enhanced Functionality)
 
-- [ ] **Game Session Frame Export** (`routes/game.py:510-514`): Add raw frame export (4-6 hours)
-- [ ] **WebSocket Quality Filtering** (`websocket/manager.py:483-489`): Implement adaptive quality (4-6 hours)
-- [ ] **Logging Metrics Endpoint** (`middleware/logging.py:399-400`): Expose metrics API (2-3 hours)
+### Frontend Enhancements (3-4 days)
 
-**Estimated Effort**: 10-15 hours
+- [ ] **Configuration format support** (2-3 hours)
+  - Add YAML/TOML parsing (`ConfigImportExport.tsx:201-207`)
+
+- [ ] **State migration** (4-6 hours)
+  - Implement version migration (`persistence.ts:271`)
+
+- [ ] **Monitoring visualization** (8-10 hours)
+  - Replace simulated metrics with real backend data
+  - Chart.js already in dependencies
+
+### Core Module Enhancements (13-17 hours)
+
+- [ ] **Physics validation completeness** (6-8 hours)
+  - Implement energy conservation checks (`physics/validation.py:327`)
+
+- [ ] **Cache hit ratio tracking** (1 hour)
+  - Add hit/miss counting (`__init__.py:765`)
+
+- [ ] **Advanced physics** (6-8 hours)
+  - Enhance masse shots, multi-ball optimization
+
+### System Module Completions (6-9 hours)
+
+- [ ] **State persistence on shutdown** (4-6 hours)
+  - Implement actual state save (`api/shutdown.py:373-386`)
+
+- [ ] **Auto-recovery testing** (2-3 hours)
+  - Verify module restart functionality
 
 ---
 
-## Priority 4: Advanced Features (LOW - Optimization & Polish)
+## Priority 4: Production Readiness (4-7 days)
 
-### **Performance Optimizations**
-- [ ] **GPU Acceleration**: Complete actual GPU kernel implementations (8-12 hours)
-- [ ] **Tracking Optimization**: Implement cache metrics (`tracking/optimization.py:312`) (3-4 hours)
-- [ ] **Color Space Conversions**: Complete missing conversions (`preprocessing.py:392`) (2-3 hours)
+### Security Testing (2-3 days)
+**Current**: No dedicated security tests
 
-**Estimated Effort**: 13-19 hours
+- [ ] **Add security tests**
+  - Authentication bypass tests
+  - Authorization tests
+  - Input validation tests (SQLi, XSS, CSRF)
 
----
+### Load Testing (2-3 days)
 
-### **Frontend Polish**
-- [ ] **Layout Customization**: Drag-and-drop dashboard (react-grid-layout) (3-4 days)
-- [ ] **Overlay Animation**: Smooth trajectory updates (2 days)
-- [ ] **Mobile Optimization**: Enhanced touch gestures (2-3 days)
+- [ ] **Sustained load tests**
+  - 30 FPS for hours
+  - 100+ concurrent WebSocket connections
+  - Memory leak testing over days
 
-**Estimated Effort**: 7-10 days
+### Docker Configuration (1-2 days)
 
----
-
-### **Production Deployment**
-- [ ] **Docker Configuration**: Complete containerization (1-2 days)
-- [ ] **Load Testing**: Test with 100+ concurrent users (2-3 days)
-- [ ] **Production Monitoring**: Enhanced logging and alerting (1-2 days)
-
-**Estimated Effort**: 4-7 days
+- [ ] **Complete containerization**
+  - Multi-stage Docker builds
+  - Docker Compose for full stack
+  - Health checks and monitoring
 
 ---
 
 ## Implementation Strategy
 
-### **Phase 1: Critical System Integration (Week 1)**
-**Goal**: Achieve full end-to-end system functionality
+### **Phase 1: Critical Integration (Week 1 - 20-30 hours)**
+**Goal**: End-to-end data flow working
 
-**Days 1-2** (12-16 hours):
-1. Wire backend module integration interfaces (4-6 hours)
-2. Complete WebSocket frame streaming (2 hours)
-3. Test vision → core → projector data flow (2-3 hours)
-4. Verify module control endpoints work (2-3 hours)
-5. Test game state updates via WebSocket (2 hours)
+**Days 1-2**:
+1. Wire WebSocket integration (4-7 hours)
+2. Add video feed to calibration wizard (2-4 hours)
+3. Test end-to-end data flow (2-3 hours)
+4. Fix any integration issues (2-4 hours)
 
-**Days 3-5** (20-25 hours):
-6. Implement monitoring dashboard visualization (8-10 hours)
-7. Complete calibration session persistence (4-6 hours)
-8. Fix projector text rendering (6-8 hours)
+**Days 3-5**:
+5. Implement ball number recognition (8-16 hours) OR defer to Phase 2
+6. Complete config type converter (4-6 hours)
+7. Fix projector text rendering (6-8 hours)
 
-**Outcome**: Fully functional billiards trainer with all core features operational
-
----
-
-### **Phase 2: Production Features (Week 2)**
-**Goal**: Complete high-impact items for production deployment
-
-**Days 6-8** (25-35 hours):
-1. Implement format converters for vision (6-8 hours)
-2. Complete session monitor metrics (3-4 hours)
-3. Finish calibration wizard (2 days)
-4. Add state persistence on shutdown (4-6 hours)
-5. Complete frontend config format support (2-3 hours)
-
-**Days 9-10** (16-20 hours):
-6. Hardware testing with projector (1-2 days)
-7. Hardware testing with Kinect v2 (1-2 days)
-
-**Outcome**: Production-ready system with hardware validation
+**Outcome**: Fully functional system with all core features operational
 
 ---
 
-### **Phase 3: Feature Completions & Polish (Week 3+)**
-**Goal**: Enhanced functionality and optimization
+### **Phase 2: Testing & Polish (Week 2 - 20-30 hours)**
+**Goal**: Production-ready quality
 
-1. Physics enhancements (13-17 hours)
-2. API enhancements (10-15 hours)
-3. Frontend polish (7-10 days)
-4. Performance optimizations (13-19 hours)
-5. Production deployment prep (4-7 days)
+1. Add frontend tests (8-12 hours)
+2. Add backend test coverage (6-10 hours)
+3. Implement calibration auto-setup (4-6 hours)
+4. Complete API/Vision module gaps (20-30 hours)
 
-**Outcome**: Fully polished system with advanced features
-
----
-
-## Module Completion Status (Detailed)
-
-### Vision Module: 85%
-**Complete**: ✅ Detection pipeline, Kinect v2, calibration, tracking
-**Missing**: Format converters (OpenCV/YOLO), enhanced stripe detection
-**Test Coverage**: Good (test files present)
-
-### Core Module: 85-90%
-**Complete**: ✅ Physics engine, game state, events, analysis, validation
-**Missing**: Cache metrics, physics validation completeness
-**Test Coverage**: Excellent (252 tests)
-
-### API Module: 85%
-**Complete**: ✅ REST/WebSocket, health, config, calibration, video streaming, module control
-**Missing**: Calibration DB persistence, session metrics, log reading
-**Test Coverage**: Good
-
-### Config Module: 92-95%
-**Complete**: ✅ All major features, profiles, validation, backup, encryption
-**Missing**: Minor enhancements only
-**Test Coverage**: Excellent
-
-### Projector Module: 85-90%
-**Complete**: ✅ Display management, rendering, calibration, network
-**Missing**: Text rendering fix, interactive calibration
-**Test Coverage**: Good
-
-### System Orchestrator: 85%
-**Complete**: ✅ Module lifecycle, health monitoring, recovery
-**Missing**: Interface wiring completion, state persistence
-**Test Coverage**: Good
-
-### Frontend: 75%
-**Complete**: ✅ UI components, video streaming, config, overlays, WebSocket client
-**Missing**: Monitoring visualization, calibration wizard, layout customization
-**Test Coverage**: Minimal
+**Outcome**: Well-tested, easy-to-setup system
 
 ---
 
-## Key Architectural Strengths
+### **Phase 3: Production Deployment (Week 3+ - flexible)**
+**Goal**: Production deployment readiness
 
-**Discovered by comprehensive agent analysis:**
-- ✅ **Exceptional Implementation Quality**: All modules demonstrate senior-level engineering
-- ✅ **Production-Ready Architecture**: Comprehensive error handling, logging, monitoring
-- ✅ **Real Implementations**: OpenCV homography, sophisticated physics, actual WebSocket
-- ✅ **Modern Technology Stack**: TypeScript, React, FastAPI, OpenGL, MobX, moderngl
-- ✅ **Comprehensive Testing**: 252+ backend tests, extensive integration coverage
+1. Security testing (2-3 days)
+2. Load testing (2-3 days)
+3. Docker configuration (1-2 days)
+4. Documentation updates (1-2 days)
+
+**Outcome**: Production-deployed system
+
+---
+
+## Key Strengths (Verified by Agents)
+
+- ✅ **Real Implementations**: OpenCV homography, physics engine with RK4 integration, actual WebSocket
+- ✅ **Production Architecture**: Comprehensive error handling, logging, health monitoring
+- ✅ **Modern Stack**: TypeScript, React 19, FastAPI, OpenGL, MobX 6, Vite 6
+- ✅ **Comprehensive Backend Testing**: 1,863 unit tests, 304 integration tests, 15 performance tests
 - ✅ **Sophisticated Patterns**: Factory, Observer, Strategy patterns throughout
 - ✅ **Excellent Documentation**: Clear docstrings, inline comments, specifications
 
----
+## Critical Weaknesses (Agent Findings)
 
-## Critical Findings
-
-### What's Working ✅
-1. **All individual modules** are nearly complete with sophisticated implementations
-2. **WebSocket connection** with authentication, reconnection, ping/pong
-3. **Game state and trajectory** streaming works
-4. **Module control APIs** exist in backend
-5. **Video streaming** via HTTP MJPEG works
-6. **Calibration workflows** are complete
-7. **Configuration system** is production-ready
-8. **Physics engine** is sophisticated with validation
-
-### What Needs Wiring 🔧
-1. **Module integration interfaces** - Pass actual module instances to implementations
-2. **WebSocket frame streaming** - Subscribe and handle frame messages
-3. **Vision detection callbacks** - Call integration layer from vision module
-4. **Event subscriptions** - Wire modules to targeted events
-5. **Monitoring dashboard** - Add visualization library
-
-### What's Missing ❌
-1. **Chart.js integration** for performance graphs
-2. **Calibration DB persistence** implementation
-3. **Text rendering** texture conversion fix
-4. **Format converters** for vision tracking
-5. **Session metrics** tracking implementation
+- ❌ **Integration Wiring**: WebSocket state broadcast, frame streaming not connected
+- ❌ **Frontend Testing**: Only 56 tests, no component tests
+- ❌ **Calibration UX**: Video feed placeholder, 30-minute manual setup
+- ❌ **Ball Recognition**: Heuristic-based, needs ML implementation
+- ❌ **Text Rendering**: Incomplete, affects projector overlays
 
 ---
 
-## Updated Completion Estimates
+## Completion Estimates
 
-**Current Overall Status**: ~83-87% complete
-**After Phase 1 (Critical)**: ~92-94% overall completion
-**After Phase 2 (High Priority)**: ~96-97% overall completion
-**After Phase 3 (All Features)**: ~99% overall completion
+| Milestone | Completion % | Time Required |
+|-----------|-------------|---------------|
+| **Current Status** | ~80-85% | - |
+| **After Phase 1** | ~92-94% | 1 week |
+| **After Phase 2** | ~96-97% | 2 weeks |
+| **After Phase 3** | ~99% | 3+ weeks |
 
-**Time to Functional System**: 1-2 weeks (Phase 1)
-**Time to Production-Ready**: 2-3 weeks (Phase 1+2)
-**Time to Feature-Complete**: 4-6 weeks (All Phases)
+**Time to Basic Functional System**: 1 week (Phase 1)
+**Time to Production-Ready**: 2-3 weeks (Phases 1+2)
+**Time to Feature-Complete**: 4+ weeks (All Phases)
 
 ---
 
 ## Revised Assessment
 
-The comprehensive agent analysis reveals this is a **production-ready system with exceptional architecture** requiring targeted integration wiring rather than fundamental development.
+The comprehensive 10-agent analysis reveals a **well-architected system with substantial implementation** requiring targeted integration work rather than fundamental development.
 
-**Key Insight**: Both frontend and backend modules are individually **near-complete** with sophisticated implementations. The critical gap is **final integration wiring** between well-implemented modules - passing module instances to interface implementations, subscribing to WebSocket frame streams, and adding visualization libraries.
+**Key Insight**: Individual modules are largely complete with real algorithms (OpenCV, physics, rendering). The critical gap is **integration wiring** - connecting WebSocket broadcasters, adding video feeds to frontend, and completing a few incomplete implementations (ball recognition, text rendering, type converter).
 
-**Most Important Next Steps**:
-1. Wire module instances to integration interfaces (4-6 hours)
-2. Complete WebSocket frame streaming (2 hours)
-3. Add Chart.js for monitoring (1 hour)
-4. Test end-to-end data flow (2-3 hours)
+**Most Critical Next Steps** (Priority Order):
+1. Wire WebSocket integration (4-7 hours) - **BLOCKS real-time data**
+2. Add video feed to calibration wizard (2-4 hours) - **BLOCKS usable calibration**
+3. Implement ball number recognition (8-16 hours) - **AFFECTS game accuracy**
+4. Complete config type converter (4-6 hours) - **MAY AFFECT validation**
+5. Fix projector text rendering (6-8 hours) - **BLOCKS text overlays**
 
-**Bottom Line**: This system is ~10-15 hours of focused integration work away from being fully functional, and 2-3 weeks away from production deployment.
+**Bottom Line**: This system is ~20-30 hours of focused work away from being fully functional, and 2-3 weeks away from production deployment with comprehensive testing.

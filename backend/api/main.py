@@ -53,6 +53,7 @@ from .routes import (
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
+    message_broadcaster,
     shutdown_websocket_system,
     websocket_handler,
     websocket_manager,
@@ -268,6 +269,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Initializing WebSocket components...")
         app_state.websocket_manager = websocket_manager
         app_state.websocket_handler = websocket_handler
+        app_state.message_broadcaster = message_broadcaster
 
         # Start WebSocket system services
         await initialize_websocket_system()

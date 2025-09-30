@@ -832,19 +832,28 @@ class SystemOrchestrator:
                 )
 
             # Register API interface if API module is available
-            # Note: WebSocket manager will be injected when API module starts
+            # Note: WebSocket manager and broadcaster will be injected when API module starts
             if "api" in self.modules:
-                # Get websocket manager from API app if available
+                # Get websocket components from API app if available
                 websocket_manager = None
+                message_broadcaster = None
                 api_module = self.modules.get("api")
-                if api_module and hasattr(api_module, "websocket_manager"):
-                    websocket_manager = api_module.websocket_manager
+                if api_module:
+                    if hasattr(api_module, "websocket_manager"):
+                        websocket_manager = api_module.websocket_manager
+                    if hasattr(api_module, "message_broadcaster"):
+                        message_broadcaster = api_module.message_broadcaster
 
                 api_interface = APIInterfaceImpl(
-                    core_module.event_manager, websocket_manager=websocket_manager
+                    core_module.event_manager,
+                    websocket_manager=websocket_manager,
+                    message_broadcaster=message_broadcaster,
                 )
                 self.module_integrator.register_api_interface(api_interface)
-                logger.info("API interface registered with websocket manager")
+                logger.info(
+                    f"API interface registered (websocket_manager: {websocket_manager is not None}, "
+                    f"message_broadcaster: {message_broadcaster is not None})"
+                )
 
             # Register Projector interface if projector module is available
             if "projector" in self.modules:

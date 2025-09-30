@@ -23,10 +23,12 @@ class ApplicationState:
     """Application state container."""
 
     def __init__(self):
+        """Initialize application state with default values."""
         self.core_module: Optional[CoreModule] = None
         self.config_module: Optional[ConfigurationModule] = None
         self.websocket_manager = websocket_manager
         self.websocket_handler = None
+        self.message_broadcaster: Optional[Any] = None  # MessageBroadcaster instance
         self.startup_time: Optional[float] = None
         self.is_healthy: bool = False
         self.vision_module: Optional[Any] = None  # Will be VisionModule when imported
