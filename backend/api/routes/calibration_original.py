@@ -10,6 +10,7 @@ Provides comprehensive calibration management including:
 import json
 import logging
 import math
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -99,19 +100,73 @@ _geometric_calibrator = GeometricCalibrator()
 # In-memory storage for calibration sessions (use Redis/database in production)
 _calibration_sessions: dict[str, dict[str, Any]] = {}
 
+# Initialize persistence for calibration sessions
+from pathlib import Path as PathLib
+
+from config.storage.persistence import ConfigPersistence
+
+_calibration_persistence = ConfigPersistence(
+    base_dir=PathLib("calibration_cache"), enable_encryption=False
+)
+
 
 async def load_calibration_session_from_db(session_id: str) -> Optional[dict[str, Any]]:
-    """Load calibration session from database (stub for future implementation)."""
-    # TODO: Implement database loading
-    return None
+    """Load calibration session from database/file storage.
+
+    Args:
+        session_id: Unique identifier for the calibration session
+
+    Returns:
+        Calibration session data if found, None otherwise
+    """
+    try:
+        # Try to load from file storage
+        session_file = _calibration_persistence.base_dir / f"session_{session_id}.json"
+        if session_file.exists():
+            import json
+
+            with open(session_file) as f:
+                session_data = json.load(f)
+                logger.info(f"Loaded calibration session {session_id} from storage")
+                return session_data
+        else:
+            logger.debug(f"Calibration session {session_id} not found in storage")
+            return None
+    except Exception as e:
+        logger.error(f"Failed to load calibration session {session_id}: {e}")
+        return None
 
 
 async def update_calibration_session_in_db(
     session_id: str, updates: dict[str, Any]
 ) -> None:
-    """Update calibration session in database (stub for future implementation)."""
-    # TODO: Implement database updates
-    pass
+    """Update calibration session in database/file storage.
+
+    Args:
+        session_id: Unique identifier for the calibration session
+        updates: Dictionary containing session updates
+    """
+    try:
+        # Ensure calibration directory exists
+        _calibration_persistence._ensure_directories()
+
+        # Load existing session or create new one
+        session_data = await load_calibration_session_from_db(session_id) or {}
+
+        # Apply updates
+        session_data.update(updates)
+        session_data["last_updated"] = time.time()
+
+        # Save to file storage
+        session_file = _calibration_persistence.base_dir / f"session_{session_id}.json"
+        import json
+
+        with open(session_file, "w") as f:
+            json.dump(session_data, f, indent=2)
+
+        logger.info(f"Updated calibration session {session_id} in storage")
+    except Exception as e:
+        logger.error(f"Failed to update calibration session {session_id}: {e}")
 
 
 class CalibrationMath:
@@ -395,6 +450,14 @@ async def start_calibration_sequence(
                 _calibration_sessions[session_id]["cancelled_at"] = datetime.now(
                     timezone.utc
                 )
+                # Persist cancellation to storage
+                await update_calibration_session_in_db(
+                    session_id,
+                    {
+                        "status": "cancelled",
+                        "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
 
         # Generate session ID
         session_id = f"cal_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
@@ -426,6 +489,9 @@ async def start_calibration_sequence(
         }
 
         _calibration_sessions[session_id] = session_data
+
+        # Persist session to storage
+        await update_calibration_session_in_db(session_id, session_data)
 
         # Generate calibration instructions based on type
         instructions = []

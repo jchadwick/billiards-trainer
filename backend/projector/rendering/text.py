@@ -615,18 +615,35 @@ class TextRenderer:
             # Get surface data
             width, height = surface.get_size()
 
-            # Convert surface to raw texture data
-            # Pygame surfaces are typically in RGBA format
-            raw_data = pygame.image.tostring(surface, "RGBA", flipped=True)
+            # Convert surface to RGBA format if needed
+            if surface.get_bitsize() != 32:
+                surface = surface.convert_alpha()
 
-            # Create OpenGL texture
+            # Get raw pixel data
+            # Use pygame.image.tobytes() instead of deprecated tostring()
+            try:
+                # Modern pygame uses tobytes()
+                raw_data = pygame.image.tobytes(surface, "RGBA", flipped=True)
+            except AttributeError:
+                # Fallback for older pygame versions
+                raw_data = pygame.image.tostring(surface, "RGBA", flipped=True)
+
+            # Create OpenGL texture with proper format
+            # RGBA format requires 4 components
             texture = self.basic_renderer.ctx.texture((width, height), 4, raw_data)
             texture.filter = (moderngl.LINEAR, moderngl.LINEAR)
+
+            # Enable blending for alpha transparency
+            texture.use(0)
 
             return texture
 
         except Exception as e:
             logger.error(f"Failed to convert surface to texture: {e}")
+            logger.debug(
+                f"Surface info - size: {surface.get_size() if surface else 'None'}, "
+                f"bitsize: {surface.get_bitsize() if surface else 'None'}"
+            )
             return None
 
     def _render_texture_at_position(
