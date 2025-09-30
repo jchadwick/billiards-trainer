@@ -766,7 +766,9 @@ class SystemOrchestrator:
                                 if frame is not None and api_mod.message_broadcaster:
                                     # Get frame dimensions
                                     height, width = (
-                                        frame.shape[:2] if len(frame.shape) >= 2 else (0, 0)
+                                        frame.shape[:2]
+                                        if len(frame.shape) >= 2
+                                        else (0, 0)
                                     )
                                     if width > 0 and height > 0:
                                         # Schedule async frame broadcast

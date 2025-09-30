@@ -31,6 +31,7 @@ from .models import (
     BallType,
     CalibrationData,
     CameraCalibration,
+    CameraFrame,
     ColorCalibration,
     CueState,
     CueStick,
@@ -762,6 +763,7 @@ __all__ = [
     # Data models
     "Ball",
     "BallType",
+    "CameraFrame",
     "CueStick",
     "CueState",
     "Table",

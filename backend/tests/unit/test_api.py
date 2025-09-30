@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from api.main import create_app
-from api.middleware.auth import AuthMiddleware
+from api.middleware.authentication import AuthenticationMiddleware as AuthMiddleware
 from api.middleware.performance import PerformanceMiddleware
 from api.models.responses import GameStateResponse, HealthResponse
 from api.utils.security import SecurityUtils
