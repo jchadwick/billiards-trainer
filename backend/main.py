@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -32,13 +33,11 @@ def main() -> NoReturn:
 
     # Load configuration
     config_module = ConfigurationModule()
-    config = config_module.get_config()
 
-    # Get API settings
-    api_host = config.get("api.host", "0.0.0.0")
-    api_port = config.get("api.port", 8000)
-    log_level = config.get("logging.level", "INFO").lower()
-
+    # Get API settings - default to 0.0.0.0 for LAN access
+    api_host = "0.0.0.0"  # Bind to all interfaces
+    api_port = int(os.getenv("API_PORT", "8000"))
+    log_level = config_module.get("logging.level", "INFO").lower()
     logger.info(f"Starting Billiards Trainer on {api_host}:{api_port}")
     logger.info(f"Log level: {log_level}")
 

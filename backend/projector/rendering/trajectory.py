@@ -11,7 +11,7 @@ This module provides comprehensive trajectory visualization capabilities includi
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
@@ -57,10 +57,10 @@ class TrajectoryVisualConfig:
     """Configuration for trajectory visualization."""
 
     # Line rendering
-    primary_color: Color = Colors.GREEN
-    secondary_color: Color = Colors.YELLOW
-    collision_color: Color = Colors.RED
-    reflection_color: Color = Colors.CYAN
+    primary_color: Color = field(default_factory=lambda: Colors.GREEN)
+    secondary_color: Color = field(default_factory=lambda: Colors.YELLOW)
+    collision_color: Color = field(default_factory=lambda: Colors.RED)
+    reflection_color: Color = field(default_factory=lambda: Colors.CYAN)
 
     # Line properties
     line_width: float = 3.0

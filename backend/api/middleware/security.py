@@ -316,10 +316,11 @@ class SecurityHeadersManager:
             development_mode=True,
             enable_hsts=False,  # Don't require HTTPS in dev
             csp_directives={
-                "default-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-                "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-                "style-src": ["'self'", "'unsafe-inline'"],
-                "img-src": ["'self'", "data:", "blob:", "*"],
+                "default-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
+                "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"],
+                "style-src": ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+                "img-src": ["'self'", "data:", "blob:", "https:"],
+                "font-src": ["'self'", "https://cdn.jsdelivr.net"],
                 "connect-src": ["'self'", "ws:", "wss:", "*"],
             },
             frame_options="SAMEORIGIN",  # Allow embedding for dev tools
