@@ -339,7 +339,7 @@ class ConfigSources(BaseModel):
         Path("config/default.json"),
         Path("config/local.json")
     ]
-    env_prefix: str = "CASSAPA_"
+    env_prefix: str = "BILLIARDS_"
     precedence: List[str] = [
         "cli", "environment", "file", "default"
     ]

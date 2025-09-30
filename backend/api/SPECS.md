@@ -2,7 +2,9 @@
 
 ## Module Purpose
 
-The API module serves as the primary interface between the backend processing system and all client applications. It provides RESTful endpoints for configuration and control, WebSocket connections for real-time data streaming, and handles all authentication, validation, and communication protocols.
+The API module serves as the primary interface between the backend processing system and all client applications. It provides RESTful endpoints for configuration and control, WebSocket connections for real-time data streaming, and handles validation and communication protocols.
+
+**Note**: This is a single-user training system with no authentication requirements.
 
 ## Functional Requirements
 
@@ -46,16 +48,9 @@ The API module serves as the primary interface between the backend processing sy
 - **FR-WS-007**: Provide connection quality indicators
 - **FR-WS-008**: Enable selective subscription to data streams
 
-### 3. Authentication & Authorization
+### 3. Security
 
-#### 3.1 Access Control
-- **FR-AUTH-001**: Implement JWT-based authentication
-- **FR-AUTH-002**: Support role-based access control (admin, operator, viewer)
-- **FR-AUTH-003**: Provide API key authentication for programmatic access
-- **FR-AUTH-004**: Enable session management and timeout
-
-#### 3.2 Security
-- **FR-SEC-001**: Enforce HTTPS for all communications
+- **FR-SEC-001**: Support HTTPS for communications (optional for local development)
 - **FR-SEC-002**: Implement rate limiting per client
 - **FR-SEC-003**: Validate and sanitize all inputs
 - **FR-SEC-004**: Log security events and access attempts
@@ -82,10 +77,9 @@ The API module serves as the primary interface between the backend processing sy
 - **NFR-REL-004**: Circuit breaker pattern for failing dependencies
 
 ### Security Requirements
-- **NFR-SEC-001**: TLS 1.3 encryption for all communications
-- **NFR-SEC-002**: OWASP Top 10 compliance
-- **NFR-SEC-003**: Input validation against injection attacks
-- **NFR-SEC-004**: Secure storage of API keys and tokens
+- **NFR-SEC-001**: TLS 1.3 encryption support for production deployments
+- **NFR-SEC-002**: Input validation against injection attacks
+- **NFR-SEC-003**: Rate limiting to prevent abuse
 
 ## Interface Specifications
 

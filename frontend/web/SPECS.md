@@ -4,6 +4,8 @@
 
 The Frontend Web Application provides a zero-installation, browser-based interface for system control, monitoring, and configuration. It delivers real-time visualization of the pool table, trajectory predictions, and system settings through an intuitive, responsive web interface accessible from any device.
 
+**Note**: This is a single-user training system with no authentication requirements.
+
 ## Functional Requirements
 
 ### 1. Live View
@@ -582,8 +584,7 @@ frontend/
 │   │   └── Calibration.tsx
 │   ├── services/
 │   │   ├── api.ts        # API client
-│   │   ├── websocket.ts  # WebSocket handler
-│   │   └── auth.ts       # Authentication
+│   │   └── websocket.ts  # WebSocket handler
 │   ├── store/
 │   │   ├── index.ts      # Store setup
 │   │   ├── slices/       # Redux slices / Vuex modules
