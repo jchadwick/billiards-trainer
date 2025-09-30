@@ -48,39 +48,6 @@ The API module serves as the primary interface between the backend processing sy
 - **FR-WS-007**: Provide connection quality indicators
 - **FR-WS-008**: Enable selective subscription to data streams
 
-### 3. Security
-
-- **FR-SEC-001**: Support HTTPS for communications (optional for local development)
-- **FR-SEC-002**: Implement rate limiting per client
-- **FR-SEC-003**: Validate and sanitize all inputs
-- **FR-SEC-004**: Log security events and access attempts
-
-## Non-Functional Requirements
-
-### Performance Requirements
-- **NFR-PERF-001**: Handle 100+ concurrent HTTP requests
-- **NFR-PERF-002**: Support 50+ simultaneous WebSocket connections
-- **NFR-PERF-003**: Respond to REST requests within 100ms
-- **NFR-PERF-004**: Maintain <50ms WebSocket message latency
-- **NFR-PERF-005**: Stream video at consistent 30+ FPS
-
-### Scalability Requirements
-- **NFR-SCALE-001**: Horizontally scalable with load balancer support
-- **NFR-SCALE-002**: Stateless design for distributed deployment
-- **NFR-SCALE-003**: Support Redis/pub-sub for multi-instance coordination
-- **NFR-SCALE-004**: Handle graceful degradation under load
-
-### Reliability Requirements
-- **NFR-REL-001**: 99.9% uptime for API endpoints
-- **NFR-REL-002**: Automatic reconnection for WebSocket clients
-- **NFR-REL-003**: Graceful error handling with meaningful messages
-- **NFR-REL-004**: Circuit breaker pattern for failing dependencies
-
-### Security Requirements
-- **NFR-SEC-001**: TLS 1.3 encryption support for production deployments
-- **NFR-SEC-002**: Input validation against injection attacks
-- **NFR-SEC-003**: Rate limiting to prevent abuse
-
 ## Interface Specifications
 
 ### REST API Endpoints
@@ -106,13 +73,11 @@ paths:
   /api/v1/config:
     get:
       summary: Retrieve configuration
-      security: [bearerAuth: []]
       responses:
         200:
           description: Current configuration
     put:
       summary: Update configuration
-      security: [bearerAuth: ['admin']]
       requestBody:
         required: true
         content:
@@ -126,7 +91,6 @@ paths:
   /api/v1/calibration/start:
     post:
       summary: Begin calibration
-      security: [bearerAuth: ['operator']]
       responses:
         201:
           description: Calibration started
@@ -141,7 +105,6 @@ paths:
   /api/v1/game/state:
     get:
       summary: Get current game state
-      security: [bearerAuth: []]
       responses:
         200:
           description: Current game state
@@ -158,7 +121,6 @@ paths:
   /api/v1/stream/video:
     get:
       summary: Video stream endpoint
-      security: [bearerAuth: []]
       produces: ['multipart/x-mixed-replace']
       responses:
         200:
@@ -245,21 +207,6 @@ paths:
     "details": {}
   }
 }
-```
-
-### Authentication Flow
-
-```mermaid
-sequenceDiagram
-    Client->>API: POST /api/v1/auth/login
-    API->>API: Validate credentials
-    API->>Client: JWT token + refresh token
-    Client->>API: GET /api/v1/config (Bearer token)
-    API->>API: Validate JWT
-    API->>Client: Configuration data
-    Client->>API: WS /ws (token in query)
-    API->>API: Validate token
-    API->>Client: WebSocket established
 ```
 
 ## Data Models
@@ -356,9 +303,6 @@ class ErrorResponse(BaseModel):
 ```python
 ERROR_CODES = {
     # Client errors (4xx)
-    "AUTH_001": {"status": 401, "message": "Invalid credentials"},
-    "AUTH_002": {"status": 401, "message": "Token expired"},
-    "AUTH_003": {"status": 403, "message": "Insufficient permissions"},
     "VAL_001": {"status": 400, "message": "Invalid request format"},
     "VAL_002": {"status": 400, "message": "Missing required parameter"},
     "VAL_003": {"status": 400, "message": "Parameter out of range"},
@@ -380,7 +324,6 @@ ERROR_CODES = {
 1. **API Availability**
    - All specified REST endpoints are implemented and accessible
    - WebSocket connection establishes within 1 second
-   - Authentication flow completes within 500ms
 
 2. **Data Streaming**
    - Video frames stream at consistent 30+ FPS
@@ -404,32 +347,11 @@ ERROR_CODES = {
    - 99th percentile REST response time < 500ms
    - WebSocket message latency < 50ms average
 
-2. **Throughput**
-   - Support 100+ requests per second
-   - Handle 50+ concurrent WebSocket connections
-   - Stream 30+ FPS to multiple clients simultaneously
-
 3. **Resource Usage**
    - Memory usage < 500MB under normal load
    - CPU usage < 50% with 10 active clients
    - Network bandwidth < 100Mbps for 10 clients
 
-### Security Success Criteria
-
-1. **Authentication**
-   - All protected endpoints require valid authentication
-   - Tokens expire and refresh correctly
-   - Invalid tokens are rejected consistently
-
-2. **Authorization**
-   - Role-based access control enforced on all endpoints
-   - Privilege escalation is not possible
-   - Audit logs capture all access attempts
-
-3. **Data Protection**
-   - All communications use TLS encryption
-   - Sensitive data is never logged
-   - Input validation prevents injection attacks
 
 ## Testing Requirements
 
@@ -443,9 +365,7 @@ ERROR_CODES = {
 ### Integration Testing
 - Test complete request/response flows
 - Verify WebSocket message handling
-- Test authentication and authorization
 - Validate configuration updates
-- Test rate limiting and throttling
 
 ### Performance Testing
 - Load test with 100+ concurrent users
@@ -453,13 +373,6 @@ ERROR_CODES = {
 - Measure response times under load
 - Test graceful degradation
 - Monitor resource usage
-
-### Security Testing
-- Penetration testing for common vulnerabilities
-- Test authentication bypass attempts
-- Validate input sanitization
-- Test for information disclosure
-- Verify TLS configuration
 
 ## Implementation Guidelines
 
@@ -474,7 +387,6 @@ api/
 │   ├── config.py        # Configuration management
 │   ├── calibration.py   # Calibration control
 │   ├── game.py          # Game state access
-│   └── auth.py          # Authentication endpoints
 ├── websocket/
 │   ├── __init__.py
 │   ├── handler.py       # WebSocket connection handler
@@ -482,7 +394,6 @@ api/
 │   └── broadcaster.py   # Message broadcasting
 ├── middleware/
 │   ├── __init__.py
-│   ├── authentication.py
 │   ├── cors.py
 │   ├── rate_limit.py
 │   └── error_handler.py
@@ -494,7 +405,6 @@ api/
 └── utils/
     ├── __init__.py
     ├── validators.py    # Custom validators
-    ├── security.py      # Security utilities
     └── serializers.py   # Data serialization
 ```
 
@@ -505,14 +415,10 @@ api/
 - **python-jose**: JWT handling
 - **python-multipart**: File uploads
 - **websockets**: WebSocket support
-- **redis**: Optional for scaling
 
 ### Development Priorities
 1. Implement core REST endpoints
 2. Add WebSocket support
-3. Implement authentication
-4. Add input validation
-5. Implement error handling
-6. Add rate limiting
-7. Performance optimization
-8. Security hardening
+3. Add input validation
+4. Implement error handling
+5. Performance optimization

@@ -75,7 +75,8 @@ class BallDetectionConfig:
     debug_mode: bool = False
     save_debug_images: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Initialize ball colors with default HSV ranges if not provided."""
         if self.ball_colors is None:
             self.ball_colors = {
                 "cue": {
@@ -600,16 +601,128 @@ class BallDetector:
         return BallType.UNKNOWN, None
 
     def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> bool:
-        """Detect if a ball has stripe pattern (simplified implementation)."""
-        # This is a placeholder - would need sophisticated pattern recognition
-        # to reliably distinguish stripes from solids
+        """Detect if a ball has stripe pattern using multi-method pattern recognition.
+
+        Uses multiple detection methods to identify stripe patterns:
+        1. Variance check - First-pass filter for texture variation
+        2. Edge detection - Detects strong edges characteristic of stripes
+        3. Frequency analysis - Identifies repeating patterns in the ball
+        4. Hough line detection - Finds linear stripe patterns
+
+        Args:
+            ball_region: BGR image region containing the ball
+
+        Returns:
+            True if the ball appears to be striped, False otherwise
+        """
+        # Ensure we have a valid region
+        if ball_region is None or ball_region.size == 0:
+            return False
+
+        # Convert to grayscale for analysis
         gray = cv2.cvtColor(ball_region, cv2.COLOR_BGR2GRAY)
+        height, width = gray.shape
 
-        # Calculate variance - striped balls typically have higher variance
-        variance = np.var(gray)
+        # Skip analysis if region is too small
+        if height < 20 or width < 20:
+            return False
 
-        # Threshold determined empirically (would need calibration)
-        return variance > 1000
+        # Create circular mask to focus on ball center (avoid edges)
+        mask = np.zeros_like(gray)
+        center = (width // 2, height // 2)
+        radius = int(min(width, height) * 0.4)  # Use inner 80% diameter
+        cv2.circle(mask, center, radius, 255, -1)
+        masked_gray = cv2.bitwise_and(gray, gray, mask=mask)
+
+        # Method 1: Variance Check (first-pass filter)
+        # Striped balls have higher intensity variance due to white/colored pattern
+        variance = np.var(masked_gray[mask > 0])
+        variance_score = 1.0 if variance > 800 else 0.0
+
+        # Method 2: Edge Detection
+        # Stripes create strong edges; analyze edge density
+        # Use bilateral filter to reduce noise while preserving edges
+        blurred = cv2.bilateralFilter(masked_gray, 5, 50, 50)
+
+        # Canny edge detection with adaptive thresholds
+        median_intensity = np.median(blurred[mask > 0])
+        lower_thresh = int(max(0, 0.66 * median_intensity))
+        upper_thresh = int(min(255, 1.33 * median_intensity))
+        edges = cv2.Canny(blurred, lower_thresh, upper_thresh)
+        edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
+
+        # Calculate edge density (edges per pixel in masked region)
+        edge_pixels = np.count_nonzero(edges_masked)
+        total_pixels = np.count_nonzero(mask)
+        edge_density = edge_pixels / total_pixels if total_pixels > 0 else 0
+
+        # Striped balls typically have 10-30% edge density
+        edge_score = 1.0 if 0.10 <= edge_density <= 0.35 else 0.0
+
+        # Method 3: Frequency Analysis
+        # Stripes create periodic patterns; analyze using edge projection
+        # Project edges onto horizontal and vertical axes
+        h_projection = np.sum(edges_masked, axis=0)
+        v_projection = np.sum(edges_masked, axis=1)
+
+        # Calculate normalized standard deviation of projections
+        # High std indicates non-uniform distribution (characteristic of stripes)
+        h_std = np.std(h_projection) / (np.mean(h_projection) + 1e-6)
+        v_std = np.std(v_projection) / (np.mean(v_projection) + 1e-6)
+        max_projection_std = max(h_std, v_std)
+
+        # Striped balls typically have projection std > 1.5
+        frequency_score = 1.0 if max_projection_std > 1.5 else 0.0
+
+        # Method 4: Hough Line Detection
+        # Detect linear patterns characteristic of stripes
+        # Use probabilistic Hough transform for efficiency
+        lines = cv2.HoughLinesP(
+            edges_masked,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=int(min(width, height) * 0.3),  # Adaptive threshold
+            minLineLength=int(min(width, height) * 0.4),
+            maxLineGap=int(min(width, height) * 0.2),
+        )
+
+        # Count significant lines (longer than 40% of ball diameter)
+        line_count = 0 if lines is None else len(lines)
+
+        # Striped balls typically have 1-4 detectable stripe lines
+        line_score = 1.0 if 1 <= line_count <= 4 else 0.0
+
+        # Combine all methods with weighted voting
+        # Weights based on reliability: variance is least reliable, lines are most reliable
+        weights = {
+            "variance": 0.15,  # Low weight - many false positives
+            "edge_density": 0.25,  # Moderate weight - good indicator
+            "frequency": 0.30,  # High weight - reliable for patterns
+            "lines": 0.30,  # High weight - most specific to stripes
+        }
+
+        combined_score = (
+            variance_score * weights["variance"]
+            + edge_score * weights["edge_density"]
+            + frequency_score * weights["frequency"]
+            + line_score * weights["lines"]
+        )
+
+        # Threshold calibrated for billiard balls
+        # Require combined score > 0.5 (at least 2 strong indicators)
+        is_striped = combined_score > 0.5
+
+        # Log detection details for debugging (at debug level)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Stripe detection - Variance: {variance:.1f} ({variance_score}), "
+                f"Edge density: {edge_density:.3f} ({edge_score}), "
+                f"Projection std: {max_projection_std:.2f} ({frequency_score}), "
+                f"Lines: {line_count} ({line_score}), "
+                f"Combined: {combined_score:.3f} -> {'STRIPE' if is_striped else 'SOLID'}"
+            )
+
+        return is_striped
 
     def _draw_candidates(
         self, frame: NDArray[np.uint8], candidates: list[tuple[float, float, float]]

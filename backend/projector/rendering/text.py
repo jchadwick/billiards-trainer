@@ -5,10 +5,8 @@ including font management, text measurement, and various text overlay styles.
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 import moderngl
@@ -431,6 +429,7 @@ class TextRenderer:
                 )
 
                 # Convert pygame surface to OpenGL texture and render
+                texture = None
                 try:
                     # Convert pygame surface to OpenGL texture
                     texture = self._surface_to_texture(text_surface)
@@ -450,6 +449,14 @@ class TextRenderer:
                     self.basic_renderer.draw_rectangle(
                         x, current_y, text_rect.width, text_rect.height, text_color
                     )
+
+                finally:
+                    # Clean up texture to prevent memory leaks
+                    if texture is not None:
+                        try:
+                            texture.release()
+                        except Exception as cleanup_error:
+                            logger.debug(f"Error releasing texture: {cleanup_error}")
 
             current_y += line_height
 
@@ -653,16 +660,31 @@ class TextRenderer:
 
         Args:
             texture: OpenGL texture to render
-            x: X position
-            y: Y position
+            x: X position (in screen coordinates)
+            y: Y position (in screen coordinates)
             width: Width of the rendered texture
             height: Height of the rendered texture
         """
+        vao = None
+        vbo = None
+        ibo = None
+        program = None
+
         try:
             # Get OpenGL context
             ctx = self.basic_renderer.ctx
 
-            # Create vertex data for a quad
+            # Ensure we have a projection matrix
+            if (
+                not hasattr(self.basic_renderer, "projection_matrix")
+                or self.basic_renderer.projection_matrix is None
+            ):
+                raise RuntimeError(
+                    "Projection matrix not set. Call set_projection_matrix() first."
+                )
+
+            # Create vertex data for a quad (position + texture coordinates)
+            # Note: OpenGL texture coordinates have (0,0) at bottom-left, (1,1) at top-right
             vertices = np.array(
                 [
                     # Position (x, y)    # Texture coords (u, v)
@@ -689,11 +711,11 @@ class TextRenderer:
             # Create indices for two triangles making a quad
             indices = np.array([0, 1, 2, 2, 3, 0], dtype=np.uint32)
 
-            # Create vertex buffer and vertex array
+            # Create vertex buffer and index buffer
             vbo = ctx.buffer(vertices.tobytes())
             ibo = ctx.buffer(indices.tobytes())
 
-            # Create a simple shader program for texture rendering
+            # Create shader program for texture rendering
             vertex_shader = """
             #version 330 core
             in vec2 position;
@@ -702,7 +724,9 @@ class TextRenderer:
             uniform mat4 projection;
 
             void main() {
+                // Transform position to clip space using projection matrix
                 gl_Position = projection * vec4(position, 0.0, 1.0);
+                // Pass texture coordinates to fragment shader
                 uv = texcoord;
             }
             """
@@ -714,61 +738,70 @@ class TextRenderer:
             uniform sampler2D textTexture;
 
             void main() {
-                fragColor = texture(textTexture, uv);
+                // Sample texture and output color
+                vec4 texColor = texture(textTexture, uv);
+                // Preserve alpha for transparency
+                fragColor = texColor;
             }
             """
 
-            # Create shader program
+            # Compile and link shader program
             program = ctx.program(
                 vertex_shader=vertex_shader, fragment_shader=fragment_shader
             )
 
-            # Create vertex array object
+            # Create vertex array object with proper attribute layout
             vao = ctx.vertex_array(
                 program, [(vbo, "2f 2f", "position", "texcoord")], ibo
             )
 
-            # Set up OpenGL state for blending (for text transparency)
+            # Set up OpenGL state for alpha blending
+            # This allows transparent text backgrounds
             ctx.enable(moderngl.BLEND)
             ctx.blend_func = (moderngl.SRC_ALPHA, moderngl.ONE_MINUS_SRC_ALPHA)
 
-            # Bind texture and set uniforms
+            # Bind texture to texture unit 0
             texture.use(0)
             program["textTexture"].value = 0
 
-            # Set projection matrix (should match the basic renderer's projection)
-            if hasattr(self.basic_renderer, "projection_matrix"):
-                program["projection"].write(
-                    self.basic_renderer.projection_matrix.tobytes()
-                )
-            else:
-                # Create a simple orthographic projection if not available
-                # This assumes a coordinate system where (0,0) is bottom-left
-                proj = np.array(
-                    [
-                        [2.0 / 1920, 0, 0, -1],
-                        [0, 2.0 / 1080, 0, -1],
-                        [0, 0, -1, 0],
-                        [0, 0, 0, 1],
-                    ],
-                    dtype=np.float32,
-                )
-                program["projection"].write(proj.tobytes())
+            # Set projection matrix from basic renderer
+            program["projection"].write(self.basic_renderer.projection_matrix.tobytes())
 
-            # Render the quad
+            # Render the textured quad
             vao.render()
 
-            # Clean up
-            vao.release()
-            vbo.release()
-            ibo.release()
-            program.release()
-
         except Exception as e:
-            logger.error(f"Failed to render texture: {e}")
-            # Fallback: render as a colored rectangle
+            logger.error(f"Failed to render texture at ({x}, {y}): {e}")
+            # Fallback: render as a white rectangle to indicate text position
             color = Color.from_rgb(255, 255, 255)
             self.basic_renderer.draw_rectangle(x, y, width, height, color)
+
+        finally:
+            # Clean up OpenGL resources to prevent memory leaks
+            # Release in reverse order of creation
+            if vao is not None:
+                try:
+                    vao.release()
+                except Exception as cleanup_error:
+                    logger.debug(f"Error releasing VAO: {cleanup_error}")
+
+            if program is not None:
+                try:
+                    program.release()
+                except Exception as cleanup_error:
+                    logger.debug(f"Error releasing program: {cleanup_error}")
+
+            if ibo is not None:
+                try:
+                    ibo.release()
+                except Exception as cleanup_error:
+                    logger.debug(f"Error releasing IBO: {cleanup_error}")
+
+            if vbo is not None:
+                try:
+                    vbo.release()
+                except Exception as cleanup_error:
+                    logger.debug(f"Error releasing VBO: {cleanup_error}")
 
 
 # Convenience functions for common text rendering tasks
