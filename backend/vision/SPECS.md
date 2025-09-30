@@ -111,6 +111,7 @@ The Vision module is the core computer vision engine responsible for capturing i
 - **NFR-VIS-017**: Work with USB, network, and integrated cameras
 - **NFR-VIS-018**: Compatible with OpenCV 4.5+
 - **NFR-VIS-019**: Support multiple color formats (RGB, YUV, MJPEG)
+- **NFR-VIS-020**: Support Kinect V2
 
 ## Interface Specifications
 

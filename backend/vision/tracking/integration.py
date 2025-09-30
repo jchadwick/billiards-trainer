@@ -533,18 +533,400 @@ def convert_detection_format(detections: list[Any], source_format: str) -> list[
 
 
 def _convert_from_opencv(detections: list[Any]) -> list[Any]:
-    """Convert from OpenCV detection format."""
-    # Placeholder for OpenCV format conversion
-    return detections
+    """Convert from OpenCV detection format.
+
+    OpenCV format expects list of dicts with:
+    - 'bbox': [x, y, width, height] - bounding box
+    - 'confidence': float (0.0-1.0)
+    - 'class_id': int (optional)
+    - 'keypoints': list of (x, y) tuples (optional)
+
+    Args:
+        detections: List of OpenCV detection dictionaries
+
+    Returns:
+        List of Ball objects in internal format
+
+    Raises:
+        ValueError: If detection format is invalid
+    """
+    if not detections:
+        return []
+
+    from ..models import Ball
+
+    converted_detections = []
+
+    for i, det in enumerate(detections):
+        try:
+            # Validate detection format
+            if not isinstance(det, dict):
+                logger.warning(f"Detection {i} is not a dictionary, skipping")
+                continue
+
+            if "bbox" not in det:
+                logger.warning(f"Detection {i} missing 'bbox' field, skipping")
+                continue
+
+            bbox = det["bbox"]
+            if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                logger.warning(f"Detection {i} has invalid bbox format, skipping")
+                continue
+
+            # Extract bounding box (x, y, w, h)
+            x, y, w, h = bbox
+
+            # Calculate center position
+            center_x = float(x + w / 2)
+            center_y = float(y + h / 2)
+
+            # Calculate radius (average of width and height divided by 2)
+            radius = float((w + h) / 4)
+
+            # Extract confidence (default to 1.0 if not provided)
+            confidence = float(det.get("confidence", 1.0))
+
+            # Determine ball type from class_id if available
+            class_id = det.get("class_id", None)
+            ball_type = _map_class_id_to_ball_type(class_id)
+
+            # Extract ball number if available
+            ball_number = det.get("ball_number", None)
+
+            # Create Ball object
+            ball = Ball(
+                position=(center_x, center_y),
+                radius=radius,
+                ball_type=ball_type,
+                number=ball_number,
+                confidence=confidence,
+                velocity=(0.0, 0.0),
+                is_moving=False,
+            )
+
+            converted_detections.append(ball)
+
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(f"Failed to convert OpenCV detection {i}: {e}")
+            continue
+
+    return converted_detections
 
 
 def _convert_from_yolo(detections: list[Any]) -> list[Any]:
-    """Convert from YOLO detection format."""
-    # Placeholder for YOLO format conversion
-    return detections
+    """Convert from YOLO detection format.
+
+    YOLO format expects list of arrays/tuples with:
+    - [center_x, center_y, width, height, confidence, class_id]
+    OR dict with:
+    - 'bbox': [center_x, center_y, width, height] (normalized 0-1 or absolute pixels)
+    - 'confidence': float
+    - 'class_id': int
+
+    Args:
+        detections: List of YOLO detection arrays or dictionaries
+
+    Returns:
+        List of Ball objects in internal format
+
+    Raises:
+        ValueError: If detection format is invalid
+    """
+    if not detections:
+        return []
+
+    from ..models import Ball
+
+    converted_detections = []
+
+    for i, det in enumerate(detections):
+        try:
+            # Handle array/tuple format:
+            # [center_x, center_y, width, height, confidence, class_id]
+            if isinstance(det, (list, tuple, np.ndarray)):
+                if len(det) < 5:
+                    logger.warning(
+                        f"YOLO detection {i} has insufficient elements, skipping"
+                    )
+                    continue
+
+                center_x = float(det[0])
+                center_y = float(det[1])
+                width = float(det[2])
+                height = float(det[3])
+                confidence = float(det[4])
+                class_id = int(det[5]) if len(det) > 5 else None
+
+            # Handle dictionary format
+            elif isinstance(det, dict):
+                if "bbox" not in det:
+                    logger.warning(f"YOLO detection {i} missing 'bbox' field, skipping")
+                    continue
+
+                bbox = det["bbox"]
+                if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                    logger.warning(
+                        f"YOLO detection {i} has invalid bbox format, skipping"
+                    )
+                    continue
+
+                center_x = float(bbox[0])
+                center_y = float(bbox[1])
+                width = float(bbox[2])
+                height = float(bbox[3])
+                confidence = float(det.get("confidence", 1.0))
+                class_id = det.get("class_id", None)
+
+            else:
+                logger.warning(f"YOLO detection {i} has unsupported format, skipping")
+                continue
+
+            # Check if coordinates are normalized (0-1 range)
+            # If normalized, we'd need frame dimensions to convert - for now
+            # assume absolute pixels. Note: If implementing normalized
+            # coordinate handling, add frame_width/height parameters
+
+            # Calculate radius (average of width and height divided by 2)
+            radius = float((width + height) / 4)
+
+            # Determine ball type from class_id
+            ball_type = _map_class_id_to_ball_type(class_id)
+
+            # Extract ball number if available (some YOLO models include this)
+            ball_number = (
+                det.get("ball_number", None) if isinstance(det, dict) else None
+            )
+
+            # Create Ball object
+            ball = Ball(
+                position=(center_x, center_y),
+                radius=radius,
+                ball_type=ball_type,
+                number=ball_number,
+                confidence=confidence,
+                velocity=(0.0, 0.0),
+                is_moving=False,
+            )
+
+            converted_detections.append(ball)
+
+        except (ValueError, TypeError, IndexError, KeyError) as e:
+            logger.warning(f"Failed to convert YOLO detection {i}: {e}")
+            continue
+
+    return converted_detections
 
 
 def _convert_from_custom(detections: list[Any]) -> list[Any]:
-    """Convert from custom detection format."""
-    # Placeholder for custom format conversion
-    return detections
+    """Convert from custom detection format.
+
+    Custom format is flexible and supports various field mappings:
+    - 'x', 'y' OR 'center_x', 'center_y' OR 'cx', 'cy' OR 'position' (tuple)
+    - 'radius' OR 'r' OR 'size' OR 'width'/'height'
+    - 'confidence' OR 'conf' OR 'score'
+    - 'ball_type' OR 'type' OR 'class_name'
+    - 'ball_number' OR 'number' OR 'id'
+
+    Args:
+        detections: List of detection dictionaries with flexible field names
+
+    Returns:
+        List of Ball objects in internal format
+
+    Raises:
+        ValueError: If detection format is invalid
+    """
+    if not detections:
+        return []
+
+    from ..models import Ball, BallType
+
+    converted_detections = []
+
+    for i, det in enumerate(detections):
+        try:
+            # Only process dictionaries
+            if not isinstance(det, dict):
+                logger.warning(f"Custom detection {i} is not a dictionary, skipping")
+                continue
+
+            # Extract position - try multiple field name variations
+            position = None
+            if "position" in det:
+                pos = det["position"]
+                if isinstance(pos, (list, tuple)) and len(pos) >= 2:
+                    position = (float(pos[0]), float(pos[1]))
+            elif "center_x" in det and "center_y" in det:
+                position = (float(det["center_x"]), float(det["center_y"]))
+            elif "cx" in det and "cy" in det:
+                position = (float(det["cx"]), float(det["cy"]))
+            elif "x" in det and "y" in det:
+                position = (float(det["x"]), float(det["y"]))
+
+            if position is None:
+                logger.warning(
+                    f"Custom detection {i} missing position information, skipping"
+                )
+                continue
+
+            # Extract radius - try multiple field name variations
+            radius = None
+            if "radius" in det:
+                radius = float(det["radius"])
+            elif "r" in det:
+                radius = float(det["r"])
+            elif "size" in det:
+                radius = float(det["size"]) / 2
+            elif "width" in det and "height" in det:
+                radius = (float(det["width"]) + float(det["height"])) / 4
+            elif "width" in det:
+                radius = float(det["width"]) / 2
+            elif "diameter" in det:
+                radius = float(det["diameter"]) / 2
+            else:
+                # Default ball radius in pixels (approximate)
+                radius = 15.0
+
+            # Extract confidence - try multiple field name variations
+            confidence = 1.0  # Default confidence
+            if "confidence" in det:
+                confidence = float(det["confidence"])
+            elif "conf" in det:
+                confidence = float(det["conf"])
+            elif "score" in det:
+                confidence = float(det["score"])
+
+            # Ensure confidence is in valid range [0.0, 1.0]
+            confidence = max(0.0, min(1.0, confidence))
+
+            # Extract ball type - try multiple field name variations
+            ball_type = BallType.UNKNOWN
+            if "ball_type" in det:
+                ball_type = _parse_ball_type(det["ball_type"])
+            elif "type" in det:
+                ball_type = _parse_ball_type(det["type"])
+            elif "class_name" in det:
+                ball_type = _parse_ball_type(det["class_name"])
+            elif "class_id" in det:
+                ball_type = _map_class_id_to_ball_type(det["class_id"])
+
+            # Extract ball number
+            ball_number = None
+            if "ball_number" in det:
+                ball_number = int(det["ball_number"])
+            elif "number" in det:
+                ball_number = int(det["number"])
+            elif "id" in det and isinstance(det["id"], int):
+                ball_number = int(det["id"])
+
+            # Extract velocity if available
+            velocity = (0.0, 0.0)
+            if "velocity" in det:
+                vel = det["velocity"]
+                if isinstance(vel, (list, tuple)) and len(vel) >= 2:
+                    velocity = (float(vel[0]), float(vel[1]))
+            elif "vx" in det and "vy" in det:
+                velocity = (float(det["vx"]), float(det["vy"]))
+
+            # Extract motion state if available
+            is_moving = False
+            if "is_moving" in det:
+                is_moving = bool(det["is_moving"])
+            elif "moving" in det:
+                is_moving = bool(det["moving"])
+            else:
+                # Infer from velocity
+                vx, vy = velocity
+                is_moving = abs(vx) > 0.5 or abs(vy) > 0.5
+
+            # Create Ball object
+            ball = Ball(
+                position=position,
+                radius=radius,
+                ball_type=ball_type,
+                number=ball_number,
+                confidence=confidence,
+                velocity=velocity,
+                is_moving=is_moving,
+            )
+
+            converted_detections.append(ball)
+
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning(f"Failed to convert custom detection {i}: {e}")
+            continue
+
+    return converted_detections
+
+
+def _map_class_id_to_ball_type(class_id: Optional[int]) -> Any:
+    """Map numeric class ID to BallType enumeration.
+
+    Args:
+        class_id: Numeric class identifier (0-4, or None)
+
+    Returns:
+        BallType enumeration value
+    """
+    from ..models import BallType
+
+    if class_id is None:
+        return BallType.UNKNOWN
+
+    # Common class ID mapping conventions
+    # 0: cue ball, 1: solid, 2: stripe, 3: eight ball, 4+: unknown
+    class_id_map = {
+        0: BallType.CUE,
+        1: BallType.SOLID,
+        2: BallType.STRIPE,
+        3: BallType.EIGHT,
+    }
+
+    return class_id_map.get(class_id, BallType.UNKNOWN)
+
+
+def _parse_ball_type(ball_type_value: Any) -> Any:
+    """Parse ball type from various input formats.
+
+    Args:
+        ball_type_value: Ball type as string, enum, or other format
+
+    Returns:
+        BallType enumeration value
+    """
+    from ..models import BallType
+
+    # If already a BallType, return it
+    if isinstance(ball_type_value, BallType):
+        return ball_type_value
+
+    # Parse string values (case-insensitive)
+    if isinstance(ball_type_value, str):
+        ball_type_str = ball_type_value.lower().strip()
+
+        # Map common string variations
+        type_map = {
+            "cue": BallType.CUE,
+            "cue_ball": BallType.CUE,
+            "white": BallType.CUE,
+            "solid": BallType.SOLID,
+            "solids": BallType.SOLID,
+            "stripe": BallType.STRIPE,
+            "stripes": BallType.STRIPE,
+            "striped": BallType.STRIPE,
+            "eight": BallType.EIGHT,
+            "8": BallType.EIGHT,
+            "8ball": BallType.EIGHT,
+            "eight_ball": BallType.EIGHT,
+            "eightball": BallType.EIGHT,
+            "unknown": BallType.UNKNOWN,
+        }
+
+        return type_map.get(ball_type_str, BallType.UNKNOWN)
+
+    # Parse numeric values
+    if isinstance(ball_type_value, (int, float)):
+        return _map_class_id_to_ball_type(int(ball_type_value))
+
+    # Default to unknown
+    return BallType.UNKNOWN

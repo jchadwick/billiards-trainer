@@ -148,6 +148,9 @@ class BasicRenderer:
         self._current_line_width = 2.0
         self._current_blend_mode = BlendMode.NORMAL
 
+        # Store projection matrix for external use (e.g., text rendering)
+        self.projection_matrix: Optional[np.ndarray] = None
+
         # Initialize shaders and buffers
         self._initialize_shaders()
         self._initialize_buffers()
@@ -366,6 +369,9 @@ class BasicRenderer:
             ],
             dtype=np.float32,
         )
+
+        # Store projection matrix for external use
+        self.projection_matrix = projection
 
         # Update all shader programs
         for program in [self._line_program, self._circle_program, self._rect_program]:

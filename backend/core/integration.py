@@ -1033,7 +1033,8 @@ class APIInterfaceImpl(APIInterface):
                             self.message_broadcaster.broadcast_alert(
                                 level=data.get("level", "info"),
                                 message=data.get("message", ""),
-                                source=data.get("source", "system"),
+                                code=data.get("code", "system_event"),
+                                details=data.get("details"),
                             )
                         )
                         self.logger.debug(
@@ -1080,19 +1081,83 @@ class APIInterfaceImpl(APIInterface):
         self.message_queue.append(message)
 
     def _flush_message_queue(self) -> None:
-        """Deliver all queued messages to API."""
+        """Deliver all queued messages to WebSocket via message_broadcaster."""
         if not self.message_queue:
             return
 
         try:
-            # In a real implementation, this would send to actual API endpoints
-            # For now, we'll just notify the event manager
+            # Route messages to message_broadcaster for WebSocket delivery
             for message in self.message_queue:
-                self.event_manager.send_api_message(message)
+                message_type = message.get("type", "")
+                data = message.get("data", {})
+
+                # Prefer message_broadcaster for WebSocket communication
+                if self.message_broadcaster:
+                    try:
+                        import asyncio
+
+                        # Try to schedule async broadcast on event loop
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if message_type == "state_update":
+                                balls = data.get("balls", [])
+                                cue = data.get("cue")
+                                table = data.get("table")
+                                loop.create_task(
+                                    self.message_broadcaster.broadcast_game_state(
+                                        balls=balls, cue=cue, table=table
+                                    )
+                                )
+                            elif message_type == "event_notification":
+                                loop.create_task(
+                                    self.message_broadcaster.broadcast_alert(
+                                        level=data.get("level", "info"),
+                                        message=data.get("message", ""),
+                                        code=data.get("code", "system_event"),
+                                        details=data.get("details"),
+                                    )
+                                )
+                            continue
+                        except RuntimeError:
+                            # No event loop, try websocket_manager fallback
+                            pass
+                    except Exception as bc_error:
+                        self.logger.warning(
+                            f"Failed to flush via message_broadcaster: {bc_error}"
+                        )
+
+                # Fallback: try websocket_manager if available
+                if self.websocket_manager:
+                    try:
+                        if message_type == "state_update" and hasattr(
+                            self.websocket_manager, "broadcast_game_state"
+                        ):
+                            self.websocket_manager.broadcast_game_state(data)
+                        elif message_type == "event_notification" and hasattr(
+                            self.websocket_manager, "broadcast_alert"
+                        ):
+                            self.websocket_manager.broadcast_alert(data)
+                        elif hasattr(self.websocket_manager, "broadcast"):
+                            self.websocket_manager.broadcast(message)
+                        continue
+                    except Exception as ws_error:
+                        self.logger.warning(
+                            f"Failed to flush via websocket_manager: {ws_error}"
+                        )
+
+                # Last resort: notify event_manager (legacy API path)
+                try:
+                    self.event_manager.send_api_message(message)
+                except Exception as em_error:
+                    self.logger.warning(
+                        f"Failed to flush via event_manager: {em_error}"
+                    )
 
             delivered_count = len(self.message_queue)
             self.message_queue.clear()
-            self.logger.debug(f"Delivered {delivered_count} queued messages")
+            self.logger.debug(
+                f"Flushed {delivered_count} queued messages to WebSocket delivery"
+            )
 
         except Exception as e:
             self.logger.error(f"Error flushing message queue: {e}")
