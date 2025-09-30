@@ -413,7 +413,7 @@ def detect_table(image: np.ndarray, config: DetectionSettings) -> Table:
 - Coverage target: 85%
 
 ### Integration Testing
-- Test complete pipeline with real camera
+- Test complete pipeline with pre-recorded videos
 - Verify frame rate consistency
 - Test with various lighting conditions
 - Validate tracking across frames

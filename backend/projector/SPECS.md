@@ -117,8 +117,8 @@ The Projector module is responsible for rendering and displaying augmented reali
 - **NFR-PROJ-015**: Handle projector power cycles
 
 ### Compatibility Requirements
-- **NFR-PROJ-016**: Support Windows, Linux, macOS
-- **NFR-PROJ-017**: Work with OpenGL 3.3+ or DirectX 11+
+- **NFR-PROJ-016**: Support Linux
+- **NFR-PROJ-017**: Work with OpenGL 3.3+
 - **NFR-PROJ-018**: Compatible with common projector models
 - **NFR-PROJ-019**: Support HDMI, DisplayPort, VGA outputs
 - **NFR-PROJ-020**: Handle multiple GPU configurations
