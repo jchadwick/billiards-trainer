@@ -541,6 +541,7 @@ class VisionInterfaceImpl(VisionInterface):
     """Production implementation of Vision interface."""
 
     def __init__(self, event_manager: EventManager, vision_module: Any = None):
+        """Initialize vision interface with event manager and optional vision module instance."""
         self.event_manager = event_manager
         self.vision_module = vision_module
         self._lock = threading.RLock()  # Thread safety
@@ -788,9 +789,16 @@ class VisionInterfaceImpl(VisionInterface):
 class APIInterfaceImpl(APIInterface):
     """Production implementation of API interface."""
 
-    def __init__(self, event_manager: EventManager, websocket_manager: Any = None):
+    def __init__(
+        self,
+        event_manager: EventManager,
+        websocket_manager: Any = None,
+        message_broadcaster: Any = None,
+    ):
+        """Initialize API interface with event manager and WebSocket components."""
         self.event_manager = event_manager
         self.websocket_manager = websocket_manager
+        self.message_broadcaster = message_broadcaster
         self._lock = threading.RLock()  # Thread safety
         self.websocket_handlers = {}
         self.message_queue = []
@@ -989,7 +997,58 @@ class APIInterfaceImpl(APIInterface):
 
     def _queue_message(self, message: dict[str, Any]) -> None:
         """Add message to delivery queue."""
-        # If websocket_manager is available, send immediately
+        # Prefer message_broadcaster for async WebSocket communication
+        if self.message_broadcaster:
+            try:
+                import asyncio
+
+                message_type = message.get("type", "")
+                data = message.get("data", {})
+
+                # Schedule async broadcast on event loop
+                if message_type == "state_update":
+                    balls = data.get("balls", [])
+                    cue = data.get("cue")
+                    table = data.get("table")
+                    # Create async task to broadcast
+                    try:
+                        loop = asyncio.get_event_loop()
+                        loop.create_task(
+                            self.message_broadcaster.broadcast_game_state(
+                                balls=balls, cue=cue, table=table
+                            )
+                        )
+                        self.logger.debug(
+                            "Scheduled game state broadcast via message_broadcaster"
+                        )
+                        return
+                    except RuntimeError:
+                        # No event loop, fall through to queueing
+                        pass
+                elif message_type == "event_notification":
+                    # Broadcast as alert
+                    try:
+                        loop = asyncio.get_event_loop()
+                        loop.create_task(
+                            self.message_broadcaster.broadcast_alert(
+                                level=data.get("level", "info"),
+                                message=data.get("message", ""),
+                                source=data.get("source", "system"),
+                            )
+                        )
+                        self.logger.debug(
+                            "Scheduled alert broadcast via message_broadcaster"
+                        )
+                        return
+                    except RuntimeError:
+                        pass
+            except Exception as bc_error:
+                self.logger.warning(
+                    f"Failed to send via message_broadcaster: {bc_error}"
+                )
+                # Fall through to queueing
+
+        # Fallback: try websocket_manager if available
         if self.websocket_manager:
             try:
                 message_type = message.get("type", "")
@@ -1061,6 +1120,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
     """Production implementation of Projector interface."""
 
     def __init__(self, event_manager: EventManager, projector_module: Any = None):
+        """Initialize projector interface with event manager and optional projector module instance."""
         self.event_manager = event_manager
         self.projector_module = projector_module
         self._lock = threading.RLock()  # Thread safety
@@ -1624,6 +1684,7 @@ class ConfigInterfaceImpl(ConfigInterface):
     """Production implementation of Config interface."""
 
     def __init__(self, event_manager: EventManager, config_module: Any = None):
+        """Initialize config interface with event manager and optional config module instance."""
         self.event_manager = event_manager
         self.config_module = config_module
         self._lock = threading.RLock()  # Thread safety
