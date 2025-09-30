@@ -38,7 +38,7 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.rate_limit import RateLimitConfig, setup_rate_limiting
-from .middleware.security import SecurityConfig, setup_security_headers
+from .middleware.security import SecurityConfig, SecurityHeadersManager, setup_security_headers
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import (
     auth,
@@ -128,11 +128,15 @@ def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
             sample_rate=1.0 if development_mode else 0.1,
             excluded_paths=["/health", "/metrics"],
         ),
-        "security": SecurityConfig(
-            development_mode=development_mode,
-            enable_hsts=not development_mode,
-            enable_csp=True,
-            hide_server_header=True,
+        "security": (
+            SecurityHeadersManager(SecurityConfig()).get_development_config()
+            if development_mode
+            else SecurityConfig(
+                development_mode=False,
+                enable_hsts=True,
+                enable_csp=True,
+                hide_server_header=True,
+            )
         ),
         "performance": PerformanceConfig(
             enable_monitoring=True,
@@ -346,8 +350,11 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         app.extra = {"config_override": config_override}
 
     # Determine if running in development mode
+    import os
     development_mode = (
-        config_override.get("development_mode", False) if config_override else False
+        config_override.get("development_mode", False) if config_override
+        else os.getenv("ENVIRONMENT", "production").lower() == "development"
+        or os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
     )
 
     # Get middleware configuration
