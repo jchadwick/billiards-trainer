@@ -3,10 +3,13 @@
 import logging
 import time
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 # Internal imports
 # Import core module
@@ -38,7 +41,11 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.rate_limit import RateLimitConfig, setup_rate_limiting
-from .middleware.security import SecurityConfig, SecurityHeadersManager, setup_security_headers
+from .middleware.security import (
+    SecurityConfig,
+    SecurityHeadersManager,
+    setup_security_headers,
+)
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import (
     auth,
@@ -351,8 +358,10 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     # Determine if running in development mode
     import os
+
     development_mode = (
-        config_override.get("development_mode", False) if config_override
+        config_override.get("development_mode", False)
+        if config_override
         else os.getenv("ENVIRONMENT", "production").lower() == "development"
         or os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
     )
@@ -435,15 +444,58 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     app.add_websocket_route("/ws", simple_websocket_endpoint)
 
-    # Root endpoint
-    @app.get("/")
-    async def root() -> dict[str, Any]:
+    # API root endpoint
+    @app.get("/api")
+    async def api_root() -> dict[str, Any]:
         return {
             "message": "Billiards Trainer API",
             "version": "1.0.0",
             "status": "healthy" if app_state.is_healthy else "unhealthy",
             "docs": "/docs",
         }
+
+    # Serve static files for the frontend with SPA fallback
+    static_dir = Path(__file__).parent.parent / "static"
+    if static_dir.exists():
+        # Mount static files but not at root to avoid conflicts
+        app.mount(
+            "/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets"
+        )
+
+        # Serve individual static files
+        @app.get("/favicon.ico")
+        async def favicon() -> FileResponse:
+            return FileResponse(static_dir / "favicon.ico")
+
+        @app.get("/manifest.json")
+        async def manifest() -> FileResponse:
+            return FileResponse(static_dir / "manifest.json")
+
+        @app.get("/robots.txt")
+        async def robots() -> FileResponse:
+            return FileResponse(static_dir / "robots.txt")
+
+        @app.get("/logo{size}.png")
+        async def logo(size: int) -> FileResponse:
+            return FileResponse(static_dir / f"logo{size}.png")
+
+        # SPA fallback - serve index.html for all other routes
+        @app.get("/{full_path:path}")
+        async def spa_fallback(full_path: str) -> FileResponse:
+            """Serve index.html for all non-API routes to support client-side routing."""
+            return FileResponse(static_dir / "index.html")
+
+    else:
+        # Fallback root endpoint if static files don't exist yet
+        @app.get("/")
+        async def root() -> dict[str, Any]:
+            return {
+                "message": "Billiards Trainer API",
+                "version": "1.0.0",
+                "status": "healthy" if app_state.is_healthy else "unhealthy",
+                "docs": "/docs",
+                "note": "Frontend not built yet. Run 'cd frontend/web && npm run build' to build the frontend.",
+            }
 
     return app
 
