@@ -353,6 +353,27 @@ class WebSocketHandler:
                 f"Failed to send to {failed_count}/{len(subscribers)} subscribers for {stream_type}"
             )
 
+    async def broadcast_message(self, message: dict[str, Any]):
+        """Broadcast message to all connected clients."""
+        if not self.connections:
+            return
+
+        # Send to all connected clients concurrently
+        tasks = [
+            self.send_to_client(client_id, message) for client_id in self.connections
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log any failures
+        failed_count = sum(
+            1 for result in results if not result or isinstance(result, Exception)
+        )
+        if failed_count > 0:
+            logger.warning(
+                f"Failed to broadcast to {failed_count}/{len(tasks)} clients"
+            )
+
     def get_connection_stats(self) -> dict[str, Any]:
         """Get overall connection statistics."""
         if not self.connections:
