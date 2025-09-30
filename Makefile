@@ -21,12 +21,18 @@
 # Variables
 PYTHON := python3
 PIP := pip
-VENV_DIR := .venv
+VENV_DIR := venv
 BACKEND_DIR := backend
 CONFIG_DIR := config
 LOGS_DIR := logs
 DATA_DIR := data
 TEMP_DIR := temp
+
+# Use venv if it exists
+ifneq ($(wildcard $(VENV_DIR)/bin/python),)
+	PYTHON := $(VENV_DIR)/bin/python
+	PIP := $(VENV_DIR)/bin/pip
+endif
 
 # Colors for output
 RED := \033[0;31m
@@ -47,25 +53,32 @@ help: ## Show this help message
 
 # ===== Environment Setup =====
 
-install: ## Install the project and dependencies
+install: venv ## Install the project and dependencies
 	@echo "$(BLUE)Installing billiards-trainer...$(RESET)"
-	$(PIP) install -e .
+	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e .
 	@echo "$(GREEN)Installation complete!$(RESET)"
+	@echo "$(YELLOW)Activate the virtual environment: source $(VENV_DIR)/bin/activate$(RESET)"
 
-install-dev: ## Install development dependencies
+install-dev: venv ## Install development dependencies
 	@echo "$(BLUE)Installing development dependencies...$(RESET)"
-	$(PIP) install -e ".[dev,test,docs,performance]"
+	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[dev,test,docs,performance]"
 	@echo "$(GREEN)Development dependencies installed!$(RESET)"
 
 venv: ## Create virtual environment
 	@echo "$(BLUE)Creating virtual environment...$(RESET)"
-	$(PYTHON) -m venv $(VENV_DIR)
-	@echo "$(GREEN)Virtual environment created in $(VENV_DIR)$(RESET)"
-	@echo "$(YELLOW)Activate with: source $(VENV_DIR)/bin/activate$(RESET)"
+	@if [ ! -d $(VENV_DIR) ]; then \
+		python3 -m venv $(VENV_DIR); \
+		echo "$(GREEN)Virtual environment created in $(VENV_DIR)$(RESET)"; \
+		echo "$(YELLOW)Activate with: source $(VENV_DIR)/bin/activate$(RESET)"; \
+	else \
+		echo "$(GREEN)Virtual environment already exists$(RESET)"; \
+	fi
 
-dev: venv install-dev setup-dirs setup-git-hooks ## Setup complete development environment
+dev: venv setup-dirs ## Setup complete development environment
+	@echo "$(BLUE)Installing development dependencies...$(RESET)"
+	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[dev,test,docs,performance]"
 	@echo "$(GREEN)Development environment setup complete!$(RESET)"
-	@echo "$(YELLOW)Don't forget to activate the virtual environment:$(RESET)"
+	@echo "$(YELLOW)Activate the virtual environment:$(RESET)"
 	@echo "  source $(VENV_DIR)/bin/activate"
 
 setup-dirs: ## Create necessary directories
@@ -282,9 +295,9 @@ quickstart: ## Quick setup for new developers
 	make dev
 	@echo ""
 	@echo "$(GREEN)Setup complete! Next steps:$(RESET)"
-	@echo "  1. $(YELLOW)source .venv/bin/activate$(RESET)  # Activate virtual environment"
-	@echo "  2. $(YELLOW)make run$(RESET)                   # Run the application"
-	@echo "  3. $(YELLOW)make test$(RESET)                  # Run tests"
+	@echo "  1. $(YELLOW)source venv/bin/activate$(RESET)  # Activate virtual environment"
+	@echo "  2. $(YELLOW)make run$(RESET)                  # Run the application"
+	@echo "  3. $(YELLOW)make test$(RESET)                 # Run tests"
 	@echo ""
 	@echo "$(CYAN)Available commands: make help$(RESET)"
 

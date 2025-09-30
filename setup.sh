@@ -233,10 +233,63 @@ check_pkg libsdl2-mixer-dev
 check_pkg libsdl2-ttf-dev
 
 # =================================================================
+# Python Virtual Environment
+# =================================================================
+
+print_header "Python Virtual Environment"
+
+VENV_PATH="venv"
+PYTHON_CMD="python3"
+
+# Check for python3-venv package (required on Ubuntu 24.04+)
+if ! dpkg -l | grep -q "^ii  python3-venv"; then
+    print_warning "python3-venv not installed"
+    install_package python3-venv
+fi
+
+# Check if virtual environment exists
+if [ -d "$VENV_PATH" ]; then
+    print_success "Virtual environment exists at $VENV_PATH/"
+
+    # Check if it's activated
+    if [ -n "$VIRTUAL_ENV" ]; then
+        print_success "Virtual environment is activated"
+    else
+        print_info "Activate with: source $VENV_PATH/bin/activate"
+    fi
+else
+    print_warning "Virtual environment not found at $VENV_PATH/"
+    if [ "$FIX_MODE" = true ]; then
+        print_info "Creating virtual environment..."
+        $PYTHON_CMD -m venv "$VENV_PATH"
+        print_success "Virtual environment created at $VENV_PATH/"
+        print_info "Activate with: source $VENV_PATH/bin/activate"
+    else
+        print_info "Create with: python3 -m venv $VENV_PATH"
+    fi
+fi
+
+# =================================================================
 # Python Dependencies
 # =================================================================
 
 print_header "Python Dependencies"
+
+# Determine which Python/pip to use
+if [ -n "$VIRTUAL_ENV" ]; then
+    PYTHON_CMD="$VIRTUAL_ENV/bin/python"
+    PIP_CMD="$VIRTUAL_ENV/bin/pip"
+    print_info "Using virtual environment Python"
+elif [ -d "$VENV_PATH" ]; then
+    PYTHON_CMD="$VENV_PATH/bin/python"
+    PIP_CMD="$VENV_PATH/bin/pip"
+    print_info "Using Python from $VENV_PATH (not activated)"
+else
+    PYTHON_CMD="python3"
+    PIP_CMD="pip3"
+    print_warning "No virtual environment found, using system Python"
+    print_info "Recommended: Create venv with 'python3 -m venv venv'"
+fi
 
 # Check if requirements.txt exists
 if [ -f "backend/requirements.txt" ]; then
@@ -253,13 +306,16 @@ if [ -f "backend/requirements.txt" ]; then
 
     for pkg_info in "${PYTHON_PACKAGES[@]}"; do
         IFS=':' read -r pkg min_ver <<< "$pkg_info"
-        if python3 -c "import $pkg" 2>/dev/null; then
-            version=$(python3 -c "import $pkg; print($pkg.__version__)" 2>/dev/null || echo "unknown")
+        if $PYTHON_CMD -c "import $pkg" 2>/dev/null; then
+            version=$($PYTHON_CMD -c "import $pkg; print($pkg.__version__)" 2>/dev/null || echo "unknown")
             print_success "$pkg installed: $version"
         else
             print_error "$pkg not installed"
             if [ "$FIX_MODE" = true ]; then
-                pip3 install "$pkg>=$min_ver"
+                print_info "Installing $pkg>=$min_ver..."
+                $PIP_CMD install "$pkg>=$min_ver"
+            else
+                print_info "Install with: $PIP_CMD install -r backend/requirements.txt"
             fi
         fi
     done
@@ -528,9 +584,13 @@ else
     echo -e "${GREEN}All checks passed! System is ready.${NC}"
     echo ""
     echo "Next steps:"
-    echo "  1. Install Python dependencies: pip3 install -r backend/requirements.txt"
-    echo "  2. Install Node.js dependencies: cd frontend/web && npm install"
-    echo "  3. Configure .env file with your settings"
-    echo "  4. Start services: docker-compose up -d"
+    echo "  1. Create/activate virtual environment: python3 -m venv venv && source venv/bin/activate"
+    echo "  2. Install Python dependencies: make install"
+    echo "  3. Install Node.js dependencies: cd frontend/web && npm install"
+    echo "  4. Configure .env file with your settings"
+    echo "  5. Start services: docker-compose up -d"
+    echo ""
+    echo "Or use the quick setup:"
+    echo "  make quickstart"
     exit 0
 fi
