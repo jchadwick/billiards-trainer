@@ -100,7 +100,7 @@ class ShutdownCoordinator:
         self._module_shutdowns: dict[str, Callable[[], Any]] = {}
 
         # Background tasks to cleanup
-        self._background_tasks: set[asyncio.Task] = set()
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def register_module_shutdown(
         self, module_name: str, shutdown_func: Callable[[], Any]
@@ -114,7 +114,7 @@ class ShutdownCoordinator:
         self._module_shutdowns[module_name] = shutdown_func
         logger.debug(f"Registered shutdown function for module: {module_name}")
 
-    def register_background_task(self, task: asyncio.Task) -> None:
+    def register_background_task(self, task: asyncio.Task[Any]) -> None:
         """Register a background task for cleanup during shutdown.
 
         Args:
@@ -123,7 +123,7 @@ class ShutdownCoordinator:
         self._background_tasks.add(task)
 
         # Remove completed tasks automatically
-        def cleanup_task(t: asyncio.Task):
+        def cleanup_task(t: asyncio.Task[Any]) -> None:
             self._background_tasks.discard(t)
 
         task.add_done_callback(cleanup_task)
@@ -188,9 +188,10 @@ class ShutdownCoordinator:
 
                 # Update final status
                 self.progress.completed_at = datetime.now(timezone.utc)
-                self.progress.elapsed_time = (
-                    self.progress.completed_at - self.progress.started_at
-                ).total_seconds()
+                if self.progress.started_at:
+                    self.progress.elapsed_time = (
+                        self.progress.completed_at - self.progress.started_at
+                    ).total_seconds()
 
                 if success:
                     self.progress.status = ShutdownStatus.COMPLETED
@@ -548,12 +549,36 @@ class ShutdownCoordinator:
 shutdown_coordinator = ShutdownCoordinator()
 
 
-def setup_signal_handlers():
+def setup_signal_handlers() -> None:
     """Setup signal handlers for graceful shutdown."""
+    ctrl_c_count = {"count": 0, "last_time": 0.0}
 
-    def signal_handler(signum, frame):
+    def signal_handler(signum: int, frame: Any) -> None:
         """Handle shutdown signals."""
+        current_time = time.time()
+
+        # Handle multiple Ctrl-C presses for force shutdown
+        if signum == signal.SIGINT:
+            ctrl_c_count["count"] += 1
+            time_since_last = current_time - ctrl_c_count["last_time"]
+            ctrl_c_count["last_time"] = current_time
+
+            # If pressed twice within 2 seconds, force immediate shutdown
+            if ctrl_c_count["count"] >= 2 and time_since_last < 2.0:
+                logger.warning(
+                    "Force shutdown requested (Ctrl-C x2), exiting immediately"
+                )
+                import os
+
+                os._exit(1)
+
+            # Reset count if more than 2 seconds elapsed
+            if time_since_last > 2.0:
+                ctrl_c_count["count"] = 1
+
         logger.info(f"Received signal {signum}, initiating graceful shutdown")
+        if signum == signal.SIGINT:
+            logger.info("Press Ctrl-C again within 2 seconds to force shutdown")
 
         # Create event loop if needed and run shutdown
         try:
@@ -563,11 +588,32 @@ def setup_signal_handlers():
             asyncio.set_event_loop(loop)
 
         if loop.is_running():
-            # Schedule shutdown as a task
-            asyncio.create_task(shutdown_coordinator.initiate_shutdown())
+            # Schedule shutdown as a task with timeout
+            async def shutdown_with_timeout() -> None:
+                try:
+                    await asyncio.wait_for(
+                        shutdown_coordinator.initiate_shutdown(), timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("Graceful shutdown timed out after 5s, forcing exit")
+                    import os
+
+                    os._exit(1)
+
+            asyncio.create_task(shutdown_with_timeout())
         else:
-            # Run shutdown synchronously
-            loop.run_until_complete(shutdown_coordinator.initiate_shutdown())
+            # Run shutdown synchronously with timeout
+            try:
+                loop.run_until_complete(
+                    asyncio.wait_for(
+                        shutdown_coordinator.initiate_shutdown(), timeout=5.0
+                    )
+                )
+            except asyncio.TimeoutError:
+                logger.error("Graceful shutdown timed out after 5s, forcing exit")
+                import os
+
+                os._exit(1)
 
     # Register signal handlers
     signal.signal(signal.SIGTERM, signal_handler)
