@@ -11,9 +11,10 @@
 #   make format        Format code
 #   make clean         Clean build artifacts
 #   make run           Run the application
+#   make deploy        Build production distribution
 #
 
-.PHONY: help install dev test lint format clean run docker build deploy
+.PHONY: help install dev test lint format clean run docker build deploy deploy-clean
 
 # Default target
 .DEFAULT_GOAL := help
@@ -338,3 +339,13 @@ docs-serve: ## Serve documentation locally
 	else \
 		echo "$(RED)Documentation not built. Run 'make docs' first.$(RESET)"; \
 	fi
+
+# ===== Deployment =====
+
+deploy: build-frontend ## Build production distribution package
+	@bash scripts/deploy/build-dist.sh
+
+deploy-clean: ## Clean deployment artifacts
+	@echo "$(BLUE)Cleaning deployment artifacts...$(RESET)"
+	@rm -rf dist/
+	@echo "$(GREEN)Deployment artifacts cleaned!$(RESET)"
