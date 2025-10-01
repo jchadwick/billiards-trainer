@@ -32,10 +32,32 @@ export class RootStore {
   initializationError: string | null = null;
 
   constructor() {
+    // Auto-detect API URLs from current window location
+    const getApiBaseUrl = () => {
+      if (process.env.REACT_APP_API_BASE_URL) {
+        return process.env.REACT_APP_API_BASE_URL;
+      }
+      if (typeof window !== 'undefined') {
+        return `${window.location.origin}/api/v1`;
+      }
+      return 'http://localhost:8000/api/v1';
+    };
+
+    const getWsBaseUrl = () => {
+      if (process.env.REACT_APP_WS_BASE_URL) {
+        return process.env.REACT_APP_WS_BASE_URL;
+      }
+      if (typeof window !== 'undefined') {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws`;
+      }
+      return 'ws://localhost:8000/ws';
+    };
+
     // Initialize API service first as other stores may depend on it
     this.apiService = createApiService({
-      apiBaseUrl: process.env.REACT_APP_API_BASE_URL || 'http://localhost:8080/api/v1',
-      wsBaseUrl: process.env.REACT_APP_WS_BASE_URL || 'ws://localhost:8080/ws',
+      apiBaseUrl: getApiBaseUrl(),
+      wsBaseUrl: getWsBaseUrl(),
       enableCaching: true,
       enableRequestDeduplication: true,
       autoConnectWebSocket: true,
@@ -118,7 +140,16 @@ export class RootStore {
     this.ui.applyTheme(theme);
 
     // Connect to backend system if configured
-    const websocketUrl = 'ws://localhost:8080/ws'; // This should come from config
+    // Auto-detect WebSocket URL from current location
+    const getWebSocketUrl = () => {
+      if (typeof window !== 'undefined') {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws`;
+      }
+      return 'ws://localhost:8000/ws';
+    };
+
+    const websocketUrl = getWebSocketUrl();
     if (this.auth.isAuthenticated) {
       await this.system.connect(websocketUrl);
     }
@@ -213,7 +244,16 @@ export class RootStore {
         (isAuthenticated) => {
           if (isAuthenticated && !this.system.status.isConnected) {
             // Auto-connect when authenticated
-            const websocketUrl = 'ws://localhost:8080/api/v1/ws';
+            // Auto-detect WebSocket URL from current location
+            const getWebSocketUrl = () => {
+              if (typeof window !== 'undefined') {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                return `${protocol}//${window.location.host}/api/v1/ws`;
+              }
+              return 'ws://localhost:8000/api/v1/ws';
+            };
+
+            const websocketUrl = getWebSocketUrl();
             this.system.connect(websocketUrl).catch(error => {
               console.error('Auto-connect failed:', error);
             });
