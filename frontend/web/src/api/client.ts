@@ -62,7 +62,30 @@ export class ApiClient {
   private token: string | null = null;
   private wsUrl: string;
 
-  constructor(baseURL: string = 'http://localhost:8080', wsUrl: string = 'ws://localhost:8080') {
+  constructor(baseURL?: string, wsUrl?: string) {
+    // Auto-detect base URL from current window location if not provided
+    if (!baseURL) {
+      if (typeof window !== 'undefined') {
+        // Use current origin when running in browser
+        baseURL = window.location.origin;
+      } else {
+        // Fallback for SSR or testing
+        baseURL = 'http://localhost:8000';
+      }
+    }
+
+    // Auto-detect WebSocket URL from current window location if not provided
+    if (!wsUrl) {
+      if (typeof window !== 'undefined') {
+        // Use current origin with ws/wss protocol
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${window.location.host}`;
+      } else {
+        // Fallback for SSR or testing
+        wsUrl = 'ws://localhost:8000';
+      }
+    }
+
     this.baseURL = baseURL.replace(/\/$/, ''); // Remove trailing slash
     this.wsUrl = wsUrl.replace(/\/$/, '');
   }

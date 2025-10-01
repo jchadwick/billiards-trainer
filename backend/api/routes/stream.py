@@ -211,7 +211,6 @@ async def video_stream(
         None, ge=120, le=2160, description="Maximum frame height"
     ),
     vision_module: VisionModule = Depends(get_vision_module),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
 ) -> StreamingResponse:
     """Live video streaming endpoint using MJPEG over HTTP.
 
@@ -301,7 +300,6 @@ async def video_stream(
 @router.get("/video/status")
 async def stream_status(
     vision_module: VisionModule = Depends(get_vision_module),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
 ) -> dict[str, Any]:
     """Get video streaming status and statistics.
 
@@ -372,7 +370,6 @@ async def stream_status(
 @router.post("/video/start")
 async def start_video_capture(
     vision_module: VisionModule = Depends(get_vision_module),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
 ) -> dict[str, Any]:
     """Start video capture and processing.
 
@@ -430,7 +427,6 @@ async def start_video_capture(
 @router.post("/video/stop")
 async def stop_video_capture(
     vision_module: VisionModule = Depends(get_vision_module),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
 ) -> dict[str, Any]:
     """Stop video capture and processing.
 
@@ -482,7 +478,6 @@ async def get_single_frame(
         None, ge=120, le=2160, description="Maximum frame height"
     ),
     vision_module: VisionModule = Depends(get_vision_module),
-    current_user: dict[str, Any] = Depends(ViewerRequired),
 ):
     """Get a single frame from the camera as JPEG.
 
