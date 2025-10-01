@@ -19,17 +19,10 @@ from config.manager import ConfigurationModule
 logger = logging.getLogger(__name__)
 
 
-def signal_handler(signum: int, frame: object) -> None:
-    """Handle shutdown signals gracefully."""
-    logger.info(f"Received signal {signum}, shutting down...")
-    sys.exit(0)
-
-
 def main() -> NoReturn:
     """Main entry point for the application."""
-    # Register signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
+    # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
+    # which is called during the FastAPI lifespan startup
 
     # Load configuration
     config_module = ConfigurationModule()
@@ -41,7 +34,7 @@ def main() -> NoReturn:
     logger.info(f"Starting Billiards Trainer on {api_host}:{api_port}")
     logger.info(f"Log level: {log_level}")
 
-    # Start the API server
+    # Start the API server (this never returns normally)
     import uvicorn
 
     uvicorn.run(
@@ -51,6 +44,9 @@ def main() -> NoReturn:
         log_level=log_level,
         reload=False,
     )
+
+    # This line should never be reached, but satisfies type checker
+    raise SystemExit(0)
 
 
 if __name__ == "__main__":
