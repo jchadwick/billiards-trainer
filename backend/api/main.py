@@ -1,5 +1,6 @@
 """FastAPI application setup and configuration."""
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager, suppress
@@ -242,7 +243,52 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app_state.core_module = CoreModule(core_config)
 
-        # Vision module will be initialized lazily on first request
+        # Initialize vision module for OpenCV processing and camera streaming
+        logger.info("Initializing vision module...")
+        try:
+            # Import vision module
+            from ..vision import VisionModule
+
+            # Configure for full-resolution OpenCV processing with web streaming support
+            vision_config = {
+                "camera_device_id": 0,
+                "camera_backend": "auto",
+                "camera_resolution": (
+                    1920,
+                    1080,
+                ),  # Full resolution for vision processing
+                "camera_fps": 30,
+                "target_fps": 30,
+                "enable_threading": True,
+                "enable_table_detection": True,
+                "enable_ball_detection": True,
+                "enable_cue_detection": True,
+                "enable_tracking": True,
+                "debug_mode": (
+                    config.system.debug if hasattr(config, "system") else False
+                ),
+            }
+
+            # Initialize vision module in thread pool to avoid blocking startup
+            import concurrent.futures
+
+            loop = asyncio.get_event_loop()
+            with concurrent.futures.ThreadPoolExecutor():
+                app_state.vision_module = await loop.run_in_executor(
+                    None, lambda: VisionModule(vision_config)
+                )
+
+            # Start camera capture for continuous OpenCV processing
+            logger.info("Starting camera capture for vision processing...")
+            app_state.vision_module.start_capture()
+
+            logger.info("Vision module initialized and camera capture started")
+        except Exception as e:
+            logger.warning(
+                f"Failed to initialize vision module (camera may not be available): {e}"
+            )
+            # Don't fail startup if camera isn't available
+            app_state.vision_module = None
 
         # Initialize WebSocket components (use global instances)
         logger.info("Initializing WebSocket components...")
