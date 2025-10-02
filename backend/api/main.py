@@ -273,16 +273,26 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             import concurrent.futures
 
             loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor():
-                app_state.vision_module = await loop.run_in_executor(
-                    None, lambda: VisionModule(vision_config)
-                )
 
-            # Start camera capture for continuous OpenCV processing
+            # Initialize vision module with timeout
+            logger.info("Initializing vision module (this may take a moment)...")
+            app_state.vision_module = await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: VisionModule(vision_config)),
+                timeout=10.0
+            )
+
+            # Start camera capture for continuous OpenCV processing (also in executor)
             logger.info("Starting camera capture for vision processing...")
-            app_state.vision_module.start_capture()
+            capture_started = await asyncio.wait_for(
+                loop.run_in_executor(None, app_state.vision_module.start_capture),
+                timeout=10.0
+            )
 
-            logger.info("Vision module initialized and camera capture started")
+            if capture_started:
+                logger.info("Vision module initialized and camera capture started successfully")
+            else:
+                logger.warning("Camera capture failed to start")
+                app_state.vision_module = None
         except Exception as e:
             logger.warning(
                 f"Failed to initialize vision module (camera may not be available): {e}"
