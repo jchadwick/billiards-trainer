@@ -59,7 +59,11 @@ def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> VisionModule:
     """Get or create vision module instance."""
+    logger.debug("get_vision_module called")
+
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
+        logger.info("Creating new vision module instance")
+
         # Initialize vision module with default config
         vision_config = {
             "camera_device_id": 0,
@@ -75,11 +79,14 @@ def get_vision_module(
             "debug_mode": False,
         }
 
+        logger.info(f"Vision module config: {vision_config}")
+
         try:
+            logger.info("Initializing vision module...")
             app_state.vision_module = VisionModule(vision_config)
-            logger.info("Vision module initialized for streaming")
+            logger.info("Vision module initialized successfully for streaming")
         except Exception as e:
-            logger.error(f"Failed to initialize vision module: {e}")
+            logger.error(f"Failed to initialize vision module: {e}", exc_info=True)
             raise HTTPException(
                 status_code=503,
                 detail={
@@ -89,6 +96,8 @@ def get_vision_module(
                     "details": {"error": str(e)},
                 },
             )
+    else:
+        logger.debug("Using existing vision module instance")
 
     return app_state.vision_module
 
@@ -116,16 +125,29 @@ async def generate_mjpeg_stream(
     _streaming_clients.add(client_id)
     _stream_stats["active_streams"] = len(_streaming_clients)
 
-    logger.info(f"Starting MJPEG stream for client {client_id}")
+    logger.info(
+        f"Starting MJPEG stream for client {client_id} (quality={quality}, max_fps={max_fps})"
+    )
 
     try:
         # Start camera capture if not already running
+        logger.debug(f"Checking camera connection status for client {client_id}")
         if not vision_module.camera.is_connected():
+            logger.info(
+                f"Camera not connected for client {client_id}, attempting to start capture"
+            )
             if not vision_module.start_capture():
+                logger.error(f"Failed to start camera capture for client {client_id}")
                 raise StreamingError("Failed to start camera capture")
+            logger.info(f"Camera capture started successfully for client {client_id}")
+        else:
+            logger.debug(f"Camera already connected for client {client_id}")
 
         frame_interval = 1.0 / max_fps if max_fps > 0 else 0
         last_frame_time = 0
+        frame_count = 0
+
+        logger.info(f"Entering stream loop for client {client_id}")
 
         while client_id in _streaming_clients:
             try:
@@ -140,10 +162,16 @@ async def generate_mjpeg_stream(
                     continue
 
                 # Get latest frame from vision module
+                logger.debug(f"Getting frame for client {client_id}")
                 frame = vision_module.get_current_frame()
                 if frame is None:
+                    logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(0.01)
                     continue
+
+                frame_count += 1
+                if frame_count % 30 == 0:  # Log every 30 frames
+                    logger.debug(f"Client {client_id} processed {frame_count} frames")
 
                 # Resize frame if requested
                 if max_width or max_height:
@@ -299,7 +327,7 @@ async def video_stream(
 
 @router.get("/video/status")
 async def stream_status(
-    vision_module: VisionModule = Depends(get_vision_module),
+    app_state: ApplicationState = Depends(get_app_state),
 ) -> dict[str, Any]:
     """Get video streaming status and statistics.
 
@@ -310,6 +338,44 @@ async def stream_status(
         Dictionary containing streaming status and statistics
     """
     try:
+        # Check if vision module exists, but don't create it
+        vision_module = (
+            app_state.vision_module if hasattr(app_state, "vision_module") else None
+        )
+
+        if not vision_module:
+            # Return minimal status when vision module not initialized
+            return {
+                "camera": {
+                    "status": "not_initialized",
+                    "connected": False,
+                    "info": {},
+                    "health": {
+                        "frames_captured": 0,
+                        "frames_dropped": 0,
+                        "fps": 0.0,
+                        "error_count": 0,
+                        "last_error": None,
+                        "uptime": 0.0,
+                    },
+                },
+                "streaming": {
+                    "active_streams": _stream_stats["active_streams"],
+                    "total_frames_served": _stream_stats["total_frames_served"],
+                    "avg_fps": 0.0,
+                    "uptime": time.time() - _stream_stats["start_time"],
+                    "last_frame_time": _stream_stats["last_frame_time"],
+                },
+                "vision": {
+                    "processing_fps": 0.0,
+                    "frames_processed": 0,
+                    "frames_dropped": 0,
+                    "avg_processing_time_ms": 0.0,
+                    "is_running": False,
+                },
+                "timestamp": time.time(),
+            }
+
         # Get camera health
         camera_health = vision_module.camera.get_health()
         camera_info = vision_module.camera.get_camera_info()
