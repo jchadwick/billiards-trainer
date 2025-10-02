@@ -243,71 +243,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         )
         app_state.core_module = CoreModule(core_config)
 
-        # Initialize vision module for OpenCV processing and camera streaming
-        logger.info("Initializing vision module...")
-        try:
-            # Import vision module
-            from ..vision import VisionModule
-
-            # Configure for full-resolution OpenCV processing with web streaming support
-            vision_config = {
-                "camera_device_id": 0,
-                "camera_backend": "auto",
-                "camera_resolution": (
-                    1920,
-                    1080,
-                ),  # Full resolution for vision processing
-                "camera_fps": 30,
-                "target_fps": 30,
-                "enable_threading": True,
-                "enable_table_detection": True,
-                "enable_ball_detection": True,
-                "enable_cue_detection": True,
-                "enable_tracking": True,
-                "debug_mode": (
-                    config.system.debug if hasattr(config, "system") else False
-                ),
-            }
-
-            # Initialize vision module in thread pool to avoid blocking startup
-            import concurrent.futures
-
-            loop = asyncio.get_event_loop()
-
-            # Initialize vision module with timeout
-            logger.info("Initializing vision module (this may take a moment)...")
-            app_state.vision_module = await asyncio.wait_for(
-                loop.run_in_executor(None, lambda: VisionModule(vision_config)),
-                timeout=30.0  # Increased timeout for slow camera init
-            )
-            logger.info("Vision module created successfully")
-
-            # Start camera capture for continuous OpenCV processing (also in executor)
-            logger.info("Starting camera capture for vision processing...")
-            capture_started = await asyncio.wait_for(
-                loop.run_in_executor(None, app_state.vision_module.start_capture),
-                timeout=30.0  # Increased timeout for slow camera start
-            )
-            logger.info(f"Camera capture start result: {capture_started}")
-
-            if capture_started:
-                logger.info("Vision module initialized and camera capture started successfully")
-            else:
-                logger.warning("Camera capture failed to start")
-                app_state.vision_module = None
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Vision module initialization timed out after 10 seconds. "
-                "Camera may be slow to respond or in use by another process."
-            )
-            app_state.vision_module = None
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize vision module: {type(e).__name__}: {e}",
-                exc_info=True
-            )
-            # Don't fail startup if camera isn't available
-            app_state.vision_module = None
+        # Vision module will be initialized lazily on first camera access
+        # This prevents startup from hanging if camera initialization is slow
+        logger.info("Vision module will be initialized on first camera/stream access")
+        app_state.vision_module = None
 
         # Initialize WebSocket components (use global instances)
         logger.info("Initializing WebSocket components...")

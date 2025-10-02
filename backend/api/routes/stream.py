@@ -56,26 +56,71 @@ class StreamingError(Exception):
 async def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> VisionModule:
-    """Get the shared vision module instance.
+    """Get or lazily create the shared vision module instance.
 
-    The vision module is initialized at application startup with full resolution
-    and OpenCV processing enabled. This ensures:
-    1. Only ONE camera instance is created (no conflicts)
-    2. OpenCV processing has priority (runs continuously)
-    3. Web streaming reads frames from the same instance via get_current_frame()
+    Creates vision module on first access and reuses it for all subsequent requests.
+    This ensures:
+    1. Only ONE vision module/camera instance is created (no conflicts)
+    2. OpenCV processing and web streaming share the same camera instance
+    3. Server startup is fast (camera init happens on first access)
     """
     logger.debug("get_vision_module called")
 
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        logger.error("Vision module not initialized - should be created at startup")
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "error": "Vision Module Unavailable",
-                "message": "Camera system not initialized. Camera may not be available on this system.",
-                "code": "STREAM_001",
-            },
-        )
+        logger.info("Creating shared vision module instance (lazy initialization)")
+
+        # Configure for full-resolution OpenCV processing with web streaming support
+        vision_config = {
+            "camera_device_id": 0,
+            "camera_backend": "auto",
+            "camera_resolution": (1920, 1080),  # Full resolution
+            "camera_fps": 30,
+            "target_fps": 30,
+            "enable_threading": True,
+            "enable_table_detection": True,  # Full OpenCV processing
+            "enable_ball_detection": True,
+            "enable_cue_detection": True,
+            "enable_tracking": True,
+            "debug_mode": False,
+        }
+
+        try:
+            logger.info("Initializing vision module (this may take a moment)...")
+
+            # Run the blocking VisionModule initialization in a thread pool
+            loop = asyncio.get_event_loop()
+            app_state.vision_module = await loop.run_in_executor(
+                None, lambda: VisionModule(vision_config)
+            )
+
+            logger.info("Vision module initialized, starting camera capture...")
+            # Start camera capture
+            success = await loop.run_in_executor(None, app_state.vision_module.start_capture)
+
+            if success:
+                logger.info("Shared vision module created and camera started successfully")
+            else:
+                logger.error("Camera capture failed to start")
+                app_state.vision_module = None
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "Camera Start Failed",
+                        "message": "Camera capture failed to start",
+                        "code": "STREAM_001",
+                    },
+                )
+        except Exception as e:
+            logger.error(f"Failed to initialize vision module: {e}", exc_info=True)
+            app_state.vision_module = None
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Vision Module Unavailable",
+                    "message": f"Failed to initialize camera system: {str(e)}",
+                    "code": "STREAM_001",
+                },
+            )
 
     logger.debug("Using shared vision module instance")
     return app_state.vision_module
@@ -109,15 +154,11 @@ async def generate_mjpeg_stream(
     )
 
     try:
-        # Verify camera is running (it should be started at application startup)
+        # Camera should already be started by get_vision_module() lazy init
         logger.debug(f"Checking camera connection status for client {client_id}")
         if not vision_module.camera.is_connected():
-            logger.error(
-                f"Camera not connected for client {client_id}. Camera should be running at startup."
-            )
-            raise StreamingError(
-                "Camera not available. The camera should be initialized at application startup."
-            )
+            logger.warning(f"Camera not connected for client {client_id}, this shouldn't happen after lazy init")
+            raise StreamingError("Camera not connected")
         logger.debug(f"Camera is connected for client {client_id}")
 
         frame_interval = 1.0 / max_fps if max_fps > 0 else 0
@@ -251,12 +292,11 @@ async def video_stream(
             )
 
         if camera_status == CameraStatus.DISCONNECTED:
-            # Camera should be started at application startup
             raise HTTPException(
                 status_code=503,
                 detail={
                     "error": "Camera Unavailable",
-                    "message": "Camera is not running. Camera should be initialized at application startup.",
+                    "message": "Camera is not connected",
                     "code": "STREAM_003",
                     "details": {"status": camera_status.value},
                 },
@@ -412,10 +452,10 @@ async def stream_status(
 async def start_video_capture(
     vision_module: VisionModule = Depends(get_vision_module),
 ) -> dict[str, Any]:
-    """Check video capture status.
+    """Get video capture status.
 
-    The camera is automatically started at application startup for continuous
-    OpenCV processing. This endpoint returns the current status.
+    The camera is started automatically when vision module is first accessed (lazy initialization).
+    This endpoint returns the current status.
 
     Returns:
         Dictionary containing camera status and information
@@ -424,17 +464,19 @@ async def start_video_capture(
         if vision_module.camera.is_connected():
             return {
                 "status": "running",
-                "message": "Video capture is active (started at application startup)",
+                "message": "Video capture is active",
                 "camera_info": vision_module.camera.get_camera_info(),
                 "camera_health": vision_module.camera.get_health().__dict__,
             }
         else:
             return {
                 "status": "not_running",
-                "message": "Camera is not connected. Check system logs for camera initialization errors.",
+                "message": "Camera is not connected",
                 "camera_info": {},
             }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Check video capture status failed: {e}")
         raise HTTPException(
@@ -514,13 +556,13 @@ async def get_single_frame(
         JPEG image data
     """
     try:
-        # Verify camera is running (should be started at application startup)
+        # Camera should already be started by lazy init
         if not vision_module.camera.is_connected():
             raise HTTPException(
                 status_code=503,
                 detail={
                     "error": "Camera Unavailable",
-                    "message": "Camera is not running. Camera should be initialized at application startup.",
+                    "message": "Camera is not connected",
                     "code": "STREAM_003",
                 },
             )
