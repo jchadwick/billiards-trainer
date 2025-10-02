@@ -56,57 +56,28 @@ class StreamingError(Exception):
 async def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> VisionModule:
-    """Get or create vision module instance."""
+    """Get the shared vision module instance.
+
+    The vision module is initialized at application startup with full resolution
+    and OpenCV processing enabled. This ensures:
+    1. Only ONE camera instance is created (no conflicts)
+    2. OpenCV processing has priority (runs continuously)
+    3. Web streaming reads frames from the same instance via get_current_frame()
+    """
     logger.debug("get_vision_module called")
 
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        logger.info("Creating new vision module instance")
+        logger.error("Vision module not initialized - should be created at startup")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Vision Module Unavailable",
+                "message": "Camera system not initialized. Camera may not be available on this system.",
+                "code": "STREAM_001",
+            },
+        )
 
-        # Initialize vision module with default config for low-res streaming
-        vision_config = {
-            "camera_device_id": 0,
-            "camera_backend": "auto",
-            "camera_resolution": (
-                640,
-                480,
-            ),  # Low res for faster initialization and streaming
-            "camera_fps": 15,  # Lower FPS for calibration preview
-            "target_fps": 15,
-            "enable_threading": True,
-            "enable_table_detection": False,  # Disable for streaming to reduce load
-            "enable_ball_detection": False,
-            "enable_cue_detection": False,
-            "enable_tracking": False,
-            "debug_mode": False,
-        }
-
-        logger.info(f"Vision module config: {vision_config}")
-
-        try:
-            logger.info("Initializing vision module asynchronously...")
-
-            # Run the blocking VisionModule initialization in a thread pool
-            # to avoid blocking the async event loop
-            loop = asyncio.get_event_loop()
-            app_state.vision_module = await loop.run_in_executor(
-                None, lambda: VisionModule(vision_config)
-            )
-
-            logger.info("Vision module initialized successfully for streaming")
-        except Exception as e:
-            logger.error(f"Failed to initialize vision module: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "Vision Module Unavailable",
-                    "message": "Failed to initialize camera system",
-                    "code": "STREAM_001",
-                    "details": {"error": str(e)},
-                },
-            )
-    else:
-        logger.debug("Using existing vision module instance")
-
+    logger.debug("Using shared vision module instance")
     return app_state.vision_module
 
 
@@ -138,21 +109,16 @@ async def generate_mjpeg_stream(
     )
 
     try:
-        # Start camera capture if not already running
+        # Verify camera is running (it should be started at application startup)
         logger.debug(f"Checking camera connection status for client {client_id}")
         if not vision_module.camera.is_connected():
-            logger.info(
-                f"Camera not connected for client {client_id}, attempting to start capture"
+            logger.error(
+                f"Camera not connected for client {client_id}. Camera should be running at startup."
             )
-            # Run blocking start_capture in thread pool to avoid blocking event loop
-            loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, vision_module.start_capture)
-            if not success:
-                logger.error(f"Failed to start camera capture for client {client_id}")
-                raise StreamingError("Failed to start camera capture")
-            logger.info(f"Camera capture started successfully for client {client_id}")
-        else:
-            logger.debug(f"Camera already connected for client {client_id}")
+            raise StreamingError(
+                "Camera not available. The camera should be initialized at application startup."
+            )
+        logger.debug(f"Camera is connected for client {client_id}")
 
         frame_interval = 1.0 / max_fps if max_fps > 0 else 0
         last_frame_time = 0
@@ -285,19 +251,16 @@ async def video_stream(
             )
 
         if camera_status == CameraStatus.DISCONNECTED:
-            # Try to start capture (run in thread pool to avoid blocking)
-            loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, vision_module.start_capture)
-            if not success:
-                raise HTTPException(
-                    status_code=503,
-                    detail={
-                        "error": "Camera Unavailable",
-                        "message": "Unable to connect to camera",
-                        "code": "STREAM_003",
-                        "details": {"status": camera_status.value},
-                    },
-                )
+            # Camera should be started at application startup
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Camera Unavailable",
+                    "message": "Camera is not running. Camera should be initialized at application startup.",
+                    "code": "STREAM_003",
+                    "details": {"status": camera_status.value},
+                },
+            )
 
         logger.info(
             f"Starting video stream: quality={quality}, fps={fps}, size={width}x{height}"
@@ -449,56 +412,36 @@ async def stream_status(
 async def start_video_capture(
     vision_module: VisionModule = Depends(get_vision_module),
 ) -> dict[str, Any]:
-    """Start video capture and processing.
+    """Check video capture status.
 
-    Initializes the camera and begins frame capture. This endpoint
-    should be called before attempting to stream video.
+    The camera is automatically started at application startup for continuous
+    OpenCV processing. This endpoint returns the current status.
 
     Returns:
-        Dictionary containing operation status and camera information
+        Dictionary containing camera status and information
     """
     try:
         if vision_module.camera.is_connected():
             return {
-                "status": "already_running",
-                "message": "Video capture is already active",
-                "camera_info": vision_module.camera.get_camera_info(),
-            }
-
-        logger.info("Starting video capture via API request")
-
-        # Run blocking start_capture in thread pool
-        loop = asyncio.get_event_loop()
-        success = await loop.run_in_executor(None, vision_module.start_capture)
-        if success:
-            # Wait a moment for camera to stabilize
-            await asyncio.sleep(0.5)
-
-            return {
-                "status": "started",
-                "message": "Video capture started successfully",
+                "status": "running",
+                "message": "Video capture is active (started at application startup)",
                 "camera_info": vision_module.camera.get_camera_info(),
                 "camera_health": vision_module.camera.get_health().__dict__,
             }
         else:
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "Capture Start Failed",
-                    "message": "Unable to start video capture",
-                    "code": "STREAM_005",
-                },
-            )
+            return {
+                "status": "not_running",
+                "message": "Camera is not connected. Check system logs for camera initialization errors.",
+                "camera_info": {},
+            }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Start video capture failed: {e}")
+        logger.error(f"Check video capture status failed: {e}")
         raise HTTPException(
             status_code=500,
             detail={
-                "error": "Capture Start Error",
-                "message": "Error starting video capture",
+                "error": "Status Check Error",
+                "message": "Error checking video capture status",
                 "code": "STREAM_001",
                 "details": {"error": str(e)},
             },
@@ -571,23 +514,16 @@ async def get_single_frame(
         JPEG image data
     """
     try:
-        # Ensure camera is running
+        # Verify camera is running (should be started at application startup)
         if not vision_module.camera.is_connected():
-            # Run blocking start_capture in thread pool
-            loop = asyncio.get_event_loop()
-            success = await loop.run_in_executor(None, vision_module.start_capture)
-            if not success:
-                raise HTTPException(
-                    status_code=503,
-                    detail={
-                        "error": "Camera Unavailable",
-                        "message": "Unable to connect to camera",
-                        "code": "STREAM_003",
-                    },
-                )
-
-            # Wait for camera to stabilize
-            await asyncio.sleep(0.5)
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "Camera Unavailable",
+                    "message": "Camera is not running. Camera should be initialized at application startup.",
+                    "code": "STREAM_003",
+                },
+            )
 
         # Get current frame
         frame = vision_module.get_current_frame()
