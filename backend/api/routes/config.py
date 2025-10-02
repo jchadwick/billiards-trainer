@@ -50,7 +50,7 @@ def validate_config_section(section: str, allowed_sections: list[str]) -> str:
             detail=create_error_response(
                 "Invalid Configuration Section",
                 f"Section '{section}' is not valid. Allowed sections: {allowed_sections}",
-                ErrorCode.VAL_INVALID_FORMAT,
+                ErrorCode.VALIDATION_INVALID_FORMAT,
                 {"valid_sections": allowed_sections},
             ),
         )
@@ -416,7 +416,7 @@ async def import_configuration(
                 detail=create_error_response(
                     "Invalid File Format",
                     f"File format '{file_extension}' not supported. Allowed: {allowed_extensions}",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"allowed_formats": allowed_extensions},
                 ),
             )
@@ -437,7 +437,7 @@ async def import_configuration(
                 detail=create_error_response(
                     "File Parse Error",
                     f"Unable to parse configuration file: {str(e)}",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"error": str(e)},
                 ),
             )
@@ -449,7 +449,7 @@ async def import_configuration(
                 detail=create_error_response(
                     "Invalid Configuration Structure",
                     "Configuration must be a JSON/YAML object",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"received_type": type(config_data).__name__},
                 ),
             )

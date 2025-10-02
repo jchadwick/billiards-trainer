@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Test script for DirectCameraModule.
+"""Test script for DirectCameraModule.
 
 This script validates that the DirectCameraModule works correctly by:
 1. Creating an instance with simple configuration
@@ -13,9 +12,9 @@ This script can be run locally (without actual camera) to verify the code struct
 and on the target environment to verify actual camera functionality.
 """
 
+import logging
 import sys
 import time
-import logging
 from pathlib import Path
 
 # Add backend to path
@@ -27,8 +26,7 @@ from vision.direct_camera import DirectCameraModule
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -42,18 +40,12 @@ def print_section(title: str):
 
 def test_direct_camera():
     """Test DirectCameraModule functionality."""
-
     print_section("DirectCameraModule Test Script")
 
     # Test configuration
-    config = {
-        'device_id': 0,
-        'resolution': (640, 480),
-        'fps': 30,
-        'buffer_size': 1
-    }
+    config = {"device_id": 0, "resolution": (640, 480), "fps": 30, "buffer_size": 1}
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Device ID: {config['device_id']}")
     print(f"  Resolution: {config['resolution']}")
     print(f"  FPS: {config['fps']}")
@@ -61,14 +53,14 @@ def test_direct_camera():
 
     # Statistics tracking
     stats = {
-        'current_frame_count': 0,
-        'current_frame_success': 0,
-        'current_frame_none': 0,
-        'streaming_frame_count': 0,
-        'streaming_frame_success': 0,
-        'streaming_frame_none': 0,
-        'frame_shapes': set(),
-        'streaming_shapes': set(),
+        "current_frame_count": 0,
+        "current_frame_success": 0,
+        "current_frame_none": 0,
+        "streaming_frame_count": 0,
+        "streaming_frame_success": 0,
+        "streaming_frame_none": 0,
+        "frame_shapes": set(),
+        "streaming_shapes": set(),
     }
 
     camera = None
@@ -85,7 +77,9 @@ def test_direct_camera():
 
         if not success:
             print("  ✗ Failed to start camera capture")
-            print("  Note: This is expected if no camera is available (e.g., on local machine)")
+            print(
+                "  Note: This is expected if no camera is available (e.g., on local machine)"
+            )
             return False
 
         print("  ✓ Camera capture started successfully")
@@ -111,31 +105,33 @@ def test_direct_camera():
 
         for i in range(10):
             frame = camera.get_current_frame()
-            stats['current_frame_count'] += 1
+            stats["current_frame_count"] += 1
 
             if frame is not None:
-                stats['current_frame_success'] += 1
-                stats['frame_shapes'].add(frame.shape)
+                stats["current_frame_success"] += 1
+                stats["frame_shapes"].add(frame.shape)
                 print(f"  Frame {i+1}/10: ✓ (shape: {frame.shape})")
             else:
-                stats['current_frame_none'] += 1
+                stats["current_frame_none"] += 1
                 print(f"  Frame {i+1}/10: None (no frame available)")
 
             time.sleep(0.05)  # Small delay between requests
 
         # Step 4: Get 10 frames using get_frame_for_streaming()
-        print_section("Step 4: Testing get_frame_for_streaming(scale=0.5) - 10 iterations")
+        print_section(
+            "Step 4: Testing get_frame_for_streaming(scale=0.5) - 10 iterations"
+        )
 
         for i in range(10):
             frame = camera.get_frame_for_streaming(scale=0.5)
-            stats['streaming_frame_count'] += 1
+            stats["streaming_frame_count"] += 1
 
             if frame is not None:
-                stats['streaming_frame_success'] += 1
-                stats['streaming_shapes'].add(frame.shape)
+                stats["streaming_frame_success"] += 1
+                stats["streaming_shapes"].add(frame.shape)
                 print(f"  Frame {i+1}/10: ✓ (shape: {frame.shape})")
             else:
-                stats['streaming_frame_none'] += 1
+                stats["streaming_frame_none"] += 1
                 print(f"  Frame {i+1}/10: None (rate limited or unavailable)")
 
             # Streaming has 15 FPS rate limit (1/15 = ~0.067s), so wait a bit longer
@@ -146,46 +142,58 @@ def test_direct_camera():
 
         cam_stats = camera.get_statistics()
 
-        print(f"\n  Capture Status:")
+        print("\n  Capture Status:")
         print(f"    Is Capturing: {cam_stats['is_capturing']}")
         print(f"    Device ID: {cam_stats['device_id']}")
         print(f"    Resolution: {cam_stats['resolution']}")
         print(f"    Target FPS: {cam_stats['target_fps']}")
 
-        print(f"\n  Frame Statistics:")
+        print("\n  Frame Statistics:")
         print(f"    Total Frames Captured: {cam_stats['frame_count']}")
         print(f"    Uptime: {cam_stats['uptime_seconds']:.2f} seconds")
         print(f"    Actual FPS: {cam_stats['actual_fps']:.2f}")
 
-        print(f"\n  Rate Limiting:")
-        print(f"    Processing Rate Limit: {cam_stats['rate_limits']['processing']:.4f}s "
-              f"({1.0/cam_stats['rate_limits']['processing']:.1f} FPS)")
-        print(f"    Streaming Rate Limit: {cam_stats['rate_limits']['streaming']:.4f}s "
-              f"({1.0/cam_stats['rate_limits']['streaming']:.1f} FPS)")
+        print("\n  Rate Limiting:")
+        print(
+            f"    Processing Rate Limit: {cam_stats['rate_limits']['processing']:.4f}s "
+            f"({1.0/cam_stats['rate_limits']['processing']:.1f} FPS)"
+        )
+        print(
+            f"    Streaming Rate Limit: {cam_stats['rate_limits']['streaming']:.4f}s "
+            f"({1.0/cam_stats['rate_limits']['streaming']:.1f} FPS)"
+        )
 
-        print(f"\n  Dropped Frames:")
+        print("\n  Dropped Frames:")
         print(f"    Processing: {cam_stats['dropped_frames']['processing']}")
         print(f"    Streaming: {cam_stats['dropped_frames']['streaming']}")
 
         # Step 6: Print test statistics
         print_section("Step 6: Test Statistics")
 
-        print(f"\n  get_current_frame() Results:")
+        print("\n  get_current_frame() Results:")
         print(f"    Total Attempts: {stats['current_frame_count']}")
-        print(f"    Successful: {stats['current_frame_success']} "
-              f"({stats['current_frame_success']/stats['current_frame_count']*100:.1f}%)")
-        print(f"    None Returned: {stats['current_frame_none']} "
-              f"({stats['current_frame_none']/stats['current_frame_count']*100:.1f}%)")
-        if stats['frame_shapes']:
+        print(
+            f"    Successful: {stats['current_frame_success']} "
+            f"({stats['current_frame_success']/stats['current_frame_count']*100:.1f}%)"
+        )
+        print(
+            f"    None Returned: {stats['current_frame_none']} "
+            f"({stats['current_frame_none']/stats['current_frame_count']*100:.1f}%)"
+        )
+        if stats["frame_shapes"]:
             print(f"    Frame Shapes: {sorted(stats['frame_shapes'])}")
 
-        print(f"\n  get_frame_for_streaming() Results:")
+        print("\n  get_frame_for_streaming() Results:")
         print(f"    Total Attempts: {stats['streaming_frame_count']}")
-        print(f"    Successful: {stats['streaming_frame_success']} "
-              f"({stats['streaming_frame_success']/stats['streaming_frame_count']*100:.1f}%)")
-        print(f"    None Returned: {stats['streaming_frame_none']} "
-              f"({stats['streaming_frame_none']/stats['streaming_frame_count']*100:.1f}%)")
-        if stats['streaming_shapes']:
+        print(
+            f"    Successful: {stats['streaming_frame_success']} "
+            f"({stats['streaming_frame_success']/stats['streaming_frame_count']*100:.1f}%)"
+        )
+        print(
+            f"    None Returned: {stats['streaming_frame_none']} "
+            f"({stats['streaming_frame_none']/stats['streaming_frame_count']*100:.1f}%)"
+        )
+        if stats["streaming_shapes"]:
             print(f"    Frame Shapes: {sorted(stats['streaming_shapes'])}")
 
         # Verify expected behavior
@@ -194,31 +202,39 @@ def test_direct_camera():
         validation_passed = True
 
         # Check that we got at least some frames
-        if stats['current_frame_success'] == 0:
+        if stats["current_frame_success"] == 0:
             print("  ✗ FAIL: No frames retrieved via get_current_frame()")
             validation_passed = False
         else:
-            print(f"  ✓ PASS: Retrieved {stats['current_frame_success']} frames via get_current_frame()")
+            print(
+                f"  ✓ PASS: Retrieved {stats['current_frame_success']} frames via get_current_frame()"
+            )
 
         # Check streaming frames (may be rate limited, so some None is OK)
-        if stats['streaming_frame_success'] == 0:
+        if stats["streaming_frame_success"] == 0:
             print("  ✗ FAIL: No frames retrieved via get_frame_for_streaming()")
             validation_passed = False
         else:
-            print(f"  ✓ PASS: Retrieved {stats['streaming_frame_success']} frames via get_frame_for_streaming()")
+            print(
+                f"  ✓ PASS: Retrieved {stats['streaming_frame_success']} frames via get_frame_for_streaming()"
+            )
 
         # Check that camera is still capturing
-        if not cam_stats['is_capturing']:
+        if not cam_stats["is_capturing"]:
             print("  ✗ FAIL: Camera stopped capturing unexpectedly")
             validation_passed = False
         else:
             print("  ✓ PASS: Camera still capturing")
 
         # Check actual FPS is reasonable
-        if cam_stats['actual_fps'] < 5.0:
-            print(f"  ⚠ WARNING: Actual FPS ({cam_stats['actual_fps']:.2f}) is very low")
-        elif cam_stats['actual_fps'] > config['fps'] * 1.5:
-            print(f"  ⚠ WARNING: Actual FPS ({cam_stats['actual_fps']:.2f}) exceeds target significantly")
+        if cam_stats["actual_fps"] < 5.0:
+            print(
+                f"  ⚠ WARNING: Actual FPS ({cam_stats['actual_fps']:.2f}) is very low"
+            )
+        elif cam_stats["actual_fps"] > config["fps"] * 1.5:
+            print(
+                f"  ⚠ WARNING: Actual FPS ({cam_stats['actual_fps']:.2f}) exceeds target significantly"
+            )
         else:
             print(f"  ✓ PASS: Actual FPS ({cam_stats['actual_fps']:.2f}) is reasonable")
 

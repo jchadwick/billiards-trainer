@@ -24,6 +24,7 @@ from .config_manager import VisionConfigurationManager, create_vision_config_man
 from .detection.balls import BallDetector
 from .detection.cue import CueDetector
 from .detection.table import TableDetector
+from .direct_camera import DirectCameraModule
 
 # Import vision components
 from .models import (
@@ -46,7 +47,6 @@ from .models import (
 )
 from .preprocessing import ImagePreprocessor
 from .simple_camera import SimpleCameraModule
-from .direct_camera import DirectCameraModule
 from .tracking.tracker import ObjectTracker
 
 # Set up logging
