@@ -1,0 +1,20 @@
+#@baseUrl=http://localhost:8000/api
+@baseUrl=http://192.168.1.31:8000/api
+
+### Root
+GET {{baseUrl}}/
+
+### Health Check
+GET {{baseUrl}}/v1/health
+
+### WebSocket Connections
+GET {{baseUrl}}/v1/websocket/connections
+
+### Logs
+GET {{baseUrl}}/v1/logs/files
+
+### Video Stream Status
+GET {{baseUrl}}/v1/stream/video/status
+
+### Video Stream Frame
+GET {{baseUrl}}/v1/stream/video/frame

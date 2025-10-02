@@ -95,68 +95,6 @@ class DatabaseManager:
     def init_db(self) -> None:
         """Initialize database with tables and default data."""
         self.create_tables()
-        self._create_default_users()
-
-    def _create_default_users(self) -> None:
-        """Create default admin user if no users exist."""
-        from ..utils.security import UserRole
-        from .repositories import UserRepository
-
-        session = self.get_session()
-        try:
-            user_repo = UserRepository(session)
-
-            # Check if any users exist
-            user_count = user_repo.count()
-            if user_count > 0:
-                logger.info("Users already exist, skipping default user creation")
-                return
-
-            # Create default admin user
-            admin_user = user_repo.create(
-                username="admin",
-                email="admin@billiards-trainer.local",
-                password="admin123!",
-                role=UserRole.ADMIN,
-                first_name="System",
-                last_name="Administrator",
-                is_verified=True,
-            )
-
-            # Create default operator user
-            operator_user = user_repo.create(
-                username="operator",
-                email="operator@billiards-trainer.local",
-                password="operator123!",
-                role=UserRole.OPERATOR,
-                first_name="System",
-                last_name="Operator",
-                is_verified=True,
-            )
-
-            # Create default viewer user
-            viewer_user = user_repo.create(
-                username="viewer",
-                email="viewer@billiards-trainer.local",
-                password="viewer123!",
-                role=UserRole.VIEWER,
-                first_name="System",
-                last_name="Viewer",
-                is_verified=True,
-            )
-
-            session.commit()
-            logger.info("Default users created successfully")
-            logger.info(f"Admin user ID: {admin_user.id}")
-            logger.info(f"Operator user ID: {operator_user.id}")
-            logger.info(f"Viewer user ID: {viewer_user.id}")
-
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error creating default users: {e}")
-            raise
-        finally:
-            session.close()
 
     def health_check(self) -> bool:
         """Check database connectivity."""

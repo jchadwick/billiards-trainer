@@ -74,7 +74,7 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
             <div className="px-3 py-4 border-t border-secondary-200 dark:border-secondary-700">
               <div className="text-xs text-secondary-500 text-center">
                 <div>Billiards Trainer v1.0.0</div>
-                <div className="mt-1">© 2024</div>
+                <div className="mt-1">© 2025 Jess Chadwick</div>
               </div>
             </div>
           )}
@@ -130,7 +130,7 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
               <div className="px-3 py-4 border-t border-secondary-200 dark:border-secondary-700">
                 <div className="text-xs text-secondary-500 text-center">
                   <div>Billiards Trainer v1.0.0</div>
-                  <div className="mt-1">© 2024</div>
+                  <div className="mt-1">© 2025 Jess Chadwick</div>
                 </div>
               </div>
             </div>

@@ -34,12 +34,7 @@ Copy the Docker environment template:
 cp .env.docker .env
 ```
 
-Edit the `.env` file and set secure values for production:
-```bash
-# IMPORTANT: Change these values for production!
-JWT_SECRET_KEY=your-secure-secret-key-here
-DEFAULT_API_KEY=your-secure-api-key-here
-```
+Edit the `.env` file to customize settings for your environment as needed.
 
 ### 2. Build and Run (Development)
 
@@ -77,11 +72,6 @@ Key environment variables that can be customized:
 - `API_HOST`: Host to bind to (default: `0.0.0.0`)
 - `API_PORT`: API port (default: `8000`)
 - `WS_PORT`: WebSocket port (default: `8001`)
-
-#### Security
-- `JWT_SECRET_KEY`: Secret key for JWT tokens (**required in production**)
-- `API_KEY_HEADER`: Header name for API key (default: `X-API-Key`)
-- `DEFAULT_API_KEY`: Default API key for development
 
 #### Computer Vision
 - `CAMERA_INDEX`: Camera device index (default: `0`)
@@ -205,21 +195,12 @@ All services include comprehensive health checks:
 
 **Required security steps for production:**
 
-1. **Set secure secrets:**
-   ```bash
-   # Generate secure JWT secret
-   JWT_SECRET_KEY=$(openssl rand -base64 32)
-
-   # Generate secure API key
-   DEFAULT_API_KEY=$(openssl rand -hex 16)
-   ```
-
-2. **Limit network access:**
+1. **Limit network access:**
    - Remove external port mappings for Redis
    - Use proper firewall rules
    - Configure CORS appropriately
 
-3. **Use HTTPS:**
+2. **Use HTTPS:**
    - Add reverse proxy (nginx/traefik)
    - Configure SSL certificates
    - Redirect HTTP to HTTPS
@@ -298,7 +279,6 @@ docker-compose logs -f --tail=100 backend
 # Set production environment
 export ENVIRONMENT=production
 export DEBUG=false
-export JWT_SECRET_KEY="your-production-secret"
 
 # Deploy with production settings
 docker-compose -f docker-compose.yml up -d

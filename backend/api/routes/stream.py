@@ -32,8 +32,6 @@ except ImportError:
         from vision import CameraStatus, VisionModule
 
 from ..dependencies import ApplicationState, get_app_state
-from ..middleware.authentication import OperatorRequired, ViewerRequired
-from ..middleware.rate_limit import rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ class StreamingError(Exception):
     pass
 
 
-def get_vision_module(
+async def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> VisionModule:
     """Get or create vision module instance."""
@@ -64,13 +62,16 @@ def get_vision_module(
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
         logger.info("Creating new vision module instance")
 
-        # Initialize vision module with default config
+        # Initialize vision module with default config for low-res streaming
         vision_config = {
             "camera_device_id": 0,
             "camera_backend": "auto",
-            "camera_resolution": (1920, 1080),
-            "camera_fps": 30,
-            "target_fps": 30,
+            "camera_resolution": (
+                640,
+                480,
+            ),  # Low res for faster initialization and streaming
+            "camera_fps": 15,  # Lower FPS for calibration preview
+            "target_fps": 15,
             "enable_threading": True,
             "enable_table_detection": False,  # Disable for streaming to reduce load
             "enable_ball_detection": False,
@@ -82,8 +83,15 @@ def get_vision_module(
         logger.info(f"Vision module config: {vision_config}")
 
         try:
-            logger.info("Initializing vision module...")
-            app_state.vision_module = VisionModule(vision_config)
+            logger.info("Initializing vision module asynchronously...")
+
+            # Run the blocking VisionModule initialization in a thread pool
+            # to avoid blocking the async event loop
+            loop = asyncio.get_event_loop()
+            app_state.vision_module = await loop.run_in_executor(
+                None, lambda: VisionModule(vision_config)
+            )
+
             logger.info("Vision module initialized successfully for streaming")
         except Exception as e:
             logger.error(f"Failed to initialize vision module: {e}", exc_info=True)
@@ -136,7 +144,10 @@ async def generate_mjpeg_stream(
             logger.info(
                 f"Camera not connected for client {client_id}, attempting to start capture"
             )
-            if not vision_module.start_capture():
+            # Run blocking start_capture in thread pool to avoid blocking event loop
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, vision_module.start_capture)
+            if not success:
                 logger.error(f"Failed to start camera capture for client {client_id}")
                 raise StreamingError("Failed to start camera capture")
             logger.info(f"Camera capture started successfully for client {client_id}")
@@ -227,7 +238,6 @@ async def generate_mjpeg_stream(
 
 
 @router.get("/video")
-@rate_limit(requests_per_minute=60, burst_size=10)  # Rate limiting for streaming
 async def video_stream(
     request: Request,
     quality: int = Query(80, ge=1, le=100, description="JPEG quality (1-100)"),
@@ -275,8 +285,10 @@ async def video_stream(
             )
 
         if camera_status == CameraStatus.DISCONNECTED:
-            # Try to start capture
-            if not vision_module.start_capture():
+            # Try to start capture (run in thread pool to avoid blocking)
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, vision_module.start_capture)
+            if not success:
                 raise HTTPException(
                     status_code=503,
                     detail={
@@ -455,7 +467,10 @@ async def start_video_capture(
 
         logger.info("Starting video capture via API request")
 
-        if vision_module.start_capture():
+        # Run blocking start_capture in thread pool
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, vision_module.start_capture)
+        if success:
             # Wait a moment for camera to stabilize
             await asyncio.sleep(0.5)
 
@@ -532,9 +547,6 @@ async def stop_video_capture(
 
 
 @router.get("/video/frame")
-@rate_limit(
-    requests_per_minute=120, burst_size=20
-)  # Higher rate limit for single frames
 async def get_single_frame(
     quality: int = Query(90, ge=1, le=100, description="JPEG quality (1-100)"),
     width: Optional[int] = Query(
@@ -561,7 +573,10 @@ async def get_single_frame(
     try:
         # Ensure camera is running
         if not vision_module.camera.is_connected():
-            if not vision_module.start_capture():
+            # Run blocking start_capture in thread pool
+            loop = asyncio.get_event_loop()
+            success = await loop.run_in_executor(None, vision_module.start_capture)
+            if not success:
                 raise HTTPException(
                     status_code=503,
                     detail={

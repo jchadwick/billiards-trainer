@@ -735,41 +735,6 @@ class CoreConfig(BaseConfig):
 # =============================================================================
 
 
-class AuthenticationConfig(BaseConfig):
-    """API authentication configuration."""
-
-    enabled: bool = Field(
-        default=False,
-        description="Enable authentication (set to False for development/testing)",
-    )
-    jwt_secret_key: SecretStr = Field(
-        default="dev-secret-key-change-in-production",
-        description="JWT signing secret key",
-    )
-    jwt_algorithm: str = Field(default="HS256", description="JWT signing algorithm")
-    jwt_expiration_hours: int = Field(
-        default=24,
-        ge=1,
-        le=168,  # 1 week
-        description="JWT token expiration time (hours)",
-    )
-    refresh_token_expiration_days: int = Field(
-        default=30, ge=1, le=365, description="Refresh token expiration time (days)"
-    )
-    enable_api_keys: bool = Field(
-        default=True, description="Enable API key authentication"
-    )
-    api_key_expiration_days: int = Field(
-        default=365, ge=1, le=365, description="API key expiration time (days)"
-    )
-    password_min_length: int = Field(
-        default=8, ge=6, le=128, description="Minimum password length"
-    )
-    require_password_complexity: bool = Field(
-        default=True, description="Require complex passwords"
-    )
-
-
 class CorsConfig(BaseConfig):
     """CORS configuration."""
 
@@ -846,9 +811,6 @@ class APIConfig(BaseConfig):
 
     network: NetworkConfig = Field(
         default_factory=NetworkConfig, description="Network configuration"
-    )
-    authentication: AuthenticationConfig = Field(
-        description="Authentication configuration"
     )
     cors: CorsConfig = Field(
         default_factory=CorsConfig, description="CORS configuration"
@@ -1301,13 +1263,7 @@ def export_schemas(output_dir: Path = Path("schemas")) -> None:
 
 def create_default_config() -> ApplicationConfig:
     """Create a default application configuration."""
-    return ApplicationConfig(
-        api=APIConfig(
-            authentication=AuthenticationConfig(
-                jwt_secret_key=SecretStr("your-secret-key-here")
-            )
-        )
-    )
+    return ApplicationConfig()
 
 
 def create_development_config() -> ApplicationConfig:

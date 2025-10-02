@@ -18,8 +18,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from ..dependencies import dev_viewer_required, get_core_module
-from ..middleware.authentication import OperatorRequired, ViewerRequired
+from ..dependencies import get_core_module
 from ..models.common import ErrorCode, create_error_response
 from ..models.responses import (
     BallInfo,
@@ -122,7 +121,6 @@ async def get_current_game_state(
     include_trajectories: bool = Query(
         False, description="Include trajectory predictions"
     ),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> GameStateResponse:
     """Retrieve current game state snapshot (FR-API-013).
@@ -175,9 +173,7 @@ async def get_current_game_state(
             except Exception as e:
                 logger.warning(f"Failed to get trajectory predictions: {e}")
 
-        logger.info(
-            f"Current game state retrieved by user {current_user.get('username', 'unknown')}"
-        )
+        logger.info("Current game state retrieved")
         return response
 
     except Exception as e:
@@ -211,7 +207,6 @@ async def get_game_history(
         pattern="^(practice|8ball|9ball|straight)$",
         description="Filter by game type",
     ),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> GameHistoryResponse:
     """Access historical game states (FR-API-014).
@@ -268,9 +263,7 @@ async def get_game_history(
             timestamps = [state.timestamp for state in response_states]
             actual_time_range = {"start": min(timestamps), "end": max(timestamps)}
 
-        logger.info(
-            f"Game history retrieved by user {current_user.get('username', 'unknown')}: {len(response_states)} states"
-        )
+        logger.info(f"Game history retrieved: {len(response_states)} states")
 
         return GameHistoryResponse(
             states=response_states,
@@ -303,7 +296,6 @@ async def reset_game_state(
     ),
     preserve_table: bool = Query(True, description="Keep existing table configuration"),
     create_backup: bool = Query(True, description="Create backup of current state"),
-    current_user: dict[str, Any] = Depends(OperatorRequired),
     core_module: CoreModule = Depends(get_core_module),
 ) -> GameResetResponse:
     """Reset game state tracking (FR-API-015).
@@ -374,9 +366,7 @@ async def reset_game_state(
         # Convert new state to response format
         new_state_response = convert_game_state_to_response(new_game_state)
 
-        logger.warning(
-            f"Game state reset by user {current_user.get('username', 'unknown')} to {game_type}"
-        )
+        logger.warning(f"Game state reset to {game_type}")
 
         return GameResetResponse(
             success=True,
@@ -418,7 +408,6 @@ async def export_session_data(
     compression_level: int = Query(
         6, ge=0, le=9, description="Compression level (0-9)"
     ),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> SessionExportResponse:
     """Export game session data (FR-API-016).
@@ -428,14 +417,14 @@ async def export_session_data(
     """
     try:
         # Generate export ID
-        export_id = f"export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{current_user.get('username', 'user')}"
+        export_id = f"export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         # Collect data to export
         export_data = {
             "metadata": {
                 "export_id": export_id,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
-                "exported_by": current_user.get("username", "unknown"),
+                "exported_by": "api",
                 "session_id": session_id,
                 "includes": {
                     "raw_frames": include_raw_frames,
@@ -524,9 +513,7 @@ async def export_session_data(
         # Set expiration time (24 hours from now)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-        logger.info(
-            f"Session data exported by user {current_user.get('username', 'unknown')}: {filename}"
-        )
+        logger.info(f"Session data exported: {filename}")
 
         # Schedule cleanup of export file
         async def cleanup_export_file():
@@ -565,9 +552,7 @@ async def export_session_data(
 
 
 @router.get("/export/{export_id}/download")
-async def download_session_export(
-    export_id: str, current_user: dict[str, Any] = Depends(ViewerRequired)
-) -> FileResponse:
+async def download_session_export(export_id: str) -> FileResponse:
     """Download exported session data file.
 
     Returns the exported session data as a downloadable file.
@@ -610,9 +595,7 @@ async def download_session_export(
             "application/zip" if filename.endswith(".zip") else "application/json"
         )
 
-        logger.info(
-            f"Session export downloaded by user {current_user.get('username', 'unknown')}: {filename}"
-        )
+        logger.info(f"Session export downloaded: {filename}")
 
         return FileResponse(path=file_path, filename=filename, media_type=media_type)
 
@@ -636,7 +619,6 @@ async def get_game_statistics(
     time_range: str = Query(
         "24h", pattern="^(1h|6h|24h|7d|30d)$", description="Time range for statistics"
     ),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> dict[str, Any]:
     """Get game statistics and performance metrics.
@@ -686,9 +668,7 @@ async def get_game_statistics(
             except Exception as e:
                 logger.warning(f"Failed to get core statistics: {e}")
 
-        logger.info(
-            f"Game statistics retrieved by user {current_user.get('username', 'unknown')} for {time_range}"
-        )
+        logger.info(f"Game statistics retrieved for {time_range}")
 
         return stats
 
