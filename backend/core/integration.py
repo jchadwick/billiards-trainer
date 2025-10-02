@@ -1765,7 +1765,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
             for point in points:
                 # Validate point has required fields
-                if not all(k in point for k in ["screen_x", "screen_y", "world_x", "world_y"]):
+                if not all(
+                    k in point for k in ["screen_x", "screen_y", "world_x", "world_y"]
+                ):
                     self.logger.warning(f"Skipping invalid calibration point: {point}")
                     continue
 
@@ -1789,7 +1791,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 homography = cv2.getPerspectiveTransform(src_pts, dst_pts)
             else:
                 # For more than 4 points, use findHomography with RANSAC
-                self.logger.debug(f"Using cv2.findHomography with RANSAC for {len(src_points)} points")
+                self.logger.debug(
+                    f"Using cv2.findHomography with RANSAC for {len(src_points)} points"
+                )
                 homography, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
 
                 if homography is None:
@@ -1837,7 +1841,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
         # Check for NaN or infinite values
         if not np.all(np.isfinite(homography)):
-            self.logger.warning("Homography matrix contains invalid values (NaN or inf)")
+            self.logger.warning(
+                "Homography matrix contains invalid values (NaN or inf)"
+            )
             return False
 
         return True

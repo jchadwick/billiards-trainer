@@ -5,7 +5,6 @@
 
 import { ApiClient } from './api-client';
 import { WebSocketClient, ConnectionState } from './websocket-client';
-import { AuthService } from './auth-service';
 import { DataProcessingService, ProcessedGameState, ProcessedFrameData, ProcessedTrajectory, ProcessedAlert } from './data-handlers';
 import {
   HealthResponse,
@@ -59,7 +58,6 @@ export type ConnectionStatusHandler = (status: ConnectionStatus) => void;
 export class ApiService {
   private apiClient: ApiClient;
   private wsClient: WebSocketClient;
-  private authService: AuthService;
   private dataProcessor: DataProcessingService;
   private config: Required<ApiServiceConfig>;
 
@@ -87,13 +85,11 @@ export class ApiService {
   constructor(
     apiClient: ApiClient,
     wsClient: WebSocketClient,
-    authService: AuthService,
     dataProcessor: DataProcessingService,
     config: ApiServiceConfig
   ) {
     this.apiClient = apiClient;
     this.wsClient = wsClient;
-    this.authService = authService;
     this.dataProcessor = dataProcessor;
 
     this.config = {
@@ -114,21 +110,10 @@ export class ApiService {
   // =============================================================================
 
   private initializeServices(): void {
-    // Setup auth state changes
-    this.authService.onStateChange((authState) => {
-      if (authState.isAuthenticated && authState.accessToken) {
-        // Update WebSocket token
-        this.wsClient.updateToken(authState.accessToken);
-
-        // Auto-connect WebSocket if enabled
-        if (this.config.autoConnectWebSocket) {
-          this.connectWebSocket();
-        }
-      } else {
-        // Disconnect WebSocket on logout
-        this.wsClient.disconnect();
-      }
-    });
+    // Auto-connect WebSocket if enabled (no auth required)
+    if (this.config.autoConnectWebSocket) {
+      this.connectWebSocket();
+    }
 
     // Setup WebSocket connection state changes
     this.wsClient.onConnectionState((state, error) => {
@@ -214,29 +199,7 @@ export class ApiService {
     this.wsClient.unsubscribe(streams);
   }
 
-  // =============================================================================
-  // Authentication Methods
-  // =============================================================================
-
-  async login(credentials: LoginRequest): Promise<void> {
-    await this.authService.login(credentials);
-  }
-
-  async logout(): Promise<void> {
-    await this.authService.logout();
-  }
-
-  isAuthenticated(): boolean {
-    return this.authService.isAuthenticated();
-  }
-
-  getCurrentUser() {
-    return this.authService.getUser();
-  }
-
-  hasPermission(permission: string): boolean {
-    return this.authService.hasPermission(permission);
-  }
+  // Authentication removed - no longer needed
 
   // =============================================================================
   // Health and System Methods
@@ -641,7 +604,6 @@ export class ApiService {
 
     // Destroy services
     this.wsClient.destroy();
-    this.authService.destroy();
     this.dataProcessor.destroy();
   }
 }
@@ -658,11 +620,6 @@ export function createApiService(config: ApiServiceConfig): ApiService {
     autoReconnect: true,
   });
 
-  const authService = new AuthService(apiClient, {
-    persistAuth: true,
-    autoRefresh: true,
-  });
-
   const dataProcessor = new DataProcessingService({
     frameProcessing: {
       maxFps: 30,
@@ -674,5 +631,5 @@ export function createApiService(config: ApiServiceConfig): ApiService {
     },
   });
 
-  return new ApiService(apiClient, wsClient, authService, dataProcessor, config);
+  return new ApiService(apiClient, wsClient, dataProcessor, config);
 }

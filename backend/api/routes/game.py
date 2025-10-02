@@ -337,7 +337,7 @@ async def reset_game_state(
                 detail=create_error_response(
                     "Invalid Game Type",
                     f"Game type '{game_type}' is not supported",
-                    ErrorCode.VAL_INVALID_FORMAT,
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
                     {"supported_types": ["practice", "8ball", "9ball", "straight"]},
                 ),
             )

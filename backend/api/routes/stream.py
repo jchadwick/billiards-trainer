@@ -19,13 +19,19 @@ from fastapi.responses import StreamingResponse
 
 # Import vision module
 try:
-    from ...vision.capture import CameraStatus, CameraHealth
-    from ...streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
+    from ...streaming.enhanced_camera_module import (
+        EnhancedCameraConfig,
+        EnhancedCameraModule,
+    )
+    from ...vision.capture import CameraHealth, CameraStatus
 except ImportError:
     # Fallback for development/testing
     try:
-        from ...vision.capture import CameraStatus, CameraHealth
-        from ...streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
+        from ...streaming.enhanced_camera_module import (
+            EnhancedCameraConfig,
+            EnhancedCameraModule,
+        )
+        from ...vision.capture import CameraHealth, CameraStatus
     except ImportError:
         # Another fallback for direct execution
         import os
@@ -33,7 +39,10 @@ except ImportError:
 
         sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         from vision.capture import CameraStatus, CameraHealth
-        from streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
+        from streaming.enhanced_camera_module import (
+            EnhancedCameraModule,
+            EnhancedCameraConfig,
+        )
 
 from ..dependencies import ApplicationState, get_app_state
 
@@ -95,6 +104,17 @@ class CameraModuleAdapter:
             uptime=0.0,
         )
 
+    def get_frame(self, processed: bool = True) -> Optional[np.ndarray]:
+        """Get current frame for vision processing.
+
+        Args:
+            processed: If True, return processed frame. If False, return raw frame.
+
+        Returns:
+            Current frame or None if not available.
+        """
+        return self._module.get_frame(processed=processed)
+
     def get_frame_for_streaming(self, scale: float = 0.5) -> Optional[np.ndarray]:
         """Get frame for streaming with optional downsampling."""
         frame = self._module.get_frame(processed=True)
@@ -106,7 +126,9 @@ class CameraModuleAdapter:
         if scale != 1.0:
             new_width = int(frame.shape[1] * scale)
             new_height = int(frame.shape[0] * scale)
-            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            frame = cv2.resize(
+                frame, (new_width, new_height), interpolation=cv2.INTER_AREA
+            )
 
         return frame
 
@@ -124,6 +146,7 @@ class CameraModuleAdapter:
             "avg_fps": stats.get("fps", 0.0),
             "avg_processing_time_ms": 0.0,
         }
+
 
 # Global streaming state
 _streaming_clients = set()
@@ -158,27 +181,32 @@ async def get_vision_module(
     logger.debug("get_vision_module called")
 
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        logger.info("Creating shared EnhancedCameraModule instance (lazy initialization)")
+        logger.info(
+            "Creating shared EnhancedCameraModule instance (lazy initialization)"
+        )
 
         # Check if calibration file exists
         import os
+
         calibration_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "calibration/camera_fisheye_default.yaml"
+            "calibration/camera_fisheye_default.yaml",
         )
         enable_fisheye = os.path.exists(calibration_path)
 
         if enable_fisheye:
             logger.info(f"Found calibration file at {calibration_path}")
         else:
-            logger.warning(f"Calibration file not found at {calibration_path}, disabling fisheye correction")
+            logger.warning(
+                f"Calibration file not found at {calibration_path}, disabling fisheye correction"
+            )
 
         # Configure enhanced camera with fisheye correction and preprocessing
         camera_config = EnhancedCameraConfig(
             device_id=0,
             resolution=(1920, 1080),
             fps=30,
-            enable_fisheye_correction=False,  # Disabled by default until real calibration
+            enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists
             calibration_file=calibration_path if enable_fisheye else None,
             enable_preprocessing=True,
             brightness=0,
@@ -193,7 +221,9 @@ async def get_vision_module(
             logger.info("[get_vision_module] Initializing EnhancedCameraModule...")
 
             # Run the blocking EnhancedCameraModule initialization in a thread pool
-            logger.info("[get_vision_module] Creating EnhancedCameraModule in executor...")
+            logger.info(
+                "[get_vision_module] Creating EnhancedCameraModule in executor..."
+            )
             loop = asyncio.get_event_loop()
             enhanced_module = await loop.run_in_executor(
                 None, lambda: EnhancedCameraModule(camera_config)
@@ -206,11 +236,15 @@ async def get_vision_module(
 
             logger.info("[get_vision_module] Starting camera capture...")
             # Start camera capture
-            success = await loop.run_in_executor(None, app_state.vision_module.start_capture)
+            success = await loop.run_in_executor(
+                None, app_state.vision_module.start_capture
+            )
             logger.info(f"[get_vision_module] start_capture returned: {success}")
 
             if success:
-                logger.info("Shared camera module created and camera started successfully")
+                logger.info(
+                    "Shared camera module created and camera started successfully"
+                )
             else:
                 logger.error("Camera capture failed to start")
                 app_state.vision_module = None
@@ -269,7 +303,9 @@ async def generate_mjpeg_stream(
         # Camera should already be started by get_vision_module() lazy init
         logger.debug(f"Checking camera connection status for client {client_id}")
         if not vision_module.camera.is_connected():
-            logger.warning(f"Camera not connected for client {client_id}, this shouldn't happen after lazy init")
+            logger.warning(
+                f"Camera not connected for client {client_id}, this shouldn't happen after lazy init"
+            )
             raise StreamingError("Camera not connected")
         logger.debug(f"Camera is connected for client {client_id}")
 

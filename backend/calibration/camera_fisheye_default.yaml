@@ -1,5 +1,4 @@
-%YAML:1.0
----
+# OpenCV YAML 1.0
 # Default camera calibration file
 # These are identity/placeholder values until real calibration is performed
 # To perform calibration, use the calibration wizard in the web interface

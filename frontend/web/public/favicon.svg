@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background: Represents the pool table felt -->
+  <rect width="100" height="100" fill="#1C7C54" />
+
+  <!-- The Cue Stick (Subtle light brown/wood tone) -->
+  <!-- Rotated and positioned to suggest a break shot -->
+  <g transform="rotate(-20 50 50)">
+    <rect x="10" y="45" width="80" height="5" fill="#A0522D" rx="2" ry="2" />
+  </g>
+
+  <!-- The Billiards Rack Outline (White for contrast) -->
+  <polyline
+    points="30 75, 70 75, 50 35, 30 75"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="3"
+    stroke-linejoin="round"
+  />
+
+  <!-- The 8-Ball (The centerpiece) -->
+  <!-- Black circle -->
+  <circle cx="50" cy="65" r="10" fill="#000000" />
+  <!-- White stripe -->
+  <circle cx="50" cy="65" r="5" fill="#FFFFFF" />
+  <!-- The number 8 -->
+  <text x="50" y="67" font-family="Arial, sans-serif" font-size="6" fill="#000000" text-anchor="middle" alignment-baseline="middle">8</text>
+
+  <!-- Two other balls for composition (e.g., Solid Red and Striped Yellow) -->
+  <!-- Solid Red Ball -->
+  <circle cx="40" cy="65" r="7" fill="#E84A5F" />
+  <!-- Striped Yellow Ball -->
+  <circle cx="60" cy="65" r="7" fill="#FFC93C" />
+</svg>

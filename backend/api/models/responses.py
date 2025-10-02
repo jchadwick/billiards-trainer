@@ -744,7 +744,9 @@ class CameraCalibrationProcessResponse(BaseResponse):
     """Camera calibration processing response."""
 
     success: bool = Field(..., description="Calibration success status")
-    calibration_error: float = Field(..., description="Mean reprojection error in pixels")
+    calibration_error: float = Field(
+        ..., description="Mean reprojection error in pixels"
+    )
     images_used: int = Field(..., description="Number of images used in calibration")
     camera_matrix: list[list[float]] = Field(
         ..., description="Camera intrinsic matrix (3x3)"
@@ -752,7 +754,9 @@ class CameraCalibrationProcessResponse(BaseResponse):
     distortion_coefficients: list[float] = Field(
         ..., description="Distortion coefficients"
     )
-    resolution: tuple[int, int] = Field(..., description="Calibration resolution (w, h)")
+    resolution: tuple[int, int] = Field(
+        ..., description="Calibration resolution (w, h)"
+    )
     saved_to: str = Field(..., description="Path where calibration was saved")
     quality_rating: str = Field(
         ..., description="Quality rating: excellent, good, fair, poor"

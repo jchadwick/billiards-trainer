@@ -3,7 +3,6 @@ import { SystemStore } from './SystemStore';
 import { GameStore } from './GameStore';
 import { VisionStore } from './VisionStore';
 import { ConfigStore } from './ConfigStore';
-import { AuthStore } from './AuthStore';
 import { UIStore } from './UIStore';
 import { ConnectionStore } from './ConnectionStore';
 import { CalibrationStore } from './calibration-store';
@@ -18,7 +17,6 @@ export class RootStore {
   game: GameStore;
   vision: VisionStore;
   config: ConfigStore;
-  auth: AuthStore;
   ui: UIStore;
   connection: ConnectionStore;
   calibrationStore: CalibrationStore;
@@ -69,7 +67,6 @@ export class RootStore {
     this.game = new GameStore();
     this.vision = new VisionStore();
     this.config = new ConfigStore();
-    this.auth = new AuthStore(this);
     this.ui = new UIStore();
     this.connection = new ConnectionStore();
     this.calibrationStore = new CalibrationStore(this);
@@ -80,7 +77,6 @@ export class RootStore {
       game: false,
       vision: false,
       config: false,
-      auth: false,
       ui: false,
       connection: false,
       calibrationStore: false,
@@ -104,7 +100,6 @@ export class RootStore {
       game: this.game,
       vision: this.vision,
       config: this.config,
-      auth: this.auth,
       ui: this.ui
     };
   }
@@ -150,9 +145,8 @@ export class RootStore {
     };
 
     const websocketUrl = getWebSocketUrl();
-    if (this.auth.isAuthenticated) {
-      await this.system.connect(websocketUrl);
-    }
+    // Connect without authentication requirement
+    await this.system.connect(websocketUrl);
   }
 
   private setupStoreConnections(): void {
@@ -238,31 +232,7 @@ export class RootStore {
         }
       );
 
-      // React to auth state changes and manage system connections
-      reaction(
-        () => this.auth.isAuthenticated,
-        (isAuthenticated) => {
-          if (isAuthenticated && !this.system.status.isConnected) {
-            // Auto-connect when authenticated
-            // Auto-detect WebSocket URL from current location
-            const getWebSocketUrl = () => {
-              if (typeof window !== 'undefined') {
-                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                return `${protocol}//${window.location.host}/api/v1/ws`;
-              }
-              return 'ws://localhost:8000/api/v1/ws';
-            };
-
-            const websocketUrl = getWebSocketUrl();
-            this.system.connect(websocketUrl).catch(error => {
-              console.error('Auto-connect failed:', error);
-            });
-          } else if (!isAuthenticated && this.system.status.isConnected) {
-            // Disconnect when logged out
-            this.system.disconnect();
-          }
-        }
-      );
+      // Auth removed - no need for auth-based connection management
 
       // React to config changes and mark them as dirty
       reaction(
@@ -342,11 +312,6 @@ export class RootStore {
     try {
       const persistedState: PersistedState = {
         config: this.config.exportConfig(),
-        auth: {
-          token: this.auth.authState.token,
-          refreshToken: this.auth.authState.refreshToken,
-          expiresAt: this.auth.authState.expiresAt
-        },
         ui: this.ui.getPersistedUIState(),
         version: '1.0.0'
       };
@@ -367,7 +332,6 @@ export class RootStore {
       // Cleanup all stores
       this.system.destroy();
       this.vision.destroy();
-      this.auth.destroy();
       this.ui.destroy();
 
       this.ui.showInfo('Shutdown', 'Application shutdown complete');
@@ -399,10 +363,6 @@ export class RootStore {
           profile: this.config.currentProfile,
           valid: this.config.isValid
         },
-        auth: {
-          authenticated: this.auth.isAuthenticated,
-          user: this.auth.currentUser?.username
-        },
         ui: {
           loading: this.ui.isAnyLoading,
           notifications: this.ui.unreadNotificationCount,
@@ -430,7 +390,6 @@ export class RootStore {
       this.game = new GameStore();
       this.vision = new VisionStore();
       this.config = new ConfigStore();
-      this.auth = new AuthStore(this);
       this.ui = new UIStore();
 
       this.isInitialized = false;
@@ -460,5 +419,4 @@ export const systemStore = rootStore.system;
 export const gameStore = rootStore.game;
 export const visionStore = rootStore.vision;
 export const configStore = rootStore.config;
-export const authStore = rootStore.auth;
 export const uiStore = rootStore.ui;

@@ -1,16 +1,16 @@
-"""
-Direct OpenCV camera module with minimal dependencies.
+"""Direct OpenCV camera module with minimal dependencies.
 
 This module provides a simple, thread-safe camera interface using OpenCV's VideoCapture.
 It avoids complex wrappers and imports that can cause initialization hangs.
 """
 
 import logging
-import time
 import threading
-from typing import Optional, Dict, Any
-import numpy as np
+import time
+from typing import Any, Dict, Optional
+
 import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class CameraStatus:
     """Simple camera status wrapper for compatibility with existing code."""
 
-    def __init__(self, camera_module: 'DirectCameraModule'):
+    def __init__(self, camera_module: "DirectCameraModule"):
         self._module = camera_module
 
     def is_active(self) -> bool:
@@ -31,8 +31,7 @@ class CameraStatus:
 
 
 class DirectCameraModule:
-    """
-    Minimal, direct OpenCV camera implementation.
+    """Minimal, direct OpenCV camera implementation.
 
     Features:
     - Single producer thread continuously capturing frames
@@ -46,9 +45,8 @@ class DirectCameraModule:
     CONSUMER_PROCESSING = "processing"
     CONSUMER_STREAMING = "streaming"
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        Initialize camera module.
+    def __init__(self, config: Optional[dict[str, Any]] = None):
+        """Initialize camera module.
 
         Args:
             config: Camera configuration dict with keys:
@@ -60,15 +58,15 @@ class DirectCameraModule:
         config = config or {}
 
         # Extract configuration
-        self.device_id = config.get('device_id', 0)
-        self.resolution = config.get('resolution', (1920, 1080))
-        self.fps = config.get('fps', 30)
-        self.buffer_size = config.get('buffer_size', 1)
+        self.device_id = config.get("device_id", 0)
+        self.resolution = config.get("resolution", (1920, 1080))
+        self.fps = config.get("fps", 30)
+        self.buffer_size = config.get("buffer_size", 1)
 
         # Rate limiting configuration (seconds between frames per consumer)
         self.rate_limits = {
             self.CONSUMER_PROCESSING: 1.0 / 30.0,  # Max 30 FPS for processing
-            self.CONSUMER_STREAMING: 1.0 / 15.0,    # Max 15 FPS for streaming
+            self.CONSUMER_STREAMING: 1.0 / 15.0,  # Max 15 FPS for streaming
         }
 
         # Thread-safe state
@@ -102,8 +100,7 @@ class DirectCameraModule:
         )
 
     def start_capture(self, timeout: float = 10.0) -> bool:
-        """
-        Start camera capture.
+        """Start camera capture.
 
         Args:
             timeout: Maximum seconds to wait for camera initialization
@@ -125,9 +122,7 @@ class DirectCameraModule:
 
         # Start capture thread (camera init happens in thread)
         self._capture_thread = threading.Thread(
-            target=self._capture_loop,
-            name="DirectCameraCapture",
-            daemon=True
+            target=self._capture_loop, name="DirectCameraCapture", daemon=True
         )
         self._capture_thread.start()
 
@@ -182,8 +177,7 @@ class DirectCameraModule:
         )
 
     def _capture_loop(self):
-        """
-        Main capture loop running in separate thread.
+        """Main capture loop running in separate thread.
 
         Initializes camera, then continuously captures frames and updates the shared frame buffer.
         """
@@ -255,8 +249,7 @@ class DirectCameraModule:
         logger.info(f"Capture loop stopped after {self._frame_count} frames")
 
     def _should_provide_frame(self, consumer_type: str) -> bool:
-        """
-        Check if enough time has passed to provide a frame to this consumer.
+        """Check if enough time has passed to provide a frame to this consumer.
 
         Args:
             consumer_type: Type of consumer requesting frame
@@ -271,8 +264,7 @@ class DirectCameraModule:
         return (now - last_access) >= rate_limit
 
     def _mark_consumer_access(self, consumer_type: str):
-        """
-        Mark that a consumer accessed a frame.
+        """Mark that a consumer accessed a frame.
 
         Args:
             consumer_type: Type of consumer that accessed frame
@@ -280,8 +272,7 @@ class DirectCameraModule:
         self._last_consumer_access[consumer_type] = time.time()
 
     def get_frame_for_processing(self) -> Optional[np.ndarray]:
-        """
-        Get full resolution frame for processing.
+        """Get full resolution frame for processing.
 
         Returns rate-limited copy of current frame for processing consumers.
 
@@ -301,8 +292,7 @@ class DirectCameraModule:
         return frame
 
     def get_frame_for_streaming(self, scale: float = 0.5) -> Optional[np.ndarray]:
-        """
-        Get downsampled frame for streaming.
+        """Get downsampled frame for streaming.
 
         Returns rate-limited, downsampled copy of current frame for streaming consumers.
 
@@ -325,14 +315,15 @@ class DirectCameraModule:
         if scale != 1.0:
             new_width = int(frame.shape[1] * scale)
             new_height = int(frame.shape[0] * scale)
-            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            frame = cv2.resize(
+                frame, (new_width, new_height), interpolation=cv2.INTER_AREA
+            )
 
         self._mark_consumer_access(self.CONSUMER_STREAMING)
         return frame
 
     def get_current_frame(self) -> Optional[np.ndarray]:
-        """
-        Get current frame without rate limiting.
+        """Get current frame without rate limiting.
 
         Compatibility method for existing code that expects immediate frame access.
 
@@ -344,9 +335,8 @@ class DirectCameraModule:
                 return None
             return self._current_frame.copy()
 
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        Get camera statistics.
+    def get_statistics(self) -> dict[str, Any]:
+        """Get camera statistics.
 
         Returns:
             dict: Statistics including frame count, FPS, dropped frames, etc.
@@ -356,21 +346,20 @@ class DirectCameraModule:
         actual_fps = self._frame_count / uptime if uptime > 0 else 0.0
 
         return {
-            'is_capturing': self.is_capturing(),
-            'frame_count': self._frame_count,
-            'uptime_seconds': uptime,
-            'actual_fps': actual_fps,
-            'target_fps': self.fps,
-            'last_frame_time': self._last_frame_time,
-            'resolution': self.resolution,
-            'device_id': self.device_id,
-            'dropped_frames': dict(self._dropped_frames),
-            'rate_limits': dict(self.rate_limits),
+            "is_capturing": self.is_capturing(),
+            "frame_count": self._frame_count,
+            "uptime_seconds": uptime,
+            "actual_fps": actual_fps,
+            "target_fps": self.fps,
+            "last_frame_time": self._last_frame_time,
+            "resolution": self.resolution,
+            "device_id": self.device_id,
+            "dropped_frames": dict(self._dropped_frames),
+            "rate_limits": dict(self.rate_limits),
         }
 
     def get_frame_shape(self) -> Optional[tuple]:
-        """
-        Get shape of current frame.
+        """Get shape of current frame.
 
         Returns:
             Optional[tuple]: Frame shape (height, width, channels) or None
