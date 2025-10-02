@@ -12,8 +12,6 @@ A comprehensive FastAPI application for the billiards training system, providing
 
 ### Middleware Stack
 - ✅ **Error Handling** - Comprehensive error middleware with structured responses
-- ✅ **Authentication** - JWT-based authentication with role-based access control
-- ✅ **CORS Configuration** - Flexible CORS setup with security validation
 - ✅ **Rate Limiting** - Client-based rate limiting protection
 - ✅ **Request Logging** - Detailed request/response logging with timing
 
@@ -22,7 +20,6 @@ A comprehensive FastAPI application for the billiards training system, providing
 - ✅ **Configuration Routes** (`/api/v1/config`) - System configuration management
 - ✅ **Game State Routes** (`/api/v1/game`) - Game state access and control
 - ✅ **Calibration Routes** (`/api/v1/calibration`) - Calibration control
-- ✅ **Authentication Routes** (`/api/v1/auth`) - User authentication
 
 ### WebSocket System
 - ✅ **Connection Handler** - Advanced connection management with monitoring
@@ -78,24 +75,19 @@ api/
    - Security-aware error sanitization
    - Request correlation tracking
 
-2. **Authentication & Authorization**
-   - JWT token-based authentication
-   - Role-based access control (viewer, operator, admin)
-   - API key support for programmatic access
-
-3. **Real-time Communication**
-   - WebSocket connections with authentication
+2. **Real-time Communication**
+   - WebSocket connections for live data streaming
    - Subscription-based data streaming
    - Connection quality monitoring
    - Automatic reconnection handling
 
-4. **Configuration Management**
+3. **Configuration Management**
    - Live configuration updates
    - Configuration validation
    - Import/export functionality
    - Section-based configuration control
 
-5. **Health Monitoring**
+4. **Health Monitoring**
    - Comprehensive health checks
    - Performance metrics collection
    - Component status monitoring
@@ -175,24 +167,6 @@ app_state = ApplicationState()
 app_state.core_module = CoreModule(core_config)
 app_state.config_module = ConfigurationModule()
 ```
-
-## 🛡️ Security
-
-### Authentication
-- JWT tokens with configurable expiration
-- Role-based permissions (viewer, operator, admin)
-- API key support for service-to-service communication
-
-### Security Headers
-- CORS configuration with origin validation
-- Request rate limiting
-- Trusted host middleware
-- Secure error handling (no sensitive data exposure)
-
-### Input Validation
-- Comprehensive Pydantic model validation
-- SQL injection prevention
-- XSS protection through proper encoding
 
 ## 📊 Monitoring
 

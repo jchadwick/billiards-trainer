@@ -11,14 +11,6 @@ The Billiards Trainer API provides RESTful endpoints and WebSocket connections f
 - **Content Type**: `application/json`
 - **WebSocket URL**: `ws://localhost:8000/ws`
 
-## Authentication
-
-Currently, the API supports development mode without authentication. In production, implement appropriate authentication mechanisms:
-
-```http
-Authorization: Bearer <your-access-token>
-```
-
 ## Health and System Status
 
 ### Health Check

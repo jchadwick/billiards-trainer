@@ -43,8 +43,6 @@ RUN pip install --no-cache-dir \
     PyYAML \
     python-multipart \
     websockets \
-    python-jose[cryptography] \
-    passlib[bcrypt] \
     psutil \
     watchdog \
     sqlalchemy \

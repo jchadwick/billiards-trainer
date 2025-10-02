@@ -13,9 +13,7 @@ uvicorn[standard]>=0.23.0
 websockets>=11.0
 python-multipart>=0.0.6
 
-# Authentication and Security
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+# Data and Validation
 sqlalchemy>=2.0.0
 email-validator>=2.0.0
 

@@ -9,7 +9,6 @@ from api.main import create_app
 from api.middleware.authentication import AuthenticationMiddleware as AuthMiddleware
 from api.middleware.performance import PerformanceMiddleware
 from api.models.responses import GameStateResponse, HealthResponse
-from api.utils.security import SecurityUtils
 from api.websocket.handler import WebSocketHandler
 from api.websocket.subscriptions import SubscriptionManager
 
@@ -537,68 +536,6 @@ class TestAuthMiddleware:
 
         # Should allow access
         assert response.status_code == 200
-
-
-@pytest.mark.unit()
-class TestSecurityUtils:
-    """Test security utilities."""
-
-    def test_generate_token(self):
-        """Test token generation."""
-        utils = SecurityUtils()
-
-        token = utils.generate_token({"user_id": "test"})
-        assert isinstance(token, str)
-        assert len(token) > 0
-
-    def test_validate_token(self):
-        """Test token validation."""
-        utils = SecurityUtils()
-
-        payload = {"user_id": "test", "exp": time.time() + 3600}
-        token = utils.generate_token(payload)
-
-        # Valid token
-        is_valid = utils.validate_token(token)
-        assert is_valid
-
-        # Invalid token
-        is_valid = utils.validate_token("invalid_token")
-        assert not is_valid
-
-    def test_hash_password(self):
-        """Test password hashing."""
-        utils = SecurityUtils()
-
-        password = "test_password"
-        hashed = utils.hash_password(password)
-
-        assert hashed != password
-        assert utils.verify_password(password, hashed)
-
-    def test_verify_password(self):
-        """Test password verification."""
-        utils = SecurityUtils()
-
-        password = "test_password"
-        wrong_password = "wrong_password"
-        hashed = utils.hash_password(password)
-
-        assert utils.verify_password(password, hashed)
-        assert not utils.verify_password(wrong_password, hashed)
-
-    def test_rate_limiting(self):
-        """Test rate limiting functionality."""
-        utils = SecurityUtils()
-
-        client_id = "test_client"
-
-        # Should allow first few requests
-        for _i in range(5):
-            assert utils.check_rate_limit(client_id)
-
-        # Should eventually deny if too many requests
-        # (depends on rate limit configuration)
 
 
 @pytest.mark.unit()
