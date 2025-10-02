@@ -2,6 +2,7 @@
 
 import logging
 import logging.config
+import logging.handlers
 import os
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,7 @@ def setup_logging(
     default_level: int = logging.INFO,
     env_key: str = "LOG_CFG",
     environment: Optional[str] = None,
+    log_dir: Optional[Path] = None,
 ) -> None:
     """Setup logging configuration.
 
@@ -22,10 +24,13 @@ def setup_logging(
         default_level: Default logging level if config file is not found
         env_key: Environment variable key for config path override
         environment: Environment name (development, production, testing)
+        log_dir: Directory for log files (defaults to ./logs)
     """
     # Ensure logs directory exists
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
+    if log_dir is None:
+        log_dir = Path(os.getenv("LOG_DIR", "logs"))
+    logs_dir = Path(log_dir)
+    logs_dir.mkdir(exist_ok=True, parents=True)
 
     # Determine config path
     if config_path is None:
@@ -59,20 +64,64 @@ def setup_logging(
         except Exception as e:
             print(f"Error loading logging configuration from {config_path}: {e}")
             print("Using default logging configuration")
-            logging.basicConfig(
-                level=default_level,
-                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
+            _setup_default_logging(default_level, logs_dir)
     else:
         print(
             f"Logging config file {config_path} not found. Using default configuration."
         )
-        logging.basicConfig(
-            level=default_level,
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+        _setup_default_logging(default_level, logs_dir)
+
+
+def _setup_default_logging(level: int, logs_dir: Path) -> None:
+    """Setup default logging with both console and file handlers.
+
+    Args:
+        level: Logging level
+        logs_dir: Directory for log files
+    """
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    simple_formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(simple_formatter)
+
+    # Rotating file handler for all logs
+    all_logs_file = logs_dir / "app.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        all_logs_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+
+    # Rotating file handler for errors only
+    error_logs_file = logs_dir / "error.log"
+    error_handler = logging.handlers.RotatingFileHandler(
+        error_logs_file,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    error_handler.setLevel(logging.ERROR)
+    error_handler.setFormatter(detailed_formatter)
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # Capture everything, handlers will filter
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(error_handler)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -85,6 +134,15 @@ def get_logger(name: str) -> logging.Logger:
         Logger instance
     """
     return logging.getLogger(name)
+
+
+def get_log_directory() -> Path:
+    """Get the configured log directory path.
+
+    Returns:
+        Path to the log directory
+    """
+    return Path(os.getenv("LOG_DIR", "logs"))
 
 
 def set_log_level(logger_name: str, level: int) -> None:

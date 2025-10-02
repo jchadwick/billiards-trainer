@@ -161,6 +161,8 @@ class VisionModule:
     def _initialize_components(self) -> None:
         """Initialize all vision processing components."""
         try:
+            logger.info("Initializing vision components")
+
             # Camera capture
             camera_config = {
                 "device_id": self.config.camera_device_id,
@@ -169,13 +171,16 @@ class VisionModule:
                 "fps": self.config.camera_fps,
                 "buffer_size": self.config.camera_buffer_size,
             }
+            logger.info(f"Creating CameraCapture with config: {camera_config}")
             self.camera = CameraCapture(camera_config)
+            logger.info("CameraCapture created successfully")
 
             # Image preprocessing - create config based on vision module settings
             preprocessing_config = {}
             if hasattr(self.config, "enable_gpu"):
                 # Note: PreprocessingConfig doesn't have a use_gpu field, so we skip it
                 pass
+            logger.debug("Creating ImagePreprocessor")
             self.preprocessor = ImagePreprocessor(preprocessing_config)
 
             # Detection components
@@ -220,13 +225,19 @@ class VisionModule:
             True if capture started successfully
         """
         try:
+            logger.info("VisionModule.start_capture called")
+
             if self._is_running:
                 logger.warning("Capture is already running")
                 return True
 
             # Start camera
+            logger.info("Starting camera capture...")
             if not self.camera.start_capture():
+                logger.error("Camera.start_capture returned False")
                 raise VisionModuleError("Failed to start camera capture")
+
+            logger.info("Camera capture started, initializing vision module state")
 
             # Reset statistics
             self.stats = VisionStatistics()
@@ -237,6 +248,7 @@ class VisionModule:
             self._is_running = True
 
             if self.config.enable_threading:
+                logger.info("Starting vision processing threads")
                 self._capture_thread = threading.Thread(
                     target=self._capture_loop, name="VisionCapture", daemon=True
                 )
@@ -245,13 +257,17 @@ class VisionModule:
                 )
 
                 self._capture_thread.start()
+                logger.debug("Capture thread started")
                 self._processing_thread.start()
+                logger.debug("Processing thread started")
+            else:
+                logger.info("Threading disabled, running in single-threaded mode")
 
             logger.info("Vision capture started successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to start capture: {e}")
+            logger.error(f"Failed to start capture: {e}", exc_info=True)
             self.stats.last_error = str(e)
             self._emit_event("error_occurred", {"error": str(e)})
             return False
@@ -329,10 +345,16 @@ class VisionModule:
         Returns:
             Latest frame or None if no frame available
         """
+        logger.debug("get_current_frame called")
         with self._lock:
-            return (
-                self._current_frame.copy() if self._current_frame is not None else None
-            )
+            if self._current_frame is not None:
+                logger.debug(
+                    f"Returning current frame: shape={self._current_frame.shape}"
+                )
+                return self._current_frame.copy()
+            else:
+                logger.debug("No current frame available")
+                return None
 
     def calibrate_camera(self) -> bool:
         """Perform camera calibration.
@@ -471,7 +493,8 @@ class VisionModule:
 
     def _capture_loop(self) -> None:
         """Main capture loop running in separate thread."""
-        logger.info("Starting capture loop")
+        logger.info("VisionModule capture loop started")
+        frame_count = 0
 
         frame_interval = 1.0 / self.config.target_fps
         last_frame_time = 0
@@ -486,20 +509,32 @@ class VisionModule:
                     continue
 
                 # Get frame from camera (updated interface)
+                logger.debug("VisionModule: Getting latest frame from camera")
                 frame_data = self.camera.get_latest_frame()
                 if frame_data is None:
+                    logger.debug("VisionModule: No frame data available from camera")
                     self.stats.frames_dropped += 1
                     continue
 
                 frame, frame_info = frame_data
+                frame_count += 1
+
+                if frame_count % 30 == 0:  # Log every 30 frames
+                    logger.debug(
+                        f"VisionModule: Received frame #{frame_count}: shape={frame.shape}, timestamp={frame_info.timestamp}"
+                    )
 
                 # Apply ROI if enabled
                 if self.config.roi_enabled and self._roi_corners:
+                    logger.debug("Applying ROI to frame")
                     frame = self._apply_roi(frame)
 
                 # Update current frame
                 with self._lock:
                     self._current_frame = frame
+                    logger.debug(
+                        f"VisionModule: Updated current frame (frame #{frame_count})"
+                    )
 
                 # Add to processing queue (non-blocking)
                 try:
@@ -514,15 +549,16 @@ class VisionModule:
                     last_frame_time = current_time
 
                 except asyncio.QueueFull:
+                    logger.debug("Processing queue full, dropping frame")
                     self.stats.frames_dropped += 1
 
             except Exception as e:
-                logger.error(f"Error in capture loop: {e}")
+                logger.error(f"Error in VisionModule capture loop: {e}", exc_info=True)
                 self.stats.last_error = str(e)
                 self._emit_event("error_occurred", {"error": str(e)})
                 time.sleep(0.1)  # Brief pause before retry
 
-        logger.info("Capture loop ended")
+        logger.info("VisionModule capture loop ended")
 
     def _processing_loop(self) -> None:
         """Main processing loop running in separate thread."""

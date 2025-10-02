@@ -189,28 +189,35 @@ class CameraCapture:
     def _configure_camera(self) -> bool:
         """Configure camera parameters."""
         if not self._cap or not self._cap.isOpened():
+            logger.warning("Cannot configure camera - capture not opened")
             return False
 
         try:
             # Set resolution
             width, height = self._resolution
+            logger.debug(f"Setting camera resolution to {width}x{height}")
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
             # Set frame rate
+            logger.debug(f"Setting camera FPS to {self._fps}")
             self._cap.set(cv2.CAP_PROP_FPS, self._fps)
 
             # Set buffer size
+            logger.debug(f"Setting camera buffer size to {self._buffer_size}")
             self._cap.set(cv2.CAP_PROP_BUFFERSIZE, self._buffer_size)
 
             # Configure exposure
             if self._exposure_mode == "auto":
+                logger.debug("Setting auto exposure mode")
                 self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
             elif self._exposure_mode == "manual" and self._exposure_value is not None:
+                logger.debug(f"Setting manual exposure to {self._exposure_value}")
                 self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
                 self._cap.set(cv2.CAP_PROP_EXPOSURE, self._exposure_value)
 
             # Set gain
+            logger.debug(f"Setting camera gain to {self._gain}")
             self._cap.set(cv2.CAP_PROP_GAIN, self._gain)
 
             # Verify settings
@@ -219,13 +226,14 @@ class CameraCapture:
             actual_fps = self._cap.get(cv2.CAP_PROP_FPS)
 
             logger.info(
-                f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS"
+                f"Camera configured: {actual_width}x{actual_height} @ {actual_fps} FPS "
+                f"(requested: {width}x{height} @ {self._fps} FPS)"
             )
 
             return True
 
         except Exception as e:
-            logger.error(f"Camera configuration failed: {e}")
+            logger.error(f"Camera configuration failed: {e}", exc_info=True)
             self._last_error = str(e)
             self._error_count += 1
             return False
@@ -281,42 +289,59 @@ class CameraCapture:
         """Establish camera connection."""
         try:
             self._connection_attempts += 1
+            logger.info(f"Camera connection attempt #{self._connection_attempts}")
 
             # Handle Kinect v2 connection
             if self._use_kinect2:
+                logger.info("Using Kinect v2 backend")
                 return self._connect_kinect2()
 
             # Handle regular camera connection
             backend = self._get_opencv_backend()
 
             logger.info(
-                f"Connecting to camera {self._device_id} with backend {self._backend}"
+                f"Connecting to camera device_id={self._device_id} with backend={self._backend} (OpenCV backend code: {backend})"
             )
 
+            logger.debug("Creating VideoCapture instance...")
             self._cap = cv2.VideoCapture(self._device_id, backend)
 
             if not self._cap.isOpened():
+                logger.error(f"VideoCapture failed to open camera {self._device_id}")
                 raise RuntimeError(f"Failed to open camera {self._device_id}")
 
+            logger.info(
+                f"VideoCapture opened successfully for camera {self._device_id}"
+            )
+
+            logger.debug("Configuring camera parameters...")
             if not self._configure_camera():
                 raise RuntimeError("Camera configuration failed")
 
+            logger.info("Camera configured, testing frame capture...")
             # Test frame capture
             ret, frame = self._cap.read()
             if not ret or frame is None:
+                logger.error(
+                    f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
+                )
                 raise RuntimeError("Failed to capture test frame")
 
+            logger.info(
+                f"Test frame captured successfully: shape={frame.shape}, dtype={frame.dtype}"
+            )
             logger.info(
                 f"Camera connected successfully (attempt {self._connection_attempts})"
             )
             return True
 
         except Exception as e:
-            logger.error(f"Camera connection failed: {e}")
+            logger.error(f"Camera connection failed: {e}", exc_info=True)
             self._last_error = str(e)
             self._error_count += 1
 
             if self._cap:
+                logger.debug("Releasing failed camera capture")
                 self._cap.release()
                 self._cap = None
 
@@ -325,17 +350,22 @@ class CameraCapture:
     def _capture_loop(self) -> None:
         """Main capture loop running in separate thread."""
         logger.info("Camera capture loop started")
+        frame_count = 0
 
         while not self._stop_event.is_set():
             try:
                 # Check connection status
                 if self._use_kinect2:
                     if not self._kinect2 or not self._kinect2.is_connected():
+                        logger.warning("Kinect v2 disconnected in capture loop")
                         if self._auto_reconnect:
                             self._update_status(CameraStatus.RECONNECTING)
                             if self._connect_camera():
                                 self._update_status(CameraStatus.CONNECTED)
                             else:
+                                logger.debug(
+                                    f"Reconnection failed, sleeping {self._reconnect_delay}s"
+                                )
                                 time.sleep(self._reconnect_delay)
                                 continue
                         else:
@@ -343,11 +373,15 @@ class CameraCapture:
                             break
                 else:
                     if not self._cap or not self._cap.isOpened():
+                        logger.warning("Camera disconnected in capture loop")
                         if self._auto_reconnect:
                             self._update_status(CameraStatus.RECONNECTING)
                             if self._connect_camera():
                                 self._update_status(CameraStatus.CONNECTED)
                             else:
+                                logger.debug(
+                                    f"Reconnection failed, sleeping {self._reconnect_delay}s"
+                                )
                                 time.sleep(self._reconnect_delay)
                                 continue
                         else:
@@ -360,11 +394,13 @@ class CameraCapture:
 
                 if self._use_kinect2:
                     # Get frame from Kinect v2
+                    logger.debug("Attempting to get Kinect v2 frame")
                     kinect_frame = self._kinect2.get_latest_frame()
                     if kinect_frame and kinect_frame.color is not None:
                         frame = kinect_frame.color
                         # Convert RGB to BGR for OpenCV compatibility
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                        logger.debug(f"Kinect v2 frame captured: shape={frame.shape}")
                     else:
                         logger.warning("Failed to capture Kinect v2 frame")
                         self._error_count += 1
@@ -378,9 +414,12 @@ class CameraCapture:
                             break
                 else:
                     # Get frame from regular camera
+                    logger.debug("Attempting to read frame from camera")
                     ret, frame = self._cap.read()
                     if not ret or frame is None:
-                        logger.warning("Failed to capture frame")
+                        logger.warning(
+                            f"Failed to capture frame: ret={ret}, frame={'None' if frame is None else 'available'}"
+                        )
                         self._error_count += 1
                         self._last_error = "Frame capture failed"
 
@@ -390,6 +429,12 @@ class CameraCapture:
                             continue
                         else:
                             break
+
+                    frame_count += 1
+                    if frame_count % 30 == 0:  # Log every 30 frames
+                        logger.debug(
+                            f"Frame captured successfully: shape={frame.shape}, count={frame_count}"
+                        )
 
                 # Update statistics
                 self._frames_captured += 1
@@ -443,21 +488,25 @@ class CameraCapture:
         Returns:
             True if capture started successfully, False otherwise
         """
+        logger.info("start_capture called")
         with self._lock:
             if self._capture_thread and self._capture_thread.is_alive():
                 logger.warning("Capture already running")
                 return True
 
+            logger.info("Clearing stop event and updating status to CONNECTING")
             self._stop_event.clear()
             self._update_status(CameraStatus.CONNECTING)
 
             # Reset statistics
+            logger.debug("Resetting capture statistics")
             self._start_time = time.time()
             self._frames_captured = 0
             self._frames_dropped = 0
             self._fps_tracker.clear()
 
             # Clear frame queue
+            logger.debug("Clearing frame queue")
             while not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
@@ -465,10 +514,13 @@ class CameraCapture:
                     break
 
             # Connect camera
+            logger.info("Attempting to connect to camera")
             if not self._connect_camera():
+                logger.error("Camera connection failed")
                 self._update_status(CameraStatus.ERROR)
                 return False
 
+            logger.info("Camera connected, starting capture thread")
             # Start capture thread
             self._capture_thread = threading.Thread(
                 target=self._capture_loop, name="CameraCapture", daemon=True
@@ -710,12 +762,12 @@ class CameraCapture:
 
         return self._kinect2.get_calibration_data()
 
-    def __enter__(self) -> "PerformanceTimer":
+    def __enter__(self) -> "CameraCapture":
         """Context manager entry."""
         self.start_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit."""
         self.stop_capture()
 

@@ -345,6 +345,11 @@ docs-serve: ## Serve documentation locally
 deploy: build-frontend ## Build production distribution package
 	@bash scripts/deploy/build-dist.sh
 
+deploy-push: deploy ## Build and push Docker image to registry
+	@echo "$(BLUE)Deploying to target...$(RESET)"
+	@bash rsync -av dist/ $DEPLOY_TARGET
+	@echo "$(GREEN)Deployed!$(RESET)"
+
 deploy-clean: ## Clean deployment artifacts
 	@echo "$(BLUE)Cleaning deployment artifacts...$(RESET)"
 	@rm -rf dist/

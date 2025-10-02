@@ -54,6 +54,7 @@ from .routes import (
     diagnostics,
     game,
     health,
+    logs,
     modules,
     stream,
 )
@@ -259,7 +260,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         # Initialize configuration module
         logger.info("Initializing configuration module...")
-        app_state.config_module = ConfigurationModule()
+        app_state.config_module = ConfigurationModule(enable_hot_reload=False)
         await app_state.config_module.initialize()
 
         # Get configuration
@@ -275,6 +276,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             debug_mode=config.system.debug if hasattr(config, "system") else False,
         )
         app_state.core_module = CoreModule(core_config)
+
+        # Vision module will be initialized lazily on first request
 
         # Initialize WebSocket components (use global instances)
         logger.info("Initializing WebSocket components...")
@@ -415,12 +418,13 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # Include routers with API prefix
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(config.router, prefix="/api/v1")
-    app.include_router(calibration.router, prefix="/api/v1")
+    app.include_router(calibration.router, prefix="/api/v1/vision")
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
     app.include_router(modules.router, prefix="/api/v1")
     app.include_router(diagnostics.router, prefix="/api/v1")
+    app.include_router(logs.router, prefix="/api/v1")
 
     # Include WebSocket management endpoints
     app.include_router(websocket_router, prefix="/api/v1/websocket")
@@ -479,10 +483,31 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         async def logo(size: int) -> FileResponse:
             return FileResponse(static_dir / f"logo{size}.png")
 
-        # SPA fallback - serve index.html for all other routes
-        @app.get("/{full_path:path}")
-        async def spa_fallback(full_path: str) -> FileResponse:
-            """Serve index.html for all non-API routes to support client-side routing."""
+        # SPA fallback - serve index.html for non-API frontend routes
+        # Register specific frontend routes instead of catch-all
+        @app.get("/")
+        async def spa_root() -> FileResponse:
+            """Serve index.html for root route."""
+            return FileResponse(static_dir / "index.html")
+
+        @app.get("/calibration")
+        async def spa_calibration() -> FileResponse:
+            """Serve index.html for calibration route."""
+            return FileResponse(static_dir / "index.html")
+
+        @app.get("/configuration")
+        async def spa_configuration() -> FileResponse:
+            """Serve index.html for configuration route."""
+            return FileResponse(static_dir / "index.html")
+
+        @app.get("/system-management")
+        async def spa_system_management() -> FileResponse:
+            """Serve index.html for system management route."""
+            return FileResponse(static_dir / "index.html")
+
+        @app.get("/diagnostics")
+        async def spa_diagnostics() -> FileResponse:
+            """Serve index.html for diagnostics route."""
             return FileResponse(static_dir / "index.html")
 
     else:
