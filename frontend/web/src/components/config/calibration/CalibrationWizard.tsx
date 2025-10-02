@@ -242,7 +242,7 @@ const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
     try {
       setIsProcessing(true)
       // Use the new automatic calibration endpoint
-      const response = await fetch('/api/v1/calibration/camera/auto-calibrate', {
+      const response = await fetch('/api/v1/vision/calibration/camera/auto-calibrate', {
         method: 'POST'
       })
       if (!response.ok) {
