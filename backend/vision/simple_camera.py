@@ -87,7 +87,9 @@ class SimpleCameraModule:
             # Start camera
             logger.info("[SimpleCameraModule] About to call camera.start_capture()...")
             if not self.camera.start_capture():
-                logger.error("[SimpleCameraModule] camera.start_capture() returned False")
+                logger.error(
+                    "[SimpleCameraModule] camera.start_capture() returned False"
+                )
                 return False
             logger.info("[SimpleCameraModule] camera.start_capture() succeeded")
 
@@ -97,7 +99,7 @@ class SimpleCameraModule:
             self._frame_update_thread = threading.Thread(
                 target=self._frame_update_loop,
                 name="SimpleCameraFrameUpdate",
-                daemon=True
+                daemon=True,
             )
             self._frame_update_thread.start()
             logger.info("[SimpleCameraModule] Frame update thread started")
@@ -106,7 +108,9 @@ class SimpleCameraModule:
             return True
 
         except Exception as e:
-            logger.error(f"[SimpleCameraModule] Failed to start capture: {e}", exc_info=True)
+            logger.error(
+                f"[SimpleCameraModule] Failed to start capture: {e}", exc_info=True
+            )
             return False
 
     def stop_capture(self) -> None:

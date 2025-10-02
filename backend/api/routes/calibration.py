@@ -25,7 +25,7 @@ import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from ..dependencies import ApplicationState, get_app_state, get_core_module
-from ..models.common import ErrorCode, create_error_response, create_success_response
+from ..models.common import create_success_response
 from ..models.responses import (
     CalibrationApplyResponse,
     CalibrationPointResponse,
@@ -247,12 +247,7 @@ def validate_calibration_session(
     if session_id not in _calibration_sessions:
         raise HTTPException(
             status_code=404,
-            detail=create_error_response(
-                "Calibration Session Not Found",
-                f"Calibration session '{session_id}' not found",
-                ErrorCode.RES_NOT_FOUND,
-                {"session_id": session_id},
-            ),
+            detail=f"Calibration session '{session_id}' not found",
         )
 
     session = _calibration_sessions[session_id]
@@ -267,15 +262,7 @@ def validate_calibration_session(
     if required_status and session["status"] != required_status:
         raise HTTPException(
             status_code=400,
-            detail=create_error_response(
-                "Invalid Session Status",
-                f"Expected session status '{required_status}', but found '{session['status']}'",
-                ErrorCode.VAL_INVALID_FORMAT,
-                {
-                    "expected_status": required_status,
-                    "actual_status": session["status"],
-                },
-            ),
+            detail=f"Expected session status '{required_status}', but found '{session['status']}'",
         )
 
     return session
@@ -314,12 +301,7 @@ async def start_calibration_sequence(
         if active_sessions and not force_restart:
             raise HTTPException(
                 status_code=409,
-                detail=create_error_response(
-                    "Calibration Already In Progress",
-                    f"Active calibration session exists: {active_sessions[0]}. Use force_restart=true to override.",
-                    ErrorCode.RES_ALREADY_EXISTS,
-                    {"active_session_id": active_sessions[0]},
-                ),
+                detail=f"Active calibration session exists: {active_sessions[0]}. Use force_restart=true to override.",
             )
 
         # Expire any existing active sessions if force restart
@@ -414,12 +396,7 @@ async def start_calibration_sequence(
         logger.error(f"Failed to start calibration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Start Failed",
-                "Unable to start calibration sequence",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to start calibration sequence: {e}",
         )
 
 
@@ -447,23 +424,13 @@ async def capture_calibration_point(
         if len(screen_position) != 2:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid Screen Position",
-                    "Screen position must have exactly 2 coordinates [x, y]",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                    {"provided_length": len(screen_position)},
-                ),
+                detail="Screen position must have exactly 2 coordinates [x, y]",
             )
 
         if len(world_position) != 2:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid World Position",
-                    "World position must have exactly 2 coordinates [x, y]",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                    {"provided_length": len(world_position)},
-                ),
+                detail="World position must have exactly 2 coordinates [x, y]",
             )
 
         # Check if point already exists
@@ -477,23 +444,13 @@ async def capture_calibration_point(
         if not (0 <= screen_position[0] <= 4000 and 0 <= screen_position[1] <= 4000):
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid Screen Coordinates",
-                    "Screen coordinates out of reasonable range",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {"screen_position": screen_position},
-                ),
+                detail="Screen coordinates out of reasonable range",
             )
 
         if not (-10 <= world_position[0] <= 10 and -10 <= world_position[1] <= 10):
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid World Coordinates",
-                    "World coordinates out of reasonable range (meters)",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {"world_position": world_position},
-                ),
+                detail="World coordinates out of reasonable range (meters)",
             )
 
         # Create/update point
@@ -576,12 +533,7 @@ async def capture_calibration_point(
         logger.error(f"Failed to capture calibration point: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Point Capture Failed",
-                "Unable to capture calibration point",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to capture calibration point: {e}",
         )
 
 
@@ -606,38 +558,20 @@ async def apply_calibration_transformations(
         if not session:
             raise HTTPException(
                 status_code=404,
-                detail=create_error_response(
-                    "Calibration Session Not Found",
-                    f"Calibration session '{session_id}' not found",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"session_id": session_id},
-                ),
+                detail=f"Calibration session '{session_id}' not found",
             )
 
         if session["status"] not in ["ready_to_apply", "completed"]:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Calibration Not Ready",
-                    f"Calibration must be completed before applying. Current status: {session['status']}",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                    {"current_status": session["status"]},
-                ),
+                detail=f"Calibration must be completed before applying. Current status: {session['status']}",
             )
 
         # Check minimum points requirement
         if session["points_captured"] < 4:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Insufficient Calibration Points",
-                    "Need at least 4 calibration points to apply transformation",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {
-                        "points_captured": session["points_captured"],
-                        "minimum_required": 4,
-                    },
-                ),
+                detail="Need at least 4 calibration points to apply transformation",
             )
 
         # Calculate accuracy if not already done
@@ -650,12 +584,7 @@ async def apply_calibration_transformations(
         if session["accuracy"] < accuracy_threshold and not force_apply:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Low Calibration Accuracy",
-                    f"Calibration accuracy ({session['accuracy']:.2f}) below threshold ({accuracy_threshold}). Use force_apply=true to override.",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {"accuracy": session["accuracy"], "threshold": accuracy_threshold},
-                ),
+                detail=f"Calibration accuracy ({session['accuracy']:.2f}) below threshold ({accuracy_threshold}). Use force_apply=true to override.",
             )
 
         # Backup previous calibration if requested
@@ -699,12 +628,7 @@ async def apply_calibration_transformations(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Transformation Calculation Failed",
-                    f"Failed to calculate transformation matrix: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Failed to calculate transformation matrix: {e}",
             )
 
         # Apply calibration to the system
@@ -722,12 +646,7 @@ async def apply_calibration_transformations(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Calibration Application Failed",
-                    f"Failed to apply calibration to system: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Failed to apply calibration to system: {e}",
             )
 
         # Update session status
@@ -755,12 +674,7 @@ async def apply_calibration_transformations(
         logger.error(f"Failed to apply calibration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Apply Failed",
-                "Unable to apply calibration transformations",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to apply calibration transformations: {e}",
         )
 
 
@@ -784,23 +698,13 @@ async def validate_calibration_accuracy(
         if not session:
             raise HTTPException(
                 status_code=404,
-                detail=create_error_response(
-                    "Calibration Session Not Found",
-                    f"Calibration session '{session_id}' not found",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"session_id": session_id},
-                ),
+                detail=f"Calibration session '{session_id}' not found",
             )
 
         if session["status"] not in ["ready_to_apply", "completed", "applied"]:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Calibration Not Ready for Validation",
-                    f"Calibration must be completed before validation. Current status: {session['status']}",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                    {"current_status": session["status"]},
-                ),
+                detail=f"Calibration must be completed before validation. Current status: {session['status']}",
             )
 
         # Prepare test points
@@ -810,12 +714,7 @@ async def validate_calibration_accuracy(
                 if "screen" not in point or "world" not in point:
                     raise HTTPException(
                         status_code=400,
-                        detail=create_error_response(
-                            "Invalid Test Point Format",
-                            f"Test point {i} must have 'screen' and 'world' coordinates",
-                            ErrorCode.VAL_INVALID_FORMAT,
-                            {"point_index": i, "required_fields": ["screen", "world"]},
-                        ),
+                        detail=f"Test point {i} must have 'screen' and 'world' coordinates",
                     )
 
                 test_points_data.append(
@@ -966,12 +865,7 @@ async def validate_calibration_accuracy(
         logger.error(f"Failed to validate calibration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Validation Failed",
-                "Unable to validate calibration accuracy",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to validate calibration accuracy: {e}",
         )
 
 
@@ -1003,12 +897,7 @@ async def get_calibration_session(session_id: str) -> CalibrationSession:
         logger.error(f"Failed to get calibration session: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Session Retrieval Failed",
-                "Unable to retrieve calibration session",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to retrieve calibration session: {e}",
         )
 
 
@@ -1061,12 +950,7 @@ async def list_calibration_sessions(
         logger.error(f"Failed to list calibration sessions: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Session List Failed",
-                "Unable to list calibration sessions",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to list calibration sessions: {e}",
         )
 
 
@@ -1097,12 +981,7 @@ async def delete_calibration_session(session_id: str) -> SuccessResponse:
         logger.error(f"Failed to delete calibration session: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Session Deletion Failed",
-                "Unable to delete calibration session",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to delete calibration session: {e}",
         )
 
 
@@ -1164,20 +1043,81 @@ _camera_calibration_session: dict[str, Any] = {
 async def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> Any:
-    """Get the vision module instance from app state.
+    """Get or lazily create the vision module instance from app state.
 
     Returns the EnhancedCameraModule (wrapped in CameraModuleAdapter) that provides
     camera capture and fisheye correction capabilities.
     """
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        raise HTTPException(
-            status_code=503,
-            detail=create_error_response(
-                "Vision Module Not Available",
-                "Vision module is not initialized",
-                ErrorCode.HW_CAMERA_UNAVAILABLE,
-            ),
+        logger.info(
+            "Creating shared EnhancedCameraModule instance (lazy initialization)"
         )
+
+        # Check if calibration file exists
+        import os
+
+        calibration_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "calibration/camera_fisheye_default.yaml",
+        )
+        enable_fisheye = os.path.exists(calibration_path)
+
+        if enable_fisheye:
+            logger.info(f"Found calibration file at {calibration_path}")
+        else:
+            logger.warning(
+                f"Calibration file not found at {calibration_path}, disabling fisheye correction"
+            )
+
+        # Configure enhanced camera with fisheye correction and preprocessing
+        from ...streaming.enhanced_camera_module import (
+            EnhancedCameraConfig,
+            EnhancedCameraModule,
+        )
+        from .stream import CameraModuleAdapter
+
+        camera_config = EnhancedCameraConfig(
+            device_id=0,
+            resolution=(1920, 1080),
+            fps=30,
+            enable_fisheye_correction=enable_fisheye,
+            calibration_file=calibration_path if enable_fisheye else None,
+            enable_preprocessing=True,
+            brightness=0,
+            contrast=1.0,
+            enable_clahe=True,
+            clahe_clip_limit=2.0,
+            clahe_grid_size=8,
+            buffer_size=1,
+        )
+
+        try:
+            logger.info("Initializing EnhancedCameraModule...")
+            import asyncio
+
+            # Run the blocking EnhancedCameraModule initialization in a thread pool
+            loop = asyncio.get_event_loop()
+            enhanced_module = await loop.run_in_executor(
+                None, lambda: EnhancedCameraModule(camera_config)
+            )
+            logger.info("EnhancedCameraModule created!")
+
+            # Wrap in compatibility adapter
+            app_state.vision_module = CameraModuleAdapter(enhanced_module)
+            logger.info("Camera module wrapped in adapter")
+
+            # Start capture
+            if not app_state.vision_module.start_capture():
+                raise RuntimeError("Failed to start camera capture")
+
+            logger.info("Camera capture started successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize camera: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail=f"Failed to initialize camera: {e}",
+            )
+
     return app_state.vision_module
 
 
@@ -1210,11 +1150,7 @@ async def start_camera_calibration_mode(
         if _camera_calibration_session["active"]:
             raise HTTPException(
                 status_code=409,
-                detail=create_error_response(
-                    "Calibration Already Active",
-                    "Camera calibration mode is already active. Stop current session first.",
-                    ErrorCode.RES_ALREADY_EXISTS,
-                ),
+                detail="Camera calibration mode is already active. Stop current session first.",
             )
 
         # Disable fisheye correction in the camera module
@@ -1238,7 +1174,7 @@ async def start_camera_calibration_mode(
         instructions = [
             "Print the chessboard calibration pattern and mount it on a flat surface",
             f"Ensure the chessboard has {chessboard_cols}x{chessboard_rows} internal corners",
-            f"Each square should be {square_size*1000:.1f}mm in size",
+            f"Each square should be {square_size * 1000:.1f}mm in size",
             "Capture images from different angles and distances",
             "Ensure the entire chessboard is visible in each image",
             "Capture at least {min_images} images with good chessboard detection",
@@ -1265,12 +1201,7 @@ async def start_camera_calibration_mode(
         logger.error(f"Failed to start camera calibration mode: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Start Failed",
-                "Unable to start camera calibration mode",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to start camera calibration mode: {e}",
         )
 
 
@@ -1294,11 +1225,7 @@ async def capture_camera_calibration_image(
         if not _camera_calibration_session["active"]:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Calibration Not Active",
-                    "Camera calibration mode is not active. Start calibration mode first.",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                ),
+                detail="Camera calibration mode is not active. Start calibration mode first.",
             )
 
         # Get current frame from camera
@@ -1311,11 +1238,7 @@ async def capture_camera_calibration_image(
         if frame is None:
             raise HTTPException(
                 status_code=503,
-                detail=create_error_response(
-                    "Camera Frame Not Available",
-                    "Unable to capture frame from camera",
-                    ErrorCode.HW_CAMERA_UNAVAILABLE,
-                ),
+                detail="Unable to capture frame from camera",
             )
 
         # Convert to grayscale for chessboard detection
@@ -1399,12 +1322,7 @@ async def capture_camera_calibration_image(
         logger.error(f"Failed to capture calibration image: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Image Capture Failed",
-                "Unable to capture calibration image",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to capture calibration image: {e}",
         )
 
 
@@ -1428,11 +1346,7 @@ async def process_camera_calibration(
         if not _camera_calibration_session["active"]:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Calibration Not Active",
-                    "Camera calibration mode is not active",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                ),
+                detail="Camera calibration mode is not active",
             )
 
         # Check if enough images have been captured
@@ -1442,12 +1356,7 @@ async def process_camera_calibration(
         if len(images) < min_required:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Insufficient Images",
-                    f"Need at least {min_required} images, captured {len(images)}",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {"images_captured": len(images), "images_required": min_required},
-                ),
+                detail=f"Need at least {min_required} images, captured {len(images)}",
             )
 
         # Prepare object points (3D points in real world space)
@@ -1563,12 +1472,7 @@ async def process_camera_calibration(
         logger.error(f"Failed to process calibration: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Processing Failed",
-                "Unable to process calibration images",
-                ErrorCode.HW_CALIBRATION_FAILED,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to process calibration images: {e}",
         )
 
 
@@ -1601,12 +1505,7 @@ async def apply_camera_calibration(
         if not os.path.exists(calibration_path):
             raise HTTPException(
                 status_code=404,
-                detail=create_error_response(
-                    "Calibration File Not Found",
-                    f"Calibration file not found at {calibration_path}",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"calibration_path": calibration_path},
-                ),
+                detail=f"Calibration file not found at {calibration_path}",
             )
 
         # Reload calibration in the camera module
@@ -1631,11 +1530,7 @@ async def apply_camera_calibration(
         if not calibration_loaded:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Calibration Load Failed",
-                    "Unable to load calibration into camera module",
-                    ErrorCode.HW_CALIBRATION_FAILED,
-                ),
+                detail="Unable to load calibration into camera module",
             )
 
         return CameraCalibrationApplyResponse(
@@ -1651,12 +1546,7 @@ async def apply_camera_calibration(
         logger.error(f"Failed to apply calibration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Apply Failed",
-                "Unable to apply camera calibration",
-                ErrorCode.HW_CALIBRATION_FAILED,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to apply camera calibration: {e}",
         )
 
 
@@ -1700,11 +1590,7 @@ async def auto_calibrate_from_table(
         if frame is None:
             raise HTTPException(
                 status_code=503,
-                detail=create_error_response(
-                    "Camera Frame Not Available",
-                    "Unable to capture frame from camera",
-                    ErrorCode.HW_CAMERA_UNAVAILABLE,
-                ),
+                detail="Unable to capture frame from camera",
             )
 
         # Import table detector
@@ -1724,11 +1610,7 @@ async def auto_calibrate_from_table(
         if table_corners_result is None:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Table Detection Failed",
-                    "Could not detect table boundaries in the frame. Ensure the table is clearly visible and well-lit.",
-                    ErrorCode.VAL_INVALID_FORMAT,
-                ),
+                detail="Could not detect table boundaries in the frame. Ensure the table is clearly visible and well-lit.",
             )
 
         # Convert TableCorners to list format
@@ -1751,11 +1633,7 @@ async def auto_calibrate_from_table(
         if not success or camera_params is None:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Calibration Failed",
-                    "Failed to calculate fisheye distortion parameters from table geometry",
-                    ErrorCode.HW_CALIBRATION_FAILED,
-                ),
+                detail="Failed to calculate fisheye distortion parameters from table geometry",
             )
 
         # Save calibration to YAML file
@@ -1772,11 +1650,7 @@ async def auto_calibrate_from_table(
         if not success_save:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Save Failed",
-                    "Calibration computed successfully but failed to save to file",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                ),
+                detail="Calibration computed successfully but failed to save to file",
             )
 
         # Determine quality rating based on RMS error
@@ -1810,12 +1684,7 @@ async def auto_calibrate_from_table(
         logger.error(f"Failed to auto-calibrate from table: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Auto-Calibration Failed",
-                "Unable to automatically calibrate fisheye distortion",
-                ErrorCode.HW_CALIBRATION_FAILED,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to automatically calibrate fisheye distortion: {e}",
         )
 
 
@@ -1867,10 +1736,5 @@ async def stop_camera_calibration_mode(
         logger.error(f"Failed to stop camera calibration mode: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Calibration Stop Failed",
-                "Unable to stop camera calibration mode",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"Unable to stop camera calibration mode: {e}",
         )

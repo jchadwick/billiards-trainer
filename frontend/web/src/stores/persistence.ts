@@ -52,17 +52,6 @@ export class PersistenceManager {
       { fireImmediately: false }
     );
 
-    // Auto-save auth state changes
-    const authDisposer = reaction(
-      () => ({
-        token: this.rootStore.auth.authState.token,
-        refreshToken: this.rootStore.auth.authState.refreshToken,
-        expiresAt: this.rootStore.auth.authState.expiresAt
-      }),
-      () => this.scheduleAutoSave(),
-      { fireImmediately: false }
-    );
-
     // Auto-save UI preferences
     const uiDisposer = reaction(
       () => this.rootStore.ui.getPersistedUIState(),
@@ -71,7 +60,7 @@ export class PersistenceManager {
     );
 
     // Store disposers for cleanup
-    this.disposers.push(configDisposer, authDisposer, uiDisposer);
+    this.disposers.push(configDisposer, uiDisposer);
   }
 
   /**
@@ -176,11 +165,6 @@ export class PersistenceManager {
   private gatherPersistedState(): PersistedState {
     return {
       config: this.rootStore.config.exportConfig(),
-      auth: {
-        token: this.rootStore.auth.authState.token,
-        refreshToken: this.rootStore.auth.authState.refreshToken,
-        expiresAt: this.rootStore.auth.authState.expiresAt
-      },
       ui: this.rootStore.ui.getPersistedUIState(),
       version: this.version
     };

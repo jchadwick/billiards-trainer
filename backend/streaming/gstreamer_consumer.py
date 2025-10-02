@@ -10,11 +10,11 @@ import time
 from typing import Optional
 
 import cv2
-import numpy as np
 import gi
+import numpy as np
 
-gi.require_version('Gst', '1.0')
-from gi.repository import Gst, GLib
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +150,7 @@ class GStreamerFrameConsumer:
                 frame = np.ndarray(
                     shape=(self.height, self.width, 3),
                     dtype=np.uint8,
-                    buffer=map_info.data
+                    buffer=map_info.data,
                 )
 
                 # Update shared buffer (thread-safe)
@@ -210,7 +210,7 @@ class GStreamerFrameConsumer:
                 "frame_count": self._frame_count,
                 "fps": fps,
                 "last_frame_time": self._last_frame_time,
-                "socket_path": self.socket_path
+                "socket_path": self.socket_path,
             }
 
 
@@ -231,7 +231,7 @@ if __name__ == "__main__":
 
                     # Display frame
                     cv2.imshow("Frame", frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
 
                 time.sleep(0.033)  # ~30fps
