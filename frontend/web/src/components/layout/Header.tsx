@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useUIStore } from '../../hooks/useStores'
-import { ConnectionStatus, UserMenu, NotificationCenter } from '../navigation'
+import { ConnectionStatus, NotificationCenter } from '../navigation'
 import { Button } from '../ui/Button'
 import { AccessibilitySettings, AccessibilityToggle } from '../accessibility/AccessibilitySettings'
 
@@ -104,9 +104,6 @@ export const Header = observer<HeaderProps>(({ className = '' }) => {
 
             {/* Notifications */}
             <NotificationCenter />
-
-            {/* User Menu */}
-            <UserMenu />
           </div>
         </div>
       </div>
