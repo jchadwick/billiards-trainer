@@ -696,6 +696,84 @@ class WebSocketSubscriptionResponse(BaseResponse):
 
 
 # =============================================================================
+# Camera Fisheye Calibration Response Models
+# =============================================================================
+
+
+class CameraCalibrationModeResponse(BaseResponse):
+    """Camera calibration mode start/stop response."""
+
+    success: bool = Field(..., description="Operation success status")
+    mode_active: bool = Field(..., description="Whether calibration mode is active")
+    message: str = Field(..., description="Status message")
+    chessboard_size: tuple[int, int] = Field(
+        default=(9, 6), description="Chessboard internal corners (cols, rows)"
+    )
+    square_size: float = Field(
+        default=0.025, description="Chessboard square size in meters"
+    )
+    min_images: int = Field(
+        default=10, description="Minimum images required for calibration"
+    )
+    instructions: list[str] = Field(
+        default_factory=list, description="Calibration instructions"
+    )
+
+
+class CameraImageCaptureResponse(BaseResponse):
+    """Camera calibration image capture response."""
+
+    success: bool = Field(..., description="Capture success status")
+    image_id: str = Field(..., description="Unique image identifier")
+    chessboard_found: bool = Field(..., description="Whether chessboard was detected")
+    corners_detected: int = Field(
+        default=0, description="Number of corners detected in image"
+    )
+    total_images: int = Field(..., description="Total images captured so far")
+    images_required: int = Field(..., description="Minimum images required")
+    can_process: bool = Field(
+        ..., description="Whether enough images have been captured to process"
+    )
+    message: str = Field(..., description="Status message")
+    image_preview: Optional[str] = Field(
+        None, description="Base64 encoded preview image (optional)"
+    )
+
+
+class CameraCalibrationProcessResponse(BaseResponse):
+    """Camera calibration processing response."""
+
+    success: bool = Field(..., description="Calibration success status")
+    calibration_error: float = Field(..., description="Mean reprojection error in pixels")
+    images_used: int = Field(..., description="Number of images used in calibration")
+    camera_matrix: list[list[float]] = Field(
+        ..., description="Camera intrinsic matrix (3x3)"
+    )
+    distortion_coefficients: list[float] = Field(
+        ..., description="Distortion coefficients"
+    )
+    resolution: tuple[int, int] = Field(..., description="Calibration resolution (w, h)")
+    saved_to: str = Field(..., description="Path where calibration was saved")
+    quality_rating: str = Field(
+        ..., description="Quality rating: excellent, good, fair, poor"
+    )
+    message: str = Field(..., description="Status message")
+
+
+class CameraCalibrationApplyResponse(BaseResponse):
+    """Camera calibration apply response."""
+
+    success: bool = Field(..., description="Apply success status")
+    calibration_loaded: bool = Field(
+        ..., description="Whether calibration was successfully loaded"
+    )
+    fisheye_correction_enabled: bool = Field(
+        ..., description="Whether fisheye correction is now enabled"
+    )
+    message: str = Field(..., description="Status message")
+
+
+# =============================================================================
 # Utility Functions
 # =============================================================================
 

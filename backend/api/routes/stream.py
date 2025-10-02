@@ -13,29 +13,117 @@ import time
 from typing import Any, Optional
 
 import cv2
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 # Import vision module
 try:
-    from ...vision import CameraStatus, VisionConfig, VisionModule
+    from ...vision.capture import CameraStatus, CameraHealth
+    from ...streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
 except ImportError:
     # Fallback for development/testing
     try:
-        from ...vision import CameraStatus, VisionConfig, VisionModule
+        from ...vision.capture import CameraStatus, CameraHealth
+        from ...streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
     except ImportError:
         # Another fallback for direct execution
         import os
         import sys
 
         sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        from vision import CameraStatus, VisionModule
+        from vision.capture import CameraStatus, CameraHealth
+        from streaming.enhanced_camera_module import EnhancedCameraModule, EnhancedCameraConfig
 
 from ..dependencies import ApplicationState, get_app_state
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stream", tags=["Video Streaming"])
+
+
+# Compatibility wrapper to make EnhancedCameraModule work with existing API
+class CameraModuleAdapter:
+    """Adapter to make EnhancedCameraModule compatible with DirectCameraModule interface."""
+
+    def __init__(self, enhanced_module: EnhancedCameraModule):
+        self._module = enhanced_module
+        self.camera = self  # Self-reference for compatibility
+
+    def start_capture(self) -> bool:
+        """Start camera capture."""
+        return self._module.start_capture()
+
+    def stop_capture(self):
+        """Stop camera capture."""
+        self._module.stop_capture()
+
+    def is_connected(self) -> bool:
+        """Check if camera is connected."""
+        return self._module.running
+
+    def get_status(self) -> CameraStatus:
+        """Get camera status."""
+        if self._module.running:
+            return CameraStatus.CONNECTED
+        return CameraStatus.DISCONNECTED
+
+    def get_camera_info(self) -> dict:
+        """Get camera information."""
+        stats = self._module.get_statistics()
+        return {
+            "device_id": self._module.config.device_id,
+            "resolution": stats.get("resolution", (0, 0)),
+            "fps": stats.get("fps", 0),
+            "backend": "enhanced",
+            "fisheye_correction": stats.get("fisheye_correction_enabled", False),
+            "preprocessing": stats.get("preprocessing_enabled", False),
+        }
+
+    def get_health(self) -> CameraHealth:
+        """Get camera health information."""
+        stats = self._module.get_statistics()
+        return CameraHealth(
+            status=self.get_status(),
+            frames_captured=0,  # EnhancedCameraModule doesn't track this
+            frames_dropped=0,
+            fps=stats.get("fps", 0.0),
+            last_frame_time=time.time(),
+            error_count=0,
+            last_error=None,
+            connection_attempts=0,
+            uptime=0.0,
+        )
+
+    def get_frame_for_streaming(self, scale: float = 0.5) -> Optional[np.ndarray]:
+        """Get frame for streaming with optional downsampling."""
+        frame = self._module.get_frame(processed=True)
+
+        if frame is None:
+            return None
+
+        # Apply scaling if requested
+        if scale != 1.0:
+            new_width = int(frame.shape[1] * scale)
+            new_height = int(frame.shape[0] * scale)
+            frame = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+        return frame
+
+    def get_current_frame(self) -> Optional[np.ndarray]:
+        """Get current frame without processing."""
+        return self._module.get_frame(processed=True)
+
+    def get_statistics(self) -> dict:
+        """Get module statistics."""
+        stats = self._module.get_statistics()
+        return {
+            "is_running": stats.get("running", False),
+            "frames_processed": 0,
+            "frames_dropped": 0,
+            "avg_fps": stats.get("fps", 0.0),
+            "avg_processing_time_ms": 0.0,
+        }
 
 # Global streaming state
 _streaming_clients = set()
@@ -55,50 +143,74 @@ class StreamingError(Exception):
 
 async def get_vision_module(
     app_state: ApplicationState = Depends(get_app_state),
-) -> VisionModule:
-    """Get or lazily create the shared vision module instance.
+) -> CameraModuleAdapter:
+    """Get or lazily create the shared camera module instance.
 
-    Creates vision module on first access and reuses it for all subsequent requests.
+    Creates camera module on first access and reuses it for all subsequent requests.
     This ensures:
-    1. Only ONE vision module/camera instance is created (no conflicts)
-    2. OpenCV processing and web streaming share the same camera instance
-    3. Server startup is fast (camera init happens on first access)
+    1. Only ONE camera instance is created (no conflicts)
+    2. Server startup is fast (camera init happens on first access)
+    3. Enhanced streaming with fisheye correction and preprocessing
+
+    Note: Using EnhancedCameraModule with fisheye correction and preprocessing
+    capabilities for improved image quality.
     """
     logger.debug("get_vision_module called")
 
     if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        logger.info("Creating shared vision module instance (lazy initialization)")
+        logger.info("Creating shared EnhancedCameraModule instance (lazy initialization)")
 
-        # Configure for full-resolution OpenCV processing with web streaming support
-        vision_config = {
-            "camera_device_id": 0,
-            "camera_backend": "auto",
-            "camera_resolution": (1920, 1080),  # Full resolution
-            "camera_fps": 30,
-            "target_fps": 30,
-            "enable_threading": True,
-            "enable_table_detection": True,  # Full OpenCV processing
-            "enable_ball_detection": True,
-            "enable_cue_detection": True,
-            "enable_tracking": True,
-            "debug_mode": False,
-        }
+        # Check if calibration file exists
+        import os
+        calibration_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "calibration/camera_fisheye_default.yaml"
+        )
+        enable_fisheye = os.path.exists(calibration_path)
+
+        if enable_fisheye:
+            logger.info(f"Found calibration file at {calibration_path}")
+        else:
+            logger.warning(f"Calibration file not found at {calibration_path}, disabling fisheye correction")
+
+        # Configure enhanced camera with fisheye correction and preprocessing
+        camera_config = EnhancedCameraConfig(
+            device_id=0,
+            resolution=(1920, 1080),
+            fps=30,
+            enable_fisheye_correction=False,  # Disabled by default until real calibration
+            calibration_file=calibration_path if enable_fisheye else None,
+            enable_preprocessing=True,
+            brightness=0,
+            contrast=1.0,
+            enable_clahe=True,
+            clahe_clip_limit=2.0,
+            clahe_grid_size=8,
+            buffer_size=1,
+        )
 
         try:
-            logger.info("Initializing vision module (this may take a moment)...")
+            logger.info("[get_vision_module] Initializing EnhancedCameraModule...")
 
-            # Run the blocking VisionModule initialization in a thread pool
+            # Run the blocking EnhancedCameraModule initialization in a thread pool
+            logger.info("[get_vision_module] Creating EnhancedCameraModule in executor...")
             loop = asyncio.get_event_loop()
-            app_state.vision_module = await loop.run_in_executor(
-                None, lambda: VisionModule(vision_config)
+            enhanced_module = await loop.run_in_executor(
+                None, lambda: EnhancedCameraModule(camera_config)
             )
+            logger.info("[get_vision_module] EnhancedCameraModule created!")
 
-            logger.info("Vision module initialized, starting camera capture...")
+            # Wrap in compatibility adapter
+            app_state.vision_module = CameraModuleAdapter(enhanced_module)
+            logger.info("[get_vision_module] Camera module wrapped in adapter")
+
+            logger.info("[get_vision_module] Starting camera capture...")
             # Start camera capture
             success = await loop.run_in_executor(None, app_state.vision_module.start_capture)
+            logger.info(f"[get_vision_module] start_capture returned: {success}")
 
             if success:
-                logger.info("Shared vision module created and camera started successfully")
+                logger.info("Shared camera module created and camera started successfully")
             else:
                 logger.error("Camera capture failed to start")
                 app_state.vision_module = None
@@ -111,23 +223,23 @@ async def get_vision_module(
                     },
                 )
         except Exception as e:
-            logger.error(f"Failed to initialize vision module: {e}", exc_info=True)
+            logger.error(f"Failed to initialize camera module: {e}", exc_info=True)
             app_state.vision_module = None
             raise HTTPException(
                 status_code=503,
                 detail={
-                    "error": "Vision Module Unavailable",
+                    "error": "Camera Module Unavailable",
                     "message": f"Failed to initialize camera system: {str(e)}",
                     "code": "STREAM_001",
                 },
             )
 
-    logger.debug("Using shared vision module instance")
+    logger.debug("Using shared camera module instance")
     return app_state.vision_module
 
 
 async def generate_mjpeg_stream(
-    vision_module: VisionModule,
+    vision_module: CameraModuleAdapter,
     quality: int = 80,
     max_fps: int = 30,
     max_width: Optional[int] = None,
@@ -179,9 +291,9 @@ async def generate_mjpeg_stream(
                     await asyncio.sleep(0.01)
                     continue
 
-                # Get latest frame from vision module
+                # Get latest frame from vision module with downsampling
                 logger.debug(f"Getting frame for client {client_id}")
-                frame = vision_module.get_current_frame()
+                frame = vision_module.get_frame_for_streaming(scale=0.5)
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(0.01)
@@ -255,7 +367,7 @@ async def video_stream(
     height: Optional[int] = Query(
         None, ge=120, le=2160, description="Maximum frame height"
     ),
-    vision_module: VisionModule = Depends(get_vision_module),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
 ) -> StreamingResponse:
     """Live video streaming endpoint using MJPEG over HTTP.
 
@@ -450,7 +562,7 @@ async def stream_status(
 
 @router.post("/video/start")
 async def start_video_capture(
-    vision_module: VisionModule = Depends(get_vision_module),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
 ) -> dict[str, Any]:
     """Get video capture status.
 
@@ -492,7 +604,7 @@ async def start_video_capture(
 
 @router.post("/video/stop")
 async def stop_video_capture(
-    vision_module: VisionModule = Depends(get_vision_module),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
 ) -> dict[str, Any]:
     """Stop video capture and processing.
 
@@ -540,7 +652,7 @@ async def get_single_frame(
     height: Optional[int] = Query(
         None, ge=120, le=2160, description="Maximum frame height"
     ),
-    vision_module: VisionModule = Depends(get_vision_module),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
 ):
     """Get a single frame from the camera as JPEG.
 

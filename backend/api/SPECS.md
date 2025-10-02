@@ -2,7 +2,7 @@
 
 ## Module Purpose
 
-The API module serves as the primary interface between the backend processing system and all client applications. It provides RESTful endpoints for configuration and control, WebSocket connections for real-time data streaming, and handles validation and communication protocols.
+The API module serves as the primary interface between the backend processing system and all client applications. It provides RESTful endpoints for configuration and control, WebSocket connections for real-time data streaming, and handles validation and communication protocols. The API module acts as a proxy to the Streaming Service for video delivery, ensuring efficient multi-client support without camera access conflicts.
 
 **Note**: This is a single-user training system with no authentication requirements.
 
@@ -37,16 +37,16 @@ The API module serves as the primary interface between the backend processing sy
 ### 2. WebSocket Requirements
 
 #### 2.1 Real-time Streaming
-- **FR-WS-001**: Stream processed video frames at 30+ FPS
+- **FR-WS-001**: Proxy video streams from Streaming Service to clients
 - **FR-WS-002**: Broadcast game state updates with <50ms latency
 - **FR-WS-003**: Send trajectory calculations in real-time
 - **FR-WS-004**: Push system alerts and notifications
 
 #### 2.2 Client Management
-- **FR-WS-005**: Support multiple concurrent WebSocket connections
+- **FR-WS-005**: Support unlimited concurrent connections (limited only by Streaming Service)
 - **FR-WS-006**: Implement automatic reconnection handling
 - **FR-WS-007**: Provide connection quality indicators
-- **FR-WS-008**: Enable selective subscription to data streams
+- **FR-WS-008**: Enable selective subscription to different quality streams
 
 ## Interface Specifications
 
