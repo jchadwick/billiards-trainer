@@ -45,6 +45,8 @@ from .models import (
     Table,
 )
 from .preprocessing import ImagePreprocessor
+from .simple_camera import SimpleCameraModule
+from .direct_camera import DirectCameraModule
 from .tracking.tracker import ObjectTracker
 
 # Set up logging
@@ -796,6 +798,8 @@ __all__ = [
     "VisionConfig",
     "VisionStatistics",
     "VisionModuleError",
+    "SimpleCameraModule",
+    "DirectCameraModule",
     # Data models
     "Ball",
     "BallType",

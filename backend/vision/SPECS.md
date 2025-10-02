@@ -2,18 +2,18 @@
 
 ## Module Purpose
 
-The Vision module is the core computer vision engine responsible for capturing images from the camera, detecting game elements (table, balls, cue stick), and providing processed visual data to other system components. This module directly interfaces with OpenCV and handles all image processing operations.
+The Vision module is the core computer vision engine responsible for analyzing video frames to detect game elements (table, balls, cue stick), and providing processed visual data to other system components. This module interfaces with OpenCV for image processing and consumes video streams from the separate Streaming Service, eliminating direct camera access conflicts.
 
 ## Functional Requirements
 
-### 1. Image Capture Requirements
+### 1. Stream Consumption Requirements
 
-#### 1.1 Camera Interface
-- **FR-VIS-001**: Initialize and configure camera device with specified parameters
-- **FR-VIS-002**: Capture continuous video stream at configurable frame rate (15-60 FPS)
-- **FR-VIS-003**: Support multiple camera backends (V4L2, DirectShow, GStreamer)
-- **FR-VIS-004**: Handle camera disconnection and reconnection gracefully
-- **FR-VIS-005**: Provide camera status and health monitoring
+#### 1.1 Streaming Service Interface
+- **FR-VIS-001**: Connect to Streaming Service via shared memory or network stream
+- **FR-VIS-002**: Consume video frames at required frame rate (30 FPS for analysis)
+- **FR-VIS-003**: Support multiple stream sources (shared memory, RTSP, HTTP)
+- **FR-VIS-004**: Handle stream disconnection and reconnection gracefully
+- **FR-VIS-005**: Monitor stream health and latency
 
 #### 1.2 Image Preprocessing
 - **FR-VIS-006**: Convert color spaces (BGR to HSV/LAB) for robust detection

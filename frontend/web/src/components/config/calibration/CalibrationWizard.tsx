@@ -57,11 +57,15 @@ const VideoFeedCanvas: React.FC<{
   overlayVisible: boolean
 }> = ({ onPointSelect, points, width, height, overlayVisible }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const videoImageRef = useRef<HTMLImageElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const { videoStore } = useStores()
+  const [streamConnected, setStreamConnected] = useState(false)
+  const [streamError, setStreamError] = useState<string | null>(null)
 
-  // Draw video frame and overlay on canvas
+  // Get the video stream URL from the API
+  const videoStreamUrl = `${window.location.origin}/api/v1/stream/video`
+
+  // Draw canvas overlay with calibration points
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -69,50 +73,9 @@ const VideoFeedCanvas: React.FC<{
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height)
-
     // Draw video frame if available
-    if (videoStore.currentFrameImage && videoImageRef.current && videoImageRef.current.complete) {
-      // Draw the video frame scaled to fit canvas
-      ctx.drawImage(videoImageRef.current, 0, 0, width, height)
-    } else {
-      // Draw placeholder if no video feed is available
-      ctx.fillStyle = '#1f2937'
-      ctx.fillRect(0, 0, width, height)
-
-      // Draw grid lines for reference when no video is available
-      ctx.strokeStyle = '#374151'
-      ctx.lineWidth = 1
-      const gridSize = 50
-      for (let x = 0; x <= width; x += gridSize) {
-        ctx.beginPath()
-        ctx.moveTo(x, 0)
-        ctx.lineTo(x, height)
-        ctx.stroke()
-      }
-      for (let y = 0; y <= height; y += gridSize) {
-        ctx.beginPath()
-        ctx.moveTo(0, y)
-        ctx.lineTo(width, y)
-        ctx.stroke()
-      }
-
-      // Draw center indicator
-      ctx.strokeStyle = '#6b7280'
-      ctx.lineWidth = 2
-      ctx.beginPath()
-      ctx.moveTo(width/2 - 20, height/2)
-      ctx.lineTo(width/2 + 20, height/2)
-      ctx.moveTo(width/2, height/2 - 20)
-      ctx.lineTo(width/2, height/2 + 20)
-      ctx.stroke()
-
-      // Show "waiting for video" message
-      ctx.fillStyle = '#9ca3af'
-      ctx.font = '16px sans-serif'
-      ctx.textAlign = 'center'
-      ctx.fillText('Waiting for video feed...', width/2, height/2 + 50)
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      ctx.drawImage(imgRef.current, 0, 0, width, height)
     }
 
     // Draw calibration points overlay if visible
@@ -152,19 +115,72 @@ const VideoFeedCanvas: React.FC<{
       }
     }
 
-    // Add click instruction text at bottom
-    ctx.fillStyle = '#9ca3af'
-    ctx.font = '14px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.fillText('Click on the video feed to set calibration points', width/2, height - 20)
-  }, [points, width, height, overlayVisible, videoStore.currentFrameImage])
-
-  // Load video frame into image element for drawing
-  useEffect(() => {
-    if (videoStore.currentFrameImage && videoImageRef.current) {
-      videoImageRef.current.src = videoStore.currentFrameImage
+    // Add click instruction text at bottom if overlay is visible
+    if (overlayVisible) {
+      ctx.fillStyle = '#9ca3af'
+      ctx.font = '14px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText('Click on the video feed to set calibration points', width/2, height - 20)
     }
-  }, [videoStore.currentFrameImage])
+  }, [points, width, height, overlayVisible, streamConnected])
+
+  // Redraw overlay when video frame updates
+  useEffect(() => {
+    const img = imgRef.current
+    if (!img) return
+
+    const handleLoad = () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+
+      // Redraw everything
+      ctx.clearRect(0, 0, width, height)
+      ctx.drawImage(img, 0, 0, width, height)
+
+      // Redraw overlay (copied from above)
+      if (overlayVisible) {
+        points.forEach((point, index) => {
+          ctx.fillStyle = '#3b82f6'
+          ctx.strokeStyle = '#1e40af'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.arc(point.screenX, point.screenY, 8, 0, 2 * Math.PI)
+          ctx.fill()
+          ctx.stroke()
+          ctx.fillStyle = '#ffffff'
+          ctx.font = '12px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.fillText((index + 1).toString(), point.screenX, point.screenY + 4)
+        })
+
+        if (points.length >= 4) {
+          ctx.strokeStyle = '#ef4444'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          points.forEach((point, index) => {
+            if (index === 0) {
+              ctx.moveTo(point.screenX, point.screenY)
+            } else {
+              ctx.lineTo(point.screenX, point.screenY)
+            }
+          })
+          ctx.closePath()
+          ctx.stroke()
+        }
+
+        ctx.fillStyle = '#9ca3af'
+        ctx.font = '14px sans-serif'
+        ctx.textAlign = 'center'
+        ctx.fillText('Click on the video feed to set calibration points', width/2, height - 20)
+      }
+    }
+
+    img.addEventListener('load', handleLoad)
+    return () => img.removeEventListener('load', handleLoad)
+  }, [points, width, height, overlayVisible])
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
@@ -178,22 +194,20 @@ const VideoFeedCanvas: React.FC<{
 
   return (
     <div ref={containerRef} className="relative">
-      {/* Hidden image element for loading video frames */}
+      {/* MJPEG stream image (hidden, used as source for canvas) */}
       <img
-        ref={videoImageRef}
+        ref={imgRef}
+        src={videoStreamUrl}
+        alt="Camera stream"
         style={{ display: 'none' }}
-        alt="Video frame"
-        onLoad={() => {
-          // Trigger canvas redraw when new frame loads
-          const canvas = canvasRef.current
-          if (canvas) {
-            const event = new Event('frameLoaded')
-            canvas.dispatchEvent(event)
-          }
+        onLoad={() => setStreamConnected(true)}
+        onError={(e) => {
+          setStreamError('Failed to load video stream')
+          setStreamConnected(false)
         }}
       />
 
-      {/* Canvas for video display and overlay */}
+      {/* Canvas for overlay */}
       <canvas
         ref={canvasRef}
         width={width}
@@ -203,15 +217,21 @@ const VideoFeedCanvas: React.FC<{
       />
 
       {/* Connection status indicator */}
-      {!videoStore.isConnected && (
-        <div className="absolute top-2 left-2 px-2 py-1 bg-red-600 text-white text-xs rounded shadow">
-          Video Not Connected
+      {!streamConnected && (
+        <div className="absolute top-2 left-2 px-2 py-1 bg-yellow-600 text-white text-xs rounded shadow">
+          Connecting to camera stream...
         </div>
       )}
 
-      {videoStore.isConnected && !videoStore.currentFrameImage && (
-        <div className="absolute top-2 left-2 px-2 py-1 bg-yellow-600 text-white text-xs rounded shadow">
-          Waiting for video stream...
+      {streamError && (
+        <div className="absolute top-2 left-2 px-2 py-1 bg-red-600 text-white text-xs rounded shadow">
+          {streamError}
+        </div>
+      )}
+
+      {streamConnected && (
+        <div className="absolute top-2 left-2 px-2 py-1 bg-green-600 text-white text-xs rounded shadow">
+          Stream Connected
         </div>
       )}
     </div>
@@ -253,30 +273,7 @@ const CameraCalibrationStep: React.FC<CalibrationStepProps> = ({
   const [points, setPoints] = useState<Point[]>(data?.points || [])
   const [currentPointIndex, setCurrentPointIndex] = useState(0)
   const [showInstructions, setShowInstructions] = useState(true)
-  const [videoConnectionError, setVideoConnectionError] = useState<string | null>(null)
-  const { calibrationStore, videoStore } = useStores()
-
-  // Ensure video connection is established when component mounts
-  useEffect(() => {
-    const connectVideo = async () => {
-      if (!videoStore.isConnected) {
-        try {
-          setVideoConnectionError(null)
-          await videoStore.connect('http://localhost:8080')
-        } catch (error) {
-          console.error('Failed to connect video stream:', error)
-          setVideoConnectionError(
-            error instanceof Error ? error.message : 'Failed to connect to video stream'
-          )
-        }
-      }
-    }
-
-    connectVideo()
-
-    // Cleanup: don't disconnect on unmount as other components may be using the video
-    // The video store will handle connection lifecycle
-  }, [videoStore])
+  const { calibrationStore } = useStores()
 
   const pointInstructions = [
     "Click on the top-left corner of the billiard table",
@@ -331,39 +328,6 @@ const CameraCalibrationStep: React.FC<CalibrationStepProps> = ({
           Click on the four corners of the billiard table to establish geometric calibration
         </p>
       </div>
-
-      {videoConnectionError && (
-        <Card>
-          <CardContent padding="sm">
-            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
-              <h4 className="font-medium text-red-900 dark:text-red-200 mb-2">Video Connection Error:</h4>
-              <p className="text-red-800 dark:text-red-300 text-sm">
-                {videoConnectionError}
-              </p>
-              <p className="text-red-700 dark:text-red-400 text-xs mt-2">
-                Please ensure the camera is connected and the backend service is running.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  setVideoConnectionError(null)
-                  try {
-                    await videoStore.connect('http://localhost:8080')
-                  } catch (error) {
-                    setVideoConnectionError(
-                      error instanceof Error ? error.message : 'Failed to connect to video stream'
-                    )
-                  }
-                }}
-                className="mt-2"
-              >
-                Retry Connection
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {showInstructions && (
         <Card>

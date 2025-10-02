@@ -7,6 +7,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Protocol
 
+import cv2
+import numpy as np
+
 from .events.manager import EventManager, EventType
 from .game_state import GameStateManager
 from .models import BallState, GameState, ShotAnalysis, Trajectory
@@ -1734,10 +1737,110 @@ class ProjectorInterfaceImpl(ProjectorInterface):
     def _calculate_transformation_matrix(
         self, points: list[dict[str, Any]]
     ) -> Optional[list[list[float]]]:
-        """Calculate transformation matrix from calibration points."""
-        # This would implement proper perspective transformation calculation
-        # For now, return identity matrix
-        return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        """Calculate transformation matrix from calibration points.
+
+        Uses OpenCV's homography calculation to compute the perspective transformation
+        from screen coordinates to world coordinates. This allows accurate mapping
+        between projector output and table positions.
+
+        Args:
+            points: List of calibration point dictionaries, each containing:
+                   - 'screen_x', 'screen_y': Screen/projector coordinates
+                   - 'world_x', 'world_y': Table/world coordinates
+
+        Returns:
+            3x3 transformation matrix as list of lists, or None if calculation fails.
+            Falls back to identity matrix only on error.
+        """
+        try:
+            if not points or len(points) < 4:
+                self.logger.error(
+                    f"Insufficient calibration points: need at least 4, got {len(points) if points else 0}"
+                )
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+
+            # Extract source (screen) and destination (world) points
+            src_points = []
+            dst_points = []
+
+            for point in points:
+                # Validate point has required fields
+                if not all(k in point for k in ["screen_x", "screen_y", "world_x", "world_y"]):
+                    self.logger.warning(f"Skipping invalid calibration point: {point}")
+                    continue
+
+                src_points.append((point["screen_x"], point["screen_y"]))
+                dst_points.append((point["world_x"], point["world_y"]))
+
+            if len(src_points) < 4:
+                self.logger.error(
+                    f"After validation, insufficient valid points: {len(src_points)}"
+                )
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+
+            # Convert to numpy arrays
+            src_pts = np.array(src_points, dtype=np.float32)
+            dst_pts = np.array(dst_points, dtype=np.float32)
+
+            # Calculate homography using OpenCV
+            if len(src_points) == 4:
+                # For exactly 4 points, use getPerspectiveTransform (more stable)
+                self.logger.debug("Using cv2.getPerspectiveTransform for 4 points")
+                homography = cv2.getPerspectiveTransform(src_pts, dst_pts)
+            else:
+                # For more than 4 points, use findHomography with RANSAC
+                self.logger.debug(f"Using cv2.findHomography with RANSAC for {len(src_points)} points")
+                homography, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+
+                if homography is None:
+                    self.logger.error("OpenCV findHomography failed to find solution")
+                    return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+
+            # Validate the homography matrix
+            if not self._validate_homography(homography):
+                self.logger.error("Calculated homography matrix is invalid")
+                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+
+            # Convert numpy array to list for JSON serialization
+            matrix_list = homography.tolist()
+
+            self.logger.info(
+                f"Successfully calculated transformation matrix from {len(src_points)} calibration points"
+            )
+            return matrix_list
+
+        except cv2.error as e:
+            self.logger.error(f"OpenCV error calculating transformation matrix: {e}")
+            return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+        except Exception as e:
+            self.logger.error(f"Failed to calculate transformation matrix: {e}")
+            return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+
+    def _validate_homography(self, homography: np.ndarray) -> bool:
+        """Validate that homography matrix is reasonable.
+
+        Args:
+            homography: 3x3 numpy array representing the homography matrix
+
+        Returns:
+            True if matrix is valid, False otherwise
+        """
+        if homography is None or homography.shape != (3, 3):
+            self.logger.warning("Homography matrix is None or not 3x3")
+            return False
+
+        # Check determinant to ensure matrix is invertible
+        det = np.linalg.det(homography)
+        if abs(det) < 1e-6:
+            self.logger.warning(f"Homography matrix is near-singular (det={det})")
+            return False
+
+        # Check for NaN or infinite values
+        if not np.all(np.isfinite(homography)):
+            self.logger.warning("Homography matrix contains invalid values (NaN or inf)")
+            return False
+
+        return True
 
     def _calculate_calibration_error(self, points: list[dict[str, Any]]) -> float:
         """Calculate calibration error."""

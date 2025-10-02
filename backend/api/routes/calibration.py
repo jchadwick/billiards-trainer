@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from ..dependencies import get_core_module
+from ..dependencies import get_app_state, get_core_module, ApplicationState
 from ..models.common import ErrorCode, create_error_response, create_success_response
 from ..models.responses import (
     CalibrationApplyResponse,
@@ -32,6 +32,10 @@ from ..models.responses import (
     CalibrationSession,
     CalibrationStartResponse,
     CalibrationValidationResponse,
+    CameraCalibrationModeResponse,
+    CameraImageCaptureResponse,
+    CameraCalibrationProcessResponse,
+    CameraCalibrationApplyResponse,
     SuccessResponse,
 )
 
@@ -1141,3 +1145,548 @@ async def cleanup_expired_sessions():
 async def startup_cleanup():
     """Clean up expired sessions on startup."""
     await cleanup_expired_sessions()
+
+
+# =============================================================================
+# Camera Fisheye Calibration Workflow Endpoints
+# =============================================================================
+
+# In-memory storage for camera calibration session
+_camera_calibration_session: dict[str, Any] = {
+    "active": False,
+    "images": [],  # List of captured images
+    "chessboard_size": (9, 6),  # Internal corners (cols, rows)
+    "square_size": 0.025,  # 25mm squares
+    "min_images": 10,
+}
+
+
+async def get_vision_module(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> Any:
+    """Get the vision module instance from app state.
+
+    Returns the EnhancedCameraModule (wrapped in CameraModuleAdapter) that provides
+    camera capture and fisheye correction capabilities.
+    """
+    if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
+        raise HTTPException(
+            status_code=503,
+            detail=create_error_response(
+                "Vision Module Not Available",
+                "Vision module is not initialized",
+                ErrorCode.HW_CAMERA_UNAVAILABLE,
+            ),
+        )
+    return app_state.vision_module
+
+
+@router.post("/camera/mode/start", response_model=CameraCalibrationModeResponse)
+async def start_camera_calibration_mode(
+    chessboard_cols: int = Query(
+        9, ge=5, le=15, description="Number of internal corners in chessboard columns"
+    ),
+    chessboard_rows: int = Query(
+        6, ge=4, le=12, description="Number of internal corners in chessboard rows"
+    ),
+    square_size: float = Query(
+        0.025, ge=0.01, le=0.1, description="Chessboard square size in meters"
+    ),
+    min_images: int = Query(
+        10, ge=5, le=50, description="Minimum number of images required"
+    ),
+    vision_module: Any = Depends(get_vision_module),
+) -> CameraCalibrationModeResponse:
+    """Start camera fisheye calibration mode.
+
+    Disables fisheye correction temporarily and prepares the system for
+    capturing chessboard calibration images.
+
+    Example:
+        POST /api/v1/vision/calibration/camera/mode/start?chessboard_cols=9&chessboard_rows=6
+    """
+    try:
+        # Check if already in calibration mode
+        if _camera_calibration_session["active"]:
+            raise HTTPException(
+                status_code=409,
+                detail=create_error_response(
+                    "Calibration Already Active",
+                    "Camera calibration mode is already active. Stop current session first.",
+                    ErrorCode.RES_ALREADY_EXISTS,
+                ),
+            )
+
+        # Disable fisheye correction in the camera module
+        if hasattr(vision_module, "enhanced_module"):
+            enhanced = vision_module.enhanced_module
+            if hasattr(enhanced, "config"):
+                enhanced.config.enable_fisheye_correction = False
+                logger.info("Disabled fisheye correction for calibration")
+
+        # Initialize calibration session
+        _camera_calibration_session["active"] = True
+        _camera_calibration_session["images"] = []
+        _camera_calibration_session["chessboard_size"] = (chessboard_cols, chessboard_rows)
+        _camera_calibration_session["square_size"] = square_size
+        _camera_calibration_session["min_images"] = min_images
+        _camera_calibration_session["started_at"] = datetime.now(timezone.utc)
+
+        instructions = [
+            "Print the chessboard calibration pattern and mount it on a flat surface",
+            f"Ensure the chessboard has {chessboard_cols}x{chessboard_rows} internal corners",
+            f"Each square should be {square_size*1000:.1f}mm in size",
+            "Capture images from different angles and distances",
+            "Ensure the entire chessboard is visible in each image",
+            "Capture at least {min_images} images with good chessboard detection",
+            "Vary the orientation (tilted, rotated) for better calibration",
+        ]
+
+        logger.info(f"Started camera calibration mode: {chessboard_cols}x{chessboard_rows} pattern")
+
+        return CameraCalibrationModeResponse(
+            success=True,
+            mode_active=True,
+            message="Camera calibration mode started successfully",
+            chessboard_size=(chessboard_cols, chessboard_rows),
+            square_size=square_size,
+            min_images=min_images,
+            instructions=instructions,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to start camera calibration mode: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Calibration Start Failed",
+                "Unable to start camera calibration mode",
+                ErrorCode.SYS_INTERNAL_ERROR,
+                {"error": str(e)},
+            ),
+        )
+
+
+@router.post("/camera/images/capture", response_model=CameraImageCaptureResponse)
+async def capture_camera_calibration_image(
+    include_preview: bool = Query(
+        False, description="Include base64 encoded preview image in response"
+    ),
+    vision_module: Any = Depends(get_vision_module),
+) -> CameraImageCaptureResponse:
+    """Capture a chessboard image for camera calibration.
+
+    Captures an image from the camera, detects the chessboard pattern,
+    and stores it for later calibration processing.
+
+    Example:
+        POST /api/v1/vision/calibration/camera/images/capture
+    """
+    try:
+        # Check if calibration mode is active
+        if not _camera_calibration_session["active"]:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Calibration Not Active",
+                    "Camera calibration mode is not active. Start calibration mode first.",
+                    ErrorCode.VAL_INVALID_FORMAT,
+                ),
+            )
+
+        # Get current frame from camera
+        frame = None
+        if hasattr(vision_module, "get_frame"):
+            frame = vision_module.get_frame(processed=False)  # Get raw frame
+        elif hasattr(vision_module, "enhanced_module"):
+            frame = vision_module.enhanced_module.get_frame(processed=False)
+
+        if frame is None:
+            raise HTTPException(
+                status_code=503,
+                detail=create_error_response(
+                    "Camera Frame Not Available",
+                    "Unable to capture frame from camera",
+                    ErrorCode.HW_CAMERA_UNAVAILABLE,
+                ),
+            )
+
+        # Convert to grayscale for chessboard detection
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame
+
+        # Detect chessboard corners
+        chessboard_size = _camera_calibration_session["chessboard_size"]
+        ret, corners = cv2.findChessboardCorners(gray, chessboard_size, None)
+
+        chessboard_found = bool(ret)
+        corners_detected = len(corners) if ret else 0
+
+        # Generate unique image ID
+        image_id = f"cal_img_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
+
+        # Store image if chessboard was found
+        if chessboard_found:
+            # Refine corner positions for better accuracy
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+            corners_refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+
+            # Store image and corners
+            _camera_calibration_session["images"].append({
+                "id": image_id,
+                "image": frame.copy(),
+                "corners": corners_refined,
+                "captured_at": datetime.now(timezone.utc),
+            })
+
+            message = f"Chessboard detected and image captured successfully ({corners_detected} corners)"
+            logger.info(f"Captured calibration image {image_id} with chessboard detection")
+        else:
+            message = "Image captured but chessboard pattern not detected. Please adjust position and try again."
+            logger.warning(f"Captured image {image_id} but chessboard not detected")
+
+        total_images = len(_camera_calibration_session["images"])
+        images_required = _camera_calibration_session["min_images"]
+        can_process = total_images >= images_required
+
+        # Generate preview if requested
+        image_preview = None
+        if include_preview and chessboard_found:
+            # Draw corners on image
+            preview_img = frame.copy()
+            cv2.drawChessboardCorners(preview_img, chessboard_size, corners_refined, ret)
+
+            # Encode to base64
+            import base64
+            _, buffer = cv2.imencode(".jpg", preview_img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            image_preview = base64.b64encode(buffer).decode("utf-8")
+
+        return CameraImageCaptureResponse(
+            success=True,
+            image_id=image_id,
+            chessboard_found=chessboard_found,
+            corners_detected=corners_detected,
+            total_images=total_images,
+            images_required=images_required,
+            can_process=can_process,
+            message=message,
+            image_preview=image_preview,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to capture calibration image: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Image Capture Failed",
+                "Unable to capture calibration image",
+                ErrorCode.SYS_INTERNAL_ERROR,
+                {"error": str(e)},
+            ),
+        )
+
+
+@router.post("/camera/process", response_model=CameraCalibrationProcessResponse)
+async def process_camera_calibration(
+    save_to: str = Query(
+        "calibration/camera_fisheye.yaml",
+        description="Path where calibration will be saved",
+    ),
+) -> CameraCalibrationProcessResponse:
+    """Process captured calibration images and compute camera parameters.
+
+    Runs cv2.fisheye.calibrate() on the captured images to calculate
+    camera matrix and distortion coefficients, then saves results to YAML.
+
+    Example:
+        POST /api/v1/vision/calibration/camera/process
+    """
+    try:
+        # Check if calibration mode is active
+        if not _camera_calibration_session["active"]:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Calibration Not Active",
+                    "Camera calibration mode is not active",
+                    ErrorCode.VAL_INVALID_FORMAT,
+                ),
+            )
+
+        # Check if enough images have been captured
+        images = _camera_calibration_session["images"]
+        min_required = _camera_calibration_session["min_images"]
+
+        if len(images) < min_required:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Insufficient Images",
+                    f"Need at least {min_required} images, captured {len(images)}",
+                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
+                    {"images_captured": len(images), "images_required": min_required},
+                ),
+            )
+
+        # Prepare object points (3D points in real world space)
+        chessboard_size = _camera_calibration_session["chessboard_size"]
+        square_size = _camera_calibration_session["square_size"]
+
+        pattern_points = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
+        pattern_points[:, :2] = np.mgrid[
+            0:chessboard_size[0], 0:chessboard_size[1]
+        ].T.reshape(-1, 2)
+        pattern_points *= square_size
+
+        # Prepare calibration data
+        object_points = []  # 3D points in real world space
+        image_points = []   # 2D points in image plane
+        image_size = None
+
+        for img_data in images:
+            object_points.append(pattern_points)
+            image_points.append(img_data["corners"])
+
+            if image_size is None:
+                h, w = img_data["image"].shape[:2]
+                image_size = (w, h)
+
+        logger.info(f"Processing camera calibration with {len(images)} images...")
+
+        # Perform fisheye calibration
+        calibration_flags = (
+            cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC +
+            cv2.fisheye.CALIB_CHECK_COND +
+            cv2.fisheye.CALIB_FIX_SKEW
+        )
+
+        # Initialize camera matrix and distortion coefficients
+        K = np.zeros((3, 3))
+        D = np.zeros((4, 1))
+        rvecs = [np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))]
+        tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))]
+
+        # Run fisheye calibration
+        rms_error, K, D, rvecs, tvecs = cv2.fisheye.calibrate(
+            object_points,
+            image_points,
+            image_size,
+            K,
+            D,
+            rvecs,
+            tvecs,
+            calibration_flags,
+            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
+        )
+
+        logger.info(f"Camera calibration completed with RMS error: {rms_error:.4f}")
+
+        # Determine quality rating based on RMS error
+        if rms_error < 0.5:
+            quality_rating = "excellent"
+        elif rms_error < 1.0:
+            quality_rating = "good"
+        elif rms_error < 2.0:
+            quality_rating = "fair"
+        else:
+            quality_rating = "poor"
+
+        # Save calibration to YAML file using OpenCV FileStorage
+        import os
+        save_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            save_to
+        )
+
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+        # Write using OpenCV FileStorage for compatibility
+        fs = cv2.FileStorage(save_path, cv2.FILE_STORAGE_WRITE)
+        fs.write("camera_matrix", K)
+        fs.write("dist_coeffs", D)
+        fs.write("image_width", image_size[0])
+        fs.write("image_height", image_size[1])
+        fs.write("calibration_error", float(rms_error))
+        fs.write("num_images_used", len(images))
+        fs.write("chessboard_size", f"{chessboard_size[0]}x{chessboard_size[1]}")
+        fs.write("square_size", float(square_size))
+        fs.write("calibration_date", datetime.now(timezone.utc).isoformat())
+        fs.write("notes", f"Camera fisheye calibration - {quality_rating} quality")
+        fs.release()
+
+        logger.info(f"Calibration saved to {save_path}")
+
+        return CameraCalibrationProcessResponse(
+            success=True,
+            calibration_error=float(rms_error),
+            images_used=len(images),
+            camera_matrix=K.tolist(),
+            distortion_coefficients=D.flatten().tolist(),
+            resolution=image_size,
+            saved_to=save_path,
+            quality_rating=quality_rating,
+            message=f"Calibration processed successfully with {quality_rating} quality (RMS error: {rms_error:.4f})",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process calibration: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Calibration Processing Failed",
+                "Unable to process calibration images",
+                ErrorCode.HW_CALIBRATION_FAILED,
+                {"error": str(e)},
+            ),
+        )
+
+
+@router.post("/camera/apply", response_model=CameraCalibrationApplyResponse)
+async def apply_camera_calibration(
+    calibration_file: str = Query(
+        "calibration/camera_fisheye.yaml",
+        description="Path to calibration file to load",
+    ),
+    vision_module: Any = Depends(get_vision_module),
+) -> CameraCalibrationApplyResponse:
+    """Apply camera calibration and enable fisheye correction.
+
+    Loads the calibration from file and enables fisheye correction
+    in the EnhancedCameraModule.
+
+    Example:
+        POST /api/v1/vision/calibration/camera/apply
+    """
+    try:
+        # Build full path to calibration file
+        import os
+        calibration_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            calibration_file
+        )
+
+        # Check if calibration file exists
+        if not os.path.exists(calibration_path):
+            raise HTTPException(
+                status_code=404,
+                detail=create_error_response(
+                    "Calibration File Not Found",
+                    f"Calibration file not found at {calibration_path}",
+                    ErrorCode.RES_NOT_FOUND,
+                    {"calibration_path": calibration_path},
+                ),
+            )
+
+        # Reload calibration in the camera module
+        calibration_loaded = False
+        fisheye_enabled = False
+
+        if hasattr(vision_module, "enhanced_module"):
+            enhanced = vision_module.enhanced_module
+
+            # Update config with calibration file path
+            if hasattr(enhanced, "config"):
+                enhanced.config.calibration_file = calibration_path
+                enhanced.config.enable_fisheye_correction = True
+
+            # Reload calibration maps
+            if hasattr(enhanced, "_load_calibration"):
+                enhanced._load_calibration()
+                calibration_loaded = True
+                fisheye_enabled = enhanced.config.enable_fisheye_correction
+                logger.info(f"Calibration loaded from {calibration_path}")
+
+        if not calibration_loaded:
+            raise HTTPException(
+                status_code=500,
+                detail=create_error_response(
+                    "Calibration Load Failed",
+                    "Unable to load calibration into camera module",
+                    ErrorCode.HW_CALIBRATION_FAILED,
+                ),
+            )
+
+        return CameraCalibrationApplyResponse(
+            success=True,
+            calibration_loaded=calibration_loaded,
+            fisheye_correction_enabled=fisheye_enabled,
+            message="Camera calibration applied and fisheye correction enabled",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to apply calibration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Calibration Apply Failed",
+                "Unable to apply camera calibration",
+                ErrorCode.HW_CALIBRATION_FAILED,
+                {"error": str(e)},
+            ),
+        )
+
+
+@router.post("/camera/mode/stop", response_model=CameraCalibrationModeResponse)
+async def stop_camera_calibration_mode(
+    vision_module: Any = Depends(get_vision_module),
+) -> CameraCalibrationModeResponse:
+    """Stop camera calibration mode and clean up resources.
+
+    Ends the calibration session and cleans up temporary image data.
+    Re-enables fisheye correction if calibration was applied.
+
+    Example:
+        POST /api/v1/vision/calibration/camera/mode/stop
+    """
+    try:
+        # Check if calibration mode is active
+        if not _camera_calibration_session["active"]:
+            return CameraCalibrationModeResponse(
+                success=True,
+                mode_active=False,
+                message="Camera calibration mode was not active",
+                chessboard_size=(9, 6),
+                square_size=0.025,
+                min_images=10,
+                instructions=[],
+            )
+
+        # Clean up session data
+        images_captured = len(_camera_calibration_session["images"])
+        _camera_calibration_session["active"] = False
+        _camera_calibration_session["images"] = []
+
+        logger.info(f"Stopped camera calibration mode. Captured {images_captured} images during session.")
+
+        return CameraCalibrationModeResponse(
+            success=True,
+            mode_active=False,
+            message=f"Camera calibration mode stopped. Captured {images_captured} images during session.",
+            chessboard_size=(9, 6),
+            square_size=0.025,
+            min_images=10,
+            instructions=[],
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to stop camera calibration mode: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Calibration Stop Failed",
+                "Unable to stop camera calibration mode",
+                ErrorCode.SYS_INTERNAL_ERROR,
+                {"error": str(e)},
+            ),
+        )
