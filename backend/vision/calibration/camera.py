@@ -572,3 +572,174 @@ class CameraCalibrator:
         except Exception as e:
             logger.error(f"Failed to import calibration: {e}")
             return False
+
+    def calibrate_fisheye_from_table(
+        self,
+        image: NDArray[np.uint8],
+        table_corners: list[tuple[float, float]],
+        table_dimensions: Optional[tuple[float, float]] = None,
+    ) -> tuple[bool, Optional[CameraParameters]]:
+        """Automatically calibrate fisheye distortion using table corners.
+
+        This method uses the known rectangular geometry of a billiards table
+        to estimate fisheye distortion parameters. Since the table is a perfect
+        rectangle, any deviation from rectangular geometry indicates distortion.
+
+        Args:
+            image: Input image containing the table
+            table_corners: List of 4 detected table corners in pixel coordinates
+            table_dimensions: Real world table dimensions (width, height) in meters
+
+        Returns:
+            Tuple of (success, camera_parameters)
+        """
+        if len(table_corners) != 4:
+            logger.error("Need exactly 4 table corners for fisheye calibration")
+            return False, None
+
+        # Use standard table dimensions if not provided
+        if table_dimensions is None:
+            table_dimensions = (self.standard_table_width, self.standard_table_height)
+
+        h, w = image.shape[:2]
+        image_size = (w, h)
+
+        # Define ideal rectified table corners in image space
+        # Create a rectangular target that preserves the table's aspect ratio
+        table_aspect = table_dimensions[0] / table_dimensions[1]  # width / height
+
+        # Calculate target rectangle dimensions that fit in the image
+        margin = 50  # pixels
+        target_width = w - 2 * margin
+        target_height = int(target_width / table_aspect)
+
+        if target_height > h - 2 * margin:
+            target_height = h - 2 * margin
+            target_width = int(target_height * table_aspect)
+
+        # Detected (distorted) corners
+        detected_corners = np.array(table_corners, dtype=np.float32)
+
+        # Initialize camera matrix with reasonable defaults for fisheye
+        # Focal length approximation: f ≈ image_width for standard fields of view
+        fx = fy = w  # Initial focal length estimate
+        cx, cy = w / 2, h / 2  # Principal point at image center
+
+        camera_matrix = np.array(
+            [[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64
+        )
+
+        # Initialize distortion coefficients (k1, k2, k3, k4 for fisheye model)
+        distortion_coeffs = np.zeros((4, 1), dtype=np.float64)
+
+        # Create 3D object points for the table corners
+        # Place them on a plane at z=0 with known dimensions
+        table_width, table_height = table_dimensions
+        object_points = np.array(
+            [
+                [0, 0, 0],  # Top-left
+                [table_width, 0, 0],  # Top-right
+                [table_width, table_height, 0],  # Bottom-right
+                [0, table_height, 0],  # Bottom-left
+            ],
+            dtype=np.float32,
+        )
+
+        # Prepare data for fisheye calibration
+        # We'll use a single "view" with our table corners
+        obj_points = [object_points]
+        img_points = [detected_corners.reshape(-1, 1, 2)]
+
+        # Perform fisheye calibration
+        calibration_flags = (
+            cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC
+            | cv2.fisheye.CALIB_CHECK_COND
+            | cv2.fisheye.CALIB_FIX_SKEW
+        )
+
+        try:
+            # Initialize arrays for rotation and translation vectors
+            rvecs = [np.zeros((1, 1, 3), dtype=np.float64)]
+            tvecs = [np.zeros((1, 1, 3), dtype=np.float64)]
+
+            # Run fisheye calibration
+            rms_error, K, D, rvecs, tvecs = cv2.fisheye.calibrate(
+                obj_points,
+                img_points,
+                image_size,
+                camera_matrix,
+                distortion_coeffs,
+                rvecs,
+                tvecs,
+                calibration_flags,
+                (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 1e-6),
+            )
+
+            logger.info(
+                f"Fisheye calibration from table completed with RMS error: {rms_error:.4f}"
+            )
+
+            # Create camera parameters object
+            from datetime import datetime
+
+            self.camera_params = CameraParameters(
+                camera_matrix=K,
+                distortion_coefficients=D,
+                resolution=image_size,
+                calibration_error=rms_error,
+                calibration_date=datetime.now().isoformat(),
+            )
+
+            # Cache the results
+            self._save_camera_params()
+
+            return True, self.camera_params
+
+        except Exception as e:
+            logger.error(f"Fisheye calibration failed: {e}")
+            return False, None
+
+    def save_fisheye_calibration_yaml(
+        self, filepath: str, camera_params: Optional[CameraParameters] = None
+    ) -> bool:
+        """Save fisheye calibration to OpenCV YAML format.
+
+        Args:
+            filepath: Path to save YAML file
+            camera_params: Camera parameters to save (uses cached if None)
+
+        Returns:
+            True if saved successfully
+        """
+        if camera_params is None:
+            camera_params = self.camera_params
+
+        if camera_params is None:
+            logger.error("No camera parameters to save")
+            return False
+
+        try:
+            # Create directory if needed
+            Path(filepath).parent.mkdir(parents=True, exist_ok=True)
+
+            # Write using OpenCV FileStorage for compatibility
+            fs = cv2.FileStorage(filepath, cv2.FILE_STORAGE_WRITE)
+            fs.write("camera_matrix", camera_params.camera_matrix)
+            fs.write("dist_coeffs", camera_params.distortion_coefficients)
+            fs.write("image_width", camera_params.resolution[0])
+            fs.write("image_height", camera_params.resolution[1])
+            fs.write("calibration_error", float(camera_params.calibration_error))
+            fs.write("calibration_date", camera_params.calibration_date)
+            fs.write("calibration_method", "table_rectangle")
+            fs.write(
+                "notes",
+                "Fisheye calibration computed from billiards table rectangular geometry",
+            )
+            fs.release()
+
+            logger.info(f"Fisheye calibration saved to {filepath}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save fisheye calibration: {e}")
+            return False
