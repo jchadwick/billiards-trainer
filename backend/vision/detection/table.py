@@ -85,6 +85,9 @@ class TableDetector:
             "expected_aspect_ratio", 2.0
         )  # Standard 9ft table is 2:1
         self.aspect_ratio_tolerance = config.get("aspect_ratio_tolerance", 0.3)
+        self.side_length_tolerance = config.get(
+            "side_length_tolerance", 0.1
+        )  # Max difference between opposite sides (10% default)
         self.min_table_area_ratio = config.get(
             "min_table_area_ratio", 0.1
         )  # Minimum 10% of image
@@ -526,7 +529,10 @@ class TableDetector:
         width_diff = abs(width1 - width2) / max(width1, width2)
         height_diff = abs(height1 - height2) / max(height1, height2)
 
-        if width_diff > 0.1 or height_diff > 0.1:  # 10% tolerance
+        if (
+            width_diff > self.side_length_tolerance
+            or height_diff > self.side_length_tolerance
+        ):
             return False
 
         # Check aspect ratio

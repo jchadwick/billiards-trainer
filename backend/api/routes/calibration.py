@@ -1599,10 +1599,13 @@ async def auto_calibrate_from_table(
         except ImportError:
             from vision.detection.table import TableDetector
 
-        # Detect table corners
+        # Detect table corners with very relaxed constraints for fisheye-distorted images
+        # Since we're calibrating FOR fisheye correction, the image will be heavily distorted
         table_config = {
             "expected_aspect_ratio": table_width / table_height,
-            "aspect_ratio_tolerance": 0.3,
+            "aspect_ratio_tolerance": 10.0,  # Effectively disable aspect ratio check
+            "min_table_area_ratio": 0.05,  # Allow smaller table detection
+            "side_length_tolerance": 0.5,  # Allow 50% difference in opposite sides (fisheye!)
         }
         table_detector = TableDetector(table_config)
         table_corners_result = table_detector.detect_table_boundaries(frame)
