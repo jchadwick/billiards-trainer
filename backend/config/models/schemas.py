@@ -1137,7 +1137,9 @@ class ApplicationConfig(BaseConfig):
     core: CoreConfig = Field(
         default_factory=CoreConfig, description="Core module configuration"
     )
-    api: APIConfig = Field(description="API module configuration")
+    api: APIConfig = Field(
+        default_factory=APIConfig, description="API module configuration"
+    )
     projector: ProjectorConfig = Field(
         default_factory=ProjectorConfig, description="Projector module configuration"
     )
