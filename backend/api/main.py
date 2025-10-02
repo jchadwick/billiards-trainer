@@ -39,16 +39,8 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import (
-    calibration,
-    config,
-    diagnostics,
-    game,
-    health,
-    logs,
-    modules,
-    stream,
-)
+from .routes import calibration, config, diagnostics, game, health, logs, modules
+from .routes import stream_v4l2 as stream
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -375,23 +367,56 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(websocket_router, prefix="/api/v1/websocket")
 
     # Include the actual WebSocket endpoint at root level (no prefix)
-    # For now, create a simple working WebSocket endpoint
-    async def simple_websocket_endpoint(websocket: WebSocket) -> None:
-        """Simple WebSocket endpoint for testing."""
-        await websocket.accept()
+    async def websocket_endpoint(websocket: WebSocket) -> None:
+        """Main WebSocket endpoint with full handler integration.
+
+        Handles:
+        - Connection lifecycle (connect, message handling, disconnect)
+        - Message subscriptions (frame, state, trajectory, alert, config)
+        - Connection monitoring and health checks
+        - Rate limiting and quality tracking
+        """
+        client_id: Optional[str] = None
+
         try:
+            # Connect via WebSocketHandler - this accepts the connection and returns client_id
+            logger.info(f"New WebSocket connection from {websocket.client}")
+            client_id = await websocket_handler.connect(websocket)
+            logger.info(f"WebSocket connected successfully: {client_id}")
+
+            # Message loop - handle incoming messages
             while True:
-                # Wait for client message
-                data = await websocket.receive_text()
-                # Echo the message back
-                await websocket.send_text(f"Echo: {data}")
+                try:
+                    # Wait for client message
+                    message = await websocket.receive_text()
+
+                    # Handle the message via WebSocketHandler
+                    await websocket_handler.handle_message(client_id, message)
+
+                except Exception as msg_error:
+                    logger.error(
+                        f"Error processing message from {client_id}: {msg_error}"
+                    )
+                    # Continue processing - don't disconnect on single message error
+
         except Exception as e:
-            logger.error(f"WebSocket error: {e}")
+            # Log connection error
+            if client_id:
+                logger.error(f"WebSocket error for {client_id}: {e}")
+            else:
+                logger.error(f"WebSocket connection error: {e}")
+
         finally:
+            # Always disconnect and cleanup
+            if client_id:
+                logger.info(f"WebSocket disconnecting: {client_id}")
+                await websocket_handler.disconnect(client_id)
+
+            # Ensure WebSocket is closed
             with suppress(Exception):
                 await websocket.close()
 
-    app.add_websocket_route("/ws", simple_websocket_endpoint)
+    app.add_websocket_route("/ws", websocket_endpoint)
 
     # API root endpoint
     @app.get("/api")
