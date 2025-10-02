@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from ..dependencies import get_app_state, get_core_module, ApplicationState
+from ..dependencies import ApplicationState, get_app_state, get_core_module
 from ..models.common import ErrorCode, create_error_response, create_success_response
 from ..models.responses import (
     CalibrationApplyResponse,
@@ -32,10 +32,10 @@ from ..models.responses import (
     CalibrationSession,
     CalibrationStartResponse,
     CalibrationValidationResponse,
-    CameraCalibrationModeResponse,
-    CameraImageCaptureResponse,
-    CameraCalibrationProcessResponse,
     CameraCalibrationApplyResponse,
+    CameraCalibrationModeResponse,
+    CameraCalibrationProcessResponse,
+    CameraImageCaptureResponse,
     SuccessResponse,
 )
 
@@ -1227,7 +1227,10 @@ async def start_camera_calibration_mode(
         # Initialize calibration session
         _camera_calibration_session["active"] = True
         _camera_calibration_session["images"] = []
-        _camera_calibration_session["chessboard_size"] = (chessboard_cols, chessboard_rows)
+        _camera_calibration_session["chessboard_size"] = (
+            chessboard_cols,
+            chessboard_rows,
+        )
         _camera_calibration_session["square_size"] = square_size
         _camera_calibration_session["min_images"] = min_images
         _camera_calibration_session["started_at"] = datetime.now(timezone.utc)
@@ -1242,7 +1245,9 @@ async def start_camera_calibration_mode(
             "Vary the orientation (tilted, rotated) for better calibration",
         ]
 
-        logger.info(f"Started camera calibration mode: {chessboard_cols}x{chessboard_rows} pattern")
+        logger.info(
+            f"Started camera calibration mode: {chessboard_cols}x{chessboard_rows} pattern"
+        )
 
         return CameraCalibrationModeResponse(
             success=True,
@@ -1333,18 +1338,24 @@ async def capture_camera_calibration_image(
         if chessboard_found:
             # Refine corner positions for better accuracy
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-            corners_refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
+            corners_refined = cv2.cornerSubPix(
+                gray, corners, (11, 11), (-1, -1), criteria
+            )
 
             # Store image and corners
-            _camera_calibration_session["images"].append({
-                "id": image_id,
-                "image": frame.copy(),
-                "corners": corners_refined,
-                "captured_at": datetime.now(timezone.utc),
-            })
+            _camera_calibration_session["images"].append(
+                {
+                    "id": image_id,
+                    "image": frame.copy(),
+                    "corners": corners_refined,
+                    "captured_at": datetime.now(timezone.utc),
+                }
+            )
 
             message = f"Chessboard detected and image captured successfully ({corners_detected} corners)"
-            logger.info(f"Captured calibration image {image_id} with chessboard detection")
+            logger.info(
+                f"Captured calibration image {image_id} with chessboard detection"
+            )
         else:
             message = "Image captured but chessboard pattern not detected. Please adjust position and try again."
             logger.warning(f"Captured image {image_id} but chessboard not detected")
@@ -1358,11 +1369,16 @@ async def capture_camera_calibration_image(
         if include_preview and chessboard_found:
             # Draw corners on image
             preview_img = frame.copy()
-            cv2.drawChessboardCorners(preview_img, chessboard_size, corners_refined, ret)
+            cv2.drawChessboardCorners(
+                preview_img, chessboard_size, corners_refined, ret
+            )
 
             # Encode to base64
             import base64
-            _, buffer = cv2.imencode(".jpg", preview_img, [cv2.IMWRITE_JPEG_QUALITY, 70])
+
+            _, buffer = cv2.imencode(
+                ".jpg", preview_img, [cv2.IMWRITE_JPEG_QUALITY, 70]
+            )
             image_preview = base64.b64encode(buffer).decode("utf-8")
 
         return CameraImageCaptureResponse(
@@ -1438,15 +1454,17 @@ async def process_camera_calibration(
         chessboard_size = _camera_calibration_session["chessboard_size"]
         square_size = _camera_calibration_session["square_size"]
 
-        pattern_points = np.zeros((chessboard_size[0] * chessboard_size[1], 3), np.float32)
+        pattern_points = np.zeros(
+            (chessboard_size[0] * chessboard_size[1], 3), np.float32
+        )
         pattern_points[:, :2] = np.mgrid[
-            0:chessboard_size[0], 0:chessboard_size[1]
+            0 : chessboard_size[0], 0 : chessboard_size[1]
         ].T.reshape(-1, 2)
         pattern_points *= square_size
 
         # Prepare calibration data
         object_points = []  # 3D points in real world space
-        image_points = []   # 2D points in image plane
+        image_points = []  # 2D points in image plane
         image_size = None
 
         for img_data in images:
@@ -1461,16 +1479,20 @@ async def process_camera_calibration(
 
         # Perform fisheye calibration
         calibration_flags = (
-            cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC +
-            cv2.fisheye.CALIB_CHECK_COND +
-            cv2.fisheye.CALIB_FIX_SKEW
+            cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC
+            + cv2.fisheye.CALIB_CHECK_COND
+            + cv2.fisheye.CALIB_FIX_SKEW
         )
 
         # Initialize camera matrix and distortion coefficients
         K = np.zeros((3, 3))
         D = np.zeros((4, 1))
-        rvecs = [np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))]
-        tvecs = [np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))]
+        rvecs = [
+            np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))
+        ]
+        tvecs = [
+            np.zeros((1, 1, 3), dtype=np.float64) for _ in range(len(object_points))
+        ]
 
         # Run fisheye calibration
         rms_error, K, D, rvecs, tvecs = cv2.fisheye.calibrate(
@@ -1482,7 +1504,7 @@ async def process_camera_calibration(
             rvecs,
             tvecs,
             calibration_flags,
-            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
+            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6),
         )
 
         logger.info(f"Camera calibration completed with RMS error: {rms_error:.4f}")
@@ -1499,9 +1521,9 @@ async def process_camera_calibration(
 
         # Save calibration to YAML file using OpenCV FileStorage
         import os
+
         save_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            save_to
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), save_to
         )
 
         # Ensure directory exists
@@ -1569,9 +1591,10 @@ async def apply_camera_calibration(
     try:
         # Build full path to calibration file
         import os
+
         calibration_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            calibration_file
+            calibration_file,
         )
 
         # Check if calibration file exists
@@ -1637,6 +1660,165 @@ async def apply_camera_calibration(
         )
 
 
+@router.post("/camera/auto-calibrate", response_model=CameraCalibrationProcessResponse)
+async def auto_calibrate_from_table(
+    save_to: str = Query(
+        "calibration/camera_fisheye.yaml",
+        description="Path where calibration will be saved",
+    ),
+    table_width: float = Query(
+        2.54,
+        ge=1.0,
+        le=5.0,
+        description="Table width in meters (default 2.54m for 9-foot table)",
+    ),
+    table_height: float = Query(
+        1.27,
+        ge=0.5,
+        le=3.0,
+        description="Table height in meters (default 1.27m for 9-foot table)",
+    ),
+    vision_module: Any = Depends(get_vision_module),
+) -> CameraCalibrationProcessResponse:
+    """Automatically calibrate fisheye distortion using table rectangle detection.
+
+    This endpoint detects the billiards table boundaries and uses the known
+    rectangular geometry to automatically calculate fisheye distortion parameters.
+    No manual chessboard capture required!
+
+    Example:
+        POST /api/v1/vision/calibration/camera/auto-calibrate
+    """
+    try:
+        # Get current frame from camera
+        frame = None
+        if hasattr(vision_module, "get_frame"):
+            frame = vision_module.get_frame(processed=False)  # Get raw frame
+        elif hasattr(vision_module, "enhanced_module"):
+            frame = vision_module.enhanced_module.get_frame(processed=False)
+
+        if frame is None:
+            raise HTTPException(
+                status_code=503,
+                detail=create_error_response(
+                    "Camera Frame Not Available",
+                    "Unable to capture frame from camera",
+                    ErrorCode.HW_CAMERA_UNAVAILABLE,
+                ),
+            )
+
+        # Import table detector
+        try:
+            from ...vision.detection.table import TableDetector
+        except ImportError:
+            from vision.detection.table import TableDetector
+
+        # Detect table corners
+        table_config = {
+            "expected_aspect_ratio": table_width / table_height,
+            "aspect_ratio_tolerance": 0.3,
+        }
+        table_detector = TableDetector(table_config)
+        table_corners_result = table_detector.detect_table_boundaries(frame)
+
+        if table_corners_result is None:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Table Detection Failed",
+                    "Could not detect table boundaries in the frame. Ensure the table is clearly visible and well-lit.",
+                    ErrorCode.VAL_INVALID_FORMAT,
+                ),
+            )
+
+        # Convert TableCorners to list format
+        table_corners = table_corners_result.to_list()
+
+        logger.info(f"Detected table corners: {table_corners}")
+
+        # Import camera calibrator
+        try:
+            from ...vision.calibration.camera import CameraCalibrator
+        except ImportError:
+            from vision.calibration.camera import CameraCalibrator
+
+        # Perform automatic fisheye calibration
+        calibrator = CameraCalibrator()
+        success, camera_params = calibrator.calibrate_fisheye_from_table(
+            frame, table_corners, (table_width, table_height)
+        )
+
+        if not success or camera_params is None:
+            raise HTTPException(
+                status_code=500,
+                detail=create_error_response(
+                    "Calibration Failed",
+                    "Failed to calculate fisheye distortion parameters from table geometry",
+                    ErrorCode.HW_CALIBRATION_FAILED,
+                ),
+            )
+
+        # Save calibration to YAML file
+        import os
+
+        save_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), save_to
+        )
+
+        success_save = calibrator.save_fisheye_calibration_yaml(
+            save_path, camera_params
+        )
+
+        if not success_save:
+            raise HTTPException(
+                status_code=500,
+                detail=create_error_response(
+                    "Save Failed",
+                    "Calibration computed successfully but failed to save to file",
+                    ErrorCode.SYS_INTERNAL_ERROR,
+                ),
+            )
+
+        # Determine quality rating based on RMS error
+        rms_error = camera_params.calibration_error
+        if rms_error < 0.5:
+            quality_rating = "excellent"
+        elif rms_error < 1.0:
+            quality_rating = "good"
+        elif rms_error < 2.0:
+            quality_rating = "fair"
+        else:
+            quality_rating = "poor"
+
+        logger.info(f"Automatic fisheye calibration completed and saved to {save_path}")
+
+        return CameraCalibrationProcessResponse(
+            success=True,
+            calibration_error=float(rms_error),
+            images_used=1,  # Single frame used
+            camera_matrix=camera_params.camera_matrix.tolist(),
+            distortion_coefficients=camera_params.distortion_coefficients.flatten().tolist(),
+            resolution=camera_params.resolution,
+            saved_to=save_path,
+            quality_rating=quality_rating,
+            message=f"Automatic fisheye calibration successful using table rectangle detection (RMS error: {rms_error:.4f})",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to auto-calibrate from table: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Auto-Calibration Failed",
+                "Unable to automatically calibrate fisheye distortion",
+                ErrorCode.HW_CALIBRATION_FAILED,
+                {"error": str(e)},
+            ),
+        )
+
+
 @router.post("/camera/mode/stop", response_model=CameraCalibrationModeResponse)
 async def stop_camera_calibration_mode(
     vision_module: Any = Depends(get_vision_module),
@@ -1667,7 +1849,9 @@ async def stop_camera_calibration_mode(
         _camera_calibration_session["active"] = False
         _camera_calibration_session["images"] = []
 
-        logger.info(f"Stopped camera calibration mode. Captured {images_captured} images during session.")
+        logger.info(
+            f"Stopped camera calibration mode. Captured {images_captured} images during session."
+        )
 
         return CameraCalibrationModeResponse(
             success=True,
