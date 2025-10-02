@@ -26,7 +26,7 @@ This is a production-ready distribution of the Billiards Trainer system.
 ### Initial Deployment
 ```bash
 # On target system
-rsync -av --delete /path/to/dist/ /opt/billiards-trainer/
+rsync -av /path/to/dist/ /opt/billiards-trainer/
 cd /opt/billiards-trainer
 ./run.sh
 ```
@@ -37,7 +37,7 @@ cd /opt/billiards-trainer
 make deploy
 
 # On target system: sync and the system will auto-restart
-rsync -av --delete /path/to/dist/ /opt/billiards-trainer/
+rsync -av /path/to/dist/ /opt/billiards-trainer/
 ```
 
 The system will automatically detect file changes and restart.

@@ -18,7 +18,7 @@ import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from ..dependencies import dev_admin_required, dev_viewer_required, get_config_module
+from ..dependencies import get_config_module
 from ..models.common import ErrorCode, create_error_response, create_success_response
 from ..models.responses import (
     ConfigExportResponse,
@@ -64,7 +64,6 @@ async def get_configuration(
         None, description="Specific configuration section to retrieve"
     ),
     include_metadata: bool = Query(True, description="Include configuration metadata"),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigResponse:
     """Retrieve current system configuration (FR-API-005).
@@ -116,9 +115,7 @@ async def get_configuration(
             validation_errors=[],
         )
 
-        logger.info(
-            f"Configuration retrieved by user {current_user.get('username', 'unknown')}"
-        )
+        logger.info("Configuration retrieved")
         return response
 
     except HTTPException:
@@ -142,7 +139,6 @@ async def update_configuration(
     section: Optional[str] = Query(None, description="Specific section to update"),
     validate_only: bool = Query(False, description="Only validate without applying"),
     force_update: bool = Query(False, description="Force update even with warnings"),
-    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigUpdateResponse:
     """Update configuration parameters with validation (FR-API-006).
@@ -257,9 +253,7 @@ async def update_configuration(
             field in ["camera", "projector", "api"] for field in updated_fields
         )
 
-        logger.info(
-            f"Configuration updated by user {current_user.get('username', 'unknown')}: {updated_fields}"
-        )
+        logger.info(f"Configuration updated: {updated_fields}")
 
         return ConfigUpdateResponse(
             success=True,
@@ -295,7 +289,6 @@ async def reset_configuration(
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to reset"
     ),
-    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> SuccessResponse:
     """Reset configuration to defaults (FR-API-007).
@@ -370,9 +363,7 @@ async def reset_configuration(
                 ),
             )
 
-        logger.warning(
-            f"Configuration reset performed by user {current_user.get('username', 'unknown')}"
-        )
+        logger.warning("Configuration reset performed")
 
         return create_success_response(
             "Configuration reset to defaults successfully",
@@ -408,7 +399,6 @@ async def import_configuration(
         "replace", pattern="^(replace|merge)$", description="Import strategy"
     ),
     validate_only: bool = Query(False, description="Only validate without importing"),
-    current_user: dict[str, Any] = Depends(dev_admin_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> SuccessResponse:
     """Import configuration from file (FR-API-008).
@@ -509,9 +499,7 @@ async def import_configuration(
                 ),
             )
 
-        logger.info(
-            f"Configuration imported by user {current_user.get('username', 'unknown')} from file {file.filename}"
-        )
+        logger.info(f"Configuration imported from file {file.filename}")
 
         return create_success_response(
             "Configuration imported successfully",
@@ -546,7 +534,6 @@ async def export_configuration(
     ),
     include_defaults: bool = Query(False, description="Include default values"),
     include_metadata: bool = Query(True, description="Include metadata"),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> ConfigExportResponse:
     """Export configuration to downloadable format (FR-API-008).
@@ -587,7 +574,7 @@ async def export_configuration(
         if include_metadata:
             config_data["_metadata"] = {
                 "exported_at": datetime.now(timezone.utc).isoformat(),
-                "exported_by": current_user.get("username", "unknown"),
+                "exported_by": "api",
                 "version": "1.0.0",
                 "sections": list(config_data.keys()),
             }
@@ -602,9 +589,7 @@ async def export_configuration(
         data_size = len(serialized_data.encode("utf-8"))
         checksum = calculate_checksum(serialized_data)
 
-        logger.info(
-            f"Configuration exported by user {current_user.get('username', 'unknown')} in {format} format"
-        )
+        logger.info(f"Configuration exported in {format} format")
 
         return ConfigExportResponse(
             format=format,
@@ -635,7 +620,6 @@ async def download_configuration(
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to export"
     ),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
     config_module: ConfigurationModule = Depends(get_config_module),
 ) -> FileResponse:
     """Download configuration as file.
@@ -649,7 +633,6 @@ async def download_configuration(
             sections=sections,
             include_defaults=False,
             include_metadata=True,
-            current_user=current_user,
             config_module=config_module,
         )
 
@@ -688,7 +671,6 @@ async def download_configuration(
 @router.get("/schema")
 async def get_configuration_schema(
     section: Optional[str] = Query(None, description="Specific section schema"),
-    current_user: dict[str, Any] = Depends(dev_viewer_required),
 ) -> dict[str, Any]:
     """Get configuration schema for validation and documentation.
 

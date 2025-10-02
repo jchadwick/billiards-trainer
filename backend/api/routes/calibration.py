@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-from ..dependencies import dev_admin_required, dev_operator_required, get_core_module
+from ..dependencies import get_core_module
 from ..models.common import ErrorCode, create_error_response, create_success_response
 from ..models.responses import (
     CalibrationApplyResponse,
@@ -291,7 +291,6 @@ async def start_calibration_sequence(
     timeout_seconds: int = Query(
         300, ge=60, le=1800, description="Calibration timeout in seconds"
     ),
-    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationStartResponse:
     """Initiate calibration sequence (FR-API-009).
@@ -347,7 +346,7 @@ async def start_calibration_sequence(
             "points_captured": 0,
             "points_required": points_required,
             "status": "in_progress",
-            "created_by": current_user.get("user_id", "unknown"),
+            "created_by": "api",
             "points": [],
             "metadata": {
                 "timeout_seconds": timeout_seconds,
@@ -396,9 +395,7 @@ async def start_calibration_sequence(
         # Schedule cleanup in background
         background_tasks.add_task(cleanup_expired_sessions)
 
-        logger.info(
-            f"Calibration session started by user {current_user.get('username', 'unknown')}: {session_id}"
-        )
+        logger.info(f"Calibration session started: {session_id}")
 
         return CalibrationStartResponse(
             session=session_obj,
@@ -431,7 +428,6 @@ async def capture_calibration_point(
     confidence: float = Query(
         1.0, ge=0.0, le=1.0, description="Point detection confidence"
     ),
-    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationPointResponse:
     """Capture calibration reference points (FR-API-010).
@@ -505,7 +501,7 @@ async def capture_calibration_point(
             "world_y": float(world_position[1]),
             "confidence": confidence,
             "captured_at": datetime.now(timezone.utc),
-            "captured_by": current_user.get("user_id", "unknown"),
+            "captured_by": "api",
         }
 
         if existing_point:
@@ -593,7 +589,6 @@ async def apply_calibration_transformations(
     force_apply: bool = Query(
         False, description="Apply even if accuracy is below threshold"
     ),
-    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationApplyResponse:
     """Apply calibration transformations (FR-API-011).
@@ -735,13 +730,11 @@ async def apply_calibration_transformations(
         now = datetime.now(timezone.utc)
         session["status"] = "applied"
         session["applied_at"] = now
-        session["applied_by"] = current_user.get("user_id", "unknown")
+        session["applied_by"] = "api"
         session["backup_created"] = backup_created
         session["transformation_matrix"] = matrix_list
 
-        logger.warning(
-            f"Calibration applied by user {current_user.get('username', 'unknown')}: {session_id}"
-        )
+        logger.warning(f"Calibration applied: {session_id}")
 
         return CalibrationApplyResponse(
             success=True,
@@ -774,7 +767,6 @@ async def validate_calibration_accuracy(
     accuracy_threshold: float = Query(
         0.9, ge=0.0, le=1.0, description="Required accuracy threshold"
     ),
-    current_user: dict[str, Any] = Depends(dev_operator_required),
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationValidationResponse:
     """Validate calibration accuracy (FR-API-012).
@@ -980,9 +972,7 @@ async def validate_calibration_accuracy(
 
 
 @router.get("/{session_id}", response_model=CalibrationSession)
-async def get_calibration_session(
-    session_id: str, current_user: dict[str, Any] = Depends(dev_operator_required)
-) -> CalibrationSession:
+async def get_calibration_session(session_id: str) -> CalibrationSession:
     """Get calibration session details.
 
     Returns detailed information about a specific calibration session
@@ -1028,7 +1018,6 @@ async def list_calibration_sessions(
     limit: int = Query(
         50, ge=1, le=500, description="Maximum number of sessions to return"
     ),
-    current_user: dict[str, Any] = Depends(dev_operator_required),
 ) -> list[CalibrationSession]:
     """List calibration sessions with optional filtering.
 
@@ -1060,9 +1049,7 @@ async def list_calibration_sessions(
                 )
             )
 
-        logger.info(
-            f"Listed {len(sessions)} calibration sessions for user {current_user.get('username', 'unknown')}"
-        )
+        logger.info(f"Listed {len(sessions)} calibration sessions")
 
         return sessions
 
@@ -1080,9 +1067,7 @@ async def list_calibration_sessions(
 
 
 @router.delete("/{session_id}", response_model=SuccessResponse)
-async def delete_calibration_session(
-    session_id: str, current_user: dict[str, Any] = Depends(dev_admin_required)
-) -> SuccessResponse:
+async def delete_calibration_session(session_id: str) -> SuccessResponse:
     """Delete a calibration session.
 
     Permanently removes a calibration session and all associated data.
@@ -1092,9 +1077,7 @@ async def delete_calibration_session(
 
         del _calibration_sessions[session_id]
 
-        logger.warning(
-            f"Calibration session deleted by user {current_user.get('username', 'unknown')}: {session_id}"
-        )
+        logger.warning(f"Calibration session deleted: {session_id}")
 
         return create_success_response(
             f"Calibration session {session_id} deleted successfully",

@@ -1,4 +1,4 @@
-"""WebSocket connection handler with authentication and message processing."""
+"""WebSocket connection handler with message processing."""
 
 import asyncio
 import contextlib
@@ -81,7 +81,7 @@ class WebSocketConnection:
 
 
 class WebSocketHandler:
-    """Advanced WebSocket connection handler with authentication, subscriptions, and monitoring."""
+    """Advanced WebSocket connection handler with subscriptions and monitoring."""
 
     def __init__(self):
         self.connections: dict[str, WebSocketConnection] = {}
@@ -109,40 +109,13 @@ class WebSocketHandler:
     async def authenticate_connection(
         self, websocket: WebSocket, token: Optional[str] = None
     ) -> Optional[str]:
-        """Authenticate WebSocket connection and return user_id if valid."""
-        from ..dependencies import _get_unauthenticated_user, _is_auth_enabled
-        from ..middleware.authentication import verify_jwt_token
-
-        # Check if authentication is enabled
-        if not _is_auth_enabled():
-            # Return unauthenticated user
-            user_info = _get_unauthenticated_user("admin")
-            logger.info("WebSocket using unauthenticated mode")
-            return user_info["user_id"]
-
-        # Authentication is enabled, validate token
-        if not token:
-            logger.warning(
-                "WebSocket connection attempted without token when auth is enabled"
-            )
-            return None
-
-        try:
-            # Validate JWT token
-            payload = verify_jwt_token(token)
-            user_id = payload.get("sub")
-            username = payload.get("username")
-            role = payload.get("role", "viewer")
-
-            logger.info(f"WebSocket authenticated user: {username} ({role})")
-            return user_id
-
-        except Exception as e:
-            logger.warning(f"WebSocket authentication failed: {str(e)}")
-            return None
+        """Accept WebSocket connection without authentication."""
+        # No authentication - return a default user_id
+        logger.info("WebSocket connection accepted (no authentication)")
+        return "unauthenticated_user"
 
     async def connect(self, websocket: WebSocket, token: Optional[str] = None) -> str:
-        """Accept new WebSocket connection with authentication."""
+        """Accept new WebSocket connection."""
         try:
             # Authenticate the connection
             user_id = await self.authenticate_connection(websocket, token)

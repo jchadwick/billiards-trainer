@@ -171,16 +171,6 @@
       "enable_compression": true,
       "ssl_enabled": false
     },
-    "authentication": {
-      "jwt_secret_key": "your-secret-key-here",
-      "jwt_algorithm": "HS256",
-      "jwt_expiration_hours": 24,
-      "refresh_token_expiration_days": 30,
-      "enable_api_keys": true,
-      "api_key_expiration_days": 365,
-      "password_min_length": 8,
-      "require_password_complexity": true
-    },
     "cors": {
       "enabled": true,
       "allow_origins": ["*"],

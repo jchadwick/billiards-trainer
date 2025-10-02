@@ -13,7 +13,7 @@ export const Footer = observer<FooterProps>(({
   className = '',
   systemInfo = {
     version: '1.0.0',
-    buildDate: '2024-01-01',
+    buildDate: new Date().toDateString(),
     environment: 'development',
   },
 }) => {
@@ -51,7 +51,7 @@ export const Footer = observer<FooterProps>(({
               </span>
             )}
             <span>
-              © 2024 Billiards Trainer
+              © 2025 Jess Chadwick
             </span>
           </div>
         </div>

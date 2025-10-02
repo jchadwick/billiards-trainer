@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request, Response, WebSocket
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -34,21 +33,12 @@ if str(backend_path) not in sys.path:
 from config.manager import ConfigurationModule  # type: ignore
 
 from .dependencies import ApplicationState, app_state
-from .middleware.authentication import AuthenticationMiddleware
-from .middleware.cors import CORSConfig, setup_cors_middleware
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
 from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
-from .middleware.rate_limit import RateLimitConfig, setup_rate_limiting
-from .middleware.security import (
-    SecurityConfig,
-    SecurityHeadersManager,
-    setup_security_headers,
-)
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import (
-    auth,
     calibration,
     config,
     diagnostics,
@@ -103,21 +93,6 @@ logger = logging.getLogger(__name__)
 def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
     """Get middleware configuration based on environment."""
     return {
-        "cors": CORSConfig(
-            allow_origins=(
-                ["*"]
-                if development_mode
-                else ["http://localhost:3000", "http://localhost:3001"]
-            ),
-            allow_credentials=not development_mode,
-            max_age=600,
-        ),
-        "rate_limit": RateLimitConfig(
-            requests_per_minute=1000 if development_mode else 60,
-            requests_per_hour=10000 if development_mode else 1000,
-            burst_size=20 if development_mode else 10,
-            enable_per_endpoint_limits=True,
-        ),
         "error_handler": ErrorHandlerConfig(
             include_traceback=development_mode,
             log_errors=True,
@@ -135,16 +110,6 @@ def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
             enable_correlation_ids=True,
             sample_rate=1.0 if development_mode else 0.1,
             excluded_paths=["/health", "/metrics"],
-        ),
-        "security": (
-            SecurityHeadersManager(SecurityConfig()).get_development_config()
-            if development_mode
-            else SecurityConfig(
-                development_mode=False,
-                enable_hsts=True,
-                enable_csp=True,
-                hide_server_header=True,
-            )
         ),
         "performance": PerformanceConfig(
             enable_monitoring=True,
@@ -381,9 +346,6 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # 2. Performance monitoring (last - measures everything)
     setup_performance_monitoring(app, middleware_config["performance"])
 
-    # 2. Security headers (second to last)
-    setup_security_headers(app, middleware_config["security"])
-
     # 3. Request tracing and correlation IDs
     setup_tracing_middleware(app, middleware_config["tracing"])
 
@@ -393,34 +355,13 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # 5. Error handling (handles errors from subsequent middleware)
     setup_error_handling(app, middleware_config["error_handler"])
 
-    # 6. Rate limiting (before authentication to prevent abuse)
-    setup_rate_limiting(app, middleware_config["rate_limit"])
-
-    # 7. Authentication middleware (if enabled)
-    if not development_mode:  # Skip auth in development
-        app.add_middleware(AuthenticationMiddleware)
-
-    # 8. Trusted host middleware (security)
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=(
-            ["localhost", "127.0.0.1", "0.0.0.0", "*"]
-            if development_mode
-            else ["localhost", "127.0.0.1"]
-        ),
-    )
-
-    # 9. CORS (first - handles preflight requests)
-    setup_cors_middleware(app, middleware_config["cors"], development_mode)
-
-    # Middleware setup complete - all comprehensive middleware is now integrated
+    # Middleware setup complete
 
     # Include routers with API prefix
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(config.router, prefix="/api/v1")
     app.include_router(calibration.router, prefix="/api/v1/vision")
     app.include_router(game.router, prefix="/api/v1")
-    app.include_router(auth.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
     app.include_router(modules.router, prefix="/api/v1")
     app.include_router(diagnostics.router, prefix="/api/v1")

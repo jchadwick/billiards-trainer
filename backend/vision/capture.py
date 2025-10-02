@@ -319,8 +319,19 @@ class CameraCapture:
                 raise RuntimeError("Camera configuration failed")
 
             logger.info("Camera configured, testing frame capture...")
-            # Test frame capture
-            ret, frame = self._cap.read()
+            # Test frame capture with timeout
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(self._cap.read)
+                try:
+                    ret, frame = future.result(timeout=5.0)
+                except concurrent.futures.TimeoutError:
+                    logger.error("Frame capture timed out after 5 seconds")
+                    raise RuntimeError(
+                        "Camera read timeout - camera may be in use or misconfigured"
+                    )
+
             if not ret or frame is None:
                 logger.error(
                     f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
