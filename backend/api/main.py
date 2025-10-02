@@ -39,8 +39,16 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import calibration, config, diagnostics, game, health, logs, modules
-from .routes import stream_v4l2 as stream
+from .routes import (
+    calibration,
+    config,
+    diagnostics,
+    game,
+    health,
+    logs,
+    modules,
+    stream,
+)
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -456,41 +464,33 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         # SPA fallback - serve index.html for non-API frontend routes
         # Register specific frontend routes instead of catch-all
         @app.get("/")
-        async def spa_root() -> FileResponse:
-            """Serve index.html for root route."""
-            return FileResponse(static_dir / "index.html")
+        async def spa_root():
+            """Redirect to configuration page."""
+            from fastapi.responses import RedirectResponse
+
+            return RedirectResponse(url="/configuration")
 
         @app.get("/calibration")
-        async def spa_calibration() -> FileResponse:
+        async def spa_calibration():
             """Serve index.html for calibration route."""
-            return FileResponse(static_dir / "index.html")
+            return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/configuration")
-        async def spa_configuration() -> FileResponse:
+        async def spa_configuration():
             """Serve index.html for configuration route."""
-            return FileResponse(static_dir / "index.html")
+            return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/system-management")
-        async def spa_system_management() -> FileResponse:
+        async def spa_system_management():
             """Serve index.html for system management route."""
-            return FileResponse(static_dir / "index.html")
+            return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/diagnostics")
-        async def spa_diagnostics() -> FileResponse:
+        async def spa_diagnostics():
             """Serve index.html for diagnostics route."""
-            return FileResponse(static_dir / "index.html")
+            return FileResponse(str(static_dir / "index.html"))
 
-    else:
-        # Fallback root endpoint if static files don't exist yet
-        @app.get("/")
-        async def root() -> dict[str, Any]:
-            return {
-                "message": "Billiards Trainer API",
-                "version": "1.0.0",
-                "status": "healthy" if app_state.is_healthy else "unhealthy",
-                "docs": "/docs",
-                "note": "Frontend not built yet. Run 'cd frontend/web && npm run build' to build the frontend.",
-            }
+        # No else needed - if static dir doesn't exist, routes just won't be registered
 
     return app
 
