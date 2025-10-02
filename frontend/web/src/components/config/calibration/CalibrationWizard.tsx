@@ -240,17 +240,25 @@ const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
 
   const startCalibrationMode = async () => {
     try {
-      const response = await fetch('/api/v1/calibration/camera/mode/start?chessboard_cols=9&chessboard_rows=6&min_images=10', {
+      setIsProcessing(true)
+      // Use the new automatic calibration endpoint
+      const response = await fetch('/api/v1/calibration/camera/auto-calibrate', {
         method: 'POST'
       })
-      if (!response.ok) throw new Error('Failed to start calibration mode')
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to auto-calibrate')
+      }
 
       const data = await response.json()
+      setCalibrationResults(data)
       setCalibrationActive(true)
-      setImagesRequired(data.min_images || 10)
+      onDataChange?.({ images: [], results: data })
     } catch (error) {
-      console.error('Failed to start calibration mode:', error)
-      alert('Failed to start fisheye calibration mode')
+      console.error('Failed to auto-calibrate:', error)
+      alert('Failed to automatically calibrate fisheye distortion: ' + (error instanceof Error ? error.message : 'Unknown error'))
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -347,28 +355,28 @@ const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
         </p>
       </div>
 
-      {!calibrationActive && !skipped ? (
+      {!calibrationActive && !skipped && !calibrationResults ? (
         <Card>
           <CardContent>
             <div className="space-y-4 text-center">
               <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-lg">
-                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-3">Before You Begin:</h4>
+                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-3">Automatic Calibration</h4>
+                <p className="text-sm text-blue-800 dark:text-blue-300 text-left max-w-md mx-auto mb-4">
+                  This step will automatically calibrate fisheye lens distortion by detecting the billiards table corners
+                  and using the table's known rectangular geometry.
+                </p>
                 <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-2 text-left max-w-md mx-auto">
                   <li className="flex items-start">
-                    <span className="text-blue-500 mr-2">1.</span>
-                    Print a 9x6 chessboard calibration pattern
+                    <span className="text-blue-500 mr-2">✓</span>
+                    No chessboard pattern required
                   </li>
                   <li className="flex items-start">
-                    <span className="text-blue-500 mr-2">2.</span>
-                    Mount the chessboard on a flat, rigid surface
+                    <span className="text-blue-500 mr-2">✓</span>
+                    Single-click automatic calibration
                   </li>
                   <li className="flex items-start">
-                    <span className="text-blue-500 mr-2">3.</span>
-                    Ensure the camera has a clear view of the pattern
-                  </li>
-                  <li className="flex items-start">
-                    <span className="text-blue-500 mr-2">4.</span>
-                    Prepare to capture at least 10 images from different angles
+                    <span className="text-blue-500 mr-2">✓</span>
+                    Uses table boundaries for accurate distortion correction
                   </li>
                 </ul>
               </div>
@@ -381,87 +389,19 @@ const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
               </div>
 
               <div className="flex justify-center gap-4">
-                <Button onClick={startCalibrationMode} variant="primary" className="px-8">
-                  Start Fisheye Calibration
+                <Button onClick={startCalibrationMode} variant="primary" className="px-8" disabled={isProcessing}>
+                  {isProcessing ? 'Calibrating...' : 'Auto-Calibrate Fisheye'}
                 </Button>
-                <Button onClick={handleSkip} variant="outline" className="px-8">
+                <Button onClick={handleSkip} variant="outline" className="px-8" disabled={isProcessing}>
                   Skip This Step
                 </Button>
               </div>
             </div>
           </CardContent>
         </Card>
-      ) : (
+      ) : calibrationResults && !skipped ? (
         <>
           <Card>
-            <CardHeader>
-              <CardTitle>Capture Calibration Images</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex justify-center">
-                  <VideoFeedCanvas
-                    onPointSelect={() => {}}
-                    points={[]}
-                    width={640}
-                    height={360}
-                    overlayVisible={false}
-                  />
-                </div>
-
-                {lastCapturePreview && (
-                  <div className="mt-4">
-                    <h4 className="text-sm font-medium mb-2">Last Captured Image:</h4>
-                    <img
-                      src={`data:image/jpeg;base64,${lastCapturePreview}`}
-                      alt="Last capture"
-                      className="max-w-xs rounded border"
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <div>
-                    <div className="text-sm font-medium text-gray-900 dark:text-white">
-                      Images Captured: {capturedImages.length} / {imagesRequired}
-                    </div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Capture from various angles and distances
-                    </div>
-                  </div>
-                  <Button
-                    onClick={captureCalibrationImage}
-                    disabled={isCapturing}
-                    variant="primary"
-                  >
-                    {isCapturing ? 'Capturing...' : 'Capture Image'}
-                  </Button>
-                </div>
-
-                {capturedImages.length > 0 && (
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <strong>Tip:</strong> Tilt and rotate the chessboard at different angles for better calibration accuracy.
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {canProcess && !calibrationResults && (
-            <div className="flex justify-center">
-              <Button
-                onClick={processCalibration}
-                disabled={isProcessing}
-                variant="primary"
-                className="px-8"
-              >
-                {isProcessing ? 'Processing...' : 'Process Calibration'}
-              </Button>
-            </div>
-          )}
-
-          {calibrationResults && (
-            <Card>
               <CardHeader>
                 <CardTitle>Calibration Results</CardTitle>
               </CardHeader>
@@ -498,17 +438,10 @@ const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
                 </div>
               </CardContent>
             </Card>
-          )}
-
-          <div className="flex justify-center">
-            <Button onClick={stopCalibrationMode} variant="outline" size="sm">
-              Stop Calibration Mode
-            </Button>
-          </div>
         </>
-      )}
+      ) : null}
 
-      {!skipped && (
+      {(!skipped || calibrationResults) && (
         <div className="flex justify-between">
           <Button
             variant="outline"
