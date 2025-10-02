@@ -7,7 +7,7 @@ into a single efficient pipeline for both vision processing and web streaming.
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any, Optional
 
 import cv2
 import numpy as np
@@ -32,7 +32,7 @@ class EnhancedCameraConfig:
     # Preprocessing
     enable_preprocessing: bool = True
     brightness: float = 0.0  # -100 to 100
-    contrast: float = 1.0    # 0.5 to 3.0
+    contrast: float = 1.0  # 0.5 to 3.0
     enable_clahe: bool = True
     clahe_clip_limit: float = 2.0
     clahe_grid_size: int = 8
@@ -73,20 +73,30 @@ class EnhancedCameraModule:
         if self.config.calibration_file:
             try:
                 # Load calibration file
-                fs = cv2.FileStorage(self.config.calibration_file, cv2.FILE_STORAGE_READ)
+                fs = cv2.FileStorage(
+                    self.config.calibration_file, cv2.FILE_STORAGE_READ
+                )
 
                 camera_matrix = fs.getNode("camera_matrix").mat()
                 dist_coeffs = fs.getNode("dist_coeffs").mat()
 
                 # Pre-compute undistortion maps for efficiency
                 h, w = self.config.resolution[1], self.config.resolution[0]
-                new_camera_matrix = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-                    camera_matrix, dist_coeffs, (w, h), np.eye(3)
+                new_camera_matrix = (
+                    cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
+                        camera_matrix, dist_coeffs, (w, h), np.eye(3)
+                    )
                 )
 
-                self.undistort_map1, self.undistort_map2 = cv2.fisheye.initUndistortRectifyMap(
-                    camera_matrix, dist_coeffs, np.eye(3),
-                    new_camera_matrix, (w, h), cv2.CV_16SC2
+                self.undistort_map1, self.undistort_map2 = (
+                    cv2.fisheye.initUndistortRectifyMap(
+                        camera_matrix,
+                        dist_coeffs,
+                        np.eye(3),
+                        new_camera_matrix,
+                        (w, h),
+                        cv2.CV_16SC2,
+                    )
                 )
 
                 print(f"Loaded fisheye calibration from {self.config.calibration_file}")
@@ -101,7 +111,7 @@ class EnhancedCameraModule:
         if self.config.enable_clahe:
             self.clahe = cv2.createCLAHE(
                 clipLimit=self.config.clahe_clip_limit,
-                tileGridSize=(self.config.clahe_grid_size, self.config.clahe_grid_size)
+                tileGridSize=(self.config.clahe_grid_size, self.config.clahe_grid_size),
             )
 
     def start_capture(self) -> bool:
@@ -164,8 +174,10 @@ class EnhancedCameraModule:
         # Step 1: Fisheye correction
         if self.config.enable_fisheye_correction and self.undistort_map1 is not None:
             frame = cv2.remap(
-                frame, self.undistort_map1, self.undistort_map2,
-                interpolation=cv2.INTER_LINEAR
+                frame,
+                self.undistort_map1,
+                self.undistort_map2,
+                interpolation=cv2.INTER_LINEAR,
             )
 
         # Step 2: Image preprocessing
@@ -173,9 +185,7 @@ class EnhancedCameraModule:
             # Brightness and contrast adjustment
             if self.config.brightness != 0 or self.config.contrast != 1.0:
                 frame = cv2.convertScaleAbs(
-                    frame,
-                    alpha=self.config.contrast,
-                    beta=self.config.brightness
+                    frame, alpha=self.config.contrast, beta=self.config.brightness
                 )
 
             # CLAHE (Contrast Limited Adaptive Histogram Equalization)
@@ -191,9 +201,9 @@ class EnhancedCameraModule:
                 lab = cv2.merge([l, a, b])
                 frame = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
 
-            # Bilateral filter for noise reduction while preserving edges
-            # (Important for ball detection)
-            frame = cv2.bilateralFilter(frame, d=5, sigmaColor=50, sigmaSpace=50)
+            # Bilateral filter disabled - too computationally expensive for real-time streaming
+            # For vision processing, apply filters separately on demand
+            # frame = cv2.bilateralFilter(frame, d=5, sigmaColor=50, sigmaSpace=50)
 
         return frame
 
@@ -213,10 +223,12 @@ class EnhancedCameraModule:
                 return self._current_frame.copy()
         return None
 
-    def get_frame_for_streaming(self,
-                                quality: int = 80,
-                                max_width: Optional[int] = None,
-                                max_height: Optional[int] = None) -> Optional[bytes]:
+    def get_frame_for_streaming(
+        self,
+        quality: int = 80,
+        max_width: Optional[int] = None,
+        max_height: Optional[int] = None,
+    ) -> Optional[bytes]:
         """Get JPEG-encoded frame for streaming.
 
         Args:
@@ -284,10 +296,12 @@ class EnhancedCameraModule:
 
         return False
 
-    def adjust_preprocessing(self,
-                           brightness: Optional[float] = None,
-                           contrast: Optional[float] = None,
-                           clahe_enabled: Optional[bool] = None):
+    def adjust_preprocessing(
+        self,
+        brightness: Optional[float] = None,
+        contrast: Optional[float] = None,
+        clahe_enabled: Optional[bool] = None,
+    ):
         """Dynamically adjust preprocessing parameters.
 
         Args:
@@ -316,7 +330,7 @@ class EnhancedCameraModule:
             "contrast": self.config.contrast,
             "clahe_enabled": self.config.enable_clahe,
             "resolution": self.config.resolution,
-            "fps": self.config.fps
+            "fps": self.config.fps,
         }
 
 
@@ -331,7 +345,7 @@ if __name__ == "__main__":
         enable_preprocessing=True,
         brightness=10,
         contrast=1.2,
-        enable_clahe=True
+        enable_clahe=True,
     )
 
     camera = EnhancedCameraModule(config)
