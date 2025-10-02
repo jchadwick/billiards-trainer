@@ -147,13 +147,6 @@ The Frontend Web Application provides a zero-installation, browser-based interfa
 - **FR-UI-054**: Provide context-sensitive help
 - **FR-UI-055**: Support browser back/forward
 
-#### 4.3 Accessibility
-- **FR-UI-056**: Support screen readers (ARIA labels)
-- **FR-UI-057**: Provide keyboard-only navigation
-- **FR-UI-058**: Support high contrast mode
-- **FR-UI-059**: Enable font size adjustment
-- **FR-UI-060**: Provide alternative text for images
-
 ### 5. Multi-Device Support
 
 #### 5.1 Responsive Design
@@ -843,12 +836,6 @@ const selectors = {
    - Clear visual hierarchy
    - Consistent interactions
    - Helpful error messages
-
-2. **Accessibility**
-   - WCAG 2.1 AA compliance
-   - Keyboard navigation complete
-   - Screen reader compatible
-   - Color contrast sufficient
 
 ## Testing Requirements
 
