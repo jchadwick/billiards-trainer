@@ -59,23 +59,28 @@ const VideoFeedCanvas: React.FC<{
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const animationFrameRef = useRef<number>()
   const [streamConnected, setStreamConnected] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
 
   // Get the video stream URL from the API
   const videoStreamUrl = `${window.location.origin}/api/v1/stream/video`
 
-  // Draw canvas overlay with calibration points
-  useEffect(() => {
+  // Continuous canvas drawing loop for live video
+  const drawFrame = useCallback(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    const img = imgRef.current
+    if (!canvas || !img) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height)
+
     // Draw video frame if available
-    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
-      ctx.drawImage(imgRef.current, 0, 0, width, height)
+    if (img.complete && img.naturalWidth > 0) {
+      ctx.drawImage(img, 0, 0, width, height)
     }
 
     // Draw calibration points overlay if visible
@@ -113,74 +118,28 @@ const VideoFeedCanvas: React.FC<{
         ctx.closePath()
         ctx.stroke()
       }
-    }
 
-    // Add click instruction text at bottom if overlay is visible
-    if (overlayVisible) {
+      // Add click instruction text at bottom
       ctx.fillStyle = '#9ca3af'
       ctx.font = '14px sans-serif'
       ctx.textAlign = 'center'
       ctx.fillText('Click on the video feed to set calibration points', width/2, height - 20)
     }
-  }, [points, width, height, overlayVisible, streamConnected])
 
-  // Redraw overlay when video frame updates
+    // Request next frame
+    animationFrameRef.current = requestAnimationFrame(drawFrame)
+  }, [points, width, height, overlayVisible])
+
+  // Start animation loop
   useEffect(() => {
-    const img = imgRef.current
-    if (!img) return
+    animationFrameRef.current = requestAnimationFrame(drawFrame)
 
-    const handleLoad = () => {
-      const canvas = canvasRef.current
-      if (!canvas) return
-
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-
-      // Redraw everything
-      ctx.clearRect(0, 0, width, height)
-      ctx.drawImage(img, 0, 0, width, height)
-
-      // Redraw overlay (copied from above)
-      if (overlayVisible) {
-        points.forEach((point, index) => {
-          ctx.fillStyle = '#3b82f6'
-          ctx.strokeStyle = '#1e40af'
-          ctx.lineWidth = 2
-          ctx.beginPath()
-          ctx.arc(point.screenX, point.screenY, 8, 0, 2 * Math.PI)
-          ctx.fill()
-          ctx.stroke()
-          ctx.fillStyle = '#ffffff'
-          ctx.font = '12px sans-serif'
-          ctx.textAlign = 'center'
-          ctx.fillText((index + 1).toString(), point.screenX, point.screenY + 4)
-        })
-
-        if (points.length >= 4) {
-          ctx.strokeStyle = '#ef4444'
-          ctx.lineWidth = 2
-          ctx.beginPath()
-          points.forEach((point, index) => {
-            if (index === 0) {
-              ctx.moveTo(point.screenX, point.screenY)
-            } else {
-              ctx.lineTo(point.screenX, point.screenY)
-            }
-          })
-          ctx.closePath()
-          ctx.stroke()
-        }
-
-        ctx.fillStyle = '#9ca3af'
-        ctx.font = '14px sans-serif'
-        ctx.textAlign = 'center'
-        ctx.fillText('Click on the video feed to set calibration points', width/2, height - 20)
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
       }
     }
-
-    img.addEventListener('load', handleLoad)
-    return () => img.removeEventListener('load', handleLoad)
-  }, [points, width, height, overlayVisible])
+  }, [drawFrame])
 
   const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
@@ -261,6 +220,315 @@ const HSVSlider: React.FC<{
     />
   </div>
 )
+
+// Fisheye Calibration Step - Camera lens distortion correction
+const FisheyeCalibrationStep: React.FC<CalibrationStepProps> = ({
+  onNext,
+  onPrevious,
+  isFirstStep,
+  data,
+  onDataChange
+}) => {
+  const [calibrationActive, setCalibrationActive] = useState(false)
+  const [capturedImages, setCapturedImages] = useState<any[]>(data?.images || [])
+  const [imagesRequired, setImagesRequired] = useState(10)
+  const [chessboardDetected, setChessboardDetected] = useState(false)
+  const [isCapturing, setIsCapturing] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [calibrationResults, setCalibrationResults] = useState<any>(data?.results || null)
+  const [lastCapturePreview, setLastCapturePreview] = useState<string | null>(null)
+
+  const startCalibrationMode = async () => {
+    try {
+      const response = await fetch('/api/v1/calibration/camera/mode/start?chessboard_cols=9&chessboard_rows=6&min_images=10', {
+        method: 'POST'
+      })
+      if (!response.ok) throw new Error('Failed to start calibration mode')
+
+      const data = await response.json()
+      setCalibrationActive(true)
+      setImagesRequired(data.min_images || 10)
+    } catch (error) {
+      console.error('Failed to start calibration mode:', error)
+      alert('Failed to start fisheye calibration mode')
+    }
+  }
+
+  const captureCalibrationImage = async () => {
+    setIsCapturing(true)
+    try {
+      const response = await fetch('/api/v1/calibration/camera/images/capture?include_preview=true', {
+        method: 'POST'
+      })
+      if (!response.ok) throw new Error('Failed to capture image')
+
+      const data = await response.json()
+
+      if (data.chessboard_found) {
+        setCapturedImages(prev => [...prev, data])
+        setLastCapturePreview(data.image_preview)
+        onDataChange?.({ images: [...capturedImages, data], results: calibrationResults })
+      } else {
+        alert('Chessboard not detected. Please adjust position and try again.')
+      }
+
+      setChessboardDetected(data.chessboard_found)
+    } catch (error) {
+      console.error('Failed to capture image:', error)
+      alert('Failed to capture calibration image')
+    } finally {
+      setIsCapturing(false)
+    }
+  }
+
+  const processCalibration = async () => {
+    setIsProcessing(true)
+    try {
+      const response = await fetch('/api/v1/calibration/camera/process', {
+        method: 'POST'
+      })
+      if (!response.ok) throw new Error('Failed to process calibration')
+
+      const data = await response.json()
+      setCalibrationResults(data)
+      onDataChange?.({ images: capturedImages, results: data })
+    } catch (error) {
+      console.error('Failed to process calibration:', error)
+      alert('Failed to process fisheye calibration')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  const applyCalibration = async () => {
+    try {
+      const response = await fetch('/api/v1/calibration/camera/apply', {
+        method: 'POST'
+      })
+      if (!response.ok) throw new Error('Failed to apply calibration')
+
+      alert('Fisheye calibration applied successfully!')
+    } catch (error) {
+      console.error('Failed to apply calibration:', error)
+      alert('Failed to apply fisheye calibration')
+    }
+  }
+
+  const stopCalibrationMode = async () => {
+    try {
+      const response = await fetch('/api/v1/calibration/camera/mode/stop', {
+        method: 'POST'
+      })
+      if (!response.ok) throw new Error('Failed to stop calibration mode')
+
+      setCalibrationActive(false)
+    } catch (error) {
+      console.error('Failed to stop calibration mode:', error)
+    }
+  }
+
+  const canProcess = capturedImages.length >= imagesRequired
+  const canProceed = calibrationResults !== null
+  const [skipped, setSkipped] = useState(false)
+
+  const handleSkip = () => {
+    setSkipped(true)
+    onNext()
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="text-center">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          Fisheye Lens Calibration (Optional)
+        </h3>
+        <p className="text-gray-600 dark:text-gray-400">
+          Calibrate camera lens distortion using a chessboard pattern
+        </p>
+      </div>
+
+      {!calibrationActive && !skipped ? (
+        <Card>
+          <CardContent>
+            <div className="space-y-4 text-center">
+              <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-lg">
+                <h4 className="font-medium text-blue-900 dark:text-blue-200 mb-3">Before You Begin:</h4>
+                <ul className="text-sm text-blue-800 dark:text-blue-300 space-y-2 text-left max-w-md mx-auto">
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">1.</span>
+                    Print a 9x6 chessboard calibration pattern
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">2.</span>
+                    Mount the chessboard on a flat, rigid surface
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">3.</span>
+                    Ensure the camera has a clear view of the pattern
+                  </li>
+                  <li className="flex items-start">
+                    <span className="text-blue-500 mr-2">4.</span>
+                    Prepare to capture at least 10 images from different angles
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
+                <p className="text-sm text-yellow-800 dark:text-yellow-300">
+                  <strong>Note:</strong> Fisheye calibration is optional but recommended for cameras with significant lens distortion.
+                  You can skip this step if your camera doesn't have noticeable fisheye distortion.
+                </p>
+              </div>
+
+              <div className="flex justify-center gap-4">
+                <Button onClick={startCalibrationMode} variant="primary" className="px-8">
+                  Start Fisheye Calibration
+                </Button>
+                <Button onClick={handleSkip} variant="outline" className="px-8">
+                  Skip This Step
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>Capture Calibration Images</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex justify-center">
+                  <VideoFeedCanvas
+                    onPointSelect={() => {}}
+                    points={[]}
+                    width={640}
+                    height={360}
+                    overlayVisible={false}
+                  />
+                </div>
+
+                {lastCapturePreview && (
+                  <div className="mt-4">
+                    <h4 className="text-sm font-medium mb-2">Last Captured Image:</h4>
+                    <img
+                      src={`data:image/jpeg;base64,${lastCapturePreview}`}
+                      alt="Last capture"
+                      className="max-w-xs rounded border"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      Images Captured: {capturedImages.length} / {imagesRequired}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Capture from various angles and distances
+                    </div>
+                  </div>
+                  <Button
+                    onClick={captureCalibrationImage}
+                    disabled={isCapturing}
+                    variant="primary"
+                  >
+                    {isCapturing ? 'Capturing...' : 'Capture Image'}
+                  </Button>
+                </div>
+
+                {capturedImages.length > 0 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <strong>Tip:</strong> Tilt and rotate the chessboard at different angles for better calibration accuracy.
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {canProcess && !calibrationResults && (
+            <div className="flex justify-center">
+              <Button
+                onClick={processCalibration}
+                disabled={isProcessing}
+                variant="primary"
+                className="px-8"
+              >
+                {isProcessing ? 'Processing...' : 'Process Calibration'}
+              </Button>
+            </div>
+          )}
+
+          {calibrationResults && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Calibration Results</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Quality Rating</div>
+                      <div className="text-2xl font-bold text-green-600 dark:text-green-400 capitalize">
+                        {calibrationResults.quality_rating}
+                      </div>
+                    </div>
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div className="text-sm text-gray-600 dark:text-gray-400">RMS Error</div>
+                      <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                        {calibrationResults.calibration_error?.toFixed(4)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <strong>Images Used:</strong> {calibrationResults.images_used}
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <strong>Saved To:</strong> {calibrationResults.saved_to}
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">
+                    <strong>Message:</strong> {calibrationResults.message}
+                  </div>
+
+                  <Button onClick={applyCalibration} variant="primary" className="w-full">
+                    Apply Calibration & Enable Fisheye Correction
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="flex justify-center">
+            <Button onClick={stopCalibrationMode} variant="outline" size="sm">
+              Stop Calibration Mode
+            </Button>
+          </div>
+        </>
+      )}
+
+      {!skipped && (
+        <div className="flex justify-between">
+          <Button
+            variant="outline"
+            onClick={onPrevious}
+            disabled={isFirstStep}
+          >
+            Previous
+          </Button>
+          <Button
+            onClick={onNext}
+            disabled={!canProceed}
+            variant={canProceed ? "primary" : "outline"}
+          >
+            Next: Geometric Calibration
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Camera Calibration Step - Interactive geometric calibration
 const CameraCalibrationStep: React.FC<CalibrationStepProps> = ({
@@ -1276,8 +1544,15 @@ export const CalibrationWizard = observer(() => {
 
   const steps: CalibrationStep[] = [
     {
+      id: 'fisheye',
+      title: 'Fisheye Calibration',
+      description: 'Camera lens distortion correction',
+      component: FisheyeCalibrationStep,
+      requirements: ['Camera access', '9x6 chessboard pattern', 'Flat mounting surface']
+    },
+    {
       id: 'camera',
-      title: 'Camera Calibration',
+      title: 'Geometric Calibration',
       description: 'Interactive geometric calibration with point selection',
       component: CameraCalibrationStep,
       requirements: ['Camera access', 'Clear view of table', 'Stable lighting']
