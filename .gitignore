@@ -269,3 +269,5 @@ backend/static/
 frontend/web/dist/
 
 .playwright-mcp/
+
+*.local.*

@@ -174,6 +174,7 @@ def get_system_metrics() -> Optional[SystemMetrics]:
 
 
 @router.get("/", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse)
 async def health_check(
     include_details: bool = Query(
         False, description="Include detailed component health"
