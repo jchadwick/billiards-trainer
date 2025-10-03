@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request, Response, WebSocket
-from fastapi.exceptions import WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi.websockets import WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 # Internal imports
