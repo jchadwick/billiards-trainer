@@ -114,8 +114,12 @@ class ImagePreprocessor:
         # NOTE: GPU is disabled by default to prevent OpenCL initialization hangs
         self.gpu = None
         if self.config.enable_gpu:
-            logger.warning("GPU acceleration requested but disabled by default to prevent initialization hangs")
-            logger.info("GPU acceleration is opt-in only. To enable, modify gpu_utils.py to enable OpenCL")
+            logger.warning(
+                "GPU acceleration requested but disabled by default to prevent initialization hangs"
+            )
+            logger.info(
+                "GPU acceleration is opt-in only. To enable, modify gpu_utils.py to enable OpenCL"
+            )
             logger.info("Using CPU-based processing for all operations")
             # Do not initialize GPU accelerator to avoid potential hangs
             # try:
@@ -201,7 +205,9 @@ class ImagePreprocessor:
                         processed_frame, (new_width, new_height)
                     )
                 else:
-                    processed_frame = cv2.resize(processed_frame, (new_width, new_height))
+                    processed_frame = cv2.resize(
+                        processed_frame, (new_width, new_height)
+                    )
 
                 if self.config.debug_mode:
                     self.debug_images.append(("resized", processed_frame.copy()))
@@ -461,13 +467,29 @@ class ImagePreprocessor:
                 return frame
             elif target == ColorSpace.BGR:
                 code = cv2.COLOR_GRAY2BGR
-                return self.gpu.cvt_color(frame, code) if self.gpu else cv2.cvtColor(frame, code)
+                return (
+                    self.gpu.cvt_color(frame, code)
+                    if self.gpu
+                    else cv2.cvtColor(frame, code)
+                )
             elif target == ColorSpace.RGB:
                 code = cv2.COLOR_GRAY2RGB
-                return self.gpu.cvt_color(frame, code) if self.gpu else cv2.cvtColor(frame, code)
+                return (
+                    self.gpu.cvt_color(frame, code)
+                    if self.gpu
+                    else cv2.cvtColor(frame, code)
+                )
             elif target == ColorSpace.HSV:
-                bgr = self.gpu.cvt_color(frame, cv2.COLOR_GRAY2BGR) if self.gpu else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                return self.gpu.cvt_color(bgr, cv2.COLOR_BGR2HSV) if self.gpu else cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+                bgr = (
+                    self.gpu.cvt_color(frame, cv2.COLOR_GRAY2BGR)
+                    if self.gpu
+                    else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                )
+                return (
+                    self.gpu.cvt_color(bgr, cv2.COLOR_BGR2HSV)
+                    if self.gpu
+                    else cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+                )
 
         # Convert from BGR (OpenCV default)
         conversion_map = {

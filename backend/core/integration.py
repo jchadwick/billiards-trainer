@@ -1693,10 +1693,39 @@ class ProjectorInterfaceImpl(ProjectorInterface):
     def _convert_to_screen_coordinates(
         self, world_points: list[dict[str, float]]
     ) -> list[dict[str, float]]:
-        """Convert world coordinates to screen coordinates."""
-        # This would use the calibration transformation matrix
-        # For now, return as-is (simplified)
-        return world_points
+        """Convert world coordinates to screen coordinates using transformation matrix."""
+        # Get transformation matrix from projection settings
+        matrix = self.projection_settings.get("transformation_matrix")
+
+        if not matrix or len(world_points) == 0:
+            # No calibration or no points - return as-is
+            return world_points
+
+        try:
+            # Convert list of dicts to numpy array
+            # Assuming points have 'x' and 'y' keys
+            pts = np.array([[p["x"], p["y"]] for p in world_points], dtype=np.float32)
+
+            # Reshape for cv2.perspectiveTransform (requires Nx1x2 shape)
+            pts = pts.reshape(-1, 1, 2)
+
+            # Convert transformation matrix from list to numpy array
+            matrix_np = np.array(matrix, dtype=np.float32)
+
+            # Apply perspective transformation
+            transformed = cv2.perspectiveTransform(pts, matrix_np)
+
+            # Convert back to list of dicts
+            result = []
+            for pt in transformed:
+                result.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
+
+            return result
+
+        except Exception as e:
+            # Log error and return original points as fallback
+            logger.error(f"Error applying coordinate transformation: {e}")
+            return world_points
 
     def _get_trajectory_color(self, trajectory: dict[str, Any]) -> str:
         """Get color for trajectory visualization."""
