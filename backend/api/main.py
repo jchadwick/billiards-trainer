@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi.exceptions import WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -401,7 +402,19 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
                     # Handle the message via WebSocketHandler
                     await websocket_handler.handle_message(client_id, message)
 
+                except WebSocketDisconnect:
+                    # Client disconnected normally - exit loop
+                    logger.info(f"WebSocket client disconnected: {client_id}")
+                    break
                 except Exception as msg_error:
+                    # Check if this is a disconnect-related error
+                    error_msg = str(msg_error)
+                    if "disconnect" in error_msg.lower() or "receive" in error_msg.lower():
+                        logger.info(
+                            f"WebSocket disconnected (via exception): {client_id}"
+                        )
+                        break
+
                     logger.error(
                         f"Error processing message from {client_id}: {msg_error}"
                     )
