@@ -20,6 +20,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from .gpu_utils import get_gpu_accelerator
+
 logger = logging.getLogger(__name__)
 
 
@@ -108,6 +110,27 @@ class ImagePreprocessor:
         # Convert config dict to structured config
         self.config = PreprocessingConfig(**config) if config else PreprocessingConfig()
 
+        # Initialize GPU accelerator if enabled
+        # NOTE: GPU is disabled by default to prevent OpenCL initialization hangs
+        self.gpu = None
+        if self.config.enable_gpu:
+            logger.warning("GPU acceleration requested but disabled by default to prevent initialization hangs")
+            logger.info("GPU acceleration is opt-in only. To enable, modify gpu_utils.py to enable OpenCL")
+            logger.info("Using CPU-based processing for all operations")
+            # Do not initialize GPU accelerator to avoid potential hangs
+            # try:
+            #     self.gpu = get_gpu_accelerator()
+            #     if self.gpu.is_available():
+            #         logger.info("GPU acceleration ENABLED for preprocessing")
+            #         gpu_info = self.gpu.get_info()
+            #         logger.info(f"GPU info: {gpu_info}")
+            #     else:
+            #         logger.warning("GPU acceleration requested but not available - using CPU")
+            #         self.gpu = None
+            # except Exception as e:
+            #     logger.error(f"Failed to initialize GPU acceleration: {e}")
+            #     self.gpu = None
+
         # Initialize processing pipeline
         self._initialize_pipeline()
 
@@ -117,6 +140,7 @@ class ImagePreprocessor:
             "avg_processing_time": 0.0,
             "last_brightness": 0.0,
             "last_contrast": 0.0,
+            "gpu_enabled": self.gpu is not None,
         }
 
         # Debug storage
@@ -171,7 +195,13 @@ class ImagePreprocessor:
                 original_size = (frame.shape[1], frame.shape[0])
                 new_width = int(frame.shape[1] * self.config.processing_scale)
                 new_height = int(frame.shape[0] * self.config.processing_scale)
-                processed_frame = cv2.resize(processed_frame, (new_width, new_height))
+                # Use GPU if available
+                if self.gpu:
+                    processed_frame = self.gpu.resize(
+                        processed_frame, (new_width, new_height)
+                    )
+                else:
+                    processed_frame = cv2.resize(processed_frame, (new_width, new_height))
 
                 if self.config.debug_mode:
                     self.debug_images.append(("resized", processed_frame.copy()))
@@ -223,7 +253,11 @@ class ImagePreprocessor:
 
             # Step 8: Resize back to original size if needed
             if original_size is not None:
-                processed_frame = cv2.resize(processed_frame, original_size)
+                # Use GPU if available
+                if self.gpu:
+                    processed_frame = self.gpu.resize(processed_frame, original_size)
+                else:
+                    processed_frame = cv2.resize(processed_frame, original_size)
 
             # Update statistics
             processing_time = (
@@ -426,12 +460,14 @@ class ImagePreprocessor:
             if target == ColorSpace.GRAY:
                 return frame
             elif target == ColorSpace.BGR:
-                return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                code = cv2.COLOR_GRAY2BGR
+                return self.gpu.cvt_color(frame, code) if self.gpu else cv2.cvtColor(frame, code)
             elif target == ColorSpace.RGB:
-                return cv2.cvtColor(frame, cv2.COLOR_GRAY2RGB)
+                code = cv2.COLOR_GRAY2RGB
+                return self.gpu.cvt_color(frame, code) if self.gpu else cv2.cvtColor(frame, code)
             elif target == ColorSpace.HSV:
-                bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                return cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+                bgr = self.gpu.cvt_color(frame, cv2.COLOR_GRAY2BGR) if self.gpu else cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                return self.gpu.cvt_color(bgr, cv2.COLOR_BGR2HSV) if self.gpu else cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
 
         # Convert from BGR (OpenCV default)
         conversion_map = {
@@ -448,7 +484,11 @@ class ImagePreprocessor:
 
         conversion_code = conversion_map.get(target)
         if conversion_code is not None:
-            return cv2.cvtColor(frame, conversion_code)
+            # Use GPU if available
+            if self.gpu:
+                return self.gpu.cvt_color(frame, conversion_code)
+            else:
+                return cv2.cvtColor(frame, conversion_code)
 
         logger.warning(f"Conversion to {target} not implemented")
         return frame
@@ -525,24 +565,37 @@ class ImagePreprocessor:
     ) -> NDArray[np.float64]:
         """Apply specific noise reduction method."""
         if method == NoiseReductionMethod.GAUSSIAN:
-            return cv2.GaussianBlur(
-                frame,
-                (self.config.gaussian_kernel_size, self.config.gaussian_kernel_size),
-                self.config.gaussian_sigma,
-            )
+            ksize = (self.config.gaussian_kernel_size, self.config.gaussian_kernel_size)
+            sigma = self.config.gaussian_sigma
+            if self.gpu:
+                return self.gpu.gaussian_blur(frame, ksize, sigma)
+            else:
+                return cv2.GaussianBlur(frame, ksize, sigma)
 
         elif method == NoiseReductionMethod.BILATERAL:
-            return cv2.bilateralFilter(
-                frame,
-                self.config.bilateral_d,
-                self.config.bilateral_sigma_color,
-                self.config.bilateral_sigma_space,
-            )
+            if self.gpu:
+                return self.gpu.bilateral_filter(
+                    frame,
+                    self.config.bilateral_d,
+                    self.config.bilateral_sigma_color,
+                    self.config.bilateral_sigma_space,
+                )
+            else:
+                return cv2.bilateralFilter(
+                    frame,
+                    self.config.bilateral_d,
+                    self.config.bilateral_sigma_color,
+                    self.config.bilateral_sigma_space,
+                )
 
         elif method == NoiseReductionMethod.MEDIAN:
-            return cv2.medianBlur(frame, self.config.median_kernel_size)
+            if self.gpu:
+                return self.gpu.median_blur(frame, self.config.median_kernel_size)
+            else:
+                return cv2.medianBlur(frame, self.config.median_kernel_size)
 
         elif method == NoiseReductionMethod.NON_LOCAL_MEANS:
+            # Non-local means doesn't have GPU support in OpenCV
             if len(frame.shape) == 3:
                 return cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
             else:
@@ -555,26 +608,45 @@ class ImagePreprocessor:
     def _apply_sharpening(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply sharpening filter."""
         if hasattr(self, "sharpen_kernel"):
-            return cv2.filter2D(frame, -1, self.sharpen_kernel)
+            if self.gpu:
+                return self.gpu.filter_2d(frame, -1, self.sharpen_kernel)
+            else:
+                return cv2.filter2D(frame, -1, self.sharpen_kernel)
         return frame
 
     def _apply_morphology(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply morphological operations."""
         # Apply closing to fill small gaps
-        closed = cv2.morphologyEx(
-            frame,
-            cv2.MORPH_CLOSE,
-            self.morph_kernel,
-            iterations=self.config.morphology_iterations,
-        )
+        if self.gpu:
+            closed = self.gpu.morphology_ex(
+                frame,
+                cv2.MORPH_CLOSE,
+                self.morph_kernel,
+                iterations=self.config.morphology_iterations,
+            )
+        else:
+            closed = cv2.morphologyEx(
+                frame,
+                cv2.MORPH_CLOSE,
+                self.morph_kernel,
+                iterations=self.config.morphology_iterations,
+            )
 
         # Apply opening to remove small noise
-        opened = cv2.morphologyEx(
-            closed,
-            cv2.MORPH_OPEN,
-            self.morph_kernel,
-            iterations=self.config.morphology_iterations,
-        )
+        if self.gpu:
+            opened = self.gpu.morphology_ex(
+                closed,
+                cv2.MORPH_OPEN,
+                self.morph_kernel,
+                iterations=self.config.morphology_iterations,
+            )
+        else:
+            opened = cv2.morphologyEx(
+                closed,
+                cv2.MORPH_OPEN,
+                self.morph_kernel,
+                iterations=self.config.morphology_iterations,
+            )
 
         return opened
 
