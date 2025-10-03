@@ -2,8 +2,10 @@
 
 This plan outlines the remaining tasks to complete the Billiards Trainer system. The tasks are prioritized based on comprehensive codebase analysis conducted on 2025-10-03.
 
-**Last Updated:** 2025-10-03
-**Status:** Core features ~90% complete. Primary focus: Fix initialization hang, connect real-time data flow, perform actual calibration.
+**Last Updated:** 2025-10-03 (Evening - Post-Research Analysis)
+**Status:** Core features ~92% complete. Primary focus: Fix coordinate transformation, connect real-time data flow, perform actual calibration.
+
+**Research Completed:** Comprehensive codebase analysis with 8 parallel agents revealed VisionModule hang already fixed, coordinate transformation needs matrix inversion, and many "missing" features are actually complete.
 
 ---
 
@@ -37,9 +39,14 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 - ✅ **Health & Diagnostics** - Comprehensive monitoring endpoints (routes/health.py, routes/diagnostics.py)
 - ✅ **Middleware Stack** - Error handling, logging, metrics, tracing (middleware/*.py)
 
-### Backend - Core Module (88% Complete)
+### Backend - Core Module (92% Complete - UPDATED ASSESSMENT)
 - ✅ **Game State Management** - Complete state tracking and validation (core/integration.py:243-351)
 - ✅ **Physics Engine** - Full trajectory calculation with collisions (core/physics/)
+- ✅ **Spin/English System** - NEW: Complete spin physics with Magnus forces, transfer, decay (core/physics/spin.py)
+- ✅ **Masse & Jump Shots** - NEW: Full support with cue elevation and vertical spin
+- ✅ **Assistance Engine** - NEW: 4 skill levels, ghost ball, aiming guides, safe zones, strategic advice (core/analysis/assistance.py)
+- ✅ **Shot Suggestion System** - NEW: Multiple recommendations with priority scores and risk analysis
+- ✅ **State Correction** - NEW: Automatic error correction for overlaps, OOB, velocity limits (core/validation/correction.py)
 - ✅ **Transformation Matrix Calculation** - Complete homography calculation with OpenCV (core/integration.py:1737-1821)
 - ✅ **Event System** - Message queuing and broadcasting (core/integration.py:1004-1053)
 
@@ -64,48 +71,54 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 
 ## 🔴 CRITICAL PRIORITY (Blocks Core Functionality)
 
-### CRITICAL-1: Fix VisionModule Initialization Hang ⚠️ HIGHEST PRIORITY
-- **File:** `backend/vision/gpu_utils.py:60` and `backend/vision/__init__.py:163-221`
-- **Root Cause:** OpenCL device initialization deadlock when calling `cv2.ocl.Device_getDefault()`
-- **Specific Issue:** Intel iHD VAAPI driver initialization can hang indefinitely at kernel level
-- **Current Status:** VisionModule initialization hangs, blocking all computer vision functionality
-- **Solution:**
-  1. Add `cv2.ocl.setUseOpenCL(False)` before any GPU operations in gpu_utils.py
-  2. Make OpenCL initialization opt-in rather than opt-out
-  3. Add timeout mechanism using threading.Timer for GPU detection
-  4. Lazy import of pylibfreenect2 in capture.py (currently blocks at module load)
-- **Impact:** CRITICAL - Without this fix, vision processing pipeline cannot start
-- **Effort:** 2-3 hours
-- **Files to modify:**
-  - `backend/vision/gpu_utils.py:37-71` - Wrap OpenCL init in timeout, add disable flag
-  - `backend/vision/preprocessing.py:115-127` - Make GPU initialization optional by default
-  - `backend/vision/capture.py:26-36` - Lazy import Kinect2
-  - `backend/config/default.json:98` - Set `use_gpu: false` by default
+### ✅ CRITICAL-1: Fix VisionModule Initialization Hang - **ALREADY FIXED**
+- **Status:** ✅ **RESOLVED** in commit 73cc4bd (2025-10-03)
+- **File:** `backend/vision/gpu_utils.py:37-71` and `backend/vision/preprocessing.py:114-136`
+- **Root Cause:** OpenCL device initialization deadlock with Intel iHD VAAPI driver
+- **Solution Implemented:**
+  - ✅ Added `cv2.ocl.setUseOpenCL(False)` to disable OpenCL by default
+  - ✅ Made GPU acceleration opt-in only (commented out initialization even if requested)
+  - ✅ Protected `get_info()` to prevent device queries
+  - ✅ Clear logging explains why GPU is disabled
+- **Testing:** ImagePreprocessor initialization tested and working, no hang occurs
+- **Impact:** Vision module now initializes successfully on target environment
+- **Next Steps:** Can re-enable GPU later if driver issues are resolved
 
-### CRITICAL-2: Implement Coordinate Transformation for Projection
-- **File:** `backend/core/integration.py:1693-1699`
-- **Current Status:** Transformation matrix is calculated correctly but never applied
-- **Issue:** `_convert_to_screen_coordinates()` returns world coordinates unchanged
-- **Solution:** Implement cv2.perspectiveTransform to apply stored homography matrix
-- **Impact:** CRITICAL - Projector cannot display trajectories at correct screen positions
-- **Effort:** 1-2 hours
-- **Implementation:**
+### CRITICAL-2: Fix Coordinate Transformation Matrix Inversion
+- **File:** `backend/core/integration.py:1693-1728`
+- **Current Status:** ✅ Transformation IS applied via cv2.perspectiveTransform
+- **Issue:** Matrix direction is **INVERTED** - stored matrix maps screen→world but need world→screen
+- **Root Cause:** `_calculate_transformation_matrix()` uses:
+  - Source: `screen_x`, `screen_y`
+  - Destination: `world_x`, `world_y`
+  - This creates H where `H × screen = world`
+  - But `_convert_to_screen_coordinates()` needs `H⁻¹ × world = screen`
+- **Impact:** CRITICAL - Projector displays trajectories at incorrect screen positions
+- **Effort:** 30 minutes
+- **Solution:** Invert the matrix before applying transformation:
   ```python
   def _convert_to_screen_coordinates(self, world_points: list[dict]) -> list[dict]:
       matrix = self.projection_settings.get("transformation_matrix")
-      if not matrix:
-          return world_points  # Not calibrated yet
+      if not matrix or len(world_points) == 0:
+          return world_points
 
-      # Convert dict to numpy array
-      pts = np.array([[p["x"], p["y"]] for p in world_points], dtype=np.float32)
-      pts = pts.reshape(-1, 1, 2)
+      try:
+          pts = np.array([[p["x"], p["y"]] for p in world_points], dtype=np.float32)
+          pts = pts.reshape(-1, 1, 2)
 
-      # Apply perspective transform
-      matrix_np = np.array(matrix, dtype=np.float32)
-      transformed = cv2.perspectiveTransform(pts, matrix_np)
+          matrix_np = np.array(matrix, dtype=np.float32)
+          # FIX: Invert matrix since stored matrix is screen→world but need world→screen
+          inverse_matrix = np.linalg.inv(matrix_np)
 
-      # Convert back to dict format
-      return [{"x": float(pt[0][0]), "y": float(pt[0][1])} for pt in transformed]
+          transformed = cv2.perspectiveTransform(pts, inverse_matrix)
+          return [{"x": float(pt[0][0]), "y": float(pt[0][1])} for pt in transformed]
+
+      except np.linalg.LinAlgError as e:
+          self.logger.error(f"Cannot invert transformation matrix (singular): {e}")
+          return world_points
+      except Exception as e:
+          self.logger.error(f"Error applying coordinate transformation: {e}")
+          return world_points
   ```
 
 ### CRITICAL-3: Perform Actual Camera Calibration
@@ -312,19 +325,19 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 6. **WebSocket Infrastructure:** COMPLETE - Handler, broadcaster, manager all operational
 7. **Transformation Matrix Calculation:** COMPLETE - Uses cv2.getPerspectiveTransform correctly
 
-### ❌ What's Actually Broken (Not Just Incomplete)
+### ❌ What's Actually Broken (Not Just Incomplete) - UPDATED
 
-1. **VisionModule Initialization:** HANGS - OpenCL device query at gpu_utils.py:60 deadlocks
-2. **Coordinate Transformation:** CALCULATED BUT NOT APPLIED - Matrix exists, just not used
+1. ~~**VisionModule Initialization:** HANGS~~ - ✅ **FIXED** in commit 73cc4bd (OpenCL disabled)
+2. **Coordinate Transformation:** APPLIED BUT INVERTED - Matrix direction is backwards (screen→world instead of world→screen)
 3. **Camera Calibration Data:** PLACEHOLDER - Using identity matrix, no actual calibration performed
 4. **Vision-to-WebSocket Connection:** DISCONNECTED - Both sides exist but not wired together
+5. **Target Environment Startup:** Using temporary process instead of proper run.sh with auto-reload
 
-### 🔄 What Changed Recently (Uncommitted)
+### 🔄 What Changed Recently
 
-1. **GPU Acceleration:** backend/vision/gpu_utils.py created with full VAAPI + OpenCL support
-2. **Enhanced Error Handling:** improved FileStorage validation in enhanced_camera_module.py
-3. **Configuration:** GPU settings added to config/default.json, VAAPI environment in main.py
-4. **Preprocessing Integration:** GPU accelerator integrated into preprocessing.py
+1. ✅ **GPU Acceleration Fix (commit 73cc4bd):** OpenCL disabled by default to prevent initialization hang
+2. ✅ **Comprehensive Analysis (2025-10-03 evening):** 8 parallel agents researched all critical issues
+3. **New Findings:** Spin physics, masse shots, and assistance engine fully complete but not documented
 
 ---
 
@@ -332,13 +345,19 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 
 The system is ready for deployment when:
 
-1. ✅ **Startup:** Backend starts without hanging (fix CRITICAL-1)
-2. ✅ **Camera:** Can capture frames from /dev/video0 or /dev/video1
-3. ✅ **Calibration:** Can run auto-calibrate and get real calibration values (CRITICAL-3)
-4. ✅ **Detection:** Ball and cue detection produce results
-5. ✅ **WebSocket:** Clients can connect and receive frame/state streams (HIGH-1, HIGH-3)
-6. ✅ **Projection:** Projector displays trajectories at correct positions (CRITICAL-2)
-7. ✅ **Performance:** Maintains 15+ FPS with detection enabled
+1. ✅ **Startup:** Backend starts without hanging - **ACHIEVED** (CRITICAL-1 fixed in commit 73cc4bd)
+2. ⚠️ **Camera:** Can capture frames from /dev/video0 or /dev/video1 - **NEEDS TESTING**
+3. ❌ **Calibration:** Can run auto-calibrate and get real calibration values - **PENDING** (CRITICAL-3)
+4. ⚠️ **Detection:** Ball and cue detection produce results - **NEEDS TESTING**
+5. ❌ **WebSocket:** Clients can connect and receive frame/state streams - **PENDING** (HIGH-1, HIGH-3)
+6. ❌ **Projection:** Projector displays trajectories at correct positions - **PENDING** (CRITICAL-2 - matrix inversion)
+7. ⚠️ **Performance:** Maintains 15+ FPS with detection enabled - **NEEDS TESTING**
+
+**Current Target Environment Status (192.168.1.31):**
+- Backend is running on port 8000 (temporary process)
+- Health endpoint accessible and returning healthy status
+- Files synced and up-to-date with local dist/
+- Needs proper startup with run.sh for auto-reload
 
 ---
 
