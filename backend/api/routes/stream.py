@@ -17,6 +17,9 @@ import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+# Import WebSocket broadcaster for real-time frame streaming
+from ..websocket import message_broadcaster
+
 # Import vision module
 try:
     from ...streaming.enhanced_camera_module import (
@@ -56,6 +59,11 @@ class CameraModuleAdapter:
     """Adapter to make EnhancedCameraModule compatible with DirectCameraModule interface."""
 
     def __init__(self, enhanced_module: EnhancedCameraModule):
+        """Initialize adapter with enhanced camera module.
+
+        Args:
+            enhanced_module: The EnhancedCameraModule instance to wrap
+        """
         self._module = enhanced_module
         self.camera = self  # Self-reference for compatibility
 
@@ -220,15 +228,35 @@ async def get_vision_module(
         try:
             logger.info("[get_vision_module] Initializing EnhancedCameraModule...")
 
+            # Define async callback for WebSocket frame broadcasting
+            async def on_frame_captured(frame_data, width, height):
+                """Broadcast captured frames to WebSocket clients."""
+                try:
+                    await message_broadcaster.broadcast_frame(
+                        image_data=frame_data,
+                        width=width,
+                        height=height,
+                        quality=75,  # JPEG quality for WebSocket streaming
+                    )
+                except Exception as e:
+                    logger.error(f"Error broadcasting frame to WebSocket: {e}")
+
             # Run the blocking EnhancedCameraModule initialization in a thread pool
             logger.info(
                 "[get_vision_module] Creating EnhancedCameraModule in executor..."
             )
             loop = asyncio.get_event_loop()
             enhanced_module = await loop.run_in_executor(
-                None, lambda: EnhancedCameraModule(camera_config)
+                None,
+                lambda: EnhancedCameraModule(
+                    camera_config,
+                    event_loop=loop,
+                    frame_callback=on_frame_captured,
+                ),
             )
-            logger.info("[get_vision_module] EnhancedCameraModule created!")
+            logger.info(
+                "[get_vision_module] EnhancedCameraModule created with WebSocket integration!"
+            )
 
             # Wrap in compatibility adapter
             app_state.vision_module = CameraModuleAdapter(enhanced_module)

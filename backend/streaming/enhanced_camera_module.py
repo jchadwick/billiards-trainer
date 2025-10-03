@@ -4,6 +4,7 @@ This module combines camera capture, fisheye correction, and image preprocessing
 into a single efficient pipeline for both vision processing and web streaming.
 """
 
+import asyncio
 import threading
 import time
 from dataclasses import dataclass
@@ -44,7 +45,19 @@ class EnhancedCameraConfig:
 class EnhancedCameraModule:
     """Camera module with integrated fisheye correction and preprocessing."""
 
-    def __init__(self, config: EnhancedCameraConfig):
+    def __init__(
+        self,
+        config: EnhancedCameraConfig,
+        event_loop=None,
+        frame_callback=None,
+    ):
+        """Initialize enhanced camera module.
+
+        Args:
+            config: Camera configuration settings
+            event_loop: Optional asyncio event loop for WebSocket callbacks
+            frame_callback: Optional async callback for frame broadcasting
+        """
         self.config = config
         self.capture = None
         self.running = False
@@ -54,6 +67,10 @@ class EnhancedCameraModule:
         self._current_frame = None
         self._processed_frame = None
         self._capture_thread = None
+
+        # Async integration for WebSocket broadcasting
+        self._event_loop = event_loop
+        self._frame_callback = frame_callback
 
         # Initialize calibration
         self.calibrator = None
@@ -210,6 +227,22 @@ class EnhancedCameraModule:
             with self._lock:
                 self._current_frame = frame.copy()
                 self._processed_frame = processed.copy()
+
+            # Trigger async callback for WebSocket broadcasting (if configured)
+            if self._event_loop and self._frame_callback:
+                try:
+                    # Schedule coroutine on the event loop from this sync thread
+                    asyncio.run_coroutine_threadsafe(
+                        self._frame_callback(
+                            processed.copy(),
+                            processed.shape[1],  # width
+                            processed.shape[0],  # height
+                        ),
+                        self._event_loop,
+                    )
+                except Exception as e:
+                    # Don't let callback errors crash the capture loop
+                    print(f"Error in frame callback: {e}")
 
     def _process_frame(self, frame: np.ndarray) -> np.ndarray:
         """Apply fisheye correction and preprocessing pipeline."""

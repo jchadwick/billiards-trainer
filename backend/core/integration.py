@@ -797,11 +797,13 @@ class APIInterfaceImpl(APIInterface):
         event_manager: EventManager,
         websocket_manager: Any = None,
         message_broadcaster: Any = None,
+        event_loop: Any = None,
     ):
         """Initialize API interface with event manager and WebSocket components."""
         self.event_manager = event_manager
         self.websocket_manager = websocket_manager
         self.message_broadcaster = message_broadcaster
+        self._event_loop = event_loop  # Store event loop for cross-thread async calls
         self._lock = threading.RLock()  # Thread safety
         self.websocket_handlers = {}
         self.message_queue = []
@@ -1008,44 +1010,56 @@ class APIInterfaceImpl(APIInterface):
                 message_type = message.get("type", "")
                 data = message.get("data", {})
 
-                # Schedule async broadcast on event loop
+                # Schedule async broadcast on event loop using run_coroutine_threadsafe
+                # This properly schedules async work from sync threads
                 if message_type == "state_update":
                     balls = data.get("balls", [])
                     cue = data.get("cue")
                     table = data.get("table")
-                    # Create async task to broadcast
-                    try:
-                        loop = asyncio.get_event_loop()
-                        loop.create_task(
-                            self.message_broadcaster.broadcast_game_state(
-                                balls=balls, cue=cue, table=table
+                    # Schedule async task from sync thread
+                    if self._event_loop:
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                self.message_broadcaster.broadcast_game_state(
+                                    balls=balls, cue=cue, table=table
+                                ),
+                                self._event_loop,
                             )
+                            self.logger.debug(
+                                "Scheduled game state broadcast via message_broadcaster"
+                            )
+                            return
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Failed to schedule game state broadcast: {e}"
+                            )
+                            # Fall through to queueing
+                    else:
+                        self.logger.warning(
+                            "No event loop available for async broadcast"
                         )
-                        self.logger.debug(
-                            "Scheduled game state broadcast via message_broadcaster"
-                        )
-                        return
-                    except RuntimeError:
-                        # No event loop, fall through to queueing
-                        pass
+                        # Fall through to queueing
                 elif message_type == "event_notification":
                     # Broadcast as alert
-                    try:
-                        loop = asyncio.get_event_loop()
-                        loop.create_task(
-                            self.message_broadcaster.broadcast_alert(
-                                level=data.get("level", "info"),
-                                message=data.get("message", ""),
-                                code=data.get("code", "system_event"),
-                                details=data.get("details"),
+                    if self._event_loop:
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                self.message_broadcaster.broadcast_alert(
+                                    level=data.get("level", "info"),
+                                    message=data.get("message", ""),
+                                    code=data.get("code", "system_event"),
+                                    details=data.get("details"),
+                                ),
+                                self._event_loop,
                             )
-                        )
-                        self.logger.debug(
-                            "Scheduled alert broadcast via message_broadcaster"
-                        )
-                        return
-                    except RuntimeError:
-                        pass
+                            self.logger.debug(
+                                "Scheduled alert broadcast via message_broadcaster"
+                            )
+                            return
+                        except Exception as e:
+                            self.logger.warning(
+                                f"Failed to schedule alert broadcast: {e}"
+                            )
             except Exception as bc_error:
                 self.logger.warning(
                     f"Failed to send via message_broadcaster: {bc_error}"
@@ -1712,8 +1726,14 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             # Convert transformation matrix from list to numpy array
             matrix_np = np.array(matrix, dtype=np.float32)
 
-            # Apply perspective transformation
-            transformed = cv2.perspectiveTransform(pts, matrix_np)
+            # CRITICAL FIX: The stored matrix maps screen→world (from calibration),
+            # but we need world→screen for projection. Must invert the matrix.
+            # Calibration creates: H × [screen_x, screen_y] = [world_x, world_y]
+            # We need: H⁻¹ × [world_x, world_y] = [screen_x, screen_y]
+            inverse_matrix = np.linalg.inv(matrix_np)
+
+            # Apply perspective transformation with inverted matrix
+            transformed = cv2.perspectiveTransform(pts, inverse_matrix)
 
             # Convert back to list of dicts
             result = []
@@ -1722,9 +1742,18 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
             return result
 
+        except np.linalg.LinAlgError as e:
+            # Matrix inversion failed - matrix is singular (non-invertible)
+            self.logger.error(
+                f"Cannot invert transformation matrix (singular or degenerate): {e}"
+            )
+            self.logger.error(
+                "Calibration may be invalid - try recalibrating with better point distribution"
+            )
+            return world_points
         except Exception as e:
             # Log error and return original points as fallback
-            logger.error(f"Error applying coordinate transformation: {e}")
+            self.logger.error(f"Error applying coordinate transformation: {e}")
             return world_points
 
     def _get_trajectory_color(self, trajectory: dict[str, Any]) -> str:
