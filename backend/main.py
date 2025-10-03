@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 def main() -> NoReturn:
     """Main entry point for the application."""
+    # Configure VAAPI for GPU hardware acceleration BEFORE any video operations
+    # This must be done early before OpenCV initializes
+    try:
+        from vision.gpu_utils import configure_vaapi_env
+
+        configure_vaapi_env()
+        logger.info("VAAPI GPU acceleration configured")
+    except Exception as e:
+        logger.warning(f"Could not configure VAAPI: {e}")
+
     # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
     # which is called during the FastAPI lifespan startup
 

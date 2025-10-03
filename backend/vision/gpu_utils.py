@@ -40,7 +40,9 @@ class GPUAccelerator:
             # IMPORTANT: Disable OpenCL by default to prevent initialization hangs
             # OpenCL device initialization can hang indefinitely when Intel iHD VAAPI
             # driver initialization blocks. Only enable if explicitly requested.
-            logger.info("GPU acceleration disabled by default to prevent OpenCL initialization hangs")
+            logger.info(
+                "GPU acceleration disabled by default to prevent OpenCL initialization hangs"
+            )
 
             # Explicitly disable OpenCL
             cv2.ocl.setUseOpenCL(False)
@@ -51,14 +53,18 @@ class GPUAccelerator:
             libva_driver = os.environ.get("LIBVA_DRIVER_NAME", "")
             if libva_driver:
                 self._vaapi_available = True
-                logger.info(f"VAAPI driver detected: {libva_driver} (using CPU-side operations)")
+                logger.info(
+                    f"VAAPI driver detected: {libva_driver} (using CPU-side operations)"
+                )
             else:
                 self._vaapi_available = False
 
             # GPU is considered unavailable since OpenCL is disabled
             self._gpu_available = False
             logger.warning("GPU acceleration is DISABLED by default - will use CPU")
-            logger.info("To enable GPU acceleration, set enable_opencl=True in configuration")
+            logger.info(
+                "To enable GPU acceleration, set enable_opencl=True in configuration"
+            )
 
             self._initialized = True
 
@@ -83,8 +89,8 @@ class GPUAccelerator:
     def resize(
         self,
         frame: NDArray[np.uint8],
-        size: Tuple[int, int],
-        interpolation: int = cv2.INTER_LINEAR
+        size: tuple[int, int],
+        interpolation: int = cv2.INTER_LINEAR,
     ) -> NDArray[np.uint8]:
         """GPU-accelerated image resize.
 
@@ -110,11 +116,7 @@ class GPUAccelerator:
             logger.warning(f"GPU resize failed, falling back to CPU: {e}")
             return cv2.resize(frame, size, interpolation=interpolation)
 
-    def cvt_color(
-        self,
-        frame: NDArray[np.uint8],
-        code: int
-    ) -> NDArray[np.uint8]:
+    def cvt_color(self, frame: NDArray[np.uint8], code: int) -> NDArray[np.uint8]:
         """GPU-accelerated color space conversion.
 
         Args:
@@ -139,10 +141,7 @@ class GPUAccelerator:
             return cv2.cvtColor(frame, code)
 
     def gaussian_blur(
-        self,
-        frame: NDArray[np.uint8],
-        ksize: Tuple[int, int],
-        sigma: float
+        self, frame: NDArray[np.uint8], ksize: tuple[int, int], sigma: float
     ) -> NDArray[np.uint8]:
         """GPU-accelerated Gaussian blur.
 
@@ -169,11 +168,7 @@ class GPUAccelerator:
             return cv2.GaussianBlur(frame, ksize, sigma)
 
     def bilateral_filter(
-        self,
-        frame: NDArray[np.uint8],
-        d: int,
-        sigma_color: float,
-        sigma_space: float
+        self, frame: NDArray[np.uint8], d: int, sigma_color: float, sigma_space: float
     ) -> NDArray[np.uint8]:
         """GPU-accelerated bilateral filter.
 
@@ -200,11 +195,7 @@ class GPUAccelerator:
             logger.warning(f"GPU bilateral filter failed, falling back to CPU: {e}")
             return cv2.bilateralFilter(frame, d, sigma_color, sigma_space)
 
-    def median_blur(
-        self,
-        frame: NDArray[np.uint8],
-        ksize: int
-    ) -> NDArray[np.uint8]:
+    def median_blur(self, frame: NDArray[np.uint8], ksize: int) -> NDArray[np.uint8]:
         """GPU-accelerated median blur.
 
         Args:
@@ -233,7 +224,7 @@ class GPUAccelerator:
         frame: NDArray[np.uint8],
         op: int,
         kernel: NDArray[np.uint8],
-        iterations: int = 1
+        iterations: int = 1,
     ) -> NDArray[np.uint8]:
         """GPU-accelerated morphological operations.
 
@@ -262,10 +253,7 @@ class GPUAccelerator:
             return cv2.morphologyEx(frame, op, kernel, iterations=iterations)
 
     def filter_2d(
-        self,
-        frame: NDArray[np.uint8],
-        ddepth: int,
-        kernel: NDArray[np.float32]
+        self, frame: NDArray[np.uint8], ddepth: int, kernel: NDArray[np.float32]
     ) -> NDArray[np.uint8]:
         """GPU-accelerated 2D convolution filter.
 
@@ -296,8 +284,8 @@ class GPUAccelerator:
         self,
         frame: NDArray[np.uint8],
         matrix: NDArray[np.float64],
-        size: Tuple[int, int],
-        flags: int = cv2.INTER_LINEAR
+        size: tuple[int, int],
+        flags: int = cv2.INTER_LINEAR,
     ) -> NDArray[np.uint8]:
         """GPU-accelerated perspective transformation.
 
@@ -340,7 +328,9 @@ class GPUAccelerator:
         # DO NOT query OpenCL device info if not available - can cause hangs
         if self._opencl_available:
             logger.warning("OpenCL device info query skipped to prevent potential hang")
-            info["opencl_note"] = "Device info not available (disabled to prevent hangs)"
+            info["opencl_note"] = (
+                "Device info not available (disabled to prevent hangs)"
+            )
 
         if self._vaapi_available:
             info["vaapi_driver"] = os.environ.get("LIBVA_DRIVER_NAME", "unknown")
@@ -378,7 +368,9 @@ def configure_vaapi_env():
     # Set FFmpeg hardware acceleration
     if "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ:
         # Enable hardware acceleration for video decoding
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "hwaccel;vaapi|hwaccel_device;/dev/dri/renderD128"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+            "hwaccel;vaapi|hwaccel_device;/dev/dri/renderD128"
+        )
         logger.info("Set OPENCV_FFMPEG_CAPTURE_OPTIONS for hardware video decoding")
 
     # Additional VAAPI options for better performance

@@ -70,14 +70,53 @@ class EnhancedCameraModule:
     def _load_calibration(self):
         """Load fisheye calibration data."""
         if self.config.calibration_file:
+            fs = None
             try:
                 # Load calibration file
                 fs = cv2.FileStorage(
                     self.config.calibration_file, cv2.FILE_STORAGE_READ
                 )
 
-                camera_matrix = fs.getNode("camera_matrix").mat()
-                dist_coeffs = fs.getNode("dist_coeffs").mat()
+                # Check if file was opened successfully
+                if not fs.isOpened():
+                    raise RuntimeError(
+                        f"Could not open calibration file: {self.config.calibration_file}"
+                    )
+
+                # Get nodes and check they exist before calling mat()
+                camera_matrix_node = fs.getNode("camera_matrix")
+                dist_coeffs_node = fs.getNode("dist_coeffs")
+
+                if camera_matrix_node.empty() or dist_coeffs_node.empty():
+                    raise RuntimeError(
+                        "Calibration file is missing required data (camera_matrix or dist_coeffs)"
+                    )
+
+                # Read the matrices - need to do this before releasing FileStorage
+                # but wrap in try/except to catch OpenCV errors
+                try:
+                    camera_matrix = camera_matrix_node.mat()
+                    dist_coeffs = dist_coeffs_node.mat()
+                except Exception as mat_error:
+                    raise RuntimeError(
+                        f"Failed to read calibration matrices: {mat_error}"
+                    )
+
+                # Release FileStorage after reading the data
+                fs.release()
+                fs = None
+
+                # Validate the data
+                if camera_matrix is None or dist_coeffs is None:
+                    raise RuntimeError("Calibration matrices are None")
+                if camera_matrix.shape != (3, 3):
+                    raise RuntimeError(
+                        f"Invalid camera matrix shape: {camera_matrix.shape}, expected (3, 3)"
+                    )
+                if dist_coeffs.shape[0] < 4:
+                    raise RuntimeError(
+                        f"Invalid distortion coefficients shape: {dist_coeffs.shape}, expected at least 4 elements"
+                    )
 
                 # Pre-compute undistortion maps for efficiency
                 h, w = self.config.resolution[1], self.config.resolution[0]
@@ -103,6 +142,10 @@ class EnhancedCameraModule:
                 print(f"Failed to load calibration: {e}")
                 print("Fisheye correction disabled")
                 self.config.enable_fisheye_correction = False
+            finally:
+                # Ensure FileStorage is always released
+                if fs is not None:
+                    fs.release()
 
     def _init_preprocessor(self):
         """Initialize image preprocessor."""
