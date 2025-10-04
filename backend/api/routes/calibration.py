@@ -1714,36 +1714,59 @@ async def calibrate_fisheye_from_table(
             h, w = frame.shape[:2]
             logger.info(f"Captured frame for fisheye calibration: {w}x{h}")
 
-            # Step 2: Detect INNER felt corners (not outer table edges)
-            # Convert to HSV and detect green felt
+            # Step 2: Detect table boundaries using multiple methods for robustness
+
+            # Method 1: Try HSV color detection first (works for normal lighting)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            lower_green = np.array([35, 40, 40])
-            upper_green = np.array([85, 255, 255])
-            mask = cv2.inRange(hsv, lower_green, upper_green)
+            # Wider HSV range to handle overexposed felt (can appear white/cyan)
+            lower_green = np.array(
+                [35, 20, 40]
+            )  # Lower saturation for washed out colors
+            upper_green = np.array([95, 255, 255])  # Include cyan range
+            mask_hsv = cv2.inRange(hsv, lower_green, upper_green)
+
+            # Method 2: Use edge detection for overexposed images
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Apply CLAHE to improve contrast for edge detection
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            enhanced = clahe.apply(gray)
+            edges = cv2.Canny(enhanced, 30, 100)
+            # Dilate edges to connect broken lines
+            kernel_edge = np.ones((3, 3), np.uint8)
+            edges = cv2.dilate(edges, kernel_edge, iterations=2)
+
+            # Combine both methods
+            mask = cv2.bitwise_or(mask_hsv, edges)
 
             # Clean up mask
-            kernel = np.ones((5, 5), np.uint8)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            kernel = np.ones((7, 7), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=3)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-            # Find largest contour (the felt surface)
+            # Find contours
             contours, _ = cv2.findContours(
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
 
             if not contours:
+                # Save debug images
                 debug_path = (
                     Path(__file__).parent.parent.parent
                     / "calibration"
-                    / "fisheye_debug_no_felt.jpg"
+                    / "fisheye_debug_no_table.jpg"
                 )
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(debug_path), frame)
+
+                mask_path = str(debug_path).replace(".jpg", "_mask.jpg")
+                cv2.imwrite(mask_path, mask)
+
                 return {
                     "success": False,
-                    "error": "Could not detect green felt. Ensure felt is visible and well-lit.",
-                    "step_failed": "felt_detection",
+                    "error": "Could not detect table in frame. Ensure table is fully visible.",
+                    "step_failed": "table_detection",
                     "debug_image_saved": str(debug_path),
+                    "debug_mask_saved": mask_path,
                 }
 
             # Get largest contour (felt surface)
@@ -1794,12 +1817,85 @@ async def calibrate_fisheye_from_table(
                 (float(corners[3][0]), float(corners[3][1])),  # bottom-left
             ]
 
-            logger.info(f"Detected felt corners: {table_corners}")
+            logger.info(f"Detected felt corners (pass 1): {table_corners}")
 
-            # Step 3: Calibrate fisheye from table geometry
+            # Step 3: TWO-PASS calibration to handle distortion in detection
+            # The problem: detecting corners on distorted image gives wrong corners,
+            # which leads to wrong calibration parameters.
+            # Solution: Apply rough correction first, re-detect, then calibrate.
+
             calibrator = CameraCalibrator()
+
+            # Pass 1: Apply rough barrel correction and re-detect table
+            rough_k1, rough_k2 = -0.12, 0.04  # Very conservative initial correction
+            rough_K = np.array(
+                [[w * 0.8, 0, w / 2], [0, w * 0.8, h / 2], [0, 0, 1]], dtype=np.float64
+            )
+            rough_D = np.array([[rough_k1], [rough_k2], [0], [0]], dtype=np.float64)
+
+            rough_map1, rough_map2 = cv2.fisheye.initUndistortRectifyMap(
+                rough_K, rough_D, np.eye(3), rough_K, (w, h), cv2.CV_16SC2
+            )
+            frame_corrected = cv2.remap(frame, rough_map1, rough_map2, cv2.INTER_LINEAR)
+
+            # Re-detect table on corrected frame
+            try:
+                hsv_c = cv2.cvtColor(frame_corrected, cv2.COLOR_BGR2HSV)
+                mask_hsv_c = cv2.inRange(hsv_c, lower_green, upper_green)
+                gray_c = cv2.cvtColor(frame_corrected, cv2.COLOR_BGR2GRAY)
+                clahe_c = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+                enhanced_c = clahe_c.apply(gray_c)
+                edges_c = cv2.Canny(enhanced_c, 30, 100)
+                kernel_e = np.ones((3, 3), np.uint8)
+                edges_c = cv2.dilate(edges_c, kernel_e, iterations=2)
+                mask_c = cv2.bitwise_or(mask_hsv_c, edges_c)
+                kernel_c = np.ones((7, 7), np.uint8)
+                mask_c = cv2.morphologyEx(
+                    mask_c, cv2.MORPH_CLOSE, kernel_c, iterations=3
+                )
+                mask_c = cv2.morphologyEx(mask_c, cv2.MORPH_OPEN, kernel_c)
+
+                contours_c, _ = cv2.findContours(
+                    mask_c, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+                if contours_c:
+                    largest_c = max(contours_c, key=cv2.contourArea)
+                    eps_c = 0.02 * cv2.arcLength(largest_c, True)
+                    approx_c = cv2.approxPolyDP(largest_c, eps_c, True)
+
+                    if len(approx_c) != 4:
+                        for eps_mult in [0.01, 0.03, 0.04, 0.05]:
+                            eps_c = eps_mult * cv2.arcLength(largest_c, True)
+                            approx_c = cv2.approxPolyDP(largest_c, eps_c, True)
+                            if len(approx_c) == 4:
+                                break
+
+                    if len(approx_c) == 4:
+                        # Use re-detected corners
+                        corners_c = approx_c.reshape(-1, 2).astype(np.float32)
+                        center_c = np.mean(corners_c, axis=0)
+                        angles_c = np.arctan2(
+                            corners_c[:, 1] - center_c[1], corners_c[:, 0] - center_c[0]
+                        )
+                        sorted_idx_c = np.argsort(angles_c)
+                        corners_c = corners_c[sorted_idx_c]
+                        sums_c = corners_c[:, 0] + corners_c[:, 1]
+                        tl_idx_c = np.argmin(sums_c)
+                        corners_c = np.roll(corners_c, -tl_idx_c, axis=0)
+
+                        table_corners = [
+                            (float(corners_c[i][0]), float(corners_c[i][1]))
+                            for i in range(4)
+                        ]
+                        logger.info(
+                            f"Re-detected corners on corrected frame (pass 2): {table_corners}"
+                        )
+            except Exception as e:
+                logger.warning(f"Pass 2 detection failed, using pass 1 corners: {e}")
+
+            # Pass 2: Calibrate with (hopefully) better corners
             success, params = calibrator.calibrate_fisheye_from_table(
-                frame,
+                frame,  # Use original distorted frame with better corners
                 table_corners,
                 table_dimensions=(2.54, 1.27),  # Standard 9-foot table
             )
