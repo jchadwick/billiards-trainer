@@ -19,7 +19,7 @@ try:
 except ImportError:
     psutil = None
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from ..dependencies import ApplicationState, get_app_state
@@ -1020,15 +1020,32 @@ async def diagnose_vision_system() -> list[VisionDiagnosticResult]:
 
 
 def _generate_fisheye_test_image() -> Optional[bytes]:
-    """Generate a before/after fisheye correction test image."""
+    """Generate a before/after fisheye correction test image.
+
+    Note: This function may hang if camera initialization blocks.
+    Should be called with a timeout from the async endpoint.
+    """
+    import sys
     from pathlib import Path
 
     import cv2
     import numpy as np
 
+    # Force output to appear immediately
+    print("=== FISHEYE TEST: Function called ===", file=sys.stderr, flush=True)
+    logger.info("=== FISHEYE TEST: Starting image generation ===")
+
+    camera = None
     try:
+        print(
+            "FISHEYE TEST: About to import vision modules", file=sys.stderr, flush=True
+        )
+        logger.info("FISHEYE TEST: Importing vision modules")
         from backend.vision.calibration.camera import CameraCalibrator
         from backend.vision.capture import CameraCapture
+
+        print("FISHEYE TEST: Vision modules imported", file=sys.stderr, flush=True)
+        logger.info("FISHEYE TEST: Vision modules imported successfully")
 
         # Capture a frame
         camera_config = {
@@ -1039,21 +1056,37 @@ def _generate_fisheye_test_image() -> Optional[bytes]:
             "buffer_size": 1,
         }
 
+        print("FISHEYE TEST: About to create camera", file=sys.stderr, flush=True)
+        logger.info("FISHEYE TEST: Initializing camera")
         camera = CameraCapture(camera_config)
+        print("FISHEYE TEST: Camera object created", file=sys.stderr, flush=True)
+        logger.info("FISHEYE TEST: Camera object created")
+
+        print("FISHEYE TEST: About to start capture", file=sys.stderr, flush=True)
+        logger.info("FISHEYE TEST: Starting camera capture")
         if not camera.start_capture():
-            logger.error("Failed to start camera for test image")
+            print("FISHEYE TEST: Camera start failed", file=sys.stderr, flush=True)
+            logger.error("FISHEYE TEST: Failed to start camera")
             return None
+        print("FISHEYE TEST: Camera started successfully", file=sys.stderr, flush=True)
 
-        time.sleep(0.5)  # Let camera stabilize
+        logger.info("FISHEYE TEST: Camera started, waiting to stabilize")
+        # Use shorter wait to reduce hang time
+        time.sleep(0.3)
 
+        logger.info("FISHEYE TEST: Capturing test frame")
         frame_data = camera.get_latest_frame()
+
+        logger.info("FISHEYE TEST: Stopping camera capture")
         camera.stop_capture()
+        camera = None  # Mark as cleaned up
 
         if frame_data is None:
-            logger.error("Failed to capture test frame")
+            logger.error("FISHEYE TEST: Failed to capture test frame")
             return None
 
         original_frame, _ = frame_data
+        logger.info(f"FISHEYE TEST: Captured frame with shape: {original_frame.shape}")
 
         # Load calibration
         backend_path = Path(__file__).parent.parent.parent
@@ -1118,6 +1151,14 @@ def _generate_fisheye_test_image() -> Optional[bytes]:
         logger.error(f"Failed to generate test image: {e}")
         logger.exception("Full traceback:")
         return None
+    finally:
+        # Ensure camera is stopped even if error occurs
+        if camera is not None:
+            try:
+                logger.info("Cleaning up camera in finally block")
+                camera.stop_capture()
+            except Exception as cleanup_error:
+                logger.error(f"Error during camera cleanup: {cleanup_error}")
 
 
 @router.get("/vision/fisheye/test-image")
@@ -1129,16 +1170,34 @@ async def get_fisheye_test_image():
     """
     from fastapi.responses import Response
 
-    loop = asyncio.get_event_loop()
-    image_bytes = await loop.run_in_executor(None, _generate_fisheye_test_image)
+    logger.info("Fisheye test image endpoint called")
 
-    if image_bytes is None:
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate fisheye test image. Check camera and calibration.",
+    try:
+        # Add timeout to prevent hanging - 10 seconds should be plenty
+        loop = asyncio.get_event_loop()
+        image_bytes = await asyncio.wait_for(
+            loop.run_in_executor(None, _generate_fisheye_test_image), timeout=10.0
         )
 
-    return Response(content=image_bytes, media_type="image/jpeg")
+        if image_bytes is None:
+            logger.error("Image generation returned None")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate fisheye test image. Check camera and calibration.",
+            )
+
+        logger.info(f"Successfully generated test image ({len(image_bytes)} bytes)")
+        return Response(content=image_bytes, media_type="image/jpeg")
+
+    except asyncio.TimeoutError:
+        logger.error("Fisheye test image generation timed out after 10 seconds")
+        raise HTTPException(
+            status_code=504,
+            detail="Image generation timed out. Camera may be unavailable or hung.",
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in fisheye test endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/summary", response_model=DiagnosticSummary)
@@ -1221,3 +1280,92 @@ async def test_upload_endpoint() -> dict[str, Any]:
     """Test endpoint for bandwidth testing - simulates uploading data."""
     # In real implementation, would receive and process uploaded data
     return {"message": "Upload test completed", "received_size": 0}
+
+
+@router.get("/vision/raw-frame")
+async def get_raw_camera_frame(app_state: ApplicationState = Depends(get_app_state)):
+    """Get a raw frame from the camera module without any processing.
+
+    This endpoint gets the raw unprocessed frame from the EnhancedCameraModule
+    to diagnose if the camera itself is providing valid image data before
+    fisheye correction, table cropping, and preprocessing are applied.
+
+    Returns:
+        JPEG image of raw camera frame with statistics
+    """
+    import cv2
+    import numpy as np
+    from fastapi.responses import Response
+
+    logger.info("Raw frame diagnostic endpoint called")
+
+    try:
+        # Check if vision module exists
+        if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Vision module not initialized - access /api/v1/stream/video first to initialize",
+            )
+
+        # Get raw (unprocessed) frame from vision module
+        vision_module = app_state.vision_module
+        raw_frame = vision_module.get_frame(processed=False)
+
+        if raw_frame is None:
+            raise HTTPException(
+                status_code=503, detail="No frame available from camera"
+            )
+
+        # Calculate statistics
+        stats = {
+            "resolution": f"{raw_frame.shape[1]}x{raw_frame.shape[0]}",
+            "mean_pixel_value": float(np.mean(raw_frame)),
+            "min_pixel_value": int(np.min(raw_frame)),
+            "max_pixel_value": int(np.max(raw_frame)),
+            "std_pixel_value": float(np.std(raw_frame)),
+            "channels": raw_frame.shape[2] if len(raw_frame.shape) > 2 else 1,
+        }
+
+        # Check if image is mostly black
+        if np.mean(raw_frame) < 10:
+            stats["warning"] = (
+                "Image appears to be mostly black - check lighting or camera lens cap"
+            )
+        else:
+            stats["status"] = "Image has valid content"
+
+        # Add text overlay with stats
+        annotated = raw_frame.copy()
+        y_offset = 30
+        for key, value in stats.items():
+            text = f"{key}: {value}"
+            cv2.putText(
+                annotated,
+                text,
+                (10, y_offset),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 0),
+                2,
+            )
+            y_offset += 30
+
+        # Encode as JPEG
+        success, buffer = cv2.imencode(
+            ".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 95]
+        )
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to encode frame")
+
+        logger.info(f"Raw frame captured successfully: {stats}")
+        return Response(
+            content=buffer.tobytes(),
+            media_type="image/jpeg",
+            headers={"X-Frame-Stats": str(stats)},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in raw frame endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
