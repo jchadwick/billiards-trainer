@@ -4,15 +4,15 @@ camera_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 1000., 0., 960., 0., 1000., 540., 0., 0., 1. ]
+   data: [ 550., 0., 320., 0., 550., 240., 0., 0., 1. ]
 dist_coeffs: !!opencv-matrix
    rows: 1
    cols: 4
    dt: d
-   data: [ 0., 0., 0., 0. ]
-image_width: 1920
-image_height: 1080
-calibration_error: 0.
-calibration_date: "unknown"
-calibration_method: "placeholder"
-notes: "Default placeholder calibration - replace with actual calibration data"
+   data: [ -0.25, 0.10000000000000001, 0., 0. ]
+image_width: 640
+image_height: 480
+calibration_error: 0.5
+calibration_date: "2025-10-04T00:47:07.442245"
+calibration_method: table_rectangle
+notes: Fisheye calibration computed from billiards table rectangular geometry
