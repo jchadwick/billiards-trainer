@@ -73,7 +73,10 @@ class EnhancedCameraModule:
         self._event_loop = event_loop
         self._frame_callback = frame_callback
 
-        # Initialize calibration
+        # Detect actual camera resolution BEFORE initializing calibration
+        self._detect_actual_resolution()
+
+        # Initialize calibration (uses the verified resolution from config)
         self.calibrator = None
         self.undistort_map1 = None
         self.undistort_map2 = None
@@ -84,6 +87,47 @@ class EnhancedCameraModule:
         self.preprocessor = None
         if config.enable_preprocessing:
             self._init_preprocessor()
+
+    def _detect_actual_resolution(self):
+        """Detect the actual resolution supported by the camera.
+
+        Opens the camera temporarily to verify what resolution it actually provides,
+        then updates self.config.resolution to match. This ensures undistortion maps
+        and all processing are created for the correct resolution.
+        """
+        temp_cap = cv2.VideoCapture(self.config.device_id)
+        if not temp_cap.isOpened():
+            print(
+                f"Warning: Could not open camera {self.config.device_id} to detect resolution"
+            )
+            return
+
+        try:
+            # Try to set requested resolution
+            temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
+            temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
+
+            # Get actual resolution
+            actual_width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            actual_height = int(temp_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            if (
+                actual_width != self.config.resolution[0]
+                or actual_height != self.config.resolution[1]
+            ):
+                print(
+                    f"EnhancedCameraModule: Requested {self.config.resolution[0]}x{self.config.resolution[1]}, but camera only supports {actual_width}x{actual_height}"
+                )
+                print(
+                    "EnhancedCameraModule: Updating config to use actual camera resolution"
+                )
+                self.config.resolution = (actual_width, actual_height)
+            else:
+                print(
+                    f"EnhancedCameraModule: Camera resolution verified: {actual_width}x{actual_height}"
+                )
+        finally:
+            temp_cap.release()
 
     def _load_calibration(self):
         """Load fisheye calibration data."""
@@ -209,7 +253,7 @@ class EnhancedCameraModule:
             print(f"Failed to open camera {self.config.device_id}")
             return
 
-        # Configure camera
+        # Configure camera (using already-verified resolution from __init__)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
         self.capture.set(cv2.CAP_PROP_FPS, self.config.fps)
