@@ -9,9 +9,9 @@ dist_coeffs: !!opencv-matrix
    rows: 1
    cols: 4
    dt: d
-   data: [ -0.2, 0.1, 0., 0. ]
+   data: [ -0.28, 0.14, 0., 0. ]
 image_width: 1600
 image_height: 1200
-calibration_date: "2025-10-04T03:45:00.000000"
-calibration_method: manual_reasonable_parameters
-notes: Manually configured with typical wide-angle camera parameters for moderate barrel distortion correction
+calibration_date: "2025-10-04T03:50:00.000000"
+calibration_method: manual_tuned_parameters
+notes: Manually tuned for better rail straightness - increased barrel correction slightly
