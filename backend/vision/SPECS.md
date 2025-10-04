@@ -71,13 +71,23 @@ The Vision module is the core computer vision engine responsible for analyzing v
 ### 5. Calibration Requirements
 
 #### 5.1 System Calibration
-- **FR-VIS-039**: Perform automatic camera calibration
-- **FR-VIS-040**: Calculate camera intrinsic parameters
+- **FR-VIS-039**: Perform automatic camera calibration on first startup
+- **FR-VIS-040**: Calculate camera intrinsic parameters at native resolution
 - **FR-VIS-041**: Determine camera-to-table transformation
-- **FR-VIS-042**: Compensate for lens distortion
+- **FR-VIS-042**: Automatically detect and compensate for fisheye/lens distortion
 - **FR-VIS-043**: Support manual calibration adjustment
 
-#### 5.2 Color Calibration
+#### 5.2 Fisheye Correction (Calibration Wizard)
+- **FR-VIS-048**: Provide calibration wizard endpoint for fisheye correction
+- **FR-VIS-049**: Capture calibration frame at full camera resolution (1920x1080)
+- **FR-VIS-050**: Automatically detect table geometry to derive distortion parameters
+- **FR-VIS-051**: Compute fisheye correction from table's rectangular shape
+- **FR-VIS-052**: Apply fisheye correction to all video streams in real-time
+- **FR-VIS-053**: Save calibration parameters for reuse across server restarts
+- **FR-VIS-054**: Return calibration quality metrics and before/after preview
+- **FR-VIS-055**: Support manual recalibration when table position changes
+
+#### 5.3 Color Calibration
 - **FR-VIS-044**: Auto-detect optimal color thresholds
 - **FR-VIS-045**: Adapt to ambient lighting changes
 - **FR-VIS-046**: Provide color picker interface
