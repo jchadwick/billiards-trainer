@@ -754,6 +754,89 @@ class CameraCalibrator:
             logger.exception("Full traceback:")
             return False, None
 
+    def load_calibration(self, filepath: str) -> bool:
+        """Load camera calibration from YAML file.
+
+        Args:
+            filepath: Path to YAML calibration file
+
+        Returns:
+            True if loaded successfully
+        """
+        try:
+            # Read using OpenCV FileStorage
+            fs = cv2.FileStorage(filepath, cv2.FILE_STORAGE_READ)
+
+            if not fs.isOpened():
+                logger.error(f"Failed to open calibration file: {filepath}")
+                return False
+
+            # Read camera matrix
+            camera_matrix = fs.getNode("camera_matrix").mat()
+            if camera_matrix is None:
+                logger.error("No camera_matrix found in calibration file")
+                fs.release()
+                return False
+
+            # Read distortion coefficients
+            dist_coeffs = fs.getNode("dist_coeffs").mat()
+            if dist_coeffs is None:
+                logger.error("No dist_coeffs found in calibration file")
+                fs.release()
+                return False
+
+            # Read resolution
+            image_width = fs.getNode("image_width").real()
+            image_height = fs.getNode("image_height").real()
+
+            if image_width <= 0 or image_height <= 0:
+                logger.warning("Invalid resolution in calibration file, using defaults")
+                image_width = 1920
+                image_height = 1080
+
+            # Read calibration error (optional)
+            calibration_error_node = fs.getNode("calibration_error")
+            calibration_error = (
+                calibration_error_node.real()
+                if not calibration_error_node.empty()
+                else 0.0
+            )
+
+            # Read calibration date (optional)
+            calibration_date_node = fs.getNode("calibration_date")
+            calibration_date = (
+                calibration_date_node.string()
+                if not calibration_date_node.empty()
+                else "unknown"
+            )
+
+            fs.release()
+
+            # Create camera parameters object
+            self.camera_params = CameraParameters(
+                camera_matrix=camera_matrix,
+                distortion_coefficients=dist_coeffs,
+                resolution=(int(image_width), int(image_height)),
+                calibration_error=calibration_error,
+                calibration_date=calibration_date,
+            )
+
+            # Store additional attributes for backward compatibility
+            self.camera_matrix = camera_matrix
+            self.dist_coeffs = dist_coeffs
+
+            logger.info(f"Calibration loaded from {filepath}")
+            logger.info(f"  Resolution: {int(image_width)}x{int(image_height)}")
+            logger.info(f"  Calibration error: {calibration_error:.4f}")
+            logger.info(f"  Distortion coeffs: {dist_coeffs.ravel()}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load calibration from YAML: {e}")
+            logger.exception("Full traceback:")
+            return False
+
     def save_fisheye_calibration_yaml(
         self, filepath: str, camera_params: Optional[CameraParameters] = None
     ) -> bool:

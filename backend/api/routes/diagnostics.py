@@ -564,6 +564,583 @@ async def run_system_validation() -> list[SystemValidationResult]:
     return validations
 
 
+class VisionDiagnosticResult(BaseModel):
+    """Vision system diagnostic result."""
+
+    component: str
+    status: str
+    score: float
+    details: dict[str, Any]
+    issues: list[str]
+    recommendations: list[str]
+    duration: float
+
+
+def _run_camera_diagnostic_sync() -> dict[str, Any]:
+    """Run camera diagnostic synchronously (to be called in thread)."""
+    issues = []
+    recommendations = []
+    details = {}
+    score = 0.0
+
+    try:
+        from backend.vision.capture import CameraCapture
+
+        # Test camera initialization
+        camera_config = {
+            "device_id": 0,
+            "backend": "auto",
+            "resolution": (1920, 1080),
+            "fps": 30,
+            "buffer_size": 1,
+        }
+
+        camera = CameraCapture(camera_config)
+        details["camera_initialized"] = True
+        score += 25.0
+
+        # Test camera start
+        if camera.start_capture():
+            details["camera_started"] = True
+            score += 25.0
+
+            # Wait for frame stabilization
+            time.sleep(0.5)
+
+            # Test frame capture
+            frame_data = camera.get_latest_frame()
+            if frame_data is not None:
+                frame, frame_info = frame_data
+                details["frame_captured"] = True
+                details["frame_shape"] = list(frame.shape)
+                details["frame_size"] = f"{frame.shape[1]}x{frame.shape[0]}"
+                score += 25.0
+
+                # Check frame quality
+                if frame.shape[0] >= 480 and frame.shape[1] >= 640:
+                    details["frame_quality"] = "adequate"
+                    score += 25.0
+                else:
+                    issues.append("Frame resolution below recommended minimum")
+                    recommendations.append(
+                        "Increase camera resolution to at least 640x480"
+                    )
+            else:
+                issues.append("Failed to capture frame from camera")
+                recommendations.append("Check camera connection and permissions")
+
+            camera.stop_capture()
+        else:
+            issues.append("Failed to start camera capture")
+            recommendations.append(
+                "Verify camera device is available and not in use by another process"
+            )
+
+    except Exception as e:
+        logger.error(f"Camera diagnostic failed: {e}", exc_info=True)
+        issues.append(f"Camera diagnostic error: {e}")
+        recommendations.append("Check camera hardware and driver installation")
+        details["error"] = str(e)
+        score = 0.0
+
+    return {
+        "score": score,
+        "details": details,
+        "issues": issues,
+        "recommendations": recommendations,
+    }
+
+
+@router.get("/vision/camera", response_model=VisionDiagnosticResult)
+async def diagnose_camera() -> VisionDiagnosticResult:
+    """Diagnose camera capture system.
+
+    Tests:
+    - Camera device accessibility
+    - Frame capture capability
+    - Resolution and FPS
+    - Frame quality
+    """
+    start_time = time.time()
+
+    try:
+        # Run diagnostic in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _run_camera_diagnostic_sync)
+
+        score = result["score"]
+        details = result["details"]
+        issues = result["issues"]
+        recommendations = result["recommendations"]
+
+        # Determine overall status
+        if score >= 90:
+            status = "healthy"
+        elif score >= 70:
+            status = "degraded"
+        elif score > 0:
+            status = "failed"
+        else:
+            status = "error"
+
+        return VisionDiagnosticResult(
+            component="camera",
+            status=status,
+            score=score,
+            details=details,
+            issues=issues,
+            recommendations=recommendations,
+            duration=time.time() - start_time,
+        )
+
+    except Exception as e:
+        logger.error(f"Camera diagnostic failed: {e}", exc_info=True)
+        return VisionDiagnosticResult(
+            component="camera",
+            status="error",
+            score=0.0,
+            details={"error": str(e)},
+            issues=[f"Camera diagnostic error: {e}"],
+            recommendations=["Check camera hardware and driver installation"],
+            duration=time.time() - start_time,
+        )
+
+
+def _run_fisheye_diagnostic_sync() -> dict[str, Any]:
+    """Run fisheye diagnostic synchronously (to be called in thread)."""
+    issues = []
+    recommendations = []
+    details = {}
+    score = 0.0
+
+    try:
+        from pathlib import Path
+
+        from backend.vision.calibration.camera import CameraCalibrator
+
+        # Check calibration file
+        backend_path = Path(__file__).parent.parent.parent
+        calibration_path = backend_path / "calibration/camera_fisheye_default.yaml"
+
+        if calibration_path.exists():
+            details["calibration_file_exists"] = True
+            details["calibration_path"] = str(calibration_path)
+            score += 25.0
+
+            # Try to load calibration
+            calibrator = CameraCalibrator()
+
+            try:
+                if calibrator.load_calibration(str(calibration_path)):
+                    details["calibration_loaded"] = True
+                    score += 25.0
+
+                    # Check if we have valid calibration data
+                    if (
+                        hasattr(calibrator, "camera_matrix")
+                        and calibrator.camera_matrix is not None
+                    ):
+                        details["has_camera_matrix"] = True
+                        score += 25.0
+                    else:
+                        issues.append("Camera matrix not available in calibration")
+                        recommendations.append("Re-run camera calibration process")
+
+                    if (
+                        hasattr(calibrator, "dist_coeffs")
+                        and calibrator.dist_coeffs is not None
+                    ):
+                        details["has_distortion_coeffs"] = True
+                        score += 25.0
+                    else:
+                        issues.append("Distortion coefficients not available")
+                        recommendations.append("Complete fisheye calibration")
+                else:
+                    issues.append("Failed to load calibration file")
+                    recommendations.append(
+                        "Verify calibration file format and re-run calibration"
+                    )
+                    details["calibration_loaded"] = False
+            except Exception as load_error:
+                issues.append(f"Calibration load error: {load_error}")
+                recommendations.append(
+                    "Calibration file may be corrupted, re-run calibration process"
+                )
+                details["load_error"] = str(load_error)
+        else:
+            issues.append("Fisheye calibration file not found")
+            recommendations.append(
+                f"Run camera calibration and save to {calibration_path}"
+            )
+            details["calibration_file_exists"] = False
+
+    except Exception as e:
+        logger.error(f"Fisheye diagnostic failed: {e}", exc_info=True)
+        issues.append(f"Fisheye diagnostic error: {e}")
+        recommendations.append("Check vision module installation")
+        details["error"] = str(e)
+        score = 0.0
+
+    return {
+        "score": score,
+        "details": details,
+        "issues": issues,
+        "recommendations": recommendations,
+    }
+
+
+@router.get("/vision/fisheye", response_model=VisionDiagnosticResult)
+async def diagnose_fisheye_correction() -> VisionDiagnosticResult:
+    """Diagnose fisheye correction system.
+
+    Tests:
+    - Calibration file existence
+    - Calibration file format
+    - Calibration parameters validity
+    - Correction performance
+    """
+    start_time = time.time()
+
+    try:
+        # Run diagnostic in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _run_fisheye_diagnostic_sync)
+
+        score = result["score"]
+        details = result["details"]
+        issues = result["issues"]
+        recommendations = result["recommendations"]
+
+        # Determine status
+        if score >= 90:
+            status = "healthy"
+        elif score >= 50:
+            status = "degraded"
+        else:
+            status = "failed"
+
+        return VisionDiagnosticResult(
+            component="fisheye_correction",
+            status=status,
+            score=score,
+            details=details,
+            issues=issues,
+            recommendations=recommendations,
+            duration=time.time() - start_time,
+        )
+
+    except Exception as e:
+        logger.error(f"Fisheye diagnostic failed: {e}", exc_info=True)
+        return VisionDiagnosticResult(
+            component="fisheye_correction",
+            status="error",
+            score=0.0,
+            details={"error": str(e)},
+            issues=[f"Fisheye diagnostic error: {e}"],
+            recommendations=["Check vision module installation"],
+            duration=time.time() - start_time,
+        )
+
+
+def _run_detection_diagnostic_sync() -> dict[str, Any]:
+    """Run detection diagnostic synchronously (to be called in thread)."""
+    issues = []
+    recommendations = []
+    details = {}
+    score = 0.0
+
+    try:
+        from backend.vision.capture import CameraCapture
+        from backend.vision.detection.balls import BallDetector
+
+        # Initialize detector
+        detector = BallDetector()
+        details["detector_initialized"] = True
+        score += 25.0
+
+        # Capture frame for testing
+        camera_config = {
+            "device_id": 0,
+            "backend": "auto",
+            "resolution": (1920, 1080),
+            "fps": 30,
+            "buffer_size": 1,
+        }
+
+        camera = CameraCapture(camera_config)
+        if camera.start_capture():
+            time.sleep(0.5)
+
+            frame_data = camera.get_latest_frame()
+            if frame_data is not None:
+                frame, _ = frame_data
+                details["test_frame_captured"] = True
+                score += 25.0
+
+                # Run detection
+                detection_start = time.time()
+                detected_balls = detector.detect(frame)
+                detection_time = time.time() - detection_start
+
+                details["balls_detected"] = len(detected_balls)
+                details["detection_time_ms"] = round(detection_time * 1000, 2)
+                score += 25.0
+
+                # Analyze detection results
+                if len(detected_balls) > 0:
+                    details["detection_working"] = True
+                    score += 25.0
+
+                    # Check confidence levels
+                    confidences = [ball.confidence for ball in detected_balls]
+                    details["avg_confidence"] = round(
+                        sum(confidences) / len(confidences), 2
+                    )
+                    details["min_confidence"] = round(min(confidences), 2)
+                    details["max_confidence"] = round(max(confidences), 2)
+
+                    if details["avg_confidence"] < 0.6:
+                        issues.append("Low detection confidence")
+                        recommendations.append(
+                            "Improve lighting or adjust detection parameters"
+                        )
+                else:
+                    issues.append("No balls detected in test frame")
+                    recommendations.append(
+                        "Ensure balls are visible on table or adjust detection threshold"
+                    )
+
+                # Performance check
+                if detection_time > 0.1:  # 100ms threshold
+                    issues.append(
+                        f"Detection slower than expected ({detection_time*1000:.0f}ms)"
+                    )
+                    recommendations.append(
+                        "Consider hardware acceleration or optimization"
+                    )
+
+            else:
+                issues.append("Failed to capture test frame")
+                recommendations.append("Check camera functionality")
+
+            camera.stop_capture()
+        else:
+            issues.append("Failed to start camera for detection test")
+            recommendations.append("Resolve camera issues first")
+
+    except Exception as e:
+        logger.error(f"Detection diagnostic failed: {e}", exc_info=True)
+        issues.append(f"Detection diagnostic error: {e}")
+        recommendations.append("Check vision module and detector installation")
+        details["error"] = str(e)
+        score = 0.0
+
+    return {
+        "score": score,
+        "details": details,
+        "issues": issues,
+        "recommendations": recommendations,
+    }
+
+
+@router.get("/vision/detection", response_model=VisionDiagnosticResult)
+async def diagnose_ball_detection() -> VisionDiagnosticResult:
+    """Diagnose ball detection system.
+
+    Tests:
+    - Ball detector initialization
+    - Detection on live frame
+    - Detection accuracy
+    - Performance metrics
+    """
+    start_time = time.time()
+
+    try:
+        # Run diagnostic in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _run_detection_diagnostic_sync)
+
+        score = result["score"]
+        details = result["details"]
+        issues = result["issues"]
+        recommendations = result["recommendations"]
+
+        # Determine status
+        if score >= 90:
+            status = "healthy"
+        elif score >= 60:
+            status = "degraded"
+        elif score > 0:
+            status = "failed"
+        else:
+            status = "error"
+
+        return VisionDiagnosticResult(
+            component="ball_detection",
+            status=status,
+            score=score,
+            details=details,
+            issues=issues,
+            recommendations=recommendations,
+            duration=time.time() - start_time,
+        )
+
+    except Exception as e:
+        logger.error(f"Detection diagnostic failed: {e}", exc_info=True)
+        return VisionDiagnosticResult(
+            component="ball_detection",
+            status="error",
+            score=0.0,
+            details={"error": str(e)},
+            issues=[f"Detection diagnostic error: {e}"],
+            recommendations=["Check vision module and detector installation"],
+            duration=time.time() - start_time,
+        )
+
+
+@router.get("/vision/complete", response_model=list[VisionDiagnosticResult])
+async def diagnose_vision_system() -> list[VisionDiagnosticResult]:
+    """Run complete vision system diagnostics.
+
+    Executes all vision-related diagnostic tests:
+    - Camera system
+    - Fisheye correction
+    - Ball detection
+
+    Returns comprehensive results for all components.
+    """
+    results = []
+
+    # Run all vision diagnostics
+    results.append(await diagnose_camera())
+    results.append(await diagnose_fisheye_correction())
+    results.append(await diagnose_ball_detection())
+
+    return results
+
+
+def _generate_fisheye_test_image() -> Optional[bytes]:
+    """Generate a before/after fisheye correction test image."""
+    from pathlib import Path
+
+    import cv2
+    import numpy as np
+
+    try:
+        from backend.vision.calibration.camera import CameraCalibrator
+        from backend.vision.capture import CameraCapture
+
+        # Capture a frame
+        camera_config = {
+            "device_id": 0,
+            "backend": "auto",
+            "resolution": (1920, 1080),
+            "fps": 30,
+            "buffer_size": 1,
+        }
+
+        camera = CameraCapture(camera_config)
+        if not camera.start_capture():
+            logger.error("Failed to start camera for test image")
+            return None
+
+        time.sleep(0.5)  # Let camera stabilize
+
+        frame_data = camera.get_latest_frame()
+        camera.stop_capture()
+
+        if frame_data is None:
+            logger.error("Failed to capture test frame")
+            return None
+
+        original_frame, _ = frame_data
+
+        # Load calibration
+        backend_path = Path(__file__).parent.parent.parent
+        calibration_path = backend_path / "calibration/camera_fisheye_default.yaml"
+
+        calibrator = CameraCalibrator()
+        if not calibration_path.exists():
+            logger.error("Calibration file not found")
+            return None
+
+        if not calibrator.load_calibration(str(calibration_path)):
+            logger.error("Failed to load calibration")
+            return None
+
+        # Apply undistortion
+        corrected_frame = calibrator.undistort_image(original_frame)
+
+        # Resize corrected to match original size (undistort may crop)
+        h, w = original_frame.shape[:2]
+        corrected_resized = cv2.resize(corrected_frame, (w, h))
+
+        # Create side-by-side comparison
+        # Add labels
+        original_labeled = original_frame.copy()
+        corrected_labeled = corrected_resized.copy()
+
+        cv2.putText(
+            original_labeled,
+            "Original (with distortion)",
+            (20, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.5,
+            (0, 255, 0),
+            3,
+        )
+
+        cv2.putText(
+            corrected_labeled,
+            "Corrected (fisheye removed)",
+            (20, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.5,
+            (0, 255, 0),
+            3,
+        )
+
+        # Stack horizontally
+        comparison = np.hstack([original_labeled, corrected_labeled])
+
+        # Encode as JPEG
+        success, encoded = cv2.imencode(
+            ".jpg", comparison, [cv2.IMWRITE_JPEG_QUALITY, 90]
+        )
+
+        if not success:
+            logger.error("Failed to encode comparison image")
+            return None
+
+        return encoded.tobytes()
+
+    except Exception as e:
+        logger.error(f"Failed to generate test image: {e}")
+        logger.exception("Full traceback:")
+        return None
+
+
+@router.get("/vision/fisheye/test-image")
+async def get_fisheye_test_image():
+    """Generate a before/after comparison image showing fisheye correction.
+
+    Returns:
+        JPEG image showing original and corrected frames side-by-side
+    """
+    from fastapi.responses import Response
+
+    loop = asyncio.get_event_loop()
+    image_bytes = await loop.run_in_executor(None, _generate_fisheye_test_image)
+
+    if image_bytes is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate fisheye test image. Check camera and calibration.",
+        )
+
+    return Response(content=image_bytes, media_type="image/jpeg")
+
+
 @router.get("/summary", response_model=DiagnosticSummary)
 async def get_diagnostic_summary() -> DiagnosticSummary:
     """Get comprehensive diagnostic summary."""
