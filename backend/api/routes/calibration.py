@@ -1714,46 +1714,87 @@ async def calibrate_fisheye_from_table(
             h, w = frame.shape[:2]
             logger.info(f"Captured frame for fisheye calibration: {w}x{h}")
 
-            # Step 2: Detect table
-            config = {
-                "table_color_ranges": {
-                    "green": {
-                        "lower": np.array([35, 40, 40]),
-                        "upper": np.array([85, 255, 255]),
-                    }
-                }
-            }
+            # Step 2: Detect INNER felt corners (not outer table edges)
+            # Convert to HSV and detect green felt
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            lower_green = np.array([35, 40, 40])
+            upper_green = np.array([85, 255, 255])
+            mask = cv2.inRange(hsv, lower_green, upper_green)
 
-            detector = TableDetector(config)
-            result = detector.detect_complete_table(frame)
+            # Clean up mask
+            kernel = np.ones((5, 5), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
-            if result is None or result.corners is None:
-                # Save debug image
+            # Find largest contour (the felt surface)
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            if not contours:
                 debug_path = (
                     Path(__file__).parent.parent.parent
                     / "calibration"
-                    / "fisheye_debug_no_table.jpg"
+                    / "fisheye_debug_no_felt.jpg"
                 )
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
                 cv2.imwrite(str(debug_path), frame)
-
                 return {
                     "success": False,
-                    "error": "Could not detect table in frame. Ensure table is fully visible.",
-                    "step_failed": "table_detection",
+                    "error": "Could not detect green felt. Ensure felt is visible and well-lit.",
+                    "step_failed": "felt_detection",
                     "debug_image_saved": str(debug_path),
                 }
 
-            # Extract corners
-            c = result.corners
+            # Get largest contour (felt surface)
+            largest_contour = max(contours, key=cv2.contourArea)
+
+            # Approximate to polygon to get corners
+            epsilon = 0.02 * cv2.arcLength(largest_contour, True)
+            approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+
+            # Try different epsilon values to get exactly 4 corners
+            if len(approx) != 4:
+                for eps_mult in [0.01, 0.03, 0.04, 0.05, 0.06, 0.08, 0.1]:
+                    epsilon = eps_mult * cv2.arcLength(largest_contour, True)
+                    approx = cv2.approxPolyDP(largest_contour, epsilon, True)
+                    if len(approx) == 4:
+                        break
+
+            # If still not 4 corners, use bounding rect
+            if len(approx) != 4:
+                x, y, w_rect, h_rect = cv2.boundingRect(largest_contour)
+                corners = np.array(
+                    [
+                        [x, y],
+                        [x + w_rect, y],
+                        [x + w_rect, y + h_rect],
+                        [x, y + h_rect],
+                    ],
+                    dtype=np.float32,
+                )
+            else:
+                corners = approx.reshape(-1, 2).astype(np.float32)
+
+            # Sort corners: top-left, top-right, bottom-right, bottom-left
+            center = np.mean(corners, axis=0)
+            angles = np.arctan2(corners[:, 1] - center[1], corners[:, 0] - center[0])
+            sorted_indices = np.argsort(angles)
+            corners = corners[sorted_indices]
+
+            # Ensure top-left is first
+            sums = corners[:, 0] + corners[:, 1]
+            tl_idx = np.argmin(sums)
+            corners = np.roll(corners, -tl_idx, axis=0)
+
             table_corners = [
-                (float(c.top_left[0]), float(c.top_left[1])),
-                (float(c.top_right[0]), float(c.top_right[1])),
-                (float(c.bottom_right[0]), float(c.bottom_right[1])),
-                (float(c.bottom_left[0]), float(c.bottom_left[1])),
+                (float(corners[0][0]), float(corners[0][1])),  # top-left
+                (float(corners[1][0]), float(corners[1][1])),  # top-right
+                (float(corners[2][0]), float(corners[2][1])),  # bottom-right
+                (float(corners[3][0]), float(corners[3][1])),  # bottom-left
             ]
 
-            logger.info(f"Detected table corners: {table_corners}")
+            logger.info(f"Detected felt corners: {table_corners}")
 
             # Step 3: Calibrate fisheye from table geometry
             calibrator = CameraCalibrator()
