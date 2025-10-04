@@ -672,20 +672,19 @@ class CameraCalibrator:
 
         logger.info(f"Generated {len(detected_points)} points for fisheye calibration")
 
-        # Use standard calibrateCamera instead of fisheye model
-        # This is more stable for single-frame calibration with limited points
-        # and can still correct radial distortion
+        # Use standard calibrateCamera with FIXED focal length and principal point
+        # Only optimize distortion coefficients for stability with limited points
 
-        # Initialize camera matrix with reasonable defaults
-        fx = fy = w  # Standard focal length approximation
+        # Fixed camera matrix - DO NOT optimize these
+        # Use diagonal FOV of ~70 degrees as typical for webcams
+        fx = fy = w * 0.8  # Conservative focal length estimate
         cx, cy = w / 2, h / 2  # Principal point at image center
 
         camera_matrix = np.array(
             [[fx, 0, cx], [0, fy, cy], [0, 0, 1]], dtype=np.float64
         )
 
-        # Initialize distortion coefficients (k1, k2, p1, p2, k3 for standard model)
-        # Start with zeros, calibration will optimize
+        # Initialize distortion coefficients - only k1 and k2 will be optimized
         distortion_coeffs = np.zeros((5, 1), dtype=np.float64)
 
         # Prepare data for standard calibration
@@ -694,14 +693,20 @@ class CameraCalibrator:
 
         logger.info(f"Using {len(detected_points)} points for calibration")
         logger.info(f"Image size: {image_size}")
+        logger.info(
+            f"Fixed focal length: {fx:.1f}, principal point: ({cx:.1f}, {cy:.1f})"
+        )
 
         try:
-            # Use standard calibrateCamera which is more robust for single-frame calibration
-            # Fix the principal point and focal length ratio for stability
+            # FIXED camera intrinsics, only optimize distortion
+            # This prevents extreme focal length values from limited calibration data
             calibration_flags = (
-                cv2.CALIB_FIX_PRINCIPAL_POINT  # Keep principal point at center
+                cv2.CALIB_USE_INTRINSIC_GUESS  # Use our camera_matrix as fixed
+                | cv2.CALIB_FIX_PRINCIPAL_POINT  # Don't optimize principal point
                 | cv2.CALIB_FIX_ASPECT_RATIO  # Keep fx = fy
+                | cv2.CALIB_FIX_FOCAL_LENGTH  # Don't optimize focal length
                 | cv2.CALIB_ZERO_TANGENT_DIST  # Assume no tangential distortion
+                | cv2.CALIB_FIX_K3  # Only use k1, k2 (not k3)
             )
 
             rms_error, K, D, rvecs, tvecs = cv2.calibrateCamera(
@@ -721,17 +726,29 @@ class CameraCalibrator:
             logger.info(
                 f"Camera calibration from table completed with RMS error: {rms_error:.4f}"
             )
-            logger.info(f"Camera matrix:\n{K}")
+            logger.info(f"Camera matrix (fixed):\n{K}")
             logger.info(f"Distortion coefficients (k1,k2,p1,p2,k3): {D.ravel()}")
 
+            # Validate distortion coefficients are reasonable
+            k1, k2 = float(D[0]), float(D[1])
+            if abs(k1) > 0.3 or abs(k2) > 0.3:
+                logger.warning(
+                    f"High distortion values detected: k1={k1:.3f}, k2={k2:.3f}"
+                )
+                logger.warning("Clamping to conservative range [-0.25, 0.25]")
+                k1 = np.clip(k1, -0.25, 0.25)
+                k2 = np.clip(k2, -0.25, 0.25)
+                D[0], D[1] = k1, k2
+                logger.info(f"Clamped to: k1={k1:.3f}, k2={k2:.3f}")
+
             # Convert to fisheye-compatible format for backwards compatibility
-            # Take only the first two radial distortion coefficients
             fisheye_dist = np.zeros((4, 1), dtype=np.float64)
             fisheye_dist[0] = D[0]  # k1
             fisheye_dist[1] = D[1]  # k2
-            # k3, k4 set to zero
 
-            logger.info(f"Converted to fisheye format: {fisheye_dist.ravel()}")
+            logger.info(
+                f"Final distortion coefficients: k1={fisheye_dist[0,0]:.4f}, k2={fisheye_dist[1,0]:.4f}"
+            )
 
             # Create camera parameters object
             from datetime import datetime

@@ -5,6 +5,7 @@ into a single efficient pipeline for both vision processing and web streaming.
 """
 
 import asyncio
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ import numpy as np
 from ..vision.calibration.camera import CameraCalibrator
 from ..vision.preprocessing import ImagePreprocessor
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class EnhancedCameraConfig:
@@ -23,7 +26,7 @@ class EnhancedCameraConfig:
 
     # Camera settings
     device_id: int = 0
-    resolution: tuple[int, int] = (1920, 1080)
+    resolution: Optional[tuple[int, int]] = None  # Auto-detect if None
     fps: int = 30
 
     # Fisheye correction
@@ -103,21 +106,28 @@ class EnhancedCameraModule:
         """
         temp_cap = cv2.VideoCapture(self.config.device_id)
         if not temp_cap.isOpened():
-            print(
-                f"Warning: Could not open camera {self.config.device_id} to detect resolution"
+            logger.warning(
+                f"Could not open camera {self.config.device_id} to detect resolution"
             )
             return
 
         try:
-            # Try to set requested resolution
-            temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
-            temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
+            # If resolution was specified, try to set it
+            if self.config.resolution is not None:
+                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
+                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
 
-            # Get actual resolution
+            # Get actual resolution (either what we set or camera's default)
             actual_width = int(temp_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(temp_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-            if (
+            if self.config.resolution is None:
+                # Auto-detected camera's native resolution
+                print(
+                    f"EnhancedCameraModule: Auto-detected camera resolution: {actual_width}x{actual_height}"
+                )
+                self.config.resolution = (actual_width, actual_height)
+            elif (
                 actual_width != self.config.resolution[0]
                 or actual_height != self.config.resolution[1]
             ):
@@ -188,21 +198,24 @@ class EnhancedCameraModule:
 
                 # Pre-compute undistortion maps for efficiency
                 h, w = self.config.resolution[1], self.config.resolution[0]
-                new_camera_matrix = (
-                    cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-                        camera_matrix, dist_coeffs, (w, h), np.eye(3)
-                    )
+
+                # Use standard camera model (not fisheye) to match calibration
+                # The calibration uses cv2.calibrateCamera, so we must use standard undistortion
+                new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
+                    camera_matrix,
+                    dist_coeffs,
+                    (w, h),
+                    1,  # alpha=1 keeps all pixels
+                    (w, h),
                 )
 
-                self.undistort_map1, self.undistort_map2 = (
-                    cv2.fisheye.initUndistortRectifyMap(
-                        camera_matrix,
-                        dist_coeffs,
-                        np.eye(3),
-                        new_camera_matrix,
-                        (w, h),
-                        cv2.CV_16SC2,
-                    )
+                self.undistort_map1, self.undistort_map2 = cv2.initUndistortRectifyMap(
+                    camera_matrix,
+                    dist_coeffs,
+                    None,  # No rectification
+                    new_camera_matrix,
+                    (w, h),
+                    cv2.CV_16SC2,
                 )
 
                 print(f"Loaded fisheye calibration from {self.config.calibration_file}")
@@ -265,6 +278,31 @@ class EnhancedCameraModule:
         self.capture.set(cv2.CAP_PROP_FPS, self.config.fps)
         self.capture.set(cv2.CAP_PROP_BUFFERSIZE, self.config.buffer_size)
 
+        # Configure camera for better color reproduction
+        # Enable auto white balance to let camera handle it
+        self.capture.set(cv2.CAP_PROP_AUTO_WB, 1)  # Enable auto white balance
+
+        # Try AUTO exposure with compensation
+        self.capture.set(
+            cv2.CAP_PROP_AUTO_EXPOSURE, 0.25
+        )  # Auto mode (0.75 = on, 0.25 = off for some cameras)
+        self.capture.set(cv2.CAP_PROP_EXPOSURE, -13)  # Very low exposure value
+
+        # Camera controls - try absolute minimum values
+        self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0)  # Minimal brightness
+        self.capture.set(cv2.CAP_PROP_CONTRAST, 32)  # Default contrast
+        self.capture.set(cv2.CAP_PROP_SATURATION, 64)  # Default saturation
+        self.capture.set(cv2.CAP_PROP_GAIN, 0)  # No gain
+        self.capture.set(cv2.CAP_PROP_BACKLIGHT, 0)  # Disable backlight compensation
+
+        logger.info(
+            f"Camera settings - Exposure: {self.capture.get(cv2.CAP_PROP_EXPOSURE)}, "
+            f"Brightness: {self.capture.get(cv2.CAP_PROP_BRIGHTNESS)}, "
+            f"Contrast: {self.capture.get(cv2.CAP_PROP_CONTRAST)}, "
+            f"Saturation: {self.capture.get(cv2.CAP_PROP_SATURATION)}, "
+            f"WB: {self.capture.get(cv2.CAP_PROP_WB_TEMPERATURE)}"
+        )
+
         while self.running:
             ret, frame = self.capture.read()
 
@@ -306,6 +344,26 @@ class EnhancedCameraModule:
                 interpolation=cv2.INTER_LINEAR,
             )
 
+        # Step 1.5: Aggressive software correction for overexposed camera
+        # The camera hardware auto-exposure cannot be disabled via OpenCV
+        # So we need to fix it in software
+
+        # First, drastically reduce brightness/exposure in BGR space
+        frame = cv2.convertScaleAbs(frame, alpha=0.4, beta=-50)
+
+        # Then boost saturation and reduce value in HSV
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
+        h, s, v = cv2.split(hsv)
+
+        # Boost saturation significantly
+        s = np.clip(s * 2.0, 0, 255)
+
+        # Reduce brightness further
+        v = np.clip(v * 0.7, 0, 255)
+
+        hsv = cv2.merge([h, s, v]).astype(np.uint8)
+        frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
         # Step 2: Table cropping (after fisheye correction)
         if self.config.enable_table_crop:
             frame = self._crop_to_table(frame)
@@ -346,7 +404,7 @@ class EnhancedCameraModule:
         # Use cached crop region if available
         if self._table_crop_region is not None:
             x, y, w, h = self._table_crop_region
-            return frame[y:y+h, x:x+w]
+            return frame[y : y + h, x : x + w]
 
         # Detect table region (only once)
         try:
@@ -362,7 +420,9 @@ class EnhancedCameraModule:
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
             # Find largest contour (the felt surface)
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
 
             if contours:
                 largest_contour = max(contours, key=cv2.contourArea)
@@ -380,7 +440,7 @@ class EnhancedCameraModule:
                 # Cache the crop region
                 self._table_crop_region = (x, y, w, h)
 
-                return frame[y:y+h, x:x+w]
+                return frame[y : y + h, x : x + w]
         except Exception as e:
             print(f"Table crop failed: {e}")
 

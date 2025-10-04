@@ -111,9 +111,16 @@ class CameraModuleAdapter:
         """
         return self._module.get_frame(processed=processed)
 
-    def get_frame_for_streaming(self, scale: float = 0.5) -> Optional[np.ndarray]:
-        """Get frame for streaming with optional downsampling."""
-        frame = self._module.get_frame(processed=True)
+    def get_frame_for_streaming(
+        self, scale: float = 0.5, raw: bool = False
+    ) -> Optional[np.ndarray]:
+        """Get frame for streaming with optional downsampling.
+
+        Args:
+            scale: Scaling factor for downsampling
+            raw: If True, get raw frame without fisheye correction or processing
+        """
+        frame = self._module.get_frame(processed=not raw)
 
         if frame is None:
             return None
@@ -128,9 +135,13 @@ class CameraModuleAdapter:
 
         return frame
 
-    def get_current_frame(self) -> Optional[np.ndarray]:
-        """Get current frame without processing."""
-        return self._module.get_frame(processed=True)
+    def get_current_frame(self, raw: bool = False) -> Optional[np.ndarray]:
+        """Get current frame.
+
+        Args:
+            raw: If True, get raw frame without fisheye correction or processing
+        """
+        return self._module.get_frame(processed=not raw)
 
     def get_statistics(self) -> dict:
         """Get module statistics."""
@@ -200,15 +211,15 @@ async def get_vision_module(
         # Configure enhanced camera with fisheye correction and preprocessing
         camera_config = EnhancedCameraConfig(
             device_id=0,
-            resolution=(1920, 1080),
+            resolution=None,  # Auto-detect camera's native resolution
             fps=30,
             enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists
             calibration_file=calibration_path if enable_fisheye else None,
-            enable_table_crop=True,  # Auto-crop to table boundaries
-            enable_preprocessing=True,
+            enable_table_crop=False,  # Disabled for testing - was cropping to 5x5!
+            enable_preprocessing=False,  # Disable preprocessing to preserve natural colors
             brightness=0,
             contrast=1.0,
-            enable_clahe=True,
+            enable_clahe=False,  # CLAHE was washing out colors
             clahe_clip_limit=2.0,
             clahe_grid_size=8,
             buffer_size=1,
@@ -245,6 +256,9 @@ async def get_vision_module(
             )
             logger.info(
                 "[get_vision_module] EnhancedCameraModule created with WebSocket integration!"
+            )
+            logger.info(
+                f"[get_vision_module] Camera resolution: {enhanced_module.config.resolution}"
             )
 
             # Wrap in compatibility adapter
@@ -287,6 +301,7 @@ async def generate_mjpeg_stream(
     max_fps: int = 30,
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
+    raw: bool = False,
 ) -> bytes:
     """Generate MJPEG stream from camera frames.
 
@@ -296,6 +311,7 @@ async def generate_mjpeg_stream(
         max_fps: Maximum frame rate
         max_width: Maximum frame width for scaling
         max_height: Maximum frame height for scaling
+        raw: If True, stream raw frames without fisheye correction
 
     Yields:
         MJPEG frame data
@@ -338,7 +354,7 @@ async def generate_mjpeg_stream(
 
                 # Get latest frame from vision module with downsampling
                 logger.debug(f"Getting frame for client {client_id}")
-                frame = vision_module.get_frame_for_streaming(scale=0.5)
+                frame = vision_module.get_frame_for_streaming(scale=0.5, raw=raw)
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(0.01)
@@ -479,6 +495,87 @@ async def video_stream(
         raise HTTPException(
             status_code=500,
             detail=f"Unable to initialize video stream: {str(e)}",
+        )
+
+
+@router.get("/video/raw")
+async def video_stream_raw(
+    request: Request,
+    quality: int = Query(80, ge=1, le=100, description="JPEG quality (1-100)"),
+    fps: int = Query(30, ge=1, le=60, description="Maximum frame rate"),
+    width: Optional[int] = Query(
+        None, ge=160, le=3840, description="Maximum frame width"
+    ),
+    height: Optional[int] = Query(
+        None, ge=120, le=2160, description="Maximum frame height"
+    ),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
+) -> StreamingResponse:
+    """Live RAW video streaming endpoint (no fisheye correction or processing).
+
+    Provides real-time video stream from the camera WITHOUT any fisheye correction
+    or image processing. Useful for debugging and comparing raw vs corrected streams.
+
+    Query Parameters:
+        quality: JPEG compression quality (1-100, default: 80)
+        fps: Maximum frame rate (1-60, default: 30)
+        width: Maximum frame width for scaling (optional)
+        height: Maximum frame height for scaling (optional)
+
+    Returns:
+        Streaming response with MJPEG video data (raw, uncorrected)
+
+    Headers:
+        Content-Type: multipart/x-mixed-replace; boundary=frame
+        Cache-Control: no-cache
+        Connection: close
+    """
+    try:
+        # Check camera status
+        camera_status = vision_module.camera.get_status()
+        if camera_status == CameraStatus.ERROR:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Camera is in error state (status: {camera_status.value})",
+            )
+
+        if camera_status == CameraStatus.DISCONNECTED:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Camera is not connected (status: {camera_status.value})",
+            )
+
+        logger.info(
+            f"Starting RAW video stream: quality={quality}, fps={fps}, size={width}x{height}"
+        )
+
+        # Create streaming response with raw=True
+        return StreamingResponse(
+            generate_mjpeg_stream(
+                vision_module=vision_module,
+                quality=quality,
+                max_fps=fps,
+                max_width=width,
+                max_height=height,
+                raw=True,  # Get raw frames without fisheye correction
+            ),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "Connection": "close",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"RAW video stream setup failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize RAW video stream: {str(e)}",
         )
 
 
@@ -742,4 +839,91 @@ async def get_single_frame(
         raise HTTPException(
             status_code=500,
             detail=f"Error capturing single frame: {str(e)}",
+        )
+
+
+@router.get("/video/frame/raw")
+async def get_single_frame_raw(
+    quality: int = Query(90, ge=1, le=100, description="JPEG quality (1-100)"),
+    width: Optional[int] = Query(
+        None, ge=160, le=3840, description="Maximum frame width"
+    ),
+    height: Optional[int] = Query(
+        None, ge=120, le=2160, description="Maximum frame height"
+    ),
+    vision_module: CameraModuleAdapter = Depends(get_vision_module),
+):
+    """Get a single RAW frame from the camera as JPEG (no fisheye correction).
+
+    Captures and returns a single frame from the camera WITHOUT any fisheye
+    correction or processing. Useful for debugging and comparing raw vs corrected frames.
+
+    Query Parameters:
+        quality: JPEG compression quality (1-100, default: 90)
+        width: Maximum frame width for scaling (optional)
+        height: Maximum frame height for scaling (optional)
+
+    Returns:
+        JPEG image data (raw, uncorrected)
+    """
+    try:
+        # Camera should already be started by lazy init
+        if not vision_module.camera.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="Camera is not connected",
+            )
+
+        # Get current RAW frame (no fisheye correction)
+        frame = vision_module.get_current_frame(raw=True)
+        if frame is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Camera is not providing frames",
+            )
+
+        # Resize frame if requested
+        if width or height:
+            h, w = frame.shape[:2]
+
+            # Calculate scaling factor
+            scale_x = width / w if width else 1.0
+            scale_y = height / h if height else 1.0
+            scale = min(scale_x, scale_y)
+
+            if scale < 1.0:
+                new_width = int(w * scale)
+                new_height = int(h * scale)
+                frame = cv2.resize(frame, (new_width, new_height))
+
+        # Encode as JPEG
+        encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+        success, buffer = cv2.imencode(".jpg", frame, encode_params)
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Unable to encode frame as JPEG",
+            )
+
+        # Return JPEG data
+        from fastapi.responses import Response
+
+        return Response(
+            content=buffer.tobytes(),
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Single RAW frame capture failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error capturing single RAW frame: {str(e)}",
         )
