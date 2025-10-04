@@ -131,7 +131,7 @@ class EnhancedCameraModule:
                     raise RuntimeError(
                         f"Invalid camera matrix shape: {camera_matrix.shape}, expected (3, 3)"
                     )
-                if dist_coeffs.shape[0] < 4:
+                if dist_coeffs.size < 4:
                     raise RuntimeError(
                         f"Invalid distortion coefficients shape: {dist_coeffs.shape}, expected at least 4 elements"
                     )
