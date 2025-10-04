@@ -1,29 +1,18 @@
-# OpenCV YAML 1.0
-# Default camera calibration file
-# These are identity/placeholder values until real calibration is performed
-# To perform calibration, use the calibration wizard in the web interface
-
+%YAML:1.0
+---
 camera_matrix: !!opencv-matrix
    rows: 3
    cols: 3
    dt: d
-   data: [ 1000., 0., 960.,
-           0., 1000., 540.,
-           0., 0., 1. ]
-
+   data: [ 1000., 0., 960., 0., 1000., 540., 0., 0., 1. ]
 dist_coeffs: !!opencv-matrix
    rows: 1
    cols: 4
    dt: d
    data: [ 0., 0., 0., 0. ]
-
-# Camera resolution used during calibration
 image_width: 1920
 image_height: 1080
-
-# Calibration quality metrics
-calibration_error: 0.0
-num_images_used: 0
-
-# Notes
+calibration_error: 0.
+calibration_date: "unknown"
+calibration_method: "placeholder"
 notes: "Default placeholder calibration - replace with actual calibration data"
