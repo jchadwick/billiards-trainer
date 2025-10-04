@@ -29,12 +29,6 @@ const navigationItems: NavItem[] = [
     path: '/configuration',
   },
   {
-    id: 'system-management',
-    label: 'System Management',
-    icon: 'system-management',
-    path: '/system-management',
-  },
-  {
     id: 'diagnostics',
     label: 'Diagnostics',
     icon: 'diagnostics',

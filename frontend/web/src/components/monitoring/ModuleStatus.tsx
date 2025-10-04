@@ -10,7 +10,7 @@ import { StatusIndicator } from './StatusIndicator';
 import { StatCard } from './StatCard';
 import { ProgressBar } from './ProgressBar';
 import { AlertPanel } from './AlertPanel';
-import { apiClient } from '../../services/api-client';
+import { apiClient } from '../../api/client';
 import type { Alert } from '../../types/monitoring';
 import type { ComponentHealth, HealthStatus } from '../../types/api';
 

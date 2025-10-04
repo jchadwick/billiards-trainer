@@ -9,7 +9,7 @@ import { useStores } from '../../stores/context';
 import { StatusIndicator } from './StatusIndicator';
 import { ProgressBar } from './ProgressBar';
 import { StatCard } from './StatCard';
-import { apiClient } from '../../services/api-client';
+import { apiClient } from '../../api/client';
 import type { ComponentHealth, HealthStatus } from '../../types/api';
 
 interface HealthTest {

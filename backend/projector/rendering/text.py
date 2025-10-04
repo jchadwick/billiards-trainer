@@ -113,29 +113,8 @@ class FontManager:
         if PYGAME_AVAILABLE:
             try:
                 pygame.freetype.init()
-                self._discover_system_fonts()
             except Exception as e:
                 logger.warning(f"Failed to initialize pygame fonts: {e}")
-
-    def _discover_system_fonts(self) -> None:
-        """Discover available system fonts."""
-        try:
-            if PYGAME_AVAILABLE:
-                # Get system font paths
-                system_fonts = pygame.freetype.get_fonts()
-                for font_name in system_fonts[
-                    :50
-                ]:  # Limit to prevent excessive loading
-                    try:
-                        font_path = pygame.freetype.match_font(font_name)
-                        if font_path:
-                            self._font_paths[font_name.lower()] = font_path
-                    except Exception:
-                        continue
-
-                logger.debug(f"Discovered {len(self._font_paths)} system fonts")
-        except Exception as e:
-            logger.warning(f"Font discovery failed: {e}")
 
     def get_font(self, descriptor: FontDescriptor) -> Optional[object]:
         """Get or load a font based on descriptor.
@@ -594,14 +573,6 @@ class TextRenderer:
         return TextStyle(
             font=font, color=color, background_color=background, align=align
         )
-
-    def get_font_families(self) -> list[str]:
-        """Get list of available font families.
-
-        Returns:
-            List of font family names
-        """
-        return list(self.font_manager._font_paths.keys())
 
     def clear_cache(self) -> None:
         """Clear text rendering cache."""

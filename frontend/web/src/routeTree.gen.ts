@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TestVideoRouteImport } from './routes/test-video'
-import { Route as SystemManagementRouteImport } from './routes/system-management'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as DiagnosticsRouteImport } from './routes/diagnostics'
 import { Route as ConfigurationRouteImport } from './routes/configuration'
@@ -20,11 +19,6 @@ import { Route as IndexRouteImport } from './routes/index'
 const TestVideoRoute = TestVideoRouteImport.update({
   id: '/test-video',
   path: '/test-video',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SystemManagementRoute = SystemManagementRouteImport.update({
-  id: '/system-management',
-  path: '/system-management',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LiveRoute = LiveRouteImport.update({
@@ -59,7 +53,6 @@ export interface FileRoutesByFullPath {
   '/configuration': typeof ConfigurationRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/system-management': typeof SystemManagementRoute
   '/test-video': typeof TestVideoRoute
 }
 export interface FileRoutesByTo {
@@ -68,7 +61,6 @@ export interface FileRoutesByTo {
   '/configuration': typeof ConfigurationRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/system-management': typeof SystemManagementRoute
   '/test-video': typeof TestVideoRoute
 }
 export interface FileRoutesById {
@@ -78,7 +70,6 @@ export interface FileRoutesById {
   '/configuration': typeof ConfigurationRoute
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/system-management': typeof SystemManagementRoute
   '/test-video': typeof TestVideoRoute
 }
 export interface FileRouteTypes {
@@ -89,7 +80,6 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/diagnostics'
     | '/live'
-    | '/system-management'
     | '/test-video'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -98,7 +88,6 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/diagnostics'
     | '/live'
-    | '/system-management'
     | '/test-video'
   id:
     | '__root__'
@@ -107,7 +96,6 @@ export interface FileRouteTypes {
     | '/configuration'
     | '/diagnostics'
     | '/live'
-    | '/system-management'
     | '/test-video'
   fileRoutesById: FileRoutesById
 }
@@ -117,7 +105,6 @@ export interface RootRouteChildren {
   ConfigurationRoute: typeof ConfigurationRoute
   DiagnosticsRoute: typeof DiagnosticsRoute
   LiveRoute: typeof LiveRoute
-  SystemManagementRoute: typeof SystemManagementRoute
   TestVideoRoute: typeof TestVideoRoute
 }
 
@@ -128,13 +115,6 @@ declare module '@tanstack/react-router' {
       path: '/test-video'
       fullPath: '/test-video'
       preLoaderRoute: typeof TestVideoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/system-management': {
-      id: '/system-management'
-      path: '/system-management'
-      fullPath: '/system-management'
-      preLoaderRoute: typeof SystemManagementRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/live': {
@@ -181,7 +161,6 @@ const rootRouteChildren: RootRouteChildren = {
   ConfigurationRoute: ConfigurationRoute,
   DiagnosticsRoute: DiagnosticsRoute,
   LiveRoute: LiveRoute,
-  SystemManagementRoute: SystemManagementRoute,
   TestVideoRoute: TestVideoRoute,
 }
 export const routeTree = rootRouteImport

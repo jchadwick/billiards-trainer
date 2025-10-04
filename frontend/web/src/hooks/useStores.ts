@@ -19,7 +19,6 @@ export const useSystemStore = () => useStores().system
 export const useGameStore = () => useStores().game
 export const useVisionStore = () => useStores().vision
 export const useConfigStore = () => useStores().config
-export const useAuthStore = () => useStores().auth
 
 export const StoreProvider = StoreContext.Provider
 export { rootStore }

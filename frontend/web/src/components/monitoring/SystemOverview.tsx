@@ -10,7 +10,7 @@ import { StatCard } from './StatCard';
 import { StatusIndicator } from './StatusIndicator';
 import { AlertPanel } from './AlertPanel';
 import { MetricsChart } from './MetricsChart';
-import { apiClient } from '../../services/api-client';
+import { apiClient } from '../../api/client';
 import type { Alert, MetricPoint } from '../../types/monitoring';
 import type { HealthResponse, SystemMetrics } from '../../types/api';
 

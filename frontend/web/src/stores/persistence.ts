@@ -111,8 +111,6 @@ export class PersistenceManager {
         console.log('Restored UI state from persisted state');
       }
 
-      // Note: Auth state is restored automatically by AuthStore constructor
-
       console.log('Successfully loaded persisted state');
       return true;
     } catch (error) {
@@ -243,7 +241,6 @@ export class PersistenceManager {
       state !== null &&
       typeof state.version === 'string' &&
       (state.config === undefined || typeof state.config === 'object') &&
-      (state.auth === undefined || typeof state.auth === 'object') &&
       (state.ui === undefined || typeof state.ui === 'object')
     );
   }

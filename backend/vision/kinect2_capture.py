@@ -553,7 +553,7 @@ class Kinect2Capture:
             logger.error(f"Depth to 3D conversion error: {e}")
             return None
 
-    def __enter__(self) -> "PerformanceTimer":
+    def __enter__(self) -> "Kinect2Capture":
         """Context manager entry."""
         self.start_capture()
         return self

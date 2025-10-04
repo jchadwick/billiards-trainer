@@ -601,59 +601,6 @@ class TrajectoryRenderer:
         radius = self.config.collision_marker_radius
         self.renderer.draw_circle(pos, radius, color, filled=False, outline_width=3.0)
 
-    def _render_star_marker(self, pos: Point2D, color: Color) -> None:
-        """Render star-shaped collision marker."""
-        radius = self.config.collision_marker_radius
-
-        # Draw lines in star pattern
-        for angle in [0, 45, 90, 135]:
-            angle_rad = math.radians(angle)
-            start = Point2D(
-                pos.x + radius * 0.3 * math.cos(angle_rad),
-                pos.y + radius * 0.3 * math.sin(angle_rad),
-            )
-            end = Point2D(
-                pos.x + radius * math.cos(angle_rad),
-                pos.y + radius * math.sin(angle_rad),
-            )
-            self.renderer.draw_line(start, end, color)
-
-    def _render_power_arrow(
-        self, pos: Point2D, direction: float, magnitude: float, color: Color
-    ) -> None:
-        """Render arrow-style power indicator."""
-        # Clamp magnitude for reasonable arrow size
-        arrow_length = min(magnitude, 50.0)
-
-        end_x = pos.x + arrow_length * math.cos(direction)
-        end_y = pos.y + arrow_length * math.sin(direction)
-        end_pos = Point2D(end_x, end_y)
-
-        self.renderer.draw_line(pos, end_pos, color, style=LineStyle.ARROW)
-
-    def _render_power_bar(self, pos: Point2D, magnitude: float, color: Color) -> None:
-        """Render bar-style power indicator."""
-        bar_width = min(magnitude * 10, 100.0)
-        bar_height = 8.0
-
-        # Draw background
-        bg_color = Colors.BLACK.with_alpha(0.3)
-        self.renderer.draw_rectangle(
-            pos.x - 50, pos.y - bar_height / 2, 100, bar_height, bg_color
-        )
-
-        # Draw power bar
-        self.renderer.draw_rectangle(
-            pos.x - 50, pos.y - bar_height / 2, bar_width, bar_height, color
-        )
-
-    def _render_power_circle(
-        self, pos: Point2D, magnitude: float, color: Color
-    ) -> None:
-        """Render circular power indicator."""
-        radius = min(magnitude * 5, 30.0)
-        self.renderer.draw_circle(pos, radius, color, filled=False, outline_width=3.0)
-
     def _render_power_gradient(
         self, pos: Point2D, direction: float, magnitude: float, color: Color
     ) -> None:

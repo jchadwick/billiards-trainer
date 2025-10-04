@@ -3,7 +3,6 @@
  */
 
 import { ApiError, isApiError } from './api-client';
-import { AuthError } from './auth-service';
 import { ConnectionState } from './websocket-client';
 
 export interface ErrorContext {
@@ -157,12 +156,13 @@ export class ErrorHandlingService {
     }, this.getApiErrorSeverity(error));
   }
 
-  reportAuthError(error: AuthError, context: Partial<ErrorContext> = {}): string {
-    return this.reportError(error, {
-      ...context,
-      component: context.component || 'auth-service',
-    }, 'high');
-  }
+  // Auth functionality removed - authentication not implemented per specs
+  // reportAuthError(error: AuthError, context: Partial<ErrorContext> = {}): string {
+  //   return this.reportError(error, {
+  //     ...context,
+  //     component: context.component || 'auth-service',
+  //   }, 'high');
+  // }
 
   reportWebSocketError(
     error: any,
@@ -490,7 +490,8 @@ export class ErrorHandlingService {
 
   private determineErrorType(error: any): ErrorType {
     if (isApiError(error)) return 'api';
-    if (error instanceof AuthError) return 'auth';
+    // Auth removed - authentication not implemented per specs
+    // if (error instanceof AuthError) return 'auth';
     if (error.name === 'NetworkError') return 'network';
     if (error.name === 'TimeoutError') return 'timeout';
     if (error.name === 'ValidationError') return 'validation';
@@ -503,9 +504,10 @@ export class ErrorHandlingService {
     if (isApiError(error)) {
       return this.getApiErrorSeverity(error);
     }
-    if (error instanceof AuthError) {
-      return 'high';
-    }
+    // Auth removed - authentication not implemented per specs
+    // if (error instanceof AuthError) {
+    //   return 'high';
+    // }
     if (error.name === 'NetworkError') {
       return 'medium';
     }
@@ -542,7 +544,8 @@ export class ErrorHandlingService {
 
   private extractErrorCode(error: any): string | undefined {
     if (isApiError(error)) return error.code;
-    if (error instanceof AuthError) return error.code;
+    // Auth removed - authentication not implemented per specs
+    // if (error instanceof AuthError) return error.code;
     if (error?.code) return error.code;
     return undefined;
   }
@@ -659,9 +662,10 @@ export function reportApiError(error: ApiError, context?: Partial<ErrorContext>)
   return errorHandler.reportApiError(error, context);
 }
 
-export function reportAuthError(error: AuthError, context?: Partial<ErrorContext>): string {
-  return errorHandler.reportAuthError(error, context);
-}
+// Auth functionality removed - authentication not implemented per specs
+// export function reportAuthError(error: AuthError, context?: Partial<ErrorContext>): string {
+//   return errorHandler.reportAuthError(error, context);
+// }
 
 export function withRetry<T>(
   operation: () => Promise<T>,

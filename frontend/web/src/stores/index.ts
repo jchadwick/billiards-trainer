@@ -19,7 +19,6 @@ export { SystemStore } from './SystemStore';
 export { GameStore } from './GameStore';
 export { VisionStore } from './VisionStore';
 export { ConfigStore } from './ConfigStore';
-export { AuthStore } from './AuthStore';
 export { UIStore } from './UIStore';
 export { RootStore, getRootStore, rootStore } from './RootStore';
 
@@ -29,7 +28,6 @@ export {
   gameStore,
   visionStore,
   configStore,
-  authStore,
   uiStore
 } from './RootStore';
 
@@ -50,7 +48,6 @@ if (process.env.NODE_ENV === 'development') {
     game: gameStore,
     vision: visionStore,
     config: configStore,
-    auth: authStore,
     ui: uiStore,
     root: rootStore
   };

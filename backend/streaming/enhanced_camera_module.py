@@ -15,7 +15,6 @@ import cv2
 import numpy as np
 
 from ..vision.calibration.camera import CameraCalibrator
-from ..vision.preprocessing import ImagePreprocessor
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +92,6 @@ class EnhancedCameraModule:
             self._load_calibration()
 
         # Initialize preprocessor
-        self.preprocessor = None
         if config.enable_preprocessing:
             self._init_preprocessor()
 

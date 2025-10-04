@@ -145,17 +145,6 @@ def get_log_directory() -> Path:
     return Path(os.getenv("LOG_DIR", "logs"))
 
 
-def set_log_level(logger_name: str, level: int) -> None:
-    """Set log level for a specific logger.
-
-    Args:
-        logger_name: Name of the logger
-        level: Logging level (e.g., logging.DEBUG, logging.INFO)
-    """
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(level)
-
-
 def configure_uvicorn_logging() -> None:
     """Configure uvicorn logging to work with our logging setup."""
     # Disable uvicorn's default access logging
@@ -223,17 +212,3 @@ def auto_setup_logging() -> None:
         setup_testing_logging()
     else:
         setup_development_logging()
-
-
-# Example usage and testing
-if __name__ == "__main__":
-    # Test the logging setup
-    auto_setup_logging()
-
-    logger = get_logger(__name__)
-
-    logger.debug("This is a debug message")
-    logger.info("This is an info message")
-    logger.warning("This is a warning message")
-    logger.error("This is an error message")
-    logger.critical("This is a critical message")
