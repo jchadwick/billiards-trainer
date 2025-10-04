@@ -17,18 +17,8 @@ from pydantic import BaseModel, Field
 from ..dependencies import ApplicationState, get_app_state
 from ..models.responses import BaseResponse
 
-# Try to import system orchestrator with fallback
-try:
-    from ...system.orchestrator import SystemOrchestrator as _SystemOrchestrator
-
-    SystemOrchestrator: Optional[type[_SystemOrchestrator]] = _SystemOrchestrator
-except ImportError:
-    try:
-        from system.orchestrator import SystemOrchestrator as _SystemOrchestrator
-
-        SystemOrchestrator: Optional[type[_SystemOrchestrator]] = _SystemOrchestrator
-    except ImportError:
-        SystemOrchestrator = None
+# SystemOrchestrator was removed - functionality moved to health_monitor
+SystemOrchestrator = None
 
 logger = logging.getLogger(__name__)
 

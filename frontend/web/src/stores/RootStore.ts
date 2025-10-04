@@ -5,11 +5,8 @@ import { VisionStore } from './VisionStore';
 import { ConfigStore } from './ConfigStore';
 import { UIStore } from './UIStore';
 import { ConnectionStore } from './ConnectionStore';
-import { CalibrationStore } from './calibration-store';
 import { VideoStore } from './VideoStore';
-import { ApiService, createApiService } from '../services/api-service';
 import type { PersistedState } from './types';
-import type { CalibrationStartRequest, CalibrationStartResponse, CalibrationPointResponse, CalibrationApplyResponse } from '../types/api';
 
 export class RootStore {
   // Core stores
@@ -19,49 +16,13 @@ export class RootStore {
   config: ConfigStore;
   ui: UIStore;
   connection: ConnectionStore;
-  calibrationStore: CalibrationStore;
   videoStore: VideoStore;
-
-  // Real API Service for calibration and other backend operations
-  apiService: ApiService;
 
   // Store initialization state
   isInitialized: boolean = false;
   initializationError: string | null = null;
 
   constructor() {
-    // Auto-detect API URLs from current window location
-    const getApiBaseUrl = () => {
-      if (process.env.REACT_APP_API_BASE_URL) {
-        return process.env.REACT_APP_API_BASE_URL;
-      }
-      if (typeof window !== 'undefined') {
-        return `${window.location.origin}/api/v1`;
-      }
-      return 'http://localhost:8000/api/v1';
-    };
-
-    const getWsBaseUrl = () => {
-      if (process.env.REACT_APP_WS_BASE_URL) {
-        return process.env.REACT_APP_WS_BASE_URL;
-      }
-      if (typeof window !== 'undefined') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws`;
-      }
-      return 'ws://localhost:8000/ws';
-    };
-
-    // Initialize API service first as other stores may depend on it
-    this.apiService = createApiService({
-      apiBaseUrl: getApiBaseUrl(),
-      wsBaseUrl: getWsBaseUrl(),
-      enableCaching: true,
-      enableRequestDeduplication: true,
-      autoConnectWebSocket: true,
-      defaultStreamSubscriptions: ['game_state', 'detection_frame', 'system_alerts']
-    });
-
     // Initialize all stores
     this.system = new SystemStore();
     this.game = new GameStore();
@@ -69,7 +30,6 @@ export class RootStore {
     this.config = new ConfigStore();
     this.ui = new UIStore();
     this.connection = new ConnectionStore();
-    this.calibrationStore = new CalibrationStore(this);
     this.videoStore = new VideoStore();
 
     makeAutoObservable(this, {
@@ -79,7 +39,6 @@ export class RootStore {
       config: false,
       ui: false,
       connection: false,
-      calibrationStore: false,
       videoStore: false
     });
 
@@ -299,8 +258,6 @@ export class RootStore {
       if (persisted.ui) {
         this.ui.restoreUIState(persisted.ui);
       }
-
-      // Note: Auth tokens are restored automatically by AuthStore constructor
     } catch (error) {
       console.error('Failed to load persisted state:', error);
       // Clear corrupted state

@@ -259,7 +259,6 @@ export interface SystemUpdateMessage extends WebSocketMessage {
 // Store persistence types
 export interface PersistedState {
   config: AppConfig;
-  auth: Pick<AuthState, 'token' | 'refreshToken' | 'expiresAt'>;
   ui: Pick<UIState, 'activeTab' | 'sidebarOpen'>;
   version: string;
 }

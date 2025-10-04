@@ -200,118 +200,6 @@ class TrajectorySimplifier:
         return numerator / denominator
 
 
-class LevelOfDetailManager:
-    """Manages level of detail for trajectory rendering based on distance and performance."""
-
-    def __init__(self, viewport_width: float = 1920.0, viewport_height: float = 1080.0):
-        """Initialize LOD manager.
-
-        Args:
-            viewport_width: Viewport width in pixels
-            viewport_height: Viewport height in pixels
-        """
-        self.viewport_width = viewport_width
-        self.viewport_height = viewport_height
-        self.viewport_center = Vector2D(viewport_width / 2, viewport_height / 2)
-
-    def get_lod_level(
-        self, trajectory: Trajectory, camera_position: Optional[Vector2D] = None
-    ) -> int:
-        """Get level of detail for trajectory based on distance and importance.
-
-        Args:
-            trajectory: Trajectory to evaluate
-            camera_position: Camera position (uses viewport center if None)
-
-        Returns:
-            LOD level (0 = highest detail, higher = lower detail)
-        """
-        if not trajectory.points:
-            return 0
-
-        camera_pos = camera_position or self.viewport_center
-
-        # Calculate average distance from camera to trajectory
-        avg_distance = self._calculate_average_distance(trajectory, camera_pos)
-
-        # Determine LOD based on distance and trajectory importance
-        if trajectory.success_probability > 0.8:
-            # High success probability - keep high detail
-            importance_modifier = -1
-        elif trajectory.success_probability < 0.3:
-            # Low success probability - can reduce detail
-            importance_modifier = 1
-        else:
-            importance_modifier = 0
-
-        # Distance-based LOD
-        if avg_distance < 100:
-            base_lod = 0
-        elif avg_distance < 300:
-            base_lod = 1
-        elif avg_distance < 600:
-            base_lod = 2
-        else:
-            base_lod = 3
-
-        return max(0, base_lod + importance_modifier)
-
-    def apply_lod(self, trajectory: Trajectory, lod_level: int) -> Trajectory:
-        """Apply level of detail to trajectory.
-
-        Args:
-            trajectory: Original trajectory
-            lod_level: LOD level to apply
-
-        Returns:
-            LOD-optimized trajectory
-        """
-        if lod_level == 0 or not trajectory.points:
-            return trajectory  # No optimization needed
-
-        # Create copy for modification
-        import copy
-
-        optimized_trajectory = copy.deepcopy(trajectory)
-
-        # Apply point reduction based on LOD level
-        reduction_factors = {1: 0.8, 2: 0.6, 3: 0.4, 4: 0.2}
-        reduction_factor = reduction_factors.get(lod_level, 0.2)
-
-        target_points = max(10, int(len(trajectory.points) * reduction_factor))
-
-        if len(trajectory.points) > target_points:
-            # Use uniform sampling for simplicity
-            step = len(trajectory.points) / target_points
-            selected_indices = [int(i * step) for i in range(target_points)]
-
-            # Always include the last point
-            if selected_indices[-1] != len(trajectory.points) - 1:
-                selected_indices[-1] = len(trajectory.points) - 1
-
-            optimized_trajectory.points = [
-                trajectory.points[i] for i in selected_indices
-            ]
-
-        return optimized_trajectory
-
-    def _calculate_average_distance(
-        self, trajectory: Trajectory, camera_position: Vector2D
-    ) -> float:
-        """Calculate average distance from camera to trajectory points."""
-        if not trajectory.points:
-            return 0.0
-
-        total_distance = 0.0
-        for point in trajectory.points:
-            dx = point.position.x - camera_position.x
-            dy = point.position.y - camera_position.y
-            distance = (dx**2 + dy**2) ** 0.5
-            total_distance += distance
-
-        return total_distance / len(trajectory.points)
-
-
 class PerformanceMonitor:
     """Monitors and manages trajectory rendering performance."""
 
@@ -338,7 +226,7 @@ class PerformanceMonitor:
         # Optimization components
         self.settings = OptimizationSettings()
         self.simplifier = TrajectorySimplifier()
-        self.lod_manager = LevelOfDetailManager()
+        # LOD manager removed - was unused
 
         # Auto-optimization state
         self._optimization_level = PerformanceLevel.BALANCED

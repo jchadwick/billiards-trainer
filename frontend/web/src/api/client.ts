@@ -419,59 +419,6 @@ export class ApiClient {
     return new WebSocket(url);
   }
 
-  // Authentication endpoints (placeholder for when auth is implemented)
-  async login(username: string, password: string): Promise<ApiResponse<any>> {
-    try {
-      const response = await fetch(`${this.baseURL}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      });
-
-      return this.handleResponse(response);
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
-    }
-  }
-
-  async logout(): Promise<ApiResponse<any>> {
-    try {
-      const response = await fetch(`${this.baseURL}/api/v1/auth/logout`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
-      return this.handleResponse(response);
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
-    }
-  }
-
-  async refreshToken(): Promise<ApiResponse<any>> {
-    try {
-      const response = await fetch(`${this.baseURL}/api/v1/auth/refresh`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
-      return this.handleResponse(response);
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
-    }
-  }
-
   // Vision and Calibration endpoints
   async performCalibration(calibrationData: any): Promise<ApiResponse<any>> {
     try {

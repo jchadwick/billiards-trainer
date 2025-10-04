@@ -6,7 +6,6 @@
 import React, { useState, useEffect } from 'react';
 import { observer } from 'mobx-react-lite';
 import {
-  useAuth,
   useGameState,
   useVision,
   useConfig,
@@ -17,70 +16,10 @@ import {
   useResponsive
 } from './context';
 
-// 1. Authentication Example
-export const LoginExample = observer(() => {
-  const { isAuthenticated, user, login, logout, isLoading, error } = useAuth();
-  const [credentials, setCredentials] = useState({ username: '', password: '' });
-
-  if (isAuthenticated && user) {
-    return (
-      <div className="p-4 bg-green-50 border border-green-200 rounded">
-        <h3 className="text-green-800 font-bold">Welcome, {user.username}!</h3>
-        <p className="text-green-600">Email: {user.email}</p>
-        <p className="text-green-600">Roles: {user.roles.join(', ')}</p>
-        <button
-          onClick={() => logout()}
-          className="mt-2 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-        >
-          Logout
-        </button>
-      </div>
-    );
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await login(credentials);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="p-4 space-y-4 bg-white border rounded">
-      <h3 className="text-lg font-bold">Login</h3>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700">
-          {error}
-        </div>
-      )}
-
-      <input
-        type="text"
-        placeholder="Username (try: admin/admin or user/user)"
-        value={credentials.username}
-        onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
-        className="w-full p-2 border rounded"
-        disabled={isLoading}
-      />
-
-      <input
-        type="password"
-        placeholder="Password"
-        value={credentials.password}
-        onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
-        className="w-full p-2 border rounded"
-        disabled={isLoading}
-      />
-
-      <button
-        type="submit"
-        disabled={isLoading}
-        className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-      >
-        {isLoading ? 'Logging in...' : 'Login'}
-      </button>
-    </form>
-  );
-});
+// 1. Authentication Example - REMOVED (Auth not implemented per specs)
+// export const LoginExample = observer(() => {
+//   ... component code removed ...
+// });
 
 // 2. Game State Example
 export const GameStateExample = observer(() => {
@@ -759,19 +698,7 @@ export const ResponsiveExample = observer(() => {
 
 // 8. Combined Example Dashboard
 export const ExampleDashboard = observer(() => {
-  const { isAuthenticated } = useAuth();
   const { open, close, modals } = useModals();
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-100 p-8">
-        <div className="max-w-md mx-auto">
-          <h1 className="text-3xl font-bold text-center mb-8">Billiards Trainer</h1>
-          <LoginExample />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
@@ -779,7 +706,6 @@ export const ExampleDashboard = observer(() => {
         <h1 className="text-3xl font-bold mb-8">Billiards Trainer - MobX Examples</h1>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <LoginExample />
           <SystemStatusExample />
           <GameStateExample />
           <VisionExample />

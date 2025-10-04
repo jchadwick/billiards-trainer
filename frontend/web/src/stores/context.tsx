@@ -5,7 +5,6 @@ import { SystemStore } from './SystemStore';
 import { GameStore } from './GameStore';
 import { VisionStore } from './VisionStore';
 import { ConfigStore } from './ConfigStore';
-import { AuthStore } from './AuthStore';
 import { UIStore } from './UIStore';
 
 // Create contexts
@@ -45,7 +44,6 @@ export function useStores() {
     gameStore: rootStore.game,
     visionStore: rootStore.vision,
     configStore: rootStore.config,
-    authStore: rootStore.auth,
     uiStore: rootStore.ui,
     connectionStore: rootStore.connection,
   };
@@ -72,30 +70,12 @@ export function useConfigStore(): ConfigStore {
   return rootStore.config;
 }
 
-export function useAuthStore(): AuthStore {
-  const rootStore = useRootStore();
-  return rootStore.auth;
-}
-
 export function useUIStore(): UIStore {
   const rootStore = useRootStore();
   return rootStore.ui;
 }
 
 // Specialized hooks for common use cases
-export function useAuth() {
-  const authStore = useAuthStore();
-  return {
-    isAuthenticated: authStore.isAuthenticated,
-    user: authStore.currentUser,
-    login: authStore.login.bind(authStore),
-    logout: authStore.logout.bind(authStore),
-    register: authStore.register.bind(authStore),
-    isLoading: authStore.isLoggingIn || authStore.isRegistering,
-    error: authStore.loginError || authStore.registrationError
-  };
-}
-
 export function useNotifications() {
   const uiStore = useUIStore();
   return {

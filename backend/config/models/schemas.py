@@ -1221,44 +1221,6 @@ class ApplicationConfig(BaseConfig):
 
 
 # =============================================================================
-# JSON Schema Generation
-# =============================================================================
-
-
-def generate_json_schemas() -> dict[str, dict[str, Any]]:
-    """Generate JSON schemas for all configuration classes."""
-    schemas = {}
-
-    # Individual module schemas
-    schemas["system"] = SystemConfig.model_json_schema()
-    schemas["vision"] = VisionConfig.model_json_schema()
-    schemas["core"] = CoreConfig.model_json_schema()
-    schemas["api"] = APIConfig.model_json_schema()
-    schemas["projector"] = ProjectorConfig.model_json_schema()
-
-    # Complete application schema
-    schemas["application"] = ApplicationConfig.model_json_schema()
-
-    # Profile schema
-    schemas["profile"] = ConfigProfileEnhanced.model_json_schema()
-
-    return schemas
-
-
-def export_schemas(output_dir: Path = Path("schemas")) -> None:
-    """Export JSON schemas to files."""
-    import json
-
-    output_dir.mkdir(exist_ok=True)
-    schemas = generate_json_schemas()
-
-    for name, schema in schemas.items():
-        schema_file = output_dir / f"{name}.schema.json"
-        with schema_file.open("w") as f:
-            json.dump(schema, f, indent=2)
-
-
-# =============================================================================
 # Configuration Factory Functions
 # =============================================================================
 
@@ -1266,28 +1228,6 @@ def export_schemas(output_dir: Path = Path("schemas")) -> None:
 def create_default_config() -> ApplicationConfig:
     """Create a default application configuration."""
     return ApplicationConfig()
-
-
-def create_development_config() -> ApplicationConfig:
-    """Create a development configuration."""
-    config = create_default_config()
-    config.system.debug = True
-    config.system.logging.level = LogLevel.DEBUG
-    config.api.enable_docs = True
-    config.vision.debug = True
-    config.projector.debug = True
-    return config
-
-
-def create_production_config() -> ApplicationConfig:
-    """Create a production configuration."""
-    config = create_default_config()
-    config.system.debug = False
-    config.system.logging.level = LogLevel.INFO
-    config.api.enable_docs = False
-    config.api.network.ssl_enabled = True
-    config.system.performance.mode = PerformanceMode.HIGH
-    return config
 
 
 # Backward compatibility - keep existing aliases

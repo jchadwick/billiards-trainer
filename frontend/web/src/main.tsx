@@ -25,7 +25,6 @@ const router = createRouter({
   routeTree,
   context: {
     stores: rootStore,
-    auth: rootStore.auth,
   },
   defaultPreload: 'intent',
   scrollRestoration: true,

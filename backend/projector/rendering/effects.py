@@ -669,24 +669,6 @@ class EffectsSystem:
 
         return effect
 
-    def _create_pocket_attraction_effect(self, position: Point2D, **kwargs) -> Effect:
-        """Create pocket attraction effect."""
-        return Effect(
-            effect_type=EffectType.POCKET_ATTRACTION,
-            position=position,
-            start_time=time.time(),
-            duration=1.0,
-        )
-
-    def _create_uncertainty_cloud_effect(self, position: Point2D, **kwargs) -> Effect:
-        """Create uncertainty cloud effect."""
-        return Effect(
-            effect_type=EffectType.UNCERTAINTY_CLOUD,
-            position=position,
-            start_time=time.time(),
-            duration=2.0,
-        )
-
     # Rendering methods
 
     def _render_effect(self, effect: Effect) -> None:

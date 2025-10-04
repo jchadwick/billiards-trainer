@@ -227,56 +227,6 @@ class ColorUtils:
         return (r_comp, g_comp, b_comp, a)
 
     @staticmethod
-    def get_triadic_colors(
-        color: tuple[int, int, int, int],
-    ) -> list[tuple[int, int, int, int]]:
-        """Get triadic color scheme.
-
-        Args:
-            color: Base RGBA color tuple
-
-        Returns:
-            List of three triadic colors
-        """
-        r, g, b, a = color
-        h, s, v = ColorUtils.rgb_to_hsv(r, g, b)
-
-        colors = []
-        for offset in [0, 120, 240]:
-            h_tri = (h + offset) % 360
-            r_tri, g_tri, b_tri = ColorUtils.hsv_to_rgb(h_tri, s, v)
-            colors.append((r_tri, g_tri, b_tri, a))
-
-        return colors
-
-    @staticmethod
-    def get_analogous_colors(
-        color: tuple[int, int, int, int], count: int = 3, angle: float = 30
-    ) -> list[tuple[int, int, int, int]]:
-        """Get analogous color scheme.
-
-        Args:
-            color: Base RGBA color tuple
-            count: Number of analogous colors
-            angle: Angle between colors in degrees
-
-        Returns:
-            List of analogous colors
-        """
-        r, g, b, a = color
-        h, s, v = ColorUtils.rgb_to_hsv(r, g, b)
-
-        colors = []
-        start_offset = -(count - 1) * angle / 2
-
-        for i in range(count):
-            h_analog = (h + start_offset + i * angle) % 360
-            r_analog, g_analog, b_analog = ColorUtils.hsv_to_rgb(h_analog, s, v)
-            colors.append((r_analog, g_analog, b_analog, a))
-
-        return colors
-
-    @staticmethod
     def create_gradient(
         color1: tuple[int, int, int, int], color2: tuple[int, int, int, int], steps: int
     ) -> list[tuple[int, int, int, int]]:
@@ -517,30 +467,6 @@ class TrajectoryColors:
 # Convenience functions for common color operations
 
 
-def create_fade_effect(
-    color: tuple[int, int, int, int], steps: int, fade_to_transparent: bool = True
-) -> list[tuple[int, int, int, int]]:
-    """Create fade effect color sequence.
-
-    Args:
-        color: Base color
-        steps: Number of fade steps
-        fade_to_transparent: Whether to fade to transparent or black
-
-    Returns:
-        List of colors creating fade effect
-    """
-    if fade_to_transparent:
-        r, g, b, a = color
-        fade_colors = []
-        for i in range(steps):
-            alpha = int(a * (1.0 - i / (steps - 1)))
-            fade_colors.append((r, g, b, alpha))
-        return fade_colors
-    else:
-        return ColorUtils.create_gradient(color, (0, 0, 0, color[3]), steps)
-
-
 def get_high_contrast_text_color(
     background: tuple[int, int, int, int],
 ) -> tuple[int, int, int, int]:
@@ -557,34 +483,3 @@ def get_high_contrast_text_color(
         return (0, 0, 0, 255)  # Black text on light background
     else:
         return (255, 255, 255, 255)  # White text on dark background
-
-
-def apply_color_temperature(
-    color: tuple[int, int, int, int], temperature: float
-) -> tuple[int, int, int, int]:
-    """Apply color temperature adjustment.
-
-    Args:
-        color: Base color
-        temperature: Color temperature (0.0 = cool, 1.0 = warm)
-
-    Returns:
-        Color with temperature adjustment
-    """
-    r, g, b, a = color
-
-    # Warm colors have more red/yellow, cool colors have more blue
-    if temperature > 0.5:
-        # Warm adjustment
-        warm_factor = (temperature - 0.5) * 2
-        r = min(255, int(r * (1 + warm_factor * 0.2)))
-        g = min(255, int(g * (1 + warm_factor * 0.1)))
-        b = max(0, int(b * (1 - warm_factor * 0.1)))
-    else:
-        # Cool adjustment
-        cool_factor = (0.5 - temperature) * 2
-        r = max(0, int(r * (1 - cool_factor * 0.1)))
-        g = max(0, int(g * (1 - cool_factor * 0.05)))
-        b = min(255, int(b * (1 + cool_factor * 0.2)))
-
-    return (r, g, b, a)

@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react-lite';
-import { apiClient } from '../../services/api-client';
+import { apiClient } from '../../api/client';
 
 export interface SystemEvent {
   id: string;

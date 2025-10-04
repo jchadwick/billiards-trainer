@@ -75,7 +75,6 @@ export class DevTools {
 
       // Utility functions
       simulate: {
-        login: () => this.simulateLogin(),
         gameStart: () => this.simulateGameStart(),
         detection: () => this.simulateDetection(),
         error: () => this.simulateError(),
@@ -172,12 +171,6 @@ export class DevTools {
         isValid: this.rootStore.config.isValid,
         hasUnsavedChanges: this.rootStore.config.hasUnsavedChanges,
         profiles: this.rootStore.config.availableProfiles
-      },
-      auth: {
-        isAuthenticated: this.rootStore.auth.isAuthenticated,
-        user: this.rootStore.auth.currentUser?.username,
-        roles: this.rootStore.auth.userRoles,
-        tokenExpired: this.rootStore.auth.isTokenExpired
       },
       ui: {
         activeTab: this.rootStore.ui.uiState.activeTab,
@@ -307,11 +300,6 @@ export class DevTools {
   }
 
   // Simulation methods for testing
-  private async simulateLogin(): Promise<void> {
-    console.log('🧪 Simulating login...');
-    await this.rootStore.auth.login({ username: 'admin', password: 'admin' });
-  }
-
   private async simulateGameStart(): Promise<void> {
     console.log('🧪 Simulating game start...');
     await this.rootStore.game.startNewGame('eightball', [
