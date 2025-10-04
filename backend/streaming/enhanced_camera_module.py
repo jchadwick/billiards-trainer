@@ -30,6 +30,9 @@ class EnhancedCameraConfig:
     enable_fisheye_correction: bool = True
     calibration_file: Optional[str] = "calibration/camera_fisheye.yaml"
 
+    # Table cropping
+    enable_table_crop: bool = True
+
     # Preprocessing
     enable_preprocessing: bool = True
     brightness: float = 0.0  # -100 to 100
@@ -72,6 +75,9 @@ class EnhancedCameraModule:
         # Async integration for WebSocket broadcasting
         self._event_loop = event_loop
         self._frame_callback = frame_callback
+
+        # Table crop region (cached after first detection)
+        self._table_crop_region = None
 
         # Detect actual camera resolution BEFORE initializing calibration
         self._detect_actual_resolution()
@@ -300,7 +306,11 @@ class EnhancedCameraModule:
                 interpolation=cv2.INTER_LINEAR,
             )
 
-        # Step 2: Image preprocessing
+        # Step 2: Table cropping (after fisheye correction)
+        if self.config.enable_table_crop:
+            frame = self._crop_to_table(frame)
+
+        # Step 3: Image preprocessing
         if self.config.enable_preprocessing:
             # Brightness and contrast adjustment
             if self.config.brightness != 0 or self.config.contrast != 1.0:
@@ -325,6 +335,56 @@ class EnhancedCameraModule:
             # For vision processing, apply filters separately on demand
             # frame = cv2.bilateralFilter(frame, d=5, sigmaColor=50, sigmaSpace=50)
 
+        return frame
+
+    def _crop_to_table(self, frame: np.ndarray) -> np.ndarray:
+        """Crop frame to table boundaries using felt detection.
+
+        Detects the green felt surface and crops to its bounding box.
+        Caches the crop region for performance.
+        """
+        # Use cached crop region if available
+        if self._table_crop_region is not None:
+            x, y, w, h = self._table_crop_region
+            return frame[y:y+h, x:x+w]
+
+        # Detect table region (only once)
+        try:
+            # Convert to HSV and detect green felt
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            lower_green = np.array([35, 40, 40])
+            upper_green = np.array([85, 255, 255])
+            mask = cv2.inRange(hsv, lower_green, upper_green)
+
+            # Clean up mask
+            kernel = np.ones((5, 5), np.uint8)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+            # Find largest contour (the felt surface)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            if contours:
+                largest_contour = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(largest_contour)
+
+                # Add small padding (5% on each side)
+                padding_x = int(w * 0.05)
+                padding_y = int(h * 0.05)
+
+                x = max(0, x - padding_x)
+                y = max(0, y - padding_y)
+                w = min(frame.shape[1] - x, w + 2 * padding_x)
+                h = min(frame.shape[0] - y, h + 2 * padding_y)
+
+                # Cache the crop region
+                self._table_crop_region = (x, y, w, h)
+
+                return frame[y:y+h, x:x+w]
+        except Exception as e:
+            print(f"Table crop failed: {e}")
+
+        # Return original frame if detection fails
         return frame
 
     def get_frame(self, processed: bool = True) -> Optional[np.ndarray]:

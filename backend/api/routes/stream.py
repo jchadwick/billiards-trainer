@@ -204,6 +204,7 @@ async def get_vision_module(
             fps=30,
             enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists
             calibration_file=calibration_path if enable_fisheye else None,
+            enable_table_crop=True,  # Auto-crop to table boundaries
             enable_preprocessing=True,
             brightness=0,
             contrast=1.0,
