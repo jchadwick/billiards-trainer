@@ -29,11 +29,11 @@ class EnhancedCameraConfig:
     fps: int = 30
 
     # Fisheye correction
-    enable_fisheye_correction: bool = True
+    enable_fisheye_correction: bool = False
     calibration_file: Optional[str] = "calibration/camera_fisheye.yaml"
 
     # Table cropping
-    enable_table_crop: bool = True
+    enable_table_crop: bool = False
 
     # Preprocessing
     enable_preprocessing: bool = True
@@ -276,23 +276,7 @@ class EnhancedCameraModule:
         self.capture.set(cv2.CAP_PROP_FPS, self.config.fps)
         self.capture.set(cv2.CAP_PROP_BUFFERSIZE, self.config.buffer_size)
 
-        # Configure camera for better color reproduction
-        # Enable auto white balance to let camera handle it
-        self.capture.set(cv2.CAP_PROP_AUTO_WB, 1)  # Enable auto white balance
-
-        # Try AUTO exposure with compensation
-        self.capture.set(
-            cv2.CAP_PROP_AUTO_EXPOSURE, 0.25
-        )  # Auto mode (0.75 = on, 0.25 = off for some cameras)
-        self.capture.set(cv2.CAP_PROP_EXPOSURE, -13)  # Very low exposure value
-
-        # Camera controls - try absolute minimum values
-        self.capture.set(cv2.CAP_PROP_BRIGHTNESS, 0)  # Minimal brightness
-        self.capture.set(cv2.CAP_PROP_CONTRAST, 32)  # Default contrast
-        self.capture.set(cv2.CAP_PROP_SATURATION, 64)  # Default saturation
-        self.capture.set(cv2.CAP_PROP_GAIN, 0)  # No gain
-        self.capture.set(cv2.CAP_PROP_BACKLIGHT, 0)  # Disable backlight compensation
-
+        # Use camera defaults - let camera auto-adjust
         logger.info(
             f"Camera settings - Exposure: {self.capture.get(cv2.CAP_PROP_EXPOSURE)}, "
             f"Brightness: {self.capture.get(cv2.CAP_PROP_BRIGHTNESS)}, "
@@ -341,26 +325,6 @@ class EnhancedCameraModule:
                 self.undistort_map2,
                 interpolation=cv2.INTER_LINEAR,
             )
-
-        # Step 1.5: Aggressive software correction for overexposed camera
-        # The camera hardware auto-exposure cannot be disabled via OpenCV
-        # So we need to fix it in software
-
-        # First, drastically reduce brightness/exposure in BGR space
-        frame = cv2.convertScaleAbs(frame, alpha=0.4, beta=-50)
-
-        # Then boost saturation and reduce value in HSV
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype(np.float32)
-        h, s, v = cv2.split(hsv)
-
-        # Boost saturation significantly
-        s = np.clip(s * 2.0, 0, 255)
-
-        # Reduce brightness further
-        v = np.clip(v * 0.7, 0, 255)
-
-        hsv = cv2.merge([h, s, v]).astype(np.uint8)
-        frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
         # Step 2: Table cropping (after fisheye correction)
         if self.config.enable_table_crop:
