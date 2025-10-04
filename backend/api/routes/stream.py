@@ -28,24 +28,12 @@ try:
     )
     from ...vision.capture import CameraHealth, CameraStatus
 except ImportError:
-    # Fallback for development/testing
-    try:
-        from ...streaming.enhanced_camera_module import (
-            EnhancedCameraConfig,
-            EnhancedCameraModule,
-        )
-        from ...vision.capture import CameraHealth, CameraStatus
-    except ImportError:
-        # Another fallback for direct execution
-        import os
-        import sys
-
-        sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        from vision.capture import CameraStatus, CameraHealth
-        from streaming.enhanced_camera_module import (
-            EnhancedCameraModule,
-            EnhancedCameraConfig,
-        )
+    # Fallback for when relative imports don't work
+    from backend.streaming.enhanced_camera_module import (
+        EnhancedCameraConfig,
+        EnhancedCameraModule,
+    )
+    from backend.vision.capture import CameraHealth, CameraStatus
 
 from ..dependencies import ApplicationState, get_app_state
 
@@ -278,22 +266,14 @@ async def get_vision_module(
                 app_state.vision_module = None
                 raise HTTPException(
                     status_code=503,
-                    detail={
-                        "error": "Camera Start Failed",
-                        "message": "Camera capture failed to start",
-                        "code": "STREAM_001",
-                    },
+                    detail="Camera capture failed to start",
                 )
         except Exception as e:
             logger.error(f"Failed to initialize camera module: {e}", exc_info=True)
             app_state.vision_module = None
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "error": "Camera Module Unavailable",
-                    "message": f"Failed to initialize camera system: {str(e)}",
-                    "code": "STREAM_001",
-                },
+                detail=f"Failed to initialize camera system: {str(e)}",
             )
 
     logger.debug("Using shared camera module instance")
@@ -459,23 +439,13 @@ async def video_stream(
         if camera_status == CameraStatus.ERROR:
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "error": "Camera Error",
-                    "message": "Camera is in error state",
-                    "code": "STREAM_002",
-                    "details": {"status": camera_status.value},
-                },
+                detail=f"Camera is in error state (status: {camera_status.value})",
             )
 
         if camera_status == CameraStatus.DISCONNECTED:
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "error": "Camera Unavailable",
-                    "message": "Camera is not connected",
-                    "code": "STREAM_003",
-                    "details": {"status": camera_status.value},
-                },
+                detail=f"Camera is not connected (status: {camera_status.value})",
             )
 
         logger.info(
@@ -507,12 +477,7 @@ async def video_stream(
         logger.error(f"Video stream setup failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "Stream Setup Failed",
-                "message": "Unable to initialize video stream",
-                "code": "STREAM_001",
-                "details": {"error": str(e)},
-            },
+            detail=f"Unable to initialize video stream: {str(e)}",
         )
 
 
@@ -615,12 +580,7 @@ async def stream_status(
         logger.error(f"Stream status failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "Status Check Failed",
-                "message": "Unable to retrieve streaming status",
-                "code": "STREAM_004",
-                "details": {"error": str(e)},
-            },
+            detail=f"Unable to retrieve streaming status: {str(e)}",
         )
 
 
@@ -657,12 +617,7 @@ async def start_video_capture(
         logger.error(f"Check video capture status failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "Status Check Error",
-                "message": "Error checking video capture status",
-                "code": "STREAM_001",
-                "details": {"error": str(e)},
-            },
+            detail=f"Error checking video capture status: {str(e)}",
         )
 
 
@@ -698,12 +653,7 @@ async def stop_video_capture(
         logger.error(f"Stop video capture failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "Capture Stop Error",
-                "message": "Error stopping video capture",
-                "code": "STREAM_001",
-                "details": {"error": str(e)},
-            },
+            detail=f"Error stopping video capture: {str(e)}",
         )
 
 
@@ -736,11 +686,7 @@ async def get_single_frame(
         if not vision_module.camera.is_connected():
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "error": "Camera Unavailable",
-                    "message": "Camera is not connected",
-                    "code": "STREAM_003",
-                },
+                detail="Camera is not connected",
             )
 
         # Get current frame
@@ -748,11 +694,7 @@ async def get_single_frame(
         if frame is None:
             raise HTTPException(
                 status_code=503,
-                detail={
-                    "error": "No Frame Available",
-                    "message": "Camera is not providing frames",
-                    "code": "STREAM_006",
-                },
+                detail="Camera is not providing frames",
             )
 
         # Resize frame if requested
@@ -776,11 +718,7 @@ async def get_single_frame(
         if not success:
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "error": "Frame Encoding Failed",
-                    "message": "Unable to encode frame as JPEG",
-                    "code": "STREAM_007",
-                },
+                detail="Unable to encode frame as JPEG",
             )
 
         # Return JPEG data
@@ -802,10 +740,5 @@ async def get_single_frame(
         logger.error(f"Single frame capture failed: {e}")
         raise HTTPException(
             status_code=500,
-            detail={
-                "error": "Frame Capture Error",
-                "message": "Error capturing single frame",
-                "code": "STREAM_001",
-                "details": {"error": str(e)},
-            },
+            detail=f"Error capturing single frame: {str(e)}",
         )

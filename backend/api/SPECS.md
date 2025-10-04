@@ -34,6 +34,13 @@ The API module serves as the primary interface between the backend processing sy
 - **FR-API-015**: Reset game state tracking
 - **FR-API-016**: Export game session data
 
+#### 1.5 Diagnostics and Testing
+- **FR-API-017**: Diagnose camera capture system functionality
+- **FR-API-018**: Validate fisheye correction calibration status
+- **FR-API-019**: Test ball detection system performance
+- **FR-API-020**: Execute complete vision system diagnostics
+- **FR-API-021**: Generate comprehensive diagnostic summary
+
 ### 2. WebSocket Requirements
 
 #### 2.1 Real-time Streaming
@@ -125,6 +132,88 @@ paths:
       responses:
         200:
           description: MJPEG video stream
+
+  /api/v1/diagnostics/vision/camera:
+    get:
+      summary: Diagnose camera system
+      description: Tests camera connectivity, frame capture, and quality
+      responses:
+        200:
+          description: Camera diagnostic results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  component: string
+                  status: string
+                  score: number
+                  details: object
+                  issues: array
+                  recommendations: array
+                  duration: number
+
+  /api/v1/diagnostics/vision/fisheye:
+    get:
+      summary: Diagnose fisheye correction
+      description: Validates fisheye calibration file and correction capability
+      responses:
+        200:
+          description: Fisheye correction diagnostic results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  component: string
+                  status: string
+                  score: number
+                  details: object
+                  issues: array
+                  recommendations: array
+                  duration: number
+
+  /api/v1/diagnostics/vision/detection:
+    get:
+      summary: Diagnose ball detection
+      description: Tests ball detection system with live camera frame
+      responses:
+        200:
+          description: Ball detection diagnostic results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  component: string
+                  status: string
+                  score: number
+                  details: object
+                  issues: array
+                  recommendations: array
+                  duration: number
+
+  /api/v1/diagnostics/vision/complete:
+    get:
+      summary: Complete vision system diagnostics
+      description: Runs all vision diagnostics (camera, fisheye, detection)
+      responses:
+        200:
+          description: Array of all vision diagnostic results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    component: string
+                    status: string
+                    score: number
+                    details: object
+                    issues: array
+                    recommendations: array
+                    duration: number
 ```
 
 ### WebSocket Protocol

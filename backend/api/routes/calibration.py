@@ -38,6 +38,7 @@ from ..models.responses import (
     CameraImageCaptureResponse,
     SuccessResponse,
 )
+from .stream import get_vision_module
 
 try:
     from ...core import CoreModule
@@ -1040,87 +1041,6 @@ _camera_calibration_session: dict[str, Any] = {
 }
 
 
-async def get_vision_module(
-    app_state: ApplicationState = Depends(get_app_state),
-) -> Any:
-    """Get or lazily create the vision module instance from app state.
-
-    Returns the EnhancedCameraModule (wrapped in CameraModuleAdapter) that provides
-    camera capture and fisheye correction capabilities.
-    """
-    if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
-        logger.info(
-            "Creating shared EnhancedCameraModule instance (lazy initialization)"
-        )
-
-        # Check if calibration file exists
-        import os
-
-        calibration_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "calibration/camera_fisheye_default.yaml",
-        )
-        enable_fisheye = os.path.exists(calibration_path)
-
-        if enable_fisheye:
-            logger.info(f"Found calibration file at {calibration_path}")
-        else:
-            logger.warning(
-                f"Calibration file not found at {calibration_path}, disabling fisheye correction"
-            )
-
-        # Configure enhanced camera with fisheye correction and preprocessing
-        from ...streaming.enhanced_camera_module import (
-            EnhancedCameraConfig,
-            EnhancedCameraModule,
-        )
-        from .stream import CameraModuleAdapter
-
-        camera_config = EnhancedCameraConfig(
-            device_id=0,
-            resolution=(1920, 1080),
-            fps=30,
-            enable_fisheye_correction=enable_fisheye,
-            calibration_file=calibration_path if enable_fisheye else None,
-            enable_preprocessing=True,
-            brightness=0,
-            contrast=1.0,
-            enable_clahe=True,
-            clahe_clip_limit=2.0,
-            clahe_grid_size=8,
-            buffer_size=1,
-        )
-
-        try:
-            logger.info("Initializing EnhancedCameraModule...")
-            import asyncio
-
-            # Run the blocking EnhancedCameraModule initialization in a thread pool
-            loop = asyncio.get_event_loop()
-            enhanced_module = await loop.run_in_executor(
-                None, lambda: EnhancedCameraModule(camera_config)
-            )
-            logger.info("EnhancedCameraModule created!")
-
-            # Wrap in compatibility adapter
-            app_state.vision_module = CameraModuleAdapter(enhanced_module)
-            logger.info("Camera module wrapped in adapter")
-
-            # Start capture
-            if not app_state.vision_module.start_capture():
-                raise RuntimeError("Failed to start camera capture")
-
-            logger.info("Camera capture started successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize camera: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=503,
-                detail=f"Failed to initialize camera: {e}",
-            )
-
-    return app_state.vision_module
-
-
 @router.post("/camera/mode/start", response_model=CameraCalibrationModeResponse)
 async def start_camera_calibration_mode(
     chessboard_cols: int = Query(
@@ -1741,3 +1661,201 @@ async def stop_camera_calibration_mode(
             status_code=500,
             detail=f"Unable to stop camera calibration mode: {e}",
         )
+
+
+@router.post("/fisheye/calibrate")
+async def calibrate_fisheye_from_table(
+    vision_module: Any = Depends(get_vision_module),
+) -> dict:
+    """Calibrate fisheye correction using table geometry (Calibration Wizard).
+
+    This endpoint:
+    1. Captures a frame at full resolution (1920x1080)
+    2. Detects the pool table corners automatically
+    3. Uses the table's rectangular geometry to compute fisheye distortion
+    4. Saves calibration parameters for real-time correction
+    5. Returns calibration results and preview images
+
+    The calibration is applied automatically to all video streams.
+    Recalibrate if the camera or table position changes.
+
+    Example:
+        POST /api/v1/vision/calibration/fisheye/calibrate
+
+    Returns:
+        - success: Whether calibration succeeded
+        - calibration_data: Camera matrix and distortion coefficients
+        - rms_error: Calibration quality metric
+        - preview_url: URL to view before/after comparison
+    """
+    import asyncio
+
+    def _calibrate_fisheye_sync():
+        """Run fisheye calibration synchronously in thread pool."""
+        from pathlib import Path
+
+        import cv2
+        import numpy as np
+
+        from backend.vision.calibration.camera import CameraCalibrator
+        from backend.vision.detection.table import TableDetector
+
+        try:
+            # Step 1: Capture frame at full resolution
+            frame = vision_module.get_frame(processed=False)
+
+            if frame is None:
+                return {
+                    "success": False,
+                    "error": "No frame available from camera",
+                    "step_failed": "frame_capture",
+                }
+
+            h, w = frame.shape[:2]
+            logger.info(f"Captured frame for fisheye calibration: {w}x{h}")
+
+            # Step 2: Detect table
+            config = {
+                "table_color_ranges": {
+                    "green": {
+                        "lower": np.array([35, 40, 40]),
+                        "upper": np.array([85, 255, 255]),
+                    }
+                }
+            }
+
+            detector = TableDetector(config)
+            result = detector.detect_complete_table(frame)
+
+            if result is None or result.corners is None:
+                # Save debug image
+                debug_path = (
+                    Path(__file__).parent.parent.parent
+                    / "calibration"
+                    / "fisheye_debug_no_table.jpg"
+                )
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(debug_path), frame)
+
+                return {
+                    "success": False,
+                    "error": "Could not detect table in frame. Ensure table is fully visible.",
+                    "step_failed": "table_detection",
+                    "debug_image_saved": str(debug_path),
+                }
+
+            # Extract corners
+            c = result.corners
+            table_corners = [
+                (float(c.top_left[0]), float(c.top_left[1])),
+                (float(c.top_right[0]), float(c.top_right[1])),
+                (float(c.bottom_right[0]), float(c.bottom_right[1])),
+                (float(c.bottom_left[0]), float(c.bottom_left[1])),
+            ]
+
+            logger.info(f"Detected table corners: {table_corners}")
+
+            # Step 3: Calibrate fisheye from table geometry
+            calibrator = CameraCalibrator()
+            success, params = calibrator.calibrate_fisheye_from_table(
+                frame,
+                table_corners,
+                table_dimensions=(2.54, 1.27),  # Standard 9-foot table
+            )
+
+            if not success:
+                return {
+                    "success": False,
+                    "error": "Fisheye calibration failed. Table may be too distorted or partially visible.",
+                    "step_failed": "calibration_compute",
+                }
+
+            logger.info(
+                f"Fisheye calibration RMS error: {params.calibration_error:.4f}"
+            )
+
+            # Step 4: Save calibration
+            calib_path = (
+                Path(__file__).parent.parent.parent
+                / "calibration"
+                / "camera_fisheye_default.yaml"
+            )
+            calib_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if not calibrator.save_fisheye_calibration_yaml(str(calib_path)):
+                return {
+                    "success": False,
+                    "error": "Failed to save calibration file",
+                    "step_failed": "save_calibration",
+                }
+
+            # Step 5: Generate before/after preview
+            corrected = calibrator.undistort_image(frame)
+            corrected_resized = cv2.resize(corrected, (w, h))
+
+            # Create comparison image
+            orig_labeled = frame.copy()
+            corr_labeled = corrected_resized.copy()
+
+            cv2.putText(
+                orig_labeled,
+                "Original (with fisheye)",
+                (50, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                2,
+                (0, 0, 255),
+                4,
+            )
+            cv2.putText(
+                corr_labeled,
+                "Corrected (straight edges)",
+                (50, 80),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                2,
+                (0, 255, 0),
+                4,
+            )
+
+            comparison = np.hstack([orig_labeled, corr_labeled])
+
+            preview_path = (
+                Path(__file__).parent.parent.parent
+                / "calibration"
+                / "fisheye_preview.jpg"
+            )
+            cv2.imwrite(str(preview_path), comparison)
+
+            return {
+                "success": True,
+                "calibration_data": {
+                    "camera_matrix": params.camera_matrix.tolist(),
+                    "distortion_coefficients": params.distortion_coefficients.ravel().tolist(),
+                    "resolution": [w, h],
+                    "calibration_date": params.calibration_date,
+                },
+                "rms_error": float(params.calibration_error),
+                "table_corners": table_corners,
+                "calibration_file": str(calib_path),
+                "preview_file": str(preview_path),
+                "message": "Fisheye calibration successful! Restart video stream to apply correction.",
+            }
+
+        except Exception as e:
+            logger.error(f"Fisheye calibration failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e), "step_failed": "unknown"}
+
+    try:
+        # Run calibration in thread pool
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _calibrate_fisheye_sync)
+
+        # Return result directly (both success and failure cases)
+        return result
+
+    except Exception as e:
+        logger.error(f"Fisheye calibration endpoint failed: {e}")
+        return {
+            "success": False,
+            "error": f"Calibration endpoint error: {str(e)}",
+            "step_failed": "endpoint",
+        }
