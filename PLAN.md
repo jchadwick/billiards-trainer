@@ -2,17 +2,180 @@
 
 This plan outlines the remaining tasks to complete the Billiards Trainer system. The tasks are prioritized based on comprehensive codebase analysis conducted on 2025-10-03.
 
-**Last Updated:** 2025-10-05 (System Integration Complete)
-**Status:** Core features ~93% complete. System deployed and operational on target environment. LÖVE2D projector successfully tested with UDP broadcasting.
+**Last Updated:** 2025-10-05 (Comprehensive Gap Analysis Complete)
+**Status:** Individual modules 90%+ complete. **CRITICAL: Integration layer missing** - modules are isolated and not connected.
 
 **Completed Today (2025-10-05):**
-- Conducted comprehensive codebase analysis with 6 parallel research agents
-- Fixed WebSocket 403 errors (restored subscriptions.py, added CORS middleware)
-- Fixed Configuration module import (ConfigurationManager → ConfigurationModule)
-- Partially fixed 307 redirects (2/3 endpoints working: config and health)
-- Implemented UDP broadcasting for projector communication
-- Tested LÖVE2D projector successfully (138 messages received, animations working)
-- Deployed all fixes to target environment
+- Conducted comprehensive codebase analysis with 10 parallel research agents
+- Analyzed all 7 modules against SPECS.md (vision, core, API, streaming, projector, web, LÖVE2D)
+- Identified critical integration gaps: Vision→Core and Core→Broadcast flows missing
+- Found 10 actionable implementation gaps (1 critical security, 4 high priority, 5 medium)
+- Discovered target environment issues: camera device ID wrong, frontend not served
+- Confirmed individual components work but lack integration layer
+
+---
+
+## 🔴 CRITICAL INTEGRATION GAPS (MUST FIX FIRST)
+
+### **The Problem: Components Work, System Doesn't**
+
+All individual modules are 90%+ complete and functional in isolation, but they are **NOT CONNECTED**. The system is like a car with a perfect engine, transmission, and wheels - but no driveshaft connecting them.
+
+### Gap 1: Vision → Core Data Flow ❌ BROKEN
+
+**Current State:** Vision processes frames and detects balls/cue, but results go nowhere
+
+**Missing Integration Loop:**
+```python
+# NEEDED in backend/api/main.py or integration_service.py
+async def vision_core_integration_loop():
+    while running:
+        detection_result = vision_module.process_frame()
+        if detection_result:
+            detection_data = convert_to_core_format(detection_result)
+            await core_module.update_state(detection_data)
+```
+
+**Evidence:**
+- `VisionModule.process_frame()` returns DetectionResult (vision/__init__.py:316-343)
+- `CoreModule.update_state()` expects detection_data but is never called (core/__init__.py:178-220)
+- GameStateManager waits for data that never arrives (core/game_state.py:91-165)
+
+**Impact:** Vision detection is completely wasted - runs but doesn't affect game state
+
+**Fix Effort:** 2-3 hours to create integration service
+
+---
+
+### Gap 2: Core → Broadcast Flow ❌ BROKEN
+
+**Current State:** Core updates game state but doesn't notify WebSocket/UDP clients
+
+**Missing Event Subscriptions:**
+```python
+# NEEDED in backend/api/main.py lifespan
+async def on_state_update(event_data):
+    state = event_data.get("state")
+    await message_broadcaster.broadcast_game_state(balls, cue, table)
+
+core_module.subscribe_to_events("state_updated", on_state_update)
+```
+
+**Evidence:**
+- Core emits events (core/__init__.py:207-208, 793) but API never subscribes
+- `MessageBroadcaster.broadcast_game_state()` exists (api/websocket/broadcaster.py:221-242) but never called
+- `UDPBroadcaster.send_game_state()` exists (api/udp/broadcaster.py:137-163) but never called
+
+**Impact:** WebSocket clients and projector never receive game state updates
+
+**Fix Effort:** 1-2 hours to wire event subscriptions
+
+---
+
+### Gap 3: Trajectory Calculation Trigger ❌ MISSING
+
+**Current State:** Core can calculate trajectories, but nothing triggers the calculation
+
+**Missing Trigger Logic:**
+```python
+# NEEDED as part of state update handler
+if cue_detected and balls_stationary:
+    velocity = estimate_from_cue_angle_and_force(cue)
+    trajectory = await core_module.calculate_trajectory(cue_ball_id, velocity)
+    await message_broadcaster.broadcast_trajectory(trajectory)
+```
+
+**Evidence:**
+- Physics engine complete (core/physics/engine.py:75+)
+- Trajectory calculator complete (core/physics/trajectory.py)
+- No automatic calculation on cue detection
+- Broadcast methods exist but never receive trajectory data
+
+**Impact:** Projector overlay never shows predicted ball paths
+
+**Fix Effort:** 1-2 hours as part of integration service
+
+---
+
+### Summary: Integration Service Needed
+
+**What Works:**
+- ✅ Camera capture and preprocessing
+- ✅ Ball/cue/table detection algorithms
+- ✅ Game state management logic
+- ✅ Physics and trajectory calculation
+- ✅ WebSocket/UDP broadcasting infrastructure
+- ✅ Projector UDP reception and rendering
+
+**What's Missing:**
+- ❌ Integration loop connecting Vision → Core
+- ❌ Event subscriptions connecting Core → Broadcasts
+- ❌ Automatic trajectory triggering
+
+**The Fix:** Create `backend/integration_service.py` (100-150 lines) that:
+1. Polls Vision for detections every 33ms (30 FPS)
+2. Updates Core state with detection data
+3. Subscribes to Core events
+4. Triggers broadcasts on state changes
+5. Calculates and broadcasts trajectories when cue detected
+
+**Estimated Total Effort:** 4-6 hours (includes testing)
+
+---
+
+## 🔴 CRITICAL TARGET ENVIRONMENT ISSUES
+
+### Issue 1: Camera Device ID Wrong
+- **Problem:** Backend configured for `/dev/video0` but only `/dev/video1` and `/dev/video2` exist
+- **Error:** "Camera capture failed to start"
+- **Fix:** Update `.env` on target: `BILLIARDS_VISION__CAMERA__DEVICE_ID=1`
+- **Effort:** 2 minutes
+
+### Issue 2: Frontend Not Served
+- **Problem:** Root endpoint redirects but doesn't serve React app
+- **Impact:** Web UI inaccessible
+- **Fix:** Configure FastAPI static file mounting
+- **Effort:** 15 minutes
+
+### Issue 3: Disk Space Low (93% used)
+- **Problem:** Only 6.8GB available of 98GB total
+- **Fix:** Clean up old files/logs when convenient
+- **Priority:** MEDIUM
+
+---
+
+## 🔴 CRITICAL SECURITY & STABILITY ISSUES
+
+### SECURITY-1: CORS Wildcard (CRITICAL)
+- **File:** `backend/api/main.py:350`
+- **Issue:** `allow_origins=["*"]` allows all domains
+- **Impact:** Security vulnerability in production
+- **Fix:** Restrict to specific frontend domains
+- **Effort:** 5 minutes
+
+### HIGH-1: Cache Hit Rate Not Tracked
+- **File:** `backend/core/__init__.py:765`
+- **Issue:** Hardcoded to 0.0, not calculated
+- **Impact:** Performance metrics inaccurate
+- **Effort:** 2-3 hours
+
+### HIGH-2: Module Control Not Implemented
+- **File:** `backend/api/routes/modules.py:68`
+- **Issue:** Returns None for orchestrator, start/stop operations mock
+- **Impact:** Cannot control modules via API
+- **Effort:** 3-4 hours
+
+### HIGH-3: Frame Quality Reduction Placeholder
+- **File:** `backend/api/websocket/manager.py:483`
+- **Issue:** Sets quality label but doesn't resize/compress
+- **Impact:** Wastes bandwidth
+- **Effort:** 2-3 hours
+
+### HIGH-4: Logging Metrics Not Available
+- **File:** `backend/api/middleware/logging.py:399`
+- **Issue:** Returns "not available" message
+- **Impact:** Cannot monitor logging system
+- **Effort:** 2-3 hours
 
 ---
 
@@ -272,53 +435,115 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 
 ---
 
-## 📊 Updated Completion Status
+## 📊 Updated Completion Status (2025-10-05 Analysis)
 
-| Module | Completion | Critical Gaps |
-|--------|-----------|---------------|
-| **Backend - Vision** | 95% | Actual hardware testing with balls/cue needed |
-| **Backend - Streaming** | 100% | ✅ COMPLETE - EnhancedCameraModule fully integrated |
-| **Backend - API** | 98% | 307 redirect on calibration endpoint, some placeholders |
-| **Backend - Core** | 92% | Hardware testing needed |
-| **Backend - Projector** | 100% | ✅ COMPLETE - LÖVE2D implementation tested and working |
-| **Frontend - Web** | 70% | Real-time data connection, auth, system controls |
-| **Overall System** | ~93% | Hardware testing, calibration quality, 307 redirect fix |
+| Module | Completion | Spec Compliance | Critical Gaps |
+|--------|-----------|-----------------|---------------|
+| **Backend - Vision** | 98% | ✅ All FR-VIS-* implemented | Ball number recognition uses heuristics not OCR/ML |
+| **Backend - Core** | 85% | ⚠️ Missing Pydantic config classes | Rules module missing despite imports |
+| **Backend - API** | 90% | ⚠️ Some diagnostics simulated | Module control, hardware detection placeholders |
+| **Backend - Streaming** | 70% | ❌ Different architecture | GStreamer/shared memory/RTSP not implemented |
+| **Frontend - Projector (LÖVE2D)** | 35% | ❌ Many features missing | WebSocket support, adaptive colors, info overlays |
+| **Frontend - Web** | 75% | ⚠️ Partial implementations | Calibration wizard mocks, security measures missing |
+| **System Integration** | 10% | ❌ CRITICAL BLOCKER | Vision→Core and Core→Broadcast flows missing |
+| **Overall System** | ~65% | ⚠️ Components done, wiring missing | Integration service required, target env config |
 
 ---
 
-## 🔴 Remaining Critical Issues
+## 🎯 NEW PRIORITY IMPLEMENTATION ORDER (2025-10-05)
 
-### High Priority Blockers
-1. **Vision Calibration Endpoint 307 Redirect**
-   - Status: 1 of 3 endpoints still redirecting
-   - Impact: Web UI calibration workflow affected
-   - Effort: 15 minutes (add trailing slash to route)
+### **Phase 0: Fix Target Environment (30 minutes) - DO THIS FIRST**
+1. **Fix camera device ID** - Update `.env`: `BILLIARDS_VISION__CAMERA__DEVICE_ID=1` (2 min)
+2. **Fix CORS security** - Restrict `allow_origins` in `backend/api/main.py:350` (5 min)
+3. **Configure frontend serving** - Fix static file mounting for React app (15 min)
+4. **Restart backend** - Verify all endpoints working (5 min)
 
-2. **Configuration Module Warning on Target**
-   - Status: Fix deployed but needs verification
-   - Impact: Warning messages in logs (non-blocking)
-   - Effort: 5 minutes (verify on target, may be cached)
+### **Phase 1: Create Integration Layer (4-6 hours) - CRITICAL BLOCKER**
+1. **Create `backend/integration_service.py`** (3-4 hours):
+   - Vision→Core integration loop (30 FPS polling)
+   - Core→Broadcast event subscriptions
+   - Automatic trajectory triggering on cue detection
+   - Error handling and recovery
 
-3. **Ball/Cue Detection Hardware Testing**
-   - Status: Code complete, untested with real billiard balls
-   - Impact: Core functionality unvalidated
-   - Effort: 2-4 hours (requires hardware setup and testing)
+2. **Wire integration into `backend/api/main.py` lifespan** (30 min):
+   - Start integration task on startup
+   - Clean shutdown on app exit
 
-4. **End-to-End Trajectory Visualization**
-   - Status: All components working independently, needs integration test
-   - Impact: Cannot verify complete detection → physics → projection pipeline
-   - Effort: 1-2 hours (requires hardware setup)
+3. **Test end-to-end flow** (1 hour):
+   - Vision detects balls → Core updates state → WebSocket broadcasts
+   - Cue detected → Trajectory calculated → UDP broadcasts to projector
+   - Verify projector displays overlays
 
-### Medium Priority Improvements
-1. **Camera Calibration Quality**
-   - Status: Using single-frame table-based calibration (RMS error 61.4)
-   - Impact: Geometric accuracy could be improved
-   - Effort: 1-2 hours (multi-image chessboard calibration)
+### **Phase 2: Fix High-Priority Placeholders (8-12 hours)**
+1. **Cache hit rate tracking** - `backend/core/__init__.py:765` (2-3 hours)
+2. **Module control system** - `backend/api/routes/modules.py:68` (3-4 hours)
+3. **Frame quality reduction** - `backend/api/websocket/manager.py:483` (2-3 hours)
+4. **Logging metrics** - `backend/api/middleware/logging.py:399` (2-3 hours)
 
-2. **Performance Validation**
-   - Status: Architecture supports 15+ FPS, not measured with live detection
-   - Impact: Unknown real-world performance
-   - Effort: 30 minutes (with hardware running)
+### **Phase 3: Hardware Testing & Validation (4-6 hours)**
+1. **Ball/cue detection with real hardware** (2-3 hours)
+2. **End-to-end trajectory visualization** (1-2 hours)
+3. **Performance measurements** (30 min)
+4. **Calibration quality improvement** if needed (1-2 hours)
+
+### **Phase 4: Frontend & Projector Enhancement (20-30 hours)**
+1. **Projector WebSocket support** for web deployment (4-6 hours)
+2. **Projector adaptive color management** (6-8 hours)
+3. **Projector information overlays** (difficulty, angles, probabilities) (4-6 hours)
+4. **Web calibration wizard** real validation (2-3 hours)
+5. **Web security measures** (HTTPS, CSRF, CSP) (3-4 hours)
+
+### **Phase 5: Advanced Features & Polish (30-40 hours)**
+1. **Streaming module GStreamer architecture** (if needed) (12-16 hours)
+2. **Core Pydantic config classes** (3-4 hours)
+3. **Ball number OCR/ML** instead of heuristics (6-8 hours)
+4. **Frontend dashboard customization** (6-8 hours)
+5. **Comprehensive testing** (8-10 hours)
+
+---
+
+## 📋 Complete Implementation Gap List
+
+### Integration Gaps (CRITICAL - Phase 1)
+1. ❌ **Vision→Core integration loop** - No data flow from detection to game state
+2. ❌ **Core→Broadcast event wiring** - State updates don't trigger WebSocket/UDP
+3. ❌ **Trajectory calculation trigger** - No automatic calculation on cue detection
+
+### Target Environment Issues (CRITICAL - Phase 0)
+4. ❌ **Camera device ID wrong** - Configured for video0, need video1
+5. ❌ **Frontend not served** - React app not accessible
+6. ⚠️ **Disk space low** - 93% used, 6.8GB available
+
+### Security & Stability (HIGH - Phase 2)
+7. ❌ **CORS wildcard** - `allow_origins=["*"]` security risk
+8. ❌ **Cache hit rate** - Hardcoded placeholder value
+9. ❌ **Module control** - Start/stop operations not implemented
+10. ❌ **Frame quality** - No actual image resizing/compression
+11. ❌ **Logging metrics** - Not available via API
+
+### Medium Priority Placeholders (MEDIUM - Phase 2-3)
+12. ⚠️ **Calibration backup** - Only saves metadata, not data
+13. ⚠️ **Raw frame export** - Placeholder in session export
+14. ⚠️ **Shutdown state** - No actual state persistence
+15. ⚠️ **Resource cleanup** - Placeholder during shutdown
+16. ⚠️ **Network diagnostics** - Simulated tests with random values
+17. ⚠️ **Performance benchmarks** - Simulated workloads
+18. ⚠️ **System validation** - All validation tests simulated
+19. ⚠️ **Bandwidth testing** - Random number generation
+
+### Architectural Gaps (LOW - Phase 4-5)
+20. ⚠️ **Streaming GStreamer** - Different architecture implemented
+21. ⚠️ **Core Pydantic configs** - Using dataclasses instead
+22. ⚠️ **Rules module** - Missing despite imports
+23. ⚠️ **Ball number OCR** - Heuristics instead of ML/OCR
+
+### Frontend Gaps (LOW - Phase 4)
+24. ⚠️ **Projector WebSocket** - Only UDP, no web deployment
+25. ⚠️ **Projector adaptive colors** - All 15 FR-PROJ-056-070 missing
+26. ⚠️ **Projector info overlays** - Difficulty, angles, probabilities missing
+27. ⚠️ **Web calibration wizard** - Uses mock validation
+28. ⚠️ **Web security** - No HTTPS/CSRF/CSP enforcement
+29. ⚠️ **Web dashboard** - No customization, fixed layout
 
 ---
 
