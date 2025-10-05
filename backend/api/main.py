@@ -11,7 +11,15 @@ from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.websockets import WebSocketDisconnect
+
+# WebSocketDisconnect moved between FastAPI versions
+try:
+    from fastapi.websockets import WebSocketDisconnect
+except ImportError:
+    try:
+        from starlette.websockets import WebSocketDisconnect  # type: ignore
+    except ImportError:
+        from fastapi.exceptions import WebSocketDisconnect  # type: ignore
 
 # Internal imports
 # Import core module
