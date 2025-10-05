@@ -211,7 +211,7 @@ async def get_vision_module(
         # Configure enhanced camera with fisheye correction and preprocessing
         camera_config = EnhancedCameraConfig(
             device_id=0,
-            resolution=None,  # Auto-detect camera's native resolution
+            resolution=(3840, 2160),  # Request 4K resolution
             fps=30,
             enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists
             calibration_file=calibration_path if enable_fisheye else None,
@@ -352,9 +352,9 @@ async def generate_mjpeg_stream(
                     await asyncio.sleep(0.01)
                     continue
 
-                # Get latest frame from vision module with downsampling
+                # Get latest frame from vision module at full resolution
                 logger.debug(f"Getting frame for client {client_id}")
-                frame = vision_module.get_frame_for_streaming(scale=0.5, raw=raw)
+                frame = vision_module.get_frame_for_streaming(scale=1.0, raw=raw)
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(0.01)
