@@ -104,6 +104,7 @@ class HealthMonitor:
         vision_module=None,
         config_module=None,
         websocket_manager=None,
+        integration_service=None,
     ):
         """Register system components for monitoring.
 
@@ -112,6 +113,7 @@ class HealthMonitor:
             vision_module: VisionModule instance
             config_module: ConfigurationModule instance
             websocket_manager: WebSocketManager instance
+            integration_service: IntegrationService instance
         """
         with self._lock:
             if core_module:
@@ -129,6 +131,10 @@ class HealthMonitor:
             if websocket_manager:
                 self._websocket_manager = websocket_manager
                 logger.info("WebSocket manager registered for health monitoring")
+
+            if integration_service:
+                self._integration_service = integration_service
+                logger.info("Integration service registered for health monitoring")
 
     async def start_monitoring(self, check_interval: float = 5.0):
         """Start continuous health monitoring.
