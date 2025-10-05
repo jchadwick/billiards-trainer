@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -341,6 +342,16 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     # Get middleware configuration
     middleware_config = get_middleware_config(development_mode)
+
+    # Add CORS middleware first - must be before other middleware for WebSocket support
+    # In production, you should restrict origins to your frontend domains
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # TODO: Restrict to specific origins in production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Add middleware in reverse order (last added = first executed)
     # This ensures proper execution order for request/response processing
