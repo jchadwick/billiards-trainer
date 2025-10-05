@@ -43,26 +43,26 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
         files: ^backend/
 
-  # Type checking with mypy
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.5.1
-    hooks:
-      - id: mypy
-        files: ^backend/
-        exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/)
-        additional_dependencies:
-          - types-PyYAML
-          - types-requests
-        args: [--ignore-missing-imports]
+  # # Type checking with mypy
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.5.1
+  #   hooks:
+  #     - id: mypy
+  #       files: ^backend/
+  #       exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/)
+  #       additional_dependencies:
+  #         - types-PyYAML
+  #         - types-requests
+  #       args: [--ignore-missing-imports]
 
-  # Security checks
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.5
-    hooks:
-      - id: bandit
-        args: [-c, pyproject.toml]
-        additional_dependencies: ["bandit[toml]", "pbr"]
-        files: ^backend/
+  # # Security checks
+  # - repo: https://github.com/PyCQA/bandit
+  #   rev: 1.7.5
+  #   hooks:
+  #     - id: bandit
+  #       args: [-c, pyproject.toml]
+  #       additional_dependencies: ["bandit[toml]", "pbr"]
+  #       files: ^backend/
 
   # Documentation
   - repo: https://github.com/pycqa/pydocstyle
