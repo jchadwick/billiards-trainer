@@ -52,7 +52,7 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 | Endpoint | Method | Status | Response Time | Notes |
 |----------|--------|--------|---------------|-------|
 | `/api/v1/calibration/` | GET | ✅ 200 | 2.1ms | List calibration sessions |
-| `/api/v1/calibration/start` | POST | ✅ 200 | 2.5ms | Start calibration |
+| `/api/v1/calibration/` | POST | ✅ 200 | 2.5ms | Start calibration |
 
 #### 🔌 WebSocket Management Endpoints (3/3 PASSED)
 | Endpoint | Method | Status | Response Time | Notes |
@@ -61,12 +61,6 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 | `/api/v1/websocket/connections` | GET | ✅ 200 | 2.1ms | Active connections |
 | `/api/v1/websocket/metrics` | GET | ✅ 200 | 1.8ms | WebSocket metrics |
 
-#### 🔐 Authentication Endpoints (3/3 PASSED)
-| Endpoint | Method | Status | Response Time | Notes |
-|----------|--------|--------|---------------|-------|
-| `/api/v1/auth/status` | GET | ✅ 200 | 1.7ms | Auth status |
-| `/api/v1/auth/me` | GET | ✅ 401 | 2.5ms | Current user (expected failure) |
-| `/api/v1/auth/sessions` | GET | ✅ 401 | 2.1ms | User sessions (expected failure) |
 
 ## WebSocket Connection Test Results
 

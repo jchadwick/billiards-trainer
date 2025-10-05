@@ -41,19 +41,35 @@ The API module serves as the primary interface between the backend processing sy
 - **FR-API-020**: Execute complete vision system diagnostics
 - **FR-API-021**: Generate comprehensive diagnostic summary
 
-### 2. WebSocket Requirements
+### 2. Real-time Communication Requirements
 
-#### 2.1 Real-time Streaming
-- **FR-WS-001**: Proxy video streams from Streaming Service to clients
-- **FR-WS-002**: Broadcast game state updates with <50ms latency
-- **FR-WS-003**: Send trajectory calculations in real-time
-- **FR-WS-004**: Push system alerts and notifications
+#### 2.1 Real-time Streaming (WebSocket & UDP)
+- **FR-RT-001**: Proxy video streams from Streaming Service to WebSocket clients
+- **FR-RT-002**: Broadcast game state updates with <50ms latency (WebSocket & UDP)
+- **FR-RT-003**: Send trajectory calculations in real-time (WebSocket & UDP)
+- **FR-RT-004**: Push system alerts and notifications (WebSocket & UDP)
+- **FR-RT-005A**: Publish static ball positions at configurable intervals (default 500ms) (WebSocket & UDP)
+- **FR-RT-005B**: Publish ball motion events immediately when detected (WebSocket & UDP)
+- **FR-RT-005C**: Include unique ball ID in all state messages (WebSocket & UDP)
+- **FR-RT-005D**: Include optional ball number/type when available (WebSocket & UDP)
 
-#### 2.2 Client Management
-- **FR-WS-005**: Support unlimited concurrent connections (limited only by Streaming Service)
+#### 2.2 WebSocket Client Management
+- **FR-WS-005**: Support unlimited concurrent WebSocket connections (limited only by Streaming Service)
 - **FR-WS-006**: Implement automatic reconnection handling
 - **FR-WS-007**: Provide connection quality indicators
 - **FR-WS-008**: Enable selective subscription to different quality streams
+
+#### 2.3 UDP Datagram Client Management
+- **FR-UDP-001**: Send identical state/motion/trajectory messages via UDP datagram sockets
+- **FR-UDP-002**: Support configurable UDP destination host and port
+- **FR-UDP-003**: Handle UDP packet size limits (fragment large messages if needed)
+- **FR-UDP-004**: Provide UDP send failure logging and retry mechanism
+
+#### 2.4 WebSocket Endpoints
+- **FR-WS-101**: Provide `/api/v1/game/state/ws` endpoint for projector web client connections
+- **FR-WS-102**: Send identical messages to WebSocket projector clients as UDP clients
+- **FR-WS-103**: Support multiple concurrent projector WebSocket connections
+- **FR-WS-104**: Handle WebSocket connection lifecycle (connect, disconnect, reconnect)
 
 ## Interface Specifications
 
@@ -95,7 +111,7 @@ paths:
         200:
           description: Configuration updated
 
-  /api/v1/calibration/start:
+  /api/v1/calibration:
     post:
       summary: Begin calibration
       responses:
@@ -125,7 +141,18 @@ paths:
                   cue: object
                   table: object
 
-  /api/v1/stream/video:
+  /api/v1/game/state/ws:
+    websocket:
+      summary: WebSocket endpoint for projector clients
+      description: Real-time bidirectional communication for web-based projector clients
+      messages:
+        - state: Periodic ball position updates (every 500ms)
+        - motion: Immediate ball motion events
+        - trajectory: Trajectory calculation updates
+        - alert: System alerts and notifications
+        - config: Configuration updates
+
+/api/v1/stream/video:
     get:
       summary: Video stream endpoint
       produces: ['multipart/x-mixed-replace']
@@ -216,12 +243,14 @@ paths:
                     duration: number
 ```
 
-### WebSocket Protocol
+### Real-time Message Protocol (WebSocket & UDP)
+
+**Note**: The following message formats are sent via BOTH WebSocket and UDP datagram sockets to ensure all clients (web browsers and projector) receive identical updates.
 
 ```javascript
-// WebSocket message format
+// Message format (WebSocket JSON / UDP JSON)
 {
-  "type": "frame|state|trajectory|alert|config",
+  "type": "frame|state|motion|trajectory|alert|config",
   "timestamp": "ISO 8601 timestamp",
   "sequence": 12345,  // Message sequence number
   "data": {
@@ -240,17 +269,28 @@ paths:
   }
 }
 
-// State message
+// State message (periodic update of all ball positions)
 {
   "type": "state",
   "data": {
     "balls": [
       {
-        "id": "cue",
+        "id": "ball_001",  // Unique persistent identifier
         "position": [100, 200],
         "radius": 20,
-        "color": "white",
-        "velocity": [0, 0]
+        "velocity": [0, 0],
+        "is_moving": false,
+        "number": 1,  // Optional: ball number (1-15) or null
+        "is_cue_ball": false
+      },
+      {
+        "id": "ball_cue",
+        "position": [150, 250],
+        "radius": 20,
+        "velocity": [0, 0],
+        "is_moving": false,
+        "number": null,
+        "is_cue_ball": true
       }
     ],
     "cue": {
@@ -262,6 +302,19 @@ paths:
       "corners": [[0,0], [1920,0], [1920,1080], [0,1080]],
       "pockets": [...]
     }
+  }
+}
+
+// Motion event (immediate update when ball starts moving)
+{
+  "type": "motion",
+  "data": {
+    "ball_id": "ball_001",  // Which ball is moving
+    "position": [105, 205],
+    "velocity": [10.5, 5.2],
+    "is_moving": true,
+    "number": 1,  // Optional
+    "timestamp": "2024-01-15T10:30:45.123Z"
   }
 }
 
@@ -343,6 +396,14 @@ class NetworkConfig(BaseModel):
     cors_origins: List[str] = ["*"]
     max_connections: int = 100
     websocket_ping_interval: int = 30
+    state_publish_interval_ms: int = 500  # Interval for static ball position updates
+    motion_event_immediate: bool = True  # Publish motion events immediately
+
+    # UDP datagram socket configuration
+    udp_enabled: bool = True
+    udp_host: str = "127.0.0.1"  # Projector host
+    udp_port: int = 5005  # Projector listening port
+    udp_max_packet_size: int = 65507  # Max UDP packet size
 
 class Configuration(BaseModel):
     system: SystemConfig

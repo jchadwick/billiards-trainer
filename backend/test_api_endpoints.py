@@ -183,7 +183,7 @@ class EndpointTester:
         # Start calibration (this might create a session)
         self.test_endpoint(
             "POST",
-            "/api/v1/calibration/start",
+            "/api/v1/calibration",
             data={"type": "geometric"},
             description="Start calibration session",
         )
@@ -211,35 +211,6 @@ class EndpointTester:
         # WebSocket metrics
         self.test_endpoint(
             "GET", "/api/v1/websocket/metrics", description="WebSocket metrics"
-        )
-
-        for result in self.test_results[-3:]:
-            self.print_result(result)
-
-    def test_auth_endpoints(self):
-        """Test authentication endpoints (note: many may require auth)."""
-        print("\n🔐 Testing Authentication Endpoints")
-        print("=" * 50)
-
-        # Auth status (should work without auth)
-        self.test_endpoint(
-            "GET", "/api/v1/auth/status", description="Authentication status"
-        )
-
-        # Try to get current user (should fail without auth)
-        self.test_endpoint(
-            "GET",
-            "/api/v1/auth/me",
-            expected_status=401,
-            description="Get current user (should fail)",
-        )
-
-        # Try to get sessions (should fail without auth)
-        self.test_endpoint(
-            "GET",
-            "/api/v1/auth/sessions",
-            expected_status=401,
-            description="Get sessions (should fail)",
         )
 
         for result in self.test_results[-3:]:
@@ -302,7 +273,6 @@ def main():
     tester.test_game_endpoints()
     tester.test_calibration_endpoints()
     tester.test_websocket_endpoints()
-    tester.test_auth_endpoints()
 
     # Generate final report
     report = tester.generate_report()

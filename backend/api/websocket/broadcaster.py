@@ -14,6 +14,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 
+from ..udp.broadcaster import udp_broadcaster
 from .handler import websocket_handler
 from .manager import StreamType, websocket_manager
 
@@ -46,6 +47,7 @@ class BroadcastStats:
     frame_metrics: FrameMetrics = None
 
     def __post_init__(self):
+        """Initialize frame metrics if not provided."""
         if self.frame_metrics is None:
             self.frame_metrics = FrameMetrics()
 
@@ -54,6 +56,11 @@ class FrameBuffer:
     """Circular buffer for frame data with automatic cleanup."""
 
     def __init__(self, max_size: int = 100):
+        """Initialize frame buffer with maximum size.
+
+        Args:
+            max_size: Maximum number of frames to store in buffer.
+        """
         self.max_size = max_size
         self.frames = deque(maxlen=max_size)
         self.frame_times = deque(maxlen=max_size)
@@ -93,6 +100,7 @@ class MessageBroadcaster:
     """High-performance WebSocket message broadcaster with streaming optimization."""
 
     def __init__(self):
+        """Initialize message broadcaster with frame buffering and performance tracking."""
         self.frame_buffer = FrameBuffer()
         self.broadcast_stats = BroadcastStats()
         self.compression_threshold = 1024  # bytes
@@ -227,7 +235,11 @@ class MessageBroadcaster:
             "ball_count": len(balls),
         }
 
+        # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.STATE, state_data)
+
+        # Also broadcast via UDP to projector
+        udp_broadcaster.send_game_state(balls, cue, table)
 
     async def broadcast_trajectory(
         self,
@@ -248,7 +260,11 @@ class MessageBroadcaster:
             "collision_count": len(collisions or []),
         }
 
+        # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.TRAJECTORY, trajectory_data)
+
+        # Also broadcast via UDP to projector
+        udp_broadcaster.send_trajectory(lines, collisions)
 
     async def broadcast_alert(
         self,

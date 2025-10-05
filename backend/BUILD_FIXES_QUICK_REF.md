@@ -138,7 +138,6 @@ cp backup_*/orchestrator.py system/
 
 | Test Expects | Actual Code | Location |
 |--------------|-------------|----------|
-| `AuthMiddleware` from `api.middleware.auth` | `AuthMiddleware` from `api.middleware.authentication` | `api/middleware/authentication.py` |
 | `PersistenceManager` | `ConfigPersistence` | `config/storage/persistence.py:35` |
 | `ShotAssistant` | `AssistanceEngine` | `core/analysis/assistance.py:105` |
 | `ColorCalibrator` from `projector.calibration.color` | `ColorCalibrator` from `vision.calibration.color` | `vision/calibration/color.py` |

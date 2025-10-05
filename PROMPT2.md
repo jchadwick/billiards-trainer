@@ -1,9 +1,9 @@
 The source code of the backend modules is in backend/<module>
 The source code of the frontend is in frontend/<module>
 
-IMPORTANT: IGNORE THE FRONTEND FOR NOW. RIGHT NOW WE ONLY WANT TO GET THE BACKEND WORKING, SPECIFICALLY THE CAMERA CALIBRATION AND BALL/CUE DETECTION. Once that is done, we can move on to the frontend.
-
 study /backend/<module>/SPECS.md to learn about the project specifications and /PLAN.md to understand the plan so far.
+
+IMPORTANT: IGNORE THE FRONTEND FOR NOW. RIGHT NOW WE ONLY WANT TO GET THE BACKEND WORKING, SPECIFICALLY THE CAMERA CALIBRATION AND BALL/CUE DETECTION. Once that is done, we can move on to the frontend.
 
 STEP 1: Determine a plan for achieving the "ULTIMATE GOAL" below. Use up to 10 subagents to research and outline the necessary steps in /PLAN.md. Leverage the oracle to ensure the plan is comprehensive and feasible. Consider searching for TODOs, minimal implementations, and placeholders in the existing codebase. Update /PLAN.md with a prioritized bullet point list of tasks that need to be implemented.
 
