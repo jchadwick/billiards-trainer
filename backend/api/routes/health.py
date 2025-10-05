@@ -32,7 +32,14 @@ except (ImportError, TypeError):
     except (ImportError, TypeError):
         # Fallback: create a minimal health monitor interface
         class MockHealthMonitor:
+            """Mock health monitor for environments where the real monitor is unavailable."""
+
             def get_system_health(self):
+                """Return basic system health status.
+
+                Returns:
+                    Mock system health object with minimal data.
+                """
                 return type(
                     "SystemHealth",
                     (object,),
@@ -40,9 +47,19 @@ except (ImportError, TypeError):
                 )()
 
             def get_api_metrics(self):
+                """Return empty API metrics.
+
+                Returns:
+                    Empty metrics dictionary.
+                """
                 return {}
 
             def get_websocket_connection_count(self):
+                """Return zero WebSocket connections.
+
+                Returns:
+                    Always returns 0.
+                """
                 return 0
 
         health_monitor = MockHealthMonitor()
@@ -173,8 +190,7 @@ def get_system_metrics() -> Optional[SystemMetrics]:
         return None
 
 
-@router.get("/", response_model=HealthResponse)
-@router.get("/health", response_model=HealthResponse)
+@router.get("", response_model=HealthResponse)
 async def health_check(
     include_details: bool = Query(
         False, description="Include detailed component health"

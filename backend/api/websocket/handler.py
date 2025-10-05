@@ -20,6 +20,13 @@ class WebSocketConnection:
     def __init__(
         self, websocket: WebSocket, client_id: str, user_id: Optional[str] = None
     ):
+        """Initialize WebSocket connection with metadata.
+
+        Args:
+            websocket: FastAPI WebSocket instance.
+            client_id: Unique client identifier.
+            user_id: Optional authenticated user identifier.
+        """
         self.websocket = websocket
         self.client_id = client_id
         self.user_id = user_id
@@ -84,6 +91,7 @@ class WebSocketHandler:
     """Advanced WebSocket connection handler with subscriptions and monitoring."""
 
     def __init__(self):
+        """Initialize WebSocket handler with connection tracking and monitoring."""
         self.connections: dict[str, WebSocketConnection] = {}
         self.user_connections: dict[str, list[str]] = {}  # user_id -> [client_ids]
         self.ping_interval = 30  # seconds
@@ -163,10 +171,13 @@ class WebSocketHandler:
 
         except Exception as e:
             logger.error(f"Failed to establish WebSocket connection: {e}")
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            raise HTTPException(
-                status_code=403, detail="Connection authentication failed"
-            )
+            # Don't raise HTTPException in WebSocket context - just close the socket
+            try:
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            except:
+                pass
+            # Re-raise the original exception for proper error handling
+            raise
 
     async def disconnect(self, client_id: str):
         """Handle WebSocket disconnection."""

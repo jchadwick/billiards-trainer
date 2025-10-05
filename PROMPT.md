@@ -10,3 +10,8 @@ Second task, once the plan is complete, is to implement the plan in order of pri
 When you're all done your changes, commit all changes with a detailed commit message explaining what was done and why.  If this doesn't work, use up to 50 subagents to fix any issues.  Repeat until everything works.
 
 ULTIMATE GOAL we want to achieve a working version of a billiards trainer system which views a billiards table and the balls and cues on it, detects the position of the balls on the table, track their movement, and provide feedback to the user through the projector augmented reality and configuration via the web interface.
+
+Priority:
+- Fully working and tested backend
+- Fully working and tested projector augmented reality
+- Fully working and tested web interface

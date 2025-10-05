@@ -15,12 +15,12 @@ import logging
 from typing import Any, Callable, Optional
 
 try:
-    from ..config.manager import ConfigurationManager
+    from ..config.manager import ConfigurationModule
     from ..config.models.schemas import CameraSettings, VisionConfig
 except ImportError:
     # Fallback for development/testing
     logging.warning("Configuration module not available, using fallback")
-    ConfigurationManager = None
+    ConfigurationModule = None
     VisionConfig = None
     CameraSettings = None
 
@@ -36,7 +36,7 @@ class VisionConfigurationManager:
     enabling type-safe configuration management and real-time updates.
     """
 
-    def __init__(self, config_manager: Optional["ConfigurationManager"] = None) -> None:
+    def __init__(self, config_manager: Optional["ConfigurationModule"] = None) -> None:
         """Initialize vision configuration manager.
 
         Args:
@@ -455,7 +455,7 @@ class VisionConfigurationManager:
 
 # Factory function for easy integration
 def create_vision_config_manager(
-    config_manager: Optional["ConfigurationManager"] = None,
+    config_manager: Optional["ConfigurationModule"] = None,
 ) -> VisionConfigurationManager:
     """Factory function to create and initialize vision configuration manager.
 

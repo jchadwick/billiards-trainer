@@ -14,6 +14,8 @@ The Core module serves as the central business logic layer, managing game state,
 - **FR-CORE-003**: Store table dimensions and pocket locations
 - **FR-CORE-004**: Maintain game history for last N frames
 - **FR-CORE-005**: Detect and track game events (shots, collisions, pocketed balls)
+- **FR-CORE-006A**: Assign unique persistent IDs to detected balls
+- **FR-CORE-006B**: Track ball number/type as optional metadata (separate from ID)
 
 #### 1.2 State Validation
 - **FR-CORE-006**: Validate detection data for physical consistency
@@ -28,6 +30,13 @@ The Core module serves as the central business logic layer, managing game state,
 - **FR-CORE-013**: Provide state snapshots for new connections
 - **FR-CORE-014**: Support state rollback and replay
 - **FR-CORE-015**: Maintain state consistency during updates
+
+#### 1.4 State Publishing
+- **FR-CORE-016A**: Publish ball positions at configurable intervals (default 500ms)
+- **FR-CORE-016B**: Publish ball-in-motion events in real-time (immediately)
+- **FR-CORE-016C**: Include ball ID in all state events
+- **FR-CORE-016D**: Include optional ball number/type when available
+- **FR-CORE-016E**: Distinguish between static ball updates and motion events
 
 ### 2. Physics Engine
 
@@ -170,7 +179,7 @@ class Vector2D:
 @dataclass
 class BallState:
     """Complete ball state information"""
-    id: str
+    id: str  # Unique persistent identifier for tracking
     position: Vector2D
     velocity: Vector2D
     radius: float
@@ -178,7 +187,8 @@ class BallState:
     spin: Vector2D = None  # Top/back/side spin
     is_cue_ball: bool = False
     is_pocketed: bool = False
-    number: Optional[int] = None
+    number: Optional[int] = None  # Optional: ball number (1-15) or type
+    is_moving: bool = False  # Track if ball is currently in motion
 
 @dataclass
 class TableState:
@@ -342,12 +352,20 @@ class ValidationConfig(BaseModel):
     enable_physics_validation: bool = True
     enable_continuity_check: bool = True
 
+class StatePublishingConfig(BaseModel):
+    """State publishing configuration"""
+    static_ball_interval_ms: int = 500  # Interval for publishing static ball positions
+    motion_event_immediate: bool = True  # Publish motion events immediately
+    include_ball_numbers: bool = True  # Include optional ball numbers when available
+    motion_velocity_threshold: float = 0.01  # m/s threshold to consider ball moving
+
 class CoreConfig(BaseModel):
     """Core module configuration"""
     physics: PhysicsConfig
     prediction: PredictionConfig
     assistance: AssistanceConfig
     validation: ValidationConfig
+    publishing: StatePublishingConfig
     state_history_size: int = 1000
     event_buffer_size: int = 100
     update_frequency: float = 60.0  # Hz

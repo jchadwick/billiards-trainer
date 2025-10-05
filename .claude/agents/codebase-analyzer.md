@@ -105,7 +105,6 @@ Structure your analysis like this:
 ### Key Patterns
 - **Factory Pattern**: WebhookProcessor created via factory at `factories/processor.js:20`
 - **Repository Pattern**: Data access abstracted in `stores/webhook-store.js`
-- **Middleware Chain**: Validation middleware at `middleware/auth.js:30`
 
 ### Configuration
 - Webhook secret from `config/webhooks.js:5`

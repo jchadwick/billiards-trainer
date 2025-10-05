@@ -57,8 +57,7 @@ def validate_config_section(section: str, allowed_sections: list[str]) -> str:
     return section
 
 
-@router.get("/", response_model=ConfigResponse)
-@router.get("/config", response_model=ConfigResponse)
+@router.get("", response_model=ConfigResponse)
 async def get_configuration(
     section: Optional[str] = Query(
         None, description="Specific configuration section to retrieve"
