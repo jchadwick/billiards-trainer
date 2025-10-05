@@ -210,7 +210,7 @@ async def get_vision_module(
 
         # Configure enhanced camera with fisheye correction and preprocessing
         camera_config = EnhancedCameraConfig(
-            device_id=0,
+            device_id=1,
             resolution=(3840, 2160),  # Request 4K resolution
             fps=30,
             enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists

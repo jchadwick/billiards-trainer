@@ -34,6 +34,7 @@ backend_path = Path(__file__).parent.parent
 if str(backend_path) not in sys.path:
     sys.path.insert(0, str(backend_path))
 from config.manager import ConfigurationModule  # type: ignore
+from integration_service import IntegrationService  # type: ignore
 
 from .dependencies import ApplicationState, app_state
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
@@ -259,12 +260,33 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Start WebSocket system services
         await initialize_websocket_system()
 
+        # Initialize vision module (needed for integration service)
+        logger.info("Initializing vision module for integration...")
+        from backend.vision import VisionModule
+
+        app_state.vision_module = VisionModule()
+        # Note: Vision module initialization is lightweight - camera opens on first use
+
+        # Initialize and start integration service
+        logger.info("Initializing integration service...")
+        app_state.integration_service = IntegrationService(
+            vision_module=app_state.vision_module,
+            core_module=app_state.core_module,
+            message_broadcaster=app_state.message_broadcaster,
+        )
+
+        # Start integration service to begin Vision→Core→Broadcast flow
+        await app_state.integration_service.start()
+        logger.info("Integration service started - Vision→Core→Broadcast flow active")
+
         # Register components with health monitor
         logger.info("Registering components with health monitor...")
         health_monitor.register_components(
             core_module=app_state.core_module,
             config_module=app_state.config_module,
             websocket_manager=app_state.websocket_manager,
+            vision_module=app_state.vision_module,
+            integration_service=app_state.integration_service,
         )
 
         # Start health monitoring
@@ -295,11 +317,23 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Shutdown
         logger.info("Shutting down Billiards Trainer API...")
 
+        # Stop integration service first
+        if app_state.integration_service:
+            logger.info("Stopping integration service...")
+            await app_state.integration_service.stop()
+
         # Stop health monitoring
         await health_monitor.stop_monitoring()
 
         # Shutdown WebSocket system
         await shutdown_websocket_system()
+
+        if app_state.vision_module:
+            # Vision module cleanup
+            try:
+                app_state.vision_module.stop_capture()
+            except Exception as e:
+                logger.error(f"Error stopping vision module: {e}")
 
         if app_state.core_module:
             # Core module doesn't have explicit shutdown, but we can clean up
