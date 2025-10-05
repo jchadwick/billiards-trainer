@@ -10,8 +10,8 @@ from typing import Any, AsyncGenerator, Optional
 from fastapi import FastAPI, Request, Response, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.websockets import WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from fastapi.websockets import WebSocketDisconnect
 
 # Internal imports
 # Import core module
@@ -344,10 +344,21 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     middleware_config = get_middleware_config(development_mode)
 
     # Add CORS middleware first - must be before other middleware for WebSocket support
-    # In production, you should restrict origins to your frontend domains
+    # Configure allowed origins from environment or use safe defaults
+    allowed_origins = [
+        "http://localhost:3000",  # Development frontend
+        "http://localhost:8000",  # Backend serving frontend
+        "http://192.168.1.31:8000",  # Target environment
+        "http://192.168.1.31:3000",  # Target development
+    ]
+
+    # Add custom origins from environment if specified
+    if custom_origins := os.getenv("BILLIARDS_CORS_ORIGINS"):
+        allowed_origins.extend(custom_origins.split(","))
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # TODO: Restrict to specific origins in production
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -420,7 +431,10 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
                 except Exception as msg_error:
                     # Check if this is a disconnect-related error
                     error_msg = str(msg_error)
-                    if "disconnect" in error_msg.lower() or "receive" in error_msg.lower():
+                    if (
+                        "disconnect" in error_msg.lower()
+                        or "receive" in error_msg.lower()
+                    ):
                         logger.info(
                             f"WebSocket disconnected (via exception): {client_id}"
                         )
@@ -489,10 +503,13 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         # Register specific frontend routes instead of catch-all
         @app.get("/")
         async def spa_root():
-            """Redirect to configuration page."""
-            from fastapi.responses import RedirectResponse
+            """Serve index.html for root/dashboard route."""
+            return FileResponse(str(static_dir / "index.html"))
 
-            return RedirectResponse(url="/configuration")
+        @app.get("/live")
+        async def spa_live():
+            """Serve index.html for live view route."""
+            return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/calibration")
         async def spa_calibration():
