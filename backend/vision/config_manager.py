@@ -56,7 +56,7 @@ class VisionConfigurationManager:
         """Create default vision configuration."""
         return {
             "camera": {
-                "device_id": 0,
+                "device_id": 1,
                 "backend": "auto",
                 "resolution": (1920, 1080),
                 "fps": 30,

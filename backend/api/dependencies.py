@@ -27,6 +27,7 @@ class ApplicationState:
         self.websocket_manager = websocket_manager
         self.websocket_handler = None
         self.message_broadcaster: Optional[Any] = None  # MessageBroadcaster instance
+        self.integration_service: Optional[Any] = None  # IntegrationService instance
         self.startup_time: Optional[float] = None
         self.is_healthy: bool = False
         self.vision_module: Optional[Any] = None  # Will be VisionModule when imported

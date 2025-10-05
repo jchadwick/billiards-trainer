@@ -24,7 +24,7 @@ class EnhancedCameraConfig:
     """Configuration for enhanced camera module."""
 
     # Camera settings
-    device_id: int = 0
+    device_id: int = 1
     resolution: Optional[tuple[int, int]] = None  # Auto-detect if None
     fps: int = 30
 
