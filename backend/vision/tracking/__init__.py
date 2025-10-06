@@ -8,22 +8,42 @@ This module provides comprehensive tracking capabilities including:
 - Integration utilities for various detection formats
 """
 
-from .integration import (
-    IntegratedTracker,
-    MissingDetectionPredictor,
-    TrackingConfig,
-    TrackingResult,
-    TrajectorySmoothing,
-    convert_detection_format,
-    create_integrated_tracker,
-)
+# Optional integration utilities
+try:
+    from .integration import (
+        IntegratedTracker,
+        MissingDetectionPredictor,
+        TrackingConfig,
+        TrackingResult,
+        TrajectorySmoothing,
+        convert_detection_format,
+        create_integrated_tracker,
+    )
+except ImportError:
+    IntegratedTracker = None
+    MissingDetectionPredictor = None
+    TrackingConfig = None
+    TrackingResult = None
+    TrajectorySmoothing = None
+    convert_detection_format = None
+    create_integrated_tracker = None
+
 from .kalman import KalmanFilter, KalmanState
-from .optimization import (
-    AdaptiveParameterTuning,
-    MemoryPool,
-    PerformanceMetrics,
-    TrackingOptimizer,
-)
+
+# Optional optimization components
+try:
+    from .optimization import (
+        AdaptiveParameterTuning,
+        MemoryPool,
+        PerformanceMetrics,
+        TrackingOptimizer,
+    )
+except ImportError:
+    AdaptiveParameterTuning = None
+    MemoryPool = None
+    PerformanceMetrics = None
+    TrackingOptimizer = None
+
 from .tracker import ObjectTracker, Track, TrackState
 
 __all__ = [

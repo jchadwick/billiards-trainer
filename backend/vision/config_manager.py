@@ -69,6 +69,13 @@ class VisionConfigurationManager:
                 "max_reconnect_attempts": 5,
             },
             "detection": {
+                "detection_backend": "opencv",  # or 'yolo'
+                "yolo_model_path": "models/yolov8n-pool.onnx",
+                "yolo_confidence": 0.4,
+                "yolo_nms_threshold": 0.45,
+                "yolo_device": "cpu",  # or 'cuda'
+                "use_opencv_validation": True,
+                "fallback_to_opencv": True,
                 "table_edge_threshold": 0.7,
                 "min_table_area": 0.3,
                 "min_ball_radius": 10,
@@ -331,6 +338,13 @@ class VisionConfigurationManager:
         return config.get(
             "detection",
             {
+                "detection_backend": "opencv",
+                "yolo_model_path": "models/yolov8n-pool.onnx",
+                "yolo_confidence": 0.4,
+                "yolo_nms_threshold": 0.45,
+                "yolo_device": "cpu",
+                "use_opencv_validation": True,
+                "fallback_to_opencv": True,
                 "table_edge_threshold": 0.7,
                 "min_table_area": 0.3,
                 "min_ball_radius": 10,

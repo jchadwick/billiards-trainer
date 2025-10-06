@@ -129,10 +129,17 @@ class CueDetector:
         self.min_detection_confidence = config.get("min_detection_confidence", 0.6)
         self.temporal_smoothing = config.get("temporal_smoothing", 0.7)
 
+        # Background subtraction parameters
+        self.use_background_subtraction = config.get(
+            "use_background_subtraction", False
+        )
+        self.background_threshold = config.get("background_threshold", 30)
+
         # Internal state
         self.previous_cues: deque = deque(maxlen=self.tracking_history_size)
         self.frame_count = 0
         self.shot_events: list[ExtendedShotEvent] = []
+        self.background_frame: Optional[NDArray[np.uint8]] = None
 
         # Initialize line segment detector
         self._init_line_detectors()
@@ -230,6 +237,16 @@ class CueDetector:
             self.logger.error(f"Cue detection failed: {e}")
             return None
 
+    def set_background_frame(self, frame: NDArray[np.uint8]) -> None:
+        """Set the background reference frame (empty table).
+
+        Args:
+            frame: Reference frame of empty table
+        """
+        self.background_frame = frame.copy()
+        self.use_background_subtraction = True
+        self.logger.info("Background frame set for cue detection")
+
     def _preprocess_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Preprocess frame for line detection.
 
@@ -244,6 +261,30 @@ class CueDetector:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
             gray = frame.copy()
+
+        # Apply background subtraction if enabled
+        if self.use_background_subtraction and self.background_frame is not None:
+            # Convert background to grayscale if needed
+            if len(self.background_frame.shape) == 3:
+                bg_gray = cv2.cvtColor(self.background_frame, cv2.COLOR_BGR2GRAY)
+            else:
+                bg_gray = self.background_frame
+
+            # Compute absolute difference
+            diff = cv2.absdiff(gray, bg_gray)
+
+            # Threshold to get foreground mask
+            _, fg_mask = cv2.threshold(
+                diff, self.background_threshold, 255, cv2.THRESH_BINARY
+            )
+
+            # Morphological operations to clean up
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
+            fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
+
+            # Apply mask to keep only foreground
+            gray = cv2.bitwise_and(gray, gray, mask=fg_mask)
 
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (5, 5), 1.0)
@@ -438,14 +479,13 @@ class CueDetector:
                 else:
                     tip_pos = (x2, y2)
                     butt_pos = (x1, y1)
+
+                # CRITICAL: Only accept cues that are pointing at the cue ball
+                if not self._is_pointing_at_cue_ball(tip_pos, butt_pos, cue_ball_pos):
+                    continue
             else:
-                # Default: assume tip is the point with smaller y-coordinate
-                if y1 < y2:
-                    tip_pos = (x1, y1)
-                    butt_pos = (x2, y2)
-                else:
-                    tip_pos = (x2, y2)
-                    butt_pos = (x1, y1)
+                # No cue ball position - skip this candidate (we require cue ball)
+                continue
 
             # Calculate confidence score
             confidence = self._calculate_line_confidence(
@@ -467,6 +507,59 @@ class CueDetector:
         candidates.sort(key=lambda c: c.confidence, reverse=True)
 
         return candidates
+
+    def _is_pointing_at_cue_ball(
+        self,
+        tip_pos: tuple[float, float],
+        butt_pos: tuple[float, float],
+        cue_ball_pos: tuple[float, float],
+    ) -> bool:
+        """Check if the cue line is pointing at the cue ball.
+
+        Args:
+            tip_pos: Cue tip position
+            butt_pos: Cue butt position
+            cue_ball_pos: Cue ball position
+
+        Returns:
+            True if cue is pointing at cue ball within tolerance
+        """
+        # Calculate the distance from cue ball to the cue line
+        line = np.array([tip_pos[0], tip_pos[1], butt_pos[0], butt_pos[1]])
+        distance_to_line = self._point_to_line_distance(cue_ball_pos, line)
+
+        # Maximum distance from line to cue ball center (in pixels)
+        # This accounts for cue ball radius + some tolerance
+        max_distance = 40  # Adjust based on typical ball size + tolerance
+
+        if distance_to_line > max_distance:
+            return False
+
+        # Also check that the cue ball is "in front" of the tip (not behind the butt)
+        # Vector from butt to tip
+        cue_dx = tip_pos[0] - butt_pos[0]
+        cue_dy = tip_pos[1] - butt_pos[1]
+
+        # Vector from butt to cue ball
+        ball_dx = cue_ball_pos[0] - butt_pos[0]
+        ball_dy = cue_ball_pos[1] - butt_pos[1]
+
+        # Dot product to check if cue ball is in the direction of the tip
+        dot_product = cue_dx * ball_dx + cue_dy * ball_dy
+
+        # Must be positive (cue ball is ahead of butt in the direction of tip)
+        if dot_product <= 0:
+            return False
+
+        # Also check the tip is reasonably close to the cue ball
+        tip_distance = np.sqrt(
+            (tip_pos[0] - cue_ball_pos[0]) ** 2 + (tip_pos[1] - cue_ball_pos[1]) ** 2
+        )
+
+        # Maximum distance from tip to cue ball (adjust based on typical aiming distance)
+        max_tip_distance = 300  # pixels
+
+        return tip_distance <= max_tip_distance
 
     def _calculate_line_confidence(
         self,
@@ -576,7 +669,7 @@ class CueDetector:
         closest_y = y1 + t * dy
 
         # Distance to closest point
-        return float(np.sqrt(x0 - closest_x) ** 2 + (y0 - closest_y) ** 2)
+        return float(np.sqrt((x0 - closest_x) ** 2 + (y0 - closest_y) ** 2))
 
     def _select_best_cue(
         self, candidates: list[ExtendedCueStick], frame: NDArray[np.uint8]

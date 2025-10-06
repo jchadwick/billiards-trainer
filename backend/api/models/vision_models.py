@@ -517,6 +517,33 @@ class ROIResponse(BaseModel):
     )
 
 
+# Model upload models
+
+
+class ModelUploadResponse(BaseModel):
+    """Model upload response."""
+
+    success: bool = Field(..., description="Upload success")
+    message: str = Field(..., description="Status message")
+    model_path: Optional[str] = Field(None, description="Saved model path")
+    model_name: Optional[str] = Field(None, description="Model filename")
+    validation_results: Optional[dict[str, Any]] = Field(
+        None, description="Validation results"
+    )
+    inference_test: Optional[dict[str, Any]] = Field(
+        None, description="Inference test results"
+    )
+    error: Optional[str] = Field(None, description="Error message if failed")
+
+
+class ModelInfoResponse(BaseModel):
+    """Model information response."""
+
+    success: bool = Field(default=True, description="Operation success")
+    model_info: dict[str, Any] = Field(..., description="Model information")
+    available_models: list[str] = Field(default=[], description="Available model files")
+
+
 # Validators
 
 
@@ -597,4 +624,7 @@ __all__ = [
     "VisionConfigResponse",
     "VisionStatisticsResponse",
     "ROIResponse",
+    # Model upload models
+    "ModelUploadResponse",
+    "ModelInfoResponse",
 ]

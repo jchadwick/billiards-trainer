@@ -1,0 +1,6 @@
+{
+  "device": "cpu",
+  "confidence": 0.4,
+  "nms_threshold": 0.45,
+  "auto_fallback": true
+}

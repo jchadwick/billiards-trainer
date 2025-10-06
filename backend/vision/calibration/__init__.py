@@ -56,11 +56,25 @@ from .geometry import (
     GeometricCalibrator,
     PerspectiveCorrection,
 )
-from .interactive import InteractiveCalibrationGUI, run_calibration_gui
+
+# Optional interactive GUI (may not be available in all environments)
+try:
+    from .interactive import InteractiveCalibrationGUI, run_calibration_gui
+
+    _HAS_INTERACTIVE = True
+except ImportError:
+    _HAS_INTERACTIVE = False
+    InteractiveCalibrationGUI = None
+    run_calibration_gui = None
+
 from .manager import CalibrationManager, CalibrationSession
 
-# Test functions
-from .test_calibration import run_calibration_tests
+# Test functions (optional)
+try:
+    from .test_calibration import run_calibration_tests
+except ImportError:
+    run_calibration_tests = None
+
 from .validation import CalibrationReport, CalibrationValidator, ValidationResult
 
 __all__ = [

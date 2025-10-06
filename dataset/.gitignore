@@ -1,0 +1,28 @@
+# Ignore all image files
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.tiff
+*.gif
+
+# Ignore all label files
+*.txt
+
+# Ignore any compressed archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Ignore any temporary annotation files
+*.cache
+*.json
+*.xml
+
+# Keep directory structure
+!.gitignore
+!README.md
+
+# Keep empty directories by allowing .gitkeep files
+!.gitkeep

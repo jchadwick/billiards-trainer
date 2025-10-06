@@ -1,0 +1,54 @@
+{
+  "comment": "Vision configuration with YOLO detection backend",
+  "metadata": {
+    "version": "1.0.0",
+    "application": "billiards-trainer",
+    "profile": "yolo-detection",
+    "description": "Configuration using YOLO for ball detection with OpenCV validation"
+  },
+  "vision": {
+    "camera": {
+      "device_id": 0,
+      "backend": "auto",
+      "resolution": [1920, 1080],
+      "fps": 30,
+      "exposure_mode": "auto",
+      "gain": 1.0,
+      "buffer_size": 1,
+      "auto_reconnect": true,
+      "reconnect_delay": 1.0,
+      "max_reconnect_attempts": 5
+    },
+    "detection": {
+      "detection_backend": "yolo",
+      "yolo_model_path": "models/yolov8n-pool.onnx",
+      "yolo_confidence": 0.4,
+      "yolo_nms_threshold": 0.45,
+      "yolo_device": "cpu",
+      "use_opencv_validation": true,
+      "fallback_to_opencv": true,
+      "table_edge_threshold": 0.7,
+      "min_table_area": 0.3,
+      "min_ball_radius": 10,
+      "max_ball_radius": 40,
+      "ball_detection_method": "yolo",
+      "ball_sensitivity": 0.8,
+      "cue_detection_enabled": true,
+      "min_cue_length": 100,
+      "cue_line_threshold": 0.6
+    },
+    "processing": {
+      "use_gpu": false,
+      "enable_preprocessing": true,
+      "blur_kernel_size": 5,
+      "morphology_kernel_size": 3,
+      "enable_tracking": true,
+      "tracking_max_distance": 50,
+      "frame_skip": 0
+    },
+    "debug": false,
+    "save_debug_images": false,
+    "debug_output_path": "/tmp/vision_debug",
+    "calibration_auto_save": true
+  }
+}

@@ -2,10 +2,17 @@
 
 This plan outlines the remaining tasks to complete the Billiards Trainer system. The tasks are prioritized based on comprehensive codebase analysis conducted on 2025-10-03.
 
-**Last Updated:** 2025-10-05 (Comprehensive Gap Analysis Complete)
-**Status:** Individual modules 90%+ complete. **CRITICAL: Integration layer missing** - modules are isolated and not connected.
+**Last Updated:** 2025-10-06 (YOLO Detection System Implementation Plan Added)
+**Status:** Individual modules 90%+ complete. **NEW PRIORITY: Replace OpenCV detection with YOLOv8 for robust ball/cue detection**
 
-**Completed Today (2025-10-05):**
+**Analysis Completed (2025-10-06):**
+- Identified fundamental algorithmic issues with color-based detection on colored table
+- Researched and evaluated deep learning alternatives (YOLOv8, RT-DETR, SAM2, YOLO-World)
+- Confirmed YOLOv8-nano as optimal solution: 30+ FPS on CPU, 6MB model, proven accuracy
+- Designed hybrid architecture: YOLO for detection + OpenCV for tracking/analysis
+- Created detailed 6-week implementation plan with specific tasks
+
+**Previous Updates (2025-10-05):**
 - Conducted comprehensive codebase analysis with 10 parallel research agents
 - Analyzed all 7 modules against SPECS.md (vision, core, API, streaming, projector, web, LÖVE2D)
 - Identified critical integration gaps: Vision→Core and Core→Broadcast flows missing
@@ -15,7 +22,297 @@ This plan outlines the remaining tasks to complete the Billiards Trainer system.
 
 ---
 
-## 🔴 CRITICAL INTEGRATION GAPS (MUST FIX FIRST)
+## 🔴 NEW CRITICAL PRIORITY: YOLO DETECTION SYSTEM IMPLEMENTATION
+
+### **Root Cause Analysis: Why Current Detection is Failing**
+
+The current OpenCV-based detection system has a **fundamental algorithmic flaw**: it uses color-based detection to find colored balls on a colored table where the colors overlap. Specifically:
+
+1. **Color Overlap Problem**: Green balls (6, 14) have HSV ranges that overlap with green table felt
+2. **Circular Dependencies**: Detection quality depends on table mask, which depends on color detection
+3. **Parameter Hell**: 24+ interdependent parameters create an impossible optimization problem
+4. **Information Loss**: Preprocessing pipeline destroys information needed for detection
+
+**No amount of parameter tuning can fix this.** The solution is to replace detection with YOLOv8.
+
+---
+
+## 🚀 YOLO DETECTION IMPLEMENTATION PLAN (6 Weeks)
+
+### Phase 1: Dataset Creation and Preparation (Week 1-2)
+
+#### Week 1: Data Collection
+1. **Extract frames from existing videos**
+   - Use `tools/video_debugger.py` to extract 1000-1500 frames from demo videos
+   - Capture varied lighting conditions, ball configurations, cue positions
+   - Include edge cases: shadows, occlusions, ball clusters
+
+2. **Capture additional training data**
+   - Record new video with different table states
+   - Empty table frames for calibration
+   - Various ball arrangements (break, mid-game, end-game)
+   - Different cue angles and positions
+
+3. **Organize dataset structure**
+   ```
+   dataset/
+   ├── images/
+   │   ├── train/ (80% - 800-1200 images)
+   │   ├── val/   (15% - 150-225 images)
+   │   └── test/  (5% - 50-75 images)
+   └── labels/
+       ├── train/
+       ├── val/
+       └── test/
+   ```
+
+#### Week 2: Data Annotation
+1. **Set up annotation tool**
+   - Use Roboflow or LabelImg for annotation
+   - Define classes: cue_ball, solid_1-7, stripe_9-15, eight_ball, cue_stick, table_corner, pocket
+
+2. **Annotate dataset**
+   - Bounding boxes for all balls and cue stick
+   - Include partially visible balls
+   - Label table corners and pockets for bonus detection
+
+3. **Data augmentation**
+   - Brightness/contrast variations (±30%)
+   - Slight rotations (±15 degrees)
+   - Synthetic shadows and highlights
+   - Horizontal flips for table symmetry
+
+4. **Export to YOLO format**
+   - Generate YAML configuration file
+   - Verify dataset integrity
+   - Create backup of annotated data
+
+### Phase 2: YOLO Integration Architecture (Week 3-4)
+
+#### Week 3: Core YOLO Implementation
+1. **Create YOLO detector module** (`backend/vision/detection/yolo_detector.py`)
+   ```python
+   class YOLODetector:
+       def __init__(self, model_path='models/yolov8n-pool.onnx', device='cpu'):
+           self.model = YOLO(model_path)
+           self.class_map = self._initialize_class_map()
+           self.confidence_threshold = 0.4
+
+       def detect_balls(self, frame: np.ndarray) -> List[Ball]:
+           """Run YOLO inference and convert to Ball objects"""
+
+       def detect_cue(self, frame: np.ndarray) -> Optional[CueStick]:
+           """Extract cue detection from YOLO results"""
+
+       def detect_table_elements(self, frame: np.ndarray) -> TableElements:
+           """Detect pockets and table corners"""
+   ```
+
+2. **Create adapter layer** (`backend/vision/detection/detector_adapter.py`)
+   - Convert YOLO bounding boxes to Ball/CueStick models
+   - Map class IDs to BallType enum
+   - Calculate ball centers from bounding boxes
+   - Estimate radius from box dimensions
+
+3. **Implement detector factory** (`backend/vision/detection/detector_factory.py`)
+   ```python
+   def create_detector(backend: str = 'yolo') -> BaseDetector:
+       if backend == 'yolo':
+           return YOLODetector()
+       elif backend == 'opencv':
+           return BallDetector()  # Fallback
+       else:
+           raise ValueError(f"Unknown backend: {backend}")
+   ```
+
+4. **Add configuration support**
+   ```json
+   {
+     "vision": {
+       "detection_backend": "yolo",
+       "yolo_model_path": "models/yolov8n-pool.onnx",
+       "yolo_confidence": 0.4,
+       "yolo_nms_threshold": 0.45,
+       "use_opencv_validation": true,
+       "fallback_to_opencv": true
+     }
+   }
+   ```
+
+#### Week 4: OpenCV Enhancement Layer
+1. **Hybrid validation system** (`backend/vision/detection/hybrid_validator.py`)
+   ```python
+   class HybridValidator:
+       def validate_ball_detection(self, yolo_ball: Ball, frame_roi: np.ndarray) -> float:
+           """Use OpenCV to verify YOLO detection"""
+           # Color histogram validation
+           # Circularity check with Hough
+           # Size consistency check
+           return confidence_adjustment
+
+       def refine_ball_position(self, yolo_ball: Ball, frame_roi: np.ndarray) -> Ball:
+           """Sub-pixel position refinement using OpenCV"""
+
+       def extract_ball_features(self, ball: Ball, frame: np.ndarray) -> BallFeatures:
+           """Extract color, number, stripe pattern using OpenCV"""
+   ```
+
+2. **Keep OpenCV for tracking** (`backend/vision/tracking/`)
+   - Kalman filter tracking unchanged
+   - Hungarian algorithm for track association
+   - Trajectory prediction and smoothing
+
+3. **OpenCV post-processing**
+   - Refine YOLO boxes to precise circles
+   - Extract dominant ball colors
+   - Detect ball numbers when visible
+   - Validate ball sizes against expected radius
+
+4. **Integration with VisionModule**
+   ```python
+   # backend/vision/__init__.py
+   def __init__(self, config):
+       detection_backend = config.get('detection_backend', 'yolo')
+       self.detector = create_detector(backend=detection_backend)
+       self.validator = HybridValidator() if config.get('use_opencv_validation') else None
+       self.tracker = ObjectTracker()  # Keep existing tracker
+   ```
+
+### Phase 3: Training and Optimization (Week 5)
+
+#### Training Pipeline
+1. **Set up training environment**
+   ```bash
+   pip install ultralytics torch torchvision
+   pip install roboflow  # For dataset management
+   ```
+
+2. **Train YOLOv8-nano model**
+   ```python
+   from ultralytics import YOLO
+
+   # Start with pretrained weights
+   model = YOLO('yolov8n.pt')
+
+   # Train on custom dataset
+   model.train(
+       data='dataset/pool_dataset.yaml',
+       epochs=100,
+       imgsz=640,
+       batch=16,
+       device='cpu',  # or 'cuda' if GPU available
+       patience=20,
+       save=True,
+       project='pool_detection',
+       name='yolov8n_pool_v1'
+   )
+   ```
+
+3. **Model optimization**
+   - Export to ONNX format for CPU deployment
+   - Quantize to INT8 if supported by hardware
+   - Optimize for target resolution (640x640 or 1280x1280)
+
+4. **Performance benchmarking**
+   ```python
+   def benchmark_detection_systems():
+       opencv_detector = BallDetector()
+       yolo_detector = YOLODetector()
+
+       for frame in test_frames:
+           # Measure OpenCV performance
+           t0 = time.time()
+           opencv_balls = opencv_detector.detect_balls(frame)
+           opencv_time = time.time() - t0
+
+           # Measure YOLO performance
+           t0 = time.time()
+           yolo_balls = yolo_detector.detect_balls(frame)
+           yolo_time = time.time() - t0
+
+           # Compare accuracy, false positives, speed
+   ```
+
+### Phase 4: Testing and Validation (Week 6)
+
+#### Testing Strategy
+1. **Unit tests for YOLO detector**
+   - Test detection on known images
+   - Verify class mapping correctness
+   - Test error handling and edge cases
+
+2. **Integration tests**
+   - End-to-end detection → tracking → broadcasting
+   - Verify Ball/CueStick object compatibility
+   - Test fallback to OpenCV when YOLO unavailable
+
+3. **Performance validation**
+   - Target: 30+ FPS on CPU (Raspberry Pi 4)
+   - Measure: Detection accuracy, false positive rate
+   - Compare: YOLO vs OpenCV on same test set
+
+4. **A/B testing with video_debugger**
+   ```bash
+   # Test with OpenCV
+   python tools/video_debugger.py demo2.mkv --detector opencv
+
+   # Test with YOLO
+   python tools/video_debugger.py demo2.mkv --detector yolo
+
+   # Compare results side-by-side
+   python tools/compare_detectors.py demo2.mkv
+   ```
+
+### Implementation File Structure
+
+```
+backend/vision/detection/
+├── yolo_detector.py        # YOLO implementation
+├── detector_adapter.py     # YOLO → Ball/CueStick conversion
+├── detector_factory.py     # Backend selection
+├── hybrid_validator.py     # YOLO + OpenCV validation
+├── balls.py               # Keep as fallback (existing)
+├── cue.py                 # Keep as fallback (existing)
+└── __init__.py            # Updated imports
+
+models/
+├── yolov8n-pool.onnx      # Trained model (6MB)
+├── yolov8n-pool.yaml      # Model config
+└── class_names.txt        # Class definitions
+
+tools/
+├── dataset_creator.py      # Extract frames for training
+├── annotation_validator.py # Verify dataset quality
+├── model_trainer.py        # Training script
+├── benchmark_detectors.py  # Performance comparison
+└── compare_detectors.py    # Visual comparison tool
+```
+
+### Success Metrics
+
+1. **Detection Accuracy**
+   - Target: 90%+ mAP@0.5 for ball detection
+   - Target: 85%+ for cue stick detection
+   - Zero false positives on empty table
+
+2. **Performance**
+   - 30+ FPS on target hardware (CPU only)
+   - <33ms latency per frame
+   - Model size <10MB (ONNX format)
+
+3. **Robustness**
+   - Handle varying lighting conditions
+   - Detect partially occluded balls
+   - Work with different ball sets/colors
+
+4. **Integration**
+   - Seamless drop-in replacement for OpenCV detector
+   - Maintains compatibility with existing tracker
+   - Fallback mechanism functional
+
+---
+
+## 🔴 CRITICAL INTEGRATION GAPS (MUST FIX AFTER YOLO)
 
 ### **The Problem: Components Work, System Doesn't**
 
