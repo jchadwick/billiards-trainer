@@ -97,10 +97,10 @@ CameraCapture = capture_module.CameraCapture
 models_path = base_path / "backend" / "vision" / "models.py"
 models_module = import_from_path("backend.vision.models", models_path)
 
-# Import detector factory
-factory_path = base_path / "backend" / "vision" / "detection" / "detector_factory.py"
-factory_module = import_from_path("backend.vision.detection.detector_factory", factory_path)
-DetectorFactory = factory_module.DetectorFactory
+# Import detector (use BallDetector directly to avoid circular imports)
+balls_path = base_path / "backend" / "vision" / "detection" / "balls.py"
+balls_module = import_from_path("backend.vision.detection.balls", balls_path)
+BallDetector = balls_module.BallDetector
 
 # Import kalman filter first (needed by tracker)
 kalman_path = base_path / "backend" / "vision" / "tracking" / "kalman.py"
@@ -314,29 +314,19 @@ class VideoDebugger:
         }
         self.camera = CameraCapture(camera_config)
 
-        # Initialize ball detector using factory pattern
+        # Initialize ball detector
+        # Note: YOLO backend disabled for now (requires trained model)
+        # Using OpenCV detection regardless of backend setting
+        if detection_backend == "yolo":
+            logger.warning("YOLO backend not available (no trained model), falling back to OpenCV")
+            detection_backend = "opencv"
+
         detector_config = {
-            "detection_backend": detection_backend,
+            "detection_method": "combined",
             "debug_mode": False,
         }
 
-        # Add YOLO-specific config if using YOLO backend
-        if detection_backend == "yolo":
-            detector_config.update({
-                "yolo_model_path": yolo_model_path,
-                "yolo_device": yolo_device,
-                "yolo_confidence": 0.4,
-                "yolo_nms_threshold": 0.45,
-                "use_opencv_validation": True,  # Use hybrid validation
-                "fallback_to_opencv": True,
-            })
-        else:
-            # OpenCV-specific config
-            detector_config.update({
-                "detection_method": "combined",
-            })
-
-        self.detector = DetectorFactory.create_detector(detector_config)
+        self.detector = BallDetector(detector_config)
         self.detection_backend = detection_backend
 
         # Initialize tracker (lenient settings to maintain tracks longer)
