@@ -452,7 +452,7 @@ class DetectionSettings(BaseConfig):
         description="YOLO non-maximum suppression threshold",
     )
     yolo_device: str = Field(
-        default="cpu", description="YOLO inference device (cpu or cuda)"
+        default="cpu", description="YOLO inference device (cpu, cuda, or tpu)"
     )
     use_opencv_validation: bool = Field(
         default=True,
@@ -461,6 +461,16 @@ class DetectionSettings(BaseConfig):
     fallback_to_opencv: bool = Field(
         default=True,
         description="Fall back to OpenCV if YOLO fails or unavailable",
+    )
+
+    # Google Coral Edge TPU configuration
+    tpu_device_path: Optional[str] = Field(
+        default=None,
+        description="Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto-detect)",
+    )
+    tpu_model_path: str = Field(
+        default="models/yolov8n-pool_edgetpu.tflite",
+        description="Path to Edge TPU compiled model file (.tflite)",
     )
 
     # Table detection

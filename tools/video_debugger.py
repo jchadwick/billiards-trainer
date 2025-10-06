@@ -4,8 +4,23 @@
 This tool allows you to play back video files (MKV/MP4) with ball detection,
 tracking, cue stick detection, and predicted trajectory overlaid on the frames.
 
+Supports both YOLO (deep learning) and OpenCV (traditional) detection backends.
+
 Usage:
     python tools/video_debugger.py <video_file> [options]
+
+Examples:
+    # Use YOLO detection with CPU
+    python tools/video_debugger.py demo.mkv
+
+    # Use YOLO detection with custom model
+    python tools/video_debugger.py demo.mkv --yolo-model models/yolov8n-pool.onnx
+
+    # Use YOLO detection with Coral TPU
+    python tools/video_debugger.py demo.mkv --yolo-device tpu
+
+    # Use OpenCV detection (traditional method)
+    python tools/video_debugger.py demo.mkv --backend opencv
 
 Controls:
     SPACE - Play/Pause
@@ -82,10 +97,10 @@ CameraCapture = capture_module.CameraCapture
 models_path = base_path / "backend" / "vision" / "models.py"
 models_module = import_from_path("backend.vision.models", models_path)
 
-# Import detector
-balls_path = base_path / "backend" / "vision" / "detection" / "balls.py"
-balls_module = import_from_path("backend.vision.detection.balls", balls_path)
-BallDetector = balls_module.BallDetector
+# Import detector factory
+factory_path = base_path / "backend" / "vision" / "detection" / "detector_factory.py"
+factory_module = import_from_path("backend.vision.detection.detector_factory", factory_path)
+DetectorFactory = factory_module.DetectorFactory
 
 # Import kalman filter first (needed by tracker)
 kalman_path = base_path / "backend" / "vision" / "tracking" / "kalman.py"
@@ -250,6 +265,9 @@ class VideoDebugger:
         video_path: str,
         loop: bool = False,
         max_trace_length: int = 100,
+        detection_backend: str = "yolo",
+        yolo_model_path: Optional[str] = None,
+        yolo_device: str = "cpu",
     ):
         """Initialize video debugger.
 
@@ -257,6 +275,9 @@ class VideoDebugger:
             video_path: Path to video file
             loop: Whether to loop the video
             max_trace_length: Maximum number of trace points per ball
+            detection_backend: Backend to use ("yolo" or "opencv")
+            yolo_model_path: Path to YOLO model (for YOLO backend)
+            yolo_device: Device to use for YOLO ("cpu", "cuda", or "tpu")
         """
         self.video_path = video_path
         self.loop = loop
@@ -278,6 +299,10 @@ class VideoDebugger:
 
         # Initialize components
         logger.info(f"Initializing video debugger for: {video_path}")
+        logger.info(f"Detection backend: {detection_backend}")
+        if detection_backend == "yolo":
+            logger.info(f"YOLO device: {yolo_device}")
+            logger.info(f"YOLO model: {yolo_model_path or 'default'}")
 
         # Configure camera capture for video file
         camera_config = {
@@ -289,15 +314,30 @@ class VideoDebugger:
         }
         self.camera = CameraCapture(camera_config)
 
-        # Initialize ball detector with BALANCED settings
-        # The default config in BallDetectionConfig is now properly tuned
-        # Only override if we need video-specific adjustments
+        # Initialize ball detector using factory pattern
         detector_config = {
-            "detection_method": "combined",
-            # Use defaults from BallDetectionConfig which are now strict and accurate
+            "detection_backend": detection_backend,
             "debug_mode": False,
         }
-        self.detector = BallDetector(detector_config)
+
+        # Add YOLO-specific config if using YOLO backend
+        if detection_backend == "yolo":
+            detector_config.update({
+                "yolo_model_path": yolo_model_path,
+                "yolo_device": yolo_device,
+                "yolo_confidence": 0.4,
+                "yolo_nms_threshold": 0.45,
+                "use_opencv_validation": True,  # Use hybrid validation
+                "fallback_to_opencv": True,
+            })
+        else:
+            # OpenCV-specific config
+            detector_config.update({
+                "detection_method": "combined",
+            })
+
+        self.detector = DetectorFactory.create_detector(detector_config)
+        self.detection_backend = detection_backend
 
         # Initialize tracker (lenient settings to maintain tracks longer)
         tracker_config = {
@@ -490,6 +530,7 @@ class VideoDebugger:
             f"Frame: {self.current_frame_num}",
             f"Speed: {self.playback_speed:.1f}x",
             f"State: {'PAUSED' if self.paused else 'PLAYING'}",
+            f"Backend: {self.detection_backend.upper()}",
             f"Balls: {len(self.ball_traces)}",
         ]
 
@@ -847,6 +888,23 @@ def main():
         help="Maximum trace length (default: 100)",
     )
     parser.add_argument(
+        "--backend",
+        choices=["yolo", "opencv"],
+        default="yolo",
+        help="Detection backend (default: yolo)",
+    )
+    parser.add_argument(
+        "--yolo-model",
+        type=str,
+        help="Path to YOLO model (default: models/yolov8n-pool.onnx)",
+    )
+    parser.add_argument(
+        "--yolo-device",
+        choices=["cpu", "cuda", "tpu"],
+        default="cpu",
+        help="YOLO inference device (default: cpu)",
+    )
+    parser.add_argument(
         "--background",
         type=str,
         help="Path to background image file (for background subtraction)",
@@ -878,6 +936,9 @@ def main():
         video_path=args.video,
         loop=args.loop,
         max_trace_length=args.trace_length,
+        detection_backend=args.backend,
+        yolo_model_path=args.yolo_model,
+        yolo_device=args.yolo_device,
     )
 
     # Enable test mode if requested

@@ -13,6 +13,12 @@ This directory contains trained models for billiards ball detection and tracking
 - Native PyTorch inference
 - Requires PyTorch installation
 
+**Edge TPU Format:** TensorFlow Lite (`.tflite`)
+- Optimized for Google Coral Edge TPU accelerators
+- Ultra-low latency inference (typically 5-15ms per frame)
+- Lower power consumption
+- Requires Edge TPU compiled model
+
 ## Performance Targets
 
 Models should meet the following requirements:
@@ -205,8 +211,237 @@ python scripts/benchmark_model.py models/ball_detector_v1.onnx
 - Consider lighter architecture
 - Reduce input resolution
 
+## Google Coral Edge TPU Support
+
+### Overview
+
+The billiards-trainer system supports hardware acceleration using Google Coral Edge TPU devices. Edge TPUs provide:
+- **Ultra-low latency**: 5-15ms per frame (vs 50-100ms on CPU)
+- **Power efficiency**: <2W power consumption
+- **Consistent performance**: Dedicated ML accelerator without competing workloads
+
+### Supported Devices
+
+- **USB Accelerator**: Plug-and-play USB device for any Linux system
+- **M.2 Accelerator**: PCIe/M.2 module for embedded systems
+- **Dev Board**: Complete development platform with integrated TPU
+
+### Model Conversion to Edge TPU
+
+To use a YOLO model on Edge TPU, you must convert it to TensorFlow Lite format and compile it for Edge TPU:
+
+#### Step 1: Export YOLO to TensorFlow Lite
+
+```bash
+# Using ultralytics (recommended)
+yolo export model=yolov8n-pool.pt format=tflite imgsz=320
+
+# This creates: yolov8n-pool_saved_model/yolov8n-pool_float32.tflite
+```
+
+**Important Notes:**
+- Use smaller input sizes (320x320 or 416x416) for better TPU performance
+- YOLOv8n (nano) is recommended for Edge TPU
+- Larger models may not fit or may be slower on TPU
+
+#### Step 2: Compile for Edge TPU
+
+Install the Edge TPU Compiler:
+
+```bash
+# Install Edge TPU Compiler (Linux only)
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+echo "deb https://packages.cloud.google.com/apt coral-edgetpu-stable main" | sudo tee /etc/apt/sources.list.d/coral-edgetpu.list
+sudo apt-get update
+sudo apt-get install edgetpu-compiler
+```
+
+Compile the model:
+
+```bash
+# Compile TFLite model for Edge TPU
+edgetpu_compiler yolov8n-pool_float32.tflite
+
+# This creates: yolov8n-pool_float32_edgetpu.tflite
+# Move to models directory
+mv yolov8n-pool_float32_edgetpu.tflite models/yolov8n-pool_edgetpu.tflite
+```
+
+**Compiler Output:**
+The compiler will show:
+- Model compatibility with Edge TPU
+- Percentage of operations that will run on TPU (aim for >90%)
+- Any unsupported operations (will fall back to CPU)
+- Estimated inference time
+
+#### Step 3: Verify Compilation
+
+Check compilation results:
+
+```bash
+# View compilation log
+cat yolov8n-pool_float32_edgetpu.log
+
+# Look for:
+# - "Number of operations that will run on Edge TPU: XX"
+# - "Number of operations that will run on CPU: YY"
+# Ideally, >90% of operations should be on Edge TPU
+```
+
+### Configuration for Edge TPU
+
+#### Option 1: Using Configuration File
+
+Create or use `config/vision_tpu_example.json`:
+
+```json
+{
+  "vision": {
+    "detection": {
+      "detection_backend": "yolo",
+      "yolo_device": "tpu",
+      "yolo_model_path": "models/yolov8n-pool_edgetpu.tflite",
+      "tpu_device_path": null,
+      "yolo_confidence": 0.4,
+      "yolo_nms_threshold": 0.45
+    }
+  }
+}
+```
+
+**TPU Device Path Options:**
+- `null` or omit: Auto-detect TPU device (recommended)
+- `"usb"`: Force USB accelerator
+- `"pcie"`: Force PCIe/M.2 accelerator
+- `"/dev/bus/usb/001/002"`: Specific USB device path
+
+#### Option 2: Programmatic Configuration
+
+```python
+from backend.vision.detection.yolo_detector import YOLODetector
+
+# Create TPU-accelerated detector
+detector = YOLODetector(
+    model_path="models/yolov8n-pool_edgetpu.tflite",
+    device="tpu",
+    tpu_device_path=None,  # Auto-detect
+    confidence=0.4,
+    nms_threshold=0.45,
+    auto_fallback=True  # Fall back to CPU if TPU unavailable
+)
+
+# Check if TPU is being used
+info = detector.get_model_info()
+print(f"Using TPU: {info['using_tpu']}")
+print(f"TPU available: {info.get('tpu_available', False)}")
+```
+
+### Installing PyCoral (TPU Runtime)
+
+The PyCoral library is required for TPU inference:
+
+```bash
+# For Linux (x86-64 or ARM64)
+pip install pycoral
+
+# Or install with specific Python version
+pip3.9 install pycoral
+
+# Verify installation
+python -c "from pycoral.utils import edgetpu; print(edgetpu.list_edge_tpus())"
+```
+
+**Installation Notes:**
+- PyCoral is only available for Linux (x86-64, ARM64)
+- Requires Python 3.7-3.10 (check compatibility)
+- Not available on macOS or Windows
+- For development on non-Linux systems, use CPU/CUDA and deploy to Linux device with TPU
+
+### Troubleshooting TPU
+
+#### TPU Not Detected
+
+```bash
+# Check if TPU is connected and recognized
+lsusb | grep "Global Unichip"
+
+# Expected output (USB Accelerator):
+# Bus 001 Device 005: ID 1a6e:089a Global Unichip Corp.
+
+# List Edge TPU devices
+python3 -c "from pycoral.utils import edgetpu; print(edgetpu.list_edge_tpus())"
+```
+
+#### Permission Issues
+
+```bash
+# Add udev rules for TPU access (USB Accelerator)
+echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1a6e", ATTRS{idProduct}=="089a", GROUP="plugdev"' | sudo tee /etc/udev/rules.d/99-edgetpu-accelerator.rules
+echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="18d1", ATTRS{idProduct}=="9302", GROUP="plugdev"' | sudo tee -a /etc/udev/rules.d/99-edgetpu-accelerator.rules
+
+# Reload udev rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# Add user to plugdev group
+sudo usermod -aG plugdev $USER
+
+# Log out and log back in for group changes to take effect
+```
+
+#### Model Not Compatible
+
+If the compiler reports low Edge TPU operation percentage:
+
+1. **Use smaller model**: YOLOv8n instead of YOLOv8s/m/l
+2. **Reduce input size**: Use 320x320 instead of 640x640
+3. **Check for unsupported ops**: Review compiler log for unsupported operations
+4. **Simplify model architecture**: Some custom layers may not be supported
+
+#### Performance Issues
+
+```python
+# Check inference time
+import time
+detector = YOLODetector(model_path="models/yolov8n-pool_edgetpu.tflite", device="tpu")
+
+start = time.time()
+detections = detector.detect_balls(frame)
+print(f"Inference time: {(time.time() - start) * 1000:.1f}ms")
+
+# Expected: 5-15ms on Edge TPU, 50-100ms on CPU
+```
+
+### Performance Comparison
+
+| Device | Model | Resolution | Inference Time | Power | Cost |
+|--------|-------|------------|----------------|-------|------|
+| Coral USB | YOLOv8n | 320x320 | ~8ms | <2W | $60 |
+| Coral USB | YOLOv8n | 416x416 | ~12ms | <2W | $60 |
+| CPU (x86) | YOLOv8n | 640x640 | ~80ms | 10-20W | - |
+| CUDA (GTX 1660) | YOLOv8n | 640x640 | ~15ms | 120W | $200+ |
+
+### Best Practices
+
+1. **Model Size**: Use YOLOv8n (nano) for best TPU performance
+2. **Input Resolution**: 320x320 or 416x416 for optimal speed/accuracy tradeoff
+3. **Quantization**: TPU models are automatically quantized during compilation
+4. **Batch Size**: Always use batch_size=1 on Edge TPU
+5. **Preprocessing**: Minimize preprocessing overhead (resize, normalize) in Python
+6. **Multiple TPUs**: Can use multiple USB accelerators for parallel processing
+
+### Additional Resources
+
+- **Coral Documentation**: https://coral.ai/docs/
+- **Edge TPU Compiler**: https://coral.ai/docs/edgetpu/compiler/
+- **PyCoral API**: https://coral.ai/docs/reference/py/
+- **Model Optimization**: https://coral.ai/docs/edgetpu/models-intro/
+- **Supported Operations**: https://coral.ai/docs/edgetpu/compiler/#supported-operations
+
 ## References
 
 - ONNX: https://onnx.ai/
 - YOLOv8: https://github.com/ultralytics/ultralytics
 - ONNX Runtime: https://onnxruntime.ai/
+- Google Coral: https://coral.ai/
+- Edge TPU Compiler: https://coral.ai/docs/edgetpu/compiler/
