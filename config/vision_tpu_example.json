@@ -1,0 +1,29 @@
+{
+  "vision": {
+    "camera": {
+      "device_id": 0,
+      "resolution": [1920, 1080],
+      "fps": 30,
+      "backend": "v4l2"
+    },
+    "detection": {
+      "detection_backend": "yolo",
+      "yolo_device": "tpu",
+      "yolo_model_path": "models/yolov8n-pool_edgetpu.tflite",
+      "yolo_confidence": 0.4,
+      "yolo_nms_threshold": 0.45,
+      "tpu_device_path": null,
+      "tpu_model_path": "models/yolov8n-pool_edgetpu.tflite",
+      "use_opencv_validation": true,
+      "fallback_to_opencv": true,
+      "enable_ball_detection": true,
+      "enable_cue_detection": true,
+      "enable_table_detection": true
+    },
+    "processing": {
+      "enable_preprocessing": true,
+      "enable_tracking": true,
+      "use_gpu": false
+    }
+  }
+}
