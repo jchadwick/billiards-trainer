@@ -42,6 +42,7 @@ class ModelFormat(Enum):
     PYTORCH = "pt"
     ONNX = "onnx"
     TENSORRT = "engine"
+    EDGETPU = "tflite"  # Edge TPU TensorFlow Lite
 
 
 class BallClass(Enum):
@@ -134,16 +135,18 @@ class YOLODetector:
         confidence: float = 0.4,
         nms_threshold: float = 0.45,
         auto_fallback: bool = True,
+        tpu_device_path: Optional[str] = None,
     ) -> None:
         """Initialize YOLO detector.
 
         Args:
-            model_path: Path to YOLO model file (.pt or .onnx). If None, detector
+            model_path: Path to YOLO model file (.pt, .onnx, or .tflite). If None, detector
                        will operate in fallback mode without YOLO.
-            device: Device to run inference on ('cpu', 'cuda', 'mps')
+            device: Device to run inference on ('cpu', 'cuda', 'mps', 'tpu')
             confidence: Minimum confidence threshold (0.0-1.0)
             nms_threshold: Non-maximum suppression IoU threshold
             auto_fallback: Automatically fall back to None model if loading fails
+            tpu_device_path: Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto)
 
         Raises:
             FileNotFoundError: If model_path is provided but file doesn't exist
@@ -154,11 +157,18 @@ class YOLODetector:
         self.confidence = confidence
         self.nms_threshold = nms_threshold
         self.auto_fallback = auto_fallback
+        self.tpu_device_path = tpu_device_path
 
         # Model state
         self.model: Optional[Any] = None
         self.model_format: Optional[ModelFormat] = None
         self.model_loaded = False
+
+        # TPU-specific state
+        self.tpu_available = False
+        self.tpu_interpreter: Optional[Any] = None
+        self.tpu_input_details: Optional[list] = None
+        self.tpu_output_details: Optional[list] = None
 
         # Thread safety for model hot-swapping
         self._model_lock = threading.RLock()
@@ -172,7 +182,18 @@ class YOLODetector:
             "total_detections": 0,
             "avg_inference_time": 0.0,
             "fallback_mode": False,
+            "using_tpu": False,
         }
+
+        # Detect TPU availability if device is 'tpu'
+        if device == "tpu":
+            self.tpu_available = self._detect_tpu()
+            if self.tpu_available:
+                logger.info("Coral Edge TPU detected and available")
+                self.stats["using_tpu"] = True
+            else:
+                logger.warning("TPU requested but not available, falling back to CPU")
+                self.device = "cpu"
 
         # Load model if path provided
         if model_path is not None:
@@ -218,6 +239,42 @@ class YOLODetector:
         # Reverse mapping
         self.name_to_class = {v: k for k, v in self.class_names.items()}
 
+    def _detect_tpu(self) -> bool:
+        """Detect if Coral Edge TPU is available.
+
+        Returns:
+            True if TPU is detected and pycoral is available
+        """
+        try:
+            # Try to import pycoral
+            from pycoral.utils import edgetpu
+
+            # List available TPU devices
+            devices = edgetpu.list_edge_tpus()
+
+            if not devices:
+                logger.info("No Coral Edge TPU devices found")
+                return False
+
+            # Log detected devices
+            logger.info(f"Found {len(devices)} Coral Edge TPU device(s):")
+            for i, device in enumerate(devices):
+                device_type = device.get("type", "unknown")
+                device_path = device.get("path", "unknown")
+                logger.info(f"  Device {i}: type={device_type}, path={device_path}")
+
+            return True
+
+        except ImportError:
+            logger.warning(
+                "pycoral library not installed. TPU support requires pycoral. "
+                "Install with: pip install pycoral"
+            )
+            return False
+        except Exception as e:
+            logger.warning(f"Error detecting TPU: {e}")
+            return False
+
     def _load_model(self, model_path: str) -> None:
         """Load YOLO model from file.
 
@@ -226,7 +283,7 @@ class YOLODetector:
 
         Raises:
             FileNotFoundError: If model file doesn't exist
-            ImportError: If ultralytics package not installed
+            ImportError: If ultralytics or pycoral package not installed
             RuntimeError: If model loading fails
         """
         path = Path(model_path)
@@ -242,35 +299,103 @@ class YOLODetector:
             self.model_format = ModelFormat.ONNX
         elif suffix == ".engine":
             self.model_format = ModelFormat.TENSORRT
+        elif suffix == ".tflite":
+            self.model_format = ModelFormat.EDGETPU
         else:
             raise ValueError(f"Unsupported model format: {suffix}")
 
+        # Handle Edge TPU model loading separately
+        if self.model_format == ModelFormat.EDGETPU:
+            self._load_tpu_model(str(path))
+        else:
+            # Standard YOLO model loading (PyTorch, ONNX, TensorRT)
+            try:
+                # Import ultralytics YOLO
+                from ultralytics import YOLO
+
+                logger.info(
+                    f"Loading YOLO model from {model_path} (format: {self.model_format.value})"
+                )
+
+                # Load model
+                self.model = YOLO(str(path))
+
+                # Set device
+                if self.device != "cpu" and self.device != "tpu":
+                    # Ultralytics YOLO will auto-detect GPU availability
+                    logger.info(f"Attempting to use device: {self.device}")
+
+                self.model_loaded = True
+                logger.info(f"YOLO model loaded successfully on device: {self.device}")
+
+            except ImportError as e:
+                raise ImportError(
+                    "ultralytics package not installed. "
+                    "Install with: pip install ultralytics"
+                ) from e
+            except Exception as e:
+                raise RuntimeError(f"Failed to load YOLO model: {e}") from e
+
+    def _load_tpu_model(self, model_path: str) -> None:
+        """Load Edge TPU TensorFlow Lite model.
+
+        Args:
+            model_path: Path to .tflite model file
+
+        Raises:
+            ImportError: If pycoral not installed
+            RuntimeError: If model loading fails
+        """
         try:
-            # Import ultralytics YOLO
-            from ultralytics import YOLO
+            from pycoral.utils.edgetpu import make_interpreter
 
-            logger.info(
-                f"Loading YOLO model from {model_path} (format: {self.model_format.value})"
-            )
+            logger.info(f"Loading Edge TPU model from {model_path}")
 
-            # Load model
-            self.model = YOLO(str(path))
+            # Determine device specification
+            device_spec = None
+            if self.tpu_device_path:
+                if self.tpu_device_path == "usb":
+                    device_spec = "usb"
+                elif self.tpu_device_path == "pcie":
+                    device_spec = "pci"
+                elif self.tpu_device_path.startswith("/dev/"):
+                    # Specific device path
+                    device_spec = self.tpu_device_path
+                else:
+                    logger.warning(
+                        f"Unknown TPU device path format: {self.tpu_device_path}, using auto-detect"
+                    )
 
-            # Set device
-            if self.device != "cpu":
-                # Ultralytics YOLO will auto-detect GPU availability
-                logger.info(f"Attempting to use device: {self.device}")
+            # Create interpreter with Edge TPU delegate
+            if device_spec:
+                logger.info(f"Creating TPU interpreter with device: {device_spec}")
+                self.tpu_interpreter = make_interpreter(model_path, device=device_spec)
+            else:
+                logger.info("Creating TPU interpreter with auto-detect")
+                self.tpu_interpreter = make_interpreter(model_path)
+
+            # Allocate tensors
+            self.tpu_interpreter.allocate_tensors()
+
+            # Get input and output details
+            self.tpu_input_details = self.tpu_interpreter.get_input_details()
+            self.tpu_output_details = self.tpu_interpreter.get_output_details()
+
+            # Log model details
+            logger.info(f"TPU Model input shape: {self.tpu_input_details[0]['shape']}")
+            logger.info(f"TPU Model input dtype: {self.tpu_input_details[0]['dtype']}")
+            logger.info(f"TPU Model has {len(self.tpu_output_details)} outputs")
 
             self.model_loaded = True
-            logger.info(f"YOLO model loaded successfully on device: {self.device}")
+            logger.info("Edge TPU model loaded successfully")
 
         except ImportError as e:
             raise ImportError(
-                "ultralytics package not installed. "
-                "Install with: pip install ultralytics"
+                "pycoral library not installed. TPU support requires pycoral. "
+                "Install with: pip install pycoral"
             ) from e
         except Exception as e:
-            raise RuntimeError(f"Failed to load YOLO model: {e}") from e
+            raise RuntimeError(f"Failed to load Edge TPU model: {e}") from e
 
     @staticmethod
     def validate_onnx_model(model_path: str) -> dict[str, Any]:
@@ -593,6 +718,21 @@ class YOLODetector:
         if not self.model_loaded:
             return []
 
+        # Route to appropriate inference method based on model format
+        if self.model_format == ModelFormat.EDGETPU:
+            return self._run_tpu_inference(frame)
+        else:
+            return self._run_standard_inference(frame)
+
+    def _run_standard_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
+        """Run standard YOLO inference (PyTorch, ONNX, TensorRT).
+
+        Args:
+            frame: Input image in BGR format
+
+        Returns:
+            List of all detections
+        """
         import time
 
         start_time = time.time()
@@ -679,6 +819,243 @@ class YOLODetector:
             logger.error(f"YOLO inference failed: {e}")
             return []
 
+    def _run_tpu_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
+        """Run Edge TPU inference on frame.
+
+        Args:
+            frame: Input image in BGR format
+
+        Returns:
+            List of all detections
+        """
+        import time
+
+        start_time = time.time()
+
+        try:
+            # Acquire lock for thread-safe TPU access
+            with self._model_lock:
+                if (
+                    not self.model_loaded
+                    or self.tpu_interpreter is None
+                    or self.tpu_input_details is None
+                ):
+                    return []
+
+                # Get input shape from model
+                input_shape = self.tpu_input_details[0]["shape"]
+                input_height, input_width = input_shape[1], input_shape[2]
+
+                # Preprocess frame for TPU
+                # Convert BGR to RGB
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Resize to model input size
+                frame_resized = cv2.resize(
+                    frame_rgb,
+                    (input_width, input_height),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+
+                # Normalize to uint8 (TPU models typically use quantized uint8 input)
+                # Check input dtype
+                input_dtype = self.tpu_input_details[0]["dtype"]
+                if input_dtype == np.uint8:
+                    input_tensor = frame_resized
+                else:
+                    # Normalize to float32 [0, 1]
+                    input_tensor = frame_resized.astype(np.float32) / 255.0
+
+                # Add batch dimension
+                input_tensor = np.expand_dims(input_tensor, axis=0)
+
+                # Set input tensor
+                self.tpu_interpreter.set_tensor(
+                    self.tpu_input_details[0]["index"], input_tensor
+                )
+
+                # Run inference
+                self.tpu_interpreter.invoke()
+
+                # Get output tensors
+                # YOLOv8 Edge TPU models typically have multiple outputs:
+                # - Bounding boxes (x, y, w, h)
+                # - Confidence scores
+                # - Class IDs
+                outputs = []
+                for output_detail in self.tpu_output_details:
+                    output = self.tpu_interpreter.get_tensor(output_detail["index"])
+                    outputs.append(output)
+
+            # Parse TPU output to Detection objects
+            detections = self._parse_tpu_output(
+                outputs, frame.shape, (input_height, input_width)
+            )
+
+            # Update statistics
+            inference_time = (time.time() - start_time) * 1000  # ms
+            self.stats["total_inferences"] += 1
+            self.stats["total_detections"] += len(detections)
+
+            # Update average inference time (exponential moving average)
+            alpha = 0.1
+            self.stats["avg_inference_time"] = (
+                alpha * inference_time + (1 - alpha) * self.stats["avg_inference_time"]
+            )
+
+            logger.debug(
+                f"TPU inference: {len(detections)} detections in {inference_time:.1f}ms"
+            )
+
+            return detections
+
+        except Exception as e:
+            logger.error(f"TPU inference failed: {e}")
+            return []
+
+    def _parse_tpu_output(
+        self,
+        outputs: list[NDArray],
+        original_shape: tuple[int, int, int],
+        model_input_shape: tuple[int, int],
+    ) -> list[Detection]:
+        """Parse Edge TPU model output to Detection objects.
+
+        Args:
+            outputs: List of output tensors from TPU model
+            original_shape: Original frame shape (H, W, C)
+            model_input_shape: Model input shape (H, W)
+
+        Returns:
+            List of Detection objects
+        """
+        detections = []
+
+        # YOLOv8 Edge TPU output format typically:
+        # Output 0: [1, num_predictions, 84] where 84 = 4 (bbox) + 80 (classes)
+        # or [1, 84, num_predictions] depending on model export
+        if len(outputs) == 0:
+            return detections
+
+        # Get main output tensor
+        output = outputs[0]
+
+        # Handle different output formats
+        if len(output.shape) == 3:
+            # Format: [1, num_predictions, 84] or [1, 84, num_predictions]
+            if output.shape[-1] > output.shape[1]:
+                # [1, num_predictions, features]
+                predictions = output[0]  # Remove batch dimension
+            else:
+                # [1, features, num_predictions] - transpose
+                predictions = output[0].T
+
+            # Parse predictions
+            num_predictions = predictions.shape[0]
+            predictions.shape[1] - 4  # Subtract bbox coordinates
+
+            # Calculate scale factors for coordinate conversion
+            orig_h, orig_w = original_shape[:2]
+            model_h, model_w = model_input_shape
+            scale_x = orig_w / model_w
+            scale_y = orig_h / model_h
+
+            for i in range(num_predictions):
+                pred = predictions[i]
+
+                # Extract bbox (cx, cy, w, h format in YOLO)
+                cx, cy, w, h = pred[:4]
+
+                # Extract class scores
+                class_scores = pred[4:]
+
+                # Get class with highest confidence
+                class_id = int(np.argmax(class_scores))
+                confidence = float(class_scores[class_id])
+
+                # Apply confidence threshold
+                if confidence < self.confidence:
+                    continue
+
+                # Convert to xyxy format and scale to original image size
+                x1 = (cx - w / 2) * scale_x
+                y1 = (cy - h / 2) * scale_y
+                x2 = (cx + w / 2) * scale_x
+                y2 = (cy + h / 2) * scale_y
+
+                # Calculate center and dimensions in original image
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                width = x2 - x1
+                height = y2 - y1
+
+                # Get class name
+                class_name = self.class_names.get(class_id, f"unknown_{class_id}")
+
+                # Create detection
+                detection = Detection(
+                    class_id=class_id,
+                    class_name=class_name,
+                    confidence=confidence,
+                    bbox=(x1, y1, x2, y2),
+                    center=(center_x, center_y),
+                    width=width,
+                    height=height,
+                )
+
+                detections.append(detection)
+
+        # Apply NMS to remove overlapping detections
+        if detections:
+            detections = self._apply_nms(detections, self.nms_threshold)
+
+        return detections
+
+    def _apply_nms(
+        self, detections: list[Detection], iou_threshold: float
+    ) -> list[Detection]:
+        """Apply Non-Maximum Suppression to remove overlapping detections.
+
+        Args:
+            detections: List of Detection objects
+            iou_threshold: IoU threshold for NMS
+
+        Returns:
+            Filtered list of detections
+        """
+        if len(detections) == 0:
+            return []
+
+        # Sort detections by confidence (descending)
+        detections = sorted(detections, key=lambda d: d.confidence, reverse=True)
+
+        # Group detections by class
+        class_groups = {}
+        for det in detections:
+            if det.class_id not in class_groups:
+                class_groups[det.class_id] = []
+            class_groups[det.class_id].append(det)
+
+        # Apply NMS per class
+        final_detections = []
+        for class_id, class_dets in class_groups.items():
+            # Convert to numpy arrays for IoU calculation
+            boxes = np.array([d.bbox for d in class_dets])
+            scores = np.array([d.confidence for d in class_dets])
+
+            # OpenCV NMS
+            indices = cv2.dnn.NMSBoxes(
+                boxes.tolist(), scores.tolist(), self.confidence, iou_threshold
+            )
+
+            # Extract kept detections
+            if len(indices) > 0:
+                indices = indices.flatten()
+                for idx in indices:
+                    final_detections.append(class_dets[idx])
+
+        return final_detections
+
     def is_available(self) -> bool:
         """Check if YOLO model is loaded and available.
 
@@ -693,7 +1070,7 @@ class YOLODetector:
         Returns:
             Dictionary with model information
         """
-        return {
+        info = {
             "model_path": str(self.model_path) if self.model_path else None,
             "model_format": self.model_format.value if self.model_format else None,
             "model_loaded": self.model_loaded,
@@ -701,7 +1078,18 @@ class YOLODetector:
             "confidence_threshold": self.confidence,
             "nms_threshold": self.nms_threshold,
             "fallback_mode": self.stats["fallback_mode"],
+            "using_tpu": self.stats.get("using_tpu", False),
         }
+
+        # Add TPU-specific info if using TPU
+        if self.model_format == ModelFormat.EDGETPU and self.tpu_interpreter:
+            info["tpu_available"] = self.tpu_available
+            info["tpu_device_path"] = self.tpu_device_path
+            if self.tpu_input_details:
+                info["tpu_input_shape"] = self.tpu_input_details[0]["shape"].tolist()
+                info["tpu_input_dtype"] = str(self.tpu_input_details[0]["dtype"])
+
+        return info
 
     def get_statistics(self) -> dict[str, Any]:
         """Get detection statistics.
@@ -988,10 +1376,11 @@ def create_detector(
     Args:
         model_path: Path to YOLO model file
         config: Configuration dictionary with keys:
-            - device: 'cpu', 'cuda', 'mps'
+            - device: 'cpu', 'cuda', 'mps', 'tpu'
             - confidence: float 0.0-1.0
             - nms_threshold: float 0.0-1.0
             - auto_fallback: bool
+            - tpu_device_path: str (optional, for TPU)
 
     Returns:
         Configured YOLODetector instance
@@ -1005,6 +1394,7 @@ def create_detector(
         confidence=config.get("confidence", 0.4),
         nms_threshold=config.get("nms_threshold", 0.45),
         auto_fallback=config.get("auto_fallback", True),
+        tpu_device_path=config.get("tpu_device_path", None),
     )
 
 
