@@ -46,26 +46,26 @@ class BallDetectionConfig:
     # Detection method
     detection_method: DetectionMethod = DetectionMethod.COMBINED
 
-    # Hough circle parameters - optimized for better detection
+    # Hough circle parameters - strict for accuracy
     hough_dp: float = 1.0
-    hough_min_dist_ratio: float = 0.6  # Reduced to allow closer balls
-    hough_param1: int = 30  # Reduced for more sensitive detection
-    hough_param2: int = 20  # Reduced threshold for more detections
-    hough_accumulator_threshold: int = 10
+    hough_min_dist_ratio: float = 0.8  # Higher to prevent ghost duplicates
+    hough_param1: int = 50  # Higher = stricter edge detection
+    hough_param2: int = 30  # Higher = require stronger circles
+    hough_accumulator_threshold: int = 15
 
-    # Size constraints - more tolerant
-    min_radius: int = 12
-    max_radius: int = 30
+    # Size constraints - tighter tolerance
+    min_radius: int = 15
+    max_radius: int = 26
     expected_radius: int = 20  # Expected ball radius for validation
-    radius_tolerance: float = 0.5  # Increased to ±50% radius tolerance
+    radius_tolerance: float = 0.30  # ±30% radius tolerance (stricter)
 
     # Color classification
     ball_colors: dict[str, dict[str, tuple[int, int, int]]] = None
 
-    # Quality filters - more permissive for higher detection rate
-    min_circularity: float = 0.5  # Reduced for more detections
-    min_confidence: float = 0.2  # Lowered threshold
-    max_overlap_ratio: float = 0.4  # Slightly more permissive
+    # Quality filters - strict
+    min_circularity: float = 0.75  # High circularity - balls are ROUND
+    min_confidence: float = 0.4  # Require decent confidence
+    max_overlap_ratio: float = 0.30  # Stricter overlap rejection
 
     # Performance optimization
     roi_enabled: bool = True
@@ -108,8 +108,12 @@ class BallDetectionConfig:
                     "upper": (90, 255, 255),
                 },
                 "maroon": {
-                    "lower": (155, 80, 40),  # Maroon (7, 15) - relaxed
-                    "upper": (180, 255, 180),
+                    "lower": (
+                        0,
+                        60,
+                        30,
+                    ),  # Maroon (7, 15) - wider range including reddish-brown
+                    "upper": (15, 255, 120),  # Darker value range for brown tones
                 },
                 "black": {
                     "lower": (0, 0, 0),  # Black (8-ball) - expanded
@@ -139,6 +143,22 @@ class BallDetector:
 
         # Initialize detection components
         self._initialize_detectors()
+
+        # Background subtraction
+        self.background_frame: Optional[NDArray[np.uint8]] = None
+        self.use_background_subtraction = config.get(
+            "use_background_subtraction", False
+        )
+        self.background_threshold = config.get("background_threshold", 30)
+
+        # Pocket locations (detected from background frame)
+        self.pocket_locations: list[tuple[float, float, float]] = []  # (x, y, radius)
+        self.pocket_exclusion_radius_multiplier = (
+            2.0  # Exclude detections within 2.0x pocket radius
+        )
+
+        # Playing area mask (excludes rails and pockets)
+        self.playing_area_mask: Optional[NDArray[np.uint8]] = None
 
         # Statistics tracking
         self.stats = {
@@ -174,6 +194,195 @@ class BallDetector:
 
         logger.debug("Detection algorithms initialized")
 
+    def _create_foreground_mask(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Create foreground mask using background subtraction.
+
+        Args:
+            frame: Current frame
+
+        Returns:
+            Binary mask where foreground pixels are 255
+        """
+        # Convert both frames to grayscale
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame
+
+        if len(self.background_frame.shape) == 3:
+            bg_gray = cv2.cvtColor(self.background_frame, cv2.COLOR_BGR2GRAY)
+        else:
+            bg_gray = self.background_frame
+
+        # Compute absolute difference
+        diff = cv2.absdiff(gray, bg_gray)
+
+        # Threshold to get foreground mask
+        # Higher threshold = less sensitive = fewer motion artifacts
+        _, fg_mask = cv2.threshold(
+            diff, self.background_threshold + 10, 255, cv2.THRESH_BINARY
+        )
+
+        # Morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
+        fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
+
+        # Less aggressive dilation to reduce motion blur
+        fg_mask = cv2.dilate(fg_mask, kernel, iterations=1)
+
+        return fg_mask
+
+    def _detect_pockets_from_background(
+        self, frame: NDArray[np.uint8]
+    ) -> list[tuple[float, float, float]]:
+        """Detect pocket locations from background frame.
+
+        Pockets are dark circular regions on the table.
+
+        Args:
+            frame: Background frame (empty table)
+
+        Returns:
+            List of (x, y, radius) tuples for each pocket
+        """
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Pockets are VERY dark (nearly black), use stricter threshold
+        _, dark_mask = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY_INV)
+
+        # Morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_CLOSE, kernel)
+        dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel)
+
+        # Find contours
+        contours, _ = cv2.findContours(
+            dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        pockets = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+
+            # Pockets are significantly larger than balls - typically 35-80 pixel radius
+            min_pocket_area = math.pi * (35**2)
+            max_pocket_area = math.pi * (80**2)
+
+            if min_pocket_area <= area <= max_pocket_area:
+                # Check circularity
+                perimeter = cv2.arcLength(contour, True)
+                if perimeter > 0:
+                    circularity = 4 * math.pi * area / (perimeter**2)
+
+                    # Pockets should be fairly circular
+                    if circularity >= 0.65:
+                        # Calculate center and radius
+                        M = cv2.moments(contour)
+                        if M["m00"] > 0:
+                            cx = M["m10"] / M["m00"]
+                            cy = M["m01"] / M["m00"]
+                            radius = math.sqrt(area / math.pi)
+                            pockets.append((cx, cy, radius))
+
+        return pockets
+
+    def _detect_playing_area_from_background(
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[NDArray[np.uint8]]:
+        """Detect the playing area (cloth surface) excluding rails and pockets.
+
+        The playing area is the green/blue cloth where balls can rest.
+        Rails (cushions) are typically darker or have different texture.
+
+        Args:
+            frame: Background frame (empty table)
+
+        Returns:
+            Binary mask where 255 = playing area, 0 = rails/pockets/outside
+        """
+        # Convert to HSV for better color segmentation
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Detect table cloth color (green or blue felt)
+        # Use broader ranges to capture the playing surface
+        green_lower = np.array([35, 30, 30])
+        green_upper = np.array([85, 255, 255])
+        green_mask = cv2.inRange(hsv, green_lower, green_upper)
+
+        blue_lower = np.array([90, 30, 30])
+        blue_upper = np.array([130, 255, 255])
+        blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
+
+        # Combine green and blue masks
+        cloth_mask = cv2.bitwise_or(green_mask, blue_mask)
+
+        # Morphological operations to clean up and fill small holes
+        kernel_large = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        cloth_mask = cv2.morphologyEx(cloth_mask, cv2.MORPH_CLOSE, kernel_large)
+        cloth_mask = cv2.morphologyEx(cloth_mask, cv2.MORPH_OPEN, kernel_large)
+
+        # Find the largest contour (the playing area)
+        contours, _ = cv2.findContours(
+            cloth_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours:
+            logger.warning("Could not detect playing area - no cloth surface found")
+            return None
+
+        # Get the largest contour (the main playing surface)
+        largest_contour = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(largest_contour)
+
+        # Validate that the detected area is reasonable
+        frame_area = frame.shape[0] * frame.shape[1]
+        if area < frame_area * 0.1:  # Too small
+            logger.warning(
+                f"Detected playing area too small: {area} pixels ({area/frame_area*100:.1f}% of frame)"
+            )
+            return None
+
+        # Create mask from the largest contour
+        playing_area_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+        cv2.drawContours(playing_area_mask, [largest_contour], 0, 255, -1)
+
+        # Erode the mask slightly to exclude the rail edges
+        # This ensures we don't detect balls that are partially on the rail
+        kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20))
+        playing_area_mask = cv2.erode(playing_area_mask, kernel_erode, iterations=1)
+
+        logger.info(
+            f"Playing area detected: {cv2.countNonZero(playing_area_mask)} pixels ({cv2.countNonZero(playing_area_mask)/frame_area*100:.1f}% of frame)"
+        )
+
+        return playing_area_mask
+
+    def set_background_frame(self, frame: NDArray[np.uint8]) -> None:
+        """Set the background reference frame (empty table).
+
+        Args:
+            frame: Reference frame of empty table
+        """
+        self.background_frame = frame.copy()
+        self.use_background_subtraction = True
+
+        # Detect pockets from background frame
+        self.pocket_locations = self._detect_pockets_from_background(frame)
+        logger.info(
+            f"Background frame set for ball detection, detected {len(self.pocket_locations)} pockets"
+        )
+
+        # Detect playing area (excludes rails and pockets)
+        self.playing_area_mask = self._detect_playing_area_from_background(frame)
+        if self.playing_area_mask is not None:
+            logger.info("Playing area mask detected successfully")
+        else:
+            logger.warning(
+                "Could not detect playing area - ball detection will not be confined to playing surface"
+            )
+
     def detect_balls(
         self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
     ) -> list[Ball]:
@@ -190,8 +399,17 @@ class BallDetector:
             return []
 
         try:
-            # Apply table mask if provided
-            if table_mask is not None:
+            # Apply background subtraction if enabled
+            if self.use_background_subtraction and self.background_frame is not None:
+                fg_mask = self._create_foreground_mask(frame)
+                # Combine with table mask if provided
+                if table_mask is not None:
+                    combined_mask = cv2.bitwise_and(fg_mask, table_mask)
+                    masked_frame = cv2.bitwise_and(frame, frame, mask=combined_mask)
+                else:
+                    masked_frame = cv2.bitwise_and(frame, frame, mask=fg_mask)
+            # Apply table mask if provided (and no background subtraction)
+            elif table_mask is not None:
                 masked_frame = cv2.bitwise_and(frame, frame, mask=table_mask)
             else:
                 masked_frame = frame
@@ -321,11 +539,66 @@ class BallDetector:
 
     # Private helper methods
 
+    def _create_ball_color_mask(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Create mask that excludes non-ball colors (table, skin, pockets).
+
+        This is a pre-filter to eliminate obvious false positives BEFORE geometry detection.
+
+        Args:
+            frame: Input frame in BGR format
+
+        Returns:
+            Binary mask where 255 = possible ball location, 0 = definitely not a ball
+        """
+        # Convert to HSV for better color separation
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Create mask that EXCLUDES non-ball regions
+        exclude_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+
+        # 1. Exclude GREEN/BLUE table surface (biggest source of false positives)
+        # Green felt: Hue 35-85 with decent saturation
+        green_table_lower = np.array([35, 40, 30])
+        green_table_upper = np.array([85, 255, 255])
+        green_table_mask = cv2.inRange(hsv, green_table_lower, green_table_upper)
+        exclude_mask = cv2.bitwise_or(exclude_mask, green_table_mask)
+
+        # Blue felt: Hue 95-125 with decent saturation
+        blue_table_lower = np.array([95, 40, 30])
+        blue_table_upper = np.array([125, 255, 255])
+        blue_table_mask = cv2.inRange(hsv, blue_table_lower, blue_table_upper)
+        exclude_mask = cv2.bitwise_or(exclude_mask, blue_table_mask)
+
+        # 2. Exclude SKIN TONES (hands, arms)
+        # Skin has specific Hue (0-20) and Saturation (20-150) range
+        skin_lower = np.array([0, 20, 50])
+        skin_upper = np.array([20, 150, 255])
+        skin_mask = cv2.inRange(hsv, skin_lower, skin_upper)
+        exclude_mask = cv2.bitwise_or(exclude_mask, skin_mask)
+
+        # 3. Exclude VERY DARK regions (pockets, shadows)
+        # Value < 30 is too dark to be a ball
+        dark_mask = cv2.inRange(hsv, np.array([0, 0, 0]), np.array([180, 255, 30]))
+        exclude_mask = cv2.bitwise_or(exclude_mask, dark_mask)
+
+        # Invert: what's left is POSSIBLE ball locations
+        ball_color_mask = cv2.bitwise_not(exclude_mask)
+
+        # Clean up with morphology
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        ball_color_mask = cv2.morphologyEx(ball_color_mask, cv2.MORPH_OPEN, kernel)
+
+        return ball_color_mask
+
     def _detect_hough_circles(
         self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Detect circles using Hough transform."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # FIRST: Apply color pre-filter to eliminate obvious non-balls
+        color_mask = self._create_ball_color_mask(frame)
+        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+
+        gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (9, 9), 2)
@@ -357,7 +630,11 @@ class BallDetector:
         self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Detect circles using contour analysis."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Apply color pre-filter
+        color_mask = self._create_ball_color_mask(frame)
+        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+
+        gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
         # Apply adaptive threshold
         binary = cv2.adaptiveThreshold(
@@ -399,7 +676,11 @@ class BallDetector:
         self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
         """Detect circles using blob detection."""
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Apply color pre-filter
+        color_mask = self._create_ball_color_mask(frame)
+        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+
+        gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
         # Invert image for blob detection (blobs are dark on light background)
         inverted = cv2.bitwise_not(gray)
@@ -482,6 +763,22 @@ class BallDetector:
         self.stats["detection_method_stats"]["combined"] += len(merged_candidates)
         return merged_candidates
 
+    def _is_near_pocket(self, x: float, y: float) -> bool:
+        """Check if a detection is near a pocket location.
+
+        Args:
+            x, y: Detection center coordinates
+
+        Returns:
+            True if detection is near a pocket, False otherwise
+        """
+        for px, py, pr in self.pocket_locations:
+            distance = math.sqrt((x - px) ** 2 + (y - py) ** 2)
+            # Exclude if within pocket exclusion radius
+            if distance < pr * self.pocket_exclusion_radius_multiplier:
+                return True
+        return False
+
     def _filter_and_validate(
         self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
@@ -489,6 +786,10 @@ class BallDetector:
         valid_candidates = []
 
         for x, y, r in candidates:
+            # Check if near pocket (exclude pocket detections)
+            if self.pocket_locations and self._is_near_pocket(x, y):
+                continue
+
             # Basic boundary checks
             if (
                 r < frame.shape[1]
@@ -503,9 +804,141 @@ class BallDetector:
                 radius_ratio = abs(r - expected_r) / expected_r
 
                 if radius_ratio <= self.config.radius_tolerance:
-                    valid_candidates.append((x, y, r))
+                    # Additional shadow/darkness filter
+                    if self._is_bright_enough(frame, x, y, r):
+                        valid_candidates.append((x, y, r))
+
+        # Filter out ball shadows (darker detections near brighter ones)
+        valid_candidates = self._filter_ball_shadows(valid_candidates, frame)
 
         return valid_candidates
+
+    def _is_bright_enough(
+        self, frame: NDArray[np.uint8], x: float, y: float, r: float
+    ) -> bool:
+        """Check if the region is bright enough to be a ball (not a shadow).
+
+        Args:
+            frame: Input frame
+            x, y: Center coordinates
+            r: Radius
+
+        Returns:
+            True if bright enough to be a ball, False if likely a shadow
+        """
+        # Extract region
+        x1, y1 = max(0, int(x - r)), max(0, int(y - r))
+        x2, y2 = min(frame.shape[1], int(x + r)), min(frame.shape[0], int(y + r))
+        region = frame[y1:y2, x1:x2]
+
+        if region.size == 0:
+            return False
+
+        # Convert to HSV for better brightness analysis
+        hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+        # Create circular mask for the ball center
+        mask = np.zeros(region.shape[:2], dtype=np.uint8)
+        center = (region.shape[1] // 2, region.shape[0] // 2)
+        cv2.circle(mask, center, int(r * 0.7), 255, -1)
+
+        # Get average brightness (V channel) and saturation (S channel) in HSV
+        masked_v = hsv_region[:, :, 2][mask > 0]
+        masked_s = hsv_region[:, :, 1][mask > 0]
+
+        if masked_v.size == 0 or masked_s.size == 0:
+            return False
+
+        avg_brightness = np.mean(masked_v)
+        np.mean(masked_s)
+        max_brightness = np.max(masked_v)
+
+        # Multi-criteria shadow detection:
+        # Ball shadows are VERY dark compared to actual balls
+        # Even dark colored balls (like the 8-ball) have specular highlights
+        #
+        # Key insight: Shadows are the DARKEST circular regions on the table
+        # Real balls always have some brightness due to lighting
+        min_avg_brightness = 70  # Reject very dark regions (stricter)
+        min_max_brightness = (
+            100  # Real balls have bright spots from lighting (stricter)
+        )
+
+        # First check: Must have reasonable average brightness
+        if avg_brightness < min_avg_brightness:
+            return False
+
+        # Second check: Must have at least SOME bright pixels (specular highlights)
+        # Even the black 8-ball has white specular highlights from overhead lighting
+        if max_brightness < min_max_brightness:
+            return False
+
+        return True
+
+    def _filter_ball_shadows(
+        self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
+    ) -> list[tuple[float, float, float]]:
+        """Filter out ball shadows by removing darker detections near brighter ones.
+
+        Ball shadows are typically:
+        - Darker than the ball itself
+        - Close to the ball (within 1-2 ball diameters)
+        - Similar size to the ball
+
+        Args:
+            candidates: List of (x, y, r) tuples
+            frame: Input frame
+
+        Returns:
+            Filtered list without shadow detections
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        # Calculate brightness for each candidate
+        brightnesses = []
+        for x, y, r in candidates:
+            x1, y1 = max(0, int(x - r)), max(0, int(y - r))
+            x2, y2 = min(frame.shape[1], int(x + r)), min(frame.shape[0], int(y + r))
+            region = frame[y1:y2, x1:x2]
+
+            if region.size > 0:
+                hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+                avg_brightness = np.mean(hsv_region[:, :, 2])
+                brightnesses.append(avg_brightness)
+            else:
+                brightnesses.append(0)
+
+        # Filter out shadows
+        filtered = []
+        for i, (x, y, r) in enumerate(candidates):
+            is_shadow = False
+
+            # Check if this is a shadow of a nearby brighter ball
+            for j, (other_x, other_y, other_r) in enumerate(candidates):
+                if i == j:
+                    continue
+
+                # Calculate distance between candidates
+                distance = math.sqrt((x - other_x) ** 2 + (y - other_y) ** 2)
+
+                # Shadows are typically within 1.5-3 ball diameters of the ball
+                max_shadow_distance = (r + other_r) * 2.0
+
+                if distance < max_shadow_distance:
+                    # If this candidate is significantly darker than the nearby one,
+                    # it's likely a shadow
+                    brightness_diff = brightnesses[j] - brightnesses[i]
+
+                    # Shadow is at least 20 brightness units darker
+                    if brightness_diff > 20:
+                        is_shadow = True
+                        break
+
+            if not is_shadow:
+                filtered.append((x, y, r))
+
+        return filtered
 
     def _classify_balls(
         self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
@@ -542,7 +975,13 @@ class BallDetector:
         return balls
 
     def _remove_overlaps(self, balls: list[Ball]) -> list[Ball]:
-        """Remove overlapping ball detections, keeping the best ones."""
+        """Remove overlapping ball detections, aggressively merging extreme overlaps.
+
+        Strategy:
+        - Extreme overlap (>70% center distance < 0.5 radii sum): Merge into one ball
+        - High overlap (50-70%): Remove lower confidence
+        - Touching balls (centers ~2 radii apart): Keep both
+        """
         if len(balls) <= 1:
             return balls
 
@@ -550,25 +989,83 @@ class BallDetector:
         sorted_balls = sorted(balls, key=lambda b: b.confidence, reverse=True)
 
         final_balls = []
-        for ball in sorted_balls:
-            is_overlap = False
+        merged_indices = set()
 
-            for existing_ball in final_balls:
+        for i, ball in enumerate(sorted_balls):
+            if i in merged_indices:
+                continue
+
+            # Check for extreme overlaps to merge
+            balls_to_merge = [ball]
+            merge_indices = [i]
+
+            for j, other_ball in enumerate(sorted_balls[i + 1 :], i + 1):
+                if j in merged_indices:
+                    continue
+
                 distance = math.sqrt(
-                    (ball.position[0] - existing_ball.position[0]) ** 2
-                    + (ball.position[1] - existing_ball.position[1]) ** 2
+                    (ball.position[0] - other_ball.position[0]) ** 2
+                    + (ball.position[1] - other_ball.position[1]) ** 2
                 )
 
-                min_distance = (ball.radius + existing_ball.radius) * (
-                    1 - self.config.max_overlap_ratio
+                avg_radius = (ball.radius + other_ball.radius) / 2
+
+                # Extreme overlap: centers very close (< 0.5 average radius)
+                # This catches ghost detections around the same ball
+                if distance < avg_radius * 0.5:
+                    balls_to_merge.append(other_ball)
+                    merge_indices.append(j)
+                    merged_indices.add(j)
+
+            # If multiple balls detected at same location, merge them
+            if len(balls_to_merge) > 1:
+                # Merge by averaging positions weighted by confidence
+                total_confidence = sum(b.confidence for b in balls_to_merge)
+                merged_x = (
+                    sum(b.position[0] * b.confidence for b in balls_to_merge)
+                    / total_confidence
                 )
+                merged_y = (
+                    sum(b.position[1] * b.confidence for b in balls_to_merge)
+                    / total_confidence
+                )
+                merged_r = (
+                    sum(b.radius * b.confidence for b in balls_to_merge)
+                    / total_confidence
+                )
+                merged_confidence = total_confidence / len(balls_to_merge)
 
-                if distance < min_distance:
-                    is_overlap = True
-                    break
+                # Create merged ball with highest confidence ball's type
+                merged_ball = Ball(
+                    position=(merged_x, merged_y),
+                    radius=merged_r,
+                    ball_type=ball.ball_type,
+                    number=ball.number,
+                    confidence=merged_confidence,
+                    velocity=(0.0, 0.0),
+                    is_moving=False,
+                )
+                final_balls.append(merged_ball)
+            else:
+                # Single ball, check for regular overlaps
+                is_overlap = False
+                for existing_ball in final_balls:
+                    distance = math.sqrt(
+                        (ball.position[0] - existing_ball.position[0]) ** 2
+                        + (ball.position[1] - existing_ball.position[1]) ** 2
+                    )
 
-            if not is_overlap:
-                final_balls.append(ball)
+                    # Standard overlap check (for moderate overlaps)
+                    min_distance = (ball.radius + existing_ball.radius) * (
+                        1 - self.config.max_overlap_ratio
+                    )
+
+                    if distance < min_distance:
+                        is_overlap = True
+                        break
+
+                if not is_overlap:
+                    final_balls.append(ball)
 
         return final_balls
 

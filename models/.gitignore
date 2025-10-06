@@ -1,0 +1,18 @@
+# Exclude model files (large binary files)
+*.pt
+*.pth
+*.onnx
+*.pb
+*.tflite
+*.h5
+*.pkl
+*.pickle
+
+# Exclude training outputs but keep structure
+training_runs/*
+!training_runs/.gitkeep
+
+# Keep README and structure files
+!README.md
+!.gitignore
+!.gitkeep

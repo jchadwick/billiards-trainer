@@ -1,0 +1,42 @@
+# YOLO Dataset Configuration for Billiards Detection
+# This configuration defines the dataset structure and classes for training
+# a YOLO model to detect billiard balls, cue sticks, and table features.
+
+# Dataset path (relative to this file or absolute)
+path: /Users/jchadwick/code/billiards-trainer/dataset
+
+# Image directories
+train: images/train
+val: images/val
+test: images/test
+
+# Number of classes
+nc: 19
+
+# Class names (must match the order in classes.txt)
+names:
+  0: cue_ball          # White cue ball
+  1: solid_1           # Yellow solid ball (1)
+  2: solid_2           # Blue solid ball (2)
+  3: solid_3           # Red solid ball (3)
+  4: solid_4           # Purple solid ball (4)
+  5: solid_5           # Orange solid ball (5)
+  6: solid_6           # Green solid ball (6)
+  7: solid_7           # Maroon solid ball (7)
+  8: eight_ball        # Black eight ball
+  9: stripe_9          # Yellow stripe ball (9)
+  10: stripe_10        # Blue stripe ball (10)
+  11: stripe_11        # Red stripe ball (11)
+  12: stripe_12        # Purple stripe ball (12)
+  13: stripe_13        # Orange stripe ball (13)
+  14: stripe_14        # Green stripe ball (14)
+  15: stripe_15        # Maroon stripe ball (15)
+  16: cue_stick        # Pool cue stick
+  17: table_corner     # Table corner markers
+  18: pocket           # Table pockets
+
+# Optional: Download settings (if using a remote dataset)
+# download: https://example.com/billiards-dataset.zip
+
+# Optional: Class weights for imbalanced datasets
+# class_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.3, 0.3]

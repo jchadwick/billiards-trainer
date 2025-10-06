@@ -16,14 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    SecretStr,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # =============================================================================
 # Data Classes for Configuration Management
@@ -364,6 +357,18 @@ class CameraSettings(BaseConfig):
     focus_value: Optional[int] = Field(
         default=None, ge=0, le=255, description="Manual focus value (0-255)"
     )
+    auto_reconnect: bool = Field(
+        default=True, description="Enable automatic camera reconnection"
+    )
+    reconnect_delay: float = Field(
+        default=1.0,
+        ge=0.1,
+        le=10.0,
+        description="Delay before reconnection attempts (seconds)",
+    )
+    max_reconnect_attempts: int = Field(
+        default=5, ge=1, le=100, description="Maximum number of reconnection attempts"
+    )
 
     @field_validator("resolution")
     @classmethod
@@ -410,10 +415,53 @@ class DetectionMethod(str, Enum):
     CONTOUR = "contour"
     BLOB = "blob"
     TEMPLATE = "template"
+    YOLO = "yolo"
+
+
+class DetectionBackend(str, Enum):
+    """Detection backend types."""
+
+    OPENCV = "opencv"
+    YOLO = "yolo"
 
 
 class DetectionSettings(BaseConfig):
     """Vision detection algorithm settings."""
+
+    # Detection backend selection
+    detection_backend: DetectionBackend = Field(
+        default=DetectionBackend.OPENCV,
+        description="Detection backend to use (opencv or yolo)",
+    )
+
+    # YOLO configuration
+    yolo_model_path: str = Field(
+        default="models/yolov8n-pool.onnx",
+        description="Path to YOLO model file (ONNX format)",
+    )
+    yolo_confidence: float = Field(
+        default=0.4,
+        ge=0.0,
+        le=1.0,
+        description="YOLO detection confidence threshold",
+    )
+    yolo_nms_threshold: float = Field(
+        default=0.45,
+        ge=0.0,
+        le=1.0,
+        description="YOLO non-maximum suppression threshold",
+    )
+    yolo_device: str = Field(
+        default="cpu", description="YOLO inference device (cpu or cuda)"
+    )
+    use_opencv_validation: bool = Field(
+        default=True,
+        description="Use OpenCV validation on YOLO detections",
+    )
+    fallback_to_opencv: bool = Field(
+        default=True,
+        description="Fall back to OpenCV if YOLO fails or unavailable",
+    )
 
     # Table detection
     table_color: ColorThresholds = Field(
@@ -1190,7 +1238,8 @@ class ApplicationConfig(BaseConfig):
         for profile_name, profile in self.profiles.items():
             if profile.parent and profile.parent not in self.profiles:
                 raise ValueError(
-                    f"Parent profile '{profile.parent}' not found for profile '{profile_name}'"
+                    f"Parent profile '{profile.parent}' not found "
+                    f"for profile '{profile_name}'"
                 )
 
         return self

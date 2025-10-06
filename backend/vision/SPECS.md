@@ -2,7 +2,7 @@
 
 ## Module Purpose
 
-The Vision module is the core computer vision engine responsible for analyzing video frames to detect game elements (table, balls, cue stick), and providing processed visual data to other system components. This module interfaces with OpenCV for image processing and consumes video streams from the separate Streaming Service, eliminating direct camera access conflicts.
+The Vision module is the core computer vision engine responsible for analyzing video frames to detect game elements (table, balls, cue stick), and providing processed visual data to other system components. This module uses a hybrid approach combining YOLOv8 deep learning for robust object detection with OpenCV for tracking, refinement, and geometric analysis. It consumes video streams from the separate Streaming Service, eliminating direct camera access conflicts.
 
 ## Functional Requirements
 
@@ -39,28 +39,35 @@ The Vision module is the core computer vision engine responsible for analyzing v
 
 ### 3. Ball Detection Requirements
 
-#### 3.1 Ball Recognition
-- **FR-VIS-020**: Detect all balls on the table surface
-- **FR-VIS-021**: Distinguish between different ball types (cue, solid, stripe, 8-ball)
-- **FR-VIS-022**: Identify ball numbers/patterns when visible
-- **FR-VIS-023**: Track ball positions with ±2 pixel accuracy
-- **FR-VIS-024**: Measure ball radius for size validation
+#### 3.1 Ball Recognition (YOLO-Based Detection)
+- **FR-VIS-020**: Detect all balls on the table surface using YOLOv8 deep learning model
+- **FR-VIS-021**: Distinguish between different ball types (cue, solid, stripe, 8-ball) via trained classes
+- **FR-VIS-022**: Identify ball numbers/patterns when visible using hybrid YOLO + OpenCV approach
+- **FR-VIS-023**: Track ball positions with ±2 pixel accuracy using YOLO detection + OpenCV refinement
+- **FR-VIS-024**: Measure ball radius for size validation from YOLO bounding boxes
 
-#### 3.2 Ball Tracking
-- **FR-VIS-025**: Track ball movement across frames
-- **FR-VIS-026**: Predict ball positions during fast movement
-- **FR-VIS-027**: Handle ball occlusions (by cue, hands, etc.)
-- **FR-VIS-028**: Detect stationary vs moving balls
-- **FR-VIS-029**: Calculate ball velocity and acceleration
+#### 3.2 Ball Tracking (OpenCV-Based)
+- **FR-VIS-025**: Track ball movement across frames using Kalman filters
+- **FR-VIS-026**: Predict ball positions during fast movement with physics-based prediction
+- **FR-VIS-027**: Handle ball occlusions using track history and prediction
+- **FR-VIS-028**: Detect stationary vs moving balls via velocity thresholds
+- **FR-VIS-029**: Calculate ball velocity and acceleration from track history
+
+#### 3.3 Deep Learning Detection
+- **FR-VIS-056**: Support YOLOv8-nano model for real-time detection (30+ FPS on CPU)
+- **FR-VIS-057**: Provide fallback to OpenCV detection when YOLO model unavailable
+- **FR-VIS-058**: Support model hot-swapping without system restart
+- **FR-VIS-059**: Enable hybrid validation combining YOLO detection with OpenCV verification
+- **FR-VIS-060**: Support custom trained models in ONNX format
 
 ### 4. Cue Stick Detection Requirements
 
 #### 4.1 Cue Recognition
-- **FR-VIS-030**: Detect cue stick using line detection algorithms
-- **FR-VIS-031**: Determine cue angle relative to cue ball
-- **FR-VIS-032**: Track cue tip position
-- **FR-VIS-033**: Detect cue movement patterns (aiming vs striking)
-- **FR-VIS-034**: Handle multiple cue sticks in frame
+- **FR-VIS-030**: Detect cue stick using YOLOv8 model or fallback to line detection
+- **FR-VIS-031**: Determine cue angle relative to cue ball using bounding box orientation
+- **FR-VIS-032**: Track cue tip position with sub-pixel accuracy
+- **FR-VIS-033**: Detect cue movement patterns (aiming vs striking) via temporal analysis
+- **FR-VIS-034**: Handle multiple cue sticks in frame through class-based detection
 
 #### 4.2 Shot Detection
 - **FR-VIS-035**: Identify when cue contacts ball
@@ -96,8 +103,10 @@ The Vision module is the core computer vision engine responsible for analyzing v
 ## Non-Functional Requirements
 
 ### Performance Requirements
-- **NFR-VIS-001**: Process frames at minimum 30 FPS on standard hardware
+- **NFR-VIS-001**: Process frames at minimum 30 FPS on standard hardware (CPU-only)
 - **NFR-VIS-002**: Detection latency < 33ms per frame (for 30 FPS)
+- **NFR-VIS-009**: YOLOv8-nano model size < 10MB (ONNX format)
+- **NFR-VIS-010**: Support both CPU and GPU inference with automatic selection
 - **NFR-VIS-003**: Memory usage < 1GB during operation
 - **NFR-VIS-004**: CPU usage < 60% on quad-core processor
 - **NFR-VIS-005**: Support GPU acceleration when available

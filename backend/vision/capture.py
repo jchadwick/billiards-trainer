@@ -101,7 +101,7 @@ class CameraCapture:
 
         Args:
             config: Camera configuration dictionary with keys:
-                - device_id: Camera device index (default: 0)
+                - device_id: Camera device index (default: 0) or video file path (str)
                 - backend: Camera backend ("auto", "v4l2", "dshow", "gstreamer")
                 - resolution: Tuple of (width, height) (default: (1920, 1080))
                 - fps: Target frame rate (default: 30)
@@ -112,10 +112,13 @@ class CameraCapture:
                 - auto_reconnect: Enable automatic reconnection (default: True)
                 - reconnect_delay: Delay between reconnection attempts (default: 1.0)
                 - max_reconnect_attempts: Max reconnection attempts (default: 5)
+                - loop_video: Loop video playback for file sources (default: False)
         """
         self._config = config
         self._device_id = config.get("device_id", 0)
         self._backend = config.get("backend", "auto")
+        self._loop_video = config.get("loop_video", False)
+        self._is_video_file = isinstance(self._device_id, str)
         self._resolution = config.get("resolution", (1920, 1080))
         self._fps = config.get("fps", 30)
         self._exposure_mode = config.get("exposure_mode", "auto")
@@ -151,8 +154,9 @@ class CameraCapture:
         # Callbacks
         self._status_callback: Optional[Callable[[CameraStatus], None]] = None
 
+        source_type = "video file" if self._is_video_file else "camera device"
         logger.info(
-            f"Camera capture initialized with device_id={self._device_id}, "
+            f"Camera capture initialized with {source_type}={self._device_id}, "
             f"backend={self._backend}, resolution={self._resolution}"
         )
 
@@ -160,19 +164,23 @@ class CameraCapture:
         """Set callback function for status changes."""
         self._status_callback = callback
 
+    def _update_status_unsafe(self, status: CameraStatus) -> None:
+        """Update camera status without acquiring lock (must be called with lock held)."""
+        if self._status != status:
+            old_status = self._status
+            self._status = status
+            logger.info(f"Camera status changed: {old_status} -> {status}")
+
+            if self._status_callback:
+                try:
+                    self._status_callback(status)
+                except Exception as e:
+                    logger.error(f"Status callback error: {e}")
+
     def _update_status(self, status: CameraStatus) -> None:
         """Update camera status and notify callback."""
         with self._lock:
-            if self._status != status:
-                old_status = self._status
-                self._status = status
-                logger.info(f"Camera status changed: {old_status} -> {status}")
-
-                if self._status_callback:
-                    try:
-                        self._status_callback(status)
-                    except Exception as e:
-                        logger.error(f"Status callback error: {e}")
+            self._update_status_unsafe(status)
 
     def _get_opencv_backend(self) -> int:
         """Convert backend string to OpenCV constant."""
@@ -191,6 +199,11 @@ class CameraCapture:
         if not self._cap or not self._cap.isOpened():
             logger.warning("Cannot configure camera - capture not opened")
             return False
+
+        # Video files don't need configuration - use their native settings
+        if self._is_video_file:
+            logger.info("Skipping configuration for video file - using native settings")
+            return True
 
         try:
             # Set resolution
@@ -319,24 +332,34 @@ class CameraCapture:
                 raise RuntimeError("Camera configuration failed")
 
             logger.info("Camera configured, testing frame capture...")
-            # Test frame capture with timeout
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(self._cap.read)
-                try:
-                    ret, frame = future.result(timeout=5.0)
-                except concurrent.futures.TimeoutError:
-                    logger.error("Frame capture timed out after 5 seconds")
-                    raise RuntimeError(
-                        "Camera read timeout - camera may be in use or misconfigured"
+            # Test frame capture (with timeout for cameras, direct for video files)
+            if self._is_video_file:
+                # Video files don't need timeout - they're not blocking
+                ret, frame = self._cap.read()
+                if not ret or frame is None:
+                    logger.error(
+                        f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
                     )
+                    raise RuntimeError("Failed to capture test frame from video file")
+            else:
+                # Real cameras may block, so use timeout
+                import concurrent.futures
 
-            if not ret or frame is None:
-                logger.error(
-                    f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
-                )
-                raise RuntimeError("Failed to capture test frame")
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(self._cap.read)
+                    try:
+                        ret, frame = future.result(timeout=5.0)
+                    except concurrent.futures.TimeoutError:
+                        logger.error("Frame capture timed out after 5 seconds")
+                        raise RuntimeError(
+                            "Camera read timeout - camera may be in use or misconfigured"
+                        )
+
+                if not ret or frame is None:
+                    logger.error(
+                        f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
+                    )
+                    raise RuntimeError("Failed to capture test frame")
 
             logger.info(
                 f"Test frame captured successfully: shape={frame.shape}, dtype={frame.dtype}"
@@ -424,10 +447,20 @@ class CameraCapture:
                         else:
                             break
                 else:
-                    # Get frame from regular camera
-                    logger.debug("Attempting to read frame from camera")
+                    # Get frame from regular camera or video file
+                    logger.debug("Attempting to read frame from camera/video")
                     ret, frame = self._cap.read()
                     if not ret or frame is None:
+                        # Check if this is end of video file
+                        if self._is_video_file:
+                            if self._loop_video:
+                                logger.info("End of video reached, looping...")
+                                self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                continue
+                            else:
+                                logger.info("End of video reached")
+                                break
+
                         logger.warning(
                             f"Failed to capture frame: ret={ret}, frame={'None' if frame is None else 'available'}"
                         )
@@ -507,7 +540,7 @@ class CameraCapture:
 
             logger.info("Clearing stop event and updating status to CONNECTING")
             self._stop_event.clear()
-            self._update_status(CameraStatus.CONNECTING)
+            self._update_status_unsafe(CameraStatus.CONNECTING)
 
             # Reset statistics
             logger.debug("Resetting capture statistics")
@@ -528,7 +561,7 @@ class CameraCapture:
             logger.info("Attempting to connect to camera")
             if not self._connect_camera():
                 logger.error("Camera connection failed")
-                self._update_status(CameraStatus.ERROR)
+                self._update_status_unsafe(CameraStatus.ERROR)
                 return False
 
             logger.info("Camera connected, starting capture thread")
@@ -538,7 +571,7 @@ class CameraCapture:
             )
             self._capture_thread.start()
 
-            self._update_status(CameraStatus.CONNECTED)
+            self._update_status_unsafe(CameraStatus.CONNECTED)
             logger.info("Camera capture started successfully")
             return True
 
@@ -566,7 +599,7 @@ class CameraCapture:
                 self._cap.release()
                 self._cap = None
 
-            self._update_status(CameraStatus.DISCONNECTED)
+            self._update_status_unsafe(CameraStatus.DISCONNECTED)
             logger.info("Camera capture stopped")
 
     def get_frame(self) -> Optional[tuple[np.ndarray, FrameInfo]]:

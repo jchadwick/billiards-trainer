@@ -20,7 +20,17 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from .gpu_utils import get_gpu_accelerator
+# Optional GPU acceleration
+try:
+    from .gpu_utils import get_gpu_accelerator
+
+    _HAS_GPU_UTILS = True
+except ImportError:
+    _HAS_GPU_UTILS = False
+
+    def get_gpu_accelerator():
+        return None
+
 
 logger = logging.getLogger(__name__)
 

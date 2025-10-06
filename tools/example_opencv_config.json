@@ -1,0 +1,16 @@
+{
+  "detection_method": "combined",
+  "hough_dp": 1.0,
+  "hough_min_dist_ratio": 0.8,
+  "hough_param1": 50,
+  "hough_param2": 30,
+  "min_radius": 15,
+  "max_radius": 26,
+  "expected_radius": 20,
+  "radius_tolerance": 0.30,
+  "min_circularity": 0.75,
+  "min_confidence": 0.4,
+  "max_overlap_ratio": 0.30,
+  "use_background_subtraction": true,
+  "background_threshold": 30
+}

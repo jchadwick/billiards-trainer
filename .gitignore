@@ -272,3 +272,6 @@ frontend/web/dist/
 .playwright-mcp/
 
 *.local.*
+
+# ignore demo videos
+*.mp4

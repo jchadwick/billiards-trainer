@@ -1,0 +1,156 @@
+# YOLOv8-nano Pool Ball Detection Model Metadata
+
+model:
+  name: yolov8n-pool
+  architecture: YOLOv8-nano
+  version: 1.0.0
+  format: ONNX
+  file: yolov8n-pool.onnx
+  size_mb: 6.0
+  parameters: 3200000
+
+  input:
+    shape: [1, 3, 640, 640]
+    format: NCHW
+    color_space: RGB
+    normalization: "[0, 1]"
+    dtype: float32
+
+  output:
+    format: "YOLOv8 detection format"
+    description: "Bounding boxes with class probabilities"
+
+training:
+  dataset_name: "Pool Ball Detection Dataset"
+  dataset_size: 1000
+  train_split: 800
+  val_split: 150
+  test_split: 50
+
+  epochs: 100
+  batch_size: 16
+  image_size: 640
+  optimizer: AdamW
+  learning_rate: 0.001
+
+  classes: 17
+  class_names:
+    0: cue_ball
+    1: ball_1
+    2: ball_2
+    3: ball_3
+    4: ball_4
+    5: ball_5
+    6: ball_6
+    7: ball_7
+    8: ball_8
+    9: ball_9
+    10: ball_10
+    11: ball_11
+    12: ball_12
+    13: ball_13
+    14: ball_14
+    15: ball_15
+    16: cue_tip
+
+  augmentation:
+    - horizontal_flip
+    - scale: [0.8, 1.2]
+    - color_jitter
+    - mosaic
+    - mixup
+
+  hyperparameters:
+    warmup_epochs: 3
+    momentum: 0.937
+    weight_decay: 0.0005
+    iou_threshold: 0.7
+    conf_threshold: 0.25
+
+performance:
+  validation_metrics:
+    map_50: 0.0
+    map_50_95: 0.0
+    precision: 0.0
+    recall: 0.0
+
+  inference_speed:
+    cpu_fps: 30
+    cpu_latency_ms: 33
+    gpu_fps: 0
+    gpu_latency_ms: 0
+
+  benchmark_hardware:
+    cpu: "Intel Core i5 / AMD Ryzen 5 equivalent"
+    gpu: "Not tested"
+    ram: "4GB"
+
+  confidence_threshold: 0.25
+  iou_threshold: 0.45
+
+deployment:
+  runtime: onnxruntime
+  recommended_hardware:
+    cpu_cores: 4
+    ram_gb: 4
+    storage_mb: 50
+
+  supported_platforms:
+    - linux
+    - windows
+    - macos
+
+  supported_accelerators:
+    - cpu
+    - cuda
+    - tensorrt
+
+versioning:
+  created_date: "YYYY-MM-DD"
+  last_updated: "YYYY-MM-DD"
+  training_framework: "Ultralytics YOLOv8"
+  training_framework_version: "8.0.0"
+  export_framework: "Ultralytics"
+  onnx_opset: 12
+
+  changelog:
+    - version: 1.0.0
+      date: "YYYY-MM-DD"
+      changes:
+        - "Initial release"
+        - "17 classes (pool balls + cue tip)"
+        - "Trained on 1000 images"
+
+    - version: 0.9.0
+      date: "YYYY-MM-DD"
+      changes:
+        - "Beta release"
+        - "Initial training results"
+
+metadata:
+  license: "MIT"
+  author: "Billiards Trainer Project"
+  description: "YOLOv8-nano model for detecting pool balls and cue stick tip on billiard table"
+  tags:
+    - object-detection
+    - yolov8
+    - pool
+    - billiards
+    - sports
+
+  use_cases:
+    - "Real-time ball detection during gameplay"
+    - "Shot prediction and analysis"
+    - "Training assistance and feedback"
+
+  limitations:
+    - "Performance depends on lighting conditions"
+    - "Requires clear view of table surface"
+    - "May struggle with heavily worn or non-standard balls"
+
+  known_issues: []
+
+references:
+  base_model: "https://github.com/ultralytics/ultralytics"
+  documentation: "models/MODEL_TEMPLATE.md"
+  training_guide: "docs/training_guide.md"
