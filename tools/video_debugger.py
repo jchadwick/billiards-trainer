@@ -102,6 +102,16 @@ balls_path = base_path / "backend" / "vision" / "detection" / "balls.py"
 balls_module = import_from_path("backend.vision.detection.balls", balls_path)
 BallDetector = balls_module.BallDetector
 
+# Import YOLO detector
+yolo_detector_path = base_path / "backend" / "vision" / "detection" / "yolo_detector.py"
+yolo_detector_module = import_from_path("backend.vision.detection.yolo_detector", yolo_detector_path)
+YOLODetector = yolo_detector_module.YOLODetector
+
+# Import detector adapter for converting YOLO detections to Ball objects
+adapter_path = base_path / "backend" / "vision" / "detection" / "detector_adapter.py"
+adapter_module = import_from_path("backend.vision.detection.detector_adapter", adapter_path)
+yolo_detections_to_balls = adapter_module.yolo_detections_to_balls
+
 # Import kalman filter first (needed by tracker)
 kalman_path = base_path / "backend" / "vision" / "tracking" / "kalman.py"
 kalman_module = import_from_path("backend.vision.tracking.kalman", kalman_path)
@@ -315,19 +325,35 @@ class VideoDebugger:
         self.camera = CameraCapture(camera_config)
 
         # Initialize ball detector
-        # Note: YOLO backend disabled for now (requires trained model)
-        # Using OpenCV detection regardless of backend setting
-        if detection_backend == "yolo":
-            logger.warning("YOLO backend not available (no trained model), falling back to OpenCV")
-            detection_backend = "opencv"
-
-        detector_config = {
-            "detection_method": "combined",
-            "debug_mode": False,
-        }
-
-        self.detector = BallDetector(detector_config)
         self.detection_backend = detection_backend
+        self.detector = None
+        self.yolo_detector = None
+
+        if detection_backend == "yolo":
+            # Use YOLO detector
+            logger.info(f"Initializing YOLO detector with model: {yolo_model_path or 'default'}")
+            try:
+                self.yolo_detector = YOLODetector(
+                    model_path=yolo_model_path,
+                    device=yolo_device,
+                    confidence=0.4,
+                    nms_threshold=0.45,
+                    auto_fallback=True,
+                )
+                logger.info("YOLO detector initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize YOLO detector: {e}")
+                logger.warning("Falling back to OpenCV detection")
+                self.detection_backend = "opencv"
+
+        # Initialize OpenCV detector if YOLO not available or selected
+        if self.detection_backend == "opencv" or self.yolo_detector is None:
+            detector_config = {
+                "detection_method": "combined",
+                "debug_mode": False,
+            }
+            self.detector = BallDetector(detector_config)
+            self.detection_backend = "opencv"
 
         # Initialize tracker (lenient settings to maintain tracks longer)
         tracker_config = {
@@ -597,8 +623,55 @@ class VideoDebugger:
         # Create a copy for drawing
         display_frame = frame.copy()
 
-        # Detect balls
-        detected_balls = self.detector.detect_balls(frame)
+        # Detect balls using appropriate backend
+        if self.yolo_detector is not None:
+            # Use YOLO for detection (position/size)
+            yolo_detections = self.yolo_detector.detect_balls(frame)
+
+            # Convert YOLO detections to Ball objects and classify with OpenCV
+            detected_balls = []
+            if not hasattr(self, '_opencv_classifier'):
+                # Create OpenCV classifier for ball type classification
+                self._opencv_classifier = BallDetector({"detection_method": "combined", "debug_mode": False})
+
+            for det in yolo_detections:
+                # Convert Detection object to dict format for adapter
+                detection_dict = {
+                    "bbox": det.bbox,
+                    "confidence": det.confidence,
+                    "class_id": det.class_id,
+                    "class_name": det.class_name,
+                }
+                balls = yolo_detections_to_balls(
+                    [detection_dict],
+                    (frame.shape[0], frame.shape[1]),
+                    min_confidence=0.25,
+                    bbox_format="xyxy",
+                )
+
+                # Use OpenCV to classify ball type (since YOLO only detects "ball")
+                for ball in balls:
+                    if det.class_name == "ball":
+                        # Extract ball region for classification
+                        x, y = ball.position
+                        r = ball.radius
+                        x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
+                        x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(frame.shape[0], int(y + r * 1.2))
+                        ball_region = frame[y1:y2, x1:x2]
+
+                        if ball_region.size > 0:
+                            # Classify ball type using OpenCV
+                            ball_type, conf, ball_number = self._opencv_classifier.classify_ball_type(
+                                ball_region, ball.position, r
+                            )
+                            # Update ball with classified type
+                            ball.ball_type = ball_type
+                            ball.number = ball_number
+
+                    detected_balls.append(ball)
+        else:
+            # Use OpenCV detector
+            detected_balls = self.detector.detect_balls(frame)
 
         # Update tracker
         tracked_balls = self.tracker.update_tracking(
@@ -850,7 +923,8 @@ class VideoDebugger:
                 elif key == ord("b"):  # Set background frame
                     if 'frame' in locals() and frame is not None:
                         self.cue_detector.set_background_frame(frame)
-                        self.detector.set_background_frame(frame)
+                        if self.detector is not None:
+                            self.detector.set_background_frame(frame)
                         logger.info("Background frame set for cue and ball detection")
 
         finally:
@@ -951,10 +1025,13 @@ def main():
         # Set background for cue detection
         debugger.cue_detector.set_background_frame(background_frame)
 
-        # Detect pockets from background to exclude them from ball detection
+        # Detect pockets from background to exclude them from ball detection (only for OpenCV detector)
         # Note: We do NOT enable background_subtraction (which hurts stationary ball detection)
-        debugger.detector.pocket_locations = debugger.detector._detect_pockets_from_background(background_frame)
-        logger.info(f"Background frame loaded for cue detection, detected {len(debugger.detector.pocket_locations)} pockets")
+        if debugger.detector is not None:
+            debugger.detector.pocket_locations = debugger.detector._detect_pockets_from_background(background_frame)
+            logger.info(f"Background frame loaded for cue detection, detected {len(debugger.detector.pocket_locations)} pockets")
+        else:
+            logger.info("Background frame loaded for cue detection (YOLO backend doesn't use pocket detection)")
 
     debugger.run()
 

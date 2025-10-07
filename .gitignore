@@ -275,3 +275,11 @@ frontend/web/dist/
 
 # ignore demo videos
 *.mp4
+
+# Model training
+benchmark_output/
+dataset
+datasets/
+runs/
+training_images/
+*.pt

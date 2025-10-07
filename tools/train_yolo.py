@@ -121,17 +121,27 @@ class YOLOTrainer:
 
         print(f"✓ Found dataset directory: {self.dataset_dir}")
 
-        # Check for dataset.yaml
-        yaml_path = self.dataset_dir / "dataset.yaml"
+        # Check for data.yaml
+        yaml_path = self.dataset_dir / "data.yaml"
         if not yaml_path.exists():
             print(f"❌ Dataset configuration not found: {yaml_path}")
-            print("\nPlease create dataset.yaml with your class definitions")
+            print("\nPlease create data.yaml with your class definitions")
             return False
 
         print(f"✓ Found dataset configuration: {yaml_path}")
 
-        # Check for training images
-        train_images = self.dataset_dir / "images" / "train"
+        # Read data.yaml to get actual paths
+        import yaml as yaml_lib
+        with open(yaml_path) as f:
+            data_config = yaml_lib.safe_load(f)
+
+        # Check for training images (support both structures)
+        # Try: train/images/ (Roboflow format)
+        train_images = self.dataset_dir / "train" / "images"
+        if not train_images.exists():
+            # Try: images/train/ (alternative format)
+            train_images = self.dataset_dir / "images" / "train"
+
         if not train_images.exists() or not list(train_images.glob("*")):
             print(f"❌ No training images found in: {train_images}")
             return False
@@ -140,7 +150,10 @@ class YOLOTrainer:
         print(f"✓ Found {train_count} training images")
 
         # Check for training labels
-        train_labels = self.dataset_dir / "labels" / "train"
+        train_labels = self.dataset_dir / "train" / "labels"
+        if not train_labels.exists():
+            train_labels = self.dataset_dir / "labels" / "train"
+
         if not train_labels.exists() or not list(train_labels.glob("*.txt")):
             print(f"❌ No training labels found in: {train_labels}")
             print("\nPlease annotate your dataset using Roboflow or LabelImg")
@@ -156,7 +169,10 @@ class YOLOTrainer:
                 return False
 
         # Check for validation set
-        val_images = self.dataset_dir / "images" / "val"
+        val_images = self.dataset_dir / "valid" / "images"
+        if not val_images.exists():
+            val_images = self.dataset_dir / "images" / "val"
+
         if val_images.exists() and list(val_images.glob("*")):
             val_count = len(list(val_images.glob("*.jpg")) + list(val_images.glob("*.png")))
             print(f"✓ Found {val_count} validation images")
@@ -190,6 +206,10 @@ class YOLOTrainer:
             gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
             available_memory = f"{gpu_mem_gb:.1f}GB GPU"
             recommended_batch = min(32, max(8, int(gpu_mem_gb / 2)))
+        elif torch.backends.mps.is_available():
+            # Apple Silicon - use unified memory (assume 32GB+)
+            available_memory = "Apple Silicon (MPS)"
+            recommended_batch = 8  # Smaller batch size to avoid tensor size mismatches
         else:
             recommended_batch = 8
 
@@ -217,6 +237,14 @@ class YOLOTrainer:
             device = self.ask_choice(
                 "Which device to use?",
                 ['cuda (GPU - Recommended)', 'cpu'],
+                default=0
+            )
+            self.config['device'] = device.split()[0]
+        elif torch.backends.mps.is_available():
+            print(f"\n✓ Apple Silicon GPU detected (MPS)")
+            device = self.ask_choice(
+                "Which device to use?",
+                ['mps (Apple GPU - Recommended)', 'cpu'],
                 default=0
             )
             self.config['device'] = device.split()[0]
@@ -281,7 +309,7 @@ class YOLOTrainer:
         # Start training
         try:
             results = model.train(
-                data=str(self.dataset_dir / "dataset.yaml"),
+                data=str(self.dataset_dir / "data.yaml"),
                 epochs=self.config['epochs'],
                 imgsz=self.config['imgsz'],
                 batch=self.config['batch'],

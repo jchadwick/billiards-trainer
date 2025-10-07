@@ -42,6 +42,7 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
     """Parse YOLO class name to extract ball type and number.
 
     Supports multiple naming conventions:
+    - "ball" -> (BallType.UNKNOWN, None) - generic ball, needs further classification
     - "cue" or "ball_0" -> (BallType.CUE, None)
     - "eight" or "ball_8" -> (BallType.EIGHT, 8)
     - "solid_1" or "ball_1" -> (BallType.SOLID, 1)
@@ -54,6 +55,10 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
         Tuple of (BallType, ball_number)
     """
     class_name_lower = class_name.lower().strip()
+
+    # Handle generic "ball" - needs further classification
+    if class_name_lower == "ball":
+        return BallType.UNKNOWN, None
 
     # Handle "cue" or "cue_ball"
     if "cue" in class_name_lower:
@@ -599,12 +604,13 @@ def filter_ball_detections(
             # Exclude "cue_stick", "stick", etc - only include actual balls
             if "stick" in class_name_lower:
                 is_ball = False
-            elif any(
-                keyword in class_name_lower
-                for keyword in ["ball", "solid", "stripe", "eight"]
-            ):
-                is_ball = True
-            elif class_name_lower == "cue":  # Only "cue" alone, not "cue_stick"
+            elif (
+                any(
+                    keyword in class_name_lower
+                    for keyword in ["ball", "solid", "stripe", "eight"]
+                )
+                or class_name_lower == "cue"
+            ):  # Only "cue" alone, not "cue_stick"
                 is_ball = True
 
         elif class_id is not None and class_names:
@@ -612,12 +618,13 @@ def filter_ball_detections(
             if 0 <= class_id < len(class_names):
                 name_lower = class_names[class_id].lower()
                 if "stick" not in name_lower:
-                    if any(
-                        keyword in name_lower
-                        for keyword in ["ball", "solid", "stripe", "eight"]
+                    if (
+                        any(
+                            keyword in name_lower
+                            for keyword in ["ball", "solid", "stripe", "eight"]
+                        )
+                        or name_lower == "cue"
                     ):
-                        is_ball = True
-                    elif name_lower == "cue":
                         is_ball = True
 
         elif class_id is not None:
@@ -666,9 +673,9 @@ def filter_cue_detections(
             # Check class name from ID
             if 0 <= class_id < len(class_names):
                 name_lower = class_names[class_id].lower()
-                if "stick" in name_lower:
-                    is_cue = True
-                elif "cue_" in name_lower and "ball" not in name_lower:
+                if "stick" in name_lower or (
+                    "cue_" in name_lower and "ball" not in name_lower
+                ):
                     is_cue = True
 
         if is_cue:
