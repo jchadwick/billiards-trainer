@@ -320,6 +320,19 @@ class YOLODetector:
                 # Load model
                 self.model = YOLO(str(path))
 
+                # Extract class names from model
+                if hasattr(self.model, "names") and self.model.names:
+                    self.class_names = self.model.names
+                    logger.info(
+                        f"Loaded {len(self.class_names)} classes from model: {self.class_names}"
+                    )
+                    # Update reverse mapping
+                    self.name_to_class = {v: k for k, v in self.class_names.items()}
+                else:
+                    logger.warning(
+                        "Could not extract class names from model, using defaults"
+                    )
+
                 # Set device
                 if self.device != "cpu" and self.device != "tpu":
                     # Ultralytics YOLO will auto-detect GPU availability
