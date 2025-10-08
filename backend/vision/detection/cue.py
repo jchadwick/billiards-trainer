@@ -293,7 +293,14 @@ class CueDetector:
             # Calculate angle in radians
             angle_rad = np.radians(angle)
 
-            # Calculate two endpoints of the cue based on angle and bbox center
+            # Use the line center if available (from Hough line detection), otherwise use bbox center
+            if hasattr(yolo_detection, 'line_center') and yolo_detection.line_center is not None:
+                center_x, center_y = yolo_detection.line_center
+                self.logger.debug(f"Using Hough line center: ({center_x:.1f}, {center_y:.1f})")
+            else:
+                self.logger.debug(f"Using bbox center: ({center_x:.1f}, {center_y:.1f})")
+
+            # Calculate two endpoints of the cue based on center and angle
             # Endpoint 1: center + (length/2) in angle direction
             end1_x = center_x + (length / 2) * np.cos(angle_rad)
             end1_y = center_y + (length / 2) * np.sin(angle_rad)
