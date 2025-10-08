@@ -136,6 +136,7 @@ class YOLODetector:
         nms_threshold: float = 0.45,
         auto_fallback: bool = True,
         tpu_device_path: Optional[str] = None,
+        enable_opencv_classification: bool = False,
     ) -> None:
         """Initialize YOLO detector.
 
@@ -147,6 +148,7 @@ class YOLODetector:
             nms_threshold: Non-maximum suppression IoU threshold
             auto_fallback: Automatically fall back to None model if loading fails
             tpu_device_path: Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto)
+            enable_opencv_classification: Enable OpenCV-based ball type classification refinement
 
         Raises:
             FileNotFoundError: If model_path is provided but file doesn't exist
@@ -158,6 +160,7 @@ class YOLODetector:
         self.nms_threshold = nms_threshold
         self.auto_fallback = auto_fallback
         self.tpu_device_path = tpu_device_path
+        self.enable_opencv_classification = enable_opencv_classification
 
         # Model state
         self.model: Optional[Any] = None
@@ -172,6 +175,15 @@ class YOLODetector:
 
         # Thread safety for model hot-swapping
         self._model_lock = threading.RLock()
+
+        # OpenCV classifier for ball type refinement
+        self._opencv_classifier: Optional[Any] = None
+        if enable_opencv_classification:
+            from .balls import BallDetector
+
+            self._opencv_classifier = BallDetector(
+                {"detection_method": "combined", "debug_mode": False}
+            )
 
         # Class mapping
         self._init_class_mapping()
@@ -616,7 +628,7 @@ class YOLODetector:
             frame: Input image in BGR format
 
         Returns:
-            List of ball detections (class IDs 0-15)
+            List of ball detections (class IDs 0-15 for multi-class models, or class 0 for single-class models)
         """
         if not self.model_loaded:
             logger.debug("Model not loaded, returning empty ball detections")
@@ -626,14 +638,97 @@ class YOLODetector:
             # Run inference
             detections = self._run_inference(frame)
 
-            # Filter for ball classes (0-15)
-            ball_detections = [det for det in detections if 0 <= det.class_id <= 15]
+            # Filter for ball classes
+            # Check if we have a simplified 2-class model (ball=0, cue=1) or full multi-class model (0-18)
+            if (
+                "ball" in self.class_names.values()
+                and "cue" in self.class_names.values()
+            ):
+                # Simplified model: class 0 is "ball", class 1 is "cue"
+                ball_detections = [
+                    det
+                    for det in detections
+                    if det.class_name == "ball" or (0 <= det.class_id <= 15)
+                ]
+            else:
+                # Full model: classes 0-15 are individual ball types
+                ball_detections = [det for det in detections if 0 <= det.class_id <= 15]
 
             return ball_detections
 
         except Exception as e:
             logger.error(f"Ball detection failed: {e}")
             return []
+
+    def detect_balls_with_classification(
+        self, frame: NDArray[np.uint8], min_confidence: float = 0.25
+    ) -> list[Any]:
+        """Detect balls and optionally classify with OpenCV refinement.
+
+        This method provides hybrid YOLO+OpenCV detection:
+        - YOLO provides accurate ball position and size
+        - OpenCV classifier refines ball type/number if enabled
+
+        Args:
+            frame: Input image in BGR format
+            min_confidence: Minimum confidence threshold for detections
+
+        Returns:
+            List of Ball objects with position and type information
+        """
+        from ..models import Ball
+        from .detector_adapter import yolo_detections_to_balls
+
+        # Get YOLO detections
+        yolo_detections = self.detect_balls(frame)
+
+        if not yolo_detections:
+            return []
+
+        # Convert to Ball objects
+        detected_balls = []
+        for det in yolo_detections:
+            # Convert Detection to dict format for adapter
+            detection_dict = {
+                "bbox": det.bbox,
+                "confidence": det.confidence,
+                "class_id": det.class_id,
+                "class_name": det.class_name,
+            }
+
+            balls = yolo_detections_to_balls(
+                [detection_dict],
+                (frame.shape[0], frame.shape[1]),
+                min_confidence=min_confidence,
+                bbox_format="xyxy",
+            )
+
+            # Optionally refine with OpenCV classification
+            for ball in balls:
+                if self._opencv_classifier is not None and det.class_name == "ball":
+                    # Extract ball region for classification
+                    x, y = ball.position
+                    r = ball.radius
+                    x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
+                    x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(
+                        frame.shape[0], int(y + r * 1.2)
+                    )
+                    ball_region = frame[y1:y2, x1:x2]
+
+                    if ball_region.size > 0:
+                        # Classify ball type using OpenCV
+                        ball_type, conf, ball_number = (
+                            self._opencv_classifier.classify_ball_type(
+                                ball_region, ball.position, r
+                            )
+                        )
+                        # Update ball with classified type
+                        ball.ball_type = ball_type
+                        ball.number = ball_number
+
+                detected_balls.append(ball)
+
+        return detected_balls
 
     def detect_cue(self, frame: NDArray[np.uint8]) -> Optional[Detection]:
         """Detect cue stick in the frame.
@@ -652,23 +747,28 @@ class YOLODetector:
             # Run inference
             detections = self._run_inference(frame)
 
-            # Filter for cue stick class (16)
-            cue_detections = [det for det in detections if det.class_id == 16]
+            # Filter for cue stick class
+            # Check if we have a simplified 2-class model (ball=0, cue=1) or full multi-class model
+            if "cue" in self.class_names.values():
+                # Simplified model or full model with "cue" class name
+                cue_detections = [
+                    det
+                    for det in detections
+                    if det.class_name == "cue"
+                    or det.class_name == "cue_stick"
+                    or det.class_id == 16
+                ]
+            else:
+                # Full model: class 16 is cue_stick
+                cue_detections = [det for det in detections if det.class_id == 16]
 
             # Return highest confidence cue detection
             if cue_detections:
                 cue_detections.sort(key=lambda d: d.confidence, reverse=True)
                 cue = cue_detections[0]
 
-                # Calculate angle from bounding box orientation
-                # For now, use simple heuristic: if bbox is wider than tall,
-                # angle is close to horizontal
-                if cue.width > cue.height:
-                    # Horizontal-ish
-                    cue.angle = 0.0
-                else:
-                    # Vertical-ish
-                    cue.angle = 90.0
+                # Calculate accurate angle from cue region using edge detection
+                cue.angle = self._estimate_cue_angle(frame, cue)
 
                 return cue
 
@@ -677,6 +777,109 @@ class YOLODetector:
         except Exception as e:
             logger.error(f"Cue detection failed: {e}")
             return None
+
+    def _estimate_cue_angle(
+        self, frame: NDArray[np.uint8], cue_detection: Detection
+    ) -> float:
+        """Estimate cue stick angle from bounding box region using edge detection.
+
+        Uses Hough Line Transform to find the dominant line in the cue region.
+
+        Args:
+            frame: Input image in BGR format
+            cue_detection: Cue detection with bounding box
+
+        Returns:
+            Angle in degrees (0-360), where:
+            - 0° = pointing right (East)
+            - 90° = pointing down (South)
+            - 180° = pointing left (West)
+            - 270° = pointing up (North)
+        """
+        try:
+            # Extract cue region from frame
+            x1, y1, x2, y2 = cue_detection.bbox
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+            # Add some padding to ensure we capture the full cue
+            padding = 10
+            x1 = max(0, x1 - padding)
+            y1 = max(0, y1 - padding)
+            x2 = min(frame.shape[1], x2 + padding)
+            y2 = min(frame.shape[0], y2 + padding)
+
+            cue_region = frame[y1:y2, x1:x2]
+
+            if cue_region.size == 0:
+                logger.warning("Empty cue region, using fallback angle")
+                return 0.0
+
+            # Convert to grayscale
+            gray = cv2.cvtColor(cue_region, cv2.COLOR_BGR2GRAY)
+
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+            # Edge detection
+            edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
+
+            # Hough Line Transform to find lines
+            lines = cv2.HoughLinesP(
+                edges,
+                rho=1,
+                theta=np.pi / 180,
+                threshold=30,
+                minLineLength=int(min(cue_region.shape[0], cue_region.shape[1]) * 0.3),
+                maxLineGap=10,
+            )
+
+            if lines is None or len(lines) == 0:
+                # Fallback: use bounding box aspect ratio
+                logger.debug("No lines found, using bbox aspect ratio")
+                if cue_detection.width > cue_detection.height:
+                    return 0.0  # Horizontal
+                else:
+                    return 90.0  # Vertical
+
+            # Find the longest line (most likely the cue stick)
+            longest_line = None
+            max_length = 0
+
+            for line in lines:
+                x1_l, y1_l, x2_l, y2_l = line[0]
+                length = np.sqrt((x2_l - x1_l) ** 2 + (y2_l - y1_l) ** 2)
+                if length > max_length:
+                    max_length = length
+                    longest_line = (x1_l, y1_l, x2_l, y2_l)
+
+            if longest_line is None:
+                logger.debug("No valid line found, using fallback")
+                return 0.0
+
+            # Calculate angle from the longest line
+            x1_l, y1_l, x2_l, y2_l = longest_line
+
+            # Calculate angle in radians, then convert to degrees
+            angle_rad = np.arctan2(y2_l - y1_l, x2_l - x1_l)
+            angle_deg = np.degrees(angle_rad)
+
+            # Normalize to 0-360 range
+            if angle_deg < 0:
+                angle_deg += 360
+
+            logger.debug(
+                f"Estimated cue angle: {angle_deg:.1f}° (line: {longest_line}, length: {max_length:.1f})"
+            )
+
+            return angle_deg
+
+        except Exception as e:
+            logger.error(f"Angle estimation failed: {e}", exc_info=True)
+            # Fallback to simple heuristic
+            if cue_detection.width > cue_detection.height:
+                return 0.0
+            else:
+                return 90.0
 
     def detect_table_elements(self, frame: NDArray[np.uint8]) -> TableElements:
         """Detect table surface, pockets, and other structural elements.

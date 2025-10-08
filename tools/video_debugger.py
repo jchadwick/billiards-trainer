@@ -107,11 +107,6 @@ yolo_detector_path = base_path / "backend" / "vision" / "detection" / "yolo_dete
 yolo_detector_module = import_from_path("backend.vision.detection.yolo_detector", yolo_detector_path)
 YOLODetector = yolo_detector_module.YOLODetector
 
-# Import detector adapter for converting YOLO detections to Ball objects
-adapter_path = base_path / "backend" / "vision" / "detection" / "detector_adapter.py"
-adapter_module = import_from_path("backend.vision.detection.detector_adapter", adapter_path)
-yolo_detections_to_balls = adapter_module.yolo_detections_to_balls
-
 # Import kalman filter first (needed by tracker)
 kalman_path = base_path / "backend" / "vision" / "tracking" / "kalman.py"
 kalman_module = import_from_path("backend.vision.tracking.kalman", kalman_path)
@@ -126,145 +121,34 @@ cue_path = base_path / "backend" / "vision" / "detection" / "cue.py"
 cue_module = import_from_path("backend.vision.detection.cue", cue_path)
 CueDetector = cue_module.CueDetector
 
-# Define simplified data classes for trajectory calculation
-# (avoiding complex imports that have circular dependencies)
-@dataclass
-class Vector2D:
-    """Simple 2D vector."""
-    x: float
-    y: float
+# Import core models from backend
+models_core_path = base_path / "backend" / "core" / "models.py"
+models_core_module = import_from_path("backend.core.models", models_core_path)
+sys.modules["backend.core.models"] = models_core_module
+Vector2D = models_core_module.Vector2D
+BallState = models_core_module.BallState
+CueState = models_core_module.CueState
+TableState = models_core_module.TableState
 
-    def magnitude(self) -> float:
-        """Calculate vector magnitude."""
-        return np.sqrt(self.x**2 + self.y**2)
+# Import utility modules FIRST (before game_state or trajectory) to avoid circular imports
+cache_path = base_path / "backend" / "core" / "utils" / "cache.py"
+cache_module = import_from_path("backend.core.utils.cache", cache_path)
+sys.modules["backend.core.utils.cache"] = cache_module
 
-    def normalize(self):
-        """Return normalized vector."""
-        mag = self.magnitude()
-        if mag > 0:
-            return Vector2D(self.x / mag, self.y / mag)
-        return Vector2D(0, 0)
+geometry_path = base_path / "backend" / "core" / "utils" / "geometry.py"
+geometry_module = import_from_path("backend.core.utils.geometry", geometry_path)
+sys.modules["backend.core.utils.geometry"] = geometry_module
 
+math_utils_path = base_path / "backend" / "core" / "utils" / "math.py"
+math_utils_module = import_from_path("backend.core.utils.math", math_utils_path)
+sys.modules["backend.core.utils.math"] = math_utils_module
 
-@dataclass
-class BallState:
-    """Simplified ball state."""
-    id: str
-    position: Vector2D
-    velocity: Vector2D
-    radius: float
-    mass: float
-    spin: Optional[Vector2D] = None
-    is_cue_ball: bool = False
-    is_pocketed: bool = False
-    number: Optional[int] = None
-
-
-@dataclass
-class CueState:
-    """Simplified cue state."""
-    angle: float
-    estimated_force: float
-    impact_point: Optional[Vector2D] = None
-
-
-@dataclass
-class TableState:
-    """Simplified table state."""
-    width: float
-    height: float
-    cushion_elasticity: float = 0.85
-    surface_friction: float = 0.015
-    pocket_radius: float = 30.0
-    pocket_positions: list = None
-
-    def __post_init__(self):
-        if self.pocket_positions is None:
-            self.pocket_positions = []
-
-# Simplified trajectory result classes
-@dataclass
-class TrajectoryPoint:
-    """A point along a trajectory."""
-    position: Vector2D
-    velocity: Vector2D
-
-
-@dataclass
-class SimpleTrajectory:
-    """Simplified trajectory result."""
-    points: list
-    collisions: list
-    final_position: Optional[Vector2D] = None
-    will_be_pocketed: bool = False
-
-
-class SimplifiedTrajectoryCalculator:
-    """Simplified trajectory calculator for real-time visualization."""
-
-    def __init__(self):
-        self.friction = 0.015
-        self.timestep = 0.05  # seconds
-        self.max_time = 5.0  # seconds
-
-    def predict_cue_shot(self, cue_state, ball_state, table_state, other_balls=None, quality=None):
-        """Calculate simple trajectory from cue shot."""
-        # Calculate initial velocity from cue angle and force
-        angle_rad = math.radians(cue_state.angle)
-        speed = cue_state.estimated_force * 0.5  # m/s
-
-        initial_velocity = Vector2D(
-            speed * math.cos(angle_rad),
-            speed * math.sin(angle_rad)
-        )
-
-        # Simulate trajectory
-        points = []
-        current_pos = Vector2D(ball_state.position.x, ball_state.position.y)
-        current_vel = Vector2D(initial_velocity.x, initial_velocity.y)
-
-        time = 0
-        while time < self.max_time and current_vel.magnitude() > 0.01:
-            # Add point
-            points.append(TrajectoryPoint(
-                position=Vector2D(current_pos.x, current_pos.y),
-                velocity=Vector2D(current_vel.x, current_vel.y)
-            ))
-
-            # Update velocity (friction)
-            vel_mag = current_vel.magnitude()
-            if vel_mag > 0:
-                friction_decel = self.friction * 9.81 * self.timestep
-                new_mag = max(0, vel_mag - friction_decel)
-                current_vel.x = current_vel.x / vel_mag * new_mag
-                current_vel.y = current_vel.y / vel_mag * new_mag
-
-            # Update position
-            current_pos.x += current_vel.x * self.timestep
-            current_pos.y += current_vel.y * self.timestep
-
-            # Check table boundaries (simple bounce)
-            if current_pos.x < ball_state.radius:
-                current_pos.x = ball_state.radius
-                current_vel.x = -current_vel.x * 0.8
-            elif current_pos.x > table_state.width - ball_state.radius:
-                current_pos.x = table_state.width - ball_state.radius
-                current_vel.x = -current_vel.x * 0.8
-
-            if current_pos.y < ball_state.radius:
-                current_pos.y = ball_state.radius
-                current_vel.y = -current_vel.y * 0.8
-            elif current_pos.y > table_state.height - ball_state.radius:
-                current_pos.y = table_state.height - ball_state.radius
-                current_vel.y = -current_vel.y * 0.8
-
-            time += self.timestep
-
-        return SimpleTrajectory(
-            points=points,
-            collisions=[],
-            final_position=current_pos
-        )
+# Import trajectory calculator from backend (do this BEFORE game_state to avoid circular import)
+# The trajectory module needs models which we already loaded
+trajectory_path = base_path / "backend" / "core" / "physics" / "trajectory.py"
+trajectory_module = import_from_path("backend.core.physics.trajectory", trajectory_path)
+TrajectoryCalculator = trajectory_module.TrajectoryCalculator
+TrajectoryQuality = trajectory_module.TrajectoryQuality
 
 
 class VideoDebugger:
@@ -330,17 +214,18 @@ class VideoDebugger:
         self.yolo_detector = None
 
         if detection_backend == "yolo":
-            # Use YOLO detector
+            # Use YOLO detector with OpenCV classification refinement
             logger.info(f"Initializing YOLO detector with model: {yolo_model_path or 'default'}")
             try:
                 self.yolo_detector = YOLODetector(
                     model_path=yolo_model_path,
                     device=yolo_device,
-                    confidence=0.4,
+                    confidence=0.15,  # Very low for cue detection
                     nms_threshold=0.45,
                     auto_fallback=True,
+                    enable_opencv_classification=True,  # Enable hybrid YOLO+OpenCV detection
                 )
-                logger.info("YOLO detector initialized successfully")
+                logger.info("YOLO detector initialized successfully with OpenCV classification")
             except Exception as e:
                 logger.error(f"Failed to initialize YOLO detector: {e}")
                 logger.warning("Falling back to OpenCV detection")
@@ -375,31 +260,18 @@ class VideoDebugger:
             "min_detection_confidence": 0.3,  # Reduced from 0.5 (more lenient)
             "temporal_smoothing": 0.7,
         }
-        self.cue_detector = CueDetector(cue_config)
+        # Pass YOLO detector to CueDetector so it can use YOLO for detection
+        self.cue_detector = CueDetector(cue_config, yolo_detector=self.yolo_detector)
 
         # Test mode - always show a sample trajectory for testing
         self.test_mode = False  # Set to True to show test trajectory
 
-        # Initialize trajectory calculator (simplified version)
-        self.trajectory_calculator = SimplifiedTrajectoryCalculator()
+        # Initialize trajectory calculator from backend
+        self.trajectory_calculator = TrajectoryCalculator()
 
-        # Table configuration (approximate - adjust based on your video)
-        # Assuming standard pool table dimensions in pixels
-        self.table_state = TableState(
-            width=1920,  # Will be updated from frame size
-            height=1080,
-            cushion_elasticity=0.85,
-            surface_friction=0.015,
-            pocket_radius=30.0,
-            pocket_positions=[
-                Vector2D(50, 50),  # Top-left
-                Vector2D(960, 50),  # Top-center
-                Vector2D(1870, 50),  # Top-right
-                Vector2D(50, 1030),  # Bottom-left
-                Vector2D(960, 1030),  # Bottom-center
-                Vector2D(1870, 1030),  # Bottom-right
-            ],
-        )
+        # Table configuration - use backend standard table
+        # Will be updated with actual frame dimensions
+        self.table_state = TableState.standard_9ft_table()
 
         # Current trajectory prediction
         self.current_trajectory = None
@@ -625,50 +497,11 @@ class VideoDebugger:
 
         # Detect balls using appropriate backend
         if self.yolo_detector is not None:
-            # Use YOLO for detection (position/size)
-            yolo_detections = self.yolo_detector.detect_balls(frame)
-
-            # Convert YOLO detections to Ball objects and classify with OpenCV
-            detected_balls = []
-            if not hasattr(self, '_opencv_classifier'):
-                # Create OpenCV classifier for ball type classification
-                self._opencv_classifier = BallDetector({"detection_method": "combined", "debug_mode": False})
-
-            for det in yolo_detections:
-                # Convert Detection object to dict format for adapter
-                detection_dict = {
-                    "bbox": det.bbox,
-                    "confidence": det.confidence,
-                    "class_id": det.class_id,
-                    "class_name": det.class_name,
-                }
-                balls = yolo_detections_to_balls(
-                    [detection_dict],
-                    (frame.shape[0], frame.shape[1]),
-                    min_confidence=0.25,
-                    bbox_format="xyxy",
-                )
-
-                # Use OpenCV to classify ball type (since YOLO only detects "ball")
-                for ball in balls:
-                    if det.class_name == "ball":
-                        # Extract ball region for classification
-                        x, y = ball.position
-                        r = ball.radius
-                        x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
-                        x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(frame.shape[0], int(y + r * 1.2))
-                        ball_region = frame[y1:y2, x1:x2]
-
-                        if ball_region.size > 0:
-                            # Classify ball type using OpenCV
-                            ball_type, conf, ball_number = self._opencv_classifier.classify_ball_type(
-                                ball_region, ball.position, r
-                            )
-                            # Update ball with classified type
-                            ball.ball_type = ball_type
-                            ball.number = ball_number
-
-                    detected_balls.append(ball)
+            # Use hybrid YOLO+OpenCV detection (backend handles classification)
+            detected_balls = self.yolo_detector.detect_balls_with_classification(
+                frame,
+                min_confidence=0.25
+            )
         else:
             # Use OpenCV detector
             detected_balls = self.detector.detect_balls(frame)
@@ -695,14 +528,13 @@ class VideoDebugger:
             cue_ball = balls_to_draw[0]
             cue_ball_pos = balls_to_draw[0].position
 
-        # Detect cue stick
+        # Detect cue stick (CueDetector handles YOLO + line-based fallback internally)
         detected_cue = None
         if cue_ball_pos:
             detected_cue = self.cue_detector.detect_cue(frame, cue_ball_pos)
-            if detected_cue:
-                if self.current_frame_num % 30 == 0:  # Log every 30 frames to avoid spam
-                    logger.info(f"Cue detected: angle={detected_cue.angle:.1f}, confidence={detected_cue.confidence:.2f}, aiming={detected_cue.is_aiming}")
-            elif self.current_frame_num % 30 == 0:
+            if detected_cue and self.current_frame_num % 30 == 0:
+                logger.info(f"Cue detected: angle={detected_cue.angle:.1f}, confidence={detected_cue.confidence:.2f}, aiming={detected_cue.is_aiming}")
+            elif detected_cue is None and self.current_frame_num % 30 == 0:
                 logger.info("No cue detected")
 
         # Test mode: create a fake trajectory for visualization testing
@@ -713,6 +545,11 @@ class VideoDebugger:
                 angle=0.0,  # Point to the right
                 estimated_force=3.0,
                 impact_point=Vector2D(cue_ball_pos[0], cue_ball_pos[1]),
+                tip_position=Vector2D(cue_ball_pos[0] - 50, cue_ball_pos[1]),
+                elevation=0.0,
+                is_visible=True,
+                confidence=1.0,
+                last_update=0,
             )
             test_ball_state = BallState(
                 id="cue",
@@ -721,12 +558,15 @@ class VideoDebugger:
                 radius=cue_ball.radius,
                 mass=0.17,
                 is_cue_ball=True,
+                confidence=1.0,
+                last_update=0,
             )
             self.current_trajectory = self.trajectory_calculator.predict_cue_shot(
                 test_cue_state,
                 test_ball_state,
                 self.table_state,
                 [],
+                quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
             )
 
         # Calculate trajectory if cue is detected (regardless of aiming state for visualization)
@@ -737,6 +577,11 @@ class VideoDebugger:
                     angle=detected_cue.angle,
                     estimated_force=5.0,  # Default moderate force
                     impact_point=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
+                    tip_position=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
+                    elevation=getattr(detected_cue, 'elevation', 0.0),
+                    is_visible=True,
+                    confidence=detected_cue.confidence,
+                    last_update=0,
                 )
 
                 # Create BallState for cue ball
@@ -747,6 +592,8 @@ class VideoDebugger:
                     radius=cue_ball.radius,
                     mass=0.17,  # Standard pool ball mass in kg
                     is_cue_ball=True,
+                    confidence=getattr(cue_ball, 'confidence', 1.0),
+                    last_update=0,
                 )
 
                 # Create BallState objects for other balls
@@ -760,15 +607,18 @@ class VideoDebugger:
                                 velocity=Vector2D(0, 0),
                                 radius=ball.radius,
                                 mass=0.17,
+                                confidence=getattr(ball, 'confidence', 1.0),
+                                last_update=0,
                             )
                         )
 
-                # Calculate trajectory
+                # Calculate trajectory using backend calculator
                 self.current_trajectory = self.trajectory_calculator.predict_cue_shot(
                     cue_state,
                     ball_state,
                     self.table_state,
                     other_ball_states,
+                    quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
                 )
             except Exception as e:
                 logger.debug(f"Trajectory calculation failed: {e}")
