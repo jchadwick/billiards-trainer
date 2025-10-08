@@ -35,6 +35,11 @@ echo -e "${BLUE}Packaging frontend...${NC}"
 mkdir -p dist/frontend
 cp -r frontend/web/dist/* dist/frontend/
 
+# Package projector
+echo -e "${BLUE}Packaging projector...${NC}"
+mkdir -p dist/frontend/projector
+rsync -av --exclude='.DS_Store' frontend/projector/ dist/frontend/projector/
+
 # Copy config files
 echo -e "${BLUE}Packaging config files...${NC}"
 mkdir -p dist/config
