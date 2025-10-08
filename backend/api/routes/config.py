@@ -17,6 +17,7 @@ from typing import Any, Optional
 import yaml
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
 from ..dependencies import get_config_module
 from ..models.common import ErrorCode, create_error_response, create_success_response
@@ -732,6 +733,95 @@ async def get_configuration_schema(
             detail=create_error_response(
                 "Schema Retrieval Failed",
                 "Unable to retrieve configuration schema",
+                ErrorCode.SYS_INTERNAL_ERROR,
+                {"error": str(e)},
+            ),
+        )
+
+
+class PlayingAreaCornersRequest(BaseModel):
+    """Request model for setting playing area corners."""
+
+    corners: list[dict[str, float]] = Field(
+        ...,
+        description="List of 4 corner points in order: top-left, top-right, bottom-right, bottom-left",
+        min_items=4,
+        max_items=4,
+    )
+
+
+@router.post("/table/playing-area", response_model=SuccessResponse)
+async def set_playing_area_corners(
+    request: PlayingAreaCornersRequest,
+    config_module: ConfigurationModule = Depends(get_config_module),
+) -> SuccessResponse:
+    """Set the playing area corner points for table calibration.
+
+    Args:
+        request: Corner points for the playing area
+        config_module: Configuration module (injected)
+
+    Returns:
+        Success response with saved corners
+
+    Raises:
+        HTTPException: If validation or save fails
+    """
+    try:
+        # Validate corner format
+        if len(request.corners) != 4:
+            raise HTTPException(
+                status_code=400,
+                detail=create_error_response(
+                    "Invalid Corner Count",
+                    "Exactly 4 corners are required (top-left, top-right, bottom-right, bottom-left)",
+                    ErrorCode.VALIDATION_INVALID_FORMAT,
+                    {"provided_count": len(request.corners)},
+                ),
+            )
+
+        # Validate each corner has x and y coordinates
+        for i, corner in enumerate(request.corners):
+            if "x" not in corner or "y" not in corner:
+                raise HTTPException(
+                    status_code=400,
+                    detail=create_error_response(
+                        "Invalid Corner Format",
+                        f"Corner {i} must have 'x' and 'y' coordinates",
+                        ErrorCode.VALIDATION_INVALID_FORMAT,
+                        {"corner_index": i, "corner": corner},
+                    ),
+                )
+
+        # Convert corners to the format expected by TableState
+        playing_area_corners = [
+            {"x": corner["x"], "y": corner["y"]} for corner in request.corners
+        ]
+
+        # Save to configuration
+        table_config = config_module.data.get("table", {})
+        table_config["playing_area_corners"] = playing_area_corners
+
+        # Update config
+        config_module.data["table"] = table_config
+        config_module.save_config()
+
+        logger.info(f"Playing area corners saved: {playing_area_corners}")
+
+        return create_success_response(
+            "Playing area corners saved successfully",
+            {"corners": playing_area_corners, "count": len(playing_area_corners)},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save playing area corners: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                "Configuration Save Failed",
+                "Unable to save playing area corners",
                 ErrorCode.SYS_INTERNAL_ERROR,
                 {"error": str(e)},
             ),

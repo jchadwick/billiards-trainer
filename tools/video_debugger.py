@@ -121,6 +121,11 @@ cue_path = base_path / "backend" / "vision" / "detection" / "cue.py"
 cue_module = import_from_path("backend.vision.detection.cue", cue_path)
 CueDetector = cue_module.CueDetector
 
+# Import table detector
+table_path = base_path / "backend" / "vision" / "detection" / "table.py"
+table_module = import_from_path("backend.vision.detection.table", table_path)
+TableDetector = table_module.TableDetector
+
 # Import core models from backend
 models_core_path = base_path / "backend" / "core" / "models.py"
 models_core_module = import_from_path("backend.core.models", models_core_path)
@@ -149,6 +154,7 @@ trajectory_path = base_path / "backend" / "core" / "physics" / "trajectory.py"
 trajectory_module = import_from_path("backend.core.physics.trajectory", trajectory_path)
 TrajectoryCalculator = trajectory_module.TrajectoryCalculator
 TrajectoryQuality = trajectory_module.TrajectoryQuality
+MultiballTrajectoryResult = trajectory_module.MultiballTrajectoryResult
 
 
 class VideoDebugger:
@@ -187,6 +193,7 @@ class VideoDebugger:
         self.show_detections = True
         self.show_track_ids = True
         self.show_cue = True
+        self.show_playing_area = True
 
         # Tracking data
         self.ball_traces: dict[int, deque] = {}  # track_id -> deque of positions
@@ -265,6 +272,8 @@ class VideoDebugger:
 
         # Test mode - always show a sample trajectory for testing
         self.test_mode = False  # Set to True to show test trajectory
+        self.auto_detect_on_first_frame = False  # Set to True to auto-detect on first frame
+        self.auto_detect_done = False  # Track if auto-detect has been performed
 
         # Initialize trajectory calculator from backend
         self.trajectory_calculator = TrajectoryCalculator()
@@ -272,6 +281,10 @@ class VideoDebugger:
         # Table configuration - use backend standard table
         # Will be updated with actual frame dimensions
         self.table_state = TableState.standard_9ft_table()
+
+        # Initialize table detector for playing area detection
+        table_detector_config = {}
+        self.table_detector = TableDetector(table_detector_config)
 
         # Current trajectory prediction
         self.current_trajectory = None
@@ -340,65 +353,180 @@ class VideoDebugger:
         state_color = (0, 255, 0) if cue_stick.is_aiming else (0, 0, 255)
         cv2.circle(frame, (tip_x, tip_y), 10, state_color, 2)
 
-    def draw_trajectory(self, frame: np.ndarray, trajectory) -> None:
-        """Draw predicted trajectory on frame.
+    def detect_and_set_playing_area(self, frame: np.ndarray) -> bool:
+        """Detect table boundaries and set playing area in TableState.
+
+        Args:
+            frame: Frame to detect table from
+
+        Returns:
+            True if detection successful, False otherwise
+        """
+        try:
+            logger.info("Detecting table playing area...")
+            calibration_result = self.table_detector.calibrate_table(frame)
+
+            if not calibration_result.get("success"):
+                logger.error(f"Table detection failed: {calibration_result.get('error', 'Unknown error')}")
+                return False
+
+            table_corners = calibration_result["table_corners"]
+            if not table_corners or len(table_corners) != 4:
+                logger.error(f"Invalid table corners detected: {table_corners}")
+                return False
+
+            # Convert corner tuples to Vector2D objects
+            playing_area_corners = [
+                Vector2D(corner[0], corner[1]) for corner in table_corners
+            ]
+
+            # Update table state with detected playing area
+            self.table_state.playing_area_corners = playing_area_corners
+
+            logger.info(f"Playing area detected successfully:")
+            logger.info(f"  Corners: {[(c.x, c.y) for c in playing_area_corners]}")
+            logger.info(f"  Confidence: {calibration_result.get('confidence', 0.0):.2f}")
+            logger.info(f"  Pockets: {calibration_result.get('pocket_count', 0)}")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to detect playing area: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return False
+
+    def draw_playing_area(self, frame: np.ndarray) -> None:
+        """Draw the playing area polygon on the frame.
 
         Args:
             frame: Frame to draw on
-            trajectory: Trajectory object from trajectory calculator
         """
-        if trajectory is None or not trajectory.points:
+        if not self.table_state.playing_area_corners or len(self.table_state.playing_area_corners) != 4:
             return
 
-        # Draw main trajectory path
-        points = trajectory.points
-        for i in range(len(points) - 1):
-            p1 = points[i]
-            p2 = points[i + 1]
+        # Convert Vector2D to integer points for drawing
+        points = np.array([
+            [int(corner.x), int(corner.y)]
+            for corner in self.table_state.playing_area_corners
+        ], dtype=np.int32)
 
-            # Color based on velocity (red = fast, yellow = slow)
-            speed = p1.velocity.magnitude()
-            max_speed = 3.0  # Adjusted for pixel-based velocity
-            speed_ratio = min(1.0, speed / max_speed)
+        # Draw polygon outline
+        cv2.polylines(frame, [points], isClosed=True, color=(0, 255, 0), thickness=3)
 
-            # Gradient from yellow (slow) to red (fast)
-            b = int(0)
-            g = int(255 * (1 - speed_ratio))
-            r = int(255)
-            color = (b, g, r)
+        # Draw corner markers
+        for i, corner in enumerate(self.table_state.playing_area_corners):
+            center = (int(corner.x), int(corner.y))
+            # Draw circle
+            cv2.circle(frame, center, 8, (0, 255, 0), -1)
+            # Draw corner number
+            cv2.putText(
+                frame,
+                str(i + 1),
+                (center[0] - 10, center[1] - 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (255, 255, 255),
+                2,
+            )
 
-            # Draw trajectory segment
-            pt1 = (int(p1.position.x), int(p1.position.y))
-            pt2 = (int(p2.position.x), int(p2.position.y))
-            cv2.line(frame, pt1, pt2, color, 2)
+        # Draw label
+        if self.table_state.playing_area_corners:
+            label_pos = (10, frame.shape[0] - 60)
+            cv2.putText(
+                frame,
+                "Playing Area (Press 'A' to re-detect)",
+                label_pos,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+            )
 
-        # Draw collision points (if any)
-        if trajectory.collisions:
-            for collision in trajectory.collisions:
-                pos = (int(collision.position.x), int(collision.position.y))
+    def draw_trajectory(self, frame: np.ndarray, multiball_result) -> None:
+        """Draw predicted trajectories for all balls on frame.
 
-                # Color by collision type
-                collision_type = getattr(collision, 'type', None)
-                if collision_type:
-                    type_val = collision_type.value if hasattr(collision_type, 'value') else str(collision_type)
-                    if type_val == "ball_ball":
-                        collision_color = (255, 0, 255)  # Magenta
-                        cv2.circle(frame, pos, 8, collision_color, 2)
-                        cv2.circle(frame, pos, 3, collision_color, -1)
-                    elif type_val == "ball_cushion":
-                        collision_color = (255, 255, 0)  # Cyan
-                        cv2.circle(frame, pos, 6, collision_color, 2)
-                    elif type_val == "ball_pocket":
-                        collision_color = (0, 255, 0)  # Green
-                        cv2.circle(frame, pos, 10, collision_color, 3)
-                        cv2.circle(frame, pos, 5, collision_color, -1)
+        Based on cassapa projector_preview.cpp DrawAids() lines 227-266.
+        Renders trajectory as line segments with circles at endpoints.
 
-        # Draw final position
-        if trajectory.final_position:
-            final_pos = (int(trajectory.final_position.x), int(trajectory.final_position.y))
-            final_color = (0, 255, 0) if trajectory.will_be_pocketed else (128, 128, 128)
-            cv2.circle(frame, final_pos, 12, final_color, 2)
-            cv2.circle(frame, final_pos, 4, final_color, -1)
+        Args:
+            frame: Frame to draw on
+            multiball_result: MultiballTrajectoryResult with multiple ball trajectories
+        """
+        if multiball_result is None:
+            return
+
+        # Define colors matching cassapa:
+        # White ball (cue) = white (255, 255, 255)
+        # Hit ball = yellow (0, 255, 255) in BGR
+        cue_color = (255, 255, 255)  # White for cue ball
+        hit_color = (0, 255, 255)    # Yellow for first hit ball
+
+        # Get primary (cue) ball trajectory
+        primary_id = multiball_result.primary_ball_id
+        if primary_id not in multiball_result.trajectories:
+            return
+
+        cue_trajectory = multiball_result.trajectories[primary_id]
+
+        # Draw cue ball trajectory (white lines)
+        # Based on cassapa lines 228-234
+        if cue_trajectory.points and len(cue_trajectory.points) >= 2:
+            # Draw line segments for each trajectory piece
+            for i in range(len(cue_trajectory.points) - 1):
+                p1 = cue_trajectory.points[i]
+                p2 = cue_trajectory.points[i + 1]
+
+                pt1 = (int(p1.position.x), int(p1.position.y))
+                pt2 = (int(p2.position.x), int(p2.position.y))
+
+                # Draw the line segment
+                cv2.line(frame, pt1, pt2, cue_color, 4)
+
+                # Draw circle at endpoint (shows ball position at end of segment)
+                # Get ball radius from initial state
+                ball_radius = int(cue_trajectory.initial_state.radius)
+                cv2.circle(frame, pt2, ball_radius, cue_color, 2)
+
+        # Find the first hit ball (if any) and draw its trajectory
+        # Based on cassapa lines 238-265
+        hit_ball_id = None
+        for collision in cue_trajectory.collisions:
+            if collision.type.value == "ball_ball" and collision.ball2_id:
+                hit_ball_id = collision.ball2_id
+                break
+
+        if hit_ball_id and hit_ball_id in multiball_result.trajectories:
+            hit_trajectory = multiball_result.trajectories[hit_ball_id]
+
+            if hit_trajectory.points and len(hit_trajectory.points) >= 2:
+                # Draw hit ball trajectory (yellow lines) - cassapa lines 242-246
+                for i in range(len(hit_trajectory.points) - 1):
+                    p1 = hit_trajectory.points[i]
+                    p2 = hit_trajectory.points[i + 1]
+
+                    pt1 = (int(p1.position.x), int(p1.position.y))
+                    pt2 = (int(p2.position.x), int(p2.position.y))
+
+                    cv2.line(frame, pt1, pt2, hit_color, 4)
+
+                # Draw white circle at collision point where cue ball hits target ball
+                # cassapa lines 248-255
+                if cue_trajectory.points:
+                    collision_point = cue_trajectory.points[-1].position
+                    ball_radius = int(cue_trajectory.initial_state.radius)
+                    cv2.circle(frame,
+                             (int(collision_point.x), int(collision_point.y)),
+                             ball_radius, cue_color, 2)
+
+                # Draw yellow circle at end position of hit ball
+                # cassapa lines 257-264
+                if hit_trajectory.points:
+                    final_point = hit_trajectory.points[-1].position
+                    ball_radius = int(hit_trajectory.initial_state.radius)
+                    cv2.circle(frame,
+                             (int(final_point.x), int(final_point.y)),
+                             ball_radius, hit_color, 2)
 
     def draw_hud(self, frame: np.ndarray) -> None:
         """Draw heads-up display with info and controls.
@@ -437,8 +565,8 @@ class VideoDebugger:
 
         # Display controls
         controls_text = [
-            "SPACE: Play/Pause | LEFT/RIGHT: Step | +/-: Speed | B: Set Background",
-            "T: Trajectory | D: Detections | I: IDs | C: Cue | R: Reset | Q: Quit",
+            "SPACE: Play/Pause | LEFT/RIGHT: Step | +/-: Speed | B: Set Background | A: Auto-detect Table",
+            "T: Trajectory | D: Detections | I: IDs | C: Cue | P: Playing Area | R: Reset | Q: Quit",
         ]
 
         y_offset = h - 40
@@ -462,6 +590,7 @@ class VideoDebugger:
             ("Detections", self.show_detections),
             ("IDs", self.show_track_ids),
             ("Cue", self.show_cue),
+            ("Playing Area", self.show_playing_area),
         ]
 
         for name, enabled in toggles:
@@ -491,6 +620,15 @@ class VideoDebugger:
         if self.table_state.width != frame.shape[1] or self.table_state.height != frame.shape[0]:
             self.table_state.width = frame.shape[1]
             self.table_state.height = frame.shape[0]
+
+        # Auto-detect table on first frame if requested
+        if self.auto_detect_on_first_frame and not self.auto_detect_done:
+            logger.info("Auto-detecting table playing area from first frame...")
+            if self.detect_and_set_playing_area(frame):
+                logger.info("Auto-detection successful!")
+            else:
+                logger.warning("Auto-detection failed, continuing without playing area")
+            self.auto_detect_done = True
 
         # Create a copy for drawing
         display_frame = frame.copy()
@@ -561,12 +699,29 @@ class VideoDebugger:
                 confidence=1.0,
                 last_update=0,
             )
-            self.current_trajectory = self.trajectory_calculator.predict_cue_shot(
+            # Create other ball states for test mode
+            test_other_balls = []
+            for i, ball in enumerate(balls_to_draw):
+                if ball != cue_ball:
+                    test_other_balls.append(
+                        BallState(
+                            id=f"ball_{i}",
+                            position=Vector2D(ball.position[0], ball.position[1]),
+                            velocity=Vector2D(0, 0),
+                            radius=ball.radius,
+                            mass=0.17,
+                            confidence=1.0,
+                            last_update=0,
+                        )
+                    )
+
+            self.current_trajectory = self.trajectory_calculator.predict_multiball_cue_shot(
                 test_cue_state,
                 test_ball_state,
                 self.table_state,
-                [],
-                quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
+                test_other_balls,
+                quality=TrajectoryQuality.LOW,
+                max_collision_depth=5,
             )
 
         # Calculate trajectory if cue is detected (regardless of aiming state for visualization)
@@ -612,19 +767,26 @@ class VideoDebugger:
                             )
                         )
 
-                # Calculate trajectory using backend calculator
-                self.current_trajectory = self.trajectory_calculator.predict_cue_shot(
+                # Calculate multiball trajectory using backend calculator
+                self.current_trajectory = self.trajectory_calculator.predict_multiball_cue_shot(
                     cue_state,
                     ball_state,
                     self.table_state,
                     other_ball_states,
                     quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
+                    max_collision_depth=5,  # Calculate up to 5 collision levels deep
                 )
             except Exception as e:
                 logger.debug(f"Trajectory calculation failed: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
                 self.current_trajectory = None
         else:
             self.current_trajectory = None
+
+        # Draw playing area first (so it's behind other overlays)
+        if self.show_playing_area:
+            self.draw_playing_area(display_frame)
 
         # Draw trajectory prediction
         if self.show_trajectory and self.current_trajectory:
@@ -776,6 +938,16 @@ class VideoDebugger:
                         if self.detector is not None:
                             self.detector.set_background_frame(frame)
                         logger.info("Background frame set for cue and ball detection")
+                elif key == ord("a"):  # Auto-detect table playing area
+                    if 'frame' in locals() and frame is not None:
+                        logger.info("Auto-detecting table playing area...")
+                        if self.detect_and_set_playing_area(frame):
+                            logger.info("Playing area detection successful!")
+                        else:
+                            logger.error("Playing area detection failed")
+                elif key == ord("p"):  # Toggle playing area display
+                    self.show_playing_area = not self.show_playing_area
+                    logger.info(f"Playing Area: {self.show_playing_area}")
 
         finally:
             logger.info("Shutting down...")
@@ -834,6 +1006,11 @@ def main():
         default="INFO",
         help="Logging level",
     )
+    parser.add_argument(
+        "--auto-detect-table",
+        action="store_true",
+        help="Automatically detect table playing area on first frame",
+    )
 
     args = parser.parse_args()
 
@@ -859,6 +1036,14 @@ def main():
     if args.test_trajectory:
         debugger.test_mode = True
         logger.info("Test trajectory mode enabled")
+
+    # Auto-detect table playing area if requested
+    auto_detect_done = False
+    if args.auto_detect_table:
+        logger.info("Auto-detect table mode enabled - will detect on first frame")
+        debugger.auto_detect_on_first_frame = True
+    else:
+        debugger.auto_detect_on_first_frame = False
 
     # Load background image if provided
     if args.background:

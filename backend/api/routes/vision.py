@@ -506,3 +506,114 @@ async def reload_yolo_model(
                 {"error": str(e), "model_path": request.model_path},
             ),
         )
+
+
+@router.get(
+    "/detection/table",
+    summary="Detect table boundaries",
+    description="""
+    Automatically detect the pool table boundaries in the current camera frame.
+
+    Returns the 4 corner points of the detected table playing surface.
+    Points are returned in order: top-left, top-right, bottom-right, bottom-left.
+    """,
+)
+async def detect_table_boundaries(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> dict[str, Any]:
+    """Detect table boundaries from the current camera frame.
+
+    Returns:
+        Dictionary with table_corners and additional detection info
+
+    Raises:
+        HTTPException: If vision module or camera is unavailable
+    """
+    try:
+        # Get vision module
+        if not app_state.vision_module:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=create_error_response(
+                    "Vision Module Unavailable",
+                    "Vision module is not initialized or not available",
+                    ErrorCode.SYS_MODULE_UNAVAILABLE,
+                    {"module": "vision"},
+                ),
+            )
+
+        vision_module = app_state.vision_module
+
+        # Get camera module to capture current frame
+        camera_module = getattr(vision_module, "camera", None)
+        if not camera_module:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=create_error_response(
+                    "Camera Module Unavailable",
+                    "Camera module is not initialized",
+                    ErrorCode.SYS_MODULE_UNAVAILABLE,
+                    {"module": "camera"},
+                ),
+            )
+
+        # Get current frame
+        frame = camera_module.get_frame()
+        if frame is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=create_error_response(
+                    "No Frame Available",
+                    "Could not capture frame from camera",
+                    ErrorCode.SYS_INTERNAL_ERROR,
+                    {},
+                ),
+            )
+
+        # Import and create table detector
+        from ...vision.detection.table import TableDetector
+
+        # Create detector with default config
+        detector_config = {}
+        detector = TableDetector(detector_config)
+
+        # Perform table detection
+        calibration_result = await asyncio.to_thread(detector.calibrate_table, frame)
+
+        if not calibration_result.get("success"):
+            error_msg = calibration_result.get("error", "Unknown error")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=create_error_response(
+                    "Table Detection Failed",
+                    f"Could not detect table boundaries: {error_msg}",
+                    ErrorCode.RES_NOT_FOUND,
+                    {"error": error_msg},
+                ),
+            )
+
+        logger.info(
+            f"Table detected successfully with {calibration_result.get('pocket_count', 0)} pockets"
+        )
+
+        return {
+            "success": True,
+            "table_corners": calibration_result["table_corners"],
+            "confidence": calibration_result.get("confidence", 0.0),
+            "table_dimensions": calibration_result.get("table_dimensions"),
+            "pocket_count": calibration_result.get("pocket_count", 0),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error detecting table boundaries: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=create_error_response(
+                "Table Detection Error",
+                "An unexpected error occurred during table detection",
+                ErrorCode.SYS_INTERNAL_ERROR,
+                {"error": str(e)},
+            ),
+        )

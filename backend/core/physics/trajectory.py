@@ -90,6 +90,17 @@ class Trajectory:
     quality: TrajectoryQuality = TrajectoryQuality.MEDIUM
     calculation_time: float = 0.0
     cache_key: Optional[str] = None
+    triggered_by_ball: Optional[str] = None  # ID of ball that caused this ball to move
+
+
+@dataclass
+class MultiballTrajectoryResult:
+    """Container for trajectories of multiple balls in a shot sequence."""
+
+    primary_ball_id: str  # The cue ball
+    trajectories: dict[str, Trajectory]  # ball_id -> trajectory
+    collision_sequence: list[PredictedCollision]  # All collisions in order
+    total_calculation_time: float = 0.0
 
     def get_position_at_time(self, t: float) -> Optional[Vector2D]:
         """Get ball position at specific time."""
@@ -139,74 +150,13 @@ class Trajectory:
         return self.points[-1].velocity if self.points else None
 
 
-class TrajectoryOptimizer:
-    """Optimizes trajectory calculations for performance."""
-
-    def __init__(self):
-        self.adaptive_timestep = True
-        self.early_termination = True
-        self.collision_prediction_depth = 5
-        self.min_velocity_threshold = 0.01  # m/s
-
-    def get_optimal_timestep(
-        self, velocity: Vector2D, quality: TrajectoryQuality
-    ) -> float:
-        """Calculate optimal timestep based on velocity and quality."""
-        base_timesteps = {
-            TrajectoryQuality.LOW: 0.01,
-            TrajectoryQuality.MEDIUM: 0.005,
-            TrajectoryQuality.HIGH: 0.002,
-            TrajectoryQuality.ULTRA: 0.001,
-        }
-
-        base_dt = base_timesteps[quality]
-
-        if self.adaptive_timestep:
-            # Reduce timestep for higher velocities
-            velocity_factor = max(0.1, 1.0 / (1.0 + velocity.magnitude() / 2.0))
-            return base_dt * velocity_factor
-
-        return base_dt
-
-    def should_terminate_early(self, ball: BallState, table: TableState) -> bool:
-        """Determine if trajectory calculation should terminate early."""
-        if not self.early_termination:
-            return False
-
-        # Terminate if ball is moving too slowly
-        if ball.velocity.magnitude() < self.min_velocity_threshold:
-            return True
-
-        # Terminate if ball is off table (using proper table coordinates 0 to width/height)
-        return bool(
-            ball.position.x < 0
-            or ball.position.x > table.width
-            or ball.position.y < 0
-            or ball.position.y > table.height
-        )
-
-
 class TrajectoryCalculator:
     """Comprehensive ball trajectory calculations."""
 
     def __init__(self, cache_manager: Optional[CacheManager] = None):
         self.cache_manager = cache_manager or CacheManager()
-        self.optimizer = TrajectoryOptimizer()
         self.geometry = GeometryUtils()
         self.math_utils = MathUtils()
-
-        # Physics constants
-        self.GRAVITY = 9.81  # m/s²
-        self.AIR_RESISTANCE = 0.02
-        self.ROLLING_FRICTION = 0.015
-        self.SLIDING_FRICTION = 0.25
-        self.BALL_BALL_RESTITUTION = 0.95
-        self.BALL_CUSHION_RESTITUTION = 0.85
-
-        # Calculation settings
-        self.max_simulation_time = 10.0  # seconds
-        self.max_collisions = 20
-        self.precision_tolerance = 1e-6
 
     def calculate_trajectory(
         self,
@@ -216,7 +166,14 @@ class TrajectoryCalculator:
         quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
         time_limit: float = None,
     ) -> Trajectory:
-        """Calculate complete trajectory for a ball."""
+        """Calculate complete trajectory for a ball using geometric approach.
+
+        This uses a simple geometric trajectory calculation:
+        1. Ball travels in straight lines
+        2. Reflects off cushions using angle reflection
+        3. Stops at ball collisions or pockets
+        4. Max 2-3 bounces for reasonable prediction
+        """
         start_time = time.time()
 
         # Check cache first
@@ -227,7 +184,6 @@ class TrajectoryCalculator:
         if cached_result:
             return cached_result
 
-        time_limit = time_limit or self.max_simulation_time
         other_balls = other_balls or []
 
         trajectory = Trajectory(
@@ -237,100 +193,115 @@ class TrajectoryCalculator:
             cache_key=cache_key,
         )
 
-        # Initialize simulation state
-        current_ball = self._copy_ball_state(ball_state)
+        # Calculate geometric trajectory segments
+        segments = self._calculate_geometric_trajectory(
+            ball_state.position,
+            ball_state.velocity,
+            table_state,
+            other_balls,
+            ball_state.radius,
+        )
+
+        # Convert segments to trajectory points
         current_time = 0.0
-        collision_count = 0
+        for i, segment in enumerate(segments):
+            start_pos = segment["start"]
+            end_pos = segment["end"]
+            segment_type = segment["type"]
 
-        while (
-            current_time < time_limit
-            and collision_count < self.max_collisions
-            and not self.optimizer.should_terminate_early(current_ball, table_state)
-        ):
-            # Calculate optimal timestep
-            dt = self.optimizer.get_optimal_timestep(current_ball.velocity, quality)
+            # Add start point
+            if i == 0:
+                trajectory.points.append(
+                    TrajectoryPoint(
+                        time=current_time,
+                        position=start_pos,
+                        velocity=ball_state.velocity,
+                        acceleration=Vector2D(0, 0),
+                        spin=Vector2D(0, 0),
+                        energy=0.5
+                        * ball_state.mass
+                        * ball_state.velocity.magnitude() ** 2,
+                    )
+                )
 
-            # Predict next collision
-            next_collision = self._predict_next_collision(
-                current_ball, table_state, other_balls, dt, time_limit - current_time
+            # Estimate time for this segment (simplified - no friction)
+            segment_distance = start_pos.distance_to(end_pos)
+            velocity_mag = ball_state.velocity.magnitude()
+            if velocity_mag > 0:
+                segment_time = segment_distance / velocity_mag
+            else:
+                segment_time = 0.0
+            current_time += segment_time
+
+            # Add end point
+            trajectory.points.append(
+                TrajectoryPoint(
+                    time=current_time,
+                    position=end_pos,
+                    velocity=segment.get("velocity", ball_state.velocity),
+                    acceleration=Vector2D(0, 0),
+                    spin=Vector2D(0, 0),
+                    energy=0.5
+                    * ball_state.mass
+                    * segment.get("velocity", ball_state.velocity).magnitude() ** 2,
+                )
             )
 
-            if next_collision and next_collision.time <= dt:
-                # Collision will occur within this timestep
-                # Move to collision point
-                collision_time = next_collision.time
-                self._integrate_motion(current_ball, collision_time, table_state)
-                current_time += collision_time
-
-                # Record trajectory point at collision
-                trajectory.points.append(
-                    TrajectoryPoint(
-                        time=current_time,
-                        position=Vector2D(
-                            current_ball.position.x, current_ball.position.y
-                        ),
-                        velocity=Vector2D(
-                            current_ball.velocity.x, current_ball.velocity.y
-                        ),
-                        acceleration=self._calculate_acceleration(
-                            current_ball, table_state
-                        ),
-                        spin=(
-                            Vector2D(current_ball.spin.x, current_ball.spin.y)
-                            if current_ball.spin
-                            else Vector2D(0, 0)
-                        ),
-                        energy=0.5
-                        * current_ball.mass
-                        * current_ball.velocity.magnitude() ** 2,
-                    )
+            # Record collision if this segment ended in one
+            if segment_type == "cushion":
+                collision = PredictedCollision(
+                    time=current_time,
+                    position=end_pos,
+                    type=CollisionType.BALL_CUSHION,
+                    ball1_id=ball_state.id,
+                    ball2_id=None,
+                    impact_angle=segment.get("angle", 0.0),
+                    impact_velocity=ball_state.velocity.magnitude(),
+                    resulting_velocities={
+                        ball_state.id: segment.get("velocity", ball_state.velocity)
+                    },
+                    confidence=0.9,
+                    cushion_normal=segment.get("cushion_normal"),
                 )
-
-                # Process collision
-                self._process_collision(
-                    current_ball, next_collision, table_state, other_balls
+                trajectory.collisions.append(collision)
+            elif segment_type == "ball":
+                collision = PredictedCollision(
+                    time=current_time,
+                    position=end_pos,
+                    type=CollisionType.BALL_BALL,
+                    ball1_id=ball_state.id,
+                    ball2_id=segment.get("hit_ball_id"),
+                    impact_angle=segment.get("angle", 0.0),
+                    impact_velocity=ball_state.velocity.magnitude(),
+                    resulting_velocities=segment.get("resulting_velocities", {}),
+                    confidence=0.85,
                 )
-                trajectory.collisions.append(next_collision)
-                collision_count += 1
-
-                # Check if ball was pocketed
-                if next_collision.type == CollisionType.BALL_POCKET:
-                    trajectory.will_be_pocketed = True
-                    trajectory.pocket_id = next_collision.pocket_id
-                    break
-
-            else:
-                # No collision in this timestep, integrate motion normally
-                self._integrate_motion(current_ball, dt, table_state)
-                current_time += dt
-
-                # Record trajectory point
-                trajectory.points.append(
-                    TrajectoryPoint(
-                        time=current_time,
-                        position=Vector2D(
-                            current_ball.position.x, current_ball.position.y
-                        ),
-                        velocity=Vector2D(
-                            current_ball.velocity.x, current_ball.velocity.y
-                        ),
-                        acceleration=self._calculate_acceleration(
-                            current_ball, table_state
-                        ),
-                        spin=(
-                            Vector2D(current_ball.spin.x, current_ball.spin.y)
-                            if current_ball.spin
-                            else Vector2D(0, 0)
-                        ),
-                        energy=0.5
-                        * current_ball.mass
-                        * current_ball.velocity.magnitude() ** 2,
-                    )
+                trajectory.collisions.append(collision)
+            elif segment_type == "pocket":
+                collision = PredictedCollision(
+                    time=current_time,
+                    position=end_pos,
+                    type=CollisionType.BALL_POCKET,
+                    ball1_id=ball_state.id,
+                    ball2_id=None,
+                    impact_angle=0.0,
+                    impact_velocity=ball_state.velocity.magnitude(),
+                    resulting_velocities={ball_state.id: Vector2D(0, 0)},
+                    confidence=0.8,
+                    pocket_id=segment.get("pocket_id"),
                 )
+                trajectory.collisions.append(collision)
+                trajectory.will_be_pocketed = True
+                trajectory.pocket_id = segment.get("pocket_id")
 
         # Finalize trajectory
-        trajectory.final_position = current_ball.position
-        trajectory.final_velocity = current_ball.velocity
+        if trajectory.points:
+            trajectory.final_position = trajectory.points[-1].position
+            trajectory.final_velocity = trajectory.points[-1].velocity
+        else:
+            trajectory.final_position = ball_state.position
+            trajectory.final_velocity = Vector2D(0, 0)
+
         trajectory.time_to_rest = current_time
         trajectory.total_distance = self._calculate_total_distance(trajectory.points)
         trajectory.calculation_time = time.time() - start_time
@@ -377,405 +348,452 @@ class TrajectoryCalculator:
             number=ball_state.number,
         )
 
-    def _calculate_acceleration(self, ball: BallState, table: TableState) -> Vector2D:
-        """Calculate ball acceleration due to friction and other forces."""
-        if ball.velocity.magnitude() < 1e-6:
-            return Vector2D(0, 0)
-
-        # Rolling friction (opposite to velocity direction)
-        velocity_unit = ball.velocity.normalize()
-        friction_magnitude = self.ROLLING_FRICTION * self.GRAVITY
-
-        # Air resistance (proportional to velocity squared)
-        air_resistance_magnitude = self.AIR_RESISTANCE * ball.velocity.magnitude()
-
-        total_deceleration = friction_magnitude + air_resistance_magnitude
-
-        return Vector2D(
-            -velocity_unit.x * total_deceleration, -velocity_unit.y * total_deceleration
-        )
-
-    def _integrate_motion(self, ball: BallState, dt: float, table: TableState) -> None:
-        """Integrate ball motion over time step using Runge-Kutta 4th order."""
-        # Current state
-        pos = ball.position
-        vel = ball.velocity
-
-        # k1
-        k1_vel = vel
-        k1_acc = self._calculate_acceleration(ball, table)
-
-        # k2
-        k2_pos = Vector2D(pos.x + 0.5 * dt * k1_vel.x, pos.y + 0.5 * dt * k1_vel.y)
-        k2_vel = Vector2D(vel.x + 0.5 * dt * k1_acc.x, vel.y + 0.5 * dt * k1_acc.y)
-        temp_ball = BallState(
-            id=ball.id,
-            position=k2_pos,
-            velocity=k2_vel,
-            radius=ball.radius,
-            mass=ball.mass,
-        )
-        k2_acc = self._calculate_acceleration(temp_ball, table)
-
-        # k3
-        k3_pos = Vector2D(pos.x + 0.5 * dt * k2_vel.x, pos.y + 0.5 * dt * k2_vel.y)
-        k3_vel = Vector2D(vel.x + 0.5 * dt * k2_acc.x, vel.y + 0.5 * dt * k2_acc.y)
-        temp_ball.position = k3_pos
-        temp_ball.velocity = k3_vel
-        k3_acc = self._calculate_acceleration(temp_ball, table)
-
-        # k4
-        k4_pos = Vector2D(pos.x + dt * k3_vel.x, pos.y + dt * k3_vel.y)
-        k4_vel = Vector2D(vel.x + dt * k3_acc.x, vel.y + dt * k3_acc.y)
-        temp_ball.position = k4_pos
-        temp_ball.velocity = k4_vel
-        k4_acc = self._calculate_acceleration(temp_ball, table)
-
-        # Final integration
-        ball.position.x += (
-            dt / 6.0 * (k1_vel.x + 2 * k2_vel.x + 2 * k3_vel.x + k4_vel.x)
-        )
-        ball.position.y += (
-            dt / 6.0 * (k1_vel.y + 2 * k2_vel.y + 2 * k3_vel.y + k4_vel.y)
-        )
-        ball.velocity.x += (
-            dt / 6.0 * (k1_acc.x + 2 * k2_acc.x + 2 * k3_acc.x + k4_acc.x)
-        )
-        ball.velocity.y += (
-            dt / 6.0 * (k1_acc.y + 2 * k2_acc.y + 2 * k3_acc.y + k4_acc.y)
-        )
-
-        # Apply spin effects if present
-        if ball.spin and ball.spin.magnitude() > 1e-6:
-            self._apply_spin_effects(ball, dt)
-
-    def _apply_spin_effects(self, ball: BallState, dt: float) -> None:
-        """Apply spin effects to ball motion."""
-        # Magnus force due to spin
-        if ball.velocity.magnitude() > 1e-6:
-            # Cross product of spin and velocity (simplified 2D)
-            magnus_force_magnitude = (
-                0.1 * ball.spin.magnitude() * ball.velocity.magnitude()
-            )
-
-            # Perpendicular to velocity
-            vel_perp = Vector2D(-ball.velocity.y, ball.velocity.x).normalize()
-
-            # Apply Magnus acceleration
-            magnus_acc = Vector2D(
-                vel_perp.x * magnus_force_magnitude / ball.mass,
-                vel_perp.y * magnus_force_magnitude / ball.mass,
-            )
-
-            ball.velocity.x += magnus_acc.x * dt
-            ball.velocity.y += magnus_acc.y * dt
-
-        # Decay spin over time
-        spin_decay = 0.95  # per second
-        decay_factor = spin_decay**dt
-        ball.spin.x *= decay_factor
-        ball.spin.y *= decay_factor
-
-    def _predict_next_collision(
+    def _calculate_geometric_trajectory(
         self,
-        ball: BallState,
+        start_position: Vector2D,
+        velocity: Vector2D,
         table: TableState,
         other_balls: list[BallState],
-        dt: float,
-        max_time: float,
-    ) -> Optional[PredictedCollision]:
-        """Predict the next collision for the ball."""
-        collisions = []
+        ball_radius: float,
+        max_bounces: int = 3,
+    ) -> list[dict]:
+        """Calculate geometric trajectory using line segments and reflections.
 
-        # Check ball-ball collisions
-        for other_ball in other_balls:
-            if other_ball.id != ball.id and not other_ball.is_pocketed:
-                collision = self._predict_ball_ball_collision(
-                    ball, other_ball, max_time
+        Based on cassapa pool.cpp CalculateBallTrajectory() function (line 451).
+        Returns list of trajectory segments, each containing:
+        - start: Vector2D start position
+        - end: Vector2D end position
+        - type: "line", "cushion", "ball", or "pocket"
+        - velocity: resulting velocity (for cushion bounces)
+        - other metadata
+        """
+        segments = []
+        current_pos = Vector2D(start_position.x, start_position.y)
+        current_velocity = Vector2D(velocity.x, velocity.y)
+
+        if current_velocity.magnitude() < 1e-6:
+            # Ball is not moving
+            return segments
+
+        for bounce in range(max_bounces):
+            # Find where the line hits: cushion, ball, or pocket
+            direction = current_velocity.normalize()
+
+            # Calculate intersection with all four cushions
+            cushion_hit = self._find_cushion_intersection(
+                current_pos, direction, table, ball_radius
+            )
+
+            # Check for ball-ball collision along this line
+            ball_hit = self._find_ball_intersection(
+                current_pos, direction, other_balls, ball_radius
+            )
+
+            # Check for pocket
+            pocket_hit = self._find_pocket_intersection(
+                current_pos, direction, table, ball_radius
+            )
+
+            # Determine which happens first
+            hit_distance = float("inf")
+            hit_type = "none"
+            hit_point = None
+            hit_data = {}
+
+            if cushion_hit:
+                dist = current_pos.distance_to(cushion_hit["position"])
+                if dist < hit_distance:
+                    hit_distance = dist
+                    hit_type = "cushion"
+                    hit_point = cushion_hit["position"]
+                    hit_data = cushion_hit
+
+            if ball_hit:
+                dist = current_pos.distance_to(ball_hit["position"])
+                if dist < hit_distance:
+                    hit_distance = dist
+                    hit_type = "ball"
+                    hit_point = ball_hit["position"]
+                    hit_data = ball_hit
+
+            if pocket_hit:
+                dist = current_pos.distance_to(pocket_hit["position"])
+                if dist < hit_distance:
+                    hit_distance = dist
+                    hit_type = "pocket"
+                    hit_point = pocket_hit["position"]
+                    hit_data = pocket_hit
+
+            # Create segment
+            if hit_type == "none":
+                # No hit - trajectory continues to edge of table (shouldn't happen)
+                break
+
+            segment = {
+                "start": current_pos,
+                "end": hit_point,
+                "type": hit_type,
+            }
+
+            if hit_type == "cushion":
+                # Calculate reflected velocity using cassapa's formula (lines 612-614)
+                reflected_velocity = self._calculate_geometric_reflection(
+                    current_velocity, hit_data["cushion_side"]
                 )
-                if collision:
-                    collisions.append(collision)
+                segment["velocity"] = reflected_velocity
+                segment["cushion_normal"] = hit_data.get("normal")
+                segment["angle"] = math.atan2(current_velocity.y, current_velocity.x)
+                segments.append(segment)
 
-        # Check cushion collisions
-        cushion_collision = self._predict_cushion_collision(ball, table, max_time)
-        if cushion_collision:
-            collisions.append(cushion_collision)
+                # Continue with reflected velocity
+                current_pos = hit_point
+                current_velocity = reflected_velocity
 
-        # Check pocket collisions
-        pocket_collision = self._predict_pocket_collision(ball, table, max_time)
-        if pocket_collision:
-            collisions.append(pocket_collision)
+            elif hit_type == "ball":
+                # Ball collision - stop here
+                segment["hit_ball_id"] = hit_data.get("ball_id")
+                segment["angle"] = math.atan2(
+                    hit_point.y - current_pos.y, hit_point.x - current_pos.x
+                )
+                # Calculate resulting velocities for both balls
+                segment["resulting_velocities"] = hit_data.get(
+                    "resulting_velocities", {}
+                )
+                segments.append(segment)
+                break  # Stop trajectory at ball collision
 
-        # Return earliest collision
-        if collisions:
-            return min(collisions, key=lambda c: c.time)
+            elif hit_type == "pocket":
+                # Pocket - trajectory ends
+                segment["pocket_id"] = hit_data.get("pocket_id")
+                segments.append(segment)
+                break
 
-        return None
+        return segments
 
-    def _predict_ball_ball_collision(
-        self, ball1: BallState, ball2: BallState, max_time: float
-    ) -> Optional[PredictedCollision]:
-        """Predict collision between two balls."""
-        # Relative position and velocity
-        rel_pos = Vector2D(
-            ball2.position.x - ball1.position.x, ball2.position.y - ball1.position.y
-        )
-        rel_vel = Vector2D(
-            ball2.velocity.x - ball1.velocity.x, ball2.velocity.y - ball1.velocity.y
-        )
+    def _line_segment_intersection(
+        self,
+        ray_start: Vector2D,
+        ray_dir: Vector2D,
+        seg_start: Vector2D,
+        seg_end: Vector2D,
+    ) -> Optional[tuple[Vector2D, float]]:
+        """Find intersection between a ray and a line segment.
 
-        # Check if balls are approaching
-        if rel_pos.x * rel_vel.x + rel_pos.y * rel_vel.y >= 0:
-            return None  # Moving away from each other
+        Args:
+            ray_start: Starting point of the ray
+            ray_dir: Direction vector of the ray (should be normalized)
+            seg_start: Start point of the line segment
+            seg_end: End point of the line segment
 
-        # Quadratic equation for collision time
-        combined_radius = ball1.radius + ball2.radius
+        Returns:
+            Tuple of (intersection_point, distance_from_ray_start) or None if no intersection
+        """
+        # Line segment as vector
+        seg_vec = Vector2D(seg_end.x - seg_start.x, seg_end.y - seg_start.y)
 
-        a = rel_vel.x**2 + rel_vel.y**2
-        b = 2 * (rel_pos.x * rel_vel.x + rel_pos.y * rel_vel.y)
-        c = rel_pos.x**2 + rel_pos.y**2 - combined_radius**2
+        # Calculate denominator for intersection equations
+        denom = ray_dir.cross(seg_vec)
 
-        discriminant = b**2 - 4 * a * c
-
-        if discriminant < 0 or abs(a) < 1e-10:
-            return None  # No collision
-
-        t = (-b - math.sqrt(discriminant)) / (2 * a)
-
-        if t < 0 or t > max_time:
-            return None  # Collision in past or beyond time limit
-
-        # Calculate collision point
-        collision_pos = Vector2D(
-            ball1.position.x + ball1.velocity.x * t,
-            ball1.position.y + ball1.velocity.y * t,
-        )
-
-        # Calculate impact angle
-        impact_vector = Vector2D(
-            ball2.position.x + ball2.velocity.x * t - collision_pos.x,
-            ball2.position.y + ball2.velocity.y * t - collision_pos.y,
-        )
-        impact_angle = math.atan2(impact_vector.y, impact_vector.x)
-
-        # Calculate post-collision velocities
-        v1_new, v2_new = self._calculate_ball_collision_velocities(
-            ball1, ball2, impact_vector
-        )
-
-        return PredictedCollision(
-            time=t,
-            position=collision_pos,
-            type=CollisionType.BALL_BALL,
-            ball1_id=ball1.id,
-            ball2_id=ball2.id,
-            impact_angle=impact_angle,
-            impact_velocity=ball1.velocity.magnitude(),
-            resulting_velocities={ball1.id: v1_new, ball2.id: v2_new},
-            confidence=0.95,
-        )
-
-    def _predict_cushion_collision(
-        self, ball: BallState, table: TableState, max_time: float
-    ) -> Optional[PredictedCollision]:
-        """Predict collision with table cushions."""
-        # Check each cushion (left, right, top, bottom)
-        # Note: Table coordinates are from (0,0) to (width, height)
-        cushion_times = []
-
-        # Left cushion (x = 0)
-        if ball.velocity.x < 0:
-            t = (ball.radius - ball.position.x) / ball.velocity.x
-            if 0 < t <= max_time:
-                y = ball.position.y + ball.velocity.y * t
-                if 0 <= y <= table.height:
-                    cushion_times.append((t, "left", Vector2D(1, 0)))
-
-        # Right cushion (x = table.width)
-        if ball.velocity.x > 0:
-            t = (table.width - ball.radius - ball.position.x) / ball.velocity.x
-            if 0 < t <= max_time:
-                y = ball.position.y + ball.velocity.y * t
-                if 0 <= y <= table.height:
-                    cushion_times.append((t, "right", Vector2D(-1, 0)))
-
-        # Bottom cushion (y = 0)
-        if ball.velocity.y < 0:
-            t = (ball.radius - ball.position.y) / ball.velocity.y
-            if 0 < t <= max_time:
-                x = ball.position.x + ball.velocity.x * t
-                if 0 <= x <= table.width:
-                    cushion_times.append((t, "bottom", Vector2D(0, 1)))
-
-        # Top cushion (y = table.height)
-        if ball.velocity.y > 0:
-            t = (table.height - ball.radius - ball.position.y) / ball.velocity.y
-            if 0 < t <= max_time:
-                x = ball.position.x + ball.velocity.x * t
-                if 0 <= x <= table.width:
-                    cushion_times.append((t, "top", Vector2D(0, -1)))
-
-        if not cushion_times:
+        # If denominator is 0, lines are parallel
+        if abs(denom) < 1e-10:
             return None
 
-        # Get earliest collision
-        t, cushion, normal = min(cushion_times, key=lambda x: x[0])
+        # Vector from ray start to segment start
+        start_diff = Vector2D(seg_start.x - ray_start.x, seg_start.y - ray_start.y)
 
-        collision_pos = Vector2D(
-            ball.position.x + ball.velocity.x * t, ball.position.y + ball.velocity.y * t
-        )
+        # Calculate parameters
+        t = start_diff.cross(seg_vec) / denom  # Parameter along ray
+        u = start_diff.cross(ray_dir) / denom  # Parameter along segment
 
-        # Calculate reflected velocity
-        new_velocity = self._calculate_cushion_reflection(
-            ball.velocity, normal, table.cushion_elasticity
-        )
-
-        return PredictedCollision(
-            time=t,
-            position=collision_pos,
-            type=CollisionType.BALL_CUSHION,
-            ball1_id=ball.id,
-            ball2_id=None,
-            impact_angle=math.atan2(ball.velocity.y, ball.velocity.x),
-            impact_velocity=ball.velocity.magnitude(),
-            resulting_velocities={ball.id: new_velocity},
-            confidence=0.90,
-            cushion_normal=normal,
-        )
-
-    def _predict_pocket_collision(
-        self, ball: BallState, table: TableState, max_time: float
-    ) -> Optional[PredictedCollision]:
-        """Predict if ball will go into a pocket."""
-        for i, pocket_pos in enumerate(table.pocket_positions):
-            # Calculate if trajectory intersects pocket
-            # Simplified: check if ball center will be within pocket radius
-
-            # Time to reach pocket x-coordinate
-            if abs(ball.velocity.x) < 1e-10:
-                if abs(ball.position.x - pocket_pos.x) > ball.radius:
-                    continue
-                t_x = float("inf")
-            else:
-                t_x = (pocket_pos.x - ball.position.x) / ball.velocity.x
-
-            # Time to reach pocket y-coordinate
-            if abs(ball.velocity.y) < 1e-10:
-                if abs(ball.position.y - pocket_pos.y) > ball.radius:
-                    continue
-                t_y = float("inf")
-            else:
-                t_y = (pocket_pos.y - ball.position.y) / ball.velocity.y
-
-            # Check if times are approximately equal (ball passes through pocket center)
-            if 0 < t_x <= max_time and abs(t_x - t_y) < 0.01:
-                # Verify ball actually enters pocket
-                ball_pos_at_pocket = Vector2D(
-                    ball.position.x + ball.velocity.x * t_x,
-                    ball.position.y + ball.velocity.y * t_x,
-                )
-
-                distance_to_pocket = math.sqrt(
-                    (ball_pos_at_pocket.x - pocket_pos.x) ** 2
-                    + (ball_pos_at_pocket.y - pocket_pos.y) ** 2
-                )
-
-                if distance_to_pocket <= table.pocket_radius - ball.radius:
-                    return PredictedCollision(
-                        time=t_x,
-                        position=ball_pos_at_pocket,
-                        type=CollisionType.BALL_POCKET,
-                        ball1_id=ball.id,
-                        ball2_id=None,
-                        impact_angle=math.atan2(ball.velocity.y, ball.velocity.x),
-                        impact_velocity=ball.velocity.magnitude(),
-                        resulting_velocities={ball.id: Vector2D(0, 0)},
-                        confidence=0.85,
-                        pocket_id=i,
-                    )
+        # Check if intersection is valid (ray forward, within segment)
+        if t > 0.001 and 0 <= u <= 1:
+            intersection = Vector2D(
+                ray_start.x + t * ray_dir.x, ray_start.y + t * ray_dir.y
+            )
+            return (intersection, t)
 
         return None
 
-    def _calculate_ball_collision_velocities(
-        self, ball1: BallState, ball2: BallState, impact_normal: Vector2D
-    ) -> tuple[Vector2D, Vector2D]:
-        """Calculate post-collision velocities for two balls."""
-        # Normalize impact vector
-        normal = impact_normal.normalize()
-
-        # Relative velocity in collision normal direction
-        rel_vel = Vector2D(
-            ball1.velocity.x - ball2.velocity.x, ball1.velocity.y - ball2.velocity.y
-        )
-        vel_along_normal = rel_vel.x * normal.x + rel_vel.y * normal.y
-
-        # Do not resolve if velocities are separating
-        if vel_along_normal > 0:
-            return ball1.velocity, ball2.velocity
-
-        # Calculate restitution
-        restitution = self.BALL_BALL_RESTITUTION
-
-        # Calculate impulse scalar
-        impulse = 2 * vel_along_normal / (ball1.mass + ball2.mass)
-
-        # Calculate new velocities
-        impulse_vector = Vector2D(impulse * normal.x, impulse * normal.y)
-
-        v1_new = Vector2D(
-            ball1.velocity.x - impulse_vector.x * ball2.mass / ball1.mass * restitution,
-            ball1.velocity.y - impulse_vector.y * ball2.mass / ball1.mass * restitution,
-        )
-
-        v2_new = Vector2D(
-            ball2.velocity.x + impulse_vector.x * ball1.mass / ball2.mass * restitution,
-            ball2.velocity.y + impulse_vector.y * ball1.mass / ball2.mass * restitution,
-        )
-
-        return v1_new, v2_new
-
-    def _calculate_cushion_reflection(
-        self, velocity: Vector2D, normal: Vector2D, elasticity: float
-    ) -> Vector2D:
-        """Calculate velocity after cushion collision."""
-        # Reflect velocity across normal
-        dot_product = velocity.x * normal.x + velocity.y * normal.y
-
-        reflected_vel = Vector2D(
-            velocity.x - 2 * dot_product * normal.x,
-            velocity.y - 2 * dot_product * normal.y,
-        )
-
-        # Apply elasticity
-        return Vector2D(reflected_vel.x * elasticity, reflected_vel.y * elasticity)
-
-    def _process_collision(
+    def _find_cushion_intersection_polygon(
         self,
-        ball: BallState,
-        collision: PredictedCollision,
+        position: Vector2D,
+        direction: Vector2D,
         table: TableState,
+        ball_radius: float,
+    ) -> Optional[dict]:
+        """Find intersection with cushions defined by playing area polygon.
+
+        Args:
+            position: Current ball position
+            direction: Ball direction (normalized)
+            table: Table state with playing_area_corners
+            ball_radius: Radius of the ball
+
+        Returns:
+            Dict with intersection info or None
+        """
+        corners = table.playing_area_corners
+        if not corners or len(corners) != 4:
+            return None
+
+        # Define the 4 edges of the playing area
+        # Corners are: top-left, top-right, bottom-right, bottom-left
+        edges = [
+            (corners[0], corners[1], "top"),  # Top edge
+            (corners[1], corners[2], "right"),  # Right edge
+            (corners[2], corners[3], "bottom"),  # Bottom edge
+            (corners[3], corners[0], "left"),  # Left edge
+        ]
+
+        closest_intersection = None
+        min_distance = float("inf")
+
+        for seg_start, seg_end, cushion_name in edges:
+            # Calculate edge normal (pointing inward to table)
+            edge_vec = Vector2D(seg_end.x - seg_start.x, seg_end.y - seg_start.y)
+            edge_normal = Vector2D(-edge_vec.y, edge_vec.x).normalize()
+
+            # Offset the edge inward by ball_radius to account for ball size
+            offset_start = Vector2D(
+                seg_start.x + edge_normal.x * ball_radius,
+                seg_start.y + edge_normal.y * ball_radius,
+            )
+            offset_end = Vector2D(
+                seg_end.x + edge_normal.x * ball_radius,
+                seg_end.y + edge_normal.y * ball_radius,
+            )
+
+            # Find intersection with this edge
+            result = self._line_segment_intersection(
+                position, direction, offset_start, offset_end
+            )
+
+            if result:
+                intersection_point, distance = result
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_intersection = {
+                        "position": intersection_point,
+                        "distance": distance,
+                        "cushion_side": cushion_name,
+                        "normal": edge_normal,
+                    }
+
+        return closest_intersection
+
+    def _find_cushion_intersection(
+        self,
+        position: Vector2D,
+        direction: Vector2D,
+        table: TableState,
+        ball_radius: float,
+    ) -> Optional[dict]:
+        """Find intersection point with nearest cushion.
+
+        Based on cassapa pool.cpp CalculateBallTrajectory() lines 471-504.
+        Updated to support calibrated playing area corners.
+        """
+        # Use playing area corners if available
+        if table.playing_area_corners and len(table.playing_area_corners) == 4:
+            return self._find_cushion_intersection_polygon(
+                position, direction, table, ball_radius
+            )
+
+        # Fall back to rectangular bounds
+        # Check each cushion
+        candidates = []
+
+        # Right cushion (x = table.width)
+        if direction.x > 0:
+            t = (table.width - ball_radius - position.x) / direction.x
+            if t > 0:
+                y = position.y + direction.y * t
+                if 0 <= y <= table.height:
+                    candidates.append(
+                        {
+                            "position": Vector2D(table.width - ball_radius, y),
+                            "distance": t,
+                            "cushion_side": "right",
+                            "normal": Vector2D(-1, 0),
+                        }
+                    )
+
+        # Left cushion (x = 0)
+        if direction.x < 0:
+            t = (ball_radius - position.x) / direction.x
+            if t > 0:
+                y = position.y + direction.y * t
+                if 0 <= y <= table.height:
+                    candidates.append(
+                        {
+                            "position": Vector2D(ball_radius, y),
+                            "distance": t,
+                            "cushion_side": "left",
+                            "normal": Vector2D(1, 0),
+                        }
+                    )
+
+        # Top cushion (y = table.height)
+        if direction.y > 0:
+            t = (table.height - ball_radius - position.y) / direction.y
+            if t > 0:
+                x = position.x + direction.x * t
+                if 0 <= x <= table.width:
+                    candidates.append(
+                        {
+                            "position": Vector2D(x, table.height - ball_radius),
+                            "distance": t,
+                            "cushion_side": "top",
+                            "normal": Vector2D(0, -1),
+                        }
+                    )
+
+        # Bottom cushion (y = 0)
+        if direction.y < 0:
+            t = (ball_radius - position.y) / direction.y
+            if t > 0:
+                x = position.x + direction.x * t
+                if 0 <= x <= table.width:
+                    candidates.append(
+                        {
+                            "position": Vector2D(x, ball_radius),
+                            "distance": t,
+                            "cushion_side": "bottom",
+                            "normal": Vector2D(0, 1),
+                        }
+                    )
+
+        # Return nearest cushion
+        if candidates:
+            return min(candidates, key=lambda c: c["distance"])
+        return None
+
+    def _find_ball_intersection(
+        self,
+        position: Vector2D,
+        direction: Vector2D,
         other_balls: list[BallState],
-    ) -> None:
-        """Process collision and update ball state."""
-        if collision.type == CollisionType.BALL_BALL:
-            # Update both balls' velocities
-            ball.velocity = collision.resulting_velocities[ball.id]
+        ball_radius: float,
+    ) -> Optional[dict]:
+        """Find intersection with nearest ball along trajectory line.
 
-            # Find and update other ball
-            for other_ball in other_balls:
-                if other_ball.id == collision.ball2_id:
-                    other_ball.velocity = collision.resulting_velocities[other_ball.id]
-                    break
+        Based on cassapa pool.cpp CheckIfLineCrossesBall() lines 737-826.
+        """
+        closest_hit = None
+        min_distance = float("inf")
 
-        elif collision.type == CollisionType.BALL_CUSHION:
-            ball.velocity = collision.resulting_velocities[ball.id]
+        for other_ball in other_balls:
+            if other_ball.is_pocketed:
+                continue
 
-        elif collision.type == CollisionType.BALL_POCKET:
-            ball.velocity = Vector2D(0, 0)
-            ball.is_pocketed = True
+            # Line-circle intersection math from pool.cpp
+            # Line: position + t * direction
+            # Circle: center = other_ball.position, radius = 2 * ball_radius
 
-        # Update ball position to collision point
-        ball.position = collision.position
+            p = position
+            d = direction
+            c = other_ball.position
+            r = 2 * ball_radius  # Combined radius
+
+            # Quadratic formula: A*t^2 + B*t + C = 0
+            A = d.x**2 + d.y**2
+            B = 2 * (d.x * (p.x - c.x) + d.y * (p.y - c.y))
+            C = (p.x - c.x) ** 2 + (p.y - c.y) ** 2 - r**2
+
+            discriminant = B**2 - 4 * A * C
+
+            if discriminant >= 0:
+                # Line intersects circle
+                t1 = (-B - math.sqrt(discriminant)) / (2 * A)
+                t2 = (-B + math.sqrt(discriminant)) / (2 * A)
+
+                # Use the closer intersection point (t1 is closer)
+                t = t1 if t1 > 0.001 else t2  # Small epsilon to avoid self-intersection
+
+                if t > 0.001:
+                    hit_point = Vector2D(p.x + t * d.x, p.y + t * d.y)
+                    distance = position.distance_to(hit_point)
+
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_hit = {
+                            "position": hit_point,
+                            "ball_id": other_ball.id,
+                            "distance": distance,
+                            "resulting_velocities": {},  # Simplified - no velocity transfer
+                        }
+
+        return closest_hit
+
+    def _find_pocket_intersection(
+        self,
+        position: Vector2D,
+        direction: Vector2D,
+        table: TableState,
+        ball_radius: float,
+    ) -> Optional[dict]:
+        """Check if trajectory line intersects any pocket."""
+        closest_pocket = None
+        min_distance = float("inf")
+
+        for i, pocket_pos in enumerate(table.pocket_positions):
+            # Check if line passes through pocket radius
+            # Use line-circle intersection
+            p = position
+            d = direction
+            c = pocket_pos
+            r = table.pocket_radius
+
+            A = d.x**2 + d.y**2
+            B = 2 * (d.x * (p.x - c.x) + d.y * (p.y - c.y))
+            C = (p.x - c.x) ** 2 + (p.y - c.y) ** 2 - r**2
+
+            discriminant = B**2 - 4 * A * C
+
+            if discriminant >= 0:
+                t = (-B - math.sqrt(discriminant)) / (2 * A)
+                if t > 0.001:
+                    hit_point = Vector2D(p.x + t * d.x, p.y + t * d.y)
+                    distance = position.distance_to(hit_point)
+
+                    if distance < min_distance:
+                        min_distance = distance
+                        closest_pocket = {
+                            "position": hit_point,
+                            "pocket_id": i,
+                            "distance": distance,
+                        }
+
+        return closest_pocket
+
+    def _calculate_geometric_reflection(
+        self, velocity: Vector2D, cushion_side: str
+    ) -> Vector2D:
+        """Calculate reflected velocity using geometric angle reflection.
+
+        Based on cassapa pool.cpp lines 612-614:
+        angle = atan(line_slope)
+        delta_angle = pi - 2 * angle
+        new_angle = angle + delta_angle
+        new_slope = tan(new_angle)
+        """
+        # Get current angle
+        angle = math.atan2(velocity.y, velocity.x)
+
+        # Calculate reflection based on cushion
+        if cushion_side in ["top", "bottom"]:
+            # Reflect across horizontal (negate y component)
+            new_angle = -angle
+        else:  # left or right
+            # Reflect across vertical (negate x component)
+            new_angle = math.pi - angle
+
+        # Calculate new velocity with same magnitude
+        speed = velocity.magnitude()
+        # Apply slight energy loss (elasticity)
+        speed *= 0.95
+
+        return Vector2D(speed * math.cos(new_angle), speed * math.sin(new_angle))
 
     def _calculate_total_distance(self, points: list[TrajectoryPoint]) -> float:
         """Calculate total distance traveled along trajectory."""
@@ -935,6 +953,169 @@ class TrajectoryCalculator:
                 for branch in trajectory.branches
             ],
         }
+
+    def predict_multiball_cue_shot(
+        self,
+        cue_state: CueState,
+        ball_state: BallState,
+        table_state: TableState,
+        other_balls: list[BallState] = None,
+        quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
+        max_collision_depth: int = 5,
+    ) -> MultiballTrajectoryResult:
+        """Predict trajectory for cue shot including all subsequent ball movements.
+
+        Uses geometric approach to calculate:
+        1. Cue ball trajectory until it hits a target ball (or stops)
+        2. Target ball trajectory after being hit (from impact point)
+        3. Any subsequent collisions recursively up to max_collision_depth
+
+        Based on cassapa pool.cpp FindBallHitByThisBall() (line 687) for recursive ball tracking.
+
+        Args:
+            cue_state: Cue stick state
+            ball_state: Cue ball state
+            table_state: Table state
+            other_balls: Other balls on table
+            quality: Trajectory quality
+            max_collision_depth: Maximum collision chain depth to calculate
+
+        Returns:
+            MultiballTrajectoryResult with trajectories for all affected balls
+        """
+        start_time = time.time()
+        other_balls = other_balls or []
+
+        # Debug logging
+        import logging
+
+        logging.info(
+            f"predict_multiball_cue_shot: cue_ball={ball_state.id}, other_balls={len(other_balls)}"
+        )
+        for ball in other_balls:
+            logging.info(
+                f"  Other ball: {ball.id} at ({ball.position.x:.1f}, {ball.position.y:.1f})"
+            )
+
+        # Create result container
+        result = MultiballTrajectoryResult(
+            primary_ball_id=ball_state.id,
+            trajectories={},
+            collision_sequence=[],
+        )
+
+        # Calculate initial cue ball trajectory
+        cue_trajectory = self.predict_cue_shot(
+            cue_state, ball_state, table_state, other_balls, quality
+        )
+
+        # Debug: log cue trajectory results
+        logging.info(
+            f"Cue trajectory has {len(cue_trajectory.points)} points, {len(cue_trajectory.collisions)} collisions"
+        )
+        for collision in cue_trajectory.collisions:
+            logging.info(
+                f"  Collision type: {collision.type}, ball1={collision.ball1_id}, ball2={collision.ball2_id}"
+            )
+
+        # Store cue ball trajectory
+        result.trajectories[ball_state.id] = cue_trajectory
+        result.collision_sequence.extend(cue_trajectory.collisions)
+
+        # Process ball-ball collisions to generate secondary trajectories
+        processed_ball_ids = {ball_state.id}
+        balls_to_process = [(cue_trajectory, 0)]  # (trajectory, depth)
+
+        while balls_to_process:
+            current_traj, depth = balls_to_process.pop(0)
+
+            if depth >= max_collision_depth:
+                continue
+
+            # Find ball-ball collisions in this trajectory
+            for collision in current_traj.collisions:
+                if collision.type != CollisionType.BALL_BALL:
+                    continue
+
+                # Debug: log collision found
+                import logging
+
+                logging.info(
+                    f"Found ball-ball collision: {current_traj.ball_id} -> {collision.ball2_id}"
+                )
+
+                # Get the ball that was hit
+                hit_ball_id = collision.ball2_id
+                if hit_ball_id == current_traj.ball_id:
+                    hit_ball_id = collision.ball1_id
+
+                # Skip if we've already processed this ball
+                if hit_ball_id in processed_ball_ids:
+                    logging.info(f"Already processed ball {hit_ball_id}, skipping")
+                    continue
+
+                # Find the ball state for the hit ball
+                hit_ball_state = None
+                for ball in other_balls:
+                    if ball.id == hit_ball_id:
+                        hit_ball_state = self._copy_ball_state(ball)
+                        break
+
+                if not hit_ball_state:
+                    logging.warning(
+                        f"Could not find ball state for {hit_ball_id} in other_balls!"
+                    )
+                    continue
+
+                logging.info(
+                    f"Calculating trajectory for {hit_ball_id} from collision point"
+                )
+
+                # Calculate trajectory from collision point
+                # The hit ball starts moving from the collision position
+                # with a velocity determined by the collision geometry
+                hit_ball_state.position = collision.position
+
+                # Use the cue ball's velocity direction at impact
+                # The hit ball moves in the direction the cue ball was traveling
+                impact_direction = current_traj.initial_state.velocity.normalize()
+                # Transfer velocity based on impact (simplified)
+                impact_speed = current_traj.initial_state.velocity.magnitude() * 0.7
+                hit_ball_state.velocity = impact_direction * impact_speed
+
+                # Calculate trajectory for this ball from impact point
+                remaining_balls = [
+                    b
+                    for b in other_balls
+                    if b.id != hit_ball_id and b.id not in processed_ball_ids
+                ]
+
+                hit_ball_trajectory = self.calculate_trajectory(
+                    hit_ball_state,
+                    table_state,
+                    remaining_balls,
+                    quality,
+                )
+
+                # Mark that this trajectory was triggered by a collision
+                hit_ball_trajectory.triggered_by_ball = current_traj.ball_id
+
+                # Store the trajectory
+                result.trajectories[hit_ball_id] = hit_ball_trajectory
+                result.collision_sequence.extend(hit_ball_trajectory.collisions)
+                logging.info(
+                    f"Stored trajectory for {hit_ball_id}: {len(hit_ball_trajectory.points)} points"
+                )
+
+                # Add to processing queue for further collisions
+                balls_to_process.append((hit_ball_trajectory, depth + 1))
+                processed_ball_ids.add(hit_ball_id)
+
+        result.total_calculation_time = time.time() - start_time
+        logging.info(
+            f"Final result has {len(result.trajectories)} trajectories: {list(result.trajectories.keys())}"
+        )
+        return result
 
     def clear_cache(self) -> None:
         """Clear trajectory calculation cache."""
