@@ -867,8 +867,14 @@ class YOLODetector:
             if angle_deg < 0:
                 angle_deg += 360
 
+            # Store the line center in the cue_detection object for positioning
+            # Convert from cue_region coordinates to full frame coordinates
+            line_center_x = (x1_l + x2_l) / 2 + x1  # x1 is the region offset
+            line_center_y = (y1_l + y2_l) / 2 + y1  # y1 is the region offset
+            cue_detection.line_center = (line_center_x, line_center_y)
+
             logger.debug(
-                f"Estimated cue angle: {angle_deg:.1f}° (line: {longest_line}, length: {max_length:.1f})"
+                f"Estimated cue angle: {angle_deg:.1f}° (line: {longest_line}, length: {max_length:.1f}, center: ({line_center_x:.1f}, {line_center_y:.1f}))"
             )
 
             return angle_deg
