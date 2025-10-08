@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from ..game_state import BallState, CueState, TableState, Vector2D
+from ..models import BallState, CueState, TableState, Vector2D
 from ..utils.cache import CacheManager
 from ..utils.geometry import GeometryUtils
 from ..utils.math import MathUtils

@@ -88,14 +88,16 @@ class CueDetector:
     - False positive filtering
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], yolo_detector=None) -> None:
         """Initialize cue detector with configuration.
 
         Args:
             config: Configuration dictionary with detection parameters
+            yolo_detector: Optional YOLODetector instance for YOLO-based cue detection
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.yolo_detector = yolo_detector
 
         # Detection parameters
         self.min_cue_length = config.get("min_cue_length", 150)
@@ -168,6 +170,8 @@ class CueDetector:
     ) -> Optional[CueStick]:
         """Detect cue stick in frame using multiple algorithms.
 
+        Tries YOLO detection first (if available), then falls back to line-based detection.
+
         Args:
             frame: Input image frame
             cue_ball_pos: Optional cue ball position for improved detection
@@ -181,6 +185,13 @@ class CueDetector:
             return None
 
         try:
+            # Try YOLO detection first if available
+            if self.yolo_detector is not None and cue_ball_pos is not None:
+                yolo_cue = self._detect_cue_with_yolo(frame, cue_ball_pos)
+                if yolo_cue is not None:
+                    return yolo_cue
+
+            # Fallback to traditional line-based detection
             # Check if frame has sufficient content
             if np.sum(frame) < 1000:  # Very dark/empty frame
                 return None
@@ -246,6 +257,81 @@ class CueDetector:
         self.background_frame = frame.copy()
         self.use_background_subtraction = True
         self.logger.info("Background frame set for cue detection")
+
+    def _detect_cue_with_yolo(
+        self,
+        frame: NDArray[np.uint8],
+        cue_ball_pos: tuple[float, float],
+    ) -> Optional[CueStick]:
+        """Detect cue using YOLO and convert bounding box to CueStick object.
+
+        Args:
+            frame: Input image frame
+            cue_ball_pos: Cue ball position for orientation
+
+        Returns:
+            CueStick object or None if not detected
+        """
+        try:
+            # Get YOLO cue detection
+            yolo_detection = self.yolo_detector.detect_cue(frame)
+            if yolo_detection is None:
+                return None
+
+            # Convert YOLO bounding box to CueStick
+            # Extract bounding box coordinates
+            x1, y1, x2, y2 = yolo_detection.bbox
+            center_x, center_y = yolo_detection.center
+            width, height = yolo_detection.width, yolo_detection.height
+
+            # Use YOLO's calculated angle (from Hough line detection)
+            angle = yolo_detection.angle
+
+            # Calculate cue length from bounding box diagonal
+            length = max(width, height)
+
+            # Calculate angle in radians
+            angle_rad = np.radians(angle)
+
+            # Calculate two endpoints of the cue based on angle and bbox center
+            # Endpoint 1: center + (length/2) in angle direction
+            end1_x = center_x + (length / 2) * np.cos(angle_rad)
+            end1_y = center_y + (length / 2) * np.sin(angle_rad)
+
+            # Endpoint 2: center - (length/2) in angle direction
+            end2_x = center_x - (length / 2) * np.cos(angle_rad)
+            end2_y = center_y - (length / 2) * np.sin(angle_rad)
+
+            # Determine which end is closer to cue ball (that's the tip)
+            dist1 = np.sqrt(
+                (end1_x - cue_ball_pos[0]) ** 2 + (end1_y - cue_ball_pos[1]) ** 2
+            )
+            dist2 = np.sqrt(
+                (end2_x - cue_ball_pos[0]) ** 2 + (end2_y - cue_ball_pos[1]) ** 2
+            )
+
+            if dist1 < dist2:
+                tip_x, tip_y = end1_x, end1_y
+            else:
+                tip_x, tip_y = end2_x, end2_y
+
+            # Create CueStick object
+            cue_stick = CueStick(
+                tip_position=(tip_x, tip_y),
+                angle=angle,
+                length=length,
+                confidence=yolo_detection.confidence,
+                state=CueState.AIMING,  # Default to aiming (motion detection requires temporal info)
+                is_aiming=True,
+                tip_velocity=(0.0, 0.0),  # Would need temporal info for velocity
+                angular_velocity=0.0,
+            )
+
+            return cue_stick
+
+        except Exception as e:
+            self.logger.debug(f"YOLO cue detection failed: {e}")
+            return None
 
     def _preprocess_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Preprocess frame for line detection.
