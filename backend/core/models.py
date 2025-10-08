@@ -257,6 +257,9 @@ class TableState:
     cushion_height: float = (
         0.064  # Height of cushions in meters (converted from rail_height)
     )
+    playing_area_corners: Optional[list[Vector2D]] = (
+        None  # Calibrated playing area corners (top-left, top-right, bottom-right, bottom-left)
+    )
 
     def __post_init__(self) -> None:
         """Validate table state after initialization and handle legacy fields."""
@@ -295,11 +298,57 @@ class TableState:
 
     def is_point_on_table(self, point: Vector2D, ball_radius: float = 0.0) -> bool:
         """Check if a point (with optional ball radius) is within table bounds."""
+        # Use playing area if available, otherwise fall back to rectangle bounds
+        if self.playing_area_corners and len(self.playing_area_corners) == 4:
+            return self.is_point_in_playing_area(point, ball_radius)
+
         margin = ball_radius
         return (
             margin <= point.x <= self.width - margin
             and margin <= point.y <= self.height - margin
         )
+
+    def is_point_in_playing_area(self, point: Vector2D, margin: float = 0.0) -> bool:
+        """Check if a point is within the calibrated playing area using polygon containment.
+
+        Uses ray casting algorithm to determine if point is inside the playing area polygon.
+        """
+        if not self.playing_area_corners or len(self.playing_area_corners) != 4:
+            # Fall back to rectangle check
+            return (
+                margin <= point.x <= self.width - margin
+                and margin <= point.y <= self.height - margin
+            )
+
+        # Apply margin by shrinking the polygon slightly
+        corners = self.playing_area_corners
+        if margin > 0:
+            # Calculate centroid
+            cx = sum(c.x for c in corners) / 4
+            cy = sum(c.y for c in corners) / 4
+            # Shrink each corner towards centroid
+            corners = [
+                Vector2D(
+                    c.x + (cx - c.x) * (margin / c.distance_to(Vector2D(cx, cy))),
+                    c.y + (cy - c.y) * (margin / c.distance_to(Vector2D(cx, cy))),
+                )
+                for c in corners
+            ]
+
+        # Ray casting algorithm
+        inside = False
+        j = len(corners) - 1
+        for i in range(len(corners)):
+            if ((corners[i].y > point.y) != (corners[j].y > point.y)) and (
+                point.x
+                < (corners[j].x - corners[i].x)
+                * (point.y - corners[i].y)
+                / (corners[j].y - corners[i].y)
+                + corners[i].x
+            ):
+                inside = not inside
+            j = i
+        return inside
 
     def get_closest_cushion(self, point: Vector2D) -> tuple[str, float, Vector2D]:
         """Get the closest cushion to a point.
@@ -340,11 +389,17 @@ class TableState:
             "surface_friction": self.surface_friction,
             "surface_slope": self.surface_slope,
             "cushion_height": self.cushion_height,
+            "playing_area_corners": (
+                [p.to_dict() for p in self.playing_area_corners]
+                if self.playing_area_corners
+                else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TableState":
         """Create from dictionary."""
+        playing_area = data.get("playing_area_corners")
         return cls(
             width=data["width"],
             height=data["height"],
@@ -354,6 +409,9 @@ class TableState:
             surface_friction=data.get("surface_friction", 0.2),
             surface_slope=data.get("surface_slope", 0.0),
             cushion_height=data.get("cushion_height", 0.064),
+            playing_area_corners=(
+                [Vector2D.from_dict(p) for p in playing_area] if playing_area else None
+            ),
         )
 
     @classmethod
