@@ -14,6 +14,8 @@ from typing import Any, Optional, Union
 
 import numpy as np
 
+from backend.config import config_manager
+
 from ..udp.broadcaster import udp_broadcaster
 from .handler import websocket_handler
 from .manager import StreamType, websocket_manager
@@ -55,12 +57,19 @@ class BroadcastStats:
 class FrameBuffer:
     """Circular buffer for frame data with automatic cleanup."""
 
-    def __init__(self, max_size: int = 100):
+    def __init__(
+        self,
+        max_size: int = None,
+    ):
         """Initialize frame buffer with maximum size.
 
         Args:
             max_size: Maximum number of frames to store in buffer.
         """
+        if max_size is None:
+            max_size = config_manager.get(
+                "api.websocket.broadcaster.frame_buffer.max_size", 100
+            )
         self.max_size = max_size
         self.frames = deque(maxlen=max_size)
         self.frame_times = deque(maxlen=max_size)
@@ -86,8 +95,12 @@ class FrameBuffer:
 
         return (len(self.frame_times) - 1) / time_span
 
-    def cleanup_old_frames(self, max_age_seconds: float = 5.0):
+    def cleanup_old_frames(self, max_age_seconds: float = None):
         """Remove frames older than specified age."""
+        if max_age_seconds is None:
+            max_age_seconds = config_manager.get(
+                "api.websocket.broadcaster.frame_buffer.max_age_seconds", 5.0
+            )
         current_time = time.time()
         while (
             self.frame_times and (current_time - self.frame_times[0]) > max_age_seconds
@@ -103,8 +116,19 @@ class MessageBroadcaster:
         """Initialize message broadcaster with frame buffering and performance tracking."""
         self.frame_buffer = FrameBuffer()
         self.broadcast_stats = BroadcastStats()
-        self.compression_threshold = 1024  # bytes
-        self.frame_queue = asyncio.Queue(maxsize=10)
+        self.compression_threshold = config_manager.get(
+            "api.websocket.broadcaster.compression.threshold_bytes", 1024
+        )
+        self.compression_level = config_manager.get(
+            "api.websocket.broadcaster.compression.level", 6
+        )
+        self.compression_ratio_threshold = config_manager.get(
+            "api.websocket.broadcaster.compression.ratio_threshold", 0.9
+        )
+        frame_queue_size = config_manager.get(
+            "api.websocket.broadcaster.frame_queue.max_size", 10
+        )
+        self.frame_queue = asyncio.Queue(maxsize=frame_queue_size)
         self.broadcast_tasks: dict[str, asyncio.Task] = {}
         self.fps_limiter = defaultdict(lambda: 0.0)  # client_id -> last_frame_time
         self.sequence_counters = defaultdict(int)  # stream_type -> sequence_number
@@ -169,10 +193,13 @@ class MessageBroadcaster:
             compressed = False
             if len(image_bytes) > self.compression_threshold:
                 try:
-                    compressed_data = zlib.compress(image_bytes, level=6)
+                    compressed_data = zlib.compress(
+                        image_bytes, level=self.compression_level
+                    )
                     if (
-                        len(compressed_data) < len(image_bytes) * 0.9
-                    ):  # Only use if >10% reduction
+                        len(compressed_data)
+                        < len(image_bytes) * self.compression_ratio_threshold
+                    ):
                         image_bytes = compressed_data
                         compressed = True
                         self.broadcast_stats.frame_metrics.compression_ratio = len(
@@ -417,7 +444,9 @@ class MessageBroadcaster:
                     session = websocket_manager.sessions[client_id]
 
                     # Check FPS limiting
-                    target_fps = 30.0  # Default FPS
+                    target_fps = config_manager.get(
+                        "api.websocket.broadcaster.fps.default_target_fps", 30.0
+                    )
                     if StreamType.FRAME in session.subscription_filters:
                         filter_config = session.subscription_filters[StreamType.FRAME]
                         if filter_config.max_fps:
@@ -454,9 +483,16 @@ class MessageBroadcaster:
 
     async def _cleanup_task(self):
         """Periodic cleanup of old data."""
+        cleanup_interval = config_manager.get(
+            "api.websocket.broadcaster.cleanup.interval_seconds", 30
+        )
+        fps_limiter_cleanup_age = config_manager.get(
+            "api.websocket.broadcaster.fps.limiter_cleanup_age_seconds", 300
+        )
+
         while self.is_streaming:
             try:
-                await asyncio.sleep(30)  # Cleanup every 30 seconds
+                await asyncio.sleep(cleanup_interval)
 
                 # Clean up old frames
                 self.frame_buffer.cleanup_old_frames()
@@ -466,7 +502,7 @@ class MessageBroadcaster:
                 old_clients = [
                     client_id
                     for client_id, last_time in self.fps_limiter.items()
-                    if current_time - last_time > 300  # 5 minutes
+                    if current_time - last_time > fps_limiter_cleanup_age
                 ]
                 for client_id in old_clients:
                     del self.fps_limiter[client_id]
@@ -483,15 +519,18 @@ class MessageBroadcaster:
         self.sequence_counters[stream_type] += 1
         return self.sequence_counters[stream_type]
 
-    def _compress_data(self, data: bytes, level: int = 6) -> tuple[bytes, bool]:
+    def _compress_data(self, data: bytes, level: int = None) -> tuple[bytes, bool]:
         """Compress data if beneficial."""
         if len(data) < self.compression_threshold:
             return data, False
 
+        if level is None:
+            level = self.compression_level
+
         try:
             compressed = zlib.compress(data, level=level)
-            # Only use compression if it reduces size by at least 10%
-            if len(compressed) < len(data) * 0.9:
+            # Only use compression if it reduces size by configured threshold
+            if len(compressed) < len(data) * self.compression_ratio_threshold:
                 return compressed, True
         except Exception as e:
             logger.warning(f"Compression failed: {e}")

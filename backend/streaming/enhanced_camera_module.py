@@ -14,6 +14,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
+from ..config.manager import ConfigurationModule
 from ..vision.calibration.camera import CameraCalibrator
 
 logger = logging.getLogger(__name__)
@@ -21,31 +22,117 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EnhancedCameraConfig:
-    """Configuration for enhanced camera module."""
+    """Configuration for enhanced camera module.
+
+    This class holds runtime configuration that can be loaded from the
+    ConfigurationModule. All defaults are now sourced from the config system.
+    """
 
     # Camera settings
-    device_id: int = 1
-    resolution: Optional[tuple[int, int]] = None  # Auto-detect if None
-    fps: int = 30
+    device_id: int
+    resolution: Optional[tuple[int, int]]  # Auto-detect if None
+    fps: int
 
     # Fisheye correction
-    enable_fisheye_correction: bool = False
-    calibration_file: Optional[str] = "calibration/camera_fisheye.yaml"
+    enable_fisheye_correction: bool
+    calibration_file: Optional[str]
+    fisheye_alpha: float
 
     # Table cropping
-    enable_table_crop: bool = False
+    enable_table_crop: bool
+    table_crop_hsv_lower: tuple[int, int, int]
+    table_crop_hsv_upper: tuple[int, int, int]
+    table_crop_morphology_kernel_size: int
+    table_crop_padding_ratio: float
 
     # Preprocessing
-    enable_preprocessing: bool = True
-    brightness: float = 0.0  # -100 to 100
-    contrast: float = 1.0  # 0.5 to 3.0
-    enable_clahe: bool = True
-    clahe_clip_limit: float = 2.0
-    clahe_grid_size: int = 8
+    enable_preprocessing: bool
+    brightness: float  # -100 to 100
+    contrast: float  # 0.5 to 3.0
+    enable_clahe: bool
+    clahe_clip_limit: float
+    clahe_grid_size: int
+
+    # Encoding
+    default_jpeg_quality: int
 
     # Performance
-    enable_gpu: bool = False
-    buffer_size: int = 1
+    enable_gpu: bool
+    buffer_size: int
+    startup_timeout_seconds: float
+    thread_join_timeout_seconds: float
+
+    @classmethod
+    def from_config(cls, config: ConfigurationModule) -> "EnhancedCameraConfig":
+        """Create configuration from ConfigurationModule.
+
+        Args:
+            config: Configuration module instance
+
+        Returns:
+            EnhancedCameraConfig instance with values from config
+        """
+        # Get streaming config section
+        streaming = config.get("streaming", {})
+
+        # Camera settings
+        camera = streaming.get("camera", {})
+        resolution = camera.get("resolution")
+        if (
+            resolution is not None
+            and isinstance(resolution, list)
+            and len(resolution) == 2
+        ):
+            resolution = tuple(resolution)
+
+        # Fisheye settings
+        fisheye = streaming.get("fisheye", {})
+
+        # Table crop settings
+        table_crop = streaming.get("table_crop", {})
+        hsv_lower = table_crop.get("hsv_lower", [35, 40, 40])
+        hsv_upper = table_crop.get("hsv_upper", [85, 255, 255])
+
+        # Preprocessing settings
+        preprocessing = streaming.get("preprocessing", {})
+        clahe = preprocessing.get("clahe", {})
+
+        # Encoding settings
+        encoding = streaming.get("encoding", {})
+
+        # Performance settings
+        performance = streaming.get("performance", {})
+
+        return cls(
+            device_id=camera.get("device_id", 1),
+            resolution=resolution,
+            fps=camera.get("fps", 30),
+            enable_fisheye_correction=fisheye.get("enable_correction", False),
+            calibration_file=fisheye.get(
+                "calibration_file", "calibration/camera_fisheye.yaml"
+            ),
+            fisheye_alpha=fisheye.get("alpha", 1.0),
+            enable_table_crop=table_crop.get("enable", False),
+            table_crop_hsv_lower=tuple(hsv_lower),
+            table_crop_hsv_upper=tuple(hsv_upper),
+            table_crop_morphology_kernel_size=table_crop.get(
+                "morphology_kernel_size", 5
+            ),
+            table_crop_padding_ratio=table_crop.get("padding_ratio", 0.05),
+            enable_preprocessing=preprocessing.get("enable", True),
+            brightness=preprocessing.get("brightness", 0.0),
+            contrast=preprocessing.get("contrast", 1.0),
+            enable_clahe=clahe.get("enable", True),
+            clahe_clip_limit=clahe.get("clip_limit", 2.0),
+            clahe_grid_size=clahe.get("grid_size", 8),
+            default_jpeg_quality=encoding.get("default_jpeg_quality", 80),
+            enable_gpu=performance.get("enable_gpu", False),
+            buffer_size=camera.get("buffer_size", 1),
+            startup_timeout_seconds=performance.get("startup_timeout_seconds", 5.0),
+            thread_join_timeout_seconds=performance.get(
+                "thread_join_timeout_seconds", 2.0
+            ),
+        )
 
 
 class EnhancedCameraModule:
@@ -203,7 +290,7 @@ class EnhancedCameraModule:
                     camera_matrix,
                     dist_coeffs,
                     (w, h),
-                    1,  # alpha=1 keeps all pixels
+                    self.config.fisheye_alpha,  # Alpha from config (1.0 keeps all pixels)
                     (w, h),
                 )
 
@@ -245,8 +332,9 @@ class EnhancedCameraModule:
         self._capture_thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._capture_thread.start()
 
-        # Wait for first frame
-        for _ in range(50):  # 5 second timeout
+        # Wait for first frame (timeout from config)
+        timeout_iterations = int(self.config.startup_timeout_seconds * 10)
+        for _ in range(timeout_iterations):
             if self._current_frame is not None:
                 return True
             time.sleep(0.1)
@@ -257,7 +345,7 @@ class EnhancedCameraModule:
         """Stop camera capture."""
         self.running = False
         if self._capture_thread:
-            self._capture_thread.join(timeout=2.0)
+            self._capture_thread.join(timeout=self.config.thread_join_timeout_seconds)
         if self.capture:
             self.capture.release()
 
@@ -360,7 +448,7 @@ class EnhancedCameraModule:
     def _crop_to_table(self, frame: np.ndarray) -> np.ndarray:
         """Crop frame to table boundaries using felt detection.
 
-        Detects the green felt surface and crops to its bounding box.
+        Detects the felt surface and crops to its bounding box.
         Caches the crop region for performance.
         """
         # Use cached crop region if available
@@ -370,14 +458,15 @@ class EnhancedCameraModule:
 
         # Detect table region (only once)
         try:
-            # Convert to HSV and detect green felt
+            # Convert to HSV and detect felt using configured color ranges
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            lower_green = np.array([35, 40, 40])
-            upper_green = np.array([85, 255, 255])
-            mask = cv2.inRange(hsv, lower_green, upper_green)
+            lower_hsv = np.array(self.config.table_crop_hsv_lower)
+            upper_hsv = np.array(self.config.table_crop_hsv_upper)
+            mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
 
-            # Clean up mask
-            kernel = np.ones((5, 5), np.uint8)
+            # Clean up mask using configured kernel size
+            kernel_size = self.config.table_crop_morphology_kernel_size
+            kernel = np.ones((kernel_size, kernel_size), np.uint8)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
@@ -390,9 +479,9 @@ class EnhancedCameraModule:
                 largest_contour = max(contours, key=cv2.contourArea)
                 x, y, w, h = cv2.boundingRect(largest_contour)
 
-                # Add small padding (5% on each side)
-                padding_x = int(w * 0.05)
-                padding_y = int(h * 0.05)
+                # Add padding from config
+                padding_x = int(w * self.config.table_crop_padding_ratio)
+                padding_y = int(h * self.config.table_crop_padding_ratio)
 
                 x = max(0, x - padding_x)
                 y = max(0, y - padding_y)
@@ -427,14 +516,14 @@ class EnhancedCameraModule:
 
     def get_frame_for_streaming(
         self,
-        quality: int = 80,
+        quality: Optional[int] = None,
         max_width: Optional[int] = None,
         max_height: Optional[int] = None,
     ) -> Optional[bytes]:
         """Get JPEG-encoded frame for streaming.
 
         Args:
-            quality: JPEG quality (1-100)
+            quality: JPEG quality (1-100), defaults to config value
             max_width: Maximum width for resizing
             max_height: Maximum height for resizing
 
@@ -445,6 +534,10 @@ class EnhancedCameraModule:
 
         if frame is None:
             return None
+
+        # Use config default if quality not specified
+        if quality is None:
+            quality = self.config.default_jpeg_quality
 
         # Resize if requested
         if max_width or max_height:
@@ -538,19 +631,12 @@ class EnhancedCameraModule:
 
 # Example usage for single-application architecture
 if __name__ == "__main__":
-    config = EnhancedCameraConfig(
-        device_id=0,
-        resolution=(1920, 1080),
-        fps=30,
-        enable_fisheye_correction=True,
-        calibration_file="calibration/camera.yaml",
-        enable_preprocessing=True,
-        brightness=10,
-        contrast=1.2,
-        enable_clahe=True,
-    )
+    # Example 1: Load from configuration system
+    from ..config.manager import ConfigurationModule
 
-    camera = EnhancedCameraModule(config)
+    config_module = ConfigurationModule()
+    camera_config = EnhancedCameraConfig.from_config(config_module)
+    camera = EnhancedCameraModule(camera_config)
 
     if camera.start_capture():
         print("Camera started successfully")
@@ -558,9 +644,38 @@ if __name__ == "__main__":
         # For vision processing - get processed frames
         vision_frame = camera.get_frame(processed=True)
 
-        # For web streaming - get JPEG bytes
-        stream_data = camera.get_frame_for_streaming(quality=80, max_width=1280)
+        # For web streaming - get JPEG bytes (uses default quality from config)
+        stream_data = camera.get_frame_for_streaming(max_width=1280)
 
         print(f"Statistics: {camera.get_statistics()}")
 
     camera.stop_capture()
+
+    # Example 2: Manual configuration (for testing/debugging)
+    manual_config = EnhancedCameraConfig(
+        device_id=0,
+        resolution=(1920, 1080),
+        fps=30,
+        enable_fisheye_correction=True,
+        calibration_file="calibration/camera.yaml",
+        fisheye_alpha=1.0,
+        enable_table_crop=False,
+        table_crop_hsv_lower=(35, 40, 40),
+        table_crop_hsv_upper=(85, 255, 255),
+        table_crop_morphology_kernel_size=5,
+        table_crop_padding_ratio=0.05,
+        enable_preprocessing=True,
+        brightness=10.0,
+        contrast=1.2,
+        enable_clahe=True,
+        clahe_clip_limit=2.0,
+        clahe_grid_size=8,
+        default_jpeg_quality=80,
+        enable_gpu=False,
+        buffer_size=1,
+        startup_timeout_seconds=5.0,
+        thread_join_timeout_seconds=2.0,
+    )
+
+    manual_camera = EnhancedCameraModule(manual_config)
+    # ... use manual_camera ...

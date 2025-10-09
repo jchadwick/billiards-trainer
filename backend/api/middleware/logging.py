@@ -57,6 +57,12 @@ class LoggingConfig(BaseModel):
     slow_request_threshold: float = Field(
         default=1.0, description="Threshold in seconds to mark requests as slow"
     )
+    max_metrics_storage: int = Field(
+        default=1000, description="Maximum number of metrics to store in memory"
+    )
+    recent_metrics_window: int = Field(
+        default=100, description="Number of recent requests to include in summary"
+    )
 
 
 class RequestMetrics(BaseModel):
@@ -216,8 +222,8 @@ class RequestLogger:
 
         # Store metrics for monitoring
         self.metrics_storage.append(metrics)
-        # Keep only last 1000 metrics to prevent memory issues
-        if len(self.metrics_storage) > 1000:
+        # Keep only last N metrics to prevent memory issues
+        if len(self.metrics_storage) > self.config.max_metrics_storage:
             self.metrics_storage.pop(0)
 
         # Log slow requests
@@ -236,7 +242,8 @@ class RequestLogger:
         if not self.metrics_storage:
             return {"message": "No metrics available"}
 
-        recent_metrics = self.metrics_storage[-100:]  # Last 100 requests
+        # Last N requests based on configuration
+        recent_metrics = self.metrics_storage[-self.config.recent_metrics_window :]
 
         total_requests = len(recent_metrics)
         successful_requests = len(

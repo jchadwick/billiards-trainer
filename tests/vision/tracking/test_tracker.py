@@ -10,12 +10,39 @@ from backend.vision.models import Ball, BallType
 class TestTrack:
     """Test cases for Track class"""
 
+    def setup_method(self):
+        """Set up test configuration"""
+        self.track_config = {
+            'history': {
+                'confidence_maxlen': 10,
+                'position_maxlen': 50,
+                'radius_maxlen': 10
+            },
+            'thresholds': {
+                'default_ball_radius': 15.0,
+                'movement_speed': 5.0,
+                'collision_speed': 3.0,
+                'lost_state_ratio': 0.333,
+                'tentative_deletion_misses': 5,
+                'lost_deletion_misses': 50
+            },
+            'penalties': {
+                'type_mismatch': 2.0,
+                'number_mismatch': 3.0,
+                'invalid_measurement': 5.0
+            },
+            'size_compatibility': {
+                'min_ratio': 0.5,
+                'max_ratio': 2.0
+            }
+        }
+
     def test_track_creation(self):
         """Test track creation with detection"""
         ball = Ball(
             position=(100.0, 200.0),
             radius=15.0,
-            ball_type=BallType.SOLID,
+            ball_type=BallType.OTHER,
             number=1,
             confidence=0.8
         )
@@ -25,11 +52,14 @@ class TestTrack:
             track_id=1,
             ball_type=ball.ball_type,
             ball_number=ball.number,
-            kalman_filter=kalman_filter
+            kalman_filter=kalman_filter,
+            min_hits=3,
+            max_age=30,
+            config=self.track_config
         )
 
         assert track.track_id == 1
-        assert track.ball_type == BallType.SOLID
+        assert track.ball_type == BallType.OTHER
         assert track.ball_number == 1
         assert track.state == TrackState.TENTATIVE
         assert track.age == 0
@@ -39,7 +69,7 @@ class TestTrack:
         ball = Ball(
             position=(100.0, 200.0),
             radius=15.0,
-            ball_type=BallType.SOLID,
+            ball_type=BallType.OTHER,
             number=1,
             confidence=0.8
         )
@@ -49,7 +79,10 @@ class TestTrack:
             track_id=1,
             ball_type=ball.ball_type,
             ball_number=ball.number,
-            kalman_filter=kalman_filter
+            kalman_filter=kalman_filter,
+            min_hits=3,
+            max_age=30,
+            config=self.track_config
         )
 
         # Update with detection
@@ -65,7 +98,7 @@ class TestTrack:
         ball = Ball(
             position=(100.0, 200.0),
             radius=15.0,
-            ball_type=BallType.SOLID,
+            ball_type=BallType.OTHER,
             number=1,
             confidence=0.8
         )
@@ -75,7 +108,10 @@ class TestTrack:
             track_id=1,
             ball_type=ball.ball_type,
             ball_number=ball.number,
-            kalman_filter=kalman_filter
+            kalman_filter=kalman_filter,
+            min_hits=3,
+            max_age=30,
+            config=self.track_config
         )
 
         # Update multiple times to confirm track
@@ -89,7 +125,7 @@ class TestTrack:
         ball = Ball(
             position=(100.0, 200.0),
             radius=15.0,
-            ball_type=BallType.SOLID,
+            ball_type=BallType.OTHER,
             number=1,
             confidence=0.8
         )
@@ -99,7 +135,10 @@ class TestTrack:
             track_id=1,
             ball_type=ball.ball_type,
             ball_number=ball.number,
-            kalman_filter=kalman_filter
+            kalman_filter=kalman_filter,
+            min_hits=3,
+            max_age=30,
+            config=self.track_config
         )
 
         # Confirm track first
@@ -125,7 +164,7 @@ class TestTrack:
         original_ball = Ball(
             position=(100.0, 200.0),
             radius=15.0,
-            ball_type=BallType.SOLID,
+            ball_type=BallType.OTHER,
             number=1,
             confidence=0.8
         )
@@ -135,7 +174,10 @@ class TestTrack:
             track_id=1,
             ball_type=original_ball.ball_type,
             ball_number=original_ball.number,
-            kalman_filter=kalman_filter
+            kalman_filter=kalman_filter,
+            min_hits=3,
+            max_age=30,
+            config=self.track_config
         )
 
         current_ball = track.get_current_ball()
@@ -202,8 +244,8 @@ class TestObjectTracker:
 
         balls = [
             Ball(position=(100.0, 100.0), radius=15.0, ball_type=BallType.CUE, confidence=0.8),
-            Ball(position=(200.0, 200.0), radius=15.0, ball_type=BallType.SOLID, number=1, confidence=0.8),
-            Ball(position=(300.0, 300.0), radius=15.0, ball_type=BallType.STRIPE, number=9, confidence=0.8)
+            Ball(position=(200.0, 200.0), radius=15.0, ball_type=BallType.OTHER, number=1, confidence=0.8),
+            Ball(position=(300.0, 300.0), radius=15.0, ball_type=BallType.OTHER, number=9, confidence=0.8)
         ]
 
         # Update multiple times to confirm tracks
@@ -377,7 +419,7 @@ class TestObjectTracker:
             tracker.update_tracking([cue_ball], frame_number=frame)
 
         # Try to associate with different ball type at same position
-        solid_ball = Ball(position=(101.0, 101.0), radius=15.0, ball_type=BallType.SOLID, number=1, confidence=0.8)
+        solid_ball = Ball(position=(101.0, 101.0), radius=15.0, ball_type=BallType.OTHER, number=1, confidence=0.8)
 
         initial_track_count = len(tracker.tracks)
         tracker.update_tracking([solid_ball], frame_number=5)
@@ -391,7 +433,7 @@ class TestObjectTracker:
 
         balls = [
             Ball(position=(100.0, 100.0), radius=15.0, ball_type=BallType.CUE, confidence=0.8),
-            Ball(position=(200.0, 200.0), radius=15.0, ball_type=BallType.SOLID, number=1, confidence=0.8)
+            Ball(position=(200.0, 200.0), radius=15.0, ball_type=BallType.OTHER, number=1, confidence=0.8)
         ]
 
         # Create and confirm tracks
@@ -466,8 +508,8 @@ class TestObjectTracker:
 
     @pytest.mark.parametrize("ball_type,expected_tracks", [
         (BallType.CUE, 1),
-        (BallType.SOLID, 1),
-        (BallType.STRIPE, 1),
+        (BallType.OTHER, 1),
+        (BallType.OTHER, 1),
         (BallType.EIGHT, 1)
     ])
     def test_different_ball_types(self, ball_type, expected_tracks):

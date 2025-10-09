@@ -1,10 +1,10 @@
+import { TanstackDevtools } from '@tanstack/react-devtools'
 import { Outlet, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanstackDevtools } from '@tanstack/react-devtools'
 import { observer } from 'mobx-react-lite'
-import { StoreProvider, rootStore } from '../hooks/useStores'
-import { AppLayout } from '../components/layout'
 import { ErrorBoundary } from '../components/common'
+import { AppLayout } from '../components/layout'
+import { StoreProvider, rootStore } from '../hooks/useStores'
 
 const RootComponent = observer(() => {
   const systemInfo = {

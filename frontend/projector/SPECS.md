@@ -98,6 +98,11 @@ The projector application supports two deployment modes:
 - **FR-PROJ-041A**: Receive ball motion events immediately when balls move
 - **FR-PROJ-041B**: Process ball state messages with unique ball IDs
 - **FR-PROJ-041C**: Handle optional ball number/type metadata
+- **FR-PROJ-131**: Support subscription management for video feed data
+- **FR-PROJ-132**: Send "subscribe" message for frame data when video feed enabled
+- **FR-PROJ-133**: Send "unsubscribe" message when video feed disabled
+- **FR-PROJ-134**: Handle subscription confirmation from backend
+- **FR-PROJ-135**: Automatically resubscribe after reconnection
 
 #### 4.2 Synchronization
 
@@ -125,6 +130,19 @@ The projector application supports two deployment modes:
 - **FR-PROJ-054**: Configure information density
 - **FR-PROJ-055**: Support practice vs competition modes
 
+#### 5.3 Debug and Development Options
+
+- **FR-PROJ-136**: Enable/disable video feed display
+- **FR-PROJ-137**: Toggle debug HUD overlay visibility
+- **FR-PROJ-138**: Configure video feed display position (fullscreen/inset/overlay)
+- **FR-PROJ-139**: Set video feed display size and opacity
+- **FR-PROJ-140**: Select debug HUD information categories
+- **FR-PROJ-141**: Configure debug HUD position and layout
+- **FR-PROJ-142**: Set debug HUD text size and colors
+- **FR-PROJ-143**: Toggle individual HUD sections on/off
+- **FR-PROJ-144**: Enable/disable performance metrics overlay
+- **FR-PROJ-145**: Configure debug hotkeys and shortcuts
+
 ### 6. Adaptive Color Management
 
 #### 6.1 Table Surface Color Detection
@@ -151,6 +169,97 @@ The projector application supports two deployment modes:
 - **FR-PROJ-069**: Generate text/overlay colors with readability guarantees
 - **FR-PROJ-070**: Support color-blind friendly palette generation
 
+### 7. Video Feed Display
+
+#### 7.1 Video Stream Reception
+
+- **FR-PROJ-071**: Receive video frames via WebSocket frame messages
+- **FR-PROJ-072**: Decode base64-encoded JPEG frame data
+- **FR-PROJ-073**: Parse frame metadata (timestamp, frame_number, dimensions)
+- **FR-PROJ-074**: Handle frame data validation and error detection
+- **FR-PROJ-075**: Maintain frame buffer for smooth playback
+- **FR-PROJ-076**: Detect and handle frame sequence gaps
+- **FR-PROJ-077**: Process frame rate metadata from backend
+- **FR-PROJ-078**: Handle variable bitrate and quality settings
+
+#### 7.2 Video Display Rendering
+
+- **FR-PROJ-079**: Render video feed in configurable display modes (fullscreen, inset, overlay)
+- **FR-PROJ-080**: Support video frame scaling and aspect ratio preservation
+- **FR-PROJ-081**: Apply video feed opacity/transparency settings
+- **FR-PROJ-082**: Position video feed according to configuration (corners, center, custom)
+- **FR-PROJ-083**: Layer video feed appropriately (behind/above AR overlays)
+- **FR-PROJ-084**: Apply geometric calibration transform to video feed
+- **FR-PROJ-085**: Support video feed rotation and mirroring
+
+#### 7.3 Video Performance Management
+
+- **FR-PROJ-086**: Monitor video frame reception rate
+- **FR-PROJ-087**: Implement frame dropping strategy for performance
+- **FR-PROJ-088**: Track video decode performance metrics
+- **FR-PROJ-089**: Adjust video quality based on system performance
+- **FR-PROJ-090**: Manage video frame memory efficiently
+
+### 8. Debug HUD Overlay
+
+#### 8.1 HUD Information Display
+
+- **FR-PROJ-091**: Display connection status (connected, disconnected, reconnecting)
+- **FR-PROJ-092**: Show network protocol information (UDP/WebSocket)
+- **FR-PROJ-093**: Display backend endpoint and port
+- **FR-PROJ-094**: Show message reception statistics (total, rate, errors)
+- **FR-PROJ-095**: Display current sequence number and gaps detected
+- **FR-PROJ-096**: Show timestamp of last received message
+- **FR-PROJ-097**: Display calibration status and profile name
+- **FR-PROJ-098**: Show current display resolution and mode
+- **FR-PROJ-099**: Display application version and build info
+- **FR-PROJ-100**: Show system time and uptime
+
+#### 8.2 Ball Tracking Information
+
+- **FR-PROJ-101**: Display count of detected balls
+- **FR-PROJ-102**: Show individual ball positions (x, y coordinates)
+- **FR-PROJ-103**: Display ball velocities and movement status
+- **FR-PROJ-104**: Show ball IDs and numbers (when available)
+- **FR-PROJ-105**: Highlight cue ball separately
+- **FR-PROJ-106**: Display ball tracking confidence scores
+- **FR-PROJ-107**: Show ball state history (last N positions)
+
+#### 8.3 Cue Stick Debug Information
+
+- **FR-PROJ-108**: Display cue stick detection status
+- **FR-PROJ-109**: Show cue stick position and angle
+- **FR-PROJ-110**: Display cue tip position
+- **FR-PROJ-111**: Show predicted strike direction
+- **FR-PROJ-112**: Display cue stick velocity (when moving)
+- **FR-PROJ-113**: Show cue stick tracking confidence
+
+#### 8.4 Table Geometry Debug
+
+- **FR-PROJ-114**: Display table corner positions
+- **FR-PROJ-115**: Show table dimensions (width x height)
+- **FR-PROJ-116**: Display pocket positions
+- **FR-PROJ-117**: Show cushion rail positions
+- **FR-PROJ-118**: Display calibration transform matrix
+
+#### 8.5 Performance Metrics Display
+
+- **FR-PROJ-119**: Display current FPS (frames per second)
+- **FR-PROJ-120**: Show frame render time (milliseconds)
+- **FR-PROJ-121**: Display memory usage (MB)
+- **FR-PROJ-122**: Show GPU usage percentage
+- **FR-PROJ-123**: Display network latency measurements
+- **FR-PROJ-124**: Show video frame decode time (when applicable)
+
+#### 8.6 HUD Toggle Controls
+
+- **FR-PROJ-125**: Support keyboard shortcut to toggle HUD visibility
+- **FR-PROJ-126**: Allow toggling individual HUD sections
+- **FR-PROJ-127**: Support HUD opacity adjustment
+- **FR-PROJ-128**: Enable/disable HUD via network command
+- **FR-PROJ-129**: Save HUD configuration preferences
+- **FR-PROJ-130**: Support HUD layout presets (minimal, standard, detailed)
+
 ## Non-Functional Requirements
 
 ### Visual Quality Requirements
@@ -161,6 +270,20 @@ The projector application supports two deployment modes:
 - **NFR-PROJ-004**: Consistent brightness across projection
 - **NFR-PROJ-005**: Color accuracy within 10% of target
 - **NFR-PROJ-007**: Minimum contrast ratio of 4.5:1 for all overlays against table surface
+
+### Video Feed Requirements
+
+- **NFR-PROJ-014**: Video feed display latency < 100ms from capture to display
+- **NFR-PROJ-015**: Support minimum video resolution of 640x480
+- **NFR-PROJ-016**: Support video frame rates from 15-60 FPS
+- **NFR-PROJ-017**: Video frame decode time < 16ms (60 FPS target)
+- **NFR-PROJ-018**: Video display maintains 60 FPS overall rendering
+
+### Debug HUD Requirements
+
+- **NFR-PROJ-019**: HUD rendering overhead < 2ms per frame
+- **NFR-PROJ-020**: HUD text legible at all supported resolutions
+- **NFR-PROJ-021**: HUD update rate at least 10 Hz for dynamic information
 
 ### Reliability Requirements
 
@@ -221,6 +344,18 @@ The projector application supports two deployment modes:
    - Assistance levels work as configured
    - Color schemes apply correctly
 
+4. **Video Feed Display**
+   - Video feed displays without stuttering
+   - Video maintains aspect ratio and quality
+   - Video feed opacity and positioning work correctly
+   - Video display does not impact AR overlay performance
+
+5. **Debug HUD**
+   - All HUD information displays accurately
+   - HUD updates in real-time
+   - HUD toggle controls work reliably
+   - HUD remains legible in all display modes
+
 ### Performance Success Criteria
 
 1. **Rendering Performance**
@@ -253,6 +388,8 @@ The projector application supports two deployment modes:
 - Verify color space conversions
 - Test adaptive color generation algorithms
 - Validate contrast ratio calculations
+- Test video frame decoding functions
+- Test HUD rendering components
 - Coverage target: 80%
 
 ### Integration Testing
@@ -262,6 +399,9 @@ The projector application supports two deployment modes:
 - Test calibration procedures
 - Validate configuration updates
 - Test error recovery
+- Test video feed subscription and streaming
+- Verify HUD data collection and display
+- Test video feed and AR overlay layering
 
 ### Visual Testing
 
@@ -270,6 +410,9 @@ The projector application supports two deployment modes:
 - Validate color accuracy
 - Check text rendering
 - Test animation smoothness
+- Verify video feed display quality
+- Validate HUD legibility and layout
+- Test video feed opacity and blending
 
 ### Performance Testing
 
@@ -278,6 +421,9 @@ The projector application supports two deployment modes:
 - Test GPU memory usage
 - Profile CPU/GPU usage
 - Stress test with complex scenes
+- Measure video decode performance
+- Test HUD rendering overhead
+- Profile video feed + AR overlay + HUD combined performance
 
 ### Hardware Testing
 
@@ -286,6 +432,8 @@ The projector application supports two deployment modes:
 - Test various GPU configurations
 - Validate on all platforms
 - Test with different cable types
+- Test video streaming at different network conditions
+- Verify video display on different display sizes
 
 ## Network Communication Protocol
 
@@ -311,7 +459,7 @@ The projector receives real-time updates via network sockets. Messages are JSON-
 ```javascript
 // Base message structure
 {
-  "type": "state|motion|trajectory|alert|config",
+  "type": "state|motion|trajectory|alert|config|frame|subscribe|unsubscribe",
   "timestamp": "ISO 8601 timestamp",
   "sequence": 12345,
   "data": { /* type-specific payload */ }
@@ -368,6 +516,61 @@ The projector receives real-time updates via network sockets. Messages are JSON-
     "collisions": [ /* collision data */ ]
   }
 }
+
+// Frame message - video feed data
+{
+  "type": "frame",
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "sequence": 103,
+  "data": {
+    "frame_number": 12345,
+    "timestamp": "2024-01-15T10:30:45.123Z",
+    "width": 1920,
+    "height": 1080,
+    "format": "jpeg",
+    "data": "base64_encoded_jpeg_data...",
+    "fps": 30.0,
+    "quality": 85
+  }
+}
+
+// Subscribe message - request video feed subscription
+{
+  "type": "subscribe",
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "sequence": 104,
+  "data": {
+    "stream_type": "frames",
+    "options": {
+      "fps": 30,
+      "quality": 85,
+      "format": "jpeg"
+    }
+  }
+}
+
+// Unsubscribe message - cancel video feed subscription
+{
+  "type": "unsubscribe",
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "sequence": 105,
+  "data": {
+    "stream_type": "frames"
+  }
+}
+
+// Subscription confirmation
+{
+  "type": "subscription_confirmed",
+  "timestamp": "2024-01-15T10:30:45.123Z",
+  "sequence": 106,
+  "data": {
+    "stream_type": "frames",
+    "status": "active",
+    "fps": 30,
+    "quality": 85
+  }
+}
 ```
 
 ### Protocol Configuration
@@ -387,6 +590,67 @@ The projector receives real-time updates via network sockets. Messages are JSON-
 - **Heartbeat**: Ping/pong every 30 seconds
 - **Max reconnect delay**: 30 seconds
 - **Initial retry delay**: 1 second
+
+## Configuration Schema
+
+The projector application uses a JSON configuration file with the following structure:
+
+```json
+{
+  "display": {
+    "resolution": "1920x1080",
+    "fullscreen": true,
+    "vsync": true
+  },
+  "network": {
+    "protocol": "auto",
+    "udp_port": 5005,
+    "websocket_url": "ws://localhost:8000/api/v1/game/state/ws",
+    "reconnect": true,
+    "reconnect_delay": 1000,
+    "max_reconnect_delay": 30000
+  },
+  "calibration": {
+    "profile": "default",
+    "auto_load": true,
+    "corner_points": [[0,0], [1920,0], [1920,1080], [0,1080]]
+  },
+  "rendering": {
+    "fps_target": 60,
+    "line_thickness": 3,
+    "anti_aliasing": true,
+    "theme": "default"
+  },
+  "video_feed": {
+    "enabled": false,
+    "display_mode": "inset",
+    "position": "bottom_right",
+    "size": "25%",
+    "opacity": 0.8,
+    "layer": "below_overlays",
+    "subscribe_on_start": false,
+    "quality": 85,
+    "fps": 30
+  },
+  "debug_hud": {
+    "enabled": false,
+    "position": "top_left",
+    "opacity": 0.9,
+    "font_size": 14,
+    "color": [255, 255, 255],
+    "background": [0, 0, 0, 128],
+    "sections": {
+      "connection": true,
+      "balls": true,
+      "cue": true,
+      "table": false,
+      "performance": true
+    },
+    "layout": "compact",
+    "update_rate": 10
+  }
+}
+```
 
 ## Implementation Guidelines
 
@@ -409,11 +673,20 @@ projector/                    # LÖVE2D Application
 │   ├── trajectory/
 │   │   ├── init.lua       # Trajectory rendering module
 │   │   └── effects.lua    # Visual effects
+│   ├── video_feed/
+│   │   ├── init.lua       # Video feed display module
+│   │   ├── decoder.lua    # Frame decoding
+│   │   └── renderer.lua   # Video rendering
+│   ├── debug_hud/
+│   │   ├── init.lua       # Debug HUD module
+│   │   ├── sections.lua   # HUD section components
+│   │   └── metrics.lua    # Performance metrics
 │   └── network_status/
 │       └── init.lua       # Network status display
 ├── lib/
 │   ├── json.lua           # JSON encoding/decoding
-│   └── websocket.lua      # WebSocket library (for web builds)
+│   ├── websocket.lua      # WebSocket library (for web builds)
+│   └── base64.lua         # Base64 decoding for video frames
 ├── config/
 │   └── default.json       # Default configuration
 ├── build_html.sh          # Build script for web version
@@ -452,11 +725,13 @@ rsync -av build/web/ jchadwick@192.168.1.31:/opt/billiards-trainer/frontend/proj
 - **LÖVE2D**: Game framework (v11.4+)
 - **LuaSocket**: Network sockets (included with LÖVE)
 - **JSON library**: Message parsing
+- **Base64 library**: Video frame decoding
 
 #### Web (love.js)
 - **love.js**: LÖVE to WebAssembly compiler
 - **WebSocket library**: Browser networking (pure Lua implementation)
 - **JSON library**: Message parsing
+- **Base64 library**: Video frame decoding
 
 ### Development Priorities
 
@@ -465,10 +740,12 @@ rsync -av build/web/ jchadwick@192.168.1.31:/opt/billiards-trainer/frontend/proj
 3. ✅ Implement network communication (UDP for native)
 4. ✅ Add trajectory rendering
 5. Add WebSocket support for web builds
-6. Implement calibration system
-7. Add visual effects
-8. Optimize performance
-9. Add advanced features
+6. Implement video feed display module
+7. Implement debug HUD overlay module
+8. Implement calibration system
+9. Add visual effects
+10. Optimize performance
+11. Add advanced features
 
 ### Network Protocol Detection
 
@@ -508,5 +785,62 @@ For web deployments, the projector needs:
 
 4. **Message Handling**: Identical to UDP implementation
    - Parse JSON messages
-   - Route by message type (state, motion, trajectory, config, alert)
+   - Route by message type (state, motion, trajectory, config, alert, frame)
    - Update visual displays accordingly
+
+### Video Feed Integration
+
+The video feed module provides real-time display of the camera feed:
+
+1. **Subscription Management**:
+   - Send subscribe message when video feed enabled
+   - Handle subscription confirmation
+   - Automatically resubscribe after reconnection
+   - Send unsubscribe message when video feed disabled
+
+2. **Frame Decoding**:
+   - Decode base64-encoded JPEG data
+   - Validate frame integrity
+   - Handle decode errors gracefully
+   - Maintain frame buffer for smooth playback
+
+3. **Display Rendering**:
+   - Support multiple display modes (fullscreen, inset, overlay)
+   - Apply geometric calibration transforms
+   - Handle aspect ratio preservation
+   - Layer appropriately with AR overlays
+
+4. **Performance Management**:
+   - Monitor frame reception rate
+   - Implement frame dropping when necessary
+   - Track decode performance
+   - Optimize memory usage
+
+### Debug HUD Integration
+
+The debug HUD provides real-time development and diagnostic information:
+
+1. **Information Collection**:
+   - Gather connection status and metrics
+   - Collect ball tracking data
+   - Monitor cue stick information
+   - Track table geometry
+   - Measure performance metrics
+
+2. **Display Rendering**:
+   - Render text overlays with high contrast
+   - Support multiple layout modes
+   - Apply opacity and background styling
+   - Update at configurable rate (10 Hz default)
+
+3. **Toggle Controls**:
+   - Keyboard shortcuts (e.g., F3 for HUD toggle)
+   - Network commands for remote control
+   - Individual section toggles
+   - Layout preset switching
+
+4. **Performance Optimization**:
+   - Minimize rendering overhead (< 2ms target)
+   - Cache text rendering when possible
+   - Update only changed information
+   - Batch draw calls efficiently

@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from backend.config.manager import ConfigurationModule
+
 from ..models import BallState, GameState, ShotType, TableState, Vector2D
 from ..physics.trajectory import TrajectoryCalculator
 from ..utils.geometry import GeometryUtils
@@ -65,22 +67,43 @@ class ShotPrediction:
 class OutcomePredictor:
     """Game outcome prediction engine."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[ConfigurationModule] = None):
         """Initialize the outcome predictor with physics calculators and simulation parameters."""
         self.trajectory_calculator = TrajectoryCalculator()
         self.geometry_utils = GeometryUtils()
 
-        # Prediction parameters
-        self.max_simulation_time = 10.0  # seconds
-        self.time_step = 0.01  # seconds
-        self.velocity_threshold = 0.05  # m/s minimum velocity
-        self.uncertainty_factor = 0.1  # Base uncertainty in predictions
+        # Load configuration
+        self.config = config or ConfigurationModule()
+        cfg = self.config.get("core.prediction.outcome_predictor", {})
+
+        # Simulation parameters
+        sim_cfg = cfg.get("simulation", {})
+        self.max_simulation_time = sim_cfg.get("max_simulation_time", 10.0)
+        self.time_step = sim_cfg.get("time_step", 0.01)
+        self.velocity_threshold = sim_cfg.get("velocity_threshold", 0.05)
+        self.uncertainty_factor = sim_cfg.get("uncertainty_factor", 0.1)
 
         # Physics parameters for prediction
-        self.air_resistance = 0.001
-        self.rolling_friction = 0.2
-        self.sliding_friction = 0.3
-        self.spin_decay_rate = 0.1
+        phys_cfg = cfg.get("physics", {})
+        self.air_resistance = phys_cfg.get("air_resistance", 0.001)
+        self.rolling_friction = phys_cfg.get("rolling_friction", 0.2)
+        self.sliding_friction = phys_cfg.get("sliding_friction", 0.3)
+        self.spin_decay_rate = phys_cfg.get("spin_decay_rate", 0.1)
+
+        # Probability parameters
+        self.prob_cfg = cfg.get("probabilities", {})
+
+        # Shot complexity parameters
+        self.complexity_cfg = cfg.get("shot_complexity", {})
+
+        # Alternative outcomes parameters
+        self.alternatives_cfg = cfg.get("alternatives", {})
+
+        # Confidence calculation parameters
+        self.confidence_cfg = cfg.get("confidence", {})
+
+        # Velocity conversion parameters
+        self.velocity_cfg = cfg.get("velocity_conversion", {})
 
     def predict_shot_outcome(
         self, game_state: GameState, shot_analysis
@@ -156,13 +179,20 @@ class OutcomePredictor:
             )
 
             # Create outcome based on trajectory
+            base_prob_pocketed = self.prob_cfg.get("base_success_pocketed", 0.9)
+            base_prob_not_pocketed = self.prob_cfg.get("base_success_not_pocketed", 0.1)
+
             outcome = PredictedOutcome(
                 outcome_type=(
                     OutcomeType.SUCCESS
                     if trajectory.will_be_pocketed
                     else OutcomeType.MISS
                 ),
-                probability=0.9 if trajectory.will_be_pocketed else 0.1,
+                probability=(
+                    base_prob_pocketed
+                    if trajectory.will_be_pocketed
+                    else base_prob_not_pocketed
+                ),
                 description=f"Ball {ball.id} prediction",
                 final_ball_positions={ball.id: Vector2D(*trajectory.final_position)},
                 ball_trajectories={
@@ -185,20 +215,29 @@ class OutcomePredictor:
         # Adjust based on shot complexity
         complexity_factor = 1.0
         if shot_analysis.shot_type == ShotType.BANK:
-            complexity_factor = 0.8
+            complexity_factor = self.complexity_cfg.get("bank", 0.8)
         elif shot_analysis.shot_type == ShotType.COMBINATION:
-            complexity_factor = 0.7
+            complexity_factor = self.complexity_cfg.get("combination", 0.7)
         elif shot_analysis.shot_type == ShotType.MASSE:
-            complexity_factor = 0.5
+            complexity_factor = self.complexity_cfg.get("masse", 0.5)
 
         # Adjust based on identified problems
-        problem_penalty = len(shot_analysis.potential_problems) * 0.1
+        problem_penalty_per_item = self.complexity_cfg.get(
+            "problem_penalty_per_item", 0.1
+        )
+        problem_penalty = (
+            len(shot_analysis.potential_problems) * problem_penalty_per_item
+        )
 
         # Adjust based on risk factors
-        risk_penalty = sum(shot_analysis.risk_factors.values()) * 0.1
+        risk_penalty_mult = self.complexity_cfg.get("risk_penalty_multiplier", 0.1)
+        risk_penalty = sum(shot_analysis.risk_factors.values()) * risk_penalty_mult
 
         final_prob = base_prob * complexity_factor - problem_penalty - risk_penalty
-        return max(0.05, min(0.95, final_prob))
+
+        min_prob = self.prob_cfg.get("min_probability", 0.05)
+        max_prob = self.prob_cfg.get("max_probability", 0.95)
+        return max(min_prob, min(max_prob, final_prob))
 
     def _simulate_shot_physics(
         self,
@@ -286,9 +325,10 @@ class OutcomePredictor:
         )
 
         # Determine outcome type
+        scratch_confidence = self.prob_cfg.get("scratch_confidence", 0.95)
         if cue_ball_pocketed:
             outcome_type = OutcomeType.SCRATCH
-            probability = 0.95  # High confidence in scratch detection
+            probability = scratch_confidence
             description = "Cue ball scratch predicted"
         elif target_pocketed:
             outcome_type = OutcomeType.SUCCESS
@@ -339,8 +379,17 @@ class OutcomePredictor:
         """Generate alternative outcomes based on uncertainties."""
         alternatives = []
 
-        # Uncertainty in shot power (±10%)
-        for power_variation in [-0.1, 0.1]:
+        # Get configuration values
+        power_variations = self.alternatives_cfg.get("power_variations", [-0.1, 0.1])
+        angle_variations = self.alternatives_cfg.get("angle_variations", [-2.0, 2.0])
+        power_prob_factor = self.alternatives_cfg.get("power_probability_factor", 0.3)
+        power_confidence = self.alternatives_cfg.get("power_confidence", 0.7)
+        angle_prob_factor = self.alternatives_cfg.get("angle_probability_factor", 0.2)
+        angle_confidence = self.alternatives_cfg.get("angle_confidence", 0.6)
+        max_alternatives = self.alternatives_cfg.get("max_alternatives", 3)
+
+        # Uncertainty in shot power
+        for power_variation in power_variations:
             alt_analysis = self._vary_shot_analysis(
                 shot_analysis, power_factor=1.0 + power_variation
             )
@@ -356,14 +405,14 @@ class OutcomePredictor:
                 alt_outcome = self._analyze_primary_outcome(
                     game_state, alt_result, alt_analysis
                 )
-                alt_outcome.probability *= 0.3  # Lower probability for alternatives
-                alt_outcome.confidence = 0.7
+                alt_outcome.probability *= power_prob_factor
+                alt_outcome.confidence = power_confidence
                 alternatives.append(alt_outcome)
             except:
                 continue
 
-        # Uncertainty in shot angle (±2 degrees)
-        for angle_variation in [-2.0, 2.0]:
+        # Uncertainty in shot angle
+        for angle_variation in angle_variations:
             alt_analysis = self._vary_shot_analysis(
                 shot_analysis, angle_offset=angle_variation
             )
@@ -379,15 +428,15 @@ class OutcomePredictor:
                 alt_outcome = self._analyze_primary_outcome(
                     game_state, alt_result, alt_analysis
                 )
-                alt_outcome.probability *= 0.2  # Lower probability for alternatives
-                alt_outcome.confidence = 0.6
+                alt_outcome.probability *= angle_prob_factor
+                alt_outcome.confidence = angle_confidence
                 alternatives.append(alt_outcome)
             except:
                 continue
 
         # Sort by probability and return top alternatives
         alternatives.sort(key=lambda x: x.probability, reverse=True)
-        return alternatives[:3]  # Return top 3 alternatives
+        return alternatives[:max_alternatives]
 
     def _calculate_prediction_confidence(
         self, game_state: GameState, shot_analysis, simulation_result: dict[str, Any]
@@ -395,12 +444,30 @@ class OutcomePredictor:
         """Calculate overall confidence in the prediction."""
         confidence_factors = []
 
+        # Get configuration values
+        friction_threshold = self.confidence_cfg.get(
+            "table_friction_low_threshold", 0.3
+        )
+        friction_high_conf = self.confidence_cfg.get(
+            "table_friction_high_confidence", 0.9
+        )
+        friction_low_conf = self.confidence_cfg.get(
+            "table_friction_low_confidence", 0.7
+        )
+        collision_penalty = self.confidence_cfg.get("collision_complexity_penalty", 0.1)
+        collision_min = self.confidence_cfg.get("collision_complexity_min", 0.5)
+        default_conf = self.confidence_cfg.get("default_confidence", 0.5)
+
         # Shot difficulty factor
         difficulty_confidence = 1.0 - shot_analysis.difficulty
         confidence_factors.append(difficulty_confidence)
 
         # Table condition factor
-        table_confidence = 0.9 if game_state.table.surface_friction < 0.3 else 0.7
+        table_confidence = (
+            friction_high_conf
+            if game_state.table.surface_friction < friction_threshold
+            else friction_low_conf
+        )
         confidence_factors.append(table_confidence)
 
         # Simulation stability factor (based on energy conservation)
@@ -413,7 +480,8 @@ class OutcomePredictor:
 
         # Collision complexity factor
         collision_complexity = max(
-            0.5, 1.0 - len(simulation_result["collision_sequence"]) * 0.1
+            collision_min,
+            1.0 - len(simulation_result["collision_sequence"]) * collision_penalty,
         )
         confidence_factors.append(collision_complexity)
 
@@ -421,7 +489,7 @@ class OutcomePredictor:
         return (
             sum(confidence_factors) / len(confidence_factors)
             if confidence_factors
-            else 0.5
+            else default_conf
         )
 
     def _compile_prediction_factors(
@@ -461,8 +529,9 @@ class OutcomePredictor:
     def _calculate_shot_velocity(self, force: float, angle_degrees: float) -> Vector2D:
         """Calculate velocity vector from force and angle."""
         angle_rad = math.radians(angle_degrees)
-        # Convert force to velocity (simplified)
-        velocity_magnitude = force * 0.1  # Simplified conversion factor
+        # Convert force to velocity
+        force_to_velocity = self.velocity_cfg.get("force_to_velocity_factor", 0.1)
+        velocity_magnitude = force * force_to_velocity
         return Vector2D(
             velocity_magnitude * math.cos(angle_rad),
             velocity_magnitude * math.sin(angle_rad),
@@ -484,12 +553,15 @@ class OutcomePredictor:
         self, balls: list[BallState], dt: float, table: TableState
     ):
         """Update ball positions based on physics."""
+        # Get gravity from core physics config
+        gravity = self.config.get("core.physics.gravity", 9.81)
+
         for ball in balls:
             if not ball.is_moving(self.velocity_threshold):
                 continue
 
             # Apply friction
-            friction_force = self.rolling_friction * ball.mass * 9.81  # N
+            friction_force = self.rolling_friction * ball.mass * gravity  # N
             friction_acceleration = friction_force / ball.mass  # m/s²
 
             # Reduce velocity due to friction

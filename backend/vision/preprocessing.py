@@ -73,6 +73,10 @@ class PreprocessingConfig:
     bilateral_sigma_color: float = 75.0
     bilateral_sigma_space: float = 75.0
     median_kernel_size: int = 5
+    non_local_means_h: float = 10.0
+    non_local_means_h_color: float = 10.0
+    non_local_means_template_window_size: int = 7
+    non_local_means_search_window_size: int = 21
 
     # Morphological operations
     morphology_enabled: bool = True
@@ -83,6 +87,12 @@ class PreprocessingConfig:
     auto_exposure_correction: bool = True
     contrast_enhancement: bool = True
     gamma_correction: float = 1.0
+    clahe_clip_limit: float = 2.0
+    clahe_tile_grid_size: tuple[int, int] = (8, 8)
+    contrast_alpha: float = 1.2
+    contrast_beta: int = 10
+    default_target_brightness: float = 128.0
+    default_contrast_alpha: float = 1.5
 
     # Sharpening
     sharpening_enabled: bool = False
@@ -172,7 +182,10 @@ class ImagePreprocessor:
         )
 
         # Initialize CLAHE for adaptive histogram equalization
-        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.clahe = cv2.createCLAHE(
+            clipLimit=self.config.clahe_clip_limit,
+            tileGridSize=self.config.clahe_tile_grid_size,
+        )
 
         # Sharpening kernel
         if self.config.sharpening_enabled:
@@ -328,17 +341,22 @@ class ImagePreprocessor:
         return self._apply_noise_reduction(frame)
 
     def normalize_brightness(
-        self, frame: NDArray[np.uint8], target_brightness: float = 128.0
+        self,
+        frame: NDArray[np.uint8],
+        target_brightness: Optional[float] = None,
     ) -> NDArray[np.float64]:
         """Normalize frame brightness to target level.
 
         Args:
             frame: Input frame
-            target_brightness: Target average brightness (0-255)
+            target_brightness: Target average brightness (0-255).
+                             If None, uses config default.
 
         Returns:
             Brightness-normalized frame
         """
+        if target_brightness is None:
+            target_brightness = self.config.default_target_brightness
         if len(frame.shape) == 3:
             # Convert to grayscale for brightness calculation
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -357,17 +375,19 @@ class ImagePreprocessor:
         return frame
 
     def enhance_contrast(
-        self, frame: NDArray[np.uint8], alpha: float = 1.5
+        self, frame: NDArray[np.uint8], alpha: Optional[float] = None
     ) -> NDArray[np.float64]:
         """Enhance frame contrast.
 
         Args:
             frame: Input frame
-            alpha: Contrast multiplier
+            alpha: Contrast multiplier. If None, uses config default.
 
         Returns:
             Contrast-enhanced frame
         """
+        if alpha is None:
+            alpha = self.config.default_contrast_alpha
         enhanced = cv2.convertScaleAbs(frame, alpha=alpha, beta=0)
         return enhanced
 
@@ -579,7 +599,11 @@ class ImagePreprocessor:
 
         if self.config.contrast_enhancement:
             # Simple contrast enhancement
-            corrected = cv2.convertScaleAbs(corrected, alpha=1.2, beta=10)
+            corrected = cv2.convertScaleAbs(
+                corrected,
+                alpha=self.config.contrast_alpha,
+                beta=self.config.contrast_beta,
+            )
 
         if self.config.gamma_correction != 1.0:
             corrected = self.apply_gamma_correction(
@@ -629,9 +653,22 @@ class ImagePreprocessor:
         elif method == NoiseReductionMethod.NON_LOCAL_MEANS:
             # Non-local means doesn't have GPU support in OpenCV
             if len(frame.shape) == 3:
-                return cv2.fastNlMeansDenoisingColored(frame, None, 10, 10, 7, 21)
+                return cv2.fastNlMeansDenoisingColored(
+                    frame,
+                    None,
+                    self.config.non_local_means_h,
+                    self.config.non_local_means_h_color,
+                    self.config.non_local_means_template_window_size,
+                    self.config.non_local_means_search_window_size,
+                )
             else:
-                return cv2.fastNlMeansDenoising(frame, None, 10, 7, 21)
+                return cv2.fastNlMeansDenoising(
+                    frame,
+                    None,
+                    self.config.non_local_means_h,
+                    self.config.non_local_means_template_window_size,
+                    self.config.non_local_means_search_window_size,
+                )
 
         else:
             logger.warning(f"Unknown noise reduction method: {method}")

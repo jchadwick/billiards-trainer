@@ -30,6 +30,73 @@
         "api": "INFO",
         "projector": "INFO",
         "config": "INFO"
+      },
+      "default_config_path": "config/logging.yaml",
+      "env_key": "LOG_CFG",
+      "default_log_dir": "logs",
+      "log_dir_env_key": "LOG_DIR",
+      "default_environment": "development",
+      "environment_env_key": "ENVIRONMENT",
+      "root_logger_level": "DEBUG",
+      "config_file_encoding": "utf-8",
+      "environment_names": {
+        "development": "development",
+        "production": "production",
+        "testing": "testing"
+      },
+      "file_handlers": {
+        "app_log": {
+          "filename": "app.log",
+          "level": "DEBUG",
+          "max_bytes": 10485760,
+          "backup_count": 5,
+          "encoding": "utf-8"
+        },
+        "error_log": {
+          "filename": "error.log",
+          "level": "ERROR",
+          "max_bytes": 10485760,
+          "backup_count": 5,
+          "encoding": "utf-8"
+        }
+      },
+      "formatters": {
+        "detailed": {
+          "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+          "datefmt": "%Y-%m-%d %H:%M:%S"
+        },
+        "simple": {
+          "format": "%(asctime)s - %(levelname)s - %(message)s",
+          "datefmt": "%Y-%m-%d %H:%M:%S"
+        }
+      },
+      "environment_defaults": {
+        "development": {
+          "level": "DEBUG",
+          "log_system_info": true
+        },
+        "production": {
+          "level": "INFO",
+          "log_system_info": false
+        },
+        "testing": {
+          "level": "WARNING",
+          "log_system_info": false
+        }
+      },
+      "system_info": {
+        "log_python_version": true,
+        "log_platform": true,
+        "log_architecture": true,
+        "log_processor": true,
+        "log_working_directory": true,
+        "header_separator": "=== System Information ===",
+        "footer_separator": "=========================="
+      },
+      "uvicorn": {
+        "disable_access_logging": true,
+        "configure_error_logging": true,
+        "propagate_errors": true
       }
     },
     "performance": {
@@ -45,17 +112,55 @@
     "camera": {
       "device_id": 0,
       "backend": "auto",
-      "resolution": [1920, 1080],
+      "resolution": [
+        1920,
+        1080
+      ],
       "fps": 30,
       "exposure_mode": "auto",
+      "exposure_value": null,
       "gain": 1.0,
       "brightness": 0.5,
       "contrast": 0.5,
       "saturation": 0.5,
       "buffer_size": 1,
-      "auto_focus": true
+      "auto_focus": true,
+      "video_source_type": "camera",
+      "video_file_path": null,
+      "loop_video": false,
+      "video_start_frame": 0,
+      "video_end_frame": null,
+      "auto_reconnect": true,
+      "reconnect_delay": 1.0,
+      "max_reconnect_attempts": 5,
+      "read_timeout": 5.0,
+      "frame_log_interval": 30,
+      "fps_tracker_size": 10,
+      "frame_sleep_compensation": 0.001,
+      "stop_timeout": 5.0
+    },
+    "kinect2": {
+      "enable_color": true,
+      "enable_depth": true,
+      "enable_infrared": false,
+      "min_depth": 500,
+      "max_depth": 4000,
+      "depth_smoothing": true,
+      "auto_reconnect": true
     },
     "detection": {
+      "detection_backend": "opencv",
+      "yolo_model_path": "models/yolov8n-pool.onnx",
+      "yolo_confidence": 0.4,
+      "yolo_nms_threshold": 0.45,
+      "yolo_device": "cpu",
+      "enable_table_detection": true,
+      "enable_ball_detection": true,
+      "enable_cue_detection": true,
+      "use_opencv_validation": true,
+      "fallback_to_opencv": true,
+      "table_detection_confidence_threshold": 0.5,
+      "max_balls_on_table": 16,
       "table_color": {
         "hue_min": 35,
         "hue_max": 85,
@@ -66,6 +171,100 @@
       },
       "table_edge_threshold": 0.7,
       "min_table_area": 0.3,
+      "background_subtraction": {
+        "enabled": false,
+        "threshold": 30,
+        "background_image_path": null
+      },
+      "table_detection": {
+        "color_ranges": {
+          "green": {
+            "lower_hsv": [
+              35,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              85,
+              255,
+              255
+            ]
+          },
+          "blue": {
+            "lower_hsv": [
+              100,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              130,
+              255,
+              255
+            ]
+          },
+          "red": {
+            "lower_hsv": [
+              0,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              10,
+              255,
+              255
+            ]
+          }
+        },
+        "geometry": {
+          "expected_aspect_ratio": 2.0,
+          "aspect_ratio_tolerance": 0.3,
+          "side_length_tolerance": 0.1,
+          "min_table_area_ratio": 0.1,
+          "max_table_area_ratio": 0.9
+        },
+        "edge_detection": {
+          "canny_low_threshold": 50,
+          "canny_high_threshold": 150,
+          "contour_epsilon_factor": 0.02,
+          "contour_epsilon_multipliers": [
+            0.01,
+            0.03,
+            0.04,
+            0.05
+          ]
+        },
+        "corner_refinement": {
+          "window_size": 5,
+          "max_iterations": 30,
+          "epsilon": 0.001
+        },
+        "pocket_detection": {
+          "color_threshold": 30,
+          "min_area": 100,
+          "max_area": 2000,
+          "min_confidence": 0.5,
+          "max_expected_distance": 100
+        },
+        "morphology": {
+          "large_kernel_size": [
+            5,
+            5
+          ],
+          "small_kernel_size": [
+            3,
+            3
+          ]
+        },
+        "temporal_stability": {
+          "blending_alpha": 0.7,
+          "min_previous_confidence": 0.5
+        },
+        "confidence_weights": {
+          "geometry": 0.4,
+          "pockets": 0.3,
+          "surface": 0.3
+        }
+      },
       "ball_colors": {
         "cue": {
           "hue_min": 0,
@@ -92,7 +291,112 @@
       "ball_sensitivity": 0.8,
       "cue_detection_enabled": true,
       "min_cue_length": 100,
-      "cue_line_threshold": 0.6
+      "cue_line_threshold": 0.6,
+      "cue_detection": {
+        "geometry": {
+          "min_cue_length": 150,
+          "max_cue_length": 800,
+          "min_line_thickness": 3,
+          "max_line_thickness": 25,
+          "ball_radius": 15
+        },
+        "hough": {
+          "threshold": 100,
+          "min_line_length": 100,
+          "max_line_gap": 20,
+          "rho": 1,
+          "theta_divisor": 180
+        },
+        "lsd": {
+          "scale": 0.8,
+          "sigma": 0.6,
+          "quant": 2.0,
+          "ang_th": 22.5,
+          "log_eps": 0,
+          "density_th": 0.7,
+          "n_bins": 1024
+        },
+        "edge_detection": {
+          "canny_low_threshold": 50,
+          "canny_high_threshold": 150,
+          "canny_aperture_size": 3,
+          "gradient_threshold": 20
+        },
+        "preprocessing": {
+          "gaussian_kernel_size": 5,
+          "gaussian_sigma": 1.0,
+          "clahe_clip_limit": 2.0,
+          "clahe_tile_grid_size": 8,
+          "morphology_kernel_size": 3,
+          "morphology_horizontal_kernel": [
+            15,
+            3
+          ],
+          "morphology_vertical_kernel": [
+            3,
+            15
+          ],
+          "morphology_diagonal_kernel_size": 11,
+          "min_frame_sum": 1000,
+          "min_contrast_std": 10,
+          "min_morph_content": 100
+        },
+        "motion": {
+          "velocity_threshold": 5.0,
+          "acceleration_threshold": 2.0,
+          "striking_velocity_threshold": 15.0,
+          "position_movement_threshold": 10.0,
+          "angle_change_threshold": 5.0,
+          "min_ball_speed": 2.0
+        },
+        "tracking": {
+          "max_tracking_distance": 50,
+          "tracking_history_size": 10,
+          "confidence_decay": 0.95,
+          "temporal_smoothing": 0.7
+        },
+        "validation": {
+          "min_detection_confidence": 0.6,
+          "use_background_subtraction": false,
+          "background_threshold": 30,
+          "thickness_sample_count": 5,
+          "max_thickness_search": 30,
+          "edge_margin": 20,
+          "position_edge_margin": 10
+        },
+        "proximity": {
+          "max_distance_to_cue_ball": 40,
+          "max_tip_distance": 300,
+          "max_reasonable_distance": 200,
+          "contact_threshold": 30,
+          "overlap_threshold": 50,
+          "max_angle_overlap": 30
+        },
+        "scoring": {
+          "length_weight": 0.3,
+          "position_weight": 0.2,
+          "proximity_weight": 0.3,
+          "temporal_weight": 0.2,
+          "no_cue_ball_score": 0.15,
+          "no_temporal_score": 0.1,
+          "max_angle_change": 45.0,
+          "edge_penalty": 0.2,
+          "min_confidence_for_shot": 0.9
+        },
+        "shot_detection": {
+          "max_velocity": 50.0,
+          "english_deviation_angle": 30,
+          "follow_draw_threshold": 5,
+          "center_offset_threshold": 5
+        },
+        "advanced": {
+          "enable_yolo_detection": true,
+          "enable_lsd_detection": true,
+          "enable_morphological_detection": true,
+          "top_candidates_to_validate": 3,
+          "max_cues_to_detect": 2
+        }
+      }
     },
     "processing": {
       "use_gpu": false,
@@ -102,12 +406,607 @@
       "enable_tracking": true,
       "tracking_max_distance": 50,
       "frame_skip": 0,
-      "roi_enabled": false
+      "roi_enabled": false,
+      "video_file_cache_frames": 10,
+      "video_playback_speed": 1.0,
+      "target_fps": 30,
+      "enable_threading": true,
+      "max_frame_queue_size": 5,
+      "capture_frame_interval_ms": 1,
+      "processing_queue_timeout_sec": 0.1,
+      "processing_error_retry_delay_sec": 0.01,
+      "capture_error_retry_delay_sec": 0.1,
+      "thread_shutdown_timeout_sec": 5.0
     },
     "debug": false,
     "save_debug_images": false,
     "debug_output_path": "/tmp/vision_debug",
-    "calibration_auto_save": true
+    "calibration_auto_save": true,
+    "tracking": {
+      "min_hits": 3,
+      "max_age": 30,
+      "max_distance": 50.0,
+      "process_noise": 1.0,
+      "measurement_noise": 10.0,
+      "collision_threshold": 60.0,
+      "min_hits_during_collision": 5,
+      "motion_speed_threshold": 10.0,
+      "return_tentative_tracks": false,
+      "history": {
+        "confidence_maxlen": 10,
+        "position_maxlen": 50,
+        "radius_maxlen": 10
+      },
+      "thresholds": {
+        "default_ball_radius": 15.0,
+        "movement_speed": 5.0,
+        "collision_speed": 3.0,
+        "lost_state_ratio": 0.333,
+        "tentative_deletion_misses": 5,
+        "lost_deletion_misses": 50
+      },
+      "penalties": {
+        "type_mismatch": 2.0,
+        "number_mismatch": 3.0,
+        "invalid_measurement": 5.0
+      },
+      "size_compatibility": {
+        "min_ratio": 0.5,
+        "max_ratio": 2.0
+      }
+    },
+    "ball_detection": {
+      "detection_method": "combined",
+      "hough_circles": {
+        "dp": 1.0,
+        "min_dist_ratio": 0.8,
+        "param1": 50,
+        "param2": 30,
+        "accumulator_threshold": 15,
+        "gaussian_blur_kernel": 9,
+        "gaussian_blur_sigma": 2
+      },
+      "size_constraints": {
+        "min_radius": 15,
+        "max_radius": 26,
+        "expected_radius": 20,
+        "radius_tolerance": 0.3
+      },
+      "quality_filters": {
+        "min_circularity": 0.75,
+        "min_confidence": 0.4,
+        "max_overlap_ratio": 0.3,
+        "min_convexity": 0.8,
+        "min_inertia_ratio": 0.5
+      },
+      "background_subtraction": {
+        "enabled": false,
+        "threshold": 30,
+        "threshold_adjustment": 10,
+        "morph_kernel_size": 5,
+        "morph_iterations": 1
+      },
+      "pocket_detection": {
+        "threshold": 40,
+        "morph_kernel_size": 9,
+        "min_radius": 35,
+        "max_radius": 80,
+        "min_circularity": 0.65,
+        "exclusion_radius_multiplier": 2.0
+      },
+      "playing_area": {
+        "green_cloth": {
+          "hue_min": 35,
+          "hue_max": 85,
+          "saturation_min": 30,
+          "saturation_max": 255,
+          "value_min": 30,
+          "value_max": 255
+        },
+        "blue_cloth": {
+          "hue_min": 90,
+          "hue_max": 130,
+          "saturation_min": 30,
+          "saturation_max": 255,
+          "value_min": 30,
+          "value_max": 255
+        },
+        "min_area_ratio": 0.1,
+        "morph_kernel_size": 15,
+        "erode_kernel_size": 20,
+        "erode_iterations": 1
+      },
+      "color_filtering": {
+        "green_table": {
+          "hue_min": 35,
+          "hue_max": 85,
+          "saturation_min": 40,
+          "saturation_max": 255,
+          "value_min": 30,
+          "value_max": 255
+        },
+        "blue_table": {
+          "hue_min": 95,
+          "hue_max": 125,
+          "saturation_min": 40,
+          "saturation_max": 255,
+          "value_min": 30,
+          "value_max": 255
+        },
+        "skin_tones": {
+          "hue_min": 0,
+          "hue_max": 20,
+          "saturation_min": 20,
+          "saturation_max": 150,
+          "value_min": 50,
+          "value_max": 255
+        },
+        "dark_regions": {
+          "hue_min": 0,
+          "hue_max": 180,
+          "saturation_min": 0,
+          "saturation_max": 255,
+          "value_min": 0,
+          "value_max": 30
+        },
+        "morph_kernel_size": 5
+      },
+      "ball_colors": {
+        "cue": {
+          "lower": [
+            0,
+            0,
+            150
+          ],
+          "upper": [
+            180,
+            50,
+            255
+          ]
+        },
+        "yellow": {
+          "lower": [
+            10,
+            80,
+            80
+          ],
+          "upper": [
+            35,
+            255,
+            255
+          ]
+        },
+        "blue": {
+          "lower": [
+            90,
+            80,
+            80
+          ],
+          "upper": [
+            140,
+            255,
+            255
+          ]
+        },
+        "red": {
+          "lower": [
+            0,
+            80,
+            80
+          ],
+          "upper": [
+            15,
+            255,
+            255
+          ]
+        },
+        "purple": {
+          "lower": [
+            120,
+            80,
+            80
+          ],
+          "upper": [
+            170,
+            255,
+            255
+          ]
+        },
+        "orange": {
+          "lower": [
+            8,
+            80,
+            80
+          ],
+          "upper": [
+            25,
+            255,
+            255
+          ]
+        },
+        "green": {
+          "lower": [
+            30,
+            80,
+            80
+          ],
+          "upper": [
+            90,
+            255,
+            255
+          ]
+        },
+        "maroon": {
+          "lower": [
+            0,
+            60,
+            30
+          ],
+          "upper": [
+            15,
+            255,
+            120
+          ]
+        },
+        "black": {
+          "lower": [
+            0,
+            0,
+            0
+          ],
+          "upper": [
+            180,
+            255,
+            70
+          ]
+        }
+      },
+      "brightness_filters": {
+        "min_avg_brightness": 40,
+        "min_max_brightness": 80,
+        "eight_ball_min_highlight": 150,
+        "eight_ball_max_avg": 50,
+        "ball_mask_radius_ratio": 0.7,
+        "ball_mask_inner_ratio": 0.8,
+        "region_expansion_ratio": 1.2
+      },
+      "shadow_detection": {
+        "max_shadow_distance_multiplier": 1.5,
+        "min_brightness_diff": 15,
+        "min_brightness_ratio": 0.7
+      },
+      "contour_detection": {
+        "adaptive_threshold_block_size": 11,
+        "adaptive_threshold_c": 2
+      },
+      "blob_detection": {
+        "filter_by_area": true,
+        "filter_by_circularity": true,
+        "filter_by_convexity": true,
+        "filter_by_inertia": true
+      },
+      "combined_detection": {
+        "merge_distance_ratio": 0.8
+      },
+      "overlap_merging": {
+        "extreme_overlap_ratio": 0.5,
+        "confidence_weight_enabled": true
+      },
+      "performance": {
+        "roi_enabled": true,
+        "roi_margin": 50
+      },
+      "debug": {
+        "debug_mode": false,
+        "save_debug_images": false
+      }
+    },
+    "calibration": {
+      "camera": {
+        "num_frames": 20,
+        "min_frames_required": 10,
+        "frame_capture_delay_sec": 0.1,
+        "table_dimensions": {
+          "standard_width_meters": 2.54,
+          "standard_height_meters": 1.27
+        },
+        "chessboard": {
+          "pattern_size": [
+            9,
+            6
+          ],
+          "square_size_meters": 0.025,
+          "corner_refinement": {
+            "window_size": [
+              11,
+              11
+            ],
+            "zero_zone": [
+              -1,
+              -1
+            ],
+            "max_iterations": 30,
+            "epsilon": 0.001
+          }
+        },
+        "intrinsic_calibration": {
+          "min_calibration_images": 10,
+          "min_valid_detections": 5
+        },
+        "homography": {
+          "ransac_threshold": 5.0
+        },
+        "fisheye": {
+          "points_per_edge": 5,
+          "focal_length_factor": 0.8,
+          "max_iterations": 100,
+          "convergence_epsilon": 1e-06,
+          "distortion_limits": {
+            "warning_threshold": 0.3,
+            "clamp_threshold": 0.25
+          }
+        },
+        "default_resolution": {
+          "width": 1920,
+          "height": 1080
+        }
+      },
+      "color": {
+        "default_ball_colors": {
+          "cue": {
+            "hue_min": 0,
+            "hue_max": 180,
+            "saturation_min": 0,
+            "saturation_max": 30,
+            "value_min": 200,
+            "value_max": 255
+          },
+          "yellow": {
+            "hue_min": 20,
+            "hue_max": 30,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 100,
+            "value_max": 255
+          },
+          "blue": {
+            "hue_min": 100,
+            "hue_max": 120,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 50,
+            "value_max": 255
+          },
+          "red": {
+            "hue_min": 0,
+            "hue_max": 10,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 50,
+            "value_max": 255
+          },
+          "purple": {
+            "hue_min": 130,
+            "hue_max": 150,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 50,
+            "value_max": 255
+          },
+          "orange": {
+            "hue_min": 10,
+            "hue_max": 20,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 100,
+            "value_max": 255
+          },
+          "green": {
+            "hue_min": 50,
+            "hue_max": 70,
+            "saturation_min": 100,
+            "saturation_max": 255,
+            "value_min": 50,
+            "value_max": 255
+          },
+          "brown": {
+            "hue_min": 10,
+            "hue_max": 20,
+            "saturation_min": 50,
+            "saturation_max": 150,
+            "value_min": 20,
+            "value_max": 100
+          },
+          "black": {
+            "hue_min": 0,
+            "hue_max": 180,
+            "saturation_min": 0,
+            "saturation_max": 255,
+            "value_min": 0,
+            "value_max": 50
+          }
+        },
+        "default_table_color": {
+          "hue_min": 45,
+          "hue_max": 75,
+          "saturation_min": 40,
+          "saturation_max": 255,
+          "value_min": 40,
+          "value_max": 200
+        },
+        "auto_calibration": {
+          "table_mask_margin_ratio": 0.2,
+          "kmeans_clusters": 3,
+          "kmeans_random_state": 42,
+          "kmeans_n_init": 10,
+          "std_deviation_multiplier": 2,
+          "min_pixels_for_calibration": 100,
+          "pixel_filter_min_value": 30,
+          "pixel_filter_max_value": 220
+        },
+        "ball_calibration": {
+          "percentiles": {
+            "hue": [
+              5,
+              95
+            ],
+            "saturation": [
+              10,
+              95
+            ],
+            "value": [
+              10,
+              95
+            ]
+          },
+          "hue_wraparound_threshold": 90
+        },
+        "lighting_adaptation": {
+          "bright_value_min_factor": 0.8,
+          "bright_value_max_factor": 0.9,
+          "dark_value_min_factor": 1.2,
+          "dark_value_max_factor": 1.1,
+          "very_bright_threshold": 1.5,
+          "very_dark_threshold": 0.6,
+          "saturation_adjustment_bright": -20,
+          "saturation_adjustment_dark": -10
+        },
+        "threshold_optimization": {
+          "max_iterations": 10,
+          "range_tightening_factor": 0.05
+        },
+        "hue_shift_threshold": 90
+      },
+      "geometry": {
+        "table_dimensions": {
+          "standard_width_meters": 2.54,
+          "standard_height_meters": 1.27
+        },
+        "corner_detection": {
+          "gaussian_blur_kernel": [
+            5,
+            5
+          ],
+          "adaptive_threshold_block_size": 11,
+          "adaptive_threshold_c": 2,
+          "min_contour_area": 1000,
+          "contour_epsilon_factor": 0.02,
+          "default_margin_pixels": 50
+        },
+        "perspective_correction": {
+          "default_target_width": 800,
+          "max_expected_error_pixels": 50.0
+        },
+        "rectification": {
+          "grid_size_pixels": 20
+        }
+      },
+      "validation": {
+        "accuracy_thresholds": {
+          "camera_reprojection_error_pixels": 2.0,
+          "camera_distortion_quality": 0.8,
+          "color_detection_accuracy": 0.85,
+          "color_false_positive_rate": 0.1,
+          "geometry_pixel_error": 5.0,
+          "geometry_world_error_meters": 0.02,
+          "integration_ball_accuracy": 0.9,
+          "integration_table_accuracy": 0.95
+        },
+        "camera_validation": {
+          "corner_refinement": {
+            "window_size": [
+              11,
+              11
+            ],
+            "zero_zone": [
+              -1,
+              -1
+            ],
+            "max_iterations": 30,
+            "epsilon": 0.001
+          },
+          "min_detection_rate": 0.7,
+          "edge_detection": {
+            "canny_low_threshold": 50,
+            "canny_high_threshold": 150
+          },
+          "hough_lines_threshold": 100,
+          "min_perspective_quality": 0.7
+        },
+        "color_validation": {
+          "min_area_threshold": 100,
+          "min_circularity": 0.5
+        },
+        "ball_detection": {
+          "matching_threshold_pixels": 50.0,
+          "normalization_factor_pixels": 100.0
+        },
+        "integration_validation": {
+          "reprojection_error_threshold_pixels": 3.0,
+          "min_detection_rate": 0.8,
+          "min_color_accuracy": 0.8,
+          "max_false_positive_rate": 0.15,
+          "max_geometry_error_meters": 0.03,
+          "min_perspective_quality": 0.7
+        },
+        "stability_test": {
+          "sleep_interval_seconds": 1.0
+        }
+      }
+    },
+    "frame_logging": {
+      "log_interval_frames": 30
+    },
+    "defaults": {
+      "table_surface_color_rgb": [
+        60,
+        200,
+        100
+      ],
+      "default_frame_quality": 0.5,
+      "detected_frame_quality": 1.0,
+      "roi_corner_count": 4,
+      "roi_corner_dimensions": 2
+    },
+    "preprocessing": {
+      "target_color_space": "hsv",
+      "normalize_brightness": true,
+      "auto_white_balance": true,
+      "noise_reduction_enabled": true,
+      "noise_method": "gaussian",
+      "gaussian_kernel_size": 5,
+      "gaussian_sigma": 1.0,
+      "bilateral_d": 9,
+      "bilateral_sigma_color": 75.0,
+      "bilateral_sigma_space": 75.0,
+      "median_kernel_size": 5,
+      "non_local_means_h": 10.0,
+      "non_local_means_h_color": 10.0,
+      "non_local_means_template_window_size": 7,
+      "non_local_means_search_window_size": 21,
+      "morphology_enabled": true,
+      "morphology_kernel_size": 3,
+      "morphology_iterations": 1,
+      "auto_exposure_correction": true,
+      "contrast_enhancement": true,
+      "gamma_correction": 1.0,
+      "clahe_clip_limit": 2.0,
+      "clahe_tile_grid_size": [
+        8,
+        8
+      ],
+      "contrast_alpha": 1.2,
+      "contrast_beta": 10,
+      "default_target_brightness": 128.0,
+      "default_contrast_alpha": 1.5,
+      "sharpening_enabled": false,
+      "sharpening_strength": 0.5,
+      "enable_gpu": false,
+      "resize_for_processing": false,
+      "processing_scale": 0.5,
+      "debug_mode": false,
+      "save_intermediate_steps": false
+    }
   },
   "core": {
     "physics": {
@@ -128,7 +1027,61 @@
       "collision_threshold": 0.001,
       "monte_carlo_samples": 10,
       "max_bounces": 10,
-      "stop_velocity_threshold": 0.01
+      "stop_velocity_threshold": 0.01,
+      "outcome_predictor": {
+        "simulation": {
+          "max_simulation_time": 10.0,
+          "time_step": 0.01,
+          "velocity_threshold": 0.05,
+          "uncertainty_factor": 0.1
+        },
+        "physics": {
+          "air_resistance": 0.001,
+          "rolling_friction": 0.2,
+          "sliding_friction": 0.3,
+          "spin_decay_rate": 0.1
+        },
+        "probabilities": {
+          "base_success_pocketed": 0.9,
+          "base_success_not_pocketed": 0.1,
+          "scratch_confidence": 0.95,
+          "min_probability": 0.05,
+          "max_probability": 0.95
+        },
+        "shot_complexity": {
+          "bank": 0.8,
+          "combination": 0.7,
+          "masse": 0.5,
+          "problem_penalty_per_item": 0.1,
+          "risk_penalty_multiplier": 0.1
+        },
+        "alternatives": {
+          "power_variations": [
+            -0.1,
+            0.1
+          ],
+          "angle_variations": [
+            -2.0,
+            2.0
+          ],
+          "power_probability_factor": 0.3,
+          "power_confidence": 0.7,
+          "angle_probability_factor": 0.2,
+          "angle_confidence": 0.6,
+          "max_alternatives": 3
+        },
+        "confidence": {
+          "table_friction_low_threshold": 0.3,
+          "table_friction_high_confidence": 0.9,
+          "table_friction_low_confidence": 0.7,
+          "collision_complexity_penalty": 0.1,
+          "collision_complexity_min": 0.5,
+          "default_confidence": 0.5
+        },
+        "velocity_conversion": {
+          "force_to_velocity_factor": 0.1
+        }
+      }
     },
     "assistance": {
       "difficulty_levels": {
@@ -142,7 +1095,156 @@
       "highlight_best_shot": true,
       "show_success_probability": true,
       "enable_shot_analysis": true,
-      "analysis_depth": 3
+      "analysis_depth": 3,
+      "level_configs": {
+        "beginner": {
+          "show_ghost_ball": true,
+          "show_aim_line": true,
+          "show_power_meter": true,
+          "show_safe_zones": true,
+          "max_alternatives": 1,
+          "explanation_detail": "detailed",
+          "risk_tolerance": 0.2
+        },
+        "intermediate": {
+          "show_ghost_ball": true,
+          "show_aim_line": false,
+          "show_power_meter": true,
+          "show_safe_zones": false,
+          "max_alternatives": 2,
+          "explanation_detail": "moderate",
+          "risk_tolerance": 0.4
+        },
+        "advanced": {
+          "show_ghost_ball": false,
+          "show_aim_line": false,
+          "show_power_meter": false,
+          "show_safe_zones": false,
+          "max_alternatives": 3,
+          "explanation_detail": "brief",
+          "risk_tolerance": 0.6
+        },
+        "expert": {
+          "show_ghost_ball": false,
+          "show_aim_line": false,
+          "show_power_meter": false,
+          "show_safe_zones": false,
+          "max_alternatives": 5,
+          "explanation_detail": "analysis_only",
+          "risk_tolerance": 0.8
+        }
+      },
+      "player_skills": {
+        "default_aiming_accuracy": 0.5,
+        "default_power_control": 0.5,
+        "default_strategic_thinking": 0.5,
+        "default_cue_ball_control": 0.5,
+        "default_pattern_recognition": 0.5
+      },
+      "priority_weights": {
+        "success_probability": 0.4,
+        "shot_difficulty": 0.3,
+        "strategic_value": 0.3
+      },
+      "strategic_value": {
+        "base_value": 0.5,
+        "nine_ball_number_weight": 0.3,
+        "direct_shot_bonus": 0.2
+      },
+      "skill_thresholds": {
+        "aiming_accuracy_low": 0.3,
+        "aiming_accuracy_high": 0.7,
+        "power_control_low": 0.3,
+        "strategic_thinking_low": 0.3,
+        "strategic_thinking_high": 0.7,
+        "success_probability_high": 0.7,
+        "strategic_value_high": 0.6,
+        "strategic_value_very_high": 0.7,
+        "difficulty_easy": 0.3,
+        "difficulty_medium": 0.6,
+        "difficulty_hard": 0.7,
+        "difficulty_easy_max": 0.4
+      },
+      "visual_aids": {
+        "default_ghost_ball_opacity": 0.6,
+        "default_aim_line_width": "medium",
+        "contact_point_highlight": true,
+        "beginner_ghost_ball_opacity": 0.8,
+        "beginner_aim_line_width": "thick",
+        "advanced_ghost_ball_opacity": 0.3,
+        "advanced_aim_line_width": "thin"
+      },
+      "power_calculation": {
+        "shot_type_adjustments": {
+          "direct": 1.0,
+          "bank": 1.2,
+          "combination": 1.1,
+          "safety": 0.7,
+          "masse": 0.8,
+          "break": 2.0
+        },
+        "force_range_tolerance": 0.15,
+        "soft_power_threshold": 8.0,
+        "medium_power_threshold": 12.0,
+        "conservative_power_multiplier": 0.9
+      },
+      "risk_assessment": {
+        "default_scratch_risk": 0.1,
+        "default_opponent_runout_risk": 0.3
+      },
+      "adjustment_factors": {
+        "level_multipliers": {
+          "beginner": 1.5,
+          "intermediate": 1.0,
+          "advanced": 0.7,
+          "expert": 0.3
+        },
+        "base_factors": {
+          "aiming_assistance_strength": 1.0,
+          "power_assistance_strength": 1.0,
+          "strategic_guidance_depth": 1.0,
+          "visual_aid_prominence": 1.0
+        }
+      },
+      "safe_zones": {
+        "defensive": {
+          "cluster_distance_threshold": 0.15,
+          "min_nearby_balls": 2,
+          "zone_radius": 0.1,
+          "safety_score": 0.7,
+          "access_difficulty": 0.6
+        },
+        "scratch_safe": {
+          "safe_distance_from_pocket": 0.2,
+          "zone_radius": 0.08,
+          "safety_score": 0.8,
+          "access_difficulty": 0.4
+        },
+        "position_play": {
+          "table_position_x_factor": 0.4,
+          "table_position_y_factor": 0.5,
+          "zone_radius": 0.15,
+          "safety_score": 0.6,
+          "access_difficulty": 0.5,
+          "min_legal_targets": 2
+        }
+      },
+      "spin_recommendations": {
+        "bank_shot_english_x": 0.3,
+        "bank_shot_english_y": 0.0,
+        "safety_draw_x": 0.0,
+        "safety_draw_y": -0.2,
+        "center_ball_x": 0.0,
+        "center_ball_y": 0.0
+      },
+      "cut_angle_descriptions": {
+        "straight_angle_max": 15.0,
+        "slight_cut_max": 30.0,
+        "moderate_cut_max": 60.0
+      },
+      "target_recommendation": {
+        "min_cluster_balls": 2
+      }
     },
     "validation": {
       "max_ball_velocity": 10.0,
@@ -157,9 +1259,138 @@
     "event_buffer_size": 100,
     "update_frequency": 60.0,
     "enable_game_rules": false,
-    "default_game_type": "practice"
+    "default_game_type": "practice",
+    "utils": {
+      "math": {
+        "tolerance": {
+          "default": 1e-06,
+          "zero_threshold": 1e-06,
+          "bisection": 1e-06,
+          "numerical_derivative_step": 1e-08,
+          "triangle_area": 1e-10
+        },
+        "angles": {
+          "wrap_min_radians": -3.141592653589793,
+          "wrap_max_radians": 3.141592653589793
+        },
+        "numerical_methods": {
+          "bisection_max_iterations": 100,
+          "integration_default_steps": 1000
+        },
+        "physics": {
+          "default_gravity": 9.81,
+          "rolling_velocity_threshold": 1e-06
+        },
+        "interpolation": {
+          "spring_strength": 100.0,
+          "spring_damping": 10.0,
+          "spring_timestep": 0.016
+        }
+      },
+      "geometry": {
+        "smoothing": {
+          "default_factor": 0.1
+        },
+        "tolerance": {
+          "triangle_point_test": 1e-10
+        }
+      },
+      "cache": {
+        "default_max_size": 1000
+      }
+    },
+    "shot_analysis": {
+      "difficulty_weights": {
+        "distance": 0.25,
+        "angle": 0.2,
+        "obstacles": 0.15,
+        "precision_required": 0.2,
+        "cushion_bounces": 0.1,
+        "spin_required": 0.1
+      },
+      "shot_type_modifiers": {
+        "direct": 1.0,
+        "bank": 1.3,
+        "combination": 1.5,
+        "safety": 0.8,
+        "masse": 1.8,
+        "break": 0.6
+      },
+      "force_calculation": {
+        "base_force": 8.0,
+        "distance_scale_factor": 5.0,
+        "distance_scale_divisor": 1000.0,
+        "type_multipliers": {
+          "direct": 1.0,
+          "bank": 1.2,
+          "combination": 1.1,
+          "safety": 0.7,
+          "masse": 0.8,
+          "break": 2.0
+        }
+      },
+      "success_probability": {
+        "type_reliability": {
+          "direct": 1.0,
+          "bank": 0.7,
+          "combination": 0.6,
+          "safety": 0.9,
+          "masse": 0.4,
+          "break": 0.8
+        },
+        "high_friction_multiplier": 0.9,
+        "high_friction_threshold": 0.3,
+        "min_probability": 0.1,
+        "max_probability": 0.95,
+        "high_threshold": 0.8,
+        "good_threshold": 0.6,
+        "moderate_threshold": 0.4
+      },
+      "risk_factors": {
+        "scratch_risk_high": 0.3,
+        "scratch_risk_low": 0.1,
+        "opponent_advantage_default": 0.3
+      },
+      "problem_thresholds": {
+        "angle_difficulty_threshold": 0.7,
+        "long_distance_threshold": 1500,
+        "scratch_risk_distance": 200,
+        "cushion_shot_margin": 50
+      },
+      "difficulty_calculations": {
+        "cushion": {
+          "bank_shot": 0.7,
+          "masse_shot": 0.5,
+          "other": 0.1
+        },
+        "spin": {
+          "masse_shot": 0.9,
+          "bank_shot": 0.4,
+          "other": 0.1
+        },
+        "obstacles": {
+          "per_obstacle_penalty": 0.3,
+          "max_difficulty": 1.0,
+          "radius_margin": 10
+        },
+        "precision": {
+          "pocket_radius_multiplier": 10
+        }
+      }
+    }
   },
   "api": {
+    "server": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "reload": false,
+      "log_level": "info",
+      "workers": 1,
+      "max_connections": 100,
+      "request_timeout": 30,
+      "enable_compression": true,
+      "ssl_enabled": false
+    },
     "network": {
       "host": "0.0.0.0",
       "port": 8000,
@@ -173,11 +1404,25 @@
     },
     "cors": {
       "enabled": true,
-      "allow_origins": ["*"],
-      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      "allow_headers": ["*"],
+      "allow_origins": [
+        "*"
+      ],
+      "allow_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "OPTIONS"
+      ],
+      "allow_headers": [
+        "*"
+      ],
       "allow_credentials": true,
-      "max_age": 600
+      "max_age": 600,
+      "development_origins": [
+        "http://localhost:3000",
+        "http://localhost:8000"
+      ]
     },
     "rate_limiting": {
       "enabled": true,
@@ -186,6 +1431,118 @@
       "websocket_connections_per_ip": 10,
       "enable_distributed": false
     },
+    "middleware": {
+      "error_handler": {
+        "log_errors": true
+      },
+      "logging": {
+        "enable_request_logging": true,
+        "enable_response_logging": true,
+        "log_level": "INFO",
+        "log_headers": false,
+        "log_body": false,
+        "max_body_size": 1024,
+        "excluded_paths": [
+          "/health",
+          "/metrics",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ],
+        "excluded_headers": [
+          "authorization",
+          "cookie",
+          "x-api-key",
+          "x-auth-token"
+        ],
+        "include_performance_metrics": true,
+        "slow_request_threshold": 1.0,
+        "max_metrics_storage": 1000,
+        "recent_metrics_window": 100
+      },
+      "metrics": {
+        "excluded_paths": [
+          "/health/live",
+          "/health/ready",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ],
+        "slow_request_threshold": 1.0
+      },
+      "tracing": {
+        "enable_tracing": true,
+        "enable_correlation_ids": true,
+        "sample_rate_production": 0.1,
+        "sample_rate_development": 1.0,
+        "excluded_paths": [
+          "/health",
+          "/metrics"
+        ]
+      },
+      "performance": {
+        "enable_monitoring": true,
+        "enable_system_metrics": true,
+        "enable_endpoint_stats": true,
+        "enable_slow_query_detection": true,
+        "slow_request_threshold_ms": 1000.0,
+        "metrics_retention_minutes": 60,
+        "stats_window_size": 1000,
+        "system_metrics_interval_seconds": 30,
+        "memory_alert_threshold_mb": 512,
+        "cpu_alert_threshold_percent": 80.0,
+        "response_time_percentiles": [
+          50,
+          90,
+          95,
+          99
+        ],
+        "excluded_paths": [
+          "/health",
+          "/metrics",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ],
+        "endpoint_stats_recent_durations_maxlen": 100,
+        "cpu_percent_history_maxlen": 60,
+        "memory_usage_history_maxlen": 60
+      }
+    },
+    "health_monitor": {
+      "check_interval": 5.0,
+      "enable_monitoring": true,
+      "max_history": 100,
+      "max_request_times": 1000,
+      "error_retry_delay": 1.0,
+      "max_warnings": 3,
+      "core_module": {
+        "avg_update_time_threshold_ms": 100.0,
+        "avg_physics_time_threshold_ms": 50.0,
+        "avg_analysis_time_threshold_ms": 100.0,
+        "max_error_count": 10
+      },
+      "vision_module": {
+        "max_frames_dropped": 100,
+        "min_fps": 15.0,
+        "max_processing_time_ms": 50.0,
+        "min_detection_accuracy": 0.7
+      },
+      "system_resources": {
+        "cpu_percent_warning": 80.0,
+        "cpu_percent_critical": 90.0,
+        "memory_percent_warning": 85.0,
+        "memory_percent_critical": 95.0,
+        "disk_percent_warning": 90.0,
+        "disk_percent_critical": 95.0,
+        "min_memory_available_gb": 1.0,
+        "cpu_check_interval": 0.1
+      },
+      "api": {
+        "max_response_time_ms": 500.0,
+        "max_error_rate": 0.05
+      }
+    },
     "enable_docs": true,
     "docs_url": "/docs",
     "openapi_url": "/openapi.json",
@@ -193,13 +1550,149 @@
     "websocket_path": "/ws",
     "health_check_path": "/health",
     "metrics_enabled": true,
-    "metrics_path": "/metrics"
+    "metrics_path": "/metrics",
+    "stream": {
+      "camera": {
+        "device_id": 1,
+        "resolution": [
+          3840,
+          2160
+        ],
+        "fps": 30,
+        "brightness": 0,
+        "contrast": 1.0,
+        "buffer_size": 1
+      },
+      "processing": {
+        "enable_fisheye_correction": true,
+        "enable_table_crop": false,
+        "enable_preprocessing": false,
+        "enable_clahe": false,
+        "clahe_clip_limit": 2.0,
+        "clahe_grid_size": 8,
+        "calibration_file": "calibration/camera_fisheye_default.yaml"
+      },
+      "quality": {
+        "default_jpeg_quality": 80,
+        "websocket_jpeg_quality": 75,
+        "single_frame_jpeg_quality": 90,
+        "min_jpeg_quality": 1,
+        "max_jpeg_quality": 100
+      },
+      "framerate": {
+        "default_fps": 30,
+        "min_fps": 1,
+        "max_fps": 60
+      },
+      "resolution": {
+        "default_scale": 1.0,
+        "min_width": 160,
+        "max_width": 3840,
+        "min_height": 120,
+        "max_height": 2160
+      },
+      "performance": {
+        "frame_log_interval": 30,
+        "sleep_interval_ms": 10
+      }
+    },
+    "websocket": {
+      "manager": {
+        "max_reconnect_attempts": 5,
+        "reconnect_delay": 1.0,
+        "max_reconnect_delay": 30.0,
+        "auto_reconnect_enabled": true
+      },
+      "broadcaster": {
+        "frame_buffer": {
+          "max_size": 100,
+          "max_age_seconds": 5.0
+        },
+        "compression": {
+          "threshold_bytes": 1024,
+          "level": 6,
+          "ratio_threshold": 0.9
+        },
+        "frame_queue": {
+          "max_size": 10
+        },
+        "fps": {
+          "default_target_fps": 30.0,
+          "limiter_cleanup_age_seconds": 300
+        },
+        "cleanup": {
+          "interval_seconds": 30
+        }
+      },
+      "monitoring": {
+        "measurements": {
+          "max_latency_measurements": 1000
+        },
+        "intervals": {
+          "update_interval_seconds": 10.0,
+          "performance_history_max_count": 288
+        },
+        "thresholds": {
+          "latency_ms": 100.0,
+          "packet_loss_rate": 0.05,
+          "bandwidth_mbps": 10.0,
+          "frequent_disconnects_count": 5,
+          "failed_sends_rate": 0.1,
+          "high_system_latency_ms": 150.0
+        },
+        "health_status": {
+          "excellent_max_latency_ms": 20.0,
+          "excellent_max_packet_loss": 0.01,
+          "good_max_latency_ms": 50.0,
+          "good_max_packet_loss": 0.02,
+          "fair_max_latency_ms": 100.0,
+          "fair_max_packet_loss": 0.05,
+          "poor_max_latency_ms": 200.0,
+          "poor_max_packet_loss": 0.1
+        }
+      }
+    }
+  },
+  "development": {
+    "server": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "reload": true,
+      "log_level": "info",
+      "access_log": true
+    },
+    "cors": {
+      "allow_origins": [
+        "*"
+      ],
+      "allow_credentials": false,
+      "allow_methods": [
+        "*"
+      ],
+      "allow_headers": [
+        "*"
+      ]
+    },
+    "logging": {
+      "level": "INFO",
+      "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    },
+    "app": {
+      "title": "Billiards Trainer API (Dev)",
+      "description": "Development version of the Billiards Trainer API",
+      "version": "1.0.0-dev",
+      "docs_url": "/docs",
+      "redoc_url": "/redoc"
+    }
   },
   "projector": {
     "display": {
       "mode": "window",
       "monitor_index": 0,
-      "resolution": [1920, 1080],
+      "resolution": [
+        1920,
+        1080
+      ],
       "refresh_rate": 60,
       "vsync": true,
       "gamma": 1.0,
@@ -222,9 +1715,21 @@
     },
     "visual": {
       "trajectory_width": 3.0,
-      "trajectory_color": [0, 255, 0],
-      "collision_color": [255, 0, 0],
-      "reflection_color": [255, 255, 0],
+      "trajectory_color": [
+        0,
+        255,
+        0
+      ],
+      "collision_color": [
+        255,
+        0,
+        0
+      ],
+      "reflection_color": [
+        255,
+        255,
+        0
+      ],
       "enable_glow": true,
       "glow_intensity": 0.5,
       "enable_animations": true,
@@ -235,7 +1740,11 @@
       "overlay_opacity": 0.6,
       "font_family": "Arial",
       "font_size": 24,
-      "text_color": [255, 255, 255]
+      "text_color": [
+        255,
+        255,
+        255
+      ]
     },
     "rendering": {
       "renderer": "opengl",
@@ -273,9 +1782,17 @@
     "enable_files": true,
     "enable_environment": true,
     "enable_cli": true,
-    "file_paths": ["config/default.json", "config/local.json"],
+    "file_paths": [
+      "default.json",
+      "local.json"
+    ],
     "env_prefix": "BILLIARDS_",
-    "precedence": ["cli", "environment", "file", "default"]
+    "precedence": [
+      "cli",
+      "environment",
+      "file",
+      "default"
+    ]
   },
   "validation": {
     "strict_mode": false,
@@ -300,5 +1817,59 @@
     "reload_delay": 0,
     "notify_modules": true,
     "validation_before_reload": true
+  },
+  "integration": {
+    "target_fps": 30,
+    "log_interval_frames": 300,
+    "error_retry_delay_sec": 0.1,
+    "shot_speed_estimate_m_per_s": 2.0
+  },
+  "streaming": {
+    "camera": {
+      "device_id": 1,
+      "resolution": null,
+      "fps": 30,
+      "buffer_size": 1
+    },
+    "fisheye": {
+      "enable_correction": false,
+      "calibration_file": "calibration/camera_fisheye.yaml",
+      "alpha": 1.0
+    },
+    "table_crop": {
+      "enable": false,
+      "hsv_lower": [
+        35,
+        40,
+        40
+      ],
+      "hsv_upper": [
+        85,
+        255,
+        255
+      ],
+      "morphology_kernel_size": 5,
+      "padding_ratio": 0.05
+    },
+    "preprocessing": {
+      "enable": true,
+      "brightness": 0.0,
+      "contrast": 1.0,
+      "clahe": {
+        "enable": true,
+        "clip_limit": 2.0,
+        "grid_size": 8
+      }
+    },
+    "encoding": {
+      "default_jpeg_quality": 80,
+      "min_jpeg_quality": 1,
+      "max_jpeg_quality": 100
+    },
+    "performance": {
+      "enable_gpu": false,
+      "startup_timeout_seconds": 5.0,
+      "thread_join_timeout_seconds": 2.0
+    }
   }
 }

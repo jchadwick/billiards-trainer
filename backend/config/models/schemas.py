@@ -168,6 +168,74 @@ class SystemPaths(BaseConfig):
     )
 
 
+class LoggingFormatter(BaseConfig):
+    """Logging formatter configuration."""
+
+    format: str = Field(
+        default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        description="Log message format",
+    )
+    datefmt: str = Field(
+        default="%Y-%m-%d %H:%M:%S",
+        description="Date format for log messages",
+    )
+
+
+class LoggingFileHandler(BaseConfig):
+    """Logging file handler configuration."""
+
+    filename: str = Field(..., description="Log file name")
+    level: str = Field(default="DEBUG", description="Handler logging level")
+    max_bytes: int = Field(
+        default=10 * 1024 * 1024,  # 10MB
+        ge=1024,
+        description="Maximum log file size in bytes",
+    )
+    backup_count: int = Field(
+        default=5, ge=1, le=20, description="Number of backup log files to keep"
+    )
+    encoding: str = Field(default="utf-8", description="Log file encoding")
+
+
+class LoggingEnvironmentDefaults(BaseConfig):
+    """Environment-specific logging defaults."""
+
+    level: str = Field(default="INFO", description="Default log level for environment")
+    log_system_info: bool = Field(
+        default=False, description="Whether to log system info on startup"
+    )
+
+
+class LoggingSystemInfo(BaseConfig):
+    """System information logging configuration."""
+
+    log_python_version: bool = Field(default=True, description="Log Python version")
+    log_platform: bool = Field(default=True, description="Log platform information")
+    log_architecture: bool = Field(default=True, description="Log architecture")
+    log_processor: bool = Field(default=True, description="Log processor information")
+    log_working_directory: bool = Field(
+        default=True, description="Log working directory"
+    )
+    header_separator: str = Field(
+        default="=== System Information ===", description="Header separator"
+    )
+    footer_separator: str = Field(
+        default="==========================", description="Footer separator"
+    )
+
+
+class LoggingUvicorn(BaseConfig):
+    """Uvicorn logging configuration."""
+
+    disable_access_logging: bool = Field(
+        default=True, description="Disable uvicorn access logging"
+    )
+    configure_error_logging: bool = Field(
+        default=True, description="Configure uvicorn error logging"
+    )
+    propagate_errors: bool = Field(default=True, description="Propagate error logs")
+
+
 class SystemLogging(BaseConfig):
     """System logging configuration."""
 
@@ -195,6 +263,68 @@ class SystemLogging(BaseConfig):
             "config": "INFO",
         },
         description="Per-module logging levels",
+    )
+    default_config_path: str = Field(
+        default="config/logging.yaml", description="Default logging config file path"
+    )
+    env_key: str = Field(
+        default="LOG_CFG", description="Environment variable for logging config path"
+    )
+    default_log_dir: str = Field(default="logs", description="Default log directory")
+    log_dir_env_key: str = Field(
+        default="LOG_DIR", description="Environment variable for log directory"
+    )
+    file_handlers: dict[str, LoggingFileHandler] = Field(
+        default_factory=lambda: {
+            "app_log": LoggingFileHandler(
+                filename="app.log",
+                level="DEBUG",
+                max_bytes=10 * 1024 * 1024,
+                backup_count=5,
+                encoding="utf-8",
+            ),
+            "error_log": LoggingFileHandler(
+                filename="error.log",
+                level="ERROR",
+                max_bytes=10 * 1024 * 1024,
+                backup_count=5,
+                encoding="utf-8",
+            ),
+        },
+        description="File handler configurations",
+    )
+    formatters: dict[str, LoggingFormatter] = Field(
+        default_factory=lambda: {
+            "detailed": LoggingFormatter(
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ),
+            "simple": LoggingFormatter(
+                format="%(asctime)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ),
+        },
+        description="Formatter configurations",
+    )
+    environment_defaults: dict[str, LoggingEnvironmentDefaults] = Field(
+        default_factory=lambda: {
+            "development": LoggingEnvironmentDefaults(
+                level="DEBUG", log_system_info=True
+            ),
+            "production": LoggingEnvironmentDefaults(
+                level="INFO", log_system_info=False
+            ),
+            "testing": LoggingEnvironmentDefaults(
+                level="WARNING", log_system_info=False
+            ),
+        },
+        description="Environment-specific defaults",
+    )
+    system_info: LoggingSystemInfo = Field(
+        default_factory=LoggingSystemInfo, description="System info logging config"
+    )
+    uvicorn: LoggingUvicorn = Field(
+        default_factory=LoggingUvicorn, description="Uvicorn logging config"
     )
 
 
@@ -259,7 +389,7 @@ class ConfigSources(BaseModel):
     enable_files: bool = True
     enable_environment: bool = True
     enable_cli: bool = True
-    file_paths: list[Path] = [Path("config/default.json"), Path("config/local.json")]
+    file_paths: list[Path] = [Path("default.json"), Path("local.json")]
     env_prefix: str = "BILLIARDS_"
     precedence: list[str] = ["cli", "environment", "file", "default"]
 

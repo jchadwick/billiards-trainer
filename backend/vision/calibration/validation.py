@@ -11,6 +11,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from backend.config.manager import config_manager
+
 from .camera import CameraCalibrator
 from .color import ColorCalibrator
 from .geometry import GeometricCalibrator
@@ -127,16 +129,33 @@ class CalibrationValidator:
         )
         self.cache_dir.mkdir(exist_ok=True)
 
-        # Accuracy thresholds for different validation tests
+        # Accuracy thresholds for different validation tests - load from config
+        thresholds_config = config_manager.get(
+            "vision.calibration.validation.accuracy_thresholds", {}
+        )
         self.accuracy_thresholds = {
-            "camera_reprojection_error": 2.0,  # pixels
-            "camera_distortion_quality": 0.8,  # 0.0-1.0
-            "color_detection_accuracy": 0.85,  # 0.0-1.0
-            "color_false_positive_rate": 0.1,  # 0.0-1.0
-            "geometry_pixel_error": 5.0,  # pixels
-            "geometry_world_error": 0.02,  # meters
-            "integration_ball_accuracy": 0.9,  # 0.0-1.0
-            "integration_table_accuracy": 0.95,  # 0.0-1.0
+            "camera_reprojection_error": thresholds_config.get(
+                "camera_reprojection_error_pixels", 2.0
+            ),
+            "camera_distortion_quality": thresholds_config.get(
+                "camera_distortion_quality", 0.8
+            ),
+            "color_detection_accuracy": thresholds_config.get(
+                "color_detection_accuracy", 0.85
+            ),
+            "color_false_positive_rate": thresholds_config.get(
+                "color_false_positive_rate", 0.1
+            ),
+            "geometry_pixel_error": thresholds_config.get("geometry_pixel_error", 5.0),
+            "geometry_world_error": thresholds_config.get(
+                "geometry_world_error_meters", 0.02
+            ),
+            "integration_ball_accuracy": thresholds_config.get(
+                "integration_ball_accuracy", 0.9
+            ),
+            "integration_table_accuracy": thresholds_config.get(
+                "integration_table_accuracy", 0.95
+            ),
         }
 
     def validate_camera_calibration(
@@ -185,13 +204,22 @@ class CalibrationValidator:
                     detection_rate += 1
 
                     # Refine corners
+                    refinement_config = config_manager.get(
+                        "vision.calibration.validation.camera_validation.corner_refinement",
+                        {},
+                    )
+                    max_iter = refinement_config.get("max_iterations", 30)
+                    epsilon = refinement_config.get("epsilon", 0.001)
+                    window_size = refinement_config.get("window_size", [11, 11])
+                    zero_zone = refinement_config.get("zero_zone", [-1, -1])
+
                     criteria = (
                         cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-                        30,
-                        0.001,
+                        max_iter,
+                        epsilon,
                     )
                     corners_refined = cv2.cornerSubPix(
-                        gray, corners, (11, 11), (-1, -1), criteria
+                        gray, corners, tuple(window_size), tuple(zero_zone), criteria
                     )
 
                     # Project 3D points to image
@@ -254,10 +282,14 @@ class CalibrationValidator:
             ) / 3.0
 
             # Determine if validation passed
+            min_detection_rate = config_manager.get(
+                "vision.calibration.validation.camera_validation.min_detection_rate",
+                0.7,
+            )
             passed = (
                 mean_reprojection_error
                 < self.accuracy_thresholds["camera_reprojection_error"]
-                and detection_rate > 0.7
+                and detection_rate > min_detection_rate
                 and distortion_quality
                 > self.accuracy_thresholds["camera_distortion_quality"]
             )
@@ -310,10 +342,19 @@ class CalibrationValidator:
                 if len(undistorted.shape) == 3
                 else undistorted
             )
-            edges = cv2.Canny(gray, 50, 150)
+            edge_config = config_manager.get(
+                "vision.calibration.validation.camera_validation.edge_detection", {}
+            )
+            canny_low = edge_config.get("canny_low_threshold", 50)
+            canny_high = edge_config.get("canny_high_threshold", 150)
+            edges = cv2.Canny(gray, canny_low, canny_high)
 
             # Detect lines
-            lines = cv2.HoughLines(edges, 1, np.pi / 180, threshold=100)
+            hough_threshold = config_manager.get(
+                "vision.calibration.validation.camera_validation.hough_lines_threshold",
+                100,
+            )
+            lines = cv2.HoughLines(edges, 1, np.pi / 180, threshold=hough_threshold)
 
             if lines is not None and len(lines) > 5:
                 # Measure how close lines are to being perfectly straight
@@ -560,12 +601,16 @@ class CalibrationValidator:
             ) / 3.0
 
             # Determine if validation passed
+            min_perspective_quality = config_manager.get(
+                "vision.calibration.validation.camera_validation.min_perspective_quality",
+                0.7,
+            )
             passed = (
                 validation_metrics["mean_error"]
                 < self.accuracy_thresholds["geometry_world_error"]
                 and mean_reverse_error
                 < self.accuracy_thresholds["geometry_pixel_error"]
-                and perspective_quality > 0.7
+                and perspective_quality > min_perspective_quality
             )
 
             return ValidationResult(
@@ -718,9 +763,16 @@ class CalibrationValidator:
                 mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
             )
 
+            min_area = config_manager.get(
+                "vision.calibration.validation.color_validation.min_area_threshold", 100
+            )
+            min_circularity = config_manager.get(
+                "vision.calibration.validation.color_validation.min_circularity", 0.5
+            )
+
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area < 100:  # Minimum area threshold
+                if area < min_area:  # Minimum area threshold
                     continue
 
                 # Check circularity
@@ -729,7 +781,7 @@ class CalibrationValidator:
                     continue
 
                 circularity = 4 * np.pi * area / (perimeter * perimeter)
-                if circularity < 0.5:  # Minimum circularity for balls
+                if circularity < min_circularity:  # Minimum circularity for balls
                     continue
 
                 # Get centroid
@@ -753,7 +805,10 @@ class CalibrationValidator:
 
         # Match detected balls to expected balls (nearest neighbor)
         matched = 0
-        threshold = 50.0  # pixels
+        threshold = config_manager.get(
+            "vision.calibration.validation.ball_detection.matching_threshold_pixels",
+            50.0,
+        )
 
         for exp_ball in expected:
             min_distance = float("inf")
@@ -781,7 +836,11 @@ class CalibrationValidator:
             errors.append(error)
 
         mean_error = np.mean(errors)
-        accuracy = max(0.0, 1.0 - (mean_error / 100.0))  # Normalize by 100 pixels
+        normalization_factor = config_manager.get(
+            "vision.calibration.validation.ball_detection.normalization_factor_pixels",
+            100.0,
+        )
+        accuracy = max(0.0, 1.0 - (mean_error / normalization_factor))  # Normalize
 
         return accuracy
 
@@ -895,32 +954,71 @@ class CalibrationValidator:
         """Generate calibration improvement recommendations."""
         recommendations = []
 
+        integration_config = config_manager.get(
+            "vision.calibration.validation.integration_validation", {}
+        )
+
         if camera_val and not camera_val.passed:
-            if camera_val.error_metrics.get("mean_reprojection_error", 0) > 3.0:
+            reprojection_threshold = integration_config.get(
+                "reprojection_error_threshold_pixels", 3.0
+            )
+            detection_rate_threshold = integration_config.get("min_detection_rate", 0.8)
+
+            if (
+                camera_val.error_metrics.get("mean_reprojection_error", 0)
+                > reprojection_threshold
+            ):
                 recommendations.append(
                     "Camera calibration needs improvement. Take more calibration images with better chessboard visibility."
                 )
-            if camera_val.error_metrics.get("detection_rate", 0) < 0.8:
+            if (
+                camera_val.error_metrics.get("detection_rate", 0)
+                < detection_rate_threshold
+            ):
                 recommendations.append(
                     "Improve chessboard detection rate by ensuring good lighting and focus."
                 )
 
         if color_val and not color_val.passed:
-            if color_val.error_metrics.get("overall_accuracy", 0) < 0.8:
+            color_accuracy_threshold = integration_config.get("min_color_accuracy", 0.8)
+            false_positive_threshold = integration_config.get(
+                "max_false_positive_rate", 0.15
+            )
+
+            if (
+                color_val.error_metrics.get("overall_accuracy", 0)
+                < color_accuracy_threshold
+            ):
                 recommendations.append(
                     "Color calibration accuracy is low. Recalibrate color thresholds with better samples."
                 )
-            if color_val.error_metrics.get("false_positive_rate", 1) > 0.15:
+            if (
+                color_val.error_metrics.get("false_positive_rate", 1)
+                > false_positive_threshold
+            ):
                 recommendations.append(
                     "Too many false color detections. Tighten color thresholds."
                 )
 
         if geometry_val and not geometry_val.passed:
-            if geometry_val.error_metrics.get("forward_mean_error", 0) > 0.03:
+            geometry_error_threshold = integration_config.get(
+                "max_geometry_error_meters", 0.03
+            )
+            perspective_quality_threshold = integration_config.get(
+                "min_perspective_quality", 0.7
+            )
+
+            if (
+                geometry_val.error_metrics.get("forward_mean_error", 0)
+                > geometry_error_threshold
+            ):
                 recommendations.append(
                     "Geometric calibration has high coordinate transformation error. Redetect table corners."
                 )
-            if geometry_val.error_metrics.get("perspective_quality", 0) < 0.7:
+            if (
+                geometry_val.error_metrics.get("perspective_quality", 0)
+                < perspective_quality_threshold
+            ):
                 recommendations.append(
                     "Perspective correction quality is low. Ensure table corners are accurately detected."
                 )
@@ -1021,7 +1119,11 @@ class CalibrationValidator:
             stability_metrics["timestamps"].append(current_time - start_time)
 
             frame_idx += 1
-            time.sleep(1.0)  # Process one frame per second
+            sleep_interval = config_manager.get(
+                "vision.calibration.validation.stability_test.sleep_interval_seconds",
+                1.0,
+            )
+            time.sleep(sleep_interval)  # Process frames at configured interval
 
         # Calculate stability statistics
         results = {}

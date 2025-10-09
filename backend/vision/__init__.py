@@ -64,48 +64,195 @@ from .tracking.tracker import ObjectTracker
 logger = logging.getLogger(__name__)
 
 
+def _get_config_value(key_path: str, default: Any) -> Any:
+    """Get configuration value from the config system.
+
+    Args:
+        key_path: Dot-separated path to config value (e.g., "vision.processing.target_fps")
+        default: Default value if key not found
+
+    Returns:
+        Configuration value or default
+    """
+    try:
+        from ..config.manager import ConfigurationModule
+
+        config_mgr = ConfigurationModule()
+        return config_mgr.get(key_path, default)
+    except Exception:
+        return default
+
+
 @dataclass
 class VisionConfig:
-    """Configuration for Vision Module."""
+    """Configuration for Vision Module.
 
-    # Camera settings
-    camera_device_id: int = 0
-    camera_backend: str = "auto"
-    camera_resolution: tuple[int, int] = (1920, 1080)
-    camera_fps: int = 30
-    camera_buffer_size: int = 1
+    All default values are loaded from the configuration system.
+    This class provides a structured interface to vision configuration parameters.
+    """
 
-    # Processing settings
-    target_fps: int = 30
-    enable_threading: bool = True
-    enable_gpu: bool = False
-    max_frame_queue_size: int = 5
+    # Camera settings (from vision.camera.*)
+    camera_device_id: int
+    camera_backend: str
+    camera_resolution: tuple[int, int]
+    camera_fps: int
+    camera_buffer_size: int
 
-    # Detection settings
-    enable_table_detection: bool = True
-    enable_ball_detection: bool = True
-    enable_cue_detection: bool = True
-    enable_tracking: bool = True
+    # Processing settings (from vision.processing.*)
+    target_fps: int
+    enable_threading: bool
+    enable_gpu: bool
+    max_frame_queue_size: int
 
-    # Detector backend configuration
-    detection_backend: str = "opencv"  # 'opencv' or 'yolo'
-    use_opencv_validation: bool = False  # Use OpenCV to validate YOLO results
-    fallback_to_opencv: bool = True  # Fallback to OpenCV if YOLO fails
+    # Detection settings (from vision.detection.*)
+    enable_table_detection: bool
+    enable_ball_detection: bool
+    enable_cue_detection: bool
+    enable_tracking: bool
 
-    # Performance settings
-    frame_skip: int = 0
-    roi_enabled: bool = False
-    preprocessing_enabled: bool = True
+    # Detector backend configuration (from vision.detection.*)
+    detection_backend: str
+    use_opencv_validation: bool
+    fallback_to_opencv: bool
 
-    # Background subtraction
-    background_image_path: Optional[str] = None
-    use_background_subtraction: bool = False
-    background_threshold: int = 30
+    # Performance settings (from vision.processing.*)
+    frame_skip: int
+    roi_enabled: bool
+    preprocessing_enabled: bool
 
-    # Debug settings
-    debug_mode: bool = False
-    save_debug_images: bool = False
-    debug_output_path: str = "/tmp/vision_debug"
+    # Background subtraction (from vision.detection.background_subtraction.*)
+    background_image_path: Optional[str]
+    use_background_subtraction: bool
+    background_threshold: int
+
+    # Debug settings (from vision.debug*)
+    debug_mode: bool
+    save_debug_images: bool
+    debug_output_path: str
+
+    @classmethod
+    def from_config_dict(cls, config_dict: dict[str, Any]) -> "VisionConfig":
+        """Create VisionConfig from configuration dictionary.
+
+        Args:
+            config_dict: Configuration dictionary (can be empty, will use defaults)
+
+        Returns:
+            VisionConfig instance with values from config or defaults
+        """
+        # Import here to avoid circular dependencies
+        from ..config.manager import ConfigurationModule
+
+        # Get configuration manager (will load from default.json)
+        config_mgr = ConfigurationModule()
+
+        # Extract values from config dict or use config manager defaults
+        return cls(
+            # Camera settings
+            camera_device_id=config_dict.get(
+                "camera_device_id", config_mgr.get("vision.camera.device_id", 0)
+            ),
+            camera_backend=config_dict.get(
+                "camera_backend", config_mgr.get("vision.camera.backend", "auto")
+            ),
+            camera_resolution=tuple(
+                config_dict.get(
+                    "camera_resolution",
+                    config_mgr.get("vision.camera.resolution", [1920, 1080]),
+                )
+            ),
+            camera_fps=config_dict.get(
+                "camera_fps", config_mgr.get("vision.camera.fps", 30)
+            ),
+            camera_buffer_size=config_dict.get(
+                "camera_buffer_size", config_mgr.get("vision.camera.buffer_size", 1)
+            ),
+            # Processing settings
+            target_fps=config_dict.get(
+                "target_fps", config_mgr.get("vision.processing.target_fps", 30)
+            ),
+            enable_threading=config_dict.get(
+                "enable_threading",
+                config_mgr.get("vision.processing.enable_threading", True),
+            ),
+            enable_gpu=config_dict.get(
+                "enable_gpu", config_mgr.get("vision.processing.use_gpu", False)
+            ),
+            max_frame_queue_size=config_dict.get(
+                "max_frame_queue_size",
+                config_mgr.get("vision.processing.max_frame_queue_size", 5),
+            ),
+            # Detection settings
+            enable_table_detection=config_dict.get(
+                "enable_table_detection",
+                config_mgr.get("vision.detection.enable_table_detection", True),
+            ),
+            enable_ball_detection=config_dict.get(
+                "enable_ball_detection",
+                config_mgr.get("vision.detection.enable_ball_detection", True),
+            ),
+            enable_cue_detection=config_dict.get(
+                "enable_cue_detection",
+                config_mgr.get("vision.detection.enable_cue_detection", True),
+            ),
+            enable_tracking=config_dict.get(
+                "enable_tracking",
+                config_mgr.get("vision.processing.enable_tracking", True),
+            ),
+            # Detector backend configuration
+            detection_backend=config_dict.get(
+                "detection_backend",
+                config_mgr.get("vision.detection.detection_backend", "opencv"),
+            ),
+            use_opencv_validation=config_dict.get(
+                "use_opencv_validation",
+                config_mgr.get("vision.detection.use_opencv_validation", False),
+            ),
+            fallback_to_opencv=config_dict.get(
+                "fallback_to_opencv",
+                config_mgr.get("vision.detection.fallback_to_opencv", True),
+            ),
+            # Performance settings
+            frame_skip=config_dict.get(
+                "frame_skip", config_mgr.get("vision.processing.frame_skip", 0)
+            ),
+            roi_enabled=config_dict.get(
+                "roi_enabled", config_mgr.get("vision.processing.roi_enabled", False)
+            ),
+            preprocessing_enabled=config_dict.get(
+                "preprocessing_enabled",
+                config_mgr.get("vision.processing.enable_preprocessing", True),
+            ),
+            # Background subtraction
+            background_image_path=config_dict.get(
+                "background_image_path",
+                config_mgr.get(
+                    "vision.detection.background_subtraction.background_image_path",
+                    None,
+                ),
+            ),
+            use_background_subtraction=config_dict.get(
+                "use_background_subtraction",
+                config_mgr.get(
+                    "vision.detection.background_subtraction.enabled", False
+                ),
+            ),
+            background_threshold=config_dict.get(
+                "background_threshold",
+                config_mgr.get("vision.detection.background_subtraction.threshold", 30),
+            ),
+            # Debug settings
+            debug_mode=config_dict.get(
+                "debug_mode", config_mgr.get("vision.debug", False)
+            ),
+            save_debug_images=config_dict.get(
+                "save_debug_images", config_mgr.get("vision.save_debug_images", False)
+            ),
+            debug_output_path=config_dict.get(
+                "debug_output_path",
+                config_mgr.get("vision.debug_output_path", "/tmp/vision_debug"),
+            ),
+        )
 
 
 @dataclass
@@ -144,10 +291,10 @@ class VisionModule:
         Args:
             config: Configuration dictionary for the vision module
         """
-        # Parse configuration
+        # Parse configuration - use from_config_dict to load defaults from config system
         if config is None:
             config = {}
-        self.config = VisionConfig(**config)
+        self.config = VisionConfig.from_config_dict(config)
 
         # Initialize statistics
         self.stats = VisionStatistics()
@@ -338,7 +485,12 @@ class VisionModule:
 
             # Tracking
             if self.config.enable_tracking:
-                self.tracker = ObjectTracker({})
+                # Import here to avoid circular dependencies
+                from ..config.manager import ConfigurationModule
+
+                config_mgr = ConfigurationModule()
+                tracking_config = config_mgr.get("vision.tracking", {})
+                self.tracker = ObjectTracker(tracking_config)
             else:
                 self.tracker = None
 
@@ -421,11 +573,14 @@ class VisionModule:
             self.camera.stop_capture()
 
             # Wait for threads to finish
+            thread_timeout = _get_config_value(
+                "vision.processing.thread_shutdown_timeout_sec", 5.0
+            )
             if self._capture_thread and self._capture_thread.is_alive():
-                self._capture_thread.join(timeout=5.0)
+                self._capture_thread.join(timeout=thread_timeout)
 
             if self._processing_thread and self._processing_thread.is_alive():
-                self._processing_thread.join(timeout=5.0)
+                self._processing_thread.join(timeout=thread_timeout)
 
             # Clear queues
             while not self._frame_queue.empty():
@@ -501,15 +656,23 @@ class VisionModule:
             logger.info("Starting camera calibration")
 
             # Capture calibration images
+            num_frames = _get_config_value("vision.calibration.camera.num_frames", 20)
+            min_frames_required = _get_config_value(
+                "vision.calibration.camera.min_frames_required", 10
+            )
+            frame_capture_delay = _get_config_value(
+                "vision.calibration.camera.frame_capture_delay_sec", 0.1
+            )
+
             calibration_frames = []
-            for _i in range(20):  # Capture 20 frames for calibration
+            for _i in range(num_frames):
                 frame_data = self.camera.get_latest_frame()
                 if frame_data is not None:
                     frame, frame_info = frame_data
                     calibration_frames.append(frame)
-                time.sleep(0.1)
+                time.sleep(frame_capture_delay)
 
-            if len(calibration_frames) < 10:
+            if len(calibration_frames) < min_frames_required:
                 raise VisionModuleError("Insufficient frames for calibration")
 
             # Perform calibration
@@ -565,13 +728,27 @@ class VisionModule:
             corners: List of (x, y) corner points defining ROI
         """
         try:
-            if len(corners) != 4:
-                raise ValueError("ROI must have exactly 4 corners")
+            expected_corner_count = _get_config_value(
+                "vision.defaults.roi_corner_count", 4
+            )
+            expected_corner_dims = _get_config_value(
+                "vision.defaults.roi_corner_dimensions", 2
+            )
+
+            if len(corners) != expected_corner_count:
+                raise ValueError(
+                    f"ROI must have exactly {expected_corner_count} corners"
+                )
 
             # Validate corners
             for corner in corners:
-                if not isinstance(corner, (tuple, list)) or len(corner) != 2:
-                    raise ValueError("Each corner must be a (x, y) tuple")
+                if (
+                    not isinstance(corner, (tuple, list))
+                    or len(corner) != expected_corner_dims
+                ):
+                    raise ValueError(
+                        f"Each corner must be a ({', '.join(['x'] * expected_corner_dims)}) tuple"
+                    )
                 if not all(isinstance(coord, (int, float)) for coord in corner):
                     raise ValueError("Corner coordinates must be numeric")
 
@@ -630,6 +807,11 @@ class VisionModule:
         """Main capture loop running in separate thread."""
         logger.info("VisionModule capture loop started")
         frame_count = 0
+        log_interval = _get_config_value("vision.frame_logging.log_interval_frames", 30)
+        sleep_interval_ms = _get_config_value(
+            "vision.processing.capture_frame_interval_ms", 1
+        )
+        sleep_interval_sec = sleep_interval_ms / 1000.0
 
         frame_interval = 1.0 / self.config.target_fps
         last_frame_time = 0
@@ -640,7 +822,7 @@ class VisionModule:
 
                 # Rate limiting
                 if current_time - last_frame_time < frame_interval:
-                    time.sleep(0.001)  # Small sleep to prevent busy waiting
+                    time.sleep(sleep_interval_sec)
                     continue
 
                 # Get frame from camera (updated interface)
@@ -654,7 +836,7 @@ class VisionModule:
                 frame, frame_info = frame_data
                 frame_count += 1
 
-                if frame_count % 30 == 0:  # Log every 30 frames
+                if frame_count % log_interval == 0:
                     logger.debug(
                         f"VisionModule: Received frame #{frame_count}: shape={frame.shape}, timestamp={frame_info.timestamp}"
                     )
@@ -691,19 +873,25 @@ class VisionModule:
                 logger.error(f"Error in VisionModule capture loop: {e}", exc_info=True)
                 self.stats.last_error = str(e)
                 self._emit_event("error_occurred", {"error": str(e)})
-                time.sleep(0.1)  # Brief pause before retry
+                error_retry_delay = _get_config_value(
+                    "vision.processing.capture_error_retry_delay_sec", 0.1
+                )
+                time.sleep(error_retry_delay)
 
         logger.info("VisionModule capture loop ended")
 
     def _processing_loop(self) -> None:
         """Main processing loop running in separate thread."""
         logger.info("Starting processing loop")
+        queue_timeout = _get_config_value(
+            "vision.processing.processing_queue_timeout_sec", 0.1
+        )
 
         while self._is_running:
             try:
                 # Get frame from queue (blocking with timeout)
                 try:
-                    frame_data = self._frame_queue.get(timeout=0.1)
+                    frame_data = self._frame_queue.get(timeout=queue_timeout)
                 except asyncio.QueueEmpty:
                     continue
 
@@ -747,7 +935,10 @@ class VisionModule:
                 logger.error(f"Error in processing loop: {e}")
                 self.stats.last_error = str(e)
                 self._emit_event("error_occurred", {"error": str(e)})
-                time.sleep(0.01)  # Brief pause before retry
+                error_retry_delay = _get_config_value(
+                    "vision.processing.processing_error_retry_delay_sec", 0.01
+                )
+                time.sleep(error_retry_delay)
 
         logger.info("Processing loop ended")
 
@@ -791,10 +982,16 @@ class VisionModule:
             # Table detection
             if self.table_detector and self.config.enable_table_detection:
                 try:
+                    table_confidence_threshold = _get_config_value(
+                        "vision.detection.table_detection_confidence_threshold", 0.5
+                    )
                     table_result = self.table_detector.detect_complete_table(
                         processed_frame
                     )
-                    if table_result and table_result.confidence > 0.5:
+                    if (
+                        table_result
+                        and table_result.confidence > table_confidence_threshold
+                    ):
                         # Convert to our Table model format
                         detected_table = Table(
                             corners=table_result.corners.to_list(),
@@ -827,9 +1024,10 @@ class VisionModule:
                                 detected_balls, timestamp
                             )
 
-                        detection_rate = (
-                            len(detected_balls) / 16.0
-                        )  # Assume max 16 balls
+                        max_balls = _get_config_value(
+                            "vision.detection.max_balls_on_table", 16
+                        )
+                        detection_rate = len(detected_balls) / float(max_balls)
                         self.stats.detection_accuracy["balls"] = min(
                             detection_rate, 1.0
                         )
@@ -967,9 +1165,10 @@ class VisionModule:
                                 detected_balls, timestamp
                             )
 
-                        detection_rate = (
-                            len(detected_balls) / 16.0
-                        )  # Assume max 16 balls
+                        max_balls = _get_config_value(
+                            "vision.detection.max_balls_on_table", 16
+                        )
+                        detection_rate = len(detected_balls) / float(max_balls)
                         self.stats.detection_accuracy["balls"] = min(
                             detection_rate, 1.0
                         )
@@ -998,15 +1197,25 @@ class VisionModule:
             if detected_table is None:
                 # Create a default table if detection failed
                 h, w = frame.shape[:2]
+                default_surface_color = _get_config_value(
+                    "vision.defaults.table_surface_color_rgb", [60, 200, 100]
+                )
                 detected_table = Table(
                     corners=[(0, 0), (w, 0), (w, h), (0, h)],
                     pockets=[],
                     width=w,
                     height=h,
-                    surface_color=(60, 200, 100),
+                    surface_color=tuple(default_surface_color),
                 )
 
             # Create frame statistics
+            default_quality = _get_config_value(
+                "vision.defaults.default_frame_quality", 0.5
+            )
+            detected_quality = _get_config_value(
+                "vision.defaults.detected_frame_quality", 1.0
+            )
+
             statistics = FrameStatistics(
                 frame_number=frame_number,
                 timestamp=timestamp,
@@ -1019,7 +1228,9 @@ class VisionModule:
                 table_detected=detected_table is not None,
                 detection_confidence=sum(self.stats.detection_accuracy.values())
                 / max(len(self.stats.detection_accuracy), 1),
-                frame_quality=1.0 if detected_table is not None else 0.5,
+                frame_quality=(
+                    detected_quality if detected_table is not None else default_quality
+                ),
             )
 
             result = DetectionResult(
@@ -1040,7 +1251,8 @@ class VisionModule:
 
     def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply region of interest cropping to frame."""
-        if not self._roi_corners or len(self._roi_corners) != 4:
+        expected_corner_count = _get_config_value("vision.defaults.roi_corner_count", 4)
+        if not self._roi_corners or len(self._roi_corners) != expected_corner_count:
             return frame
 
         try:

@@ -9,6 +9,8 @@ When done making changes, if functionality is missing then it's your job to add 
 
 If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
 
+9999999999999999999999999. DO NOT EVER HARDCODE VALUES INTO PRODUCTION LOGIC. Leverage configuration settings, and always provide default/fallback values. DO IT OR I WILL YELL AT YOU
+
 9999999999999999999999999999. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
 
 Leverage automation tools extensively, especially automated tests. Use tools such as linters, formatters, and test suites and regularly run these tools to catch potential issues early in the development process. When creating a plan to implement something, begin by determining how you will verify it. Your task is not complete unless it has been verified by these tools.

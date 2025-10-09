@@ -3,7 +3,21 @@
 import math
 from typing import Callable, Optional
 
+from ...config.manager import ConfigurationModule
 from ..models import Vector2D
+
+# Global configuration instance (lazy loaded)
+_config: Optional[ConfigurationModule] = None
+
+
+def _get_config() -> ConfigurationModule:
+    """Get or create configuration instance."""
+    global _config
+    if _config is None:
+        from pathlib import Path
+
+        _config = ConfigurationModule(config_dir=Path("config"))
+    return _config
 
 
 # Convenience functions that wrap MathUtils methods
@@ -78,20 +92,67 @@ class MathUtils:
             return 0
 
     @staticmethod
-    def approximately_equal(a: float, b: float, tolerance: float = 1e-6) -> bool:
-        """Check if two floating point values are approximately equal."""
+    def approximately_equal(a: float, b: float, tolerance: float | None = None) -> bool:
+        """Check if two floating point values are approximately equal.
+
+        Args:
+            a: First value
+            b: Second value
+            tolerance: Tolerance for comparison. If None, uses config value.
+
+        Returns:
+            True if values are approximately equal
+        """
+        if tolerance is None:
+            config = _get_config()
+            tolerance = config.get("core.utils.math.tolerance.default", default=1e-6)
         return abs(a - b) <= tolerance
 
     @staticmethod
-    def approximately_zero(value: float, tolerance: float = 1e-6) -> bool:
-        """Check if a floating point value is approximately zero."""
+    def approximately_zero(value: float, tolerance: float | None = None) -> bool:
+        """Check if a floating point value is approximately zero.
+
+        Args:
+            value: Value to check
+            tolerance: Tolerance for comparison. If None, uses config value.
+
+        Returns:
+            True if value is approximately zero
+        """
+        if tolerance is None:
+            config = _get_config()
+            tolerance = config.get(
+                "core.utils.math.tolerance.zero_threshold", default=1e-6
+            )
         return abs(value) <= tolerance
 
     @staticmethod
     def wrap_angle(
-        angle: float, min_angle: float = -math.pi, max_angle: float = math.pi
+        angle: float,
+        min_angle: float | None = None,
+        max_angle: float | None = None,
     ) -> float:
-        """Wrap angle to specified range (default: [-π, π])."""
+        """Wrap angle to specified range (default: [-π, π]).
+
+        Args:
+            angle: Angle to wrap
+            min_angle: Minimum angle in range. If None, uses config value.
+            max_angle: Maximum angle in range. If None, uses config value.
+
+        Returns:
+            Wrapped angle
+        """
+        if min_angle is None or max_angle is None:
+            config = _get_config()
+            if min_angle is None:
+                min_angle = config.get(
+                    "core.utils.math.angles.wrap_min_radians", default=-math.pi
+                )
+            if max_angle is None:
+                max_angle = config.get(
+                    "core.utils.math.angles.wrap_max_radians", default=math.pi
+                )
+
         range_size = max_angle - min_angle
         while angle < min_angle:
             angle += range_size
@@ -185,11 +246,37 @@ class MathUtils:
         current: float,
         target: float,
         velocity: float,
-        spring_strength: float = 100.0,
-        damping: float = 10.0,
-        dt: float = 0.016,
+        spring_strength: float | None = None,
+        damping: float | None = None,
+        dt: float | None = None,
     ) -> tuple[float, float]:
-        """Calculate spring-based interpolation for smooth motion."""
+        """Calculate spring-based interpolation for smooth motion.
+
+        Args:
+            current: Current position
+            target: Target position
+            velocity: Current velocity
+            spring_strength: Spring strength coefficient. If None, uses config value.
+            damping: Damping coefficient. If None, uses config value.
+            dt: Time step. If None, uses config value.
+
+        Returns:
+            Tuple of (new_position, new_velocity)
+        """
+        config = _get_config()
+        if spring_strength is None:
+            spring_strength = config.get(
+                "core.utils.math.interpolation.spring_strength", default=100.0
+            )
+        if damping is None:
+            damping = config.get(
+                "core.utils.math.interpolation.spring_damping", default=10.0
+            )
+        if dt is None:
+            dt = config.get(
+                "core.utils.math.interpolation.spring_timestep", default=0.016
+            )
+
         spring_force = (target - current) * spring_strength
         damping_force = -velocity * damping
         acceleration = spring_force + damping_force
@@ -222,10 +309,30 @@ class MathUtils:
         func: Callable[[float], float],
         left: float,
         right: float,
-        tolerance: float = 1e-6,
-        max_iterations: int = 100,
+        tolerance: float | None = None,
+        max_iterations: int | None = None,
     ) -> Optional[float]:
-        """Find root of function using bisection method."""
+        """Find root of function using bisection method.
+
+        Args:
+            func: Function to find root for
+            left: Left bound of interval
+            right: Right bound of interval
+            tolerance: Tolerance for convergence. If None, uses config value.
+            max_iterations: Maximum iterations. If None, uses config value.
+
+        Returns:
+            Root of function or None if not found
+        """
+        config = _get_config()
+        if tolerance is None:
+            tolerance = config.get("core.utils.math.tolerance.bisection", default=1e-6)
+        if max_iterations is None:
+            max_iterations = config.get(
+                "core.utils.math.numerical_methods.bisection_max_iterations",
+                default=100,
+            )
+
         if func(left) * func(right) > 0:
             return None  # No root in interval
 
@@ -363,10 +470,30 @@ class MathUtils:
         velocity: Vector2D,
         mass: float,
         friction_coefficient: float,
-        gravity: float = 9.81,
+        gravity: float | None = None,
     ) -> Vector2D:
-        """Calculate rolling resistance force."""
-        if velocity.magnitude() < 1e-6:
+        """Calculate rolling resistance force.
+
+        Args:
+            velocity: Velocity vector
+            mass: Mass of object
+            friction_coefficient: Coefficient of rolling friction
+            gravity: Gravitational acceleration. If None, uses config value.
+
+        Returns:
+            Rolling resistance force vector
+        """
+        config = _get_config()
+        if gravity is None:
+            gravity = config.get(
+                "core.utils.math.physics.default_gravity", default=9.81
+            )
+
+        velocity_threshold = config.get(
+            "core.utils.math.physics.rolling_velocity_threshold", default=1e-6
+        )
+
+        if velocity.magnitude() < velocity_threshold:
             return Vector2D.zero()
 
         normal_force = mass * gravity
@@ -417,16 +544,47 @@ class MathUtils:
 
     @staticmethod
     def numerical_derivative(
-        func: Callable[[float], float], x: float, h: float = 1e-8
+        func: Callable[[float], float], x: float, h: float | None = None
     ) -> float:
-        """Calculate numerical derivative using central difference."""
+        """Calculate numerical derivative using central difference.
+
+        Args:
+            func: Function to differentiate
+            x: Point at which to evaluate derivative
+            h: Step size. If None, uses config value.
+
+        Returns:
+            Numerical derivative value
+        """
+        if h is None:
+            config = _get_config()
+            h = config.get(
+                "core.utils.math.tolerance.numerical_derivative_step", default=1e-8
+            )
         return float((func(x + h) - func(x - h)) / (2 * h))
 
     @staticmethod
     def numerical_integration_trapezoidal(
-        func: Callable[[float], float], a: float, b: float, n: int = 1000
+        func: Callable[[float], float], a: float, b: float, n: int | None = None
     ) -> float:
-        """Numerical integration using trapezoidal rule."""
+        """Numerical integration using trapezoidal rule.
+
+        Args:
+            func: Function to integrate
+            a: Lower bound
+            b: Upper bound
+            n: Number of steps. If None, uses config value.
+
+        Returns:
+            Numerical integration result
+        """
+        if n is None:
+            config = _get_config()
+            n = config.get(
+                "core.utils.math.numerical_methods.integration_default_steps",
+                default=1000,
+            )
+
         h = (b - a) / n
         result = 0.5 * (func(a) + func(b))
 

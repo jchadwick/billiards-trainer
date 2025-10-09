@@ -12,6 +12,8 @@ Features:
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 try:
@@ -49,52 +51,25 @@ class VisionConfigurationManager:
         # Configuration change callbacks
         self._config_callbacks: list[Callable[[VisionConfig], None]] = []
 
-        # Default configuration
-        self._default_config = self._create_default_config()
+    def _get_default_config(self) -> dict[str, Any]:
+        """Get default vision configuration from config manager.
 
-    def _create_default_config(self) -> dict[str, Any]:
-        """Create default vision configuration."""
+        Returns:
+            Default vision configuration dictionary
+        """
+        if self._config_manager:
+            # Get defaults from central configuration manager
+            try:
+                return self._config_manager.get_module_config("vision", dict)
+            except Exception:
+                pass
+
+        # Minimal fallback if config manager is not available
+        # Note: All actual defaults should be defined in backend/config/default.json
         return {
-            "camera": {
-                "device_id": 1,
-                "backend": "auto",
-                "resolution": (1920, 1080),
-                "fps": 30,
-                "exposure_mode": "auto",
-                "exposure_value": None,
-                "gain": 1.0,
-                "buffer_size": 1,
-                "auto_reconnect": True,
-                "reconnect_delay": 1.0,
-                "max_reconnect_attempts": 5,
-            },
-            "detection": {
-                "detection_backend": "opencv",  # or 'yolo'
-                "yolo_model_path": "models/yolov8n-pool.onnx",
-                "yolo_confidence": 0.4,
-                "yolo_nms_threshold": 0.45,
-                "yolo_device": "cpu",  # or 'cuda'
-                "use_opencv_validation": True,
-                "fallback_to_opencv": True,
-                "table_edge_threshold": 0.7,
-                "min_table_area": 0.3,
-                "min_ball_radius": 10,
-                "max_ball_radius": 40,
-                "ball_detection_method": "hough",
-                "ball_sensitivity": 0.8,
-                "cue_detection_enabled": True,
-                "min_cue_length": 100,
-                "cue_line_threshold": 0.6,
-            },
-            "processing": {
-                "use_gpu": False,
-                "enable_preprocessing": True,
-                "blur_kernel_size": 5,
-                "morphology_kernel_size": 3,
-                "enable_tracking": True,
-                "tracking_max_distance": 50,
-                "frame_skip": 0,
-            },
+            "camera": {},
+            "detection": {},
+            "processing": {},
             "debug": False,
             "save_debug_images": False,
             "debug_output_path": "/tmp/vision_debug",
@@ -121,15 +96,15 @@ class VisionConfigurationManager:
 
                 logger.info("Vision configuration loaded from central manager")
             else:
-                # Use default configuration
-                self._vision_config = self._default_config
+                # Use default configuration from config system
+                self._vision_config = self._get_default_config()
                 logger.info("Using default vision configuration")
 
             return True
 
         except Exception as e:
             logger.error(f"Failed to initialize vision configuration: {e}")
-            self._vision_config = self._default_config
+            self._vision_config = self._get_default_config()
             return False
 
     def get_config(self) -> dict[str, Any]:
@@ -139,38 +114,185 @@ class VisionConfigurationManager:
             Current configuration dictionary
         """
         if self._vision_config is None:
-            return self._default_config.copy()
+            return self._get_default_config()
 
         if hasattr(self._vision_config, "model_dump"):
             # Pydantic model
             return self._vision_config.model_dump()
         else:
             # Dictionary
-            return self._vision_config.copy()
+            if isinstance(self._vision_config, dict):
+                return self._vision_config.copy()
+            return self._vision_config
+
+    def get_video_source_type(self) -> str:
+        """Get the configured video source type.
+
+        Returns:
+            Video source type: "camera", "file", or "stream"
+            Defaults to "camera" if not specified
+        """
+        config = self.get_config()
+        camera_config = config.get("camera", {})
+        return camera_config.get("video_source_type", "camera")
+
+    def is_video_file_input(self) -> bool:
+        """Check if video input is from a file.
+
+        Returns:
+            True if video source type is "file" or device_id is a string
+            (for backward compatibility)
+        """
+        config = self.get_config()
+        camera_config = config.get("camera", {})
+
+        # Check new video_source_type field
+        if camera_config.get("video_source_type") == "file":
+            return True
+
+        # Backward compatibility: check if device_id is a string
+        device_id = camera_config.get("device_id", 0)
+        return isinstance(device_id, str)
+
+    def get_video_file_path(self) -> Optional[str]:
+        """Get the video file path if configured for file input.
+
+        Returns:
+            Absolute path to video file, or None if not configured for file input
+            For backward compatibility, also checks device_id if it's a string
+
+        Raises:
+            FileNotFoundError: If video file path is configured but file doesn't exist
+        """
+        config = self.get_config()
+        camera_config = config.get("camera", {})
+
+        video_path = None
+
+        # Check new video_file_path field
+        if camera_config.get("video_source_type") == "file":
+            video_path = camera_config.get("video_file_path")
+
+        # Backward compatibility: check device_id if it's a string
+        if video_path is None:
+            device_id = camera_config.get("device_id")
+            if isinstance(device_id, str):
+                video_path = device_id
+
+        if video_path is None:
+            return None
+
+        # Convert to Path object for validation
+        path_obj = Path(video_path)
+
+        # Make path absolute if it's relative
+        if not path_obj.is_absolute():
+            path_obj = Path.cwd() / path_obj
+
+        # Validate file exists and is readable
+        if not path_obj.exists():
+            raise FileNotFoundError(f"Video file not found: {path_obj}")
+
+        if not path_obj.is_file():
+            raise ValueError(f"Video path is not a file: {path_obj}")
+
+        if not os.access(path_obj, os.R_OK):
+            raise PermissionError(f"Video file is not readable: {path_obj}")
+
+        return str(path_obj.resolve())
+
+    def resolve_camera_config(self) -> dict[str, Any]:
+        """Resolve camera configuration for CameraCapture.
+
+        Returns:
+            CameraCapture-compatible configuration dictionary with:
+            - device_id mapped from video_source_type/video_file_path
+            - All camera settings (resolution, fps, etc.)
+            - Video file settings (loop_video, video_start_frame, video_end_frame)
+            - Handles backward compatibility with legacy device_id configurations
+        """
+        config = self.get_config()
+        camera_config = config.get("camera", {})
+
+        # Determine device_id based on source type
+        video_source_type = self.get_video_source_type()
+
+        if video_source_type == "file":
+            # Use video file path as device_id
+            device_id = self.get_video_file_path()
+            if device_id is None:
+                # Fall back to device_id field for backward compatibility
+                device_id = camera_config.get("device_id", 0)
+        elif video_source_type == "stream":
+            # Use stream URL as device_id
+            device_id = camera_config.get(
+                "stream_url", camera_config.get("device_id", 0)
+            )
+        else:  # camera
+            # Use numeric device_id
+            device_id = camera_config.get("device_id", 0)
+            # For backward compatibility: if device_id is a string, it's a file/stream
+            if isinstance(device_id, str):
+                # Keep the string value - CameraCapture will handle it
+                pass
+
+        # Get default camera config for fallback values
+        default_config = self._get_default_config()
+        default_camera = default_config.get("camera", {})
+
+        return {
+            "device_id": device_id,
+            "backend": camera_config.get(
+                "backend", default_camera.get("backend", "auto")
+            ),
+            "resolution": tuple(
+                camera_config.get(
+                    "resolution", default_camera.get("resolution", [1920, 1080])
+                )
+            ),
+            "fps": camera_config.get("fps", default_camera.get("fps", 30)),
+            "exposure_mode": camera_config.get(
+                "exposure_mode", default_camera.get("exposure_mode", "auto")
+            ),
+            "exposure_value": camera_config.get(
+                "exposure_value", default_camera.get("exposure_value")
+            ),
+            "gain": camera_config.get("gain", default_camera.get("gain", 1.0)),
+            "buffer_size": camera_config.get(
+                "buffer_size", default_camera.get("buffer_size", 1)
+            ),
+            "auto_reconnect": camera_config.get(
+                "auto_reconnect", default_camera.get("auto_reconnect", True)
+            ),
+            "reconnect_delay": camera_config.get(
+                "reconnect_delay", default_camera.get("reconnect_delay", 1.0)
+            ),
+            "max_reconnect_attempts": camera_config.get(
+                "max_reconnect_attempts",
+                default_camera.get("max_reconnect_attempts", 5),
+            ),
+            "loop_video": camera_config.get(
+                "loop_video", default_camera.get("loop_video", False)
+            ),
+            "video_start_frame": camera_config.get(
+                "video_start_frame", default_camera.get("video_start_frame", 0)
+            ),
+            "video_end_frame": camera_config.get(
+                "video_end_frame", default_camera.get("video_end_frame")
+            ),
+        }
 
     def get_camera_config(self) -> dict[str, Any]:
         """Get camera-specific configuration.
 
         Returns:
             Camera configuration dictionary suitable for CameraCapture
-        """
-        config = self.get_config()
-        camera_config = config.get("camera", {})
 
-        # Convert to format expected by CameraCapture
-        return {
-            "device_id": camera_config.get("device_id", 0),
-            "backend": camera_config.get("backend", "auto"),
-            "resolution": tuple(camera_config.get("resolution", [1920, 1080])),
-            "fps": camera_config.get("fps", 30),
-            "exposure_mode": camera_config.get("exposure_mode", "auto"),
-            "exposure_value": camera_config.get("exposure_value"),
-            "gain": camera_config.get("gain", 1.0),
-            "buffer_size": camera_config.get("buffer_size", 1),
-            "auto_reconnect": camera_config.get("auto_reconnect", True),
-            "reconnect_delay": camera_config.get("reconnect_delay", 1.0),
-            "max_reconnect_attempts": camera_config.get("max_reconnect_attempts", 5),
-        }
+        Note:
+            This method now uses resolve_camera_config() internally.
+            Consider using resolve_camera_config() directly for new code.
+        """
+        return self.resolve_camera_config()
 
     def update_config(self, updates: dict[str, Any]) -> bool:
         """Update configuration with new values.
@@ -322,10 +444,17 @@ class VisionConfigurationManager:
             Debug configuration dictionary
         """
         config = self.get_config()
+        default_config = self._get_default_config()
+
         return {
-            "debug": config.get("debug", False),
-            "save_debug_images": config.get("save_debug_images", False),
-            "debug_output_path": config.get("debug_output_path", "/tmp/vision_debug"),
+            "debug": config.get("debug", default_config.get("debug", False)),
+            "save_debug_images": config.get(
+                "save_debug_images", default_config.get("save_debug_images", False)
+            ),
+            "debug_output_path": config.get(
+                "debug_output_path",
+                default_config.get("debug_output_path", "/tmp/vision_debug"),
+            ),
         }
 
     def get_detection_config(self) -> dict[str, Any]:
@@ -335,27 +464,10 @@ class VisionConfigurationManager:
             Detection configuration dictionary
         """
         config = self.get_config()
-        return config.get(
-            "detection",
-            {
-                "detection_backend": "opencv",
-                "yolo_model_path": "models/yolov8n-pool.onnx",
-                "yolo_confidence": 0.4,
-                "yolo_nms_threshold": 0.45,
-                "yolo_device": "cpu",
-                "use_opencv_validation": True,
-                "fallback_to_opencv": True,
-                "table_edge_threshold": 0.7,
-                "min_table_area": 0.3,
-                "min_ball_radius": 10,
-                "max_ball_radius": 40,
-                "ball_detection_method": "hough",
-                "ball_sensitivity": 0.8,
-                "cue_detection_enabled": True,
-                "min_cue_length": 100,
-                "cue_line_threshold": 0.6,
-            },
-        )
+        default_config = self._get_default_config()
+
+        # Return detection config with defaults as fallback
+        return config.get("detection", default_config.get("detection", {}))
 
     def get_processing_config(self) -> dict[str, Any]:
         """Get image processing configuration.
@@ -364,18 +476,10 @@ class VisionConfigurationManager:
             Processing configuration dictionary
         """
         config = self.get_config()
-        return config.get(
-            "processing",
-            {
-                "use_gpu": False,
-                "enable_preprocessing": True,
-                "blur_kernel_size": 5,
-                "morphology_kernel_size": 3,
-                "enable_tracking": True,
-                "tracking_max_distance": 50,
-                "frame_skip": 0,
-            },
-        )
+        default_config = self._get_default_config()
+
+        # Return processing config with defaults as fallback
+        return config.get("processing", default_config.get("processing", {}))
 
     def validate_config(self, config: dict[str, Any]) -> tuple[bool, list[str]]:
         """Validate configuration dictionary.
@@ -392,10 +496,78 @@ class VisionConfigurationManager:
             # Validate camera configuration
             camera_config = config.get("camera", {})
 
+            # Check video source type configuration
+            video_source_type = camera_config.get("video_source_type", "camera")
+
+            if video_source_type == "file":
+                # video_file_path is required when source_type is "file"
+                video_file_path = camera_config.get("video_file_path")
+                if not video_file_path:
+                    errors.append(
+                        "camera.video_file_path is required when video_source_type='file'"
+                    )
+                else:
+                    # Validate file exists and is readable
+                    try:
+                        path_obj = Path(video_file_path)
+                        if not path_obj.is_absolute():
+                            path_obj = Path.cwd() / path_obj
+
+                        if not path_obj.exists():
+                            errors.append(
+                                f"camera.video_file_path points to non-existent file: {video_file_path}"
+                            )
+                        elif not path_obj.is_file():
+                            errors.append(
+                                f"camera.video_file_path is not a file: {video_file_path}"
+                            )
+                        elif not os.access(path_obj, os.R_OK):
+                            errors.append(
+                                f"camera.video_file_path is not readable: {video_file_path}"
+                            )
+                    except Exception as e:
+                        errors.append(f"camera.video_file_path validation error: {e}")
+
+            elif video_source_type == "stream":
+                # stream_url is required when source_type is "stream"
+                stream_url = camera_config.get("stream_url")
+                if not stream_url:
+                    errors.append(
+                        "camera.stream_url is required when video_source_type='stream'"
+                    )
+
+            # Validate video frame range
+            video_start_frame = camera_config.get("video_start_frame", 0)
+            video_end_frame = camera_config.get("video_end_frame")
+
+            if video_end_frame is not None:
+                if not isinstance(video_start_frame, int) or video_start_frame < 0:
+                    errors.append(
+                        "camera.video_start_frame must be a non-negative integer"
+                    )
+                if not isinstance(video_end_frame, int) or video_end_frame < 0:
+                    errors.append(
+                        "camera.video_end_frame must be a non-negative integer"
+                    )
+                if (
+                    isinstance(video_start_frame, int)
+                    and isinstance(video_end_frame, int)
+                    and video_start_frame >= video_end_frame
+                ):
+                    errors.append(
+                        f"camera.video_start_frame ({video_start_frame}) must be less than "
+                        f"camera.video_end_frame ({video_end_frame})"
+                    )
+
             # Check required camera fields
             if "device_id" in camera_config:
                 device_id = camera_config["device_id"]
-                if not isinstance(device_id, int) or device_id < 0:
+                # device_id can be int for camera, or string for file/stream (backward compatibility)
+                if not isinstance(device_id, (int, str)):
+                    errors.append(
+                        "camera.device_id must be a non-negative integer or string"
+                    )
+                elif isinstance(device_id, int) and device_id < 0:
                     errors.append("camera.device_id must be a non-negative integer")
 
             if "fps" in camera_config:
@@ -461,9 +633,17 @@ class VisionConfigurationManager:
             Calibration configuration dictionary
         """
         config = self.get_config()
+        default_config = self._get_default_config()
+
         return {
-            "calibration_auto_save": config.get("calibration_auto_save", True),
-            "debug_output_path": config.get("debug_output_path", "/tmp/vision_debug"),
+            "calibration_auto_save": config.get(
+                "calibration_auto_save",
+                default_config.get("calibration_auto_save", True),
+            ),
+            "debug_output_path": config.get(
+                "debug_output_path",
+                default_config.get("debug_output_path", "/tmp/vision_debug"),
+            ),
         }
 
 

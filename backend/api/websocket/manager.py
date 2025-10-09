@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Optional, Union
 
+from backend.config import config_manager
+
 from .handler import websocket_handler
 
 logger = logging.getLogger(__name__)
@@ -54,8 +56,16 @@ class ClientSession:
     user_id: Optional[str]
     connection_state: ConnectionState
     reconnect_attempts: int = 0
-    max_reconnect_attempts: int = 5
-    reconnect_delay: float = 1.0  # seconds
+    max_reconnect_attempts: int = field(
+        default_factory=lambda: config_manager.get(
+            "api.websocket.manager.max_reconnect_attempts", 5
+        )
+    )
+    reconnect_delay: float = field(
+        default_factory=lambda: config_manager.get(
+            "api.websocket.manager.reconnect_delay", 1.0
+        )
+    )
     subscription_filters: dict[StreamType, SubscriptionFilter] = field(
         default_factory=dict
     )
@@ -75,7 +85,9 @@ class WebSocketManager:
             stream_type: set() for stream_type in StreamType
         }
         self.event_handlers: dict[str, list[Callable]] = {}
-        self.auto_reconnect_enabled = True
+        self.auto_reconnect_enabled = config_manager.get(
+            "api.websocket.manager.auto_reconnect_enabled", True
+        )
         self.reconnect_tasks: dict[str, asyncio.Task] = {}
 
     async def register_client(
@@ -505,7 +517,10 @@ class WebSocketManager:
 
         # Calculate exponential backoff delay
         delay = session.reconnect_delay * (2 ** (session.reconnect_attempts - 1))
-        delay = min(delay, 30)  # Cap at 30 seconds
+        max_delay = config_manager.get(
+            "api.websocket.manager.max_reconnect_delay", 30.0
+        )
+        delay = min(delay, max_delay)
 
         logger.info(
             f"Scheduling reconnect for {client_id} in {delay:.1f}s (attempt {session.reconnect_attempts})"

@@ -41,18 +41,17 @@ logger = logging.getLogger(__name__)
 def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
     """Parse YOLO class name to extract ball type and number.
 
-    Supports multiple naming conventions:
+    Supports multiple naming conventions (simplified - no solid/stripe distinction):
     - "ball" -> (BallType.UNKNOWN, None) - generic ball, needs further classification
     - "cue" or "ball_0" -> (BallType.CUE, None)
     - "eight" or "ball_8" -> (BallType.EIGHT, 8)
-    - "solid_1" or "ball_1" -> (BallType.SOLID, 1)
-    - "stripe_9" or "ball_9" -> (BallType.STRIPE, 9)
+    - "solid_1", "stripe_9", "ball_1", "ball_9" -> (BallType.OTHER, None) - all numbered balls
 
     Args:
         class_name: YOLO class name string
 
     Returns:
-        Tuple of (BallType, ball_number)
+        Tuple of (BallType, ball_number) - ball_number is always None for OTHER type
     """
     class_name_lower = class_name.lower().strip()
 
@@ -68,21 +67,21 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
     if "eight" in class_name_lower or class_name_lower in ["8ball", "ball_8"]:
         return BallType.EIGHT, 8
 
-    # Handle "solid_N" format
+    # Handle "solid_N" format - now maps to OTHER
     if class_name_lower.startswith("solid_"):
         try:
             number = int(class_name_lower.split("_")[1])
             if 1 <= number <= 7:
-                return BallType.SOLID, number
+                return BallType.OTHER, None  # No longer track specific numbers
         except (ValueError, IndexError):
             pass
 
-    # Handle "stripe_N" format
+    # Handle "stripe_N" format - now maps to OTHER
     if class_name_lower.startswith("stripe_"):
         try:
             number = int(class_name_lower.split("_")[1])
             if 9 <= number <= 15:
-                return BallType.STRIPE, number
+                return BallType.OTHER, None  # No longer track specific numbers
         except (ValueError, IndexError):
             pass
 
@@ -94,10 +93,8 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
                 return BallType.CUE, None
             elif number == 8:
                 return BallType.EIGHT, 8
-            elif 1 <= number <= 7:
-                return BallType.SOLID, number
-            elif 9 <= number <= 15:
-                return BallType.STRIPE, number
+            elif 1 <= number <= 15:  # All other numbered balls -> OTHER
+                return BallType.OTHER, None
         except (ValueError, IndexError):
             pass
 
@@ -112,10 +109,8 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
                 return BallType.CUE, None
             elif number == 8:
                 return BallType.EIGHT, 8
-            elif 1 <= number <= 7:
-                return BallType.SOLID, number
-            elif 9 <= number <= 15:
-                return BallType.STRIPE, number
+            elif 1 <= number <= 15:  # All other numbered balls -> OTHER
+                return BallType.OTHER, None
         except ValueError:
             pass
 
@@ -128,27 +123,30 @@ def map_class_id_to_ball_type(
 ) -> tuple[BallType, Optional[int]]:
     """Map YOLO class ID to ball type and number.
 
+    Simplified mapping - no solid/stripe distinction:
+    - 0 = cue
+    - 8 = eight
+    - 1-7, 9-15 = other (all numbered balls)
+
     Args:
         class_id: YOLO class ID (integer)
         class_names: Optional list of class names (index = class_id)
 
     Returns:
-        Tuple of (BallType, ball_number)
+        Tuple of (BallType, ball_number) - ball_number is always None for OTHER type
     """
     # If class names provided, use them
     if class_names and 0 <= class_id < len(class_names):
         return parse_ball_class_name(class_names[class_id])
 
-    # Fallback: assume simple mapping where class_id = ball_number
-    # 0 = cue, 1-7 = solids, 8 = eight, 9-15 = stripes
+    # Fallback: simplified mapping (no solid/stripe distinction)
+    # 0 = cue, 8 = eight, all others = other
     if class_id == 0:
         return BallType.CUE, None
     elif class_id == 8:
         return BallType.EIGHT, 8
-    elif 1 <= class_id <= 7:
-        return BallType.SOLID, class_id
-    elif 9 <= class_id <= 15:
-        return BallType.STRIPE, class_id
+    elif 1 <= class_id <= 15:
+        return BallType.OTHER, None  # All other numbered balls
     else:
         logger.warning(f"Unknown class ID: {class_id}, defaulting to UNKNOWN")
         return BallType.UNKNOWN, None

@@ -11,6 +11,8 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.cluster import KMeans
 
+from backend.config.manager import config_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -148,18 +150,20 @@ class ColorCalibrator:
         self.cache_dir = Path(cache_dir) if cache_dir else Path.cwd() / "color_profiles"
         self.cache_dir.mkdir(exist_ok=True)
 
-        # Standard ball colors (approximate HSV ranges)
-        self.default_ball_colors = {
-            "cue": ColorThresholds(0, 180, 0, 30, 200, 255),  # White/off-white
-            "yellow": ColorThresholds(20, 30, 100, 255, 100, 255),
-            "blue": ColorThresholds(100, 120, 100, 255, 50, 255),
-            "red": ColorThresholds(0, 10, 100, 255, 50, 255),
-            "purple": ColorThresholds(130, 150, 100, 255, 50, 255),
-            "orange": ColorThresholds(10, 20, 100, 255, 100, 255),
-            "green": ColorThresholds(50, 70, 100, 255, 50, 255),
-            "brown": ColorThresholds(10, 20, 50, 150, 20, 100),
-            "black": ColorThresholds(0, 180, 0, 255, 0, 50),
-        }
+        # Standard ball colors (approximate HSV ranges) - load from config
+        default_ball_colors_config = config_manager.get(
+            "vision.calibration.color.default_ball_colors", {}
+        )
+        self.default_ball_colors = {}
+        for ball_type, thresholds in default_ball_colors_config.items():
+            self.default_ball_colors[ball_type] = ColorThresholds(
+                hue_min=thresholds.get("hue_min", 0),
+                hue_max=thresholds.get("hue_max", 180),
+                saturation_min=thresholds.get("saturation_min", 0),
+                saturation_max=thresholds.get("saturation_max", 255),
+                value_min=thresholds.get("value_min", 0),
+                value_max=thresholds.get("value_max", 255),
+            )
 
         self.current_profile: Optional[ColorProfile] = None
         self.color_samples: list[ColorSample] = []
@@ -182,8 +186,11 @@ class ColorCalibrator:
         if table_mask is None:
             h, w = hsv.shape[:2]
             table_mask = np.zeros((h, w), dtype=np.uint8)
-            # Use center 60% of image
-            margin_h, margin_w = int(h * 0.2), int(w * 0.2)
+            # Use center region with configurable margin
+            margin_ratio = config_manager.get(
+                "vision.calibration.color.auto_calibration.table_mask_margin_ratio", 0.2
+            )
+            margin_h, margin_w = int(h * margin_ratio), int(w * margin_ratio)
             table_mask[margin_h : h - margin_h, margin_w : w - margin_w] = 255
 
         # Extract table pixels
@@ -193,10 +200,29 @@ class ColorCalibrator:
             logger.warning(
                 "No table pixels found, using default green table thresholds"
             )
-            return ColorThresholds(45, 75, 40, 255, 40, 200)
+            default_table = config_manager.get(
+                "vision.calibration.color.default_table_color", {}
+            )
+            return ColorThresholds(
+                hue_min=default_table.get("hue_min", 45),
+                hue_max=default_table.get("hue_max", 75),
+                saturation_min=default_table.get("saturation_min", 40),
+                saturation_max=default_table.get("saturation_max", 255),
+                value_min=default_table.get("value_min", 40),
+                value_max=default_table.get("value_max", 200),
+            )
 
         # Use K-means to find dominant color
-        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        n_clusters = config_manager.get(
+            "vision.calibration.color.auto_calibration.kmeans_clusters", 3
+        )
+        random_state = config_manager.get(
+            "vision.calibration.color.auto_calibration.kmeans_random_state", 42
+        )
+        n_init = config_manager.get(
+            "vision.calibration.color.auto_calibration.kmeans_n_init", 10
+        )
+        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=n_init)
         clusters = kmeans.fit(table_pixels.reshape(-1, 3))
 
         # Find the largest cluster (most common color)
@@ -211,13 +237,16 @@ class ColorCalibrator:
         mean_hsv = np.mean(dominant_pixels, axis=0)
         std_hsv = np.std(dominant_pixels, axis=0)
 
-        # Set thresholds based on statistics (±2 standard deviations)
-        hue_min = max(0, int(mean_hsv[0] - 2 * std_hsv[0]))
-        hue_max = min(179, int(mean_hsv[0] + 2 * std_hsv[0]))
-        sat_min = max(0, int(mean_hsv[1] - 2 * std_hsv[1]))
-        sat_max = min(255, int(mean_hsv[1] + 2 * std_hsv[1]))
-        val_min = max(0, int(mean_hsv[2] - 2 * std_hsv[2]))
-        val_max = min(255, int(mean_hsv[2] + 2 * std_hsv[2]))
+        # Set thresholds based on statistics (±N standard deviations)
+        std_multiplier = config_manager.get(
+            "vision.calibration.color.auto_calibration.std_deviation_multiplier", 2
+        )
+        hue_min = max(0, int(mean_hsv[0] - std_multiplier * std_hsv[0]))
+        hue_max = min(179, int(mean_hsv[0] + std_multiplier * std_hsv[0]))
+        sat_min = max(0, int(mean_hsv[1] - std_multiplier * std_hsv[1]))
+        sat_max = min(255, int(mean_hsv[1] + std_multiplier * std_hsv[1]))
+        val_min = max(0, int(mean_hsv[2] - std_multiplier * std_hsv[2]))
+        val_max = min(255, int(mean_hsv[2] + std_multiplier * std_hsv[2]))
 
         logger.info(
             f"Auto-calibrated table color: H({hue_min}-{hue_max}) S({sat_min}-{sat_max}) V({val_min}-{val_max})"
@@ -249,12 +278,24 @@ class ColorCalibrator:
             for x, y, w, h in rois:
                 roi_pixels = hsv[y : y + h, x : x + w].reshape(-1, 3)
                 # Filter out very dark or very light pixels (shadows/highlights)
+                min_value = config_manager.get(
+                    "vision.calibration.color.auto_calibration.pixel_filter_min_value",
+                    30,
+                )
+                max_value = config_manager.get(
+                    "vision.calibration.color.auto_calibration.pixel_filter_max_value",
+                    220,
+                )
                 valid_pixels = roi_pixels[
-                    (roi_pixels[:, 2] > 30) & (roi_pixels[:, 2] < 220)
+                    (roi_pixels[:, 2] > min_value) & (roi_pixels[:, 2] < max_value)
                 ]
                 all_pixels.extend(valid_pixels)
 
-            if len(all_pixels) < 100:
+            min_pixels = config_manager.get(
+                "vision.calibration.color.auto_calibration.min_pixels_for_calibration",
+                100,
+            )
+            if len(all_pixels) < min_pixels:
                 logger.warning(f"Not enough pixels for {ball_type}, using default")
                 ball_thresholds[ball_type] = self.default_ball_colors.get(
                     ball_type, ColorThresholds(0, 180, 0, 255, 0, 255)
@@ -264,14 +305,32 @@ class ColorCalibrator:
             pixels_array = np.array(all_pixels)
 
             # Use percentiles for robust threshold estimation
-            h_min, h_max = np.percentile(pixels_array[:, 0], [5, 95])
-            s_min, s_max = np.percentile(pixels_array[:, 1], [10, 95])
-            v_min, v_max = np.percentile(pixels_array[:, 2], [10, 95])
+            hue_percentiles = config_manager.get(
+                "vision.calibration.color.ball_calibration.percentiles.hue", [5, 95]
+            )
+            sat_percentiles = config_manager.get(
+                "vision.calibration.color.ball_calibration.percentiles.saturation",
+                [10, 95],
+            )
+            val_percentiles = config_manager.get(
+                "vision.calibration.color.ball_calibration.percentiles.value", [10, 95]
+            )
+            h_min, h_max = np.percentile(pixels_array[:, 0], hue_percentiles)
+            s_min, s_max = np.percentile(pixels_array[:, 1], sat_percentiles)
+            v_min, v_max = np.percentile(pixels_array[:, 2], val_percentiles)
 
             # Handle hue wraparound for red colors
-            if h_max - h_min > 90:  # Likely spans 0 boundary
+            wraparound_threshold = config_manager.get(
+                "vision.calibration.color.ball_calibration.hue_wraparound_threshold", 90
+            )
+            hue_shift_threshold = config_manager.get(
+                "vision.calibration.color.hue_shift_threshold", 90
+            )
+            if h_max - h_min > wraparound_threshold:  # Likely spans 0 boundary
                 h_values = pixels_array[:, 0]
-                h_values_shifted = np.where(h_values < 90, h_values + 180, h_values)
+                h_values_shifted = np.where(
+                    h_values < hue_shift_threshold, h_values + 180, h_values
+                )
                 h_mean_shifted = np.mean(h_values_shifted)
                 h_std_shifted = np.std(h_values_shifted)
 
@@ -344,18 +403,46 @@ class ColorCalibrator:
     ) -> ColorThresholds:
         """Adapt individual color thresholds for lighting changes."""
         # Adjust value thresholds based on lighting ratio
+        bright_min_factor = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.bright_value_min_factor", 0.8
+        )
+        bright_max_factor = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.bright_value_max_factor", 0.9
+        )
+        dark_min_factor = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.dark_value_min_factor", 1.2
+        )
+        dark_max_factor = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.dark_value_max_factor", 1.1
+        )
+
         if light_ratio > 1.0:  # Brighter lighting
-            v_min = min(255, int(original.value_min * light_ratio * 0.8))
-            v_max = min(255, int(original.value_max * light_ratio * 0.9))
+            v_min = min(255, int(original.value_min * light_ratio * bright_min_factor))
+            v_max = min(255, int(original.value_max * light_ratio * bright_max_factor))
         else:  # Darker lighting
-            v_min = max(0, int(original.value_min * light_ratio * 1.2))
-            v_max = max(0, int(original.value_max * light_ratio * 1.1))
+            v_min = max(0, int(original.value_min * light_ratio * dark_min_factor))
+            v_max = max(0, int(original.value_max * light_ratio * dark_max_factor))
 
         # Slightly adjust saturation for extreme lighting changes
-        if light_ratio > 1.5:  # Very bright
-            s_min = max(0, original.saturation_min - 20)
-        elif light_ratio < 0.6:  # Very dark
-            s_min = max(0, original.saturation_min - 10)
+        very_bright_threshold = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.very_bright_threshold", 1.5
+        )
+        very_dark_threshold = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.very_dark_threshold", 0.6
+        )
+        sat_adj_bright = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.saturation_adjustment_bright",
+            -20,
+        )
+        sat_adj_dark = config_manager.get(
+            "vision.calibration.color.lighting_adaptation.saturation_adjustment_dark",
+            -10,
+        )
+
+        if light_ratio > very_bright_threshold:  # Very bright
+            s_min = max(0, original.saturation_min + sat_adj_bright)
+        elif light_ratio < very_dark_threshold:  # Very dark
+            s_min = max(0, original.saturation_min + sat_adj_dark)
         else:
             s_min = original.saturation_min
 
@@ -514,7 +601,10 @@ class ColorCalibrator:
                 )
 
                 # Iteratively tighten thresholds
-                for _iteration in range(10):
+                max_iterations = config_manager.get(
+                    "vision.calibration.color.threshold_optimization.max_iterations", 10
+                )
+                for _iteration in range(max_iterations):
                     mask = thresholds.apply_mask(hsv)
 
                     # Check how many negative pixels are included
@@ -531,13 +621,17 @@ class ColorCalibrator:
                     range_s = thresholds.saturation_max - thresholds.saturation_min
                     range_v = thresholds.value_max - thresholds.value_min
 
+                    tightening_factor = config_manager.get(
+                        "vision.calibration.color.threshold_optimization.range_tightening_factor",
+                        0.05,
+                    )
                     thresholds = ColorThresholds(
-                        thresholds.hue_min + int(range_h * 0.05),
-                        thresholds.hue_max - int(range_h * 0.05),
-                        thresholds.saturation_min + int(range_s * 0.05),
-                        thresholds.saturation_max - int(range_s * 0.05),
-                        thresholds.value_min + int(range_v * 0.05),
-                        thresholds.value_max - int(range_v * 0.05),
+                        thresholds.hue_min + int(range_h * tightening_factor),
+                        thresholds.hue_max - int(range_h * tightening_factor),
+                        thresholds.saturation_min + int(range_s * tightening_factor),
+                        thresholds.saturation_max - int(range_s * tightening_factor),
+                        thresholds.value_min + int(range_v * tightening_factor),
+                        thresholds.value_max - int(range_v * tightening_factor),
                     )
 
                 optimized_thresholds[obj_name] = thresholds

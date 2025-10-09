@@ -61,51 +61,75 @@ class TableDetector:
         """Initialize table detector with configuration."""
         self.config = config
 
-        # Default configuration values
-        self.table_color_ranges = config.get(
-            "table_color_ranges",
-            {
-                "green": {
-                    "lower": np.array([35, 40, 40]),
-                    "upper": np.array([85, 255, 255]),
-                },
-                "blue": {
-                    "lower": np.array([100, 40, 40]),
-                    "upper": np.array([130, 255, 255]),
-                },
-                "red": {
-                    "lower": np.array([0, 40, 40]),
-                    "upper": np.array([10, 255, 255]),
-                },
-            },
-        )
+        # Load color ranges configuration
+        color_ranges_config = config.get("color_ranges", {})
+        self.table_color_ranges = {}
+        for color_name, color_range in color_ranges_config.items():
+            self.table_color_ranges[color_name] = {
+                "lower": np.array(color_range.get("lower_hsv", [0, 0, 0])),
+                "upper": np.array(color_range.get("upper_hsv", [179, 255, 255])),
+            }
 
         # Table geometry constraints
-        self.expected_aspect_ratio = config.get(
+        geometry_config = config.get("geometry", {})
+        self.expected_aspect_ratio = geometry_config.get(
             "expected_aspect_ratio", 2.0
         )  # Standard 9ft table is 2:1
-        self.aspect_ratio_tolerance = config.get("aspect_ratio_tolerance", 0.3)
-        self.side_length_tolerance = config.get(
+        self.aspect_ratio_tolerance = geometry_config.get("aspect_ratio_tolerance", 0.3)
+        self.side_length_tolerance = geometry_config.get(
             "side_length_tolerance", 0.1
-        )  # Max difference between opposite sides (10% default)
-        self.min_table_area_ratio = config.get(
+        )  # Max difference between opposite sides
+        self.min_table_area_ratio = geometry_config.get(
             "min_table_area_ratio", 0.1
-        )  # Minimum 10% of image
-        self.max_table_area_ratio = config.get(
+        )  # Minimum % of image
+        self.max_table_area_ratio = geometry_config.get(
             "max_table_area_ratio", 0.9
-        )  # Maximum 90% of image
+        )  # Maximum % of image
 
         # Edge detection parameters
-        self.canny_low = config.get("canny_low", 50)
-        self.canny_high = config.get("canny_high", 150)
-        self.contour_epsilon_factor = config.get("contour_epsilon_factor", 0.02)
+        edge_config = config.get("edge_detection", {})
+        self.canny_low = edge_config.get("canny_low_threshold", 50)
+        self.canny_high = edge_config.get("canny_high_threshold", 150)
+        self.contour_epsilon_factor = edge_config.get("contour_epsilon_factor", 0.02)
+        self.contour_epsilon_multipliers = edge_config.get(
+            "contour_epsilon_multipliers", [0.01, 0.03, 0.04, 0.05]
+        )
+
+        # Corner refinement parameters
+        corner_config = config.get("corner_refinement", {})
+        self.corner_window_size = corner_config.get("window_size", 5)
+        self.corner_max_iterations = corner_config.get("max_iterations", 30)
+        self.corner_epsilon = corner_config.get("epsilon", 0.001)
 
         # Pocket detection parameters
-        self.pocket_color_threshold = config.get(
-            "pocket_color_threshold", 30
-        )  # Dark threshold
-        self.min_pocket_area = config.get("min_pocket_area", 100)
-        self.max_pocket_area = config.get("max_pocket_area", 2000)
+        pocket_config = config.get("pocket_detection", {})
+        self.pocket_color_threshold = pocket_config.get("color_threshold", 30)
+        self.min_pocket_area = pocket_config.get("min_area", 100)
+        self.max_pocket_area = pocket_config.get("max_area", 2000)
+        self.min_pocket_confidence = pocket_config.get("min_confidence", 0.5)
+        self.max_expected_pocket_distance = pocket_config.get(
+            "max_expected_distance", 100
+        )
+
+        # Morphology parameters
+        morphology_config = config.get("morphology", {})
+        large_kernel = morphology_config.get("large_kernel_size", [5, 5])
+        small_kernel = morphology_config.get("small_kernel_size", [3, 3])
+        self.large_kernel = tuple(large_kernel)
+        self.small_kernel = tuple(small_kernel)
+
+        # Temporal stability parameters
+        temporal_config = config.get("temporal_stability", {})
+        self.blending_alpha = temporal_config.get("blending_alpha", 0.7)
+        self.min_previous_confidence = temporal_config.get(
+            "min_previous_confidence", 0.5
+        )
+
+        # Confidence weights
+        confidence_config = config.get("confidence_weights", {})
+        self.confidence_weight_geometry = confidence_config.get("geometry", 0.4)
+        self.confidence_weight_pockets = confidence_config.get("pockets", 0.3)
+        self.confidence_weight_surface = confidence_config.get("surface", 0.3)
 
         # Debug settings
         self.debug_mode = config.get("debug", False)
@@ -167,7 +191,7 @@ class TableDetector:
             mask = cv2.inRange(hsv, color_range["lower"], color_range["upper"])
 
             # Apply morphological operations to clean up the mask
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, self.large_kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
@@ -220,7 +244,7 @@ class TableDetector:
         dark_mask = cv2.bitwise_and(dark_mask, table_mask)
 
         # Apply morphological operations
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, self.small_kernel)
         dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_CLOSE, kernel)
 
         if self.debug_mode:
@@ -252,7 +276,7 @@ class TableDetector:
                     center, corner_positions
                 )
 
-                if confidence > 0.5:  # Minimum confidence threshold
+                if confidence > self.min_pocket_confidence:
                     # Calculate effective radius
                     radius = math.sqrt(area / math.pi)
 
@@ -385,7 +409,7 @@ class TableDetector:
             combined_mask = cv2.bitwise_or(combined_mask, mask)
 
         # Clean up the mask
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, self.large_kernel)
         combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
         combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel)
 
@@ -422,7 +446,7 @@ class TableDetector:
 
         # If we don't get exactly 4 points, try different epsilon values
         if len(approx) != 4:
-            for epsilon_mult in [0.01, 0.03, 0.04, 0.05]:
+            for epsilon_mult in self.contour_epsilon_multipliers:
                 epsilon = epsilon_mult * cv2.arcLength(contour, True)
                 approx = cv2.approxPolyDP(contour, epsilon, True)
                 if len(approx) == 4:
@@ -486,16 +510,16 @@ class TableDetector:
         self,
         gray: NDArray[np.float64],
         corner: NDArray[np.float64],
-        window_size: int = 5,
     ) -> NDArray[np.float64]:
         """Refine corner position to sub-pixel accuracy."""
         x, y = int(corner[0]), int(corner[1])
 
         # Define search window
-        half_window = window_size // 2
+        half_window = self.corner_window_size // 2
         x1, y1 = max(0, x - half_window), max(0, y - half_window)
-        x2, y2 = min(gray.shape[1], x + half_window + 1), min(
-            gray.shape[0], y + half_window + 1
+        x2, y2 = (
+            min(gray.shape[1], x + half_window + 1),
+            min(gray.shape[0], y + half_window + 1),
         )
 
         if x2 - x1 < 3 or y2 - y1 < 3:
@@ -510,7 +534,11 @@ class TableDetector:
             np.array([[corner]], dtype=np.float32),
             (half_window, half_window),
             (-1, -1),
-            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001),
+            (
+                cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+                self.corner_max_iterations,
+                self.corner_epsilon,
+            ),
         )
 
         return corners_refined[0][0]
@@ -609,8 +637,7 @@ class TableDetector:
             pocket_type = PocketType.SIDE
 
         # Calculate confidence based on distance (closer = higher confidence)
-        max_expected_distance = 100  # pixels
-        confidence = max(0.0, 1.0 - (min_distance / max_expected_distance))
+        confidence = max(0.0, 1.0 - (min_distance / self.max_expected_pocket_distance))
 
         return pocket_type, confidence
 
@@ -664,9 +691,9 @@ class TableDetector:
 
         # Weighted average
         overall_confidence = (
-            geometry_confidence * 0.4
-            + pocket_confidence * 0.3
-            + surface_confidence * 0.3
+            geometry_confidence * self.confidence_weight_geometry
+            + pocket_confidence * self.confidence_weight_pockets
+            + surface_confidence * self.confidence_weight_surface
         )
 
         return overall_confidence
@@ -700,13 +727,12 @@ class TableDetector:
         """Validate if previous detection is still valid for current frame."""
         # Simple validation - check if the previous corners still make sense
         # This could be enhanced with more sophisticated tracking
-        return previous.confidence > 0.5
+        return previous.confidence > self.min_previous_confidence
 
     def _blend_detections(
         self,
         current: TableDetectionResult,
         previous: TableDetectionResult,
-        alpha: float = 0.7,
     ) -> TableDetectionResult:
         """Blend current and previous detections for temporal stability."""
         # Simple blending of corner positions
@@ -717,8 +743,12 @@ class TableDetector:
 
         blended_corners = []
         for curr, prev in zip(current_corners, previous_corners):
-            blended_x = alpha * curr[0] + (1 - alpha) * prev[0]
-            blended_y = alpha * curr[1] + (1 - alpha) * prev[1]
+            blended_x = (
+                self.blending_alpha * curr[0] + (1 - self.blending_alpha) * prev[0]
+            )
+            blended_y = (
+                self.blending_alpha * curr[1] + (1 - self.blending_alpha) * prev[1]
+            )
             blended_corners.append((blended_x, blended_y))
 
         blended_table_corners = TableCorners(

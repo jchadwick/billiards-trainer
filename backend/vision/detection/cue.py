@@ -99,43 +99,128 @@ class CueDetector:
         self.logger = logging.getLogger(__name__)
         self.yolo_detector = yolo_detector
 
-        # Detection parameters
-        self.min_cue_length = config.get("min_cue_length", 150)
-        self.max_cue_length = config.get("max_cue_length", 800)
-        self.min_line_thickness = config.get("min_line_thickness", 3)
-        self.max_line_thickness = config.get("max_line_thickness", 25)
+        # Geometry parameters
+        geometry = config.get("geometry", {})
+        self.min_cue_length = geometry.get("min_cue_length", 150)
+        self.max_cue_length = geometry.get("max_cue_length", 800)
+        self.min_line_thickness = geometry.get("min_line_thickness", 3)
+        self.max_line_thickness = geometry.get("max_line_thickness", 25)
+        self.ball_radius = geometry.get("ball_radius", 15)
 
-        # Line detection thresholds
-        self.hough_threshold = config.get("hough_threshold", 100)
-        self.hough_min_line_length = config.get("hough_min_line_length", 100)
-        self.hough_max_line_gap = config.get("hough_max_line_gap", 20)
+        # Hough transform parameters
+        hough = config.get("hough", {})
+        self.hough_threshold = hough.get("threshold", 100)
+        self.hough_min_line_length = hough.get("min_line_length", 100)
+        self.hough_max_line_gap = hough.get("max_line_gap", 20)
+        self.hough_rho = hough.get("rho", 1)
+        self.hough_theta_divisor = hough.get("theta_divisor", 180)
 
         # LSD parameters
-        self.lsd_scale = config.get("lsd_scale", 0.8)
-        self.lsd_sigma = config.get("lsd_sigma", 0.6)
-        self.lsd_quant = config.get("lsd_quant", 2.0)
+        lsd = config.get("lsd", {})
+        self.lsd_scale = lsd.get("scale", 0.8)
+        self.lsd_sigma = lsd.get("sigma", 0.6)
+        self.lsd_quant = lsd.get("quant", 2.0)
+        self.lsd_ang_th = lsd.get("ang_th", 22.5)
+        self.lsd_log_eps = lsd.get("log_eps", 0)
+        self.lsd_density_th = lsd.get("density_th", 0.7)
+        self.lsd_n_bins = lsd.get("n_bins", 1024)
 
-        # Motion analysis
-        self.velocity_threshold = config.get("velocity_threshold", 5.0)
-        self.acceleration_threshold = config.get("acceleration_threshold", 2.0)
-        self.striking_velocity_threshold = config.get(
+        # Edge detection parameters
+        edge = config.get("edge_detection", {})
+        self.canny_low_threshold = edge.get("canny_low_threshold", 50)
+        self.canny_high_threshold = edge.get("canny_high_threshold", 150)
+        self.canny_aperture_size = edge.get("canny_aperture_size", 3)
+        self.gradient_threshold = edge.get("gradient_threshold", 20)
+
+        # Preprocessing parameters
+        preproc = config.get("preprocessing", {})
+        self.gaussian_kernel_size = preproc.get("gaussian_kernel_size", 5)
+        self.gaussian_sigma = preproc.get("gaussian_sigma", 1.0)
+        self.clahe_clip_limit = preproc.get("clahe_clip_limit", 2.0)
+        self.clahe_tile_grid_size = preproc.get("clahe_tile_grid_size", 8)
+        self.morphology_kernel_size = preproc.get("morphology_kernel_size", 3)
+        self.morphology_horizontal_kernel = preproc.get(
+            "morphology_horizontal_kernel", [15, 3]
+        )
+        self.morphology_vertical_kernel = preproc.get(
+            "morphology_vertical_kernel", [3, 15]
+        )
+        self.morphology_diagonal_kernel_size = preproc.get(
+            "morphology_diagonal_kernel_size", 11
+        )
+        self.min_frame_sum = preproc.get("min_frame_sum", 1000)
+        self.min_contrast_std = preproc.get("min_contrast_std", 10)
+        self.min_morph_content = preproc.get("min_morph_content", 100)
+
+        # Motion analysis parameters
+        motion = config.get("motion", {})
+        self.velocity_threshold = motion.get("velocity_threshold", 5.0)
+        self.acceleration_threshold = motion.get("acceleration_threshold", 2.0)
+        self.striking_velocity_threshold = motion.get(
             "striking_velocity_threshold", 15.0
         )
+        self.position_movement_threshold = motion.get(
+            "position_movement_threshold", 10.0
+        )
+        self.angle_change_threshold = motion.get("angle_change_threshold", 5.0)
+        self.min_ball_speed = motion.get("min_ball_speed", 2.0)
 
         # Tracking parameters
-        self.max_tracking_distance = config.get("max_tracking_distance", 50)
-        self.tracking_history_size = config.get("tracking_history_size", 10)
-        self.confidence_decay = config.get("confidence_decay", 0.95)
+        tracking = config.get("tracking", {})
+        self.max_tracking_distance = tracking.get("max_tracking_distance", 50)
+        self.tracking_history_size = tracking.get("tracking_history_size", 10)
+        self.confidence_decay = tracking.get("confidence_decay", 0.95)
+        self.temporal_smoothing = tracking.get("temporal_smoothing", 0.7)
 
-        # Filtering parameters
-        self.min_detection_confidence = config.get("min_detection_confidence", 0.6)
-        self.temporal_smoothing = config.get("temporal_smoothing", 0.7)
-
-        # Background subtraction parameters
-        self.use_background_subtraction = config.get(
+        # Validation parameters
+        validation = config.get("validation", {})
+        self.min_detection_confidence = validation.get("min_detection_confidence", 0.6)
+        self.use_background_subtraction = validation.get(
             "use_background_subtraction", False
         )
-        self.background_threshold = config.get("background_threshold", 30)
+        self.background_threshold = validation.get("background_threshold", 30)
+        self.thickness_sample_count = validation.get("thickness_sample_count", 5)
+        self.max_thickness_search = validation.get("max_thickness_search", 30)
+        self.edge_margin = validation.get("edge_margin", 20)
+        self.position_edge_margin = validation.get("position_edge_margin", 10)
+
+        # Proximity parameters
+        proximity = config.get("proximity", {})
+        self.max_distance_to_cue_ball = proximity.get("max_distance_to_cue_ball", 40)
+        self.max_tip_distance = proximity.get("max_tip_distance", 300)
+        self.max_reasonable_distance = proximity.get("max_reasonable_distance", 200)
+        self.contact_threshold = proximity.get("contact_threshold", 30)
+        self.overlap_threshold = proximity.get("overlap_threshold", 50)
+        self.max_angle_overlap = proximity.get("max_angle_overlap", 30)
+
+        # Scoring parameters
+        scoring = config.get("scoring", {})
+        self.length_weight = scoring.get("length_weight", 0.3)
+        self.position_weight = scoring.get("position_weight", 0.2)
+        self.proximity_weight = scoring.get("proximity_weight", 0.3)
+        self.temporal_weight = scoring.get("temporal_weight", 0.2)
+        self.no_cue_ball_score = scoring.get("no_cue_ball_score", 0.15)
+        self.no_temporal_score = scoring.get("no_temporal_score", 0.1)
+        self.max_angle_change = scoring.get("max_angle_change", 45.0)
+        self.edge_penalty = scoring.get("edge_penalty", 0.2)
+        self.min_confidence_for_shot = scoring.get("min_confidence_for_shot", 0.9)
+
+        # Shot detection parameters
+        shot = config.get("shot_detection", {})
+        self.max_velocity = shot.get("max_velocity", 50.0)
+        self.english_deviation_angle = shot.get("english_deviation_angle", 30)
+        self.follow_draw_threshold = shot.get("follow_draw_threshold", 5)
+        self.center_offset_threshold = shot.get("center_offset_threshold", 5)
+
+        # Advanced parameters
+        advanced = config.get("advanced", {})
+        self.enable_yolo_detection = advanced.get("enable_yolo_detection", True)
+        self.enable_lsd_detection = advanced.get("enable_lsd_detection", True)
+        self.enable_morphological_detection = advanced.get(
+            "enable_morphological_detection", True
+        )
+        self.top_candidates_to_validate = advanced.get("top_candidates_to_validate", 3)
+        self.max_cues_to_detect = advanced.get("max_cues_to_detect", 2)
 
         # Internal state
         self.previous_cues: deque = deque(maxlen=self.tracking_history_size)
@@ -154,10 +239,10 @@ class CueDetector:
                 scale=self.lsd_scale,
                 sigma_scale=self.lsd_sigma,
                 quant=self.lsd_quant,
-                ang_th=22.5,
-                log_eps=0,
-                density_th=0.7,
-                n_bins=1024,
+                ang_th=self.lsd_ang_th,
+                log_eps=self.lsd_log_eps,
+                density_th=self.lsd_density_th,
+                n_bins=self.lsd_n_bins,
             )
         except Exception as e:
             self.logger.warning(f"LSD initialization failed: {e}")
@@ -193,14 +278,14 @@ class CueDetector:
 
             # Fallback to traditional line-based detection
             # Check if frame has sufficient content
-            if np.sum(frame) < 1000:  # Very dark/empty frame
+            if np.sum(frame) < self.min_frame_sum:  # Very dark/empty frame
                 return None
 
             # Preprocess frame
             processed_frame = self._preprocess_frame(frame)
 
             # Check if preprocessed frame has sufficient contrast
-            if np.std(processed_frame) < 10:  # Very low contrast
+            if np.std(processed_frame) < self.min_contrast_std:  # Very low contrast
                 return None
 
             # Detect lines using multiple methods
@@ -294,11 +379,18 @@ class CueDetector:
             angle_rad = np.radians(angle)
 
             # Use the line center if available (from Hough line detection), otherwise use bbox center
-            if hasattr(yolo_detection, 'line_center') and yolo_detection.line_center is not None:
+            if (
+                hasattr(yolo_detection, "line_center")
+                and yolo_detection.line_center is not None
+            ):
                 center_x, center_y = yolo_detection.line_center
-                self.logger.debug(f"Using Hough line center: ({center_x:.1f}, {center_y:.1f})")
+                self.logger.debug(
+                    f"Using Hough line center: ({center_x:.1f}, {center_y:.1f})"
+                )
             else:
-                self.logger.debug(f"Using bbox center: ({center_x:.1f}, {center_y:.1f})")
+                self.logger.debug(
+                    f"Using bbox center: ({center_x:.1f}, {center_y:.1f})"
+                )
 
             # Calculate two endpoints of the cue based on center and angle
             # Endpoint 1: center + (length/2) in angle direction
@@ -372,7 +464,10 @@ class CueDetector:
             )
 
             # Morphological operations to clean up
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_RECT,
+                (self.morphology_kernel_size, self.morphology_kernel_size),
+            )
             fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
             fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
 
@@ -380,10 +475,17 @@ class CueDetector:
             gray = cv2.bitwise_and(gray, gray, mask=fg_mask)
 
         # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (5, 5), 1.0)
+        blurred = cv2.GaussianBlur(
+            gray,
+            (self.gaussian_kernel_size, self.gaussian_kernel_size),
+            self.gaussian_sigma,
+        )
 
         # Enhance contrast
-        enhanced = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(blurred)
+        enhanced = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_limit,
+            tileGridSize=(self.clahe_tile_grid_size, self.clahe_tile_grid_size),
+        ).apply(blurred)
 
         return enhanced
 
@@ -422,13 +524,18 @@ class CueDetector:
         """Detect lines using Canny edge detection + Probabilistic Hough Transform."""
         try:
             # Canny edge detection
-            edges = cv2.Canny(frame, 50, 150, apertureSize=3)
+            edges = cv2.Canny(
+                frame,
+                self.canny_low_threshold,
+                self.canny_high_threshold,
+                apertureSize=self.canny_aperture_size,
+            )
 
             # Probabilistic Hough Line Transform
             lines = cv2.HoughLinesP(
                 edges,
-                rho=1,
-                theta=np.pi / 180,
+                rho=self.hough_rho,
+                theta=np.pi / self.hough_theta_divisor,
                 threshold=self.hough_threshold,
                 minLineLength=self.hough_min_line_length,
                 maxLineGap=self.hough_max_line_gap,
@@ -467,14 +574,30 @@ class CueDetector:
         try:
             # Create morphological kernels for different orientations
             kernels = [
-                cv2.getStructuringElement(cv2.MORPH_RECT, (15, 3)),  # Horizontal
-                cv2.getStructuringElement(cv2.MORPH_RECT, (3, 15)),  # Vertical
+                cv2.getStructuringElement(
+                    cv2.MORPH_RECT, tuple(self.morphology_horizontal_kernel)
+                ),  # Horizontal
+                cv2.getStructuringElement(
+                    cv2.MORPH_RECT, tuple(self.morphology_vertical_kernel)
+                ),  # Vertical
             ]
 
             # Create diagonal kernels
-            diag1 = np.zeros((11, 11), dtype=np.uint8)
+            diag1 = np.zeros(
+                (
+                    self.morphology_diagonal_kernel_size,
+                    self.morphology_diagonal_kernel_size,
+                ),
+                dtype=np.uint8,
+            )
             np.fill_diagonal(diag1, 1)
-            diag2 = np.zeros((11, 11), dtype=np.uint8)
+            diag2 = np.zeros(
+                (
+                    self.morphology_diagonal_kernel_size,
+                    self.morphology_diagonal_kernel_size,
+                ),
+                dtype=np.uint8,
+            )
             np.fill_diagonal(np.fliplr(diag2), 1)
             kernels.extend([diag1, diag2])
 
@@ -485,7 +608,9 @@ class CueDetector:
                 opened = cv2.morphologyEx(frame, cv2.MORPH_OPEN, kernel)
 
                 # Only proceed if we have meaningful content
-                if np.sum(opened) < 100:  # Skip if very little content
+                if (
+                    np.sum(opened) < self.min_morph_content
+                ):  # Skip if very little content
                     continue
 
                 # Find contours
@@ -623,7 +748,9 @@ class CueDetector:
 
         # Maximum distance from line to cue ball center (in pixels)
         # This accounts for cue ball radius + some tolerance
-        max_distance = 40  # Adjust based on typical ball size + tolerance
+        max_distance = (
+            self.max_distance_to_cue_ball
+        )  # Adjust based on typical ball size + tolerance
 
         if distance_to_line > max_distance:
             return False
@@ -650,7 +777,7 @@ class CueDetector:
         )
 
         # Maximum distance from tip to cue ball (adjust based on typical aiming distance)
-        max_tip_distance = 300  # pixels
+        max_tip_distance = self.max_tip_distance  # pixels
 
         return tip_distance <= max_tip_distance
 
@@ -677,11 +804,11 @@ class CueDetector:
 
         # Length score (prefer longer lines)
         length_score = min(1.0, length / self.max_cue_length)
-        confidence += 0.3 * length_score
+        confidence += self.length_weight * length_score
 
         # Position score (prefer lines not at frame edges)
         h, w = frame_shape[:2]
-        edge_margin = 20
+        edge_margin = self.edge_margin
 
         edge_penalty = 0.0
         if (
@@ -694,9 +821,9 @@ class CueDetector:
             or y2 < edge_margin
             or y2 > h - edge_margin
         ):
-            edge_penalty = 0.2
+            edge_penalty = self.edge_penalty
 
-        confidence += 0.2 * (1.0 - edge_penalty)
+        confidence += self.position_weight * (1.0 - edge_penalty)
 
         # Cue ball proximity score
         if cue_ball_pos is not None:
@@ -704,12 +831,14 @@ class CueDetector:
 
             # Distance to line
             line_dist = self._point_to_line_distance((cx, cy), line)
-            max_reasonable_distance = 200
+            max_reasonable_distance = self.max_reasonable_distance
 
             proximity_score = max(0.0, 1.0 - line_dist / max_reasonable_distance)
-            confidence += 0.3 * proximity_score
+            confidence += self.proximity_weight * proximity_score
         else:
-            confidence += 0.15  # Neutral score when no cue ball position
+            confidence += (
+                self.no_cue_ball_score
+            )  # Neutral score when no cue ball position
 
         # Temporal consistency score (if we have previous detections)
         if self.previous_cues:
@@ -722,7 +851,9 @@ class CueDetector:
             if angle_diff > 180:
                 angle_diff = 360 - angle_diff
 
-            angle_score = max(0.0, 1.0 - angle_diff / 45.0)  # Penalize >45° changes
+            angle_score = max(
+                0.0, 1.0 - angle_diff / self.max_angle_change
+            )  # Penalize >max changes
 
             # Position consistency
             tip_dist = np.sqrt(
@@ -732,9 +863,9 @@ class CueDetector:
             position_score = max(0.0, 1.0 - tip_dist / self.max_tracking_distance)
 
             temporal_score = 0.5 * angle_score + 0.5 * position_score
-            confidence += 0.2 * temporal_score
+            confidence += self.temporal_weight * temporal_score
         else:
-            confidence += 0.1  # Neutral score for first detection
+            confidence += self.no_temporal_score  # Neutral score for first detection
 
         return min(1.0, confidence)
 
@@ -782,7 +913,9 @@ class CueDetector:
         # Additional validation for top candidates
         validated_candidates = []
 
-        for candidate in candidates[:3]:  # Check top 3 candidates
+        for candidate in candidates[
+            : self.top_candidates_to_validate
+        ]:  # Check top candidates
             if self._validate_cue_candidate(candidate, frame):
                 validated_candidates.append(candidate)
 
@@ -841,7 +974,7 @@ class CueDetector:
         perp_x, perp_y = -dir_y, dir_x
 
         valid_thickness_count = 0
-        sample_count = 5
+        sample_count = self.thickness_sample_count
 
         for i in range(sample_count):
             # Sample point along the line
@@ -879,7 +1012,7 @@ class CueDetector:
             gray = frame
 
         # Sample along perpendicular direction
-        max_search = 30
+        max_search = self.max_thickness_search
         intensities = []
 
         for offset in range(-max_search, max_search + 1):
@@ -896,7 +1029,7 @@ class CueDetector:
 
         # Find edges (significant intensity changes)
         gradient = np.gradient(intensities)
-        edges = np.where(np.abs(gradient) > 20)[0]
+        edges = np.where(np.abs(gradient) > self.gradient_threshold)[0]
 
         if len(edges) >= 2:
             # Distance between first and last significant edge
@@ -922,7 +1055,7 @@ class CueDetector:
         x2, y2 = cue.butt_position
         h, w = frame.shape[:2]
 
-        edge_margin = 10
+        edge_margin = self.position_edge_margin
 
         # Check if both endpoints are at frame edges (likely false positive)
         tip_at_edge = (
@@ -1080,14 +1213,14 @@ class CueDetector:
         )
 
         # Threshold for contact detection (adjust based on typical ball size)
-        contact_threshold = 30  # pixels
+        contact_threshold = self.contact_threshold  # pixels
 
         if distance > contact_threshold:
             return None
 
         # Check if cue ball started moving
         ball_speed = np.sqrt(cue_ball_velocity[0] ** 2 + cue_ball_velocity[1] ** 2)
-        if ball_speed < 2.0:  # Minimum speed to consider movement
+        if ball_speed < self.min_ball_speed:  # Minimum speed to consider movement
             return None
 
         # Get strike velocity - prioritize from cue state or tip velocity
@@ -1116,7 +1249,7 @@ class CueDetector:
             cue_ball_velocity_post=cue_ball_velocity,
             shot_type=self._classify_shot_type(cue, cue_ball_pos, cue_ball_velocity),
             confidence=min(
-                cue.confidence, 0.9
+                cue.confidence, self.min_confidence_for_shot
             ),  # Shot detection is inherently uncertain
         )
 
@@ -1144,7 +1277,7 @@ class CueDetector:
         dy = cue.tip_position[1] - cue_ball_pos[1]
 
         # Normalize to ball surface (assuming standard ball radius)
-        ball_radius = 15  # pixels (adjust based on actual detection)
+        ball_radius = self.ball_radius  # pixels (adjust based on actual detection)
         distance = np.sqrt(dx * dx + dy * dy)
 
         if distance == 0:
@@ -1167,7 +1300,7 @@ class CueDetector:
             Estimated force (0-100 scale)
         """
         # Simple linear mapping (could be improved with physics modeling)
-        max_velocity = 50.0  # pixels/frame
+        max_velocity = self.max_velocity  # pixels/frame
         force = min(100.0, (strike_velocity / max_velocity) * 100.0)
         return force
 
@@ -1203,7 +1336,7 @@ class CueDetector:
         angle_diff = np.degrees(np.arccos(np.clip(dot_product, -1, 1)))
 
         # Simple classification based on angle difference
-        if angle_diff > 30:
+        if angle_diff > self.english_deviation_angle:
             # Significant deviation suggests English
             cross_product = cue_dir_x * ball_dir_y - cue_dir_y * ball_dir_x
             if cross_product > 0:
@@ -1217,9 +1350,9 @@ class CueDetector:
             # Distance from center (positive = above center)
             center_offset = contact_point[1] - cue_ball_pos[1]
 
-            if center_offset < -5:  # Hit below center
+            if center_offset < -self.follow_draw_threshold:  # Hit below center
                 return ShotType.DRAW
-            elif center_offset > 5:  # Hit above center
+            elif center_offset > self.follow_draw_threshold:  # Hit above center
                 return ShotType.FOLLOW
             else:
                 return ShotType.STRAIGHT
@@ -1242,7 +1375,7 @@ class CueDetector:
         horizontal_offset = contact_point[0] - cue_ball_pos[0]
 
         # Normalize by ball radius
-        ball_radius = 15  # pixels
+        ball_radius = self.ball_radius  # pixels
         english = np.clip(horizontal_offset / ball_radius, -1.0, 1.0)
 
         return english
@@ -1265,7 +1398,7 @@ class CueDetector:
         vertical_offset = cue_ball_pos[1] - contact_point[1]
 
         # Normalize by ball radius
-        ball_radius = 15  # pixels
+        ball_radius = self.ball_radius  # pixels
         follow_draw = np.clip(vertical_offset / ball_radius, -1.0, 1.0)
 
         return follow_draw
@@ -1284,14 +1417,14 @@ class CueDetector:
         """
         try:
             # Check if frame has sufficient content
-            if np.sum(frame) < 1000:  # Very dark/empty frame
+            if np.sum(frame) < self.min_frame_sum:  # Very dark/empty frame
                 return []
 
             # Get all line candidates
             processed_frame = self._preprocess_frame(frame)
 
             # Check if preprocessed frame has sufficient contrast
-            if np.std(processed_frame) < 10:  # Very low contrast
+            if np.std(processed_frame) < self.min_contrast_std:  # Very low contrast
                 return []
 
             all_lines = self._detect_lines_multi_method(processed_frame)
@@ -1307,7 +1440,7 @@ class CueDetector:
 
             # Convert to base CueStick format and return top candidates
             result_cues = []
-            for extended_cue in unique_cues[:max_cues]:
+            for extended_cue in unique_cues[: self.max_cues_to_detect]:
                 base_cue = CueStick(
                     tip_position=extended_cue.tip_position,
                     angle=extended_cue.angle,
@@ -1339,7 +1472,7 @@ class CueDetector:
             return candidates
 
         unique_cues = []
-        overlap_threshold = 50  # pixels
+        overlap_threshold = self.overlap_threshold  # pixels
 
         for candidate in candidates:
             is_unique = True
@@ -1356,7 +1489,7 @@ class CueDetector:
                 if angle_diff > 180:
                     angle_diff = 360 - angle_diff
 
-                if tip_dist < overlap_threshold and angle_diff < 30:
+                if tip_dist < overlap_threshold and angle_diff < self.max_angle_overlap:
                     is_unique = False
                     break
 
@@ -1455,8 +1588,8 @@ class CueDetector:
             angle_change = 360 - angle_change
 
         # Movement threshold
-        position_threshold = 10.0  # pixels
-        angle_threshold = 5.0  # degrees
+        position_threshold = self.position_movement_threshold  # pixels
+        angle_threshold = self.angle_change_threshold  # degrees
 
         return tip_movement > position_threshold or angle_change > angle_threshold
 

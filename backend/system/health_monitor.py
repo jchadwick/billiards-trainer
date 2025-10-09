@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable, Optional
 
+from backend.config import config_manager
+
 try:
     import psutil
 except ImportError:
@@ -71,7 +73,11 @@ class HealthMonitor:
         self._lock = Lock()
         self._is_running = False
         self._monitor_task: Optional[asyncio.Task] = None
-        self._check_interval = 5.0  # seconds
+
+        # Load configuration values
+        self._check_interval = config_manager.get(
+            "api.health_monitor.check_interval", 5.0
+        )
 
         # Component references
         self._core_module = None
@@ -84,7 +90,7 @@ class HealthMonitor:
         self._system_health = SystemHealth(overall_status="healthy")
         self._component_health: dict[str, ComponentHealth] = {}
         self._health_history: list[SystemHealth] = []
-        self._max_history = 100
+        self._max_history = config_manager.get("api.health_monitor.max_history", 100)
 
         # Monitoring callbacks
         self._health_callbacks: list[Callable[[SystemHealth], None]] = []
@@ -94,7 +100,9 @@ class HealthMonitor:
         self._api_request_count = 0
         self._api_request_times: list[float] = []
         self._api_error_count = 0
-        self._max_request_times = 1000
+        self._max_request_times = config_manager.get(
+            "api.health_monitor.max_request_times", 1000
+        )
 
         logger.info("Health monitor initialized")
 
@@ -200,7 +208,10 @@ class HealthMonitor:
                 break
             except Exception as e:
                 logger.error(f"Error in health monitoring loop: {e}")
-                await asyncio.sleep(1.0)  # Brief pause before retry
+                error_retry_delay = config_manager.get(
+                    "api.health_monitor.error_retry_delay", 1.0
+                )
+                await asyncio.sleep(error_retry_delay)
 
     async def _check_all_components(self):
         """Check health of all registered components."""
@@ -246,25 +257,40 @@ class HealthMonitor:
                         healthy=True,
                     )
 
+                    avg_update_time_threshold = config_manager.get(
+                        "api.health_monitor.core_module.avg_update_time_threshold_ms",
+                        100.0,
+                    )
                     health.metrics["avg_update_time"] = HealthMetric(
                         name="avg_update_time",
                         value=metrics.avg_update_time * 1000,
                         unit="ms",
-                        healthy=metrics.avg_update_time < 0.1,  # Alert if >100ms
+                        healthy=metrics.avg_update_time * 1000
+                        < avg_update_time_threshold,
                     )
 
+                    avg_physics_time_threshold = config_manager.get(
+                        "api.health_monitor.core_module.avg_physics_time_threshold_ms",
+                        50.0,
+                    )
                     health.metrics["avg_physics_time"] = HealthMetric(
                         name="avg_physics_time",
                         value=metrics.avg_physics_time * 1000,
                         unit="ms",
-                        healthy=metrics.avg_physics_time < 0.05,  # Alert if >50ms
+                        healthy=metrics.avg_physics_time * 1000
+                        < avg_physics_time_threshold,
                     )
 
+                    avg_analysis_time_threshold = config_manager.get(
+                        "api.health_monitor.core_module.avg_analysis_time_threshold_ms",
+                        100.0,
+                    )
                     health.metrics["avg_analysis_time"] = HealthMetric(
                         name="avg_analysis_time",
                         value=metrics.avg_analysis_time * 1000,
                         unit="ms",
-                        healthy=metrics.avg_analysis_time < 0.1,  # Alert if >100ms
+                        healthy=metrics.avg_analysis_time * 1000
+                        < avg_analysis_time_threshold,
                     )
 
                     health.metrics["errors_count"] = HealthMetric(
@@ -275,15 +301,19 @@ class HealthMonitor:
                     )
 
                     # Update component status based on metrics
-                    if metrics.errors_count > 10:
+                    max_error_count = config_manager.get(
+                        "api.health_monitor.core_module.max_error_count", 10
+                    )
+                    if metrics.errors_count > max_error_count:
                         health.status = "unhealthy"
                         health.warnings.append(
                             f"High error count: {metrics.errors_count}"
                         )
                     elif (
-                        metrics.avg_update_time > 0.1
-                        or metrics.avg_physics_time > 0.05
-                        or metrics.avg_analysis_time > 0.1
+                        metrics.avg_update_time * 1000 > avg_update_time_threshold
+                        or metrics.avg_physics_time * 1000 > avg_physics_time_threshold
+                        or metrics.avg_analysis_time * 1000
+                        > avg_analysis_time_threshold
                     ):
                         health.status = "degraded"
                         health.warnings.append("Performance degradation detected")
@@ -319,7 +349,10 @@ class HealthMonitor:
                     if not validation_result.get("valid", False):
                         health.status = "degraded"
                         issues = validation_result.get("issues", [])
-                        health.warnings.extend(issues[:3])  # Limit warnings
+                        max_warnings = config_manager.get(
+                            "api.health_monitor.max_warnings", 3
+                        )
+                        health.warnings.extend(issues[:max_warnings])
 
                 except Exception as e:
                     logger.warning(f"Failed to validate core module state: {e}")
@@ -360,25 +393,35 @@ class HealthMonitor:
                         healthy=True,
                     )
 
+                    max_frames_dropped = config_manager.get(
+                        "api.health_monitor.vision_module.max_frames_dropped", 100
+                    )
                     health.metrics["frames_dropped"] = HealthMetric(
                         name="frames_dropped",
                         value=stats.get("frames_dropped", 0),
                         unit="count",
-                        healthy=stats.get("frames_dropped", 0) < 100,
+                        healthy=stats.get("frames_dropped", 0) < max_frames_dropped,
                     )
 
+                    max_processing_time = config_manager.get(
+                        "api.health_monitor.vision_module.max_processing_time_ms", 50.0
+                    )
                     health.metrics["avg_processing_time"] = HealthMetric(
                         name="avg_processing_time",
                         value=stats.get("avg_processing_time_ms", 0),
                         unit="ms",
-                        healthy=stats.get("avg_processing_time_ms", 0) < 50,
+                        healthy=stats.get("avg_processing_time_ms", 0)
+                        < max_processing_time,
                     )
 
+                    min_fps = config_manager.get(
+                        "api.health_monitor.vision_module.min_fps", 15.0
+                    )
                     health.metrics["avg_fps"] = HealthMetric(
                         name="avg_fps",
                         value=stats.get("avg_fps", 0),
                         unit="fps",
-                        healthy=stats.get("avg_fps", 0) > 15,  # Alert if FPS too low
+                        healthy=stats.get("avg_fps", 0) > min_fps,
                     )
 
                     health.metrics["is_running"] = HealthMetric(
@@ -394,13 +437,16 @@ class HealthMonitor:
                     )
 
                     # Detection accuracy metrics
+                    min_detection_accuracy = config_manager.get(
+                        "api.health_monitor.vision_module.min_detection_accuracy", 0.7
+                    )
                     detection_accuracy = stats.get("detection_accuracy", {})
                     for detection_type, accuracy in detection_accuracy.items():
                         health.metrics[f"{detection_type}_accuracy"] = HealthMetric(
                             name=f"{detection_type}_accuracy",
                             value=accuracy,
                             unit="ratio",
-                            healthy=accuracy > 0.7,  # Alert if accuracy below 70%
+                            healthy=accuracy > min_detection_accuracy,
                         )
 
                     # Update component status based on metrics
@@ -408,8 +454,8 @@ class HealthMonitor:
                         health.status = "unhealthy"
                         health.warnings.append("Camera not connected")
                     elif (
-                        stats.get("frames_dropped", 0) > 100
-                        or stats.get("avg_fps", 0) < 15
+                        stats.get("frames_dropped", 0) > max_frames_dropped
+                        or stats.get("avg_fps", 0) < min_fps
                     ):
                         health.status = "degraded"
                         health.warnings.append("Performance issues detected")
@@ -493,7 +539,10 @@ class HealthMonitor:
 
                     if not is_valid:
                         health.status = "degraded"
-                        health.warnings.extend(errors[:3])  # Limit warnings
+                        max_warnings = config_manager.get(
+                            "api.health_monitor.max_warnings", 3
+                        )
+                        health.warnings.extend(errors[:max_warnings])
 
                 except Exception as e:
                     logger.warning(f"Failed to validate configuration: {e}")
@@ -667,35 +716,53 @@ class HealthMonitor:
             )
 
             # CPU usage
-            cpu_percent = psutil.cpu_percent(interval=0.1)
+            cpu_check_interval = config_manager.get(
+                "api.health_monitor.system_resources.cpu_check_interval", 0.1
+            )
+            cpu_percent = psutil.cpu_percent(interval=cpu_check_interval)
+            cpu_warning_threshold = config_manager.get(
+                "api.health_monitor.system_resources.cpu_percent_warning", 80.0
+            )
             health.metrics["cpu_usage"] = HealthMetric(
-                name="cpu_usage", value=cpu_percent, unit="%", healthy=cpu_percent < 80
+                name="cpu_usage",
+                value=cpu_percent,
+                unit="%",
+                healthy=cpu_percent < cpu_warning_threshold,
             )
 
             # Memory usage
             memory = psutil.virtual_memory()
+            memory_warning_threshold = config_manager.get(
+                "api.health_monitor.system_resources.memory_percent_warning", 85.0
+            )
             health.metrics["memory_usage"] = HealthMetric(
                 name="memory_usage",
                 value=memory.percent,
                 unit="%",
-                healthy=memory.percent < 85,
+                healthy=memory.percent < memory_warning_threshold,
             )
 
+            min_memory_gb = config_manager.get(
+                "api.health_monitor.system_resources.min_memory_available_gb", 1.0
+            )
             health.metrics["memory_available"] = HealthMetric(
                 name="memory_available",
                 value=memory.available / (1024**3),  # GB
                 unit="GB",
-                healthy=memory.available > 1024**3,  # Alert if <1GB available
+                healthy=memory.available > min_memory_gb * (1024**3),
             )
 
             # Disk usage
             disk = psutil.disk_usage("/")
             disk_percent = (disk.used / disk.total) * 100
+            disk_warning_threshold = config_manager.get(
+                "api.health_monitor.system_resources.disk_percent_warning", 90.0
+            )
             health.metrics["disk_usage"] = HealthMetric(
                 name="disk_usage",
                 value=disk_percent,
                 unit="%",
-                healthy=disk_percent < 90,
+                healthy=disk_percent < disk_warning_threshold,
             )
 
             # Network I/O
@@ -715,10 +782,28 @@ class HealthMonitor:
             )
 
             # Update status based on resource usage
-            if cpu_percent > 90 or memory.percent > 95 or disk_percent > 95:
+            cpu_critical_threshold = config_manager.get(
+                "api.health_monitor.system_resources.cpu_percent_critical", 90.0
+            )
+            memory_critical_threshold = config_manager.get(
+                "api.health_monitor.system_resources.memory_percent_critical", 95.0
+            )
+            disk_critical_threshold = config_manager.get(
+                "api.health_monitor.system_resources.disk_percent_critical", 95.0
+            )
+
+            if (
+                cpu_percent > cpu_critical_threshold
+                or memory.percent > memory_critical_threshold
+                or disk_percent > disk_critical_threshold
+            ):
                 health.status = "unhealthy"
                 health.warnings.append("Critical resource usage")
-            elif cpu_percent > 80 or memory.percent > 85 or disk_percent > 90:
+            elif (
+                cpu_percent > cpu_warning_threshold
+                or memory.percent > memory_warning_threshold
+                or disk_percent > disk_warning_threshold
+            ):
                 health.status = "degraded"
                 health.warnings.append("High resource usage")
 
@@ -852,6 +937,13 @@ class HealthMonitor:
             uptime = time.time() - self._startup_time
             requests_per_second = self._api_request_count / max(1, uptime)
 
+            max_response_time_ms = config_manager.get(
+                "api.health_monitor.api.max_response_time_ms", 500.0
+            )
+            max_error_rate = config_manager.get(
+                "api.health_monitor.api.max_error_rate", 0.05
+            )
+
             return {
                 "api_requests_total": HealthMetric(
                     name="api_requests_total",
@@ -869,13 +961,13 @@ class HealthMonitor:
                     name="api_avg_response_time",
                     value=avg_response_time * 1000,  # Convert to ms
                     unit="ms",
-                    healthy=avg_response_time < 0.5,  # Alert if >500ms
+                    healthy=avg_response_time * 1000 < max_response_time_ms,
                 ),
                 "api_error_rate": HealthMetric(
                     name="api_error_rate",
                     value=error_rate * 100,  # Convert to percentage
                     unit="%",
-                    healthy=error_rate < 0.05,  # Alert if >5% error rate
+                    healthy=error_rate < max_error_rate,
                 ),
             }
 
