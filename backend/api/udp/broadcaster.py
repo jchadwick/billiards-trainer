@@ -22,11 +22,12 @@ class UDPBroadcaster:
         """Initialize UDP broadcaster.
 
         Args:
-            host: Target host for UDP packets (projector machine). Defaults to env var or 192.168.1.31
+            host: Target host for UDP packets (projector machine). Defaults to env var or localhost
             port: Target port. Defaults to env var or 9999
             enabled: Whether broadcasting is enabled. Defaults to env var or True
         """
-        self.host = host or os.getenv("UDP_PROJECTOR_HOST", "192.168.1.31")
+        # Default to localhost for development, production should set UDP_PROJECTOR_HOST env var
+        self.host = host or os.getenv("UDP_PROJECTOR_HOST", "127.0.0.1")
         self.port = int(port or os.getenv("UDP_PROJECTOR_PORT", "9999"))
         self.enabled = (
             enabled

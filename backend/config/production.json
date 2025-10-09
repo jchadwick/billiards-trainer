@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "application": "billiards-trainer",
+    "environment": "production",
+    "description": "Production configuration for target environment (192.168.1.31)"
+  },
+  "system": {
+    "debug": false,
+    "environment": "production",
+    "timezone": "UTC",
+    "logging": {
+      "level": "INFO",
+      "file_logging": true,
+      "console_logging": false,
+      "log_modules": {
+        "vision": "INFO",
+        "core": "INFO",
+        "api": "INFO",
+        "projector": "INFO",
+        "config": "WARNING"
+      }
+    },
+    "performance": {
+      "mode": "performance",
+      "max_memory_mb": 4096,
+      "max_cpu_percent": 90,
+      "thread_pool_size": 8,
+      "enable_profiling": false
+    }
+  },
+  "vision": {
+    "camera": {
+      "device_id": 0,
+      "backend": "v4l2",
+      "resolution": [1920, 1080],
+      "fps": 30,
+      "video_source_type": "camera",
+      "buffer_size": 2
+    }
+  },
+  "api": {
+    "network": {
+      "host": "0.0.0.0",
+      "port": 8000
+    },
+    "cors": {
+      "enabled": true,
+      "allowed_origins": [
+        "http://192.168.1.31:3000",
+        "http://192.168.1.31:8000",
+        "http://localhost:3000"
+      ],
+      "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allowed_headers": ["*"],
+      "allow_credentials": true
+    }
+  },
+  "projector": {
+    "network": {
+      "backend_url": "ws://192.168.1.31:8000/ws"
+    }
+  }
+}

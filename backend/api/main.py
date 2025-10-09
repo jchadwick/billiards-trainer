@@ -387,17 +387,31 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     middleware_config = get_middleware_config(development_mode)
 
     # Add CORS middleware first - must be before other middleware for WebSocket support
-    # Configure allowed origins from environment or use safe defaults
-    allowed_origins = [
-        "http://localhost:3000",  # Development frontend
-        "http://localhost:8000",  # Backend serving frontend
-        "http://192.168.1.31:8000",  # Target environment
-        "http://192.168.1.31:3000",  # Target development
-    ]
+    # Configure allowed origins from environment or config
+    # In production, origins should be explicitly configured via environment variables or config
+    if development_mode:
+        # Development mode: allow localhost
+        allowed_origins = [
+            "http://localhost:3000",  # Development frontend
+            "http://localhost:8000",  # Backend serving frontend
+        ]
+    else:
+        # Production mode: start with empty list, require explicit configuration
+        allowed_origins = []
 
-    # Add custom origins from environment if specified
+    # Add custom origins from environment (recommended for production)
     if custom_origins := os.getenv("BILLIARDS_CORS_ORIGINS"):
         allowed_origins.extend(custom_origins.split(","))
+
+    # If config override provided and has CORS settings, use those
+    if (
+        config_override
+        and "api" in config_override
+        and "cors" in config_override["api"]
+    ):
+        cors_config = config_override["api"]["cors"]
+        if "allowed_origins" in cors_config:
+            allowed_origins = cors_config["allowed_origins"]
 
     app.add_middleware(
         CORSMiddleware,
