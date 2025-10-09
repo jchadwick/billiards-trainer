@@ -1,0 +1,22 @@
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the entire project (source will be mounted as volume)
+COPY . .
+
+# Environment variables
+ENV NODE_ENV=development
+
+# Expose the dev server port
+EXPOSE 3000
+
+# Start the dev server with hot reload
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
+from ...config.manager import ConfigurationModule
 from ..models import BallState, GameState, GameType, ShotType, TableState, Vector2D
 from ..utils.geometry import GeometryUtils
 from .prediction import OutcomePredictor
@@ -105,58 +106,45 @@ class AssistancePackage:
 class AssistanceEngine:
     """Player assistance features engine."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[ConfigurationModule] = None):
+        """Initialize the assistance engine with configuration.
+
+        Args:
+            config: Optional configuration module instance. If not provided, creates a new one.
+        """
         self.shot_analyzer = ShotAnalyzer()
         self.outcome_predictor = OutcomePredictor()
         self.geometry_utils = GeometryUtils()
 
+        # Configuration manager
+        self.config = config or ConfigurationModule()
+
+        # Load assistance configuration
+        assistance_config = self.config.get("core.assistance", {})
+
         # Assistance parameters by skill level
+        level_configs = assistance_config.get("level_configs", {})
         self.assistance_configs = {
-            AssistanceLevel.BEGINNER: {
-                "show_ghost_ball": True,
-                "show_aim_line": True,
-                "show_power_meter": True,
-                "show_safe_zones": True,
-                "max_alternatives": 1,
-                "explanation_detail": "detailed",
-                "risk_tolerance": 0.2,
-            },
-            AssistanceLevel.INTERMEDIATE: {
-                "show_ghost_ball": True,
-                "show_aim_line": False,
-                "show_power_meter": True,
-                "show_safe_zones": False,
-                "max_alternatives": 2,
-                "explanation_detail": "moderate",
-                "risk_tolerance": 0.4,
-            },
-            AssistanceLevel.ADVANCED: {
-                "show_ghost_ball": False,
-                "show_aim_line": False,
-                "show_power_meter": False,
-                "show_safe_zones": False,
-                "max_alternatives": 3,
-                "explanation_detail": "brief",
-                "risk_tolerance": 0.6,
-            },
-            AssistanceLevel.EXPERT: {
-                "show_ghost_ball": False,
-                "show_aim_line": False,
-                "show_power_meter": False,
-                "show_safe_zones": False,
-                "max_alternatives": 5,
-                "explanation_detail": "analysis_only",
-                "risk_tolerance": 0.8,
-            },
+            AssistanceLevel.BEGINNER: level_configs.get("beginner", {}),
+            AssistanceLevel.INTERMEDIATE: level_configs.get("intermediate", {}),
+            AssistanceLevel.ADVANCED: level_configs.get("advanced", {}),
+            AssistanceLevel.EXPERT: level_configs.get("expert", {}),
         }
 
-        # Player skill tracking
+        # Player skill tracking with defaults from config
+        player_skills_config = assistance_config.get("player_skills", {})
         self.player_skills = {
-            "aiming_accuracy": 0.5,
-            "power_control": 0.5,
-            "strategic_thinking": 0.5,
-            "cue_ball_control": 0.5,
-            "pattern_recognition": 0.5,
+            "aiming_accuracy": player_skills_config.get("default_aiming_accuracy", 0.5),
+            "power_control": player_skills_config.get("default_power_control", 0.5),
+            "strategic_thinking": player_skills_config.get(
+                "default_strategic_thinking", 0.5
+            ),
+            "cue_ball_control": player_skills_config.get(
+                "default_cue_ball_control", 0.5
+            ),
+            "pattern_recognition": player_skills_config.get(
+                "default_pattern_recognition", 0.5
+            ),
         }
 
     def provide_assistance(
@@ -262,25 +250,33 @@ class AssistanceEngine:
         # Base power from shot analysis
         base_force = shot_analysis.recommended_force
 
+        # Get power calculation config
+        power_config = self.config.get("core.assistance.power_calculation", {})
+        type_adjustments = power_config.get("shot_type_adjustments", {})
+
         # Adjust based on shot type
-        type_adjustments = {
-            ShotType.DIRECT: 1.0,
-            ShotType.BANK: 1.2,
-            ShotType.COMBINATION: 1.1,
-            ShotType.SAFETY: 0.7,
-            ShotType.MASSE: 0.8,
-            ShotType.BREAK: 2.0,
-        }
+        shot_type_key = (
+            shot_analysis.shot_type.value
+            if hasattr(shot_analysis.shot_type, "value")
+            else str(shot_analysis.shot_type).lower()
+        )
+        adjustment = type_adjustments.get(shot_type_key, 1.0)
+        adjusted_force = base_force * adjustment
 
-        adjusted_force = base_force * type_adjustments.get(shot_analysis.shot_type, 1.0)
-
-        # Calculate acceptable range (±15%)
-        force_range = (adjusted_force * 0.85, adjusted_force * 1.15)
+        # Calculate acceptable range (±tolerance%)
+        tolerance = power_config.get("force_range_tolerance", 0.15)
+        force_range = (
+            adjusted_force * (1 - tolerance),
+            adjusted_force * (1 + tolerance),
+        )
 
         # Determine power level category
-        if adjusted_force < 8.0:
+        soft_threshold = power_config.get("soft_power_threshold", 8.0)
+        medium_threshold = power_config.get("medium_power_threshold", 12.0)
+
+        if adjusted_force < soft_threshold:
             power_level = "soft"
-        elif adjusted_force < 12.0:
+        elif adjusted_force < medium_threshold:
             power_level = "medium"
         else:
             power_level = "hard"
@@ -289,12 +285,17 @@ class AssistanceEngine:
         spin_recommendation = self._calculate_optimal_spin(game_state, shot_analysis)
 
         # Risk assessment
+        risk_config = self.config.get("core.assistance.risk_assessment", {})
         risk_assessment = {
-            "scratch_risk": shot_analysis.risk_factors.get("scratch", 0.1),
+            "scratch_risk": shot_analysis.risk_factors.get(
+                "scratch", risk_config.get("default_scratch_risk", 0.1)
+            ),
             "miss_risk": shot_analysis.risk_factors.get(
                 "miss", shot_analysis.difficulty
             ),
-            "position_risk": shot_analysis.risk_factors.get("opponent_runout", 0.3),
+            "position_risk": shot_analysis.risk_factors.get(
+                "opponent_runout", risk_config.get("default_opponent_runout_risk", 0.3)
+            ),
         }
 
         # Generate explanation
@@ -349,30 +350,52 @@ class AssistanceEngine:
         self, assistance: AssistancePackage, player_skill: dict[str, float]
     ) -> AssistancePackage:
         """Adjust assistance based on player skill level."""
+        # Get skill thresholds and visual aid configs
+        skill_thresholds = self.config.get("core.assistance.skill_thresholds", {})
+        visual_config = self.config.get("core.assistance.visual_aids", {})
+        power_config = self.config.get("core.assistance.power_calculation", {})
+
+        aiming_low = skill_thresholds.get("aiming_accuracy_low", 0.3)
+        aiming_high = skill_thresholds.get("aiming_accuracy_high", 0.7)
+        power_low = skill_thresholds.get("power_control_low", 0.3)
+        strategic_low = skill_thresholds.get("strategic_thinking_low", 0.3)
+        strategic_high = skill_thresholds.get("strategic_thinking_high", 0.7)
+
         # Adjust aiming guide based on aiming accuracy
-        if player_skill.get("aiming_accuracy", 0.5) < 0.3:
+        if player_skill.get("aiming_accuracy", 0.5) < aiming_low:
             # Beginner aiming - make ghost ball more prominent
-            assistance.aiming_guide.visual_aids["ghost_ball_opacity"] = 0.8
-            assistance.aiming_guide.visual_aids["aim_line_width"] = "thick"
-        elif player_skill.get("aiming_accuracy", 0.5) > 0.7:
+            assistance.aiming_guide.visual_aids["ghost_ball_opacity"] = (
+                visual_config.get("beginner_ghost_ball_opacity", 0.8)
+            )
+            assistance.aiming_guide.visual_aids["aim_line_width"] = visual_config.get(
+                "beginner_aim_line_width", "thick"
+            )
+        elif player_skill.get("aiming_accuracy", 0.5) > aiming_high:
             # Advanced aiming - minimal visual aids
-            assistance.aiming_guide.visual_aids["ghost_ball_opacity"] = 0.3
-            assistance.aiming_guide.visual_aids["aim_line_width"] = "thin"
+            assistance.aiming_guide.visual_aids["ghost_ball_opacity"] = (
+                visual_config.get("advanced_ghost_ball_opacity", 0.3)
+            )
+            assistance.aiming_guide.visual_aids["aim_line_width"] = visual_config.get(
+                "advanced_aim_line_width", "thin"
+            )
 
         # Adjust power recommendation based on power control
-        if player_skill.get("power_control", 0.5) < 0.3:
+        if player_skill.get("power_control", 0.5) < power_low:
             # Suggest more conservative power
-            assistance.power_recommendation.recommended_force *= 0.9
+            conservative_multiplier = power_config.get(
+                "conservative_power_multiplier", 0.9
+            )
+            assistance.power_recommendation.recommended_force *= conservative_multiplier
             assistance.power_recommendation.explanation += (
                 " (Conservative power for better control)"
             )
 
         # Adjust strategic advice based on strategic thinking
-        if player_skill.get("strategic_thinking", 0.5) < 0.3:
+        if player_skill.get("strategic_thinking", 0.5) < strategic_low:
             assistance.strategic_advice = (
                 f"Focus on making this ball. {assistance.strategic_advice}"
             )
-        elif player_skill.get("strategic_thinking", 0.5) > 0.7:
+        elif player_skill.get("strategic_thinking", 0.5) > strategic_high:
             assistance.strategic_advice = f"{assistance.strategic_advice} Consider the pattern for your next 2-3 shots."
 
         return assistance
@@ -480,20 +503,27 @@ class AssistanceEngine:
         cut_angle = self._calculate_cut_angle(cue_ball, target_ball, target_point)
 
         # Determine difficulty level
-        if target.shot_analysis.difficulty < 0.3:
+        difficulty_thresholds = self.config.get("core.assistance.skill_thresholds", {})
+        diff_easy = difficulty_thresholds.get("difficulty_easy", 0.3)
+        diff_medium = difficulty_thresholds.get("difficulty_medium", 0.6)
+
+        if target.shot_analysis.difficulty < diff_easy:
             difficulty_level = "easy"
-        elif target.shot_analysis.difficulty < 0.6:
+        elif target.shot_analysis.difficulty < diff_medium:
             difficulty_level = "medium"
         else:
             difficulty_level = "hard"
 
         # Generate visual aids configuration
+        visual_config = self.config.get("core.assistance.visual_aids", {})
         visual_aids = {
             "show_ghost_ball": config["show_ghost_ball"],
             "show_aim_line": config["show_aim_line"],
-            "ghost_ball_opacity": 0.6,
-            "aim_line_width": "medium",
-            "contact_point_highlight": True,
+            "ghost_ball_opacity": visual_config.get("default_ghost_ball_opacity", 0.6),
+            "aim_line_width": visual_config.get("default_aim_line_width", "medium"),
+            "contact_point_highlight": visual_config.get(
+                "contact_point_highlight", True
+            ),
         }
 
         # Generate explanation
@@ -543,10 +573,16 @@ class AssistanceEngine:
 
         advice_parts = []
 
+        # Get thresholds from config
+        thresholds = self.config.get("core.assistance.skill_thresholds", {})
+        diff_easy = thresholds.get("difficulty_easy", 0.3)
+        diff_hard = thresholds.get("difficulty_hard", 0.7)
+        thresholds.get("strategic_value_high", 0.6)
+
         # Basic shot advice
-        if target.shot_analysis.difficulty < 0.3:
+        if target.shot_analysis.difficulty < diff_easy:
             advice_parts.append("This is a relatively easy shot.")
-        elif target.shot_analysis.difficulty > 0.7:
+        elif target.shot_analysis.difficulty > diff_hard:
             advice_parts.append("This is a challenging shot - take your time.")
 
         # Add problems if any
@@ -558,7 +594,13 @@ class AssistanceEngine:
                 advice_parts.append("Be aware of the identified shot challenges.")
 
         # Add strategic considerations
-        if target.strategic_value > 0.7 and detail_level in ["detailed", "moderate"]:
+        # Note: Using strategic_value_very_high is intentional - it's slightly higher than
+        # strategic_value_high to ensure only really strategic balls get this advice
+        strategic_very_high = thresholds.get("strategic_value_very_high", 0.7)
+        if target.strategic_value > strategic_very_high and detail_level in [
+            "detailed",
+            "moderate",
+        ]:
             advice_parts.append("This ball has good strategic value for your position.")
 
         # Position play advice
@@ -594,19 +636,28 @@ class AssistanceEngine:
         self, player_skills: dict[str, float], assistance_level: AssistanceLevel
     ) -> dict[str, float]:
         """Calculate adjustment factors based on player skills and assistance level."""
-        base_factors = {
-            "aiming_assistance_strength": 1.0,
-            "power_assistance_strength": 1.0,
-            "strategic_guidance_depth": 1.0,
-            "visual_aid_prominence": 1.0,
-        }
+        # Get adjustment factors from config
+        adjustment_config = self.config.get("core.assistance.adjustment_factors", {})
+
+        base_factors = adjustment_config.get(
+            "base_factors",
+            {
+                "aiming_assistance_strength": 1.0,
+                "power_assistance_strength": 1.0,
+                "strategic_guidance_depth": 1.0,
+                "visual_aid_prominence": 1.0,
+            },
+        )
 
         # Adjust based on assistance level
+        level_multipliers_config = adjustment_config.get("level_multipliers", {})
         level_multipliers = {
-            AssistanceLevel.BEGINNER: 1.5,
-            AssistanceLevel.INTERMEDIATE: 1.0,
-            AssistanceLevel.ADVANCED: 0.7,
-            AssistanceLevel.EXPERT: 0.3,
+            AssistanceLevel.BEGINNER: level_multipliers_config.get("beginner", 1.5),
+            AssistanceLevel.INTERMEDIATE: level_multipliers_config.get(
+                "intermediate", 1.0
+            ),
+            AssistanceLevel.ADVANCED: level_multipliers_config.get("advanced", 0.7),
+            AssistanceLevel.EXPERT: level_multipliers_config.get("expert", 0.3),
         }
 
         multiplier = level_multipliers[assistance_level]
@@ -657,17 +708,23 @@ class AssistanceEngine:
         """Calculate priority score for a target ball."""
         priority = 0.0
 
+        # Get priority weights from config
+        weights = self.config.get("core.assistance.priority_weights", {})
+        success_weight = weights.get("success_probability", 0.4)
+        difficulty_weight = weights.get("shot_difficulty", 0.3)
+        strategic_weight = weights.get("strategic_value", 0.3)
+
         # Success probability is major factor
-        priority += shot_analysis.success_probability * 0.4
+        priority += shot_analysis.success_probability * success_weight
 
         # Ease of shot (inverse of difficulty)
-        priority += (1.0 - shot_analysis.difficulty) * 0.3
+        priority += (1.0 - shot_analysis.difficulty) * difficulty_weight
 
         # Strategic value based on game type
         strategic_value = self._calculate_strategic_value(
             game_state, ball_id, shot_analysis
         )
-        priority += strategic_value * 0.3
+        priority += strategic_value * strategic_weight
 
         return min(priority, 1.0)
 
@@ -675,20 +732,25 @@ class AssistanceEngine:
         self, game_state: GameState, ball_id: str, shot_analysis: ShotAnalysis
     ) -> float:
         """Calculate strategic value of targeting this ball."""
+        # Get strategic value config
+        strategic_config = self.config.get("core.assistance.strategic_value", {})
+
         # Base strategic value
-        value = 0.5
+        value = strategic_config.get("base_value", 0.5)
 
         # In 9-ball, lower numbered balls have higher value
         if game_state.game_type == GameType.NINE_BALL:
             ball = self._get_ball_by_id(game_state, ball_id)
             if ball and ball.number:
                 # Lower numbers are more valuable
-                value += (10 - ball.number) / 10 * 0.3
+                number_weight = strategic_config.get("nine_ball_number_weight", 0.3)
+                value += (10 - ball.number) / 10 * number_weight
 
         # Consider position for next shot
         # (This would be more sophisticated in a full implementation)
         if shot_analysis.shot_type == ShotType.DIRECT:
-            value += 0.2  # Direct shots often leave better position
+            direct_bonus = strategic_config.get("direct_shot_bonus", 0.2)
+            value += direct_bonus  # Direct shots often leave better position
 
         return min(value, 1.0)
 
@@ -698,13 +760,19 @@ class AssistanceEngine:
         """Generate reasons why this target is recommended."""
         reasons = []
 
-        if shot_analysis.success_probability > 0.7:
+        # Get skill thresholds from config
+        thresholds = self.config.get("core.assistance.skill_thresholds", {})
+        prob_high = thresholds.get("success_probability_high", 0.7)
+        strategic_high = thresholds.get("strategic_value_high", 0.6)
+        diff_easy_max = thresholds.get("difficulty_easy_max", 0.4)
+
+        if shot_analysis.success_probability > prob_high:
             reasons.append("High probability of success")
 
-        if shot_analysis.difficulty < 0.4:
+        if shot_analysis.difficulty < diff_easy_max:
             reasons.append("Relatively easy shot")
 
-        if strategic_value > 0.6:
+        if strategic_value > strategic_high:
             reasons.append("Good strategic value")
 
         if shot_analysis.shot_type == ShotType.DIRECT:
@@ -785,16 +853,28 @@ class AssistanceEngine:
         self, game_state: GameState, shot_analysis: ShotAnalysis
     ) -> Optional[Vector2D]:
         """Calculate optimal spin for the shot."""
+        # Get spin recommendations from config
+        spin_config = self.config.get("core.assistance.spin_recommendations", {})
+
         # Simplified spin calculation
         if shot_analysis.shot_type == ShotType.BANK:
             # Bank shots often benefit from slight running english
-            return Vector2D(0.3, 0.0)  # Right english
+            return Vector2D(
+                spin_config.get("bank_shot_english_x", 0.3),
+                spin_config.get("bank_shot_english_y", 0.0),
+            )
         elif shot_analysis.shot_type == ShotType.SAFETY:
             # Safety shots often use draw to control cue ball
-            return Vector2D(0.0, -0.2)  # Draw
+            return Vector2D(
+                spin_config.get("safety_draw_x", 0.0),
+                spin_config.get("safety_draw_y", -0.2),
+            )
         else:
             # Most shots are fine with center ball
-            return Vector2D(0.0, 0.0)
+            return Vector2D(
+                spin_config.get("center_ball_x", 0.0),
+                spin_config.get("center_ball_y", 0.0),
+            )
 
     def _generate_power_explanation(
         self, force: float, power_level: str, shot_analysis: ShotAnalysis
@@ -825,11 +905,17 @@ class AssistanceEngine:
         if detail_level == "analysis_only":
             return f"Cut angle: {cut_angle:.1f}°"
 
-        if cut_angle < 15:
+        # Get cut angle thresholds from config
+        angle_config = self.config.get("core.assistance.cut_angle_descriptions", {})
+        straight_max = angle_config.get("straight_angle_max", 15.0)
+        slight_max = angle_config.get("slight_cut_max", 30.0)
+        moderate_max = angle_config.get("moderate_cut_max", 60.0)
+
+        if cut_angle < straight_max:
             angle_desc = "nearly straight"
-        elif cut_angle < 30:
+        elif cut_angle < slight_max:
             angle_desc = "slight cut"
-        elif cut_angle < 60:
+        elif cut_angle < moderate_max:
             angle_desc = "moderate cut"
         else:
             angle_desc = "thin cut"
@@ -846,6 +932,14 @@ class AssistanceEngine:
         """Find zones that make opponent's next shot difficult."""
         zones = []
 
+        # Get defensive zone config
+        defensive_config = self.config.get("core.assistance.safe_zones.defensive", {})
+        cluster_distance = defensive_config.get("cluster_distance_threshold", 0.15)
+        min_nearby = defensive_config.get("min_nearby_balls", 2)
+        zone_radius = defensive_config.get("zone_radius", 0.1)
+        safety_score = defensive_config.get("safety_score", 0.7)
+        access_difficulty = defensive_config.get("access_difficulty", 0.6)
+
         # Simplified: areas behind clusters of balls
         for _i, ball in enumerate(game_state.balls):
             if ball.is_cue_ball or ball.is_pocketed:
@@ -859,20 +953,20 @@ class AssistanceEngine:
                     not other.is_cue_ball
                     and not other.is_pocketed
                     and other.id != ball.id
-                    and ball.distance_to(other) < 0.15
-                )  # 15cm
+                    and ball.distance_to(other) < cluster_distance
+                )
             ]
 
-            if len(nearby_balls) >= 2:
+            if len(nearby_balls) >= min_nearby:
                 # This is a cluster - zone behind it is defensive
                 zone = SafeZone(
                     zone_type=SafeZoneType.DEFENSIVE,
                     center=Vector2D(ball.position.x, ball.position.y),
-                    radius=0.1,  # 10cm radius
-                    safety_score=0.7,
+                    radius=zone_radius,
+                    safety_score=safety_score,
                     benefits=["Makes opponent's shots more difficult"],
                     risks=["May be hard to escape from"],
-                    access_difficulty=0.6,
+                    access_difficulty=access_difficulty,
                 )
                 zones.append(zone)
 
@@ -882,11 +976,15 @@ class AssistanceEngine:
         """Find zones that minimize scratch risk."""
         zones = []
 
+        # Get scratch-safe zone config
+        scratch_config = self.config.get("core.assistance.safe_zones.scratch_safe", {})
+        safe_distance = scratch_config.get("safe_distance_from_pocket", 0.2)
+        zone_radius = scratch_config.get("zone_radius", 0.08)
+        safety_score = scratch_config.get("safety_score", 0.8)
+        access_difficulty = scratch_config.get("access_difficulty", 0.4)
+
         # Areas away from pockets
         for pocket in game_state.table.pocket_positions:
-            # Create safe zone away from pocket
-            safe_distance = 0.2  # 20cm from pocket
-
             # Find direction away from pocket center
             table_center = Vector2D(
                 game_state.table.width / 2, game_state.table.height / 2
@@ -905,11 +1003,11 @@ class AssistanceEngine:
                 zone = SafeZone(
                     zone_type=SafeZoneType.SCRATCH_SAFE,
                     center=safe_center,
-                    radius=0.08,  # 8cm radius
-                    safety_score=0.8,
+                    radius=zone_radius,
+                    safety_score=safety_score,
                     benefits=["Low scratch risk"],
                     risks=["May limit shot options"],
-                    access_difficulty=0.4,
+                    access_difficulty=access_difficulty,
                 )
                 zones.append(zone)
 
@@ -919,21 +1017,33 @@ class AssistanceEngine:
         """Find zones good for position on next shot."""
         zones = []
 
+        # Get position play zone config
+        position_config = self.config.get(
+            "core.assistance.safe_zones.position_play", {}
+        )
+        x_factor = position_config.get("table_position_x_factor", 0.4)
+        y_factor = position_config.get("table_position_y_factor", 0.5)
+        zone_radius = position_config.get("zone_radius", 0.15)
+        safety_score = position_config.get("safety_score", 0.6)
+        access_difficulty = position_config.get("access_difficulty", 0.5)
+        min_legal = position_config.get("min_legal_targets", 2)
+
         # Simplified: areas with good angles to multiple target balls
         legal_targets = self._get_legal_targets(game_state)
 
-        if len(legal_targets) >= 2:
+        if len(legal_targets) >= min_legal:
             # Find areas with good sight lines to multiple targets
             zone = SafeZone(
                 zone_type=SafeZoneType.POSITION_PLAY,
                 center=Vector2D(
-                    game_state.table.width * 0.4, game_state.table.height * 0.5
+                    game_state.table.width * x_factor,
+                    game_state.table.height * y_factor,
                 ),
-                radius=0.15,  # 15cm radius
-                safety_score=0.6,
+                radius=zone_radius,
+                safety_score=safety_score,
                 benefits=["Good position for next shot"],
                 risks=["May require precise cue ball control"],
-                access_difficulty=0.5,
+                access_difficulty=access_difficulty,
             )
             zones.append(zone)
 

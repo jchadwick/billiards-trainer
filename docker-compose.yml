@@ -1,371 +1,77 @@
-# Docker Compose configuration for Billiards Trainer
-# ==================================================
-# This file provides orchestration for the complete billiards trainer system
-# including the backend API, optional databases, and monitoring services.
-
 version: '3.8'
 
-# ========================
-# Services Configuration
-# ========================
 services:
-  # Frontend Web Application
-  # ------------------------
-  frontend:
-    build:
-      context: ./frontend/web
-      dockerfile: Dockerfile
-      target: production
-    #image: billiards-trainer/frontend:${BUILD_VERSION:-latest}
-    container_name: billiards-trainer-frontend
-    restart: unless-stopped
-
-    # Port mappings
-    ports:
-      - "${FRONTEND_PORT:-80}:80"
-
-    # Network configuration
-    networks:
-      - billiards-net
-
-    # Health check
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-    # Dependencies - frontend needs backend to be available
-    depends_on:
-      backend:
-        condition: service_healthy
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: ${FRONTEND_MEMORY_LIMIT:-512M}
-          cpus: ${FRONTEND_CPU_LIMIT:-0.5}
-        reservations:
-          memory: ${FRONTEND_MEMORY_RESERVATION:-128M}
-          cpus: ${FRONTEND_CPU_RESERVATION:-0.1}
-
-  # Backend API Service
-  # ------------------
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: production
-      args:
-        BUILD_DATE: ${BUILD_DATE:-2024-01-01}
-        BUILD_VERSION: ${BUILD_VERSION:-1.0.0}
-        BUILD_COMMIT: ${BUILD_COMMIT:-dev}
-    #image: billiards-trainer/backend:${BUILD_VERSION:-latest}
-    container_name: billiards-trainer-backend
-    restart: unless-stopped
-
-    # Environment configuration
-    environment:
-      # Application settings
-      ENVIRONMENT: ${ENVIRONMENT:-production}
-      DEBUG: ${DEBUG:-false}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      APP_NAME: ${APP_NAME:-billiards-trainer}
-      APP_VERSION: ${APP_VERSION:-1.0.0}
-
-      # API configuration
-      API_HOST: 0.0.0.0
-      API_PORT: 8000
-      WS_PORT: 8001
-
-      # Computer Vision settings
-      CAMERA_INDEX: ${CAMERA_INDEX:-0}
-      CAMERA_WIDTH: ${CAMERA_WIDTH:-1920}
-      CAMERA_HEIGHT: ${CAMERA_HEIGHT:-1080}
-      CAMERA_FPS: ${CAMERA_FPS:-30}
-      VISION_BUFFER_SIZE: ${VISION_BUFFER_SIZE:-10}
-      DETECTION_CONFIDENCE_THRESHOLD: ${DETECTION_CONFIDENCE_THRESHOLD:-0.8}
-
-      # Projector settings
-      PROJECTOR_DISPLAY_INDEX: ${PROJECTOR_DISPLAY_INDEX:-1}
-      PROJECTOR_WIDTH: ${PROJECTOR_WIDTH:-1920}
-      PROJECTOR_HEIGHT: ${PROJECTOR_HEIGHT:-1080}
-      PROJECTOR_FULLSCREEN: ${PROJECTOR_FULLSCREEN:-false}
-
-      # Physics configuration
-      PHYSICS_TIME_STEP: ${PHYSICS_TIME_STEP:-0.016}
-      PHYSICS_GRAVITY: ${PHYSICS_GRAVITY:-9.81}
-      BALL_RADIUS: ${BALL_RADIUS:-0.02875}
-      TABLE_FRICTION: ${TABLE_FRICTION:-0.1}
-      CUSHION_RESTITUTION: ${CUSHION_RESTITUTION:-0.9}
-
-      # Performance settings
-      MAX_CONCURRENT_CONNECTIONS: ${MAX_CONCURRENT_CONNECTIONS:-100}
-      FRAME_BUFFER_SIZE: ${FRAME_BUFFER_SIZE:-30}
-      MAX_MEMORY_USAGE_MB: ${MAX_MEMORY_USAGE_MB:-2048}
-      API_TIMEOUT: ${API_TIMEOUT:-30}
-      WEBSOCKET_TIMEOUT: ${WEBSOCKET_TIMEOUT:-60}
-
-      # Optional: Database connection
-      DATABASE_URL: ${DATABASE_URL:-}
-
-      # Optional: Redis connection
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-
-      # Monitoring
-      ENABLE_METRICS: ${ENABLE_METRICS:-true}
-      METRICS_PORT: ${METRICS_PORT:-9090}
-
-    # Port mappings
+      context: .
+      dockerfile: backend/Dockerfile.dev
+    container_name: billiards-backend-dev
     ports:
-      - "${API_PORT:-8000}:8000"
-      - "${WS_PORT:-8001}:8001"
-      - "${METRICS_PORT:-9090}:9090"
-
-    # Volume mounts for persistent data
+      - "8081:8081"
+      - "5005:5005/udp"  # UDP port for projector communication
     volumes:
-      # Note: config is in the Docker image at /app/config, don't mount over it
-      # Mount backend-specific config if needed: - ./backend/config:/app/config
-      - ./data:/app/data
+      # Mount source code for hot reload
+      - ./backend:/app/backend
+      - ./config:/app/config
+      - ./models:/app/models
+      # Mount video files for testing
+      - ./demo.mp4:/app/demo.mp4
+      - ./demo2.mp4:/app/demo2.mp4
+      - ./demo2_short.mp4:/app/demo2_short.mp4
+      # Mount data directories
+      - ./calibration_cache:/app/calibration_cache
+      - ./color_profiles:/app/color_profiles
+      - ./game_state_data:/app/game_state_data
+      - ./geometry_cache:/app/geometry_cache
       - ./logs:/app/logs
-      - /tmp:/tmp
-      # Device access for camera (Linux only - uncomment if needed)
-      # - /dev:/dev
-
-    # Device access for camera and graphics
-    # Note: GPU access disabled by default for macOS compatibility
-    # Uncomment for Linux with GPU:
-    # devices:
-    #   - /dev/dri:/dev/dri  # GPU access for graphics acceleration
-
-    # Privileged mode may be needed for camera access on Linux
-    # privileged: true  # Uncomment if camera access issues occur
-
-    # Network configuration
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - API_PORT=8081
+      - API_HOST=0.0.0.0
+      - VIDEO_SOURCE=/app/demo2_short.mp4
+      - VIDEO_LOOP=true
+      - CONFIG_PATH=/app/config/default.json
     networks:
-      - billiards-net
-
-    # Health check
+      - billiards-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 40s
 
-    # Dependencies
-    depends_on:
-      redis:
-        condition: service_healthy
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: ${BACKEND_MEMORY_LIMIT:-4G}
-          cpus: ${BACKEND_CPU_LIMIT:-2.0}
-        reservations:
-          memory: ${BACKEND_MEMORY_RESERVATION:-1G}
-          cpus: ${BACKEND_CPU_RESERVATION:-0.5}
-
-  # Redis Cache Service (Optional but recommended)
-  # ---------------------------------------------
-  redis:
-    image: redis:7-alpine
-    container_name: billiards-trainer-redis
-    restart: unless-stopped
-
-    # Redis configuration
-    command: >
-      redis-server
-      --appendonly yes
-      --appendfsync everysec
-      --maxmemory ${REDIS_MAX_MEMORY:-256mb}
-      --maxmemory-policy allkeys-lru
-
-    # Port mapping (internal only by default)
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-
-    # Persistent storage
-    volumes:
-      - redis-data:/data
-
-    # Network
-    networks:
-      - billiards-net
-
-    # Health check
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-
-  # Monitoring Services (Optional)
-  # -----------------------------
-
-  # Prometheus for metrics collection
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: billiards-trainer-prometheus
-    restart: unless-stopped
-
-    ports:
-      - "${PROMETHEUS_PORT:-9091}:9090"
-
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus-data:/prometheus
-
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--web.enable-lifecycle'
-
-    networks:
-      - billiards-net
-
-    profiles:
-      - monitoring
-
-  # Grafana for visualization
-  grafana:
-    image: grafana/grafana:latest
-    container_name: billiards-trainer-grafana
-    restart: unless-stopped
-
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
-      GF_USERS_ALLOW_SIGN_UP: false
-
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
-
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
-
-    networks:
-      - billiards-net
-
-    profiles:
-      - monitoring
-
-# ========================
-# Development Override
-# ========================
-  # Frontend development service with hot reload
-  frontend-dev:
+  frontend:
     build:
       context: ./frontend/web
-      dockerfile: Dockerfile
-      target: development
-    container_name: billiards-trainer-frontend-dev
-
+      dockerfile: Dockerfile.dev
+    container_name: billiards-frontend-dev
     ports:
       - "3000:3000"
-
     volumes:
-      - ./frontend/web:/app
+      # Mount source code for hot reload
+      - ./frontend/web/src:/app/src
+      - ./frontend/web/public:/app/public
+      - ./frontend/web/index.html:/app/index.html
+      - ./frontend/web/vite.config.ts:/app/vite.config.ts
+      - ./frontend/web/tsconfig.json:/app/tsconfig.json
+      - ./frontend/web/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/web/postcss.config.js:/app/postcss.config.js
+      # Exclude node_modules to avoid conflicts
       - /app/node_modules
-
-    networks:
-      - billiards-net
-
-    profiles:
-      - development
-
-  # Backend development service with hot reload
-  backend-dev:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-      target: development
-    container_name: billiards-trainer-backend-dev
-
     environment:
-      ENVIRONMENT: development
-      DEBUG: true
-      LOG_LEVEL: DEBUG
-      API_RELOAD: true
-
-    ports:
-      - "8000:8000"
-      - "8001:8001"
-
-    volumes:
-      - ./backend:/app
-      - ./config:/app/config
-      - ./data:/app/data
-      - ./logs:/app/logs
-
+      - NODE_ENV=development
+      - VITE_API_URL=http://localhost:8081
+      - VITE_WS_URL=ws://localhost:8081
     networks:
-      - billiards-net
+      - billiards-network
+    depends_on:
+      - backend
 
-    profiles:
-      - development
 
-# ========================
-# Networks
-# ========================
 networks:
-  billiards-net:
+  billiards-network:
     driver: bridge
     ipam:
       config:
         - subnet: 172.20.0.0/16
-
-# ========================
-# Volumes
-# ========================
-volumes:
-  redis-data:
-    driver: local
-  postgres-data:
-    driver: local
-  prometheus-data:
-    driver: local
-  grafana-data:
-    driver: local
-
-# ========================
-# Usage Examples
-# ========================
-#
-# Production deployment (full stack):
-#   docker-compose up -d frontend backend redis
-#
-# Production deployment (backend only):
-#   docker-compose up -d backend redis
-#
-# Development with hot reload:
-#   docker-compose --profile development up frontend-dev backend-dev redis
-#
-# Full stack with monitoring:
-#   docker-compose --profile monitoring up -d
-#
-# Scale backend:
-#   docker-compose up -d --scale backend=3
-#
-# View logs:
-#   docker-compose logs -f frontend backend
-#
-# Stop all services:
-#   docker-compose down
-#
-# Clean up (removes volumes):
-#   docker-compose down -v --remove-orphans

@@ -102,32 +102,80 @@ class CameraCapture:
         Args:
             config: Camera configuration dictionary with keys:
                 - device_id: Camera device index (default: 0) or video file path (str)
-                - backend: Camera backend ("auto", "v4l2", "dshow", "gstreamer")
-                - resolution: Tuple of (width, height) (default: (1920, 1080))
+                - backend: Camera backend ("auto", "v4l2", "dshow", "gstreamer", "kinect2")
+                - resolution: Tuple of (width, height) (default: [1920, 1080])
                 - fps: Target frame rate (default: 30)
                 - exposure_mode: "auto" or "manual"
                 - exposure_value: Manual exposure value (0.0-1.0)
                 - gain: Camera gain (default: 1.0)
                 - buffer_size: Frame buffer size (default: 1)
                 - auto_reconnect: Enable automatic reconnection (default: True)
-                - reconnect_delay: Delay between reconnection attempts (default: 1.0)
+                - reconnect_delay: Delay between reconnection attempts in seconds (default: 1.0)
                 - max_reconnect_attempts: Max reconnection attempts (default: 5)
+                - read_timeout: Camera read timeout in seconds (default: 5.0)
+                - stop_timeout: Thread stop timeout in seconds (default: 5.0)
+                - frame_log_interval: Log every Nth frame (default: 30)
+                - fps_tracker_size: FPS calculation window size (default: 10)
+                - frame_sleep_compensation: Sleep compensation for frame rate in seconds (default: 0.001)
                 - loop_video: Loop video playback for file sources (default: False)
+                - video_start_frame: Starting frame number for video files (default: 0)
+                - video_end_frame: Ending frame number for video files (default: None = end of video)
+                - kinect2: Kinect v2 specific configuration (dict):
+                    - enable_color: Enable color stream (default: True)
+                    - enable_depth: Enable depth stream (default: True)
+                    - enable_infrared: Enable infrared stream (default: False)
+                    - min_depth: Minimum depth in millimeters (default: 500)
+                    - max_depth: Maximum depth in millimeters (default: 4000)
+                    - depth_smoothing: Enable depth smoothing (default: True)
+                    - auto_reconnect: Enable auto-reconnect for Kinect (default: True)
+
+        Raises:
+            ValueError: If video_start_frame >= video_end_frame when both are specified
         """
         self._config = config
         self._device_id = config.get("device_id", 0)
         self._backend = config.get("backend", "auto")
         self._loop_video = config.get("loop_video", False)
         self._is_video_file = isinstance(self._device_id, str)
-        self._resolution = config.get("resolution", (1920, 1080))
+
+        # Camera parameters - get from config with fallback to defaults
+        self._resolution = tuple(config.get("resolution", [1920, 1080]))
         self._fps = config.get("fps", 30)
         self._exposure_mode = config.get("exposure_mode", "auto")
         self._exposure_value = config.get("exposure_value")
         self._gain = config.get("gain", 1.0)
         self._buffer_size = config.get("buffer_size", 1)
+
+        # Connection parameters
         self._auto_reconnect = config.get("auto_reconnect", True)
         self._reconnect_delay = config.get("reconnect_delay", 1.0)
         self._max_reconnect_attempts = config.get("max_reconnect_attempts", 5)
+        self._read_timeout = config.get("read_timeout", 5.0)
+        self._stop_timeout = config.get("stop_timeout", 5.0)
+
+        # Performance parameters
+        self._frame_log_interval = config.get("frame_log_interval", 30)
+        self._fps_tracker_size = config.get("fps_tracker_size", 10)
+        self._frame_sleep_compensation = config.get("frame_sleep_compensation", 0.001)
+
+        # Video frame range parameters
+        self._video_start_frame = config.get("video_start_frame", 0)
+        self._video_end_frame = config.get("video_end_frame")
+
+        # Kinect2 parameters - store for later use
+        kinect2_config = config.get("kinect2", {})
+        self._kinect2_min_depth = kinect2_config.get("min_depth", 500)
+        self._kinect2_max_depth = kinect2_config.get("max_depth", 4000)
+
+        # Validate frame range parameters
+        if (
+            self._video_end_frame is not None
+            and self._video_start_frame >= self._video_end_frame
+        ):
+            raise ValueError(
+                f"video_start_frame ({self._video_start_frame}) must be less than "
+                f"video_end_frame ({self._video_end_frame})"
+            )
 
         # Camera state
         self._cap: Optional[cv2.VideoCapture] = None
@@ -155,10 +203,18 @@ class CameraCapture:
         self._status_callback: Optional[Callable[[CameraStatus], None]] = None
 
         source_type = "video file" if self._is_video_file else "camera device"
-        logger.info(
+        log_msg = (
             f"Camera capture initialized with {source_type}={self._device_id}, "
             f"backend={self._backend}, resolution={self._resolution}"
         )
+        if self._is_video_file and (
+            self._video_start_frame != 0 or self._video_end_frame is not None
+        ):
+            log_msg += (
+                f", frame_range=[{self._video_start_frame}, "
+                f"{self._video_end_frame if self._video_end_frame is not None else 'end'}]"
+            )
+        logger.info(log_msg)
 
     def set_status_callback(self, callback: Callable[[CameraStatus], None]) -> None:
         """Set callback function for status changes."""
@@ -259,14 +315,18 @@ class CameraCapture:
 
         try:
             # Create Kinect v2 configuration from main config
+            # Check for kinect2-specific config section first, fallback to defaults
+            kinect2_config = self._config.get("kinect2", {})
             kinect_config = {
-                "enable_color": True,
-                "enable_depth": True,
-                "enable_infrared": False,
-                "min_depth": 500,
-                "max_depth": 4000,
-                "depth_smoothing": True,
-                "auto_reconnect": self._auto_reconnect,
+                "enable_color": kinect2_config.get("enable_color", True),
+                "enable_depth": kinect2_config.get("enable_depth", True),
+                "enable_infrared": kinect2_config.get("enable_infrared", False),
+                "min_depth": kinect2_config.get("min_depth", 500),
+                "max_depth": kinect2_config.get("max_depth", 4000),
+                "depth_smoothing": kinect2_config.get("depth_smoothing", True),
+                "auto_reconnect": kinect2_config.get(
+                    "auto_reconnect", self._auto_reconnect
+                ),
             }
 
             self._kinect2 = Kinect2Capture(kinect_config)
@@ -331,6 +391,13 @@ class CameraCapture:
             if not self._configure_camera():
                 raise RuntimeError("Camera configuration failed")
 
+            # Seek to start frame for video files
+            if self._is_video_file and self._video_start_frame > 0:
+                logger.info(f"Seeking to start frame {self._video_start_frame}")
+                self._cap.set(cv2.CAP_PROP_POS_FRAMES, self._video_start_frame)
+                actual_frame = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+                logger.info(f"Video positioned at frame {actual_frame}")
+
             logger.info("Camera configured, testing frame capture...")
             # Test frame capture (with timeout for cameras, direct for video files)
             if self._is_video_file:
@@ -348,9 +415,11 @@ class CameraCapture:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     future = executor.submit(self._cap.read)
                     try:
-                        ret, frame = future.result(timeout=5.0)
+                        ret, frame = future.result(timeout=self._read_timeout)
                     except concurrent.futures.TimeoutError:
-                        logger.error("Frame capture timed out after 5 seconds")
+                        logger.error(
+                            f"Frame capture timed out after {self._read_timeout} seconds"
+                        )
                         raise RuntimeError(
                             "Camera read timeout - camera may be in use or misconfigured"
                         )
@@ -449,13 +518,36 @@ class CameraCapture:
                 else:
                     # Get frame from regular camera or video file
                     logger.debug("Attempting to read frame from camera/video")
+
+                    # Check if we've reached the end frame for video files
+                    if self._is_video_file and self._video_end_frame is not None:
+                        current_frame_pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+                        if current_frame_pos >= self._video_end_frame:
+                            if self._loop_video:
+                                logger.info(
+                                    f"Reached end frame {self._video_end_frame}, looping to frame {self._video_start_frame}..."
+                                )
+                                self._cap.set(
+                                    cv2.CAP_PROP_POS_FRAMES, self._video_start_frame
+                                )
+                                continue
+                            else:
+                                logger.info(
+                                    f"Reached end frame {self._video_end_frame}"
+                                )
+                                break
+
                     ret, frame = self._cap.read()
                     if not ret or frame is None:
                         # Check if this is end of video file
                         if self._is_video_file:
                             if self._loop_video:
-                                logger.info("End of video reached, looping...")
-                                self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                                logger.info(
+                                    f"End of video reached, looping to frame {self._video_start_frame}..."
+                                )
+                                self._cap.set(
+                                    cv2.CAP_PROP_POS_FRAMES, self._video_start_frame
+                                )
                                 continue
                             else:
                                 logger.info("End of video reached")
@@ -475,7 +567,9 @@ class CameraCapture:
                             break
 
                     frame_count += 1
-                    if frame_count % 30 == 0:  # Log every 30 frames
+                    if (
+                        frame_count % self._frame_log_interval == 0
+                    ):  # Log at configured interval
                         logger.debug(
                             f"Frame captured successfully: shape={frame.shape}, count={frame_count}"
                         )
@@ -486,7 +580,7 @@ class CameraCapture:
 
                 # Calculate FPS
                 self._fps_tracker.append(current_time)
-                if len(self._fps_tracker) > 10:
+                if len(self._fps_tracker) > self._fps_tracker_size:
                     self._fps_tracker.pop(0)
 
                 # Add frame to queue
@@ -510,7 +604,7 @@ class CameraCapture:
 
                 # Maintain target frame rate
                 if self._fps > 0:
-                    time.sleep(max(0, 1.0 / self._fps - 0.001))
+                    time.sleep(max(0, 1.0 / self._fps - self._frame_sleep_compensation))
 
             except Exception as e:
                 logger.error(f"Capture loop error: {e}")
@@ -587,9 +681,11 @@ class CameraCapture:
 
             # Wait for capture thread to finish
             if self._capture_thread:
-                self._capture_thread.join(timeout=5.0)
+                self._capture_thread.join(timeout=self._stop_timeout)
                 if self._capture_thread.is_alive():
-                    logger.warning("Capture thread did not stop gracefully")
+                    logger.warning(
+                        f"Capture thread did not stop gracefully after {self._stop_timeout}s timeout"
+                    )
 
             # Release camera resources
             if self._use_kinect2 and self._kinect2:
@@ -680,13 +776,16 @@ class CameraCapture:
 
             try:
                 kinect_info = self._kinect2.get_device_info()
+                depth_range_str = (
+                    f"{self._kinect2_min_depth}-{self._kinect2_max_depth}mm"
+                )
                 return {
                     "device_id": "kinect2",
                     "backend": self._backend,
                     "device_type": "Microsoft Kinect v2",
                     "has_depth": True,
                     "has_color": True,
-                    "depth_range": kinect_info.get("depth_range", "500-4000mm"),
+                    "depth_range": kinect_info.get("depth_range", depth_range_str),
                     "color_resolution": kinect_info.get("color_resolution", "1080p"),
                     "depth_enabled": kinect_info.get("depth_enabled", True),
                     "color_enabled": kinect_info.get("color_enabled", True),

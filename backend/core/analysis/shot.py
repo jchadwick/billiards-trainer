@@ -3,11 +3,24 @@
 import math
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 
+from ...config.manager import ConfigurationModule
 from ..models import BallState, GameState, ShotType, TableState, Vector2D
 from ..physics.trajectory import TrajectoryCalculator
 from ..utils.geometry import GeometryUtils
+
+# Global configuration instance (lazy loaded)
+_config: Optional[ConfigurationModule] = None
+
+
+def _get_config() -> ConfigurationModule:
+    """Get or create configuration instance."""
+    global _config
+    if _config is None:
+        _config = ConfigurationModule(config_dir=Path("config"))
+    return _config
 
 
 class IllegalShotReason(Enum):
@@ -48,18 +61,31 @@ class ShotAnalysis:
 class ShotAnalyzer:
     """Shot analysis engine."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[ConfigurationModule] = None):
         self.geometry_utils = GeometryUtils()
         self.trajectory_calculator = TrajectoryCalculator()
+        self.config = config or _get_config()
 
-        # Shot difficulty factors weights
+        # Load shot difficulty factors weights from config
         self.difficulty_weights = {
-            "distance": 0.25,
-            "angle": 0.20,
-            "obstacles": 0.15,
-            "precision_required": 0.20,
-            "cushion_bounces": 0.10,
-            "spin_required": 0.10,
+            "distance": self.config.get(
+                "core.shot_analysis.difficulty_weights.distance", 0.25
+            ),
+            "angle": self.config.get(
+                "core.shot_analysis.difficulty_weights.angle", 0.20
+            ),
+            "obstacles": self.config.get(
+                "core.shot_analysis.difficulty_weights.obstacles", 0.15
+            ),
+            "precision_required": self.config.get(
+                "core.shot_analysis.difficulty_weights.precision_required", 0.20
+            ),
+            "cushion_bounces": self.config.get(
+                "core.shot_analysis.difficulty_weights.cushion_bounces", 0.10
+            ),
+            "spin_required": self.config.get(
+                "core.shot_analysis.difficulty_weights.spin_required", 0.10
+            ),
         }
 
     def analyze_shot(
@@ -227,14 +253,26 @@ class ShotAnalyzer:
             factors[factor] * self.difficulty_weights[factor] for factor in factors
         )
 
-        # Apply shot type modifiers
+        # Apply shot type modifiers from config
         type_modifiers = {
-            ShotType.DIRECT: 1.0,
-            ShotType.BANK: 1.3,
-            ShotType.COMBINATION: 1.5,
-            ShotType.SAFETY: 0.8,  # Often easier as precision less critical
-            ShotType.MASSE: 1.8,
-            ShotType.BREAK: 0.6,  # Break shots are usually straightforward
+            ShotType.DIRECT: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.direct", 1.0
+            ),
+            ShotType.BANK: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.bank", 1.3
+            ),
+            ShotType.COMBINATION: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.combination", 1.5
+            ),
+            ShotType.SAFETY: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.safety", 0.8
+            ),
+            ShotType.MASSE: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.masse", 1.8
+            ),
+            ShotType.BREAK: self.config.get(
+                "core.shot_analysis.shot_type_modifiers.break", 0.6
+            ),
         }
 
         final_difficulty = total_difficulty * type_modifiers.get(shot_type, 1.0)
@@ -383,17 +421,37 @@ class ShotAnalyzer:
             (target_ball.position.x, target_ball.position.y),
         )
 
-        # Base force: 5-15 Newtons for typical shots
-        base_force = 8.0 + (distance / 1000.0) * 5.0  # Scale with distance
+        # Load force calculation parameters from config
+        base = self.config.get("core.shot_analysis.force_calculation.base_force", 8.0)
+        scale_factor = self.config.get(
+            "core.shot_analysis.force_calculation.distance_scale_factor", 5.0
+        )
+        scale_divisor = self.config.get(
+            "core.shot_analysis.force_calculation.distance_scale_divisor", 1000.0
+        )
 
-        # Adjust for shot type
+        base_force = base + (distance / scale_divisor) * scale_factor
+
+        # Adjust for shot type using config
         type_multipliers = {
-            ShotType.DIRECT: 1.0,
-            ShotType.BANK: 1.2,  # Need extra force for cushion
-            ShotType.COMBINATION: 1.1,
-            ShotType.SAFETY: 0.7,  # Softer safety shots
-            ShotType.MASSE: 0.8,  # Control more important than power
-            ShotType.BREAK: 2.0,  # Maximum power for break
+            ShotType.DIRECT: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.direct", 1.0
+            ),
+            ShotType.BANK: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.bank", 1.2
+            ),
+            ShotType.COMBINATION: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.combination", 1.1
+            ),
+            ShotType.SAFETY: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.safety", 0.7
+            ),
+            ShotType.MASSE: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.masse", 0.8
+            ),
+            ShotType.BREAK: self.config.get(
+                "core.shot_analysis.force_calculation.type_multipliers.break", 2.0
+            ),
         }
 
         return base_force * type_multipliers.get(shot_type, 1.0)
@@ -414,23 +472,51 @@ class ShotAnalyzer:
         # Base probability inversely related to difficulty
         base_probability = 1.0 - difficulty
 
-        # Adjust for shot type reliability
+        # Adjust for shot type reliability using config
         type_reliability = {
-            ShotType.DIRECT: 1.0,
-            ShotType.BANK: 0.7,
-            ShotType.COMBINATION: 0.6,
-            ShotType.SAFETY: 0.9,  # Safety shots are usually easier to execute
-            ShotType.MASSE: 0.4,
-            ShotType.BREAK: 0.8,
+            ShotType.DIRECT: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.direct", 1.0
+            ),
+            ShotType.BANK: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.bank", 0.7
+            ),
+            ShotType.COMBINATION: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.combination",
+                0.6,
+            ),
+            ShotType.SAFETY: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.safety", 0.9
+            ),
+            ShotType.MASSE: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.masse", 0.4
+            ),
+            ShotType.BREAK: self.config.get(
+                "core.shot_analysis.success_probability.type_reliability.break", 0.8
+            ),
         }
 
         probability = base_probability * type_reliability.get(shot_type, 1.0)
 
-        # Factor in table conditions
-        if game_state.table.surface_friction > 0.3:
-            probability *= 0.9  # High friction makes shots less predictable
+        # Factor in table conditions using config
+        friction_threshold = self.config.get(
+            "core.shot_analysis.success_probability.high_friction_threshold", 0.3
+        )
+        friction_multiplier = self.config.get(
+            "core.shot_analysis.success_probability.high_friction_multiplier", 0.9
+        )
 
-        return max(0.1, min(0.95, probability))  # Clamp between 10% and 95%
+        if game_state.table.surface_friction > friction_threshold:
+            probability *= friction_multiplier
+
+        # Clamp using config values
+        min_prob = self.config.get(
+            "core.shot_analysis.success_probability.min_probability", 0.1
+        )
+        max_prob = self.config.get(
+            "core.shot_analysis.success_probability.max_probability", 0.95
+        )
+
+        return max(min_prob, min(max_prob, probability))
 
     def _check_shot_legality(
         self, game_state: GameState, target_ball: BallState
@@ -469,19 +555,25 @@ class ShotAnalyzer:
         if self._is_direct_path_blocked(game_state, cue_ball, target_ball):
             problems.append("Direct path blocked")
 
-        # Check for difficult angles
+        # Check for difficult angles using config threshold
         angle_difficulty = self._calculate_angle_difficulty(
             cue_ball, target_ball, game_state.table
         )
-        if angle_difficulty > 0.7:
+        angle_threshold = self.config.get(
+            "core.shot_analysis.problem_thresholds.angle_difficulty_threshold", 0.7
+        )
+        if angle_difficulty > angle_threshold:
             problems.append("Very thin cut required")
 
-        # Check for long distance
+        # Check for long distance using config threshold
         distance = self.geometry_utils.distance_between_points(
             (cue_ball.position.x, cue_ball.position.y),
             (target_ball.position.x, target_ball.position.y),
         )
-        if distance > 1500:  # mm
+        distance_threshold = self.config.get(
+            "core.shot_analysis.problem_thresholds.long_distance_threshold", 1500
+        )
+        if distance > distance_threshold:
             problems.append("Long distance shot")
 
         return problems
@@ -496,9 +588,17 @@ class ShotAnalyzer:
         """Calculate various risk factors for the shot."""
         risks = {}
 
-        # Scratch risk
+        # Scratch risk using config values
+        scratch_high = self.config.get(
+            "core.shot_analysis.risk_factors.scratch_risk_high", 0.3
+        )
+        scratch_low = self.config.get(
+            "core.shot_analysis.risk_factors.scratch_risk_low", 0.1
+        )
         risks["scratch"] = (
-            0.3 if self._has_scratch_risk(game_state, cue_ball, target_ball) else 0.1
+            scratch_high
+            if self._has_scratch_risk(game_state, cue_ball, target_ball)
+            else scratch_low
         )
 
         # Miss risk based on difficulty
@@ -530,11 +630,22 @@ class ShotAnalyzer:
             game_state,
         )
 
-        if success_prob > 0.8:
+        # Use config thresholds for outcome descriptions
+        high_threshold = self.config.get(
+            "core.shot_analysis.success_probability.high_threshold", 0.8
+        )
+        good_threshold = self.config.get(
+            "core.shot_analysis.success_probability.good_threshold", 0.6
+        )
+        moderate_threshold = self.config.get(
+            "core.shot_analysis.success_probability.moderate_threshold", 0.4
+        )
+
+        if success_prob > high_threshold:
             return "High probability of success"
-        elif success_prob > 0.6:
+        elif success_prob > good_threshold:
             return "Good chance of success"
-        elif success_prob > 0.4:
+        elif success_prob > moderate_threshold:
             return "Moderate chance of success"
         else:
             return "Low probability of success"
@@ -602,7 +713,9 @@ class ShotAnalyzer:
         """Check if the shot is aimed at a cushion."""
         # Check if aim point is near table edges
         table = game_state.table
-        margin = 50  # mm from edge
+        margin = self.config.get(
+            "core.shot_analysis.problem_thresholds.cushion_shot_margin", 50
+        )
 
         return (
             aim_point.x < margin
@@ -668,17 +781,31 @@ class ShotAnalyzer:
     ) -> float:
         """Calculate difficulty based on interfering balls."""
         obstacles = 0
+        radius_margin = self.config.get(
+            "core.shot_analysis.difficulty_calculations.obstacles.radius_margin", 10
+        )
 
         for ball in game_state.balls:
             if ball.id == cue_ball.id or ball.id == target_ball.id or ball.is_pocketed:
                 continue
 
             if self._ball_intersects_line(
-                cue_ball.position, target_ball.position, ball.position, ball.radius + 10
-            ):  # Small margin
+                cue_ball.position,
+                target_ball.position,
+                ball.position,
+                ball.radius + radius_margin,
+            ):
                 obstacles += 1
 
-        return min(obstacles * 0.3, 1.0)  # Each obstacle adds 30% difficulty, max 100%
+        per_obstacle = self.config.get(
+            "core.shot_analysis.difficulty_calculations.obstacles.per_obstacle_penalty",
+            0.3,
+        )
+        max_diff = self.config.get(
+            "core.shot_analysis.difficulty_calculations.obstacles.max_difficulty", 1.0
+        )
+
+        return min(obstacles * per_obstacle, max_diff)
 
     def _calculate_precision_difficulty(
         self, target_ball: BallState, table: TableState
@@ -693,27 +820,43 @@ class ShotAnalyzer:
         )
 
         # Normalize by pocket radius - closer pockets are easier
-        return min(closest_distance / (table.pocket_radius * 10), 1.0)
+        multiplier = self.config.get(
+            "core.shot_analysis.difficulty_calculations.precision.pocket_radius_multiplier",
+            10,
+        )
+        return min(closest_distance / (table.pocket_radius * multiplier), 1.0)
 
     def _calculate_cushion_difficulty(self, shot_type: ShotType) -> float:
         """Calculate difficulty based on cushion bounces required."""
         if shot_type == ShotType.BANK:
-            return 0.7  # Bank shots are inherently more difficult
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.cushion.bank_shot", 0.7
+            )
         elif shot_type == ShotType.MASSE:
-            return 0.5  # Some cushion contact likely
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.cushion.masse_shot", 0.5
+            )
         else:
-            return 0.1  # Minimal cushion interaction
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.cushion.other", 0.1
+            )
 
     def _calculate_spin_difficulty(
         self, shot_type: ShotType, cue_ball: BallState, target_ball: BallState
     ) -> float:
         """Calculate difficulty based on spin required."""
         if shot_type == ShotType.MASSE:
-            return 0.9  # Maximum spin required
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.spin.masse_shot", 0.9
+            )
         elif shot_type == ShotType.BANK:
-            return 0.4  # Some english often needed
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.spin.bank_shot", 0.4
+            )
         else:
-            return 0.1  # Minimal spin for most shots
+            return self.config.get(
+                "core.shot_analysis.difficulty_calculations.spin.other", 0.1
+            )
 
     def _has_scratch_risk(
         self, game_state: GameState, cue_ball: BallState, target_ball: BallState
@@ -721,11 +864,15 @@ class ShotAnalyzer:
         """Check if there's significant risk of scratching."""
         # Check if cue ball path after contact leads toward pockets
         # This is a simplified check
+        risk_distance = self.config.get(
+            "core.shot_analysis.problem_thresholds.scratch_risk_distance", 200
+        )
+
         for pocket in game_state.table.pocket_positions:
             distance = self.geometry_utils.distance_between_points(
                 (cue_ball.position.x, cue_ball.position.y), (pocket.x, pocket.y)
             )
-            if distance < 200:  # mm - close to pocket
+            if distance < risk_distance:
                 return True
 
         return False
@@ -736,4 +883,6 @@ class ShotAnalyzer:
         """Calculate risk of leaving opponent with easy shots."""
         # Simplified calculation - in full implementation would analyze
         # resulting table layout after shot
-        return 0.3  # Default moderate risk
+        return self.config.get(
+            "core.shot_analysis.risk_factors.opponent_advantage_default", 0.3
+        )

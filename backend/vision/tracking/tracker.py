@@ -1,5 +1,6 @@
 """Object tracking across frames."""
 
+import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -16,12 +17,14 @@ from .kalman import KalmanFilter
 
 
 class BallType(Enum):
-    """Ball type classification."""
+    """Ball type classification.
+
+    Simplified to three types due to unreliable stripe/solid classification.
+    """
 
     CUE = "cue"
-    SOLID = "solid"
-    STRIPE = "stripe"
     EIGHT = "eight"
+    OTHER = "other"
     UNKNOWN = "unknown"
 
 
@@ -36,6 +39,19 @@ class Ball:
     confidence: float = 0.0
     velocity: tuple[float, float] = (0.0, 0.0)
     is_moving: bool = False
+    track_id: Optional[int] = None  # Track ID for confirmed tracks
+
+    @property
+    def display_name(self) -> str:
+        """Get display name for the ball."""
+        if self.number is not None:
+            return str(self.number)
+        elif self.ball_type == BallType.CUE:
+            return "Cue"
+        elif self.ball_type == BallType.EIGHT:
+            return "8"
+        else:
+            return self.ball_type.value.capitalize()
 
 
 class TrackState(Enum):
@@ -55,20 +71,30 @@ class Track:
     ball_type: BallType
     ball_number: Optional[int]
     kalman_filter: KalmanFilter
+    min_hits: int
+    max_age: int
+    config: dict[str, Any]  # Configuration for thresholds and history sizes
     state: TrackState = TrackState.TENTATIVE
     creation_time: float = field(default_factory=time.time)
     last_update_time: float = field(default_factory=time.time)
     last_frame_number: int = 0
-    confidence_history: deque[float] = field(default_factory=lambda: deque(maxlen=10))
-    position_history: deque[tuple[float, float]] = field(
-        default_factory=lambda: deque(maxlen=50)
-    )
+    confidence_history: deque[float] = field(default_factory=deque)
+    position_history: deque[tuple[float, float]] = field(default_factory=deque)
     detection_count: int = 0
     miss_count: int = 0
-    radius_history: deque[float] = field(default_factory=lambda: deque(maxlen=10))
+    radius_history: deque[float] = field(default_factory=deque)
 
     def __post_init__(self) -> None:
         """Initialize track after creation."""
+        # Initialize deques with maxlen from config
+        history_config = self.config.get("history", {})
+        self.confidence_history = deque(
+            maxlen=history_config.get("confidence_maxlen", 10)
+        )
+        self.position_history = deque(maxlen=history_config.get("position_maxlen", 50))
+        self.radius_history = deque(maxlen=history_config.get("radius_maxlen", 10))
+
+        # Add initial values
         self.confidence_history.append(self.kalman_filter.confidence)
         self.position_history.append(self.kalman_filter.get_position())
 
@@ -93,7 +119,8 @@ class Track:
     def average_radius(self) -> float:
         """Get average radius over history."""
         if not self.radius_history:
-            return 15.0  # Default ball radius
+            thresholds = self.config.get("thresholds", {})
+            return thresholds.get("default_ball_radius", 15.0)
         return float(sum(self.radius_history) / len(self.radius_history))
 
     def update_with_detection(self, detection: Ball, frame_number: int) -> None:
@@ -112,7 +139,7 @@ class Track:
         # Update track state
         if (
             self.state == TrackState.TENTATIVE
-            and self.detection_count >= 3
+            and self.detection_count >= self.min_hits
             or self.state == TrackState.LOST
         ):
             self.state = TrackState.CONFIRMED
@@ -127,14 +154,19 @@ class Track:
         """Mark track as missed in current frame."""
         self.miss_count += 1
 
+        thresholds = self.config.get("thresholds", {})
+        lost_state_ratio = thresholds.get("lost_state_ratio", 0.333)
+
         # Update track state based on miss count
-        if self.state == TrackState.CONFIRMED and self.miss_count > 10:
+        if self.state == TrackState.CONFIRMED and self.miss_count > int(
+            self.max_age * lost_state_ratio
+        ):
             self.state = TrackState.LOST
         elif (
             self.state == TrackState.TENTATIVE
-            and self.miss_count > 3
+            and self.miss_count > self.min_hits
             or self.state == TrackState.LOST
-            and self.miss_count > 30
+            and self.miss_count > self.max_age
         ):
             self.state = TrackState.DELETED
 
@@ -144,10 +176,19 @@ class Track:
 
     def should_be_deleted(self) -> bool:
         """Check if track should be deleted."""
+        thresholds = self.config.get("thresholds", {})
+        tentative_deletion_misses = thresholds.get("tentative_deletion_misses", 5)
+        lost_deletion_misses = thresholds.get("lost_deletion_misses", 50)
+
         return (
             self.state == TrackState.DELETED
-            or (self.state == TrackState.TENTATIVE and self.miss_count > 5)
-            or (self.state == TrackState.LOST and self.miss_count > 50)
+            or (
+                self.state == TrackState.TENTATIVE
+                and self.miss_count > tentative_deletion_misses
+            )
+            or (
+                self.state == TrackState.LOST and self.miss_count > lost_deletion_misses
+            )
         )
 
     def get_current_ball(self) -> Ball:
@@ -156,6 +197,9 @@ class Track:
         velocity = self.kalman_filter.get_velocity()
         speed = self.kalman_filter.get_speed()
 
+        thresholds = self.config.get("thresholds", {})
+        movement_speed = thresholds.get("movement_speed", 5.0)
+
         return Ball(
             position=position,
             radius=self.average_radius,
@@ -163,7 +207,8 @@ class Track:
             number=self.ball_number,
             confidence=self.kalman_filter.confidence,
             velocity=velocity,
-            is_moving=speed > 5.0,  # Threshold for movement
+            is_moving=speed > movement_speed,
+            track_id=self.track_id,
         )
 
 
@@ -185,18 +230,28 @@ class ObjectTracker:
         Args:
             config: Configuration dictionary with tracking parameters
         """
+        # Store config for use in Track objects
+        self.config = config
+
         # Tracking parameters
-        self.max_age = config.get("max_age", 30)  # Max frames to keep lost tracks
-        self.min_hits = config.get("min_hits", 3)  # Min detections to confirm track
-        self.max_distance = config.get("max_distance", 50.0)  # Max association distance
+        self.max_age = config.get("max_age", 30)
+        self.min_hits = config.get("min_hits", 3)
+        self.max_distance = config.get("max_distance", 50.0)
         self.kalman_process_noise = config.get("process_noise", 1.0)
         self.kalman_measurement_noise = config.get("measurement_noise", 10.0)
+
+        # Ghost ball filtering parameters
+        self.collision_threshold = config.get("collision_threshold", 60.0)
+        self.min_hits_during_collision = config.get("min_hits_during_collision", 5)
+        self.motion_speed_threshold = config.get("motion_speed_threshold", 10.0)
+        self.return_tentative_tracks = config.get("return_tentative_tracks", False)
 
         # State
         self.tracks: list[Track] = []
         self.next_track_id = 1
         self.frame_number = 0
         self.last_frame_time = time.time()
+        self.collision_detected = False
 
         # Performance metrics
         self.track_statistics = {
@@ -204,6 +259,8 @@ class ObjectTracker:
             "total_tracks_deleted": 0,
             "current_active_tracks": 0,
             "average_track_length": 0.0,
+            "ghost_balls_filtered": 0,
+            "collision_frames": 0,
         }
 
         # Track history for analysis
@@ -237,6 +294,11 @@ class ObjectTracker:
         # Step 1: Predict all existing tracks
         self._predict_tracks(dt)
 
+        # Step 1.5: Detect collisions or high-motion events
+        self.collision_detected = self._detect_collision_or_high_motion()
+        if self.collision_detected:
+            self.track_statistics["collision_frames"] += 1
+
         # Step 2: Associate detections with tracks
         (
             matched_tracks,
@@ -255,6 +317,7 @@ class ObjectTracker:
             self.tracks[track_idx].mark_missed()
 
         # Step 5: Create new tracks for unmatched detections
+        # During collision, be more conservative about creating new tracks
         for detection_idx in unmatched_detections:
             self._create_new_track(detections[detection_idx], frame_number)
 
@@ -334,12 +397,18 @@ class ObjectTracker:
                     + (predicted_pos[1] - detection.position[1]) ** 2
                 )
 
+                # Get penalty multipliers from config
+                penalties = self.config.get("penalties", {})
+                type_mismatch_penalty = penalties.get("type_mismatch", 2.0)
+                number_mismatch_penalty = penalties.get("number_mismatch", 3.0)
+                invalid_measurement_penalty = penalties.get("invalid_measurement", 5.0)
+
                 # Add penalty for type mismatch
                 if (
                     track.ball_type != detection.ball_type
                     and detection.ball_type != BallType.CUE
                 ):
-                    distance *= 2.0
+                    distance *= type_mismatch_penalty
 
                 # Add penalty for number mismatch
                 if (
@@ -347,11 +416,11 @@ class ObjectTracker:
                     and detection.number is not None
                     and track.ball_number != detection.number
                 ):
-                    distance *= 3.0
+                    distance *= number_mismatch_penalty
 
                 # Consider kalman validity
                 if not track.kalman_filter.is_valid_measurement(detection.position):
-                    distance *= 5.0
+                    distance *= invalid_measurement_penalty
 
                 cost_matrix[i, j] = distance
 
@@ -376,8 +445,12 @@ class ObjectTracker:
             return False
 
         # Size compatibility
+        size_compatibility = self.config.get("size_compatibility", {})
+        min_ratio = size_compatibility.get("min_ratio", 0.5)
+        max_ratio = size_compatibility.get("max_ratio", 2.0)
+
         size_ratio = detection.radius / track.average_radius
-        return not (size_ratio < 0.5 or size_ratio > 2.0)
+        return not (size_ratio < min_ratio or size_ratio > max_ratio)
 
     def _create_new_track(self, detection: Ball, frame_number: int) -> None:
         """Create new track from detection."""
@@ -395,6 +468,9 @@ class ObjectTracker:
             ball_type=detection.ball_type,
             ball_number=detection.number,
             kalman_filter=kalman_filter,
+            min_hits=self.min_hits,
+            max_age=self.max_age,
+            config=self.config,
             last_frame_number=frame_number,
         )
 
@@ -435,14 +511,83 @@ class ObjectTracker:
                 total_length / self.track_statistics["total_tracks_deleted"]
             )
 
+    def _detect_collision_or_high_motion(self) -> bool:
+        """Detect if balls are colliding or in high-motion state.
+
+        Collisions are characterized by:
+        - Two or more balls very close together (< collision_threshold)
+        - High velocity on one or more balls (> motion_speed_threshold)
+
+        Returns:
+            True if collision or high-motion detected, False otherwise
+        """
+        if len(self.tracks) < 2:
+            return False
+
+        # Check for ball proximity (potential collision)
+        confirmed_tracks = [t for t in self.tracks if t.state == TrackState.CONFIRMED]
+
+        for i, track_a in enumerate(confirmed_tracks):
+            pos_a = track_a.kalman_filter.get_position()
+            speed_a = track_a.kalman_filter.get_speed()
+
+            # High-speed motion detected
+            if speed_a > self.motion_speed_threshold:
+                return True
+
+            # Check proximity to other balls
+            for track_b in confirmed_tracks[i + 1 :]:
+                pos_b = track_b.kalman_filter.get_position()
+
+                distance = math.sqrt(
+                    (pos_a[0] - pos_b[0]) ** 2 + (pos_a[1] - pos_b[1]) ** 2
+                )
+
+                # Balls are very close (likely collision or about to collide)
+                if distance < self.collision_threshold:
+                    speed_b = track_b.kalman_filter.get_speed()
+                    thresholds = self.config.get("thresholds", {})
+                    collision_speed = thresholds.get("collision_speed", 3.0)
+                    # If at least one ball is moving, this is a collision event
+                    if speed_a > collision_speed or speed_b > collision_speed:
+                        return True
+
+        return False
+
     def _get_tracked_balls(self) -> list[Ball]:
-        """Get current tracked balls."""
+        """Get current tracked balls with ghost ball filtering.
+
+        Filters out TENTATIVE tracks to prevent ghost balls from appearing.
+        During collision events, applies even stricter filtering.
+        """
         tracked_balls = []
+        tentative_filtered = 0
 
         for track in self.tracks:
+            # Always return CONFIRMED and LOST tracks
             if track.state == TrackState.CONFIRMED or track.state == TrackState.LOST:
                 ball = track.get_current_ball()
                 tracked_balls.append(ball)
+            # Only return TENTATIVE tracks if explicitly enabled (for debugging)
+            elif track.state == TrackState.TENTATIVE and self.return_tentative_tracks:
+                # During collision, require higher confirmation threshold
+                min_detections = (
+                    self.min_hits_during_collision
+                    if self.collision_detected
+                    else self.min_hits
+                )
+
+                if track.detection_count >= min_detections:
+                    ball = track.get_current_ball()
+                    tracked_balls.append(ball)
+                else:
+                    tentative_filtered += 1
+            else:
+                tentative_filtered += 1
+
+        # Track ghost ball filtering statistics
+        if tentative_filtered > 0:
+            self.track_statistics["ghost_balls_filtered"] += tentative_filtered
 
         return tracked_balls
 

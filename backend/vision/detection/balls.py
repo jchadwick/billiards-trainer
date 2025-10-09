@@ -46,34 +46,111 @@ class BallDetectionConfig:
     # Detection method
     detection_method: DetectionMethod = DetectionMethod.COMBINED
 
-    # Hough circle parameters - strict for accuracy
+    # Hough circle parameters
     hough_dp: float = 1.0
-    hough_min_dist_ratio: float = 0.8  # Higher to prevent ghost duplicates
-    hough_param1: int = 50  # Higher = stricter edge detection
-    hough_param2: int = 30  # Higher = require stronger circles
+    hough_min_dist_ratio: float = 0.8
+    hough_param1: int = 50
+    hough_param2: int = 30
     hough_accumulator_threshold: int = 15
+    hough_gaussian_blur_kernel: int = 9
+    hough_gaussian_blur_sigma: int = 2
 
-    # Size constraints - tighter tolerance
+    # Size constraints
     min_radius: int = 15
     max_radius: int = 26
-    expected_radius: int = 20  # Expected ball radius for validation
-    radius_tolerance: float = 0.30  # ±30% radius tolerance (stricter)
+    expected_radius: int = 20
+    radius_tolerance: float = 0.30
 
     # Color classification
     ball_colors: dict[str, dict[str, tuple[int, int, int]]] = None
 
-    # Quality filters - strict
-    min_circularity: float = 0.75  # High circularity - balls are ROUND
-    min_confidence: float = 0.4  # Require decent confidence
-    max_overlap_ratio: float = 0.30  # Stricter overlap rejection
+    # Quality filters
+    min_circularity: float = 0.75
+    min_confidence: float = 0.4
+    max_overlap_ratio: float = 0.30
+    min_convexity: float = 0.8
+    min_inertia_ratio: float = 0.5
 
     # Performance optimization
     roi_enabled: bool = True
-    roi_margin: int = 50  # Margin around table boundaries
+    roi_margin: int = 50
 
     # Debug settings
     debug_mode: bool = False
     save_debug_images: bool = False
+
+    @classmethod
+    def from_config(cls, config: dict[str, Any]) -> "BallDetectionConfig":
+        """Create BallDetectionConfig from nested configuration dictionary.
+
+        Args:
+            config: Nested configuration dictionary with sections like
+                   hough_circles, size_constraints, etc.
+
+        Returns:
+            BallDetectionConfig instance
+        """
+        # Extract detection method
+        method_str = config.get("detection_method", "combined")
+        if isinstance(method_str, str):
+            detection_method = DetectionMethod(method_str)
+        else:
+            detection_method = method_str
+
+        # Extract hough parameters
+        hough_config = config.get("hough_circles", {})
+
+        # Extract size constraints
+        size_config = config.get("size_constraints", {})
+
+        # Extract quality filters
+        quality_config = config.get("quality_filters", {})
+
+        # Extract performance settings
+        perf_config = config.get("performance", {})
+
+        # Extract debug settings
+        debug_config = config.get("debug", {})
+
+        # Extract ball colors and convert to tuple format
+        ball_colors_raw = config.get("ball_colors", {})
+        ball_colors = {}
+        for color_name, color_range in ball_colors_raw.items():
+            ball_colors[color_name] = {
+                "lower": tuple(color_range.get("lower", [0, 0, 0])),
+                "upper": tuple(color_range.get("upper", [180, 255, 255])),
+            }
+
+        return cls(
+            detection_method=detection_method,
+            # Hough parameters
+            hough_dp=hough_config.get("dp", 1.0),
+            hough_min_dist_ratio=hough_config.get("min_dist_ratio", 0.8),
+            hough_param1=hough_config.get("param1", 50),
+            hough_param2=hough_config.get("param2", 30),
+            hough_accumulator_threshold=hough_config.get("accumulator_threshold", 15),
+            hough_gaussian_blur_kernel=hough_config.get("gaussian_blur_kernel", 9),
+            hough_gaussian_blur_sigma=hough_config.get("gaussian_blur_sigma", 2),
+            # Size constraints
+            min_radius=size_config.get("min_radius", 15),
+            max_radius=size_config.get("max_radius", 26),
+            expected_radius=size_config.get("expected_radius", 20),
+            radius_tolerance=size_config.get("radius_tolerance", 0.30),
+            # Ball colors
+            ball_colors=ball_colors if ball_colors else None,
+            # Quality filters
+            min_circularity=quality_config.get("min_circularity", 0.75),
+            min_confidence=quality_config.get("min_confidence", 0.4),
+            max_overlap_ratio=quality_config.get("max_overlap_ratio", 0.30),
+            min_convexity=quality_config.get("min_convexity", 0.8),
+            min_inertia_ratio=quality_config.get("min_inertia_ratio", 0.5),
+            # Performance
+            roi_enabled=perf_config.get("roi_enabled", True),
+            roi_margin=perf_config.get("roi_margin", 50),
+            # Debug
+            debug_mode=debug_config.get("debug_mode", False),
+            save_debug_images=debug_config.get("save_debug_images", False),
+        )
 
     def __post_init__(self) -> None:
         """Initialize ball colors with default HSV ranges if not provided."""
@@ -139,22 +216,24 @@ class BallDetector:
         Args:
             config: Configuration dictionary
         """
-        self.config = BallDetectionConfig(**config)
+        # Store raw config for accessing nested values
+        self.raw_config = config
+        self.config = BallDetectionConfig.from_config(config)
 
         # Initialize detection components
         self._initialize_detectors()
 
         # Background subtraction
         self.background_frame: Optional[NDArray[np.uint8]] = None
-        self.use_background_subtraction = config.get(
-            "use_background_subtraction", False
-        )
-        self.background_threshold = config.get("background_threshold", 30)
+        bg_config = config.get("background_subtraction", {})
+        self.use_background_subtraction = bg_config.get("enabled", False)
+        self.background_threshold = bg_config.get("threshold", 30)
 
         # Pocket locations (detected from background frame)
         self.pocket_locations: list[tuple[float, float, float]] = []  # (x, y, radius)
-        self.pocket_exclusion_radius_multiplier = (
-            2.0  # Exclude detections within 2.0x pocket radius
+        pocket_config = config.get("pocket_detection", {})
+        self.pocket_exclusion_radius_multiplier = pocket_config.get(
+            "exclusion_radius_multiplier", 2.0
         )
 
         # Playing area mask (excludes rails and pockets)
@@ -186,9 +265,9 @@ class BallDetector:
         params.filterByCircularity = True
         params.minCircularity = self.config.min_circularity
         params.filterByConvexity = True
-        params.minConvexity = 0.8
+        params.minConvexity = self.config.min_convexity
         params.filterByInertia = True
-        params.minInertiaRatio = 0.5
+        params.minInertiaRatio = self.config.min_inertia_ratio
 
         self.blob_detector = cv2.SimpleBlobDetector_create(params)
 
@@ -217,19 +296,27 @@ class BallDetector:
         # Compute absolute difference
         diff = cv2.absdiff(gray, bg_gray)
 
+        # Get background subtraction config
+        bg_config = self.raw_config.get("background_subtraction", {})
+        threshold_adj = bg_config.get("threshold_adjustment", 10)
+        morph_kernel_size = bg_config.get("morph_kernel_size", 5)
+        morph_iterations = bg_config.get("morph_iterations", 1)
+
         # Threshold to get foreground mask
         # Higher threshold = less sensitive = fewer motion artifacts
         _, fg_mask = cv2.threshold(
-            diff, self.background_threshold + 10, 255, cv2.THRESH_BINARY
+            diff, self.background_threshold + threshold_adj, 255, cv2.THRESH_BINARY
         )
 
         # Morphological operations to clean up
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
+        )
         fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
         fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
 
         # Less aggressive dilation to reduce motion blur
-        fg_mask = cv2.dilate(fg_mask, kernel, iterations=1)
+        fg_mask = cv2.dilate(fg_mask, kernel, iterations=morph_iterations)
 
         return fg_mask
 
@@ -246,14 +333,24 @@ class BallDetector:
         Returns:
             List of (x, y, radius) tuples for each pocket
         """
+        # Get pocket detection config
+        pocket_config = self.raw_config.get("pocket_detection", {})
+        threshold = pocket_config.get("threshold", 40)
+        morph_kernel_size = pocket_config.get("morph_kernel_size", 9)
+        min_radius = pocket_config.get("min_radius", 35)
+        max_radius = pocket_config.get("max_radius", 80)
+        min_circularity = pocket_config.get("min_circularity", 0.65)
+
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Pockets are VERY dark (nearly black), use stricter threshold
-        _, dark_mask = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY_INV)
+        _, dark_mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
 
         # Morphological operations to clean up
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
+        )
         dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_CLOSE, kernel)
         dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel)
 
@@ -266,9 +363,9 @@ class BallDetector:
         for contour in contours:
             area = cv2.contourArea(contour)
 
-            # Pockets are significantly larger than balls - typically 35-80 pixel radius
-            min_pocket_area = math.pi * (35**2)
-            max_pocket_area = math.pi * (80**2)
+            # Pockets are significantly larger than balls
+            min_pocket_area = math.pi * (min_radius**2)
+            max_pocket_area = math.pi * (max_radius**2)
 
             if min_pocket_area <= area <= max_pocket_area:
                 # Check circularity
@@ -277,7 +374,7 @@ class BallDetector:
                     circularity = 4 * math.pi * area / (perimeter**2)
 
                     # Pockets should be fairly circular
-                    if circularity >= 0.65:
+                    if circularity >= min_circularity:
                         # Calculate center and radius
                         M = cv2.moments(contour)
                         if M["m00"] > 0:
@@ -302,24 +399,59 @@ class BallDetector:
         Returns:
             Binary mask where 255 = playing area, 0 = rails/pockets/outside
         """
+        # Get playing area config
+        playing_area_config = self.raw_config.get("playing_area", {})
+        green_cloth = playing_area_config.get("green_cloth", {})
+        blue_cloth = playing_area_config.get("blue_cloth", {})
+        min_area_ratio = playing_area_config.get("min_area_ratio", 0.1)
+        morph_kernel_size = playing_area_config.get("morph_kernel_size", 15)
+        erode_kernel_size = playing_area_config.get("erode_kernel_size", 20)
+        erode_iterations = playing_area_config.get("erode_iterations", 1)
+
         # Convert to HSV for better color segmentation
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
         # Detect table cloth color (green or blue felt)
         # Use broader ranges to capture the playing surface
-        green_lower = np.array([35, 30, 30])
-        green_upper = np.array([85, 255, 255])
+        green_lower = np.array(
+            [
+                green_cloth.get("hue_min", 35),
+                green_cloth.get("saturation_min", 30),
+                green_cloth.get("value_min", 30),
+            ]
+        )
+        green_upper = np.array(
+            [
+                green_cloth.get("hue_max", 85),
+                green_cloth.get("saturation_max", 255),
+                green_cloth.get("value_max", 255),
+            ]
+        )
         green_mask = cv2.inRange(hsv, green_lower, green_upper)
 
-        blue_lower = np.array([90, 30, 30])
-        blue_upper = np.array([130, 255, 255])
+        blue_lower = np.array(
+            [
+                blue_cloth.get("hue_min", 90),
+                blue_cloth.get("saturation_min", 30),
+                blue_cloth.get("value_min", 30),
+            ]
+        )
+        blue_upper = np.array(
+            [
+                blue_cloth.get("hue_max", 130),
+                blue_cloth.get("saturation_max", 255),
+                blue_cloth.get("value_max", 255),
+            ]
+        )
         blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
 
         # Combine green and blue masks
         cloth_mask = cv2.bitwise_or(green_mask, blue_mask)
 
         # Morphological operations to clean up and fill small holes
-        kernel_large = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+        kernel_large = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
+        )
         cloth_mask = cv2.morphologyEx(cloth_mask, cv2.MORPH_CLOSE, kernel_large)
         cloth_mask = cv2.morphologyEx(cloth_mask, cv2.MORPH_OPEN, kernel_large)
 
@@ -338,7 +470,7 @@ class BallDetector:
 
         # Validate that the detected area is reasonable
         frame_area = frame.shape[0] * frame.shape[1]
-        if area < frame_area * 0.1:  # Too small
+        if area < frame_area * min_area_ratio:  # Too small
             logger.warning(
                 f"Detected playing area too small: {area} pixels ({area/frame_area*100:.1f}% of frame)"
             )
@@ -350,8 +482,12 @@ class BallDetector:
 
         # Erode the mask slightly to exclude the rail edges
         # This ensures we don't detect balls that are partially on the rail
-        kernel_erode = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (20, 20))
-        playing_area_mask = cv2.erode(playing_area_mask, kernel_erode, iterations=1)
+        kernel_erode = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (erode_kernel_size, erode_kernel_size)
+        )
+        playing_area_mask = cv2.erode(
+            playing_area_mask, kernel_erode, iterations=erode_iterations
+        )
 
         logger.info(
             f"Playing area detected: {cv2.countNonZero(playing_area_mask)} pixels ({cv2.countNonZero(playing_area_mask)/frame_area*100:.1f}% of frame)"
@@ -439,6 +575,9 @@ class BallDetector:
             # Remove overlapping detections
             final_balls = self._remove_overlaps(classified_balls)
 
+            # Resolve ball type conflicts (multiple cue/8-balls)
+            final_balls = self._resolve_ball_type_conflicts(final_balls)
+
             # Update statistics
             self._update_stats(final_balls)
 
@@ -468,13 +607,17 @@ class BallDetector:
             return BallType.UNKNOWN, 0.0, None
 
         try:
+            # Get brightness config for mask ratio
+            brightness_config = self.raw_config.get("brightness_filters", {})
+            ball_mask_inner_ratio = brightness_config.get("ball_mask_inner_ratio", 0.8)
+
             # Convert to HSV for color analysis
             hsv_region = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
 
             # Create circular mask to focus on ball area
             mask = np.zeros(ball_region.shape[:2], dtype=np.uint8)
             center = (ball_region.shape[1] // 2, ball_region.shape[0] // 2)
-            cv2.circle(mask, center, int(radius * 0.8), 255, -1)
+            cv2.circle(mask, center, int(radius * ball_mask_inner_ratio), 255, -1)
 
             # Analyze color distribution
             color_scores = {}
@@ -499,44 +642,6 @@ class BallDetector:
             logger.warning(f"Ball classification failed: {e}")
             return BallType.UNKNOWN, 0.0, None
 
-    def identify_ball_number(
-        self, ball_region: NDArray[np.float64], ball_type: BallType
-    ) -> Optional[int]:
-        """Identify ball number if visible using pattern recognition.
-
-        Args:
-            ball_region: Cropped image region containing the ball
-            ball_type: Previously classified ball type
-
-        Returns:
-            Ball number (1-15) or None if not identifiable
-        """
-        if ball_type == BallType.CUE:
-            return None  # Cue ball has no number
-        elif ball_type == BallType.EIGHT:
-            return 8
-
-        try:
-            # Preprocess ball region for number recognition
-            preprocessed = self._preprocess_for_number_recognition(ball_region)
-
-            # Try template matching first (faster but less robust)
-            number = self._template_match_number(preprocessed, ball_type)
-            if number is not None:
-                return number
-
-            # Fall back to simple OCR-like approach
-            number = self._ocr_recognize_number(preprocessed, ball_type)
-            if number is not None:
-                return number
-
-            # If all methods fail, try color-based number inference
-            return self._infer_number_from_color(ball_region, ball_type)
-
-        except Exception as e:
-            self.logger.debug(f"Ball number recognition failed: {e}")
-            return None
-
     # Private helper methods
 
     def _create_ball_color_mask(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
@@ -553,39 +658,95 @@ class BallDetector:
         # Convert to HSV for better color separation
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
+        # Get color filtering config
+        color_filter_config = self.raw_config.get("color_filtering", {})
+        green_table = color_filter_config.get("green_table", {})
+        blue_table = color_filter_config.get("blue_table", {})
+        skin_tones = color_filter_config.get("skin_tones", {})
+        dark_regions = color_filter_config.get("dark_regions", {})
+        morph_kernel_size = color_filter_config.get("morph_kernel_size", 5)
+
         # Create mask that EXCLUDES non-ball regions
         exclude_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
 
         # 1. Exclude GREEN/BLUE table surface (biggest source of false positives)
-        # Green felt: Hue 35-85 with decent saturation
-        green_table_lower = np.array([35, 40, 30])
-        green_table_upper = np.array([85, 255, 255])
+        green_table_lower = np.array(
+            [
+                green_table.get("hue_min", 35),
+                green_table.get("saturation_min", 40),
+                green_table.get("value_min", 30),
+            ]
+        )
+        green_table_upper = np.array(
+            [
+                green_table.get("hue_max", 85),
+                green_table.get("saturation_max", 255),
+                green_table.get("value_max", 255),
+            ]
+        )
         green_table_mask = cv2.inRange(hsv, green_table_lower, green_table_upper)
         exclude_mask = cv2.bitwise_or(exclude_mask, green_table_mask)
 
-        # Blue felt: Hue 95-125 with decent saturation
-        blue_table_lower = np.array([95, 40, 30])
-        blue_table_upper = np.array([125, 255, 255])
+        blue_table_lower = np.array(
+            [
+                blue_table.get("hue_min", 95),
+                blue_table.get("saturation_min", 40),
+                blue_table.get("value_min", 30),
+            ]
+        )
+        blue_table_upper = np.array(
+            [
+                blue_table.get("hue_max", 125),
+                blue_table.get("saturation_max", 255),
+                blue_table.get("value_max", 255),
+            ]
+        )
         blue_table_mask = cv2.inRange(hsv, blue_table_lower, blue_table_upper)
         exclude_mask = cv2.bitwise_or(exclude_mask, blue_table_mask)
 
         # 2. Exclude SKIN TONES (hands, arms)
-        # Skin has specific Hue (0-20) and Saturation (20-150) range
-        skin_lower = np.array([0, 20, 50])
-        skin_upper = np.array([20, 150, 255])
+        skin_lower = np.array(
+            [
+                skin_tones.get("hue_min", 0),
+                skin_tones.get("saturation_min", 20),
+                skin_tones.get("value_min", 50),
+            ]
+        )
+        skin_upper = np.array(
+            [
+                skin_tones.get("hue_max", 20),
+                skin_tones.get("saturation_max", 150),
+                skin_tones.get("value_max", 255),
+            ]
+        )
         skin_mask = cv2.inRange(hsv, skin_lower, skin_upper)
         exclude_mask = cv2.bitwise_or(exclude_mask, skin_mask)
 
         # 3. Exclude VERY DARK regions (pockets, shadows)
-        # Value < 30 is too dark to be a ball
-        dark_mask = cv2.inRange(hsv, np.array([0, 0, 0]), np.array([180, 255, 30]))
+        dark_lower = np.array(
+            [
+                dark_regions.get("hue_min", 0),
+                dark_regions.get("saturation_min", 0),
+                dark_regions.get("value_min", 0),
+            ]
+        )
+        dark_upper = np.array(
+            [
+                dark_regions.get("hue_max", 180),
+                dark_regions.get("saturation_max", 255),
+                dark_regions.get("value_max", 30),
+            ]
+        )
+        dark_mask = cv2.inRange(hsv, dark_lower, dark_upper)
         exclude_mask = cv2.bitwise_or(exclude_mask, dark_mask)
 
         # Invert: what's left is POSSIBLE ball locations
         ball_color_mask = cv2.bitwise_not(exclude_mask)
 
         # Clean up with morphology
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel = cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
+        )
         ball_color_mask = cv2.morphologyEx(ball_color_mask, cv2.MORPH_OPEN, kernel)
 
         return ball_color_mask
@@ -601,7 +762,11 @@ class BallDetector:
         gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
         # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (9, 9), 2)
+        blur_kernel = self.config.hough_gaussian_blur_kernel
+        blur_sigma = self.config.hough_gaussian_blur_sigma
+        # Ensure kernel size is odd
+        blur_kernel = blur_kernel if blur_kernel % 2 == 1 else blur_kernel + 1
+        blurred = cv2.GaussianBlur(gray, (blur_kernel, blur_kernel), blur_sigma)
 
         # Calculate dynamic parameters
         min_dist = int(self.config.min_radius * 2 * self.config.hough_min_dist_ratio)
@@ -636,9 +801,19 @@ class BallDetector:
 
         gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
+        # Get contour detection config
+        contour_config = self.raw_config.get("contour_detection", {})
+        block_size = contour_config.get("adaptive_threshold_block_size", 11)
+        c_value = contour_config.get("adaptive_threshold_c", 2)
+
         # Apply adaptive threshold
         binary = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            gray,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            block_size,
+            c_value,
         )
 
         # Find contours
@@ -736,8 +911,10 @@ class BallDetector:
                     + (candidate[1] - other_candidate[1]) ** 2
                 )
 
-                # More generous merge distance for better coverage
-                merge_distance = max(candidate[2], other_candidate[2]) * 0.8
+                # Get merge distance ratio from config
+                combined_config = self.raw_config.get("combined_detection", {})
+                merge_ratio = combined_config.get("merge_distance_ratio", 0.8)
+                merge_distance = max(candidate[2], other_candidate[2]) * merge_ratio
 
                 if distance < merge_distance:
                     cluster.append(other_candidate)
@@ -837,10 +1014,20 @@ class BallDetector:
         # Convert to HSV for better brightness analysis
         hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
 
+        # Get brightness filter config
+        brightness_config = self.raw_config.get("brightness_filters", {})
+        ball_mask_radius_ratio = brightness_config.get("ball_mask_radius_ratio", 0.7)
+        min_avg_brightness = brightness_config.get("min_avg_brightness", 40)
+        min_max_brightness = brightness_config.get("min_max_brightness", 80)
+        eight_ball_min_highlight = brightness_config.get(
+            "eight_ball_min_highlight", 150
+        )
+        eight_ball_max_avg = brightness_config.get("eight_ball_max_avg", 50)
+
         # Create circular mask for the ball center
         mask = np.zeros(region.shape[:2], dtype=np.uint8)
         center = (region.shape[1] // 2, region.shape[0] // 2)
-        cv2.circle(mask, center, int(r * 0.7), 255, -1)
+        cv2.circle(mask, center, int(r * ball_mask_radius_ratio), 255, -1)
 
         # Get average brightness (V channel) and saturation (S channel) in HSV
         masked_v = hsv_region[:, :, 2][mask > 0]
@@ -859,17 +1046,25 @@ class BallDetector:
         #
         # Key insight: Shadows are the DARKEST circular regions on the table
         # Real balls always have some brightness due to lighting
-        min_avg_brightness = 70  # Reject very dark regions (stricter)
-        min_max_brightness = (
-            100  # Real balls have bright spots from lighting (stricter)
-        )
+        #
+        # The 8-ball is special: it's black but has bright specular highlights
+        # Shadows have no bright spots at all
 
-        # First check: Must have reasonable average brightness
+        # Special case for very dark regions (potential 8-ball)
+        # If average is dark BUT has bright highlights, it's likely the 8-ball
+        if (
+            avg_brightness < eight_ball_max_avg
+            and max_brightness >= eight_ball_min_highlight
+        ):
+            # This is likely the 8-ball (dark with strong highlights)
+            return True
+
+        # First check: Must have reasonable average brightness OR be dark with highlights
         if avg_brightness < min_avg_brightness:
             return False
 
         # Second check: Must have at least SOME bright pixels (specular highlights)
-        # Even the black 8-ball has white specular highlights from overhead lighting
+        # This is the key filter: shadows have NO bright spots
         if max_brightness < min_max_brightness:
             return False
 
@@ -909,6 +1104,12 @@ class BallDetector:
             else:
                 brightnesses.append(0)
 
+        # Get shadow detection config
+        shadow_config = self.raw_config.get("shadow_detection", {})
+        max_shadow_dist_mult = shadow_config.get("max_shadow_distance_multiplier", 1.5)
+        min_brightness_diff = shadow_config.get("min_brightness_diff", 15)
+        min_brightness_ratio = shadow_config.get("min_brightness_ratio", 0.7)
+
         # Filter out shadows
         filtered = []
         for i, (x, y, r) in enumerate(candidates):
@@ -922,16 +1123,21 @@ class BallDetector:
                 # Calculate distance between candidates
                 distance = math.sqrt((x - other_x) ** 2 + (y - other_y) ** 2)
 
-                # Shadows are typically within 1.5-3 ball diameters of the ball
-                max_shadow_distance = (r + other_r) * 2.0
+                # Shadows are typically within some distance of the ball
+                max_shadow_distance = (r + other_r) * max_shadow_dist_mult
 
                 if distance < max_shadow_distance:
                     # If this candidate is significantly darker than the nearby one,
                     # it's likely a shadow
                     brightness_diff = brightnesses[j] - brightnesses[i]
 
-                    # Shadow is at least 20 brightness units darker
-                    if brightness_diff > 20:
+                    # Shadow detection using brightness diff and ratio
+                    brightness_ratio = brightnesses[i] / (brightnesses[j] + 1)
+
+                    if (
+                        brightness_diff > min_brightness_diff
+                        or brightness_ratio < min_brightness_ratio
+                    ):
                         is_shadow = True
                         break
 
@@ -946,11 +1152,17 @@ class BallDetector:
         """Classify ball candidates."""
         balls = []
 
+        # Get brightness config for region expansion
+        brightness_config = self.raw_config.get("brightness_filters", {})
+        region_expansion_ratio = brightness_config.get("region_expansion_ratio", 1.2)
+
         for x, y, r in candidates:
             # Extract ball region
-            x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
-            x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(
-                frame.shape[0], int(y + r * 1.2)
+            x1, y1 = max(0, int(x - r * region_expansion_ratio)), max(
+                0, int(y - r * region_expansion_ratio)
+            )
+            x2, y2 = min(frame.shape[1], int(x + r * region_expansion_ratio)), min(
+                frame.shape[0], int(y + r * region_expansion_ratio)
             )
 
             ball_region = frame[y1:y2, x1:x2]
@@ -985,6 +1197,10 @@ class BallDetector:
         if len(balls) <= 1:
             return balls
 
+        # Get overlap merging config
+        overlap_config = self.raw_config.get("overlap_merging", {})
+        extreme_overlap_ratio = overlap_config.get("extreme_overlap_ratio", 0.5)
+
         # Sort by confidence (highest first)
         sorted_balls = sorted(balls, key=lambda b: b.confidence, reverse=True)
 
@@ -1010,9 +1226,9 @@ class BallDetector:
 
                 avg_radius = (ball.radius + other_ball.radius) / 2
 
-                # Extreme overlap: centers very close (< 0.5 average radius)
+                # Extreme overlap: centers very close
                 # This catches ghost detections around the same ball
-                if distance < avg_radius * 0.5:
+                if distance < avg_radius * extreme_overlap_ratio:
                     balls_to_merge.append(other_ball)
                     merge_indices.append(j)
                     merged_indices.add(j)
@@ -1069,157 +1285,117 @@ class BallDetector:
 
         return final_balls
 
+    def _resolve_ball_type_conflicts(self, balls: list[Ball]) -> list[Ball]:
+        """Resolve conflicts when multiple cue or 8-balls are detected.
+
+        Rule: Only one cue ball and one 8-ball allowed on table.
+        If multiple detected, highest confidence wins, others are reclassified:
+        - Extra cue balls → OTHER
+        - Extra 8-balls → OTHER
+
+        Args:
+            balls: List of detected balls
+
+        Returns:
+            List of balls with conflicts resolved
+        """
+        if len(balls) <= 1:
+            return balls
+
+        # Find all cue balls
+        cue_balls = [ball for ball in balls if ball.ball_type == BallType.CUE]
+
+        # If multiple cue balls, keep highest confidence, convert others to OTHER
+        if len(cue_balls) > 1:
+            # Sort by confidence (highest first)
+            cue_balls.sort(key=lambda b: b.confidence, reverse=True)
+            best_cue = cue_balls[0]
+
+            logger.info(
+                f"Multiple cue balls detected ({len(cue_balls)}), keeping highest confidence "
+                f"({best_cue.confidence:.3f}), converting others to OTHER"
+            )
+
+            # Convert all but the best to OTHER
+            for ball in cue_balls[1:]:
+                ball.ball_type = BallType.OTHER
+                ball.number = None
+                logger.debug(
+                    f"Converting cue ball at ({ball.position[0]:.1f}, {ball.position[1]:.1f}) "
+                    f"with confidence {ball.confidence:.3f} to OTHER"
+                )
+
+        # Find all 8-balls
+        eight_balls = [ball for ball in balls if ball.ball_type == BallType.EIGHT]
+
+        # If multiple 8-balls, keep highest confidence, convert others to OTHER
+        if len(eight_balls) > 1:
+            # Sort by confidence (highest first)
+            eight_balls.sort(key=lambda b: b.confidence, reverse=True)
+            best_eight = eight_balls[0]
+
+            logger.info(
+                f"Multiple 8-balls detected ({len(eight_balls)}), keeping highest confidence "
+                f"({best_eight.confidence:.3f}), converting others to OTHER"
+            )
+
+            # Convert all but the best to OTHER
+            for ball in eight_balls[1:]:
+                ball.ball_type = BallType.OTHER
+                ball.number = None
+                logger.debug(
+                    f"Converting 8-ball at ({ball.position[0]:.1f}, {ball.position[1]:.1f}) "
+                    f"with confidence {ball.confidence:.3f} to OTHER"
+                )
+
+        return balls
+
     def _color_to_ball_type(
         self, color_name: str, ball_region: NDArray[np.float64]
     ) -> tuple[BallType, Optional[int]]:
-        """Map detected color to ball type and number."""
-        color_map = {
-            "cue": (BallType.CUE, None),
-            "black": (BallType.EIGHT, 8),
-            "yellow": (BallType.SOLID, 1),  # Could also be 9-stripe
-            "blue": (BallType.SOLID, 2),  # Could also be 10-stripe
-            "red": (BallType.SOLID, 3),  # Could also be 11-stripe
-            "purple": (BallType.SOLID, 4),  # Could also be 12-stripe
-            "orange": (BallType.SOLID, 5),  # Could also be 13-stripe
-            "green": (BallType.SOLID, 6),  # Could also be 14-stripe
-            "maroon": (BallType.SOLID, 7),  # Could also be 15-stripe
-        }
+        """Map detected color to ball type (simplified - no stripe/solid distinction).
 
-        if color_name in color_map:
-            ball_type, number = color_map[color_name]
-
-            # For colored balls, try to determine if it's solid or stripe
-            if ball_type == BallType.SOLID and number is not None and number <= 7:
-                if self._is_striped_ball(ball_region):
-                    return BallType.STRIPE, number + 8
-
-            return ball_type, number
-
-        return BallType.UNKNOWN, None
-
-    def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> bool:
-        """Detect if a ball has stripe pattern using multi-method pattern recognition.
-
-        Uses multiple detection methods to identify stripe patterns:
-        1. Variance check - First-pass filter for texture variation
-        2. Edge detection - Detects strong edges characteristic of stripes
-        3. Frequency analysis - Identifies repeating patterns in the ball
-        4. Hough line detection - Finds linear stripe patterns
-
-        Args:
-            ball_region: BGR image region containing the ball
-
-        Returns:
-            True if the ball appears to be striped, False otherwise
+        Returns only three ball types: CUE, EIGHT, OTHER.
+        Ball numbers are no longer detected or returned.
+        Stripe/solid classification removed due to poor accuracy.
         """
-        # Ensure we have a valid region
-        if ball_region is None or ball_region.size == 0:
-            return False
-
-        # Convert to grayscale for analysis
-        gray = cv2.cvtColor(ball_region, cv2.COLOR_BGR2GRAY)
-        height, width = gray.shape
-
-        # Skip analysis if region is too small
-        if height < 20 or width < 20:
-            return False
-
-        # Create circular mask to focus on ball center (avoid edges)
-        mask = np.zeros_like(gray)
-        center = (width // 2, height // 2)
-        radius = int(min(width, height) * 0.4)  # Use inner 80% diameter
-        cv2.circle(mask, center, radius, 255, -1)
-        masked_gray = cv2.bitwise_and(gray, gray, mask=mask)
-
-        # Method 1: Variance Check (first-pass filter)
-        # Striped balls have higher intensity variance due to white/colored pattern
-        variance = np.var(masked_gray[mask > 0])
-        variance_score = 1.0 if variance > 800 else 0.0
-
-        # Method 2: Edge Detection
-        # Stripes create strong edges; analyze edge density
-        # Use bilateral filter to reduce noise while preserving edges
-        blurred = cv2.bilateralFilter(masked_gray, 5, 50, 50)
-
-        # Canny edge detection with adaptive thresholds
-        median_intensity = np.median(blurred[mask > 0])
-        lower_thresh = int(max(0, 0.66 * median_intensity))
-        upper_thresh = int(min(255, 1.33 * median_intensity))
-        edges = cv2.Canny(blurred, lower_thresh, upper_thresh)
-        edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
-
-        # Calculate edge density (edges per pixel in masked region)
-        edge_pixels = np.count_nonzero(edges_masked)
-        total_pixels = np.count_nonzero(mask)
-        edge_density = edge_pixels / total_pixels if total_pixels > 0 else 0
-
-        # Striped balls typically have 10-30% edge density
-        edge_score = 1.0 if 0.10 <= edge_density <= 0.35 else 0.0
-
-        # Method 3: Frequency Analysis
-        # Stripes create periodic patterns; analyze using edge projection
-        # Project edges onto horizontal and vertical axes
-        h_projection = np.sum(edges_masked, axis=0)
-        v_projection = np.sum(edges_masked, axis=1)
-
-        # Calculate normalized standard deviation of projections
-        # High std indicates non-uniform distribution (characteristic of stripes)
-        h_std = np.std(h_projection) / (np.mean(h_projection) + 1e-6)
-        v_std = np.std(v_projection) / (np.mean(v_projection) + 1e-6)
-        max_projection_std = max(h_std, v_std)
-
-        # Striped balls typically have projection std > 1.5
-        frequency_score = 1.0 if max_projection_std > 1.5 else 0.0
-
-        # Method 4: Hough Line Detection
-        # Detect linear patterns characteristic of stripes
-        # Use probabilistic Hough transform for efficiency
-        lines = cv2.HoughLinesP(
-            edges_masked,
-            rho=1,
-            theta=np.pi / 180,
-            threshold=int(min(width, height) * 0.3),  # Adaptive threshold
-            minLineLength=int(min(width, height) * 0.4),
-            maxLineGap=int(min(width, height) * 0.2),
-        )
-
-        # Count significant lines (longer than 40% of ball diameter)
-        line_count = 0 if lines is None else len(lines)
-
-        # Striped balls typically have 1-4 detectable stripe lines
-        line_score = 1.0 if 1 <= line_count <= 4 else 0.0
-
-        # Combine all methods with weighted voting
-        # Weights based on reliability: variance is least reliable, lines are most reliable
-        weights = {
-            "variance": 0.15,  # Low weight - many false positives
-            "edge_density": 0.25,  # Moderate weight - good indicator
-            "frequency": 0.30,  # High weight - reliable for patterns
-            "lines": 0.30,  # High weight - most specific to stripes
+        # Map color to base ball type
+        color_type_map = {
+            "cue": BallType.CUE,
+            "black": BallType.EIGHT,
+            # All colored balls are classified as OTHER (no stripe/solid distinction)
+            "yellow": BallType.OTHER,
+            "blue": BallType.OTHER,
+            "red": BallType.OTHER,
+            "purple": BallType.OTHER,
+            "orange": BallType.OTHER,
+            "green": BallType.OTHER,
+            "maroon": BallType.OTHER,
         }
 
-        combined_score = (
-            variance_score * weights["variance"]
-            + edge_score * weights["edge_density"]
-            + frequency_score * weights["frequency"]
-            + line_score * weights["lines"]
-        )
+        if color_name not in color_type_map:
+            return BallType.UNKNOWN, None
 
-        # Threshold calibrated for billiard balls
-        # Require combined score > 0.5 (at least 2 strong indicators)
-        is_striped = combined_score > 0.5
+        ball_type = color_type_map[color_name]
 
-        # Log detection details for debugging (at debug level)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"Stripe detection - Variance: {variance:.1f} ({variance_score}), "
-                f"Edge density: {edge_density:.3f} ({edge_score}), "
-                f"Projection std: {max_projection_std:.2f} ({frequency_score}), "
-                f"Lines: {line_count} ({line_score}), "
-                f"Combined: {combined_score:.3f} -> {'STRIPE' if is_striped else 'SOLID'}"
-            )
+        return ball_type, None
 
-        return is_striped
+    # NOTE: Stripe detection disabled - stripe/solid classification removed due to poor accuracy
+    # The method below is preserved for reference but is no longer called
+    #
+    # def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> bool:
+    #     """DEPRECATED: Stripe detection disabled due to unreliable classification.
+    #
+    #     This method previously detected if a ball had stripe pattern using multi-method
+    #     pattern recognition. However, stripe/solid classification proved too sensitive to:
+    #     - Lighting conditions
+    #     - Ball orientation
+    #     - Image quality
+    #     - Shadows and reflections
+    #
+    #     All colored balls are now classified as BallType.OTHER.
+    #     """
+    #     return False
 
     def _draw_candidates(
         self, frame: NDArray[np.uint8], candidates: list[tuple[float, float, float]]
@@ -1232,280 +1408,6 @@ class BallDetector:
             cv2.circle(debug_frame, (int(x), int(y)), 2, (0, 0, 255), 3)
 
         self.debug_images.append(("candidates", debug_frame))
-
-    def _preprocess_for_number_recognition(
-        self, ball_region: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
-        """Preprocess ball region to enhance number visibility."""
-        # Resize to standard size for consistent processing
-        size = (64, 64)
-        resized = cv2.resize(ball_region, size)
-
-        # Convert to grayscale
-        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
-
-        # Apply CLAHE to improve contrast
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(gray)
-
-        # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
-
-        # Apply adaptive thresholding to create binary image
-        binary = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-        )
-
-        return binary
-
-    def _template_match_number(
-        self, preprocessed: NDArray[np.float64], ball_type: BallType
-    ) -> Optional[int]:
-        """Use template matching to identify ball numbers."""
-        # This would require pre-created templates for each number
-        # For now, implement a simplified approach based on contour analysis
-
-        # Find contours that might be numbers
-        contours, _ = cv2.findContours(
-            preprocessed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if not contours:
-            return None
-
-        # Filter contours by size and aspect ratio
-        number_contours = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 50 < area < 500:  # Reasonable size for numbers
-                x, y, w, h = cv2.boundingRect(contour)
-                aspect_ratio = float(w) / h
-                if 0.3 < aspect_ratio < 2.0:  # Reasonable aspect ratio for digits
-                    number_contours.append(contour)
-
-        if not number_contours:
-            return None
-
-        # Analyze the largest contour for number characteristics
-        largest_contour = max(number_contours, key=cv2.contourArea)
-
-        # Simple shape analysis for common numbers
-        return self._analyze_contour_for_number(largest_contour, ball_type)
-
-    def _analyze_contour_for_number(
-        self, contour: NDArray[np.float64], ball_type: BallType
-    ) -> Optional[int]:
-        """Analyze contour shape to infer number."""
-        # Calculate shape descriptors
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-
-        if perimeter == 0:
-            return None
-
-        # Compactness (circularity)
-        compactness = 4 * math.pi * area / (perimeter * perimeter)
-
-        # Convex hull ratio
-        hull = cv2.convexHull(contour)
-        hull_area = cv2.contourArea(hull)
-        solidity = float(area) / hull_area if hull_area > 0 else 0
-
-        # Aspect ratio
-        x, y, w, h = cv2.boundingRect(contour)
-        aspect_ratio = float(w) / h if h > 0 else 0
-
-        # Simple heuristics based on shape characteristics
-        # These would need to be calibrated with real data
-        if ball_type == BallType.SOLID:
-            # Solid balls: numbers 1-7
-            if compactness > 0.7:  # Round shapes like 0, 6
-                return 6
-            elif aspect_ratio < 0.5:  # Tall shapes like 1
-                return 1
-            elif solidity < 0.8:  # Numbers with holes like 4
-                return 4
-            else:
-                return 2  # Default for solids
-        else:  # STRIPE
-            # Striped balls: numbers 9-15
-            if compactness > 0.7:
-                return 9
-            elif aspect_ratio < 0.5:
-                return 11
-            elif solidity < 0.8:
-                return 14
-            else:
-                return 12  # Default for stripes
-
-    def _ocr_recognize_number(
-        self, preprocessed: NDArray[np.float64], ball_type: BallType
-    ) -> Optional[int]:
-        """Simple OCR-like number recognition using contour analysis."""
-        # Find all contours
-        contours, _ = cv2.findContours(
-            preprocessed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-        )
-
-        if not contours:
-            return None
-
-        # Look for digit-like contours
-        digit_contours = []
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 30 < area < 1000:  # Reasonable size for digits
-                x, y, w, h = cv2.boundingRect(contour)
-                aspect_ratio = float(w) / h
-                if 0.2 < aspect_ratio < 1.5:  # Reasonable aspect ratio for digits
-                    digit_contours.append((contour, x, y, w, h))
-
-        if not digit_contours:
-            return None
-
-        # Sort by x position (left to right)
-        digit_contours.sort(key=lambda x: x[1])
-
-        # For single digit recognition, use the largest/most central contour
-        if len(digit_contours) == 1:
-            contour, x, y, w, h = digit_contours[0]
-            return self._classify_single_digit(
-                contour, preprocessed[y : y + h, x : x + w]
-            )
-
-        # For two digits (10-15), combine them
-        elif len(digit_contours) == 2:
-            # First digit should be "1"
-            first_digit = self._classify_single_digit(
-                digit_contours[0][0],
-                preprocessed[
-                    digit_contours[0][2] : digit_contours[0][2] + digit_contours[0][4],
-                    digit_contours[0][1] : digit_contours[0][1] + digit_contours[0][3],
-                ],
-            )
-            second_digit = self._classify_single_digit(
-                digit_contours[1][0],
-                preprocessed[
-                    digit_contours[1][2] : digit_contours[1][2] + digit_contours[1][4],
-                    digit_contours[1][1] : digit_contours[1][1] + digit_contours[1][3],
-                ],
-            )
-
-            if first_digit == 1 and second_digit is not None and 0 <= second_digit <= 5:
-                return 10 + second_digit
-
-        return None
-
-    def _classify_single_digit(
-        self, contour: NDArray[np.float64], digit_region: NDArray[np.float64]
-    ) -> Optional[int]:
-        """Classify a single digit based on its shape."""
-        # Calculate shape features
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-
-        if perimeter == 0:
-            return None
-
-        # Moments for shape analysis
-        moments = cv2.moments(contour)
-        if moments["m00"] == 0:
-            return None
-
-        # Hu moments for rotation invariant features
-        cv2.HuMoments(moments)
-
-        # Bounding rectangle features
-        x, y, w, h = cv2.boundingRect(contour)
-        aspect_ratio = float(w) / h
-
-        # Convexity
-        hull = cv2.convexHull(contour)
-        hull_area = cv2.contourArea(hull)
-        solidity = area / hull_area if hull_area > 0 else 0
-
-        # Simple classification based on shape characteristics
-        # This is a heuristic approach - a real implementation would use ML
-        if aspect_ratio < 0.4:  # Very tall
-            return 1
-        elif solidity < 0.6:  # Has significant concavity (holes)
-            if aspect_ratio > 0.8:  # Wide with holes
-                return 0
-            else:
-                return 4 if area > 200 else 6
-        elif aspect_ratio > 1.2:  # Very wide
-            return 7 if solidity > 0.8 else 2
-        elif 0.7 < aspect_ratio < 1.1:  # Nearly square
-            if solidity > 0.85:
-                return 8 if area > 300 else 0
-            else:
-                return 9 if area > 250 else 6
-        else:  # Medium aspect ratio
-            if solidity > 0.8:
-                return 3 if aspect_ratio < 0.7 else 5
-            else:
-                return 2
-
-    def _infer_number_from_color(
-        self, ball_region: NDArray[np.float64], ball_type: BallType
-    ) -> Optional[int]:
-        """Infer ball number based on dominant color and type."""
-        # Extract dominant color
-        hsv = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
-
-        # Calculate color histogram
-        hist = cv2.calcHist([hsv], [0], None, [180], [0, 180])
-        dominant_hue = np.argmax(hist)
-
-        # Map colors to likely numbers based on standard pool ball colors
-        color_to_number = {
-            # Solid balls (1-7)
-            "yellow": 1,  # Yellow
-            "blue": 2,  # Blue
-            "red": 3,  # Red
-            "purple": 4,  # Purple
-            "orange": 5,  # Orange
-            "green": 6,  # Green
-            "maroon": 7,  # Maroon/Brown
-            # Striped balls (9-15)
-            "yellow_stripe": 9,  # Yellow stripe
-            "blue_stripe": 10,  # Blue stripe
-            "red_stripe": 11,  # Red stripe
-            "purple_stripe": 12,  # Purple stripe
-            "orange_stripe": 13,  # Orange stripe
-            "green_stripe": 14,  # Green stripe
-            "maroon_stripe": 15,  # Maroon stripe
-        }
-
-        # Simple hue to color mapping
-        if 15 <= dominant_hue <= 35:  # Yellow range
-            return color_to_number[
-                "yellow_stripe" if ball_type == BallType.STRIPE else "yellow"
-            ]
-        elif 100 <= dominant_hue <= 130:  # Blue range
-            return color_to_number[
-                "blue_stripe" if ball_type == BallType.STRIPE else "blue"
-            ]
-        elif 0 <= dominant_hue <= 15 or 160 <= dominant_hue <= 180:  # Red range
-            return color_to_number[
-                "red_stripe" if ball_type == BallType.STRIPE else "red"
-            ]
-        elif 130 <= dominant_hue <= 160:  # Purple range
-            return color_to_number[
-                "purple_stripe" if ball_type == BallType.STRIPE else "purple"
-            ]
-        elif 35 <= dominant_hue <= 65:  # Green range
-            return color_to_number[
-                "green_stripe" if ball_type == BallType.STRIPE else "green"
-            ]
-
-        # Default fallback based on ball type
-        if ball_type == BallType.SOLID:
-            return 2  # Default solid
-        elif ball_type == BallType.STRIPE:
-            return 10  # Default stripe
-
-        return None
 
     def _update_stats(self, balls: list[Ball]) -> None:
         """Update detection statistics."""

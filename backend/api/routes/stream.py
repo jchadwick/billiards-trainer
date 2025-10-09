@@ -35,11 +35,26 @@ except ImportError:
     )
     from backend.vision.capture import CameraHealth, CameraStatus
 
-from ..dependencies import ApplicationState, get_app_state
+from ..dependencies import ApplicationState, get_app_state, get_config_module
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stream", tags=["Video Streaming"])
+
+
+def _get_stream_config(app_state: ApplicationState) -> dict:
+    """Get stream configuration from config module.
+
+    Args:
+        app_state: Application state containing config module
+
+    Returns:
+        Stream configuration dictionary with defaults if config not available
+    """
+    if app_state.config_module:
+        return app_state.config_module.get("api.stream", {})
+    # Return empty dict if config not available - will use defaults
+    return {}
 
 
 # Compatibility wrapper to make EnhancedCameraModule work with existing API
@@ -192,14 +207,24 @@ async def get_vision_module(
             "Creating shared EnhancedCameraModule instance (lazy initialization)"
         )
 
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        camera_cfg = stream_config.get("camera", {})
+        processing_cfg = stream_config.get("processing", {})
+
         # Check if calibration file exists
         import os
 
+        calibration_file = processing_cfg.get(
+            "calibration_file", "calibration/camera_fisheye_default.yaml"
+        )
         calibration_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "calibration/camera_fisheye_default.yaml",
+            calibration_file,
         )
-        enable_fisheye = os.path.exists(calibration_path)
+        enable_fisheye = processing_cfg.get(
+            "enable_fisheye_correction", True
+        ) and os.path.exists(calibration_path)
 
         if enable_fisheye:
             logger.info(f"Found calibration file at {calibration_path}")
@@ -208,22 +233,78 @@ async def get_vision_module(
                 f"Calibration file not found at {calibration_path}, disabling fisheye correction"
             )
 
-        # Configure enhanced camera with fisheye correction and preprocessing
-        camera_config = EnhancedCameraConfig(
-            device_id=1,
-            resolution=(3840, 2160),  # Request 4K resolution
-            fps=30,
-            enable_fisheye_correction=enable_fisheye,  # Enable if calibration file exists
-            calibration_file=calibration_path if enable_fisheye else None,
-            enable_table_crop=False,  # Disabled for testing - was cropping to 5x5!
-            enable_preprocessing=False,  # Disable preprocessing to preserve natural colors
-            brightness=0,
-            contrast=1.0,
-            enable_clahe=False,  # CLAHE was washing out colors
-            clahe_clip_limit=2.0,
-            clahe_grid_size=8,
-            buffer_size=1,
-        )
+        # Configure enhanced camera from config using the new from_config method
+        # Note: This uses api.stream config section which has different structure
+        # than streaming section. We'll use the streaming config if available,
+        # otherwise fall back to api.stream config for backwards compatibility.
+
+        # Try to load from streaming config first (new structure)
+        if hasattr(app_state, "config_module") and app_state.config_module:
+            try:
+                camera_config = EnhancedCameraConfig.from_config(
+                    app_state.config_module
+                )
+                logger.info("Loaded EnhancedCameraConfig from streaming configuration")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to load from streaming config: {e}, falling back to manual config"
+                )
+                # Fall back to manual configuration from api.stream section
+                resolution = camera_cfg.get("resolution", [3840, 2160])
+                camera_config = EnhancedCameraConfig(
+                    device_id=camera_cfg.get("device_id", 1),
+                    resolution=tuple(resolution) if resolution else None,
+                    fps=camera_cfg.get("fps", 30),
+                    enable_fisheye_correction=enable_fisheye,
+                    calibration_file=calibration_path if enable_fisheye else None,
+                    fisheye_alpha=1.0,
+                    enable_table_crop=processing_cfg.get("enable_table_crop", False),
+                    table_crop_hsv_lower=(35, 40, 40),
+                    table_crop_hsv_upper=(85, 255, 255),
+                    table_crop_morphology_kernel_size=5,
+                    table_crop_padding_ratio=0.05,
+                    enable_preprocessing=processing_cfg.get(
+                        "enable_preprocessing", False
+                    ),
+                    brightness=camera_cfg.get("brightness", 0),
+                    contrast=camera_cfg.get("contrast", 1.0),
+                    enable_clahe=processing_cfg.get("enable_clahe", False),
+                    clahe_clip_limit=processing_cfg.get("clahe_clip_limit", 2.0),
+                    clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
+                    default_jpeg_quality=80,
+                    enable_gpu=False,
+                    buffer_size=camera_cfg.get("buffer_size", 1),
+                    startup_timeout_seconds=5.0,
+                    thread_join_timeout_seconds=2.0,
+                )
+        else:
+            # No config module, use hardcoded defaults (should not happen in normal operation)
+            logger.warning("No config module available, using hardcoded defaults")
+            resolution = camera_cfg.get("resolution", [3840, 2160])
+            camera_config = EnhancedCameraConfig(
+                device_id=camera_cfg.get("device_id", 1),
+                resolution=tuple(resolution) if resolution else None,
+                fps=camera_cfg.get("fps", 30),
+                enable_fisheye_correction=enable_fisheye,
+                calibration_file=calibration_path if enable_fisheye else None,
+                fisheye_alpha=1.0,
+                enable_table_crop=processing_cfg.get("enable_table_crop", False),
+                table_crop_hsv_lower=(35, 40, 40),
+                table_crop_hsv_upper=(85, 255, 255),
+                table_crop_morphology_kernel_size=5,
+                table_crop_padding_ratio=0.05,
+                enable_preprocessing=processing_cfg.get("enable_preprocessing", False),
+                brightness=camera_cfg.get("brightness", 0),
+                contrast=camera_cfg.get("contrast", 1.0),
+                enable_clahe=processing_cfg.get("enable_clahe", False),
+                clahe_clip_limit=processing_cfg.get("clahe_clip_limit", 2.0),
+                clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
+                default_jpeg_quality=80,
+                enable_gpu=False,
+                buffer_size=camera_cfg.get("buffer_size", 1),
+                startup_timeout_seconds=5.0,
+                thread_join_timeout_seconds=2.0,
+            )
 
         try:
             logger.info("[get_vision_module] Initializing EnhancedCameraModule...")
@@ -232,11 +313,12 @@ async def get_vision_module(
             async def on_frame_captured(frame_data, width, height):
                 """Broadcast captured frames to WebSocket clients."""
                 try:
+                    quality_cfg = stream_config.get("quality", {})
                     await message_broadcaster.broadcast_frame(
                         image_data=frame_data,
                         width=width,
                         height=height,
-                        quality=75,  # JPEG quality for WebSocket streaming
+                        quality=quality_cfg.get("websocket_jpeg_quality", 75),
                     )
                 except Exception as e:
                     logger.error(f"Error broadcasting frame to WebSocket: {e}")
@@ -297,11 +379,12 @@ async def get_vision_module(
 
 async def generate_mjpeg_stream(
     vision_module: CameraModuleAdapter,
-    quality: int = 80,
-    max_fps: int = 30,
+    quality: int,
+    max_fps: int,
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
     raw: bool = False,
+    stream_config: Optional[dict] = None,
 ) -> bytes:
     """Generate MJPEG stream from camera frames.
 
@@ -338,6 +421,13 @@ async def generate_mjpeg_stream(
         last_frame_time = 0
         frame_count = 0
 
+        # Get performance config
+        perf_cfg = (stream_config or {}).get("performance", {})
+        frame_log_interval = perf_cfg.get("frame_log_interval", 30)
+        sleep_interval = perf_cfg.get("sleep_interval_ms", 10) / 1000.0
+        resolution_cfg = (stream_config or {}).get("resolution", {})
+        default_scale = resolution_cfg.get("default_scale", 1.0)
+
         logger.info(f"Entering stream loop for client {client_id}")
 
         while client_id in _streaming_clients:
@@ -349,19 +439,21 @@ async def generate_mjpeg_stream(
                     frame_interval > 0
                     and (current_time - last_frame_time) < frame_interval
                 ):
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(sleep_interval)
                     continue
 
-                # Get latest frame from vision module at full resolution
+                # Get latest frame from vision module
                 logger.debug(f"Getting frame for client {client_id}")
-                frame = vision_module.get_frame_for_streaming(scale=1.0, raw=raw)
+                frame = vision_module.get_frame_for_streaming(
+                    scale=default_scale, raw=raw
+                )
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(sleep_interval)
                     continue
 
                 frame_count += 1
-                if frame_count % 30 == 0:  # Log every 30 frames
+                if frame_count % frame_log_interval == 0:
                     logger.debug(f"Client {client_id} processed {frame_count} frames")
 
                 # Resize frame if requested
@@ -384,7 +476,7 @@ async def generate_mjpeg_stream(
 
                 if not success:
                     logger.warning("Failed to encode frame as JPEG")
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(sleep_interval)
                     continue
 
                 # Format as MJPEG
@@ -404,7 +496,7 @@ async def generate_mjpeg_stream(
 
             except Exception as e:
                 logger.error(f"Error generating frame for client {client_id}: {e}")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(sleep_interval * 10)  # Longer sleep on error
 
     except Exception as e:
         logger.error(f"Stream error for client {client_id}: {e}")
@@ -420,15 +512,12 @@ async def generate_mjpeg_stream(
 @router.get("/video")
 async def video_stream(
     request: Request,
-    quality: int = Query(80, ge=1, le=100, description="JPEG quality (1-100)"),
-    fps: int = Query(30, ge=1, le=60, description="Maximum frame rate"),
-    width: Optional[int] = Query(
-        None, ge=160, le=3840, description="Maximum frame width"
-    ),
-    height: Optional[int] = Query(
-        None, ge=120, le=2160, description="Maximum frame height"
-    ),
+    app_state: ApplicationState = Depends(get_app_state),
     vision_module: CameraModuleAdapter = Depends(get_vision_module),
+    quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
+    fps: Optional[int] = Query(None, description="Maximum frame rate"),
+    width: Optional[int] = Query(None, description="Maximum frame width"),
+    height: Optional[int] = Query(None, description="Maximum frame height"),
 ) -> StreamingResponse:
     """Live video streaming endpoint using MJPEG over HTTP.
 
@@ -437,8 +526,8 @@ async def video_stream(
     efficient MJPEG compression.
 
     Query Parameters:
-        quality: JPEG compression quality (1-100, default: 80)
-        fps: Maximum frame rate (1-60, default: 30)
+        quality: JPEG compression quality (uses config default if not specified)
+        fps: Maximum frame rate (uses config default if not specified)
         width: Maximum frame width for scaling (optional)
         height: Maximum frame height for scaling (optional)
 
@@ -451,6 +540,57 @@ async def video_stream(
         Connection: close
     """
     try:
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        quality_cfg = stream_config.get("quality", {})
+        framerate_cfg = stream_config.get("framerate", {})
+        resolution_cfg = stream_config.get("resolution", {})
+
+        # Apply defaults and validate ranges
+        quality = (
+            quality
+            if quality is not None
+            else quality_cfg.get("default_jpeg_quality", 80)
+        )
+        fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
+
+        # Validate quality
+        min_quality = quality_cfg.get("min_jpeg_quality", 1)
+        max_quality = quality_cfg.get("max_jpeg_quality", 100)
+        if quality < min_quality or quality > max_quality:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quality must be between {min_quality} and {max_quality}",
+            )
+
+        # Validate fps
+        min_fps = framerate_cfg.get("min_fps", 1)
+        max_fps_limit = framerate_cfg.get("max_fps", 60)
+        if fps < min_fps or fps > max_fps_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"FPS must be between {min_fps} and {max_fps_limit}",
+            )
+
+        # Validate resolution if provided
+        if width is not None:
+            min_width = resolution_cfg.get("min_width", 160)
+            max_width = resolution_cfg.get("max_width", 3840)
+            if width < min_width or width > max_width:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Width must be between {min_width} and {max_width}",
+                )
+
+        if height is not None:
+            min_height = resolution_cfg.get("min_height", 120)
+            max_height = resolution_cfg.get("max_height", 2160)
+            if height < min_height or height > max_height:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Height must be between {min_height} and {max_height}",
+                )
+
         # Check camera status
         camera_status = vision_module.camera.get_status()
         if camera_status == CameraStatus.ERROR:
@@ -477,6 +617,7 @@ async def video_stream(
                 max_fps=fps,
                 max_width=width,
                 max_height=height,
+                stream_config=stream_config,
             ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
@@ -501,15 +642,12 @@ async def video_stream(
 @router.get("/video/raw")
 async def video_stream_raw(
     request: Request,
-    quality: int = Query(80, ge=1, le=100, description="JPEG quality (1-100)"),
-    fps: int = Query(30, ge=1, le=60, description="Maximum frame rate"),
-    width: Optional[int] = Query(
-        None, ge=160, le=3840, description="Maximum frame width"
-    ),
-    height: Optional[int] = Query(
-        None, ge=120, le=2160, description="Maximum frame height"
-    ),
+    app_state: ApplicationState = Depends(get_app_state),
     vision_module: CameraModuleAdapter = Depends(get_vision_module),
+    quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
+    fps: Optional[int] = Query(None, description="Maximum frame rate"),
+    width: Optional[int] = Query(None, description="Maximum frame width"),
+    height: Optional[int] = Query(None, description="Maximum frame height"),
 ) -> StreamingResponse:
     """Live RAW video streaming endpoint (no fisheye correction or processing).
 
@@ -517,8 +655,8 @@ async def video_stream_raw(
     or image processing. Useful for debugging and comparing raw vs corrected streams.
 
     Query Parameters:
-        quality: JPEG compression quality (1-100, default: 80)
-        fps: Maximum frame rate (1-60, default: 30)
+        quality: JPEG compression quality (uses config default if not specified)
+        fps: Maximum frame rate (uses config default if not specified)
         width: Maximum frame width for scaling (optional)
         height: Maximum frame height for scaling (optional)
 
@@ -531,6 +669,57 @@ async def video_stream_raw(
         Connection: close
     """
     try:
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        quality_cfg = stream_config.get("quality", {})
+        framerate_cfg = stream_config.get("framerate", {})
+        resolution_cfg = stream_config.get("resolution", {})
+
+        # Apply defaults and validate ranges (same validation as video_stream)
+        quality = (
+            quality
+            if quality is not None
+            else quality_cfg.get("default_jpeg_quality", 80)
+        )
+        fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
+
+        # Validate quality
+        min_quality = quality_cfg.get("min_jpeg_quality", 1)
+        max_quality = quality_cfg.get("max_jpeg_quality", 100)
+        if quality < min_quality or quality > max_quality:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quality must be between {min_quality} and {max_quality}",
+            )
+
+        # Validate fps
+        min_fps = framerate_cfg.get("min_fps", 1)
+        max_fps_limit = framerate_cfg.get("max_fps", 60)
+        if fps < min_fps or fps > max_fps_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"FPS must be between {min_fps} and {max_fps_limit}",
+            )
+
+        # Validate resolution if provided
+        if width is not None:
+            min_width = resolution_cfg.get("min_width", 160)
+            max_width = resolution_cfg.get("max_width", 3840)
+            if width < min_width or width > max_width:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Width must be between {min_width} and {max_width}",
+                )
+
+        if height is not None:
+            min_height = resolution_cfg.get("min_height", 120)
+            max_height = resolution_cfg.get("max_height", 2160)
+            if height < min_height or height > max_height:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Height must be between {min_height} and {max_height}",
+                )
+
         # Check camera status
         camera_status = vision_module.camera.get_status()
         if camera_status == CameraStatus.ERROR:
@@ -557,7 +746,8 @@ async def video_stream_raw(
                 max_fps=fps,
                 max_width=width,
                 max_height=height,
-                raw=True,  # Get raw frames without fisheye correction
+                raw=True,
+                stream_config=stream_config,
             ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
@@ -757,14 +947,11 @@ async def stop_video_capture(
 
 @router.get("/video/frame")
 async def get_single_frame(
-    quality: int = Query(90, ge=1, le=100, description="JPEG quality (1-100)"),
-    width: Optional[int] = Query(
-        None, ge=160, le=3840, description="Maximum frame width"
-    ),
-    height: Optional[int] = Query(
-        None, ge=120, le=2160, description="Maximum frame height"
-    ),
+    app_state: ApplicationState = Depends(get_app_state),
     vision_module: CameraModuleAdapter = Depends(get_vision_module),
+    quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
+    width: Optional[int] = Query(None, description="Maximum frame width"),
+    height: Optional[int] = Query(None, description="Maximum frame height"),
 ):
     """Get a single frame from the camera as JPEG.
 
@@ -772,7 +959,7 @@ async def get_single_frame(
     snapshots or testing without setting up a continuous stream.
 
     Query Parameters:
-        quality: JPEG compression quality (1-100, default: 90)
+        quality: JPEG compression quality (uses single_frame config default if not specified)
         width: Maximum frame width for scaling (optional)
         height: Maximum frame height for scaling (optional)
 
@@ -780,6 +967,46 @@ async def get_single_frame(
         JPEG image data
     """
     try:
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        quality_cfg = stream_config.get("quality", {})
+        resolution_cfg = stream_config.get("resolution", {})
+
+        # Apply defaults and validate
+        quality = (
+            quality
+            if quality is not None
+            else quality_cfg.get("single_frame_jpeg_quality", 90)
+        )
+
+        # Validate quality
+        min_quality = quality_cfg.get("min_jpeg_quality", 1)
+        max_quality = quality_cfg.get("max_jpeg_quality", 100)
+        if quality < min_quality or quality > max_quality:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quality must be between {min_quality} and {max_quality}",
+            )
+
+        # Validate resolution if provided
+        if width is not None:
+            min_width = resolution_cfg.get("min_width", 160)
+            max_width = resolution_cfg.get("max_width", 3840)
+            if width < min_width or width > max_width:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Width must be between {min_width} and {max_width}",
+                )
+
+        if height is not None:
+            min_height = resolution_cfg.get("min_height", 120)
+            max_height = resolution_cfg.get("max_height", 2160)
+            if height < min_height or height > max_height:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Height must be between {min_height} and {max_height}",
+                )
+
         # Camera should already be started by lazy init
         if not vision_module.camera.is_connected():
             raise HTTPException(
@@ -844,14 +1071,11 @@ async def get_single_frame(
 
 @router.get("/video/frame/raw")
 async def get_single_frame_raw(
-    quality: int = Query(90, ge=1, le=100, description="JPEG quality (1-100)"),
-    width: Optional[int] = Query(
-        None, ge=160, le=3840, description="Maximum frame width"
-    ),
-    height: Optional[int] = Query(
-        None, ge=120, le=2160, description="Maximum frame height"
-    ),
+    app_state: ApplicationState = Depends(get_app_state),
     vision_module: CameraModuleAdapter = Depends(get_vision_module),
+    quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
+    width: Optional[int] = Query(None, description="Maximum frame width"),
+    height: Optional[int] = Query(None, description="Maximum frame height"),
 ):
     """Get a single RAW frame from the camera as JPEG (no fisheye correction).
 
@@ -859,7 +1083,7 @@ async def get_single_frame_raw(
     correction or processing. Useful for debugging and comparing raw vs corrected frames.
 
     Query Parameters:
-        quality: JPEG compression quality (1-100, default: 90)
+        quality: JPEG compression quality (uses single_frame config default if not specified)
         width: Maximum frame width for scaling (optional)
         height: Maximum frame height for scaling (optional)
 
@@ -867,6 +1091,46 @@ async def get_single_frame_raw(
         JPEG image data (raw, uncorrected)
     """
     try:
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        quality_cfg = stream_config.get("quality", {})
+        resolution_cfg = stream_config.get("resolution", {})
+
+        # Apply defaults and validate (same as get_single_frame)
+        quality = (
+            quality
+            if quality is not None
+            else quality_cfg.get("single_frame_jpeg_quality", 90)
+        )
+
+        # Validate quality
+        min_quality = quality_cfg.get("min_jpeg_quality", 1)
+        max_quality = quality_cfg.get("max_jpeg_quality", 100)
+        if quality < min_quality or quality > max_quality:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quality must be between {min_quality} and {max_quality}",
+            )
+
+        # Validate resolution if provided
+        if width is not None:
+            min_width = resolution_cfg.get("min_width", 160)
+            max_width = resolution_cfg.get("max_width", 3840)
+            if width < min_width or width > max_width:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Width must be between {min_width} and {max_width}",
+                )
+
+        if height is not None:
+            min_height = resolution_cfg.get("min_height", 120)
+            max_height = resolution_cfg.get("max_height", 2160)
+            if height < min_height or height > max_height:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Height must be between {min_height} and {max_height}",
+                )
+
         # Camera should already be started by lazy init
         if not vision_module.camera.is_connected():
             raise HTTPException(

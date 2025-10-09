@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 from .loader.cli import CLILoader
 from .loader.env import EnvironmentLoader
+from .migrations import VideoSourceConfigMigration
 from .models.schemas import (
     ConfigChange,
     ConfigFormat,
@@ -67,6 +68,9 @@ class ConfigurationModule:
         self._profile_manager = ProfileManager(
             persistence=self._persistence, config_dir=self.config_dir
         )
+
+        # Initialize migrations
+        self._migrations = [VideoSourceConfigMigration()]
 
         # Initialize directory structure
         self._init_directories()
@@ -177,6 +181,41 @@ class ConfigurationModule:
             current[parts[-1]] = value
         return result
 
+    def _apply_migrations(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Apply all registered migrations to configuration.
+
+        Args:
+            config: Configuration dictionary to migrate
+
+        Returns:
+            Migrated configuration dictionary
+        """
+        for migration in self._migrations:
+            if migration.should_migrate(config):
+                print(
+                    f"Applying migration: {migration.description} "
+                    f"(version {migration.version})"
+                )
+                config = migration.migrate(config)
+
+                # Validate and show warnings
+                warnings = migration.validate(config)
+                for warning in warnings:
+                    if warning.startswith("ERROR:"):
+                        print(f"  {warning}")
+                    elif warning.startswith("WARNING:"):
+                        print(f"  {warning}")
+                    elif warning.startswith("DEPRECATED:"):
+                        print(f"  {warning}")
+
+                # Show suggested configuration if there are warnings
+                if warnings:
+                    suggestion = migration.get_suggested_configuration(config)
+                    if suggestion:
+                        print(suggestion)
+
+        return config
+
     def load_config(self, path: Path, format: Optional[ConfigFormat] = None) -> bool:
         """Load configuration from file.
 
@@ -193,6 +232,9 @@ class ConfigurationModule:
 
             # Use the persistence system to load configuration
             data = self._persistence.load_config(path, format)
+
+            # Apply migrations
+            data = self._apply_migrations(data)
 
             # Flatten and store configuration
             flattened = self._flatten_dict(data)

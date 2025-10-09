@@ -4,23 +4,21 @@
 This tool allows you to play back video files (MKV/MP4) with ball detection,
 tracking, cue stick detection, and predicted trajectory overlaid on the frames.
 
-Supports both YOLO (deep learning) and OpenCV (traditional) detection backends.
+Uses YOLO detection with the custom-trained billiards model and automatically
+detects the table playing area on the first frame.
 
 Usage:
-    python tools/video_debugger.py <video_file> [options]
+    python tools/video_debugger.py <video_file> [--loop] [--log-level LEVEL]
 
 Examples:
-    # Use YOLO detection with CPU
+    # Play video with default settings
     python tools/video_debugger.py demo.mkv
 
-    # Use YOLO detection with custom model
-    python tools/video_debugger.py demo.mkv --yolo-model models/yolov8n-pool.onnx
+    # Loop video playback
+    python tools/video_debugger.py demo.mkv --loop
 
-    # Use YOLO detection with Coral TPU
-    python tools/video_debugger.py demo.mkv --yolo-device tpu
-
-    # Use OpenCV detection (traditional method)
-    python tools/video_debugger.py demo.mkv --backend opencv
+    # Enable debug logging
+    python tools/video_debugger.py demo.mkv --log-level DEBUG
 
 Controls:
     SPACE - Play/Pause
@@ -32,7 +30,8 @@ Controls:
     C     - Toggle cue stick display
     D     - Toggle detection circles
     I     - Toggle track IDs
-    B     - Set current frame as background (for cue detection)
+    P     - Toggle playing area display
+    A     - Re-detect table playing area
     Q/ESC - Quit
 """
 
@@ -197,6 +196,7 @@ class VideoDebugger:
 
         # Tracking data
         self.ball_traces: dict[int, deque] = {}  # track_id -> deque of positions
+        self.current_tracked_balls = []  # Store current frame's tracked balls for HUD
 
         # Initialize components
         logger.info(f"Initializing video debugger for: {video_path}")
@@ -247,15 +247,19 @@ class VideoDebugger:
             self.detector = BallDetector(detector_config)
             self.detection_backend = "opencv"
 
-        # Initialize tracker (lenient settings to maintain tracks longer)
-        tracker_config = {
-            "max_age": 90,  # Keep tracks alive much longer (3 seconds at 30fps)
-            "min_hits": 2,  # Require 2 hits to confirm track
-            "max_distance": 80.0,  # More forgiving distance matching
-            "process_noise": 2.0,  # Higher process noise for motion tolerance
-            "measurement_noise": 15.0,  # Higher measurement noise tolerance
+        # Initialize tracker with ghost ball filtering
+        self.tracker_config = {
+            "max_age": 30,  # Keep tracks alive (1 second at 30fps)
+            "min_hits": 10,  # Require 5 consecutive hits to confirm track (filters ghosts)
+            "max_distance": 100.0,  # Very forgiving for stationary balls
+            "process_noise": 5.0,  # Higher process noise to handle detection jitter
+            "measurement_noise": 20.0,  # Higher tolerance for detection noise
+            "collision_threshold": 60.0,  # Distance to detect collision
+            "min_hits_during_collision": 30,  # Higher threshold during collision
+            "motion_speed_threshold": 10.0,  # Speed to consider "moving"
+            "return_tentative_tracks": False,  # Only return confirmed tracks (min_hits+)
         }
-        self.tracker = ObjectTracker(tracker_config)
+        self.tracker = ObjectTracker(self.tracker_config)
 
         # Initialize cue detector (with relaxed settings for testing)
         cue_config = {
@@ -547,7 +551,7 @@ class VideoDebugger:
             f"Speed: {self.playback_speed:.1f}x",
             f"State: {'PAUSED' if self.paused else 'PLAYING'}",
             f"Backend: {self.detection_backend.upper()}",
-            f"Balls: {len(self.ball_traces)}",
+            f"Balls: {len(self.current_tracked_balls)}",
         ]
 
         y_offset = 20
@@ -648,6 +652,21 @@ class VideoDebugger:
         tracked_balls = self.tracker.update_tracking(
             detected_balls, self.current_frame_num, None
         )
+
+        # Debug logging every 30 frames
+        if self.current_frame_num % 30 == 0:
+            logger.info(f"Frame {self.current_frame_num}: {len(detected_balls)} detections, {len(tracked_balls) if tracked_balls else 0} confirmed tracks")
+            if hasattr(self.tracker, 'tracks'):
+                tentative = sum(1 for t in self.tracker.tracks if t.state.value == "tentative")
+                confirmed = sum(1 for t in self.tracker.tracks if t.state.value == "confirmed")
+                logger.info(f"  Tracker state: {confirmed} confirmed, {tentative} tentative, {len(self.tracker.tracks)} total")
+                # Log details about tentative tracks
+                for t in self.tracker.tracks:
+                    if t.state.value == "tentative":
+                        logger.info(f"    Track {t.track_id}: {t.detection_count}/{t.min_hits} hits, {t.miss_count} misses")
+
+        # Store current tracked balls for HUD display
+        self.current_tracked_balls = tracked_balls if tracked_balls else []
 
         # Use tracked balls if available, otherwise show detections
         balls_to_draw = tracked_balls if tracked_balls else detected_balls
@@ -827,7 +846,11 @@ class VideoDebugger:
             if self.show_detections:
                 label = ""
                 if self.show_track_ids and track_id is not None:
-                    label = f"ID:{track_id}"
+                    # Use display_name if available, otherwise fall back to track_id
+                    if hasattr(ball, 'display_name'):
+                        label = ball.display_name
+                    else:
+                        label = f"ID:{track_id}"
                     if getattr(ball, 'is_moving', False):
                         label += " *"
                 elif track_id is None:
@@ -917,13 +940,7 @@ class VideoDebugger:
                     logger.info("Resetting video...")
                     self.camera.stop_capture()
                     self.ball_traces.clear()
-                    self.tracker = ObjectTracker(
-                        {
-                            "max_age": 30,
-                            "min_hits": 3,
-                            "max_distance": 50.0,
-                        }
-                    )
+                    self.tracker = ObjectTracker(self.tracker_config)
                     self.current_frame_num = 0
                     self.camera.start_capture()
                 elif key == ord("+") or key == ord("="):  # Increase speed
@@ -968,48 +985,10 @@ def main():
         "--loop", action="store_true", help="Loop video playback"
     )
     parser.add_argument(
-        "--trace-length",
-        type=int,
-        default=100,
-        help="Maximum trace length (default: 100)",
-    )
-    parser.add_argument(
-        "--backend",
-        choices=["yolo", "opencv"],
-        default="yolo",
-        help="Detection backend (default: yolo)",
-    )
-    parser.add_argument(
-        "--yolo-model",
-        type=str,
-        help="Path to YOLO model (default: models/yolov8n-pool.onnx)",
-    )
-    parser.add_argument(
-        "--yolo-device",
-        choices=["cpu", "cuda", "tpu"],
-        default="cpu",
-        help="YOLO inference device (default: cpu)",
-    )
-    parser.add_argument(
-        "--background",
-        type=str,
-        help="Path to background image file (for background subtraction)",
-    )
-    parser.add_argument(
-        "--test-trajectory",
-        action="store_true",
-        help="Enable test trajectory mode (shows sample trajectory for testing)",
-    )
-    parser.add_argument(
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         default="INFO",
         help="Logging level",
-    )
-    parser.add_argument(
-        "--auto-detect-table",
-        action="store_true",
-        help="Automatically detect table playing area on first frame",
     )
 
     args = parser.parse_args()
@@ -1022,51 +1001,19 @@ def main():
         logger.error(f"Video file not found: {args.video}")
         sys.exit(1)
 
-    # Create and run debugger
+    # Create and run debugger with sensible defaults
     debugger = VideoDebugger(
         video_path=args.video,
         loop=args.loop,
-        max_trace_length=args.trace_length,
-        detection_backend=args.backend,
-        yolo_model_path=args.yolo_model,
-        yolo_device=args.yolo_device,
+        max_trace_length=100,
+        detection_backend="yolo",
+        yolo_model_path="models/yolov8n-billiards.onnx",
+        yolo_device="cpu",
     )
 
-    # Enable test mode if requested
-    if args.test_trajectory:
-        debugger.test_mode = True
-        logger.info("Test trajectory mode enabled")
-
-    # Auto-detect table playing area if requested
-    auto_detect_done = False
-    if args.auto_detect_table:
-        logger.info("Auto-detect table mode enabled - will detect on first frame")
-        debugger.auto_detect_on_first_frame = True
-    else:
-        debugger.auto_detect_on_first_frame = False
-
-    # Load background image if provided
-    if args.background:
-        if not Path(args.background).exists():
-            logger.error(f"Background image not found: {args.background}")
-            sys.exit(1)
-
-        logger.info(f"Loading background image: {args.background}")
-        background_frame = cv2.imread(args.background)
-        if background_frame is None:
-            logger.error(f"Failed to load background image: {args.background}")
-            sys.exit(1)
-
-        # Set background for cue detection
-        debugger.cue_detector.set_background_frame(background_frame)
-
-        # Detect pockets from background to exclude them from ball detection (only for OpenCV detector)
-        # Note: We do NOT enable background_subtraction (which hurts stationary ball detection)
-        if debugger.detector is not None:
-            debugger.detector.pocket_locations = debugger.detector._detect_pockets_from_background(background_frame)
-            logger.info(f"Background frame loaded for cue detection, detected {len(debugger.detector.pocket_locations)} pockets")
-        else:
-            logger.info("Background frame loaded for cue detection (YOLO backend doesn't use pocket detection)")
+    # Always auto-detect table on first frame
+    logger.info("Auto-detect table mode enabled - will detect on first frame")
+    debugger.auto_detect_on_first_frame = True
 
     debugger.run()
 

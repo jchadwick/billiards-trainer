@@ -3,22 +3,22 @@
  */
 
 import {
-  WebSocketMessage,
-  FrameData,
-  GameStateData,
-  TrajectoryData,
-  AlertData,
-  ConfigData,
-  MetricsData,
-  StatusData,
-  BallData,
-  CueData,
-  TableData,
+  isAlertMessage,
   isFrameMessage,
   isGameStateMessage,
   isTrajectoryMessage,
-  isAlertMessage,
-} from '../types/api';
+  type AlertData,
+  type BallData,
+  type ConfigData,
+  type CueData,
+  type FrameData,
+  type GameStateData,
+  type MetricsData,
+  type StatusData,
+  type TableData,
+  type TrajectoryData,
+  type WebSocketMessage,
+} from "../types/api";
 
 export interface DataProcessingOptions {
   frameProcessing?: {
@@ -118,7 +118,7 @@ export type MetricsHandler = (metrics: MetricsData) => void;
 export type StatusHandler = (status: StatusData) => void;
 
 export interface ProcessedAlert {
-  level: AlertData['level'];
+  level: AlertData["level"];
   message: string;
   code: string;
   timestamp: Date;
@@ -237,47 +237,47 @@ export class DataProcessingService {
   processMessage(message: WebSocketMessage): void {
     try {
       switch (message.type) {
-        case 'frame':
+        case "frame":
           if (isFrameMessage(message)) {
             this.processFrame(message.data);
           }
           break;
 
-        case 'state':
+        case "state":
           if (isGameStateMessage(message)) {
             this.processGameState(message.data);
           }
           break;
 
-        case 'trajectory':
+        case "trajectory":
           if (isTrajectoryMessage(message)) {
             this.processTrajectory(message.data);
           }
           break;
 
-        case 'alert':
+        case "alert":
           if (isAlertMessage(message)) {
             this.processAlert(message.data);
           }
           break;
 
-        case 'config':
+        case "config":
           this.processConfig(message.data as ConfigData);
           break;
 
-        case 'metrics':
+        case "metrics":
           this.processMetrics(message.data as MetricsData);
           break;
 
-        case 'status':
+        case "status":
           this.processStatus(message.data as StatusData);
           break;
 
         default:
-          console.debug('Unhandled message type:', message.type);
+          console.debug("Unhandled message type:", message.type);
       }
     } catch (error) {
-      console.error('Error processing message:', error, message);
+      console.error("Error processing message:", error, message);
     }
   }
 
@@ -286,6 +286,8 @@ export class DataProcessingService {
   // =============================================================================
 
   private processFrame(frameData: FrameData): void {
+    if(!this.options.frameProcessing) return;
+
     // Implement frame rate limiting
     const now = Date.now();
     const minInterval = 1000 / this.options.frameProcessing.maxFps;
@@ -312,11 +314,11 @@ export class DataProcessingService {
     }
 
     // Notify handlers
-    this.frameHandlers.forEach(handler => {
+    this.frameHandlers.forEach((handler) => {
       try {
         handler(processedFrame);
       } catch (error) {
-        console.error('Error in frame handler:', error);
+        console.error("Error in frame handler:", error);
       }
     });
   }
@@ -328,7 +330,9 @@ export class DataProcessingService {
     // Resize to fit target dimensions while maintaining aspect ratio
     if (this.options.frameProcessing.resizeToFit) {
       const aspectRatio = frameData.width / frameData.height;
-      const targetAspectRatio = this.options.frameProcessing.targetWidth! / this.options.frameProcessing.targetHeight!;
+      const targetAspectRatio =
+        this.options.frameProcessing.targetWidth! /
+        this.options.frameProcessing.targetHeight!;
 
       if (aspectRatio > targetAspectRatio) {
         displayWidth = this.options.frameProcessing.targetWidth!;
@@ -362,29 +366,34 @@ export class DataProcessingService {
 
     // Add to history
     this.gameStateHistory.push(processedState);
-    if (this.gameStateHistory.length > this.options.stateProcessing.maxHistoryLength) {
+    if (
+      this.gameStateHistory.length >
+      this.options.stateProcessing.maxHistoryLength
+    ) {
       this.gameStateHistory.shift();
     }
 
     this.lastGameState = processedState;
 
     // Notify handlers
-    this.gameStateHandlers.forEach(handler => {
+    this.gameStateHandlers.forEach((handler) => {
       try {
         handler(processedState);
       } catch (error) {
-        console.error('Error in game state handler:', error);
+        console.error("Error in game state handler:", error);
       }
     });
   }
 
-  private createProcessedGameState(stateData: GameStateData): ProcessedGameState {
+  private createProcessedGameState(
+    stateData: GameStateData
+  ): ProcessedGameState {
     const previousState = this.lastGameState;
     const changesSinceLastFrame: string[] = [];
 
     // Process balls with smoothing and prediction
-    const processedBalls = stateData.balls.map(ball => {
-      const prevBall = previousState?.balls.find(b => b.id === ball.id);
+    const processedBalls = stateData.balls.map((ball) => {
+      const prevBall = previousState?.balls.find((b) => b.id === ball.id);
 
       let interpolatedPosition = ball.position;
       let predictedPosition: [number, number] | undefined;
@@ -443,8 +452,14 @@ export class DataProcessingService {
       processedCue = {
         ...stateData.cue,
         // Add trajectory prediction logic here
-        predictedTrajectory: this.calculateCueTrajectory(stateData.cue, stateData.table),
-        aimingAccuracy: this.calculateAimingAccuracy(stateData.cue, processedBalls),
+        predictedTrajectory: this.calculateCueTrajectory(
+          stateData.cue,
+          stateData.table
+        ),
+        aimingAccuracy: this.calculateAimingAccuracy(
+          stateData.cue,
+          processedBalls
+        ),
       };
     }
 
@@ -459,10 +474,11 @@ export class DataProcessingService {
     }
 
     // Calculate overall confidence
-    const ballConfidences = processedBalls.map(b => b.confidence);
-    const avgBallConfidence = ballConfidences.length > 0
-      ? ballConfidences.reduce((a, b) => a + b, 0) / ballConfidences.length
-      : 0;
+    const ballConfidences = processedBalls.map((b) => b.confidence);
+    const avgBallConfidence =
+      ballConfidences.length > 0
+        ? ballConfidences.reduce((a, b) => a + b, 0) / ballConfidences.length
+        : 0;
 
     const cueConfidence = stateData.cue?.confidence || 1;
     const overallConfidence = (avgBallConfidence + cueConfidence) / 2;
@@ -473,13 +489,17 @@ export class DataProcessingService {
       cue: processedCue,
       table: processedTable,
       confidence: overallConfidence,
-      isValid: overallConfidence >= this.options.stateProcessing.confidenceThreshold,
+      isValid:
+        overallConfidence >= this.options.stateProcessing.confidenceThreshold,
       frameNumber: stateData.frame_number,
       changesSinceLastFrame,
     };
   }
 
-  private calculateCueTrajectory(cue: CueData, table?: TableData): [number, number][] {
+  private calculateCueTrajectory(
+    cue: CueData,
+    table?: TableData
+  ): [number, number][] {
     // Simplified trajectory calculation
     const points: [number, number][] = [];
     const angleRad = (cue.angle * Math.PI) / 180;
@@ -495,10 +515,13 @@ export class DataProcessingService {
     return points;
   }
 
-  private calculateAimingAccuracy(cue: CueData, balls: ProcessedBallData[]): number {
+  private calculateAimingAccuracy(
+    cue: CueData,
+    balls: ProcessedBallData[]
+  ): number {
     // Simplified aiming accuracy calculation
     // This would need more sophisticated physics calculations
-    const cueBall = balls.find(b => b.id === 'cue' || b.is_cue_ball);
+    const cueBall = balls.find((b) => b.id === "cue" || b.is_cue_ball);
     if (!cueBall) return 0;
 
     // Calculate if cue is aimed at any ball
@@ -506,7 +529,7 @@ export class DataProcessingService {
     const aimDirection = [Math.cos(angleRad), Math.sin(angleRad)];
 
     let bestAccuracy = 0;
-    balls.forEach(ball => {
+    balls.forEach((ball) => {
       if (ball.id === cueBall.id) return;
 
       const toBall = [
@@ -516,7 +539,8 @@ export class DataProcessingService {
       const distance = Math.sqrt(toBall[0] * toBall[0] + toBall[1] * toBall[1]);
       const normalized = [toBall[0] / distance, toBall[1] / distance];
 
-      const dotProduct = aimDirection[0] * normalized[0] + aimDirection[1] * normalized[1];
+      const dotProduct =
+        aimDirection[0] * normalized[0] + aimDirection[1] * normalized[1];
       const accuracy = Math.max(0, dotProduct);
 
       if (accuracy > bestAccuracy) {
@@ -528,14 +552,23 @@ export class DataProcessingService {
   }
 
   private calculateTableCenter(table: TableData): [number, number] {
-    const avgX = table.corners.reduce((sum, corner) => sum + corner[0], 0) / table.corners.length;
-    const avgY = table.corners.reduce((sum, corner) => sum + corner[1], 0) / table.corners.length;
+    const avgX =
+      table.corners.reduce((sum, corner) => sum + corner[0], 0) /
+      table.corners.length;
+    const avgY =
+      table.corners.reduce((sum, corner) => sum + corner[1], 0) /
+      table.corners.length;
     return [avgX, avgY];
   }
 
-  private calculateTableBounds(table: TableData): { minX: number; maxX: number; minY: number; maxY: number } {
-    const xs = table.corners.map(corner => corner[0]);
-    const ys = table.corners.map(corner => corner[1]);
+  private calculateTableBounds(table: TableData): {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  } {
+    const xs = table.corners.map((corner) => corner[0]);
+    const ys = table.corners.map((corner) => corner[1]);
 
     return {
       minX: Math.min(...xs),
@@ -550,24 +583,29 @@ export class DataProcessingService {
   // =============================================================================
 
   private processTrajectory(trajectoryData: TrajectoryData): void {
-    if (trajectoryData.confidence < this.options.trajectoryProcessing.confidenceThreshold) {
+    if (
+      trajectoryData.confidence <
+      this.options.trajectoryProcessing.confidenceThreshold
+    ) {
       return; // Skip low-confidence trajectories
     }
 
     const processedTrajectory = this.createProcessedTrajectory(trajectoryData);
 
-    this.trajectoryHandlers.forEach(handler => {
+    this.trajectoryHandlers.forEach((handler) => {
       try {
         handler(processedTrajectory);
       } catch (error) {
-        console.error('Error in trajectory handler:', error);
+        console.error("Error in trajectory handler:", error);
       }
     });
   }
 
-  private createProcessedTrajectory(trajectoryData: TrajectoryData): ProcessedTrajectory {
+  private createProcessedTrajectory(
+    trajectoryData: TrajectoryData
+  ): ProcessedTrajectory {
     // Apply smoothing if enabled
-    let smoothedLines = trajectoryData.lines.map(line => ({
+    let smoothedLines = trajectoryData.lines.map((line) => ({
       start: line.start,
       end: line.end,
       confidence: line.confidence,
@@ -578,7 +616,7 @@ export class DataProcessingService {
     }
 
     // Process collision predictions
-    const collisionPredictions = trajectoryData.collisions.map(collision => ({
+    const collisionPredictions = trajectoryData.collisions.map((collision) => ({
       position: collision.position,
       ballId: collision.ball_id,
       probability: Math.min(1, collision.angle / 90), // Simplified probability
@@ -597,7 +635,13 @@ export class DataProcessingService {
     };
   }
 
-  private smoothTrajectoryLines(lines: Array<{ start: [number, number]; end: [number, number]; confidence: number }>): typeof lines {
+  private smoothTrajectoryLines(
+    lines: Array<{
+      start: [number, number];
+      end: [number, number];
+      confidence: number;
+    }>
+  ): typeof lines {
     // Simple line smoothing - in practice, you'd use more sophisticated algorithms
     return lines.map((line, index) => {
       if (index === 0 || index === lines.length - 1) {
@@ -642,7 +686,9 @@ export class DataProcessingService {
     return Math.max(0, Math.min(1, probability));
   }
 
-  private generateTrajectoryRecommendation(trajectoryData: TrajectoryData): string {
+  private generateTrajectoryRecommendation(
+    trajectoryData: TrajectoryData
+  ): string {
     if (trajectoryData.confidence < 0.5) {
       return "Low confidence trajectory - consider adjusting aim";
     }
@@ -670,29 +716,33 @@ export class DataProcessingService {
       autoCloseDelay: this.getAutoCloseDelay(alertData),
     };
 
-    this.alertHandlers.forEach(handler => {
+    this.alertHandlers.forEach((handler) => {
       try {
         handler(processedAlert);
       } catch (error) {
-        console.error('Error in alert handler:', error);
+        console.error("Error in alert handler:", error);
       }
     });
   }
 
   private isActionableAlert(alert: AlertData): boolean {
     // Determine if alert requires user action
-    const actionableCodes = ['HW_CAMERA_UNAVAILABLE', 'HW_PROJECTOR_UNAVAILABLE', 'HW_CALIBRATION_FAILED'];
+    const actionableCodes = [
+      "HW_CAMERA_UNAVAILABLE",
+      "HW_PROJECTOR_UNAVAILABLE",
+      "HW_CALIBRATION_FAILED",
+    ];
     return actionableCodes.includes(alert.code);
   }
 
   private getAutoCloseDelay(alert: AlertData): number | undefined {
     switch (alert.level) {
-      case 'info':
+      case "info":
         return 5000; // 5 seconds
-      case 'warning':
+      case "warning":
         return 10000; // 10 seconds
-      case 'error':
-      case 'critical':
+      case "error":
+      case "critical":
         return undefined; // Don't auto-close
       default:
         return 5000;
@@ -704,31 +754,31 @@ export class DataProcessingService {
   // =============================================================================
 
   private processConfig(configData: ConfigData): void {
-    this.configHandlers.forEach(handler => {
+    this.configHandlers.forEach((handler) => {
       try {
         handler(configData);
       } catch (error) {
-        console.error('Error in config handler:', error);
+        console.error("Error in config handler:", error);
       }
     });
   }
 
   private processMetrics(metricsData: MetricsData): void {
-    this.metricsHandlers.forEach(handler => {
+    this.metricsHandlers.forEach((handler) => {
       try {
         handler(metricsData);
       } catch (error) {
-        console.error('Error in metrics handler:', error);
+        console.error("Error in metrics handler:", error);
       }
     });
   }
 
   private processStatus(statusData: StatusData): void {
-    this.statusHandlers.forEach(handler => {
+    this.statusHandlers.forEach((handler) => {
       try {
         handler(statusData);
       } catch (error) {
-        console.error('Error in status handler:', error);
+        console.error("Error in status handler:", error);
       }
     });
   }
@@ -755,9 +805,18 @@ export class DataProcessingService {
 
   updateOptions(newOptions: Partial<DataProcessingOptions>): void {
     this.options = {
-      frameProcessing: { ...this.options.frameProcessing, ...newOptions.frameProcessing },
-      stateProcessing: { ...this.options.stateProcessing, ...newOptions.stateProcessing },
-      trajectoryProcessing: { ...this.options.trajectoryProcessing, ...newOptions.trajectoryProcessing },
+      frameProcessing: {
+        ...this.options.frameProcessing,
+        ...newOptions.frameProcessing,
+      },
+      stateProcessing: {
+        ...this.options.stateProcessing,
+        ...newOptions.stateProcessing,
+      },
+      trajectoryProcessing: {
+        ...this.options.trajectoryProcessing,
+        ...newOptions.trajectoryProcessing,
+      },
     };
   }
 
@@ -783,6 +842,8 @@ export class DataProcessingService {
 // Factory Function
 // =============================================================================
 
-export function createDataProcessingService(options?: DataProcessingOptions): DataProcessingService {
+export function createDataProcessingService(
+  options?: DataProcessingOptions
+): DataProcessingService {
   return new DataProcessingService(options);
 }

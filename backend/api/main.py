@@ -22,32 +22,17 @@ except ImportError:
         from fastapi.exceptions import WebSocketDisconnect  # type: ignore
 
 # Internal imports
-# Import core module
-try:
-    from ..core import CoreModule, CoreModuleConfig
-except ImportError:
-    import sys
-    from pathlib import Path
-
-    backend_path = Path(__file__).parent.parent
-    if str(backend_path) not in sys.path:
-        sys.path.insert(0, str(backend_path))
-    from core import CoreModule, CoreModuleConfig  # type: ignore[import-not-found]
-
 # Import config module - use absolute import to avoid conflict with api.routes.config
-import sys
-from pathlib import Path
+from backend.config.manager import ConfigurationModule
 
-backend_path = Path(__file__).parent.parent
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
-from config.manager import ConfigurationModule  # type: ignore
-from integration_service import IntegrationService  # type: ignore
+# Import core module
+from backend.core import CoreModule, CoreModuleConfig
+from backend.integration_service import IntegrationService
 
 from .dependencies import ApplicationState, app_state
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
 from .middleware.logging import LoggingConfig, setup_logging_middleware
-from .middleware.metrics import MetricsMiddleware
+from .middleware.metrics import MetricsConfig, MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import (
@@ -103,32 +88,105 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_middleware_config(development_mode: bool = False) -> dict[str, Any]:
-    """Get middleware configuration based on environment."""
+def get_middleware_config(
+    development_mode: bool = False, config: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
+    """Get middleware configuration based on environment and config.
+
+    Args:
+        development_mode: Whether running in development mode
+        config: Configuration dictionary (uses defaults if None)
+
+    Returns:
+        Dictionary of middleware configurations
+    """
+    # Use config values or fallback to defaults
+    if config and "api" in config and "middleware" in config["api"]:
+        middleware_cfg = config["api"]["middleware"]
+    else:
+        middleware_cfg = {}
+
+    # Error handler config
+    error_cfg = middleware_cfg.get("error_handler", {})
+
+    # Logging config
+    logging_cfg = middleware_cfg.get("logging", {})
+    excluded_logging_paths = logging_cfg.get(
+        "excluded_paths", ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"]
+    )
+    excluded_headers = logging_cfg.get(
+        "excluded_headers", ["authorization", "cookie", "x-api-key", "x-auth-token"]
+    )
+
+    # Metrics config
+    metrics_cfg = middleware_cfg.get("metrics", {})
+
+    # Tracing config
+    tracing_cfg = middleware_cfg.get("tracing", {})
+    sample_rate_dev = tracing_cfg.get("sample_rate_development", 1.0)
+    sample_rate_prod = tracing_cfg.get("sample_rate_production", 0.1)
+    excluded_tracing_paths = tracing_cfg.get("excluded_paths", ["/health", "/metrics"])
+
+    # Performance config
+    perf_cfg = middleware_cfg.get("performance", {})
+    slow_threshold = perf_cfg.get("slow_request_threshold_ms", 1000.0)
+    excluded_perf_paths = perf_cfg.get("excluded_paths", ["/health", "/metrics"])
+
     return {
         "error_handler": ErrorHandlerConfig(
             include_traceback=development_mode,
-            log_errors=True,
+            log_errors=error_cfg.get("log_errors", True),
             sanitize_errors=not development_mode,
         ),
         "logging": LoggingConfig(
-            enable_request_logging=True,
-            enable_response_logging=True,
-            log_body=development_mode,
-            log_headers=development_mode,
-            excluded_paths={"/health", "/metrics", "/docs", "/redoc", "/openapi.json"},
+            enable_request_logging=logging_cfg.get("enable_request_logging", True),
+            enable_response_logging=logging_cfg.get("enable_response_logging", True),
+            log_level=logging_cfg.get("log_level", "INFO"),
+            log_body=development_mode or logging_cfg.get("log_body", False),
+            log_headers=development_mode or logging_cfg.get("log_headers", False),
+            max_body_size=logging_cfg.get("max_body_size", 1024),
+            excluded_paths=set(excluded_logging_paths),
+            excluded_headers=set(excluded_headers),
+            include_performance_metrics=logging_cfg.get(
+                "include_performance_metrics", True
+            ),
+            slow_request_threshold=logging_cfg.get("slow_request_threshold", 1.0),
+            max_metrics_storage=logging_cfg.get("max_metrics_storage", 1000),
+            recent_metrics_window=logging_cfg.get("recent_metrics_window", 100),
         ),
+        "metrics": metrics_cfg,
         "tracing": TracingConfig(
-            enable_tracing=True,
-            enable_correlation_ids=True,
-            sample_rate=1.0 if development_mode else 0.1,
-            excluded_paths=["/health", "/metrics"],
+            enable_tracing=tracing_cfg.get("enable_tracing", True),
+            enable_correlation_ids=tracing_cfg.get("enable_correlation_ids", True),
+            sample_rate=sample_rate_dev if development_mode else sample_rate_prod,
+            excluded_paths=excluded_tracing_paths,
         ),
         "performance": PerformanceConfig(
-            enable_monitoring=True,
-            enable_system_metrics=True,
-            slow_request_threshold_ms=500.0,
-            excluded_paths=["/health", "/metrics"],
+            enable_monitoring=perf_cfg.get("enable_monitoring", True),
+            enable_system_metrics=perf_cfg.get("enable_system_metrics", True),
+            enable_endpoint_stats=perf_cfg.get("enable_endpoint_stats", True),
+            enable_slow_query_detection=perf_cfg.get(
+                "enable_slow_query_detection", True
+            ),
+            slow_request_threshold_ms=slow_threshold,
+            metrics_retention_minutes=perf_cfg.get("metrics_retention_minutes", 60),
+            stats_window_size=perf_cfg.get("stats_window_size", 1000),
+            system_metrics_interval_seconds=perf_cfg.get(
+                "system_metrics_interval_seconds", 30
+            ),
+            memory_alert_threshold_mb=perf_cfg.get("memory_alert_threshold_mb", 512),
+            cpu_alert_threshold_percent=perf_cfg.get(
+                "cpu_alert_threshold_percent", 80.0
+            ),
+            response_time_percentiles=perf_cfg.get(
+                "response_time_percentiles", [50, 90, 95, 99]
+            ),
+            excluded_paths=excluded_perf_paths,
+            endpoint_stats_recent_durations_maxlen=perf_cfg.get(
+                "endpoint_stats_recent_durations_maxlen", 100
+            ),
+            cpu_percent_history_maxlen=perf_cfg.get("cpu_percent_history_maxlen", 60),
+            memory_usage_history_maxlen=perf_cfg.get("memory_usage_history_maxlen", 60),
         ),
     }
 
@@ -282,6 +340,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             vision_module=app_state.vision_module,
             core_module=app_state.core_module,
             message_broadcaster=app_state.message_broadcaster,
+            config_module=app_state.config_module,
         )
 
         # Start integration service to begin Vision→Core→Broadcast flow
@@ -298,8 +357,22 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             integration_service=app_state.integration_service,
         )
 
+        # Get health monitor configuration
+        if isinstance(config, dict):
+            health_monitor_config = config.get("api", {}).get("health_monitor", {})
+            check_interval = health_monitor_config.get("check_interval", 5.0)
+        else:
+            # Fallback if config is not a dict (Pydantic model or other type)
+            check_interval = (
+                getattr(getattr(config, "api", None), "health_monitor", {}).get(
+                    "check_interval", 5.0
+                )
+                if hasattr(config, "api")
+                else 5.0
+            )
+
         # Start health monitoring
-        await health_monitor.start_monitoring(check_interval=5.0)
+        await health_monitor.start_monitoring(check_interval=check_interval)
 
         # Register module shutdown functions for graceful shutdown
         await _register_shutdown_functions(app_state)
@@ -384,17 +457,27 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     )
 
     # Get middleware configuration
-    middleware_config = get_middleware_config(development_mode)
+    middleware_config = get_middleware_config(development_mode, config_override)
 
     # Add CORS middleware first - must be before other middleware for WebSocket support
     # Configure allowed origins from environment or config
     # In production, origins should be explicitly configured via environment variables or config
+
+    # Get CORS configuration
+    cors_config = {}
+    if (
+        config_override
+        and "api" in config_override
+        and "cors" in config_override["api"]
+    ):
+        cors_config = config_override["api"]["cors"]
+
     if development_mode:
-        # Development mode: allow localhost
-        allowed_origins = [
-            "http://localhost:3000",  # Development frontend
-            "http://localhost:8000",  # Backend serving frontend
-        ]
+        # Development mode: use configured development origins or defaults
+        allowed_origins = cors_config.get(
+            "development_origins",
+            cors_config.get("allow_origins", []),
+        )
     else:
         # Production mode: start with empty list, require explicit configuration
         allowed_origins = []
@@ -403,29 +486,28 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     if custom_origins := os.getenv("BILLIARDS_CORS_ORIGINS"):
         allowed_origins.extend(custom_origins.split(","))
 
-    # If config override provided and has CORS settings, use those
-    if (
-        config_override
-        and "api" in config_override
-        and "cors" in config_override["api"]
-    ):
-        cors_config = config_override["api"]["cors"]
-        if "allowed_origins" in cors_config:
-            allowed_origins = cors_config["allowed_origins"]
+    # If config override provided and has explicit allowed_origins, use those
+    if "allowed_origins" in cors_config:
+        allowed_origins = cors_config["allowed_origins"]
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=cors_config.get("allow_credentials", True),
+        allow_methods=cors_config.get("allow_methods", ["*"]),
+        allow_headers=cors_config.get("allow_headers", ["*"]),
     )
 
     # Add middleware in reverse order (last added = first executed)
     # This ensures proper execution order for request/response processing
 
     # 1. Health metrics tracking (last - measures everything)
-    app.add_middleware(MetricsMiddleware)
+    metrics_config = (
+        MetricsConfig(**middleware_config["metrics"])
+        if middleware_config.get("metrics")
+        else MetricsConfig()
+    )
+    app.add_middleware(MetricsMiddleware, config=metrics_config)
 
     # 2. Performance monitoring (last - measures everything)
     setup_performance_monitoring(app, middleware_config["performance"])

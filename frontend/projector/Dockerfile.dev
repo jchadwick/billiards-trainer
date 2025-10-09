@@ -1,0 +1,35 @@
+FROM debian:bookworm-slim
+
+# Install LÖVE2D and dependencies
+RUN apt-get update && apt-get install -y \
+    love \
+    lua5.1 \
+    luarocks \
+    inotify-tools \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy the entire projector application (source will be mounted as volume)
+COPY . .
+
+# Environment variables
+ENV DISPLAY=:0
+ENV PROJECTOR_BACKGROUND="255,255,255"
+
+# Expose UDP port for native networking
+EXPOSE 5005/udp
+
+# Create a wrapper script that watches for file changes and restarts LÖVE
+RUN echo '#!/bin/bash\n\
+while true; do\n\
+  love /app &\n\
+  LOVE_PID=$!\n\
+  inotifywait -r -e modify,create,delete --exclude ".*\\.swp" /app\n\
+  kill $LOVE_PID 2>/dev/null || true\n\
+  sleep 1\n\
+done' > /start.sh && chmod +x /start.sh
+
+# Run LÖVE with the projector application and auto-reload
+CMD ["/start.sh"]

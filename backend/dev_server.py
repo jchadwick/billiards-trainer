@@ -8,10 +8,19 @@ import sys
 # Add the backend directory to Python path
 sys.path.insert(0, os.path.dirname(__file__))
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+# Import config module before setting up logging
+from backend.config.manager import ConfigurationModule
+
+# Load configuration
+config = ConfigurationModule()
+
+# Configure logging from config
+log_level = getattr(logging, config.get("development.logging.level", "INFO"))
+log_format = config.get(
+    "development.logging.format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
+
+logging.basicConfig(level=log_level, format=log_format)
 
 logger = logging.getLogger(__name__)
 
@@ -21,21 +30,36 @@ def create_simple_app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
+    # Get app settings from config
+    app_title = config.get("development.app.title", "Billiards Trainer API (Dev)")
+    app_description = config.get(
+        "development.app.description",
+        "Development version of the Billiards Trainer API",
+    )
+    app_version = config.get("development.app.version", "1.0.0-dev")
+    docs_url = config.get("development.app.docs_url", "/docs")
+    redoc_url = config.get("development.app.redoc_url", "/redoc")
+
     app = FastAPI(
-        title="Billiards Trainer API (Dev)",
-        description="Development version of the Billiards Trainer API",
-        version="1.0.0-dev",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        title=app_title,
+        description=app_description,
+        version=app_version,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
     )
 
-    # Add basic CORS for development
+    # Add basic CORS for development from config
+    cors_origins = config.get("development.cors.allow_origins", ["*"])
+    cors_credentials = config.get("development.cors.allow_credentials", False)
+    cors_methods = config.get("development.cors.allow_methods", ["*"])
+    cors_headers = config.get("development.cors.allow_headers", ["*"])
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=cors_origins,
+        allow_credentials=cors_credentials,
+        allow_methods=cors_methods,
+        allow_headers=cors_headers,
     )
 
     # Basic health check
@@ -43,7 +67,7 @@ def create_simple_app():
     def health_check():
         return {
             "status": "healthy",
-            "version": "1.0.0-dev",
+            "version": app_version,
             "service": "billiards-trainer-dev",
         }
 
@@ -52,8 +76,8 @@ def create_simple_app():
     def root():
         return {
             "message": "Billiards Trainer API (Development)",
-            "version": "1.0.0-dev",
-            "docs": "/docs",
+            "version": app_version,
+            "docs": docs_url,
             "health": "/health",
         }
 
@@ -61,18 +85,30 @@ def create_simple_app():
 
 
 def run_dev_server(
-    host: str = "0.0.0.0",
-    port: int = 8000,
-    reload: bool = True,
-    log_level: str = "info",
+    host: str = None,
+    port: int = None,
+    reload: bool = None,
+    log_level: str = None,
 ):
     """Run the development server with hot reload."""
     try:
         import uvicorn
 
+        # Use config defaults if not provided
+        if host is None:
+            host = config.get("development.server.host", "0.0.0.0")
+        if port is None:
+            port = config.get("development.server.port", 8000)
+        if reload is None:
+            reload = config.get("development.server.reload", True)
+        if log_level is None:
+            log_level = config.get("development.server.log_level", "info")
+
+        access_log = config.get("development.server.access_log", True)
+
         logger.info("Starting Billiards Trainer API development server...")
         logger.info(f"Server will be available at http://{host}:{port}")
-        logger.info("API documentation available at http://localhost:8000/docs")
+        logger.info(f"API documentation available at http://localhost:{port}/docs")
 
         # Create the app
         app = create_simple_app()
@@ -84,7 +120,7 @@ def run_dev_server(
             port=port,
             reload=reload,
             log_level=log_level,
-            access_log=True,
+            access_log=access_log,
         )
 
     except ImportError:
@@ -109,7 +145,15 @@ def run_production_app():
 
         import uvicorn
 
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info", access_log=True)
+        # Use config for production settings
+        host = config.get("api.server.host", "0.0.0.0")
+        port = config.get("api.server.port", 8000)
+        log_level = config.get("api.server.log_level", "info")
+        access_log = config.get("development.server.access_log", True)
+
+        uvicorn.run(
+            app, host=host, port=port, log_level=log_level, access_log=access_log
+        )
 
     except Exception as e:
         logger.error(f"❌ Failed to import/run full application: {e}")
@@ -120,13 +164,20 @@ def run_production_app():
 if __name__ == "__main__":
     import argparse
 
+    # Get defaults from config
+    default_host = config.get("development.server.host", "0.0.0.0")
+    default_port = config.get("development.server.port", 8000)
+    default_log_level = config.get("development.server.log_level", "info")
+
     parser = argparse.ArgumentParser(
         description="Billiards Trainer API Development Server"
     )
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+    parser.add_argument("--host", default=default_host, help="Host to bind to")
+    parser.add_argument(
+        "--port", type=int, default=default_port, help="Port to bind to"
+    )
     parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
-    parser.add_argument("--log-level", default="info", help="Log level")
+    parser.add_argument("--log-level", default=default_log_level, help="Log level")
     parser.add_argument(
         "--simple", action="store_true", help="Use simple app instead of full app"
     )

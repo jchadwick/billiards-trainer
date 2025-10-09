@@ -1,8 +1,23 @@
 """Geometric utility functions for billiards calculations."""
 
 import math
+from typing import Optional
 
+from ...config.manager import ConfigurationModule
 from ..models import Vector2D
+
+# Global configuration instance (lazy loaded)
+_config: Optional[ConfigurationModule] = None
+
+
+def _get_config() -> ConfigurationModule:
+    """Get or create configuration instance."""
+    global _config
+    if _config is None:
+        from pathlib import Path
+
+        _config = ConfigurationModule(config_dir=Path("config"))
+    return _config
 
 
 # Convenience functions for simple coordinate-based calculations
@@ -306,8 +321,14 @@ class GeometryUtils:
         area2 = GeometryUtils.calculate_triangle_area(p1, point, p3)
         area3 = GeometryUtils.calculate_triangle_area(p1, p2, point)
 
+        # Get tolerance from config
+        config = _get_config()
+        tolerance = config.get(
+            "core.utils.geometry.tolerance.triangle_point_test", default=1e-10
+        )
+
         # Point is inside if sum of sub-triangle areas equals main triangle area
-        return abs(area - (area1 + area2 + area3)) < 1e-10
+        return abs(area - (area1 + area2 + area3)) < tolerance
 
     @staticmethod
     def lerp(start: Vector2D, end: Vector2D, t: float) -> Vector2D:
@@ -336,11 +357,27 @@ class GeometryUtils:
 
     @staticmethod
     def smooth_path(
-        points: list[Vector2D], smoothing_factor: float = 0.1
+        points: list[Vector2D], smoothing_factor: float | None = None
     ) -> list[Vector2D]:
-        """Apply smoothing to a path of points."""
+        """Apply smoothing to a path of points.
+
+        Args:
+            points: List of points defining the path
+            smoothing_factor: Smoothing factor (0.0 = no smoothing, 1.0 = full smoothing).
+                            If None, uses config value.
+
+        Returns:
+            Smoothed path
+        """
         if len(points) < 3:
             return points.copy()
+
+        # Get smoothing factor from config if not provided
+        if smoothing_factor is None:
+            config = _get_config()
+            smoothing_factor = config.get(
+                "core.utils.geometry.smoothing.default_factor", default=0.1
+            )
 
         smoothed = [points[0]]  # Keep first point
 

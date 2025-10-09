@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from backend.config.manager import config_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -100,15 +102,24 @@ class CameraCalibrator:
         self.cache_dir.mkdir(exist_ok=True)
 
         # Standard billiards table dimensions (9-foot table)
-        self.standard_table_width = 2.54  # meters (100 inches)
-        self.standard_table_height = 1.27  # meters (50 inches)
+        self.standard_table_width = config_manager.get(
+            "vision.calibration.camera.table_dimensions.standard_width_meters", 2.54
+        )
+        self.standard_table_height = config_manager.get(
+            "vision.calibration.camera.table_dimensions.standard_height_meters", 1.27
+        )
 
         self.camera_params: Optional[CameraParameters] = None
         self.table_transform: Optional[TableTransform] = None
 
         # Chessboard pattern for intrinsic calibration
-        self.chessboard_size = (9, 6)  # Internal corners
-        self.square_size = 0.025  # 25mm squares
+        chessboard_pattern = config_manager.get(
+            "vision.calibration.camera.chessboard.pattern_size", [9, 6]
+        )
+        self.chessboard_size = tuple(chessboard_pattern)  # Internal corners
+        self.square_size = config_manager.get(
+            "vision.calibration.camera.chessboard.square_size_meters", 0.025
+        )
 
     def generate_chessboard_points(self) -> NDArray[np.float64]:
         """Generate 3D points for chessboard pattern."""
@@ -132,9 +143,12 @@ class CameraCalibrator:
         Returns:
             Tuple of (success, camera_parameters)
         """
-        if len(calibration_images) < 10:
+        min_calibration_images = config_manager.get(
+            "vision.calibration.camera.intrinsic_calibration.min_calibration_images", 10
+        )
+        if len(calibration_images) < min_calibration_images:
             logger.warning(
-                f"Need at least 10 calibration images, got {len(calibration_images)}"
+                f"Need at least {min_calibration_images} calibration images, got {len(calibration_images)}"
             )
             return False, None
 
@@ -159,13 +173,29 @@ class CameraCalibrator:
 
             if ret:
                 # Refine corner positions
-                criteria = (
-                    cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+                max_iter = config_manager.get(
+                    "vision.calibration.camera.chessboard.corner_refinement.max_iterations",
                     30,
+                )
+                epsilon = config_manager.get(
+                    "vision.calibration.camera.chessboard.corner_refinement.epsilon",
                     0.001,
                 )
+                window_size = config_manager.get(
+                    "vision.calibration.camera.chessboard.corner_refinement.window_size",
+                    [11, 11],
+                )
+                zero_zone = config_manager.get(
+                    "vision.calibration.camera.chessboard.corner_refinement.zero_zone",
+                    [-1, -1],
+                )
+                criteria = (
+                    cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+                    max_iter,
+                    epsilon,
+                )
                 corners_refined = cv2.cornerSubPix(
-                    gray, corners, (11, 11), (-1, -1), criteria
+                    gray, corners, tuple(window_size), tuple(zero_zone), criteria
                 )
 
                 object_points.append(pattern_points)
@@ -176,9 +206,12 @@ class CameraCalibrator:
             else:
                 logger.warning(f"Could not find chessboard in image {i+1}")
 
-        if len(object_points) < 5:
+        min_valid_detections = config_manager.get(
+            "vision.calibration.camera.intrinsic_calibration.min_valid_detections", 5
+        )
+        if len(object_points) < min_valid_detections:
             logger.error(
-                f"Need at least 5 valid chessboard detections, got {len(object_points)}"
+                f"Need at least {min_valid_detections} valid chessboard detections, got {len(object_points)}"
             )
             return False, None
 
@@ -265,7 +298,12 @@ class CameraCalibrator:
         dst_points = np.array(table_corners_world, dtype=np.float32)
 
         # Calculate homography matrix
-        homography, mask = cv2.findHomography(src_points, dst_points, cv2.RANSAC, 5.0)
+        ransac_threshold = config_manager.get(
+            "vision.calibration.camera.homography.ransac_threshold", 5.0
+        )
+        homography, mask = cv2.findHomography(
+            src_points, dst_points, cv2.RANSAC, ransac_threshold
+        )
 
         if homography is None:
             logger.error("Failed to calculate homography matrix")
@@ -631,7 +669,9 @@ class CameraCalibrator:
 
         # Generate additional points along table edges
         # This gives calibration more data, especially important when edges are near frame boundaries
-        points_per_edge = 5  # Sample 5 points along each edge
+        points_per_edge = config_manager.get(
+            "vision.calibration.camera.fisheye.points_per_edge", 5
+        )  # Sample points along each edge
         detected_points = []
         object_points_3d = []
 
@@ -677,7 +717,10 @@ class CameraCalibrator:
 
         # Fixed camera matrix - DO NOT optimize these
         # Use diagonal FOV of ~70 degrees as typical for webcams
-        fx = fy = w * 0.8  # Conservative focal length estimate
+        focal_length_factor = config_manager.get(
+            "vision.calibration.camera.fisheye.focal_length_factor", 0.8
+        )
+        fx = fy = w * focal_length_factor  # Conservative focal length estimate
         cx, cy = w / 2, h / 2  # Principal point at image center
 
         camera_matrix = np.array(
@@ -709,6 +752,12 @@ class CameraCalibrator:
                 | cv2.CALIB_FIX_K3  # Only use k1, k2 (not k3)
             )
 
+            max_iter = config_manager.get(
+                "vision.calibration.camera.fisheye.max_iterations", 100
+            )
+            epsilon = config_manager.get(
+                "vision.calibration.camera.fisheye.convergence_epsilon", 1e-6
+            )
             rms_error, K, D, rvecs, tvecs = cv2.calibrateCamera(
                 obj_points,
                 img_points,
@@ -718,8 +767,8 @@ class CameraCalibrator:
                 flags=calibration_flags,
                 criteria=(
                     cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-                    100,
-                    1e-6,
+                    max_iter,
+                    epsilon,
                 ),
             )
 
@@ -730,14 +779,24 @@ class CameraCalibrator:
             logger.info(f"Distortion coefficients (k1,k2,p1,p2,k3): {D.ravel()}")
 
             # Validate distortion coefficients are reasonable
+            warning_threshold = config_manager.get(
+                "vision.calibration.camera.fisheye.distortion_limits.warning_threshold",
+                0.3,
+            )
+            clamp_threshold = config_manager.get(
+                "vision.calibration.camera.fisheye.distortion_limits.clamp_threshold",
+                0.25,
+            )
             k1, k2 = float(D[0]), float(D[1])
-            if abs(k1) > 0.3 or abs(k2) > 0.3:
+            if abs(k1) > warning_threshold or abs(k2) > warning_threshold:
                 logger.warning(
                     f"High distortion values detected: k1={k1:.3f}, k2={k2:.3f}"
                 )
-                logger.warning("Clamping to conservative range [-0.25, 0.25]")
-                k1 = np.clip(k1, -0.25, 0.25)
-                k2 = np.clip(k2, -0.25, 0.25)
+                logger.warning(
+                    f"Clamping to conservative range [-{clamp_threshold}, {clamp_threshold}]"
+                )
+                k1 = np.clip(k1, -clamp_threshold, clamp_threshold)
+                k2 = np.clip(k2, -clamp_threshold, clamp_threshold)
                 D[0], D[1] = k1, k2
                 logger.info(f"Clamped to: k1={k1:.3f}, k2={k2:.3f}")
 
@@ -808,8 +867,12 @@ class CameraCalibrator:
 
             if image_width <= 0 or image_height <= 0:
                 logger.warning("Invalid resolution in calibration file, using defaults")
-                image_width = 1920
-                image_height = 1080
+                image_width = config_manager.get(
+                    "vision.calibration.camera.default_resolution.width", 1920
+                )
+                image_height = config_manager.get(
+                    "vision.calibration.camera.default_resolution.height", 1080
+                )
 
             # Read calibration error (optional)
             calibration_error_node = fs.getNode("calibration_error")

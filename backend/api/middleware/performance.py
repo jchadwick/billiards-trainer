@@ -45,7 +45,7 @@ class EndpointStats:
     total_duration_ms: float = 0
     min_duration_ms: float = float("inf")
     max_duration_ms: float = 0
-    recent_durations: deque[float] = field(default_factory=lambda: deque(maxlen=100))
+    recent_durations: deque[float] = field(default_factory=deque)
     last_request: Optional[datetime] = None
     error_rate: float = 0
 
@@ -96,18 +96,27 @@ class PerformanceConfig(BaseModel):
         ],
         description="Paths to exclude from detailed monitoring",
     )
+    endpoint_stats_recent_durations_maxlen: int = Field(
+        default=100,
+        description="Maximum number of recent durations to keep per endpoint",
+    )
+    cpu_percent_history_maxlen: int = Field(
+        default=60, description="Maximum number of CPU measurements to keep in history"
+    )
+    memory_usage_history_maxlen: int = Field(
+        default=60,
+        description="Maximum number of memory measurements to keep in history",
+    )
 
 
 class SystemMetrics:
     """System resource metrics collector."""
 
-    def __init__(self):
+    def __init__(self, cpu_history_maxlen: int = 60, memory_history_maxlen: int = 60):
         """Initialize system metrics collector."""
         self.process = psutil.Process()
-        self.cpu_percent_history: deque[float] = deque(
-            maxlen=60
-        )  # Last 60 measurements
-        self.memory_usage_history: deque[float] = deque(maxlen=60)
+        self.cpu_percent_history: deque[float] = deque(maxlen=cpu_history_maxlen)
+        self.memory_usage_history: deque[float] = deque(maxlen=memory_history_maxlen)
 
     def get_current_metrics(self) -> dict[str, Any]:
         """Get current system metrics."""
@@ -180,14 +189,23 @@ class PerformanceMonitor:
         """Initialize performance monitor."""
         self.config = config
         self.logger = logging.getLogger("api.performance")
-        self.system_metrics = SystemMetrics()
+        self.system_metrics = SystemMetrics(
+            cpu_history_maxlen=config.cpu_percent_history_maxlen,
+            memory_history_maxlen=config.memory_usage_history_maxlen,
+        )
 
         # Request metrics storage
         self.request_metrics: deque[RequestMetrics] = deque(
             maxlen=config.stats_window_size
         )
         self.endpoint_stats: dict[str, EndpointStats] = defaultdict(
-            lambda: EndpointStats(path="", method="")
+            lambda: EndpointStats(
+                path="",
+                method="",
+                recent_durations=deque(
+                    maxlen=config.endpoint_stats_recent_durations_maxlen
+                ),
+            )
         )
 
         # System monitoring

@@ -23,12 +23,18 @@ from numpy.typing import NDArray
 
 
 class BallType(Enum):
-    """Ball type classification."""
+    """Ball type classification.
+
+    Simplified to three types due to unreliable stripe/solid classification:
+    - CUE: White cue ball
+    - EIGHT: Black 8-ball
+    - OTHER: All other numbered balls (1-7, 9-15)
+    - UNKNOWN: Classification failed
+    """
 
     CUE = "cue"
-    SOLID = "solid"
-    STRIPE = "stripe"
     EIGHT = "eight"
+    OTHER = "other"
     UNKNOWN = "unknown"
 
 

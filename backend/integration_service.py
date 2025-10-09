@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
+from backend.config.manager import ConfigurationModule
 from backend.core import CoreModule
 from backend.vision import VisionModule
 from backend.vision.models import DetectionResult
@@ -30,6 +31,7 @@ class IntegrationService:
         vision_module: VisionModule,
         core_module: CoreModule,
         message_broadcaster: Any,  # MessageBroadcaster from api.websocket
+        config_module: Optional[ConfigurationModule] = None,
     ):
         """Initialize integration service.
 
@@ -37,12 +39,26 @@ class IntegrationService:
             vision_module: Vision processing module
             core_module: Core game state and physics module
             message_broadcaster: WebSocket/UDP broadcaster
+            config_module: Configuration module (optional, will create default if not provided)
         """
         self.vision = vision_module
         self.core = core_module
         self.broadcaster = message_broadcaster
         self.running = False
         self.integration_task: Optional[asyncio.Task] = None
+
+        # Configuration
+        self.config = config_module or ConfigurationModule()
+        self.target_fps = self.config.get("integration.target_fps", 30)
+        self.log_interval_frames = self.config.get(
+            "integration.log_interval_frames", 300
+        )
+        self.error_retry_delay = self.config.get(
+            "integration.error_retry_delay_sec", 0.1
+        )
+        self.shot_speed_estimate = self.config.get(
+            "integration.shot_speed_estimate_m_per_s", 2.0
+        )
 
         # Performance tracking
         self.frame_count = 0
@@ -112,11 +128,10 @@ class IntegrationService:
         logger.info("Subscribed to Core module events")
 
     async def _integration_loop(self) -> None:
-        """Main integration loop - processes vision detections at 30 FPS."""
-        target_fps = 30
-        frame_interval = 1.0 / target_fps
+        """Main integration loop - processes vision detections at configured FPS."""
+        frame_interval = 1.0 / self.target_fps
 
-        logger.info(f"Integration loop starting at {target_fps} FPS")
+        logger.info(f"Integration loop starting at {self.target_fps} FPS")
 
         while self.running:
             try:
@@ -132,7 +147,7 @@ class IntegrationService:
                     self.frame_count += 1
 
                     # Log progress periodically
-                    if self.frame_count % 300 == 0:  # Every 10 seconds at 30fps
+                    if self.frame_count % self.log_interval_frames == 0:
                         logger.info(
                             f"Integration: {self.frame_count} frames processed, "
                             f"{self.error_count} errors"
@@ -148,7 +163,7 @@ class IntegrationService:
             except Exception as e:
                 self.error_count += 1
                 logger.error(f"Error in integration loop: {e}", exc_info=True)
-                await asyncio.sleep(0.1)  # Brief pause on error
+                await asyncio.sleep(self.error_retry_delay)
 
         logger.info("Integration loop stopped")
 
@@ -307,7 +322,7 @@ class IntegrationService:
         # Estimate force based on cue position/state
         # This is a simplified estimation - real implementation would use
         # cue motion tracking or user input
-        estimated_speed = 2.0  # m/s - moderate shot
+        estimated_speed = self.shot_speed_estimate
 
         # Convert angle to velocity components
         angle_rad = np.deg2rad(cue.angle)

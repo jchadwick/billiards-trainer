@@ -2,11 +2,35 @@
 
 from typing import Any, Dict, List, Optional
 
+from ...config.manager import ConfigurationModule
+
+# Global configuration instance (lazy loaded)
+_config: Optional[ConfigurationModule] = None
+
+
+def _get_config() -> ConfigurationModule:
+    """Get or create configuration instance."""
+    global _config
+    if _config is None:
+        from pathlib import Path
+
+        _config = ConfigurationModule(config_dir=Path("config"))
+    return _config
+
 
 class CalculationCache:
     """Cache for expensive calculations."""
 
-    def __init__(self, max_size: int = 1000):
+    def __init__(self, max_size: int | None = None):
+        """Initialize calculation cache.
+
+        Args:
+            max_size: Maximum number of items to cache. If None, uses config value.
+        """
+        if max_size is None:
+            config = _get_config()
+            max_size = config.get("core.utils.cache.default_max_size", default=1000)
+
         self.max_size = max_size
         self._cache: dict[str, Any] = {}
         self._access_order: list[str] = []

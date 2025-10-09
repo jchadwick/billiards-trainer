@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
+from backend.config import config_manager
+
 from .handler import websocket_handler
 
 logger = logging.getLogger(__name__)
@@ -56,7 +58,13 @@ class QualityMetrics:
     measurement_window: timedelta = field(default_factory=lambda: timedelta(minutes=5))
 
     # Latency metrics
-    latency_measurements: deque = field(default_factory=lambda: deque(maxlen=1000))
+    latency_measurements: deque = field(
+        default_factory=lambda: deque(
+            maxlen=config_manager.get(
+                "api.websocket.monitoring.measurements.max_latency_measurements", 1000
+            )
+        )
+    )
     average_latency_ms: float = 0.0
     min_latency_ms: float = float("inf")
     max_latency_ms: float = 0.0
@@ -129,13 +137,24 @@ class ConnectionMonitor:
         self.alert_handlers: list[callable] = []
 
         # Configuration
-        self.update_interval = 10.0  # seconds
-        self.latency_threshold_ms = 100.0
-        self.packet_loss_threshold = 0.05  # 5%
-        self.bandwidth_threshold_mbps = 10.0
+        self.update_interval = config_manager.get(
+            "api.websocket.monitoring.intervals.update_interval_seconds", 10.0
+        )
+        self.latency_threshold_ms = config_manager.get(
+            "api.websocket.monitoring.thresholds.latency_ms", 100.0
+        )
+        self.packet_loss_threshold = config_manager.get(
+            "api.websocket.monitoring.thresholds.packet_loss_rate", 0.05
+        )
+        self.bandwidth_threshold_mbps = config_manager.get(
+            "api.websocket.monitoring.thresholds.bandwidth_mbps", 10.0
+        )
 
         # Performance tracking
-        self.performance_history = deque(maxlen=288)  # 24 hours at 5-minute intervals
+        performance_history_max = config_manager.get(
+            "api.websocket.monitoring.intervals.performance_history_max_count", 288
+        )
+        self.performance_history = deque(maxlen=performance_history_max)
 
     async def start_monitoring(self):
         """Start connection monitoring."""
@@ -411,13 +430,50 @@ class ConnectionMonitor:
 
     def _assess_client_health(self, metrics: QualityMetrics) -> HealthStatus:
         """Assess overall health status for a client."""
-        if metrics.average_latency_ms > 200 or metrics.packet_loss_rate > 0.1:
+        poor_latency = config_manager.get(
+            "api.websocket.monitoring.health_status.poor_max_latency_ms", 200.0
+        )
+        poor_packet_loss = config_manager.get(
+            "api.websocket.monitoring.health_status.poor_max_packet_loss", 0.1
+        )
+        fair_latency = config_manager.get(
+            "api.websocket.monitoring.health_status.fair_max_latency_ms", 100.0
+        )
+        fair_packet_loss = config_manager.get(
+            "api.websocket.monitoring.health_status.fair_max_packet_loss", 0.05
+        )
+        good_latency = config_manager.get(
+            "api.websocket.monitoring.health_status.good_max_latency_ms", 50.0
+        )
+        good_packet_loss = config_manager.get(
+            "api.websocket.monitoring.health_status.good_max_packet_loss", 0.02
+        )
+        excellent_latency = config_manager.get(
+            "api.websocket.monitoring.health_status.excellent_max_latency_ms", 20.0
+        )
+        excellent_packet_loss = config_manager.get(
+            "api.websocket.monitoring.health_status.excellent_max_packet_loss", 0.01
+        )
+
+        if (
+            metrics.average_latency_ms > poor_latency
+            or metrics.packet_loss_rate > poor_packet_loss
+        ):
             return HealthStatus.CRITICAL
-        elif metrics.average_latency_ms > 100 or metrics.packet_loss_rate > 0.05:
+        elif (
+            metrics.average_latency_ms > fair_latency
+            or metrics.packet_loss_rate > fair_packet_loss
+        ):
             return HealthStatus.POOR
-        elif metrics.average_latency_ms > 50 or metrics.packet_loss_rate > 0.02:
+        elif (
+            metrics.average_latency_ms > good_latency
+            or metrics.packet_loss_rate > good_packet_loss
+        ):
             return HealthStatus.FAIR
-        elif metrics.average_latency_ms > 20 or metrics.packet_loss_rate > 0.01:
+        elif (
+            metrics.average_latency_ms > excellent_latency
+            or metrics.packet_loss_rate > excellent_packet_loss
+        ):
             return HealthStatus.GOOD
         else:
             return HealthStatus.EXCELLENT
@@ -432,12 +488,16 @@ class ConnectionMonitor:
         if metrics.packet_loss_rate > self.packet_loss_threshold:
             issues.append(ConnectionIssue.PACKET_LOSS)
 
-        if metrics.disconnections > 5:  # More than 5 disconnections
+        frequent_disconnects_threshold = config_manager.get(
+            "api.websocket.monitoring.thresholds.frequent_disconnects_count", 5
+        )
+        if metrics.disconnections > frequent_disconnects_threshold:
             issues.append(ConnectionIssue.FREQUENT_DISCONNECTS)
 
-        if (
-            metrics.failed_sends > metrics.messages_sent * 0.1
-        ):  # More than 10% failed sends
+        failed_sends_rate = config_manager.get(
+            "api.websocket.monitoring.thresholds.failed_sends_rate", 0.1
+        )
+        if metrics.failed_sends > metrics.messages_sent * failed_sends_rate:
             issues.append(ConnectionIssue.RATE_LIMITING)
 
         if metrics.protocol_errors > 0:
@@ -583,12 +643,15 @@ class ConnectionMonitor:
             )
 
         # Check for high system latency
-        if self.system_metrics.average_system_latency > 150:
+        high_latency_threshold = config_manager.get(
+            "api.websocket.monitoring.thresholds.high_system_latency_ms", 150.0
+        )
+        if self.system_metrics.average_system_latency > high_latency_threshold:
             alerts.append(
                 {
                     "type": "high_system_latency",
                     "message": f"System average latency: {self.system_metrics.average_system_latency:.1f}ms",
-                    "threshold": 150,
+                    "threshold": high_latency_threshold,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
             )

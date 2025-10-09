@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from backend.config.manager import config_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,8 +140,12 @@ class GeometricCalibrator:
         self.cache_dir.mkdir(exist_ok=True)
 
         # Standard pool table dimensions (9-foot table)
-        self.standard_table_width = 2.54  # meters
-        self.standard_table_height = 1.27  # meters
+        self.standard_table_width = config_manager.get(
+            "vision.calibration.geometry.table_dimensions.standard_width_meters", 2.54
+        )
+        self.standard_table_height = config_manager.get(
+            "vision.calibration.geometry.table_dimensions.standard_height_meters", 1.27
+        )
 
         self.current_calibration: Optional[GeometricCalibration] = None
 
@@ -165,11 +171,26 @@ class GeometricCalibrator:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         # Apply Gaussian blur to reduce noise
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        blur_kernel = config_manager.get(
+            "vision.calibration.geometry.corner_detection.gaussian_blur_kernel", [5, 5]
+        )
+        blurred = cv2.GaussianBlur(gray, tuple(blur_kernel), 0)
 
         # Apply adaptive threshold to find edges
+        adaptive_block_size = config_manager.get(
+            "vision.calibration.geometry.corner_detection.adaptive_threshold_block_size",
+            11,
+        )
+        adaptive_c = config_manager.get(
+            "vision.calibration.geometry.corner_detection.adaptive_threshold_c", 2
+        )
         thresh = cv2.adaptiveThreshold(
-            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            blurred,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            adaptive_block_size,
+            adaptive_c,
         )
 
         # Find contours
@@ -181,13 +202,20 @@ class GeometricCalibrator:
         largest_area = 0
         best_contour = None
 
+        min_area = config_manager.get(
+            "vision.calibration.geometry.corner_detection.min_contour_area", 1000
+        )
+        epsilon_factor = config_manager.get(
+            "vision.calibration.geometry.corner_detection.contour_epsilon_factor", 0.02
+        )
+
         for contour in contours:
             area = cv2.contourArea(contour)
-            if area < 1000:  # Minimum area threshold
+            if area < min_area:  # Minimum area threshold
                 continue
 
             # Approximate contour to polygon
-            epsilon = 0.02 * cv2.arcLength(contour, True)
+            epsilon = epsilon_factor * cv2.arcLength(contour, True)
             approx = cv2.approxPolyDP(contour, epsilon, True)
 
             # Check if it's a quadrilateral
@@ -200,7 +228,9 @@ class GeometricCalibrator:
                 "Could not detect table corners automatically, using default"
             )
             h, w = frame.shape[:2]
-            margin = 50
+            margin = config_manager.get(
+                "vision.calibration.geometry.corner_detection.default_margin_pixels", 50
+            )
             return [
                 (margin, margin),
                 (w - margin, margin),
@@ -272,7 +302,10 @@ class GeometricCalibrator:
         if target_points is None:
             if target_size is None:
                 # Use standard aspect ratio
-                width = 800
+                width = config_manager.get(
+                    "vision.calibration.geometry.perspective_correction.default_target_width",
+                    800,
+                )
                 height = int(
                     width * self.standard_table_height / self.standard_table_width
                 )
@@ -328,7 +361,10 @@ class GeometricCalibrator:
         rms_error = np.sqrt(np.mean(errors**2))
 
         # Convert to quality score (0.0-1.0, where 1.0 is perfect)
-        max_expected_error = 50.0  # pixels
+        max_expected_error = config_manager.get(
+            "vision.calibration.geometry.perspective_correction.max_expected_error_pixels",
+            50.0,
+        )
         quality = max(0.0, 1.0 - (rms_error / max_expected_error))
 
         return quality
@@ -639,17 +675,21 @@ class GeometricCalibrator:
         return corrected
 
     def create_rectification_grid(
-        self, frame_size: tuple[int, int], grid_size: int = 20
+        self, frame_size: tuple[int, int], grid_size: Optional[int] = None
     ) -> NDArray[np.float64]:
         """Create rectification grid for visual calibration assessment.
 
         Args:
             frame_size: Frame dimensions (width, height)
-            grid_size: Grid spacing in pixels
+            grid_size: Grid spacing in pixels (uses config default if None)
 
         Returns:
             Grid image for overlay
         """
+        if grid_size is None:
+            grid_size = config_manager.get(
+                "vision.calibration.geometry.rectification.grid_size_pixels", 20
+            )
         width, height = frame_size
         grid = np.zeros((height, width, 3), dtype=np.uint8)
 

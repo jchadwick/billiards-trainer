@@ -1,17 +1,12 @@
-import React, { StrictMode } from 'react'
-import ReactDOM from 'react-dom/client'
-import { RouterProvider, createRouter } from '@tanstack/react-router'
-
-// Import the generated route tree
-import { routeTree } from './routeTree.gen'
-
-// Import MobX store context and utilities
-import { StoreProvider, rootStore } from './stores'
-import { PersistenceManager } from './stores/persistence'
-import { initializeDevTools } from './stores/dev-tools'
-
-import './styles.css'
-import reportWebVitals from './reportWebVitals.ts'
+import { RouterProvider, createRouter } from "@tanstack/react-router";
+import React, { StrictMode } from "react";
+import ReactDOM from "react-dom/client";
+import reportWebVitals from "./reportWebVitals.ts";
+import { routeTree } from "./routeTree.gen";
+import { StoreProvider, rootStore } from "./stores";
+import { initializeDevTools } from "./stores/dev-tools";
+import { PersistenceManager } from "./stores/persistence";
+import "./styles.css";
 
 // Initialize persistence system
 const persistenceManager = new PersistenceManager(rootStore);
@@ -26,16 +21,16 @@ const router = createRouter({
   context: {
     stores: rootStore,
   },
-  defaultPreload: 'intent',
+  defaultPreload: "intent",
   scrollRestoration: true,
   defaultStructuralSharing: true,
   defaultPreloadStaleTime: 0,
-})
+});
 
 // Register the router instance for type safety
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface Register {
-    router: typeof router
+    router: typeof router;
   }
 }
 
@@ -54,20 +49,19 @@ class AppErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('Application error caught by boundary:', error, errorInfo);
+    console.error("Application error caught by boundary:", error, errorInfo);
 
     // Log error to system store
-    rootStore.system.addCritical(
-      'React',
-      `Unhandled error: ${error.message}`,
-      { stack: error.stack, errorInfo }
-    );
+    rootStore.system.addCritical("React", `Unhandled error: ${error.message}`, {
+      stack: error.stack,
+      errorInfo,
+    });
 
     // Show error notification
     rootStore.ui.showError(
-      'Application Error',
-      'An unexpected error occurred. Please refresh the page.',
-      { autoHide: false }
+      "Application Error",
+      "An unexpected error occurred. Please refresh the page.",
+      false
     );
   }
 
@@ -83,12 +77,13 @@ class AppErrorBoundary extends React.Component<
               An unexpected error occurred. Please refresh the page to continue.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
             >
               Refresh Page
             </button>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {process.env.NODE_ENV === "development" && this.state.error && (
               <details className="mt-4 text-left">
                 <summary className="cursor-pointer text-red-500">
                   Error Details (Development)
@@ -122,7 +117,7 @@ function App() {
 function setupCleanup() {
   const cleanup = async () => {
     try {
-      console.log('Cleaning up application...');
+      console.log("Cleaning up application...");
 
       // Save current state
       await persistenceManager.forceSave();
@@ -138,14 +133,14 @@ function setupCleanup() {
         devTools.destroy();
       }
 
-      console.log('Cleanup complete');
+      console.log("Cleanup complete");
     } catch (error) {
-      console.error('Error during cleanup:', error);
+      console.error("Error during cleanup:", error);
     }
   };
 
   // Handle page unload
-  window.addEventListener('beforeunload', cleanup);
+  window.addEventListener("beforeunload", cleanup);
 
   // Handle React unmounting (for development)
   return cleanup;
@@ -155,17 +150,17 @@ function setupCleanup() {
 const cleanup = setupCleanup();
 
 // Render the app
-const rootElement = document.getElementById('app')
+const rootElement = document.getElementById("app");
 if (rootElement && !rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement)
+  const root = ReactDOM.createRoot(rootElement);
   root.render(
     <StrictMode>
       <App />
-    </StrictMode>,
-  )
+    </StrictMode>
+  );
 
   // Store cleanup function for development hot reloading
-  if (process.env.NODE_ENV === 'development') {
+  if (process.env.NODE_ENV === "development") {
     (window as any).__APP_CLEANUP__ = cleanup;
   }
 }
@@ -173,55 +168,55 @@ if (rootElement && !rootElement.innerHTML) {
 // Performance monitoring
 reportWebVitals((metric) => {
   // Log performance metrics to system store
-  if (metric.name === 'CLS' && metric.value > 0.1) {
+  if (metric.name === "CLS" && metric.value > 0.1) {
     rootStore.system.addWarning(
-      'Performance',
+      "Performance",
       `High Cumulative Layout Shift: ${metric.value.toFixed(3)}`
     );
-  } else if (metric.name === 'FCP' && metric.value > 3000) {
+  } else if (metric.name === "FCP" && metric.value > 3000) {
     rootStore.system.addWarning(
-      'Performance',
+      "Performance",
       `Slow First Contentful Paint: ${metric.value.toFixed(0)}ms`
     );
-  } else if (metric.name === 'LCP' && metric.value > 4000) {
+  } else if (metric.name === "LCP" && metric.value > 4000) {
     rootStore.system.addWarning(
-      'Performance',
+      "Performance",
       `Slow Largest Contentful Paint: ${metric.value.toFixed(0)}ms`
     );
   }
 
   // Log all metrics in development
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Performance metric:', metric);
+  if (process.env.NODE_ENV === "development") {
+    console.log("Performance metric:", metric);
   }
 });
 
 // Global error handling
-window.addEventListener('error', (event) => {
+window.addEventListener("error", (event) => {
   rootStore.system.addError(
-    'JavaScript',
+    "JavaScript",
     `Unhandled error: ${event.error?.message || event.message}`,
     {
       filename: event.filename,
       lineno: event.lineno,
       colno: event.colno,
-      stack: event.error?.stack
+      stack: event.error?.stack,
     }
   );
 });
 
-window.addEventListener('unhandledrejection', (event) => {
+window.addEventListener("unhandledrejection", (event) => {
   rootStore.system.addError(
-    'Promise',
+    "Promise",
     `Unhandled promise rejection: ${event.reason}`,
     { reason: event.reason }
   );
 });
 
 // Log successful initialization
-console.log('🎱 Billiards Trainer initialized successfully');
-if (process.env.NODE_ENV === 'development') {
-  console.log('🔧 Development mode - DevTools available');
-  console.log('📊 Stores available at window.__MOBX_STORES__');
-  console.log('🐛 Debug tools available at window.__MOBX_DEBUG__');
+console.log("🎱 Billiards Trainer initialized successfully");
+if (process.env.NODE_ENV === "development") {
+  console.log("🔧 Development mode - DevTools available");
+  console.log("📊 Stores available at window.__MOBX_STORES__");
+  console.log("🐛 Debug tools available at window.__MOBX_DEBUG__");
 }

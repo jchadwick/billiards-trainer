@@ -2,9 +2,10 @@
 
 import logging
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from fastapi import Request, Response
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import health monitor with fallback
@@ -24,24 +25,36 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class MetricsMiddleware(BaseHTTPMiddleware):
-    """Middleware to track API request metrics for health monitoring."""
+class MetricsConfig(BaseModel):
+    """Configuration for metrics middleware."""
 
-    def __init__(self, app, exclude_paths: list[str] = None):
-        """Initialize metrics middleware.
-
-        Args:
-            app: FastAPI application
-            exclude_paths: List of paths to exclude from metrics (e.g., health checks)
-        """
-        super().__init__(app)
-        self.exclude_paths = exclude_paths or [
+    excluded_paths: list[str] = Field(
+        default_factory=lambda: [
             "/health/live",
             "/health/ready",
             "/docs",
             "/redoc",
             "/openapi.json",
-        ]
+        ],
+        description="Paths to exclude from metrics tracking",
+    )
+    slow_request_threshold: float = Field(
+        default=1.0, description="Threshold in seconds to mark requests as slow"
+    )
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Middleware to track API request metrics for health monitoring."""
+
+    def __init__(self, app, config: Optional[MetricsConfig] = None):
+        """Initialize metrics middleware.
+
+        Args:
+            app: FastAPI application
+            config: Metrics configuration
+        """
+        super().__init__(app)
+        self.config = config or MetricsConfig()
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and track metrics.
@@ -54,7 +67,9 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             HTTP response
         """
         # Skip metrics for excluded paths
-        if any(request.url.path.startswith(path) for path in self.exclude_paths):
+        if any(
+            request.url.path.startswith(path) for path in self.config.excluded_paths
+        ):
             return await call_next(request)
 
         # Record request start time
@@ -77,7 +92,7 @@ class MetricsMiddleware(BaseHTTPMiddleware):
             response.headers["X-Response-Time"] = f"{response_time:.4f}"
 
             # Log slow requests
-            if response_time > 1.0:  # Log requests taking more than 1 second
+            if response_time > self.config.slow_request_threshold:
                 logger.warning(
                     f"Slow API request: {request.method} {request.url.path} "
                     f"took {response_time:.4f}s (status: {response.status_code})"

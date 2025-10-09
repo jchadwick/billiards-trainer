@@ -41,10 +41,14 @@ The Vision module is the core computer vision engine responsible for analyzing v
 
 #### 3.1 Ball Recognition (YOLO-Based Detection)
 - **FR-VIS-020**: Detect all balls on the table surface using YOLOv8 deep learning model
-- **FR-VIS-021**: Distinguish between different ball types (cue, solid, stripe, 8-ball) via trained classes
-- **FR-VIS-022**: Identify ball numbers/patterns when visible using hybrid YOLO + OpenCV approach
+- **FR-VIS-021**: Distinguish between three ball types only: cue, eight, other (simplified classification - stripe/solid distinction removed due to poor accuracy)
+- **FR-VIS-022**: Resolve conflicts when multiple cue or 8-balls detected: highest confidence wins, others reclassified to OTHER
 - **FR-VIS-023**: Track ball positions with ±2 pixel accuracy using YOLO detection + OpenCV refinement
 - **FR-VIS-024**: Measure ball radius for size validation from YOLO bounding boxes
+- **FR-VIS-061**: Enforce single cue ball constraint: only one cue ball allowed on table at a time
+- **FR-VIS-062**: Enforce single 8-ball constraint: only one 8-ball allowed on table at a time
+
+**Note**: The original four-type classification (cue, solid, stripe, eight) was simplified to three types (cue, eight, other) because distinguishing between solid and striped balls proved unreliable in practice. The stripe pattern detection was too sensitive to lighting conditions, ball orientation, and image quality.
 
 #### 3.2 Ball Tracking (OpenCV-Based)
 - **FR-VIS-025**: Track ball movement across frames using Kalman filters
@@ -144,17 +148,16 @@ from enum import Enum
 
 class BallType(Enum):
     CUE = "cue"
-    SOLID = "solid"
-    STRIPE = "stripe"
     EIGHT = "eight"
+    OTHER = "other"  # All numbered balls (formerly solid/stripe - simplified due to poor classification accuracy)
 
 @dataclass
 class Ball:
     """Detected ball information"""
     position: Tuple[float, float]  # (x, y) in pixels
     radius: float  # pixels
-    ball_type: BallType
-    number: Optional[int]  # 1-15 for numbered balls
+    ball_type: BallType  # Only three types: cue, eight, other (simplified classification)
+    number: Optional[int]  # Deprecated - no longer used for specific ball numbers
     confidence: float  # 0.0-1.0 detection confidence
     velocity: Tuple[float, float]  # (vx, vy) pixels/second
     is_moving: bool
@@ -374,7 +377,7 @@ def detect_table(image: np.ndarray, config: DetectionSettings) -> Table:
    - Detect 95%+ of visible balls consistently
    - No ghost detections when table is clear
    - Maintain tracking during normal play speed
-   - Correctly classify ball types 90%+ of the time
+   - Correctly classify ball types 85%+ of the time (cue vs eight vs other)
 
 2. **Cue Detection**
    - Detect cue when visible 85%+ of frames
