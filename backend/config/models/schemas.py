@@ -321,6 +321,14 @@ class ExposureMode(str, Enum):
     SHUTTER_PRIORITY = "shutter_priority"
 
 
+class VideoSourceType(str, Enum):
+    """Video source types."""
+
+    CAMERA = "camera"
+    FILE = "file"
+    STREAM = "stream"
+
+
 class CameraSettings(BaseConfig):
     """Camera hardware settings."""
 
@@ -370,6 +378,31 @@ class CameraSettings(BaseConfig):
         default=5, ge=1, le=100, description="Maximum number of reconnection attempts"
     )
 
+    # Video source configuration
+    video_source_type: VideoSourceType = Field(
+        default=VideoSourceType.CAMERA,
+        description="Video source type (camera, file, or stream)",
+    )
+    video_file_path: Optional[str] = Field(
+        default=None,
+        description="Path to video file when video_source_type='file'",
+    )
+    stream_url: Optional[str] = Field(
+        default=None,
+        description="Stream URL when video_source_type='stream'",
+    )
+
+    # Video playback control
+    loop_video: bool = Field(
+        default=False, description="Loop video playback for file sources"
+    )
+    video_start_frame: int = Field(
+        default=0, ge=0, description="Starting frame number for video files"
+    )
+    video_end_frame: Optional[int] = Field(
+        default=None, ge=0, description="Ending frame number for video files"
+    )
+
     @field_validator("resolution")
     @classmethod
     def validate_resolution(cls, v):
@@ -379,6 +412,30 @@ class CameraSettings(BaseConfig):
         if v[0] > 4096 or v[1] > 4096:
             raise ValueError("Maximum resolution is 4096x4096")
         return v
+
+    @model_validator(mode="after")
+    def validate_video_config(self):
+        """Validate video source configuration."""
+        # Check that required fields are present for each source type
+        if self.video_source_type == VideoSourceType.FILE and not self.video_file_path:
+            raise ValueError(
+                "video_file_path is required when video_source_type='file'"
+            )
+
+        if self.video_source_type == VideoSourceType.STREAM and not self.stream_url:
+            raise ValueError("stream_url is required when video_source_type='stream'")
+
+        # Validate frame range
+        if (
+            self.video_end_frame is not None
+            and self.video_start_frame >= self.video_end_frame
+        ):
+            raise ValueError(
+                f"video_start_frame ({self.video_start_frame}) must be less than "
+                f"video_end_frame ({self.video_end_frame})"
+            )
+
+        return self
 
 
 class ColorThresholds(BaseConfig):
@@ -864,6 +921,25 @@ class NetworkConfig(BaseConfig):
     )
 
 
+class VideoFeedConfig(BaseConfig):
+    """Video feed API configuration."""
+
+    enabled: bool = Field(default=False, description="Enable video feed API endpoints")
+    endpoint: str = Field(
+        default="/api/v1/video/feed", description="Video feed endpoint path"
+    )
+    mjpeg_stream: bool = Field(default=False, description="Enable MJPEG streaming")
+    mjpeg_endpoint: str = Field(
+        default="/api/v1/video/stream", description="MJPEG stream endpoint path"
+    )
+    max_clients: int = Field(
+        default=5, ge=1, le=100, description="Maximum concurrent video clients"
+    )
+    buffer_size: int = Field(
+        default=10, ge=1, le=100, description="Video frame buffer size"
+    )
+
+
 class APIConfig(BaseConfig):
     """API module configuration."""
 
@@ -875,6 +951,9 @@ class APIConfig(BaseConfig):
     )
     rate_limiting: RateLimitConfig = Field(
         default_factory=RateLimitConfig, description="Rate limiting configuration"
+    )
+    video_feed: VideoFeedConfig = Field(
+        default_factory=VideoFeedConfig, description="Video feed configuration"
     )
     enable_docs: bool = Field(
         default=True, description="Enable API documentation endpoints"
@@ -1075,6 +1154,23 @@ class ProjectorNetworkConfig(BaseConfig):
     compression: bool = Field(default=True, description="Enable message compression")
     timeout: int = Field(
         default=10, ge=1, le=60, description="Connection timeout (seconds)"
+    )
+
+    # Video Feed Configuration
+    stream_video_feed: bool = Field(
+        default=False, description="Enable video feed streaming to projector"
+    )
+    video_feed_quality: int = Field(
+        default=85, ge=1, le=100, description="Video feed JPEG quality (1-100)"
+    )
+    video_feed_fps: int = Field(
+        default=15, ge=1, le=60, description="Video feed frames per second"
+    )
+    video_feed_scale: float = Field(
+        default=0.5, ge=0.1, le=1.0, description="Video feed resolution scale factor"
+    )
+    video_feed_format: str = Field(
+        default="jpeg", description="Video feed image format (jpeg, png, webp)"
     )
 
 

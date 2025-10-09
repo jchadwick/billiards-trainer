@@ -58,6 +58,23 @@ class IntegrationService:
         logger.info("Starting integration service...")
         self.running = True
 
+        # Check vision calibration status
+        try:
+            # Check if vision module has calibration data
+            if hasattr(self.vision, "calibrator") and self.vision.calibrator:
+                if not self.vision.calibrator.is_calibrated():
+                    logger.warning(
+                        "Vision module is not calibrated - detection accuracy may be poor. "
+                        "Please run camera calibration via API endpoint: "
+                        "POST /api/v1/vision/calibration/camera/auto-calibrate"
+                    )
+            else:
+                logger.warning(
+                    "Vision module has no calibrator - using uncalibrated camera"
+                )
+        except Exception as e:
+            logger.debug(f"Could not check calibration status: {e}")
+
         # Subscribe to Core events
         self._subscribe_to_core_events()
 
@@ -189,6 +206,8 @@ class IntegrationService:
                 {
                     "id": ball.id,
                     "position": {"x": ball.position[0], "y": ball.position[1]},
+                    "velocity": {"x": ball.velocity[0], "y": ball.velocity[1]},
+                    "is_moving": ball.is_moving,
                     "number": ball.number,
                     "type": ball.ball_type.value if ball.ball_type else "unknown",
                     "is_cue_ball": ball.number == 0,
