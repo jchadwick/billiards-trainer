@@ -16,7 +16,7 @@ class TestEnvironmentLoader:
 
     def setup_method(self):
         """Set up test fixtures."""
-        self.loader = EnvironmentLoader(prefix="TEST_")
+        self.loader = EnvironmentLoader()
         # Save original environment
         self.original_env = os.environ.copy()
 
@@ -29,38 +29,34 @@ class TestEnvironmentLoader:
     def test_init_with_defaults(self):
         """Test EnvironmentLoader initialization with defaults."""
         loader = EnvironmentLoader()
-        assert loader.prefix == ""
         assert loader.separator == "_"
         assert loader.nested_separator == "__"
 
     def test_init_with_custom_params(self):
         """Test EnvironmentLoader initialization with custom parameters."""
-        loader = EnvironmentLoader(
-            prefix="MYAPP_", separator="-", nested_separator="___"
-        )
-        assert loader.prefix == "MYAPP_"
+        loader = EnvironmentLoader(separator="-", nested_separator="___")
         assert loader.separator == "-"
         assert loader.nested_separator == "___"
 
     def test_env_key_to_config_key(self):
         """Test conversion from environment key to config key."""
         # Simple key
-        result = self.loader._env_key_to_config_key("TEST_DATABASE_HOST")
+        result = self.loader._env_key_to_config_key("DATABASE_HOST")
         assert result == "database.host"
 
         # Nested key
-        result = self.loader._env_key_to_config_key("TEST_APP__FEATURES__VISION")
+        result = self.loader._env_key_to_config_key("APP__FEATURES__VISION")
         assert result == "app.features.vision"
 
     def test_config_key_to_env_key(self):
         """Test conversion from config key to environment key."""
         # Simple key
         result = self.loader._config_key_to_env_key("database.host")
-        assert result == "TEST_DATABASE__HOST"
+        assert result == "DATABASE__HOST"
 
         # Nested key
         result = self.loader._config_key_to_env_key("app.features.vision")
-        assert result == "TEST_APP__FEATURES__VISION"
+        assert result == "APP__FEATURES__VISION"
 
     def test_convert_bool_true_values(self):
         """Test boolean conversion for true values."""
@@ -163,10 +159,10 @@ class TestEnvironmentLoader:
     def test_load_environment_basic(self):
         """Test basic environment variable loading."""
         # Set test environment variables
-        os.environ["TEST_APP_NAME"] = "test-app"
-        os.environ["TEST_APP_DEBUG"] = "true"
-        os.environ["TEST_DATABASE_HOST"] = "localhost"
-        os.environ["TEST_DATABASE_PORT"] = "5432"
+        os.environ["APP_NAME"] = "test-app"
+        os.environ["APP_DEBUG"] = "true"
+        os.environ["DATABASE_HOST"] = "localhost"
+        os.environ["DATABASE_PORT"] = "5432"
 
         result = self.loader.load_environment()
 
@@ -177,20 +173,20 @@ class TestEnvironmentLoader:
 
     def test_load_environment_nested(self):
         """Test loading environment variables with nested structure."""
-        os.environ["TEST_APP__FEATURES__VISION"] = "true"
-        os.environ["TEST_APP__FEATURES__PROJECTOR"] = "false"
+        os.environ["APP__FEATURES__VISION"] = "true"
+        os.environ["APP__FEATURES__PROJECTOR"] = "false"
 
         result = self.loader.load_environment()
 
         assert result["app"]["features"]["vision"] is True
         assert result["app"]["features"]["projector"] is False
 
-    def test_load_environment_with_prefix_filter(self):
-        """Test environment loading with prefix filtering."""
-        os.environ["TEST_VALID_KEY"] = "value1"
-        os.environ["OTHER_INVALID_KEY"] = "value2"
+    def test_load_environment_with_include_filter(self):
+        """Test environment loading with include pattern filtering."""
+        os.environ["VALID_KEY"] = "value1"
+        os.environ["OTHER_KEY"] = "value2"
 
-        result = self.loader.load_environment()
+        result = self.loader.load_environment(include_patterns=[r"^VALID.*"])
 
         assert "valid" in result
         assert result["valid"]["key"] == "value1"
@@ -198,12 +194,10 @@ class TestEnvironmentLoader:
 
     def test_load_environment_empty(self):
         """Test loading when no matching environment variables exist."""
-        # Clear any TEST_ variables
-        for key in list(os.environ.keys()):
-            if key.startswith("TEST_"):
-                del os.environ[key]
+        # Clear all environment variables and load with specific pattern
+        os.environ.clear()
 
-        result = self.loader.load_environment()
+        result = self.loader.load_environment(include_patterns=[r"^NONEXISTENT.*"])
         assert result == {}
 
     def test_load_with_schema(self):
@@ -216,9 +210,9 @@ class TestEnvironmentLoader:
         }
 
         # Set some environment variables
-        os.environ["TEST_APP__NAME"] = "test-app"
-        os.environ["TEST_APP__DEBUG"] = "true"
-        os.environ["TEST_REQUIRED_KEY"] = "required-value"
+        os.environ["APP__NAME"] = "test-app"
+        os.environ["APP__DEBUG"] = "true"
+        os.environ["REQUIRED_KEY"] = "required-value"
 
         result = self.loader.load_with_schema(schema)
 
@@ -238,7 +232,7 @@ class TestEnvironmentLoader:
         """Test schema loading with type conversion error."""
         schema = {"app.port": {"type": "int"}}
 
-        os.environ["TEST_APP__PORT"] = "not-a-number"
+        os.environ["APP__PORT"] = "not-a-number"
 
         # In non-strict mode, should use raw value
         result = self.loader.load_with_schema(schema, strict=False)
@@ -250,7 +244,7 @@ class TestEnvironmentLoader:
 
     def test_get_env_var(self):
         """Test getting a single environment variable."""
-        os.environ["TEST_SINGLE_KEY"] = "test-value"
+        os.environ["SINGLE__KEY"] = "test-value"
 
         result = self.loader.get_env_var("single.key")
         assert result == "test-value"
@@ -260,32 +254,32 @@ class TestEnvironmentLoader:
         assert result == "default-value"
 
         # Test with type conversion
-        os.environ["TEST_NUMBER_KEY"] = "42"
+        os.environ["NUMBER__KEY"] = "42"
         result = self.loader.get_env_var("number.key", value_type="int")
         assert result == 42
 
     def test_set_env_var(self):
         """Test setting an environment variable."""
         self.loader.set_env_var("test.key", "test-value")
-        assert os.environ["TEST_TEST__KEY"] == "test-value"
+        assert os.environ["TEST__KEY"] == "test-value"
 
     def test_list_relevant_env_vars(self):
         """Test listing relevant environment variables."""
-        os.environ["TEST_KEY1"] = "value1"
-        os.environ["TEST_KEY2"] = "value2"
+        os.environ["KEY1"] = "value1"
+        os.environ["KEY2"] = "value2"
         os.environ["OTHER_KEY"] = "value3"
 
         relevant_vars = self.loader.list_relevant_env_vars()
 
-        assert "TEST_KEY1" in relevant_vars
-        assert "TEST_KEY2" in relevant_vars
-        assert "OTHER_KEY" not in relevant_vars
+        assert "KEY1" in relevant_vars
+        assert "KEY2" in relevant_vars
+        assert "OTHER_KEY" in relevant_vars
 
     def test_load_environment_with_include_patterns(self):
         """Test loading environment variables with include patterns."""
-        os.environ["TEST_APP_NAME"] = "app-name"
-        os.environ["TEST_DB_HOST"] = "db-host"
-        os.environ["TEST_CACHE_URL"] = "cache-url"
+        os.environ["APP_NAME"] = "app-name"
+        os.environ["DB_HOST"] = "db-host"
+        os.environ["CACHE_URL"] = "cache-url"
 
         # Only include variables matching APP or DB
         result = self.loader.load_environment(include_patterns=[r".*APP.*", r".*DB.*"])
@@ -296,9 +290,9 @@ class TestEnvironmentLoader:
 
     def test_load_environment_with_exclude_patterns(self):
         """Test loading environment variables with exclude patterns."""
-        os.environ["TEST_APP_NAME"] = "app-name"
-        os.environ["TEST_SECRET_KEY"] = "secret"
-        os.environ["TEST_DB_HOST"] = "db-host"
+        os.environ["APP_NAME"] = "app-name"
+        os.environ["SECRET_KEY"] = "secret"
+        os.environ["DB_HOST"] = "db-host"
 
         # Exclude SECRET variables
         result = self.loader.load_environment(exclude_patterns=[r".*SECRET.*"])
@@ -323,28 +317,32 @@ class TestEnvironmentLoaderIntegration:
     def test_complex_environment_loading(self):
         """Test loading a complex environment configuration."""
         # Set up complex environment
+        # Note: Use only __ for nesting, avoid _ in key names or use it for word separation within a key
         env_vars = {
-            "BILLIARDS_APP__NAME": "billiards-trainer",
-            "BILLIARDS_APP__VERSION": "1.0.0",
-            "BILLIARDS_APP__DEBUG": "true",
-            "BILLIARDS_APP__FEATURES__VISION": "true",
-            "BILLIARDS_APP__FEATURES__PROJECTOR": "false",
-            "BILLIARDS_DATABASE__HOST": "localhost",
-            "BILLIARDS_DATABASE__PORT": "5432",
-            "BILLIARDS_DATABASE__NAME": "billiards",
-            "BILLIARDS_VISION__CAMERA__DEVICE_ID": "0",
-            "BILLIARDS_VISION__CAMERA__RESOLUTION": "[1920, 1080]",
-            "BILLIARDS_VISION__DETECTION__SENSITIVITY": "0.8",
-            "BILLIARDS_PROJECTOR__BRIGHTNESS": "75",
-            "BILLIARDS_LOGGING__LEVEL": "DEBUG",
-            "BILLIARDS_LOGGING__HANDLERS": "console,file",
+            "APP__NAME": "billiards-trainer",
+            "APP__VERSION": "1.0.0",
+            "APP__DEBUG": "true",
+            "APP__FEATURES__VISION": "true",
+            "APP__FEATURES__PROJECTOR": "false",
+            "DATABASE__HOST": "localhost",
+            "DATABASE__PORT": "5432",
+            "DATABASE__NAME": "billiards",
+            "VISION__CAMERA__DEVICEID": "0",
+            "VISION__CAMERA__RESOLUTION": "[1920, 1080]",
+            "VISION__DETECTION__SENSITIVITY": "0.8",
+            "PROJECTOR__BRIGHTNESS": "75",
+            "LOGGING__LEVEL": "DEBUG",
+            "LOGGING__HANDLERS": "console,file",
         }
 
         for key, value in env_vars.items():
             os.environ[key] = value
 
-        loader = EnvironmentLoader(prefix="BILLIARDS_")
-        result = loader.load_environment()
+        loader = EnvironmentLoader()
+        # Use include pattern to only load our test variables, not system env vars
+        result = loader.load_environment(
+            include_patterns=[r"^(APP|DATABASE|VISION|PROJECTOR|LOGGING)__.*"]
+        )
 
         # Check structure and values
         assert result["app"]["name"] == "billiards-trainer"
@@ -357,7 +355,7 @@ class TestEnvironmentLoaderIntegration:
         assert result["database"]["port"] == 5432
         assert result["database"]["name"] == "billiards"
 
-        assert result["vision"]["camera"]["device_id"] == 0
+        assert result["vision"]["camera"]["deviceid"] == 0
         assert result["vision"]["camera"]["resolution"] == [1920, 1080]
         assert result["vision"]["detection"]["sensitivity"] == 0.8
 

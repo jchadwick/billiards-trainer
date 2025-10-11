@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     libgstreamer-plugins-base1.0-0 \
     ffmpeg \
     curl \
+    libx11-dev \
+    libxext-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
@@ -37,7 +39,8 @@ ENV API_PORT=8000
 ENV API_HOST=0.0.0.0
 
 # Expose the API port
-EXPOSE 8000
+EXPOSE 8000 8081
 
 # Use watchdog to auto-reload on file changes
-CMD ["python", "-m", "uvicorn", "backend.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/backend"]
+# Use shell form to expand environment variable
+CMD python -m uvicorn backend.api.main:app --host ${API_HOST} --port ${API_PORT} --reload --reload-dir /app/backend

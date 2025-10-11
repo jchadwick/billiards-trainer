@@ -32,8 +32,6 @@ services:
       - VIDEO_SOURCE=/app/demo2_short.mp4
       - VIDEO_LOOP=true
       - CONFIG_PATH=/app/config/default.json
-    networks:
-      - billiards-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
       interval: 30s
@@ -63,15 +61,5 @@ services:
       - NODE_ENV=development
       - VITE_API_URL=http://localhost:8081
       - VITE_WS_URL=ws://localhost:8081
-    networks:
-      - billiards-network
     depends_on:
       - backend
-
-
-networks:
-  billiards-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
