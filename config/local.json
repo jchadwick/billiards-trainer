@@ -1,0 +1,110 @@
+{
+  "comment": "Local development configuration using demo2.mp4 video in a loop",
+
+  "streaming": {
+    "camera": {
+      "device_id": "/Users/jchadwick/code/billiards-trainer/demo2.mp4",
+      "resolution": [1280, 720],
+      "fps": 30,
+      "buffer_size": 1
+    },
+    "fisheye": {
+      "enable_correction": false,
+      "calibration_file": "calibration/camera_fisheye_default.yaml",
+      "alpha": 1.0
+    },
+    "table_crop": {
+      "enable": false,
+      "hsv_lower": [35, 40, 40],
+      "hsv_upper": [85, 255, 255],
+      "morphology_kernel_size": 5,
+      "padding_ratio": 0.05
+    },
+    "preprocessing": {
+      "enable": false,
+      "brightness": 0.0,
+      "contrast": 1.0,
+      "clahe": {
+        "enable": false,
+        "clip_limit": 2.0,
+        "grid_size": 8
+      }
+    },
+    "encoding": {
+      "default_jpeg_quality": 80
+    },
+    "performance": {
+      "enable_gpu": false,
+      "startup_timeout_seconds": 10.0,
+      "thread_join_timeout_seconds": 3.0
+    }
+  },
+
+  "vision": {
+    "camera": {
+      "device_id": "/Users/jchadwick/code/billiards-trainer/demo2.mp4",
+      "video_source_type": "video_file",
+      "loop_video": true,
+      "resolution": [1280, 720],
+      "fps": 30,
+      "backend": "auto",
+      "buffer_size": 1
+    },
+    "detection": {
+      "detection_backend": "opencv",
+      "enable_table_detection": true,
+      "enable_ball_detection": true,
+      "enable_cue_detection": true
+    },
+    "processing": {
+      "enable_tracking": true,
+      "enable_preprocessing": false
+    },
+    "debug": true
+  },
+
+  "api": {
+    "stream": {
+      "camera": {
+        "device_id": "/Users/jchadwick/code/billiards-trainer/demo2.mp4",
+        "resolution": [1280, 720],
+        "fps": 30,
+        "buffer_size": 1
+      },
+      "processing": {
+        "enable_fisheye_correction": false,
+        "enable_table_crop": false,
+        "enable_preprocessing": false,
+        "enable_clahe": false
+      },
+      "quality": {
+        "default_jpeg_quality": 80,
+        "single_frame_jpeg_quality": 90,
+        "websocket_jpeg_quality": 75,
+        "min_jpeg_quality": 1,
+        "max_jpeg_quality": 100
+      },
+      "framerate": {
+        "default_fps": 30,
+        "min_fps": 1,
+        "max_fps": 60
+      },
+      "resolution": {
+        "default_scale": 1.0,
+        "min_width": 160,
+        "max_width": 3840,
+        "min_height": 120,
+        "max_height": 2160
+      },
+      "performance": {
+        "frame_log_interval": 30,
+        "sleep_interval_ms": 10
+      }
+    }
+  },
+
+  "system": {
+    "debug": true,
+    "environment": "development"
+  }
+}

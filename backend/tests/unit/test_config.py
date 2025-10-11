@@ -199,12 +199,12 @@ class TestEnvironmentLoader:
         with patch.dict(
             "os.environ",
             {
-                "BILLIARDS_CAMERA_DEVICE_ID": "1",
-                "BILLIARDS_API_PORT": "8002",
-                "BILLIARDS_TABLE_WIDTH": "3.0",
+                "CAMERA_DEVICE_ID": "1",
+                "API_PORT": "8002",
+                "TABLE_WIDTH": "3.0",
             },
         ):
-            loader = EnvironmentLoader(prefix="BILLIARDS_")
+            loader = EnvironmentLoader()
             config = loader.load()
 
             assert config["camera"]["device_id"] == 1
@@ -225,13 +225,13 @@ class TestEnvironmentLoader:
         with patch.dict(
             "os.environ",
             {
-                "BILLIARDS_CAMERA_DEVICE_ID": "1",  # int
-                "BILLIARDS_TABLE_WIDTH": "2.84",  # float
-                "BILLIARDS_API_DEBUG": "true",  # bool
-                "BILLIARDS_API_CORS_ORIGINS": '["*"]',  # list
+                "CAMERA_DEVICE_ID": "1",  # int
+                "TABLE_WIDTH": "2.84",  # float
+                "API_DEBUG": "true",  # bool
+                "API_CORS_ORIGINS": '["*"]',  # list
             },
         ):
-            loader = EnvironmentLoader(prefix="BILLIARDS_")
+            loader = EnvironmentLoader()
             config = loader.load()
 
             assert isinstance(config["camera"]["device_id"], int)

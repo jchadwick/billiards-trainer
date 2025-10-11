@@ -14,7 +14,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev test lint format clean run docker build deploy deploy-clean
+.PHONY: help install dev test lint format clean run docker build deploy deploy-clean logs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -272,13 +272,55 @@ docker-build: ## Build Docker image
 	docker build -t billiards-trainer .
 	@echo "$(GREEN)Docker image built!$(RESET)"
 
+docker-build-dev: ## Build Docker development image
+	@echo "$(BLUE)Building Docker development image...$(RESET)"
+	docker-compose build
+	@echo "$(GREEN)Docker development image built!$(RESET)"
+
 docker-run: ## Run Docker container
 	@echo "$(BLUE)Running Docker container...$(RESET)"
 	docker run -p 8000:8000 -v $(PWD)/config:/app/config billiards-trainer
 
-docker-dev: ## Run Docker container in development mode
-	@echo "$(BLUE)Running Docker container in development mode...$(RESET)"
-	docker run -p 8000:8000 -v $(PWD):/app -e ENVIRONMENT=development billiards-trainer
+docker-dev: ## Start Docker containers in development mode with hot-reload
+	@echo "$(BLUE)Starting Docker containers in development mode...$(RESET)"
+	docker-compose up
+
+docker-dev-build: ## Rebuild and start Docker containers in development mode
+	@echo "$(BLUE)Rebuilding and starting Docker containers...$(RESET)"
+	docker-compose up --build
+
+docker-dev-detached: ## Start Docker containers in background with hot-reload
+	@echo "$(BLUE)Starting Docker containers in background...$(RESET)"
+	docker-compose up -d
+	@echo "$(GREEN)Containers running in background. Use 'make docker-logs' to view logs$(RESET)"
+
+docker-stop: ## Stop Docker containers
+	@echo "$(BLUE)Stopping Docker containers...$(RESET)"
+	docker-compose down
+	@echo "$(GREEN)Containers stopped$(RESET)"
+
+docker-restart: ## Restart Docker containers
+	@echo "$(BLUE)Restarting Docker containers...$(RESET)"
+	docker-compose restart
+	@echo "$(GREEN)Containers restarted$(RESET)"
+
+docker-logs: ## Show Docker container logs
+	@echo "$(BLUE)Showing container logs (Ctrl+C to stop)...$(RESET)"
+	docker-compose logs -f
+
+docker-logs-backend: ## Show backend container logs only
+	@echo "$(BLUE)Showing backend logs (Ctrl+C to stop)...$(RESET)"
+	docker-compose logs -f backend
+
+docker-shell: ## Open shell in backend container
+	@echo "$(BLUE)Opening shell in backend container...$(RESET)"
+	docker-compose exec backend /bin/bash
+
+docker-clean: ## Remove all containers, volumes, and images
+	@echo "$(BLUE)Cleaning Docker resources...$(RESET)"
+	docker-compose down -v
+	docker-compose rm -f
+	@echo "$(GREEN)Docker resources cleaned!$(RESET)"
 
 # ===== Utilities =====
 

@@ -40,17 +40,22 @@ export * from './context';
 // Export utility functions
 export { observer } from 'mobx-react-lite';
 
-// Development tools
+// Development tools - lazy initialization to avoid circular dependency issues
 if (process.env.NODE_ENV === 'development') {
-  // Make stores available globally for debugging
-  (window as any).__MOBX_STORES__ = {
-    system: systemStore,
-    game: gameStore,
-    vision: visionStore,
-    config: configStore,
-    ui: uiStore,
-    root: rootStore
-  };
+  // Make stores available globally for debugging after module has loaded
+  // Use setTimeout to defer execution until after all modules are loaded
+  setTimeout(() => {
+    import('./RootStore').then(({ systemStore, gameStore, visionStore, configStore, uiStore, rootStore }) => {
+      (window as any).__MOBX_STORES__ = {
+        system: systemStore,
+        game: gameStore,
+        vision: visionStore,
+        config: configStore,
+        ui: uiStore,
+        root: rootStore
+      };
 
-  console.log('MobX stores initialized and available at window.__MOBX_STORES__');
+      console.log('MobX stores initialized and available at window.__MOBX_STORES__');
+    });
+  }, 0);
 }

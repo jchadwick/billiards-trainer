@@ -62,14 +62,14 @@ class TestCLIIntegration:
         try:
             os.environ.update(
                 {
-                    "BILLIARDS_SYSTEM__DEBUG": "false",
-                    "BILLIARDS_API__NETWORK__PORT": "8000",
-                    "BILLIARDS_SYSTEM__LOGGING__LEVEL": "INFO",
+                    "SYSTEM__DEBUG": "false",
+                    "API__NETWORK__PORT": "8000",
+                    "SYSTEM__LOGGING__LEVEL": "INFO",
                 }
             )
 
             # Load from environment
-            env_loader = EnvironmentLoader(prefix="BILLIARDS_")
+            env_loader = EnvironmentLoader()
             env_config = env_loader.load_environment()
 
             # Load from CLI (should override environment)
@@ -112,8 +112,8 @@ class TestCLIIntegration:
             # Set environment variables (should override file)
             os.environ.update(
                 {
-                    "BILLIARDS_API__NETWORK__PORT": "8080",
-                    "BILLIARDS_VISION__CAMERA__DEVICE_ID": "1",
+                    "API__NETWORK__PORT": "8080",
+                    "VISION__CAMERA__DEVICE_ID": "1",
                 }
             )
 
@@ -121,7 +121,7 @@ class TestCLIIntegration:
             file_loader = FileLoader()
             file_config = file_loader.load_file(Path(config_file))
 
-            env_loader = EnvironmentLoader(prefix="BILLIARDS_")
+            env_loader = EnvironmentLoader()
             env_config = env_loader.load_environment()
 
             cli_loader = CLILoader()

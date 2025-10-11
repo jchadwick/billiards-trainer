@@ -456,30 +456,6 @@ export const CalibrationWizard = observer(() => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card>
-        <CardContent padding="sm">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              Playing Area Calibration
-            </h2>
-            <span className="text-sm text-gray-500">
-              Simplified One-Step Calibration
-            </span>
-          </div>
-
-          <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-            <h4 className="font-medium text-green-900 dark:text-green-200 mb-2">Why calibrate?</h4>
-            <p className="text-sm text-green-800 dark:text-green-300">
-              Calibrating the playing area ensures accurate trajectory predictions by defining the
-              actual table boundaries. This accounts for camera angle, perspective, and any objects
-              outside the playing surface that should be ignored.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Calibration Step or Success Message */}
       <Card>
         <CardContent>
           {!completed ? (

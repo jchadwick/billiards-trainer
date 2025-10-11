@@ -1,6 +1,5 @@
 import React from 'react'
 import { observer } from 'mobx-react-lite'
-import { useUIStore } from '../../hooks/useStores'
 
 export interface MainContentProps {
   children: React.ReactNode
@@ -32,22 +31,12 @@ export const MainContent = observer<MainContentProps>(({
   padding = 'md',
   maxWidth = 'full',
 }) => {
-  const uiStore = useUIStore()
-
   const paddingClass = paddingClasses[padding]
   const maxWidthClass = maxWidthClasses[maxWidth]
 
-  // Calculate left margin based on sidebar state
-  const getMainStyles = () => {
-    if (uiStore.sidebarCollapsed) {
-      return 'lg:ml-16' // Collapsed sidebar width
-    }
-    return 'lg:ml-64' // Full sidebar width
-  }
-
   return (
     <main
-      className={`min-h-screen bg-gray-50 dark:bg-gray-900 transition-all duration-300 ${getMainStyles()} ${className}`}
+      className={`min-h-screen bg-gray-50 dark:bg-gray-900 ${className}`}
     >
       <div className={`${maxWidthClass} ${paddingClass}`}>
         {children}

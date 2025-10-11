@@ -48,12 +48,13 @@ def test_basic_environment_loading():
 
     try:
         # Set test environment variables
-        os.environ["TEST_APP_NAME"] = "test-app"
-        os.environ["TEST_APP_DEBUG"] = "true"
-        os.environ["TEST_DATABASE_PORT"] = "3306"
+        os.environ["APP__NAME"] = "test-app"
+        os.environ["APP__DEBUG"] = "true"
+        os.environ["DATABASE__PORT"] = "3306"
 
-        loader = EnvironmentLoader(prefix="TEST_")
-        result = loader.load_environment()
+        loader = EnvironmentLoader()
+        # Use include pattern to only load test variables
+        result = loader.load_environment(include_patterns=[r"^(APP|DATABASE)__.*"])
 
         assert result["app"]["name"] == "test-app"
         assert result["app"]["debug"] is True
@@ -170,8 +171,8 @@ def test_multiple_source_integration():
 
     try:
         # Set environment variables
-        os.environ["TEST_APP_DEBUG"] = "false"  # Override file
-        os.environ["TEST_DATABASE_PORT"] = "3306"  # Override default
+        os.environ["APP__DEBUG"] = "false"  # Override file
+        os.environ["DATABASE__PORT"] = "3306"  # Override default
 
         # Create temp file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -180,11 +181,14 @@ def test_multiple_source_integration():
 
         # Load configurations
         file_loader = FileLoader(default_values=defaults)
-        env_loader = EnvironmentLoader(prefix="TEST_")
+        env_loader = EnvironmentLoader()
         merger = ConfigurationMerger()
 
         file_result = file_loader.load_with_defaults(temp_path)
-        env_result = env_loader.load_environment()
+        # Only load environment variables that match our test pattern
+        env_result = env_loader.load_environment(
+            include_patterns=[r"^(APP|DATABASE)__.*"]
+        )
 
         # Merge with precedence: file < environment
         final_result = merger.merge_configurations(

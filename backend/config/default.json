@@ -1786,7 +1786,6 @@
       "default.json",
       "local.json"
     ],
-    "env_prefix": "BILLIARDS_",
     "precedence": [
       "cli",
       "environment",

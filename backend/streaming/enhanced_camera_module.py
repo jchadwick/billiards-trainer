@@ -29,7 +29,7 @@ class EnhancedCameraConfig:
     """
 
     # Camera settings
-    device_id: int
+    device_id: int | str  # Integer for camera device, string for video file path
     resolution: Optional[tuple[int, int]]  # Auto-detect if None
     fps: int
 
@@ -73,65 +73,87 @@ class EnhancedCameraConfig:
             EnhancedCameraConfig instance with values from config
         """
         # Get streaming config section
-        streaming = config.get("streaming", {})
+        # Note: The config module stores configs with flattened dot notation keys
+        # e.g., 'streaming.camera.device_id' not {'streaming': {'camera': {'device_id': ...}}}
+        import logging
 
-        # Camera settings
-        camera = streaming.get("camera", {})
-        resolution = camera.get("resolution")
-        if (
-            resolution is not None
-            and isinstance(resolution, list)
-            and len(resolution) == 2
-        ):
+        logger = logging.getLogger(__name__)
+
+        # Access config using dot notation for flattened keys
+        device_id = config.get("streaming.camera.device_id", 1)
+        resolution = config.get("streaming.camera.resolution")
+        if resolution and isinstance(resolution, list) and len(resolution) == 2:
             resolution = tuple(resolution)
+        fps = config.get("streaming.camera.fps", 30)
+        buffer_size = config.get("streaming.camera.buffer_size", 1)
+
+        logger.info(
+            f"[from_config] Loaded from flattened config: device_id={device_id}, resolution={resolution}, fps={fps}"
+        )
 
         # Fisheye settings
-        fisheye = streaming.get("fisheye", {})
+        enable_fisheye_correction = config.get(
+            "streaming.fisheye.enable_correction", False
+        )
+        calibration_file = config.get(
+            "streaming.fisheye.calibration_file", "calibration/camera_fisheye.yaml"
+        )
+        fisheye_alpha = config.get("streaming.fisheye.alpha", 1.0)
 
         # Table crop settings
-        table_crop = streaming.get("table_crop", {})
-        hsv_lower = table_crop.get("hsv_lower", [35, 40, 40])
-        hsv_upper = table_crop.get("hsv_upper", [85, 255, 255])
+        enable_table_crop = config.get("streaming.table_crop.enable", False)
+        hsv_lower = config.get("streaming.table_crop.hsv_lower", [35, 40, 40])
+        hsv_upper = config.get("streaming.table_crop.hsv_upper", [85, 255, 255])
+        table_crop_morphology_kernel_size = config.get(
+            "streaming.table_crop.morphology_kernel_size", 5
+        )
+        table_crop_padding_ratio = config.get(
+            "streaming.table_crop.padding_ratio", 0.05
+        )
 
         # Preprocessing settings
-        preprocessing = streaming.get("preprocessing", {})
-        clahe = preprocessing.get("clahe", {})
+        enable_preprocessing = config.get("streaming.preprocessing.enable", True)
+        brightness = config.get("streaming.preprocessing.brightness", 0.0)
+        contrast = config.get("streaming.preprocessing.contrast", 1.0)
+        enable_clahe = config.get("streaming.preprocessing.clahe.enable", True)
+        clahe_clip_limit = config.get("streaming.preprocessing.clahe.clip_limit", 2.0)
+        clahe_grid_size = config.get("streaming.preprocessing.clahe.grid_size", 8)
 
         # Encoding settings
-        encoding = streaming.get("encoding", {})
+        default_jpeg_quality = config.get("streaming.encoding.default_jpeg_quality", 80)
 
         # Performance settings
-        performance = streaming.get("performance", {})
+        enable_gpu = config.get("streaming.performance.enable_gpu", False)
+        startup_timeout_seconds = config.get(
+            "streaming.performance.startup_timeout_seconds", 5.0
+        )
+        thread_join_timeout_seconds = config.get(
+            "streaming.performance.thread_join_timeout_seconds", 2.0
+        )
 
         return cls(
-            device_id=camera.get("device_id", 1),
+            device_id=device_id,
             resolution=resolution,
-            fps=camera.get("fps", 30),
-            enable_fisheye_correction=fisheye.get("enable_correction", False),
-            calibration_file=fisheye.get(
-                "calibration_file", "calibration/camera_fisheye.yaml"
-            ),
-            fisheye_alpha=fisheye.get("alpha", 1.0),
-            enable_table_crop=table_crop.get("enable", False),
+            fps=fps,
+            enable_fisheye_correction=enable_fisheye_correction,
+            calibration_file=calibration_file,
+            fisheye_alpha=fisheye_alpha,
+            enable_table_crop=enable_table_crop,
             table_crop_hsv_lower=tuple(hsv_lower),
             table_crop_hsv_upper=tuple(hsv_upper),
-            table_crop_morphology_kernel_size=table_crop.get(
-                "morphology_kernel_size", 5
-            ),
-            table_crop_padding_ratio=table_crop.get("padding_ratio", 0.05),
-            enable_preprocessing=preprocessing.get("enable", True),
-            brightness=preprocessing.get("brightness", 0.0),
-            contrast=preprocessing.get("contrast", 1.0),
-            enable_clahe=clahe.get("enable", True),
-            clahe_clip_limit=clahe.get("clip_limit", 2.0),
-            clahe_grid_size=clahe.get("grid_size", 8),
-            default_jpeg_quality=encoding.get("default_jpeg_quality", 80),
-            enable_gpu=performance.get("enable_gpu", False),
-            buffer_size=camera.get("buffer_size", 1),
-            startup_timeout_seconds=performance.get("startup_timeout_seconds", 5.0),
-            thread_join_timeout_seconds=performance.get(
-                "thread_join_timeout_seconds", 2.0
-            ),
+            table_crop_morphology_kernel_size=table_crop_morphology_kernel_size,
+            table_crop_padding_ratio=table_crop_padding_ratio,
+            enable_preprocessing=enable_preprocessing,
+            brightness=brightness,
+            contrast=contrast,
+            enable_clahe=enable_clahe,
+            clahe_clip_limit=clahe_clip_limit,
+            clahe_grid_size=clahe_grid_size,
+            default_jpeg_quality=default_jpeg_quality,
+            enable_gpu=enable_gpu,
+            buffer_size=buffer_size,
+            startup_timeout_seconds=startup_timeout_seconds,
+            thread_join_timeout_seconds=thread_join_timeout_seconds,
         )
 
 
@@ -373,11 +395,31 @@ class EnhancedCameraModule:
             f"WB: {self.capture.get(cv2.CAP_PROP_WB_TEMPERATURE)}"
         )
 
+        # Calculate frame delay for video playback
+        frame_delay = (
+            1.0 / self.config.fps if self.config.fps > 0 else 0.033
+        )  # Default ~30 FPS
+
         while self.running:
             ret, frame = self.capture.read()
 
             if not ret:
-                continue
+                # End of video or read error - loop back to start for video files
+                if isinstance(self.config.device_id, str):
+                    # This is a video file, loop it
+                    self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = self.capture.read()
+                    if not ret:
+                        # Still can't read, something is wrong
+                        print(
+                            f"Error: Cannot read from video file {self.config.device_id}"
+                        )
+                        time.sleep(0.1)
+                        continue
+                else:
+                    # This is a camera, just skip this frame
+                    time.sleep(0.01)
+                    continue
 
             # Apply processing pipeline
             processed = self._process_frame(frame)
@@ -402,6 +444,10 @@ class EnhancedCameraModule:
                 except Exception as e:
                     # Don't let callback errors crash the capture loop
                     print(f"Error in frame callback: {e}")
+
+            # Frame rate control - sleep to match target FPS
+            # This prevents high CPU usage when processing video files
+            time.sleep(frame_delay)
 
     def _process_frame(self, frame: np.ndarray) -> np.ndarray:
         """Apply fisheye correction and preprocessing pipeline."""

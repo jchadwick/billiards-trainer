@@ -9,7 +9,6 @@ import { FullScreenLoading } from "../ui/LoadingSpinner";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { MainContent } from "./MainContent";
-import { Sidebar } from "./Sidebar";
 
 export interface AppLayoutProps {
   children: React.ReactNode;
@@ -43,9 +42,6 @@ export const AppLayout = observer<AppLayoutProps>(
           <Header />
         </SkipLinkTarget>
 
-        {/* Sidebar */}
-        <Sidebar />
-
         {/* Main Content Area */}
         <div className="flex flex-col min-h-screen">
           {/* Main content */}
@@ -54,13 +50,7 @@ export const AppLayout = observer<AppLayoutProps>(
           </SkipLinkTarget>
 
           {/* Footer */}
-          {showFooter && (
-            <div
-              className={`${uiStore.sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} transition-all duration-300`}
-            >
-              <Footer systemInfo={systemInfo} />
-            </div>
-          )}
+          {showFooter && <Footer systemInfo={systemInfo} />}
         </div>
       </div>
     );

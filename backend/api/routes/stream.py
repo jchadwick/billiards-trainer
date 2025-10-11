@@ -52,8 +52,13 @@ def _get_stream_config(app_state: ApplicationState) -> dict:
         Stream configuration dictionary with defaults if config not available
     """
     if app_state.config_module:
-        return app_state.config_module.get("api.stream", {})
+        config = app_state.config_module.get("api.stream", {})
+        logger.debug(
+            f"_get_stream_config: got {type(config)} with keys: {list(config.keys()) if isinstance(config, dict) else 'not a dict'}"
+        )
+        return config
     # Return empty dict if config not available - will use defaults
+    logger.warning("_get_stream_config: No config module available")
     return {}
 
 
@@ -200,16 +205,39 @@ async def get_vision_module(
     Note: Using EnhancedCameraModule with fisheye correction and preprocessing
     capabilities for improved image quality.
     """
-    logger.debug("get_vision_module called")
+    logger.info("=== get_vision_module called ===")
+    print("=== get_vision_module called ===", flush=True)
 
-    if not hasattr(app_state, "vision_module") or app_state.vision_module is None:
+    # Use a separate attribute for streaming camera module to avoid conflicts with VisionModule
+    streaming_module_attr = "streaming_camera_module"
+
+    logger.info(
+        f"=== Checking {streaming_module_attr}: hasattr={hasattr(app_state, streaming_module_attr)}, is_none={getattr(app_state, streaming_module_attr, None) is None} ==="
+    )
+    print(
+        f"=== Checking {streaming_module_attr}: hasattr={hasattr(app_state, streaming_module_attr)}, is_none={getattr(app_state, streaming_module_attr, None) is None} ===",
+        flush=True,
+    )
+
+    if (
+        not hasattr(app_state, streaming_module_attr)
+        or getattr(app_state, streaming_module_attr, None) is None
+    ):
         logger.info(
             "Creating shared EnhancedCameraModule instance (lazy initialization)"
+        )
+        print(
+            "Creating shared EnhancedCameraModule instance (lazy initialization)",
+            flush=True,
         )
 
         # Get stream configuration
         stream_config = _get_stream_config(app_state)
+        logger.info(
+            f"[get_vision_module] stream_config keys: {list(stream_config.keys()) if stream_config else 'None'}"
+        )
         camera_cfg = stream_config.get("camera", {})
+        logger.info(f"[get_vision_module] camera_cfg from api.stream: {camera_cfg}")
         processing_cfg = stream_config.get("processing", {})
 
         # Check if calibration file exists
@@ -241,18 +269,38 @@ async def get_vision_module(
         # Try to load from streaming config first (new structure)
         if hasattr(app_state, "config_module") and app_state.config_module:
             try:
+                # First check if streaming config exists and has the right structure
+                streaming_test = app_state.config_module.get("streaming", {})
+                logger.info(f"Streaming config check: {streaming_test}")
+
                 camera_config = EnhancedCameraConfig.from_config(
                     app_state.config_module
                 )
-                logger.info("Loaded EnhancedCameraConfig from streaming configuration")
+                logger.info(
+                    f"Loaded EnhancedCameraConfig from streaming configuration: device_id={camera_config.device_id}, resolution={camera_config.resolution}"
+                )
+
+                # Validate that we got the video file path, not the default
+                if camera_config.device_id == 1 and camera_cfg.get("device_id") != 1:
+                    logger.warning(
+                        f"from_config returned default device_id=1, but api.stream has device_id={camera_cfg.get('device_id')}. Using fallback."
+                    )
+                    raise ValueError("Config mismatch detected, using fallback")
+
             except Exception as e:
                 logger.warning(
                     f"Failed to load from streaming config: {e}, falling back to manual config"
                 )
+                logger.exception("Full exception:")
                 # Fall back to manual configuration from api.stream section
                 resolution = camera_cfg.get("resolution", [3840, 2160])
+                # Get device_id - can be int or string
+                device_id = camera_cfg.get("device_id", 1)
+                logger.info(
+                    f"Fallback config: device_id={device_id}, type={type(device_id)}"
+                )
                 camera_config = EnhancedCameraConfig(
-                    device_id=camera_cfg.get("device_id", 1),
+                    device_id=device_id,
                     resolution=tuple(resolution) if resolution else None,
                     fps=camera_cfg.get("fps", 30),
                     enable_fisheye_correction=enable_fisheye,
@@ -281,8 +329,13 @@ async def get_vision_module(
             # No config module, use hardcoded defaults (should not happen in normal operation)
             logger.warning("No config module available, using hardcoded defaults")
             resolution = camera_cfg.get("resolution", [3840, 2160])
+            # Get device_id - can be int or string
+            device_id = camera_cfg.get("device_id", 1)
+            logger.info(
+                f"No config module - device_id={device_id}, type={type(device_id)}"
+            )
             camera_config = EnhancedCameraConfig(
-                device_id=camera_cfg.get("device_id", 1),
+                device_id=device_id,
                 resolution=tuple(resolution) if resolution else None,
                 fps=camera_cfg.get("fps", 30),
                 enable_fisheye_correction=enable_fisheye,
@@ -344,14 +397,15 @@ async def get_vision_module(
             )
 
             # Wrap in compatibility adapter
-            app_state.vision_module = CameraModuleAdapter(enhanced_module)
+            setattr(
+                app_state, streaming_module_attr, CameraModuleAdapter(enhanced_module)
+            )
             logger.info("[get_vision_module] Camera module wrapped in adapter")
 
             logger.info("[get_vision_module] Starting camera capture...")
             # Start camera capture
-            success = await loop.run_in_executor(
-                None, app_state.vision_module.start_capture
-            )
+            streaming_module = getattr(app_state, streaming_module_attr)
+            success = await loop.run_in_executor(None, streaming_module.start_capture)
             logger.info(f"[get_vision_module] start_capture returned: {success}")
 
             if success:
@@ -360,21 +414,21 @@ async def get_vision_module(
                 )
             else:
                 logger.error("Camera capture failed to start")
-                app_state.vision_module = None
+                setattr(app_state, streaming_module_attr, None)
                 raise HTTPException(
                     status_code=503,
                     detail="Camera capture failed to start",
                 )
         except Exception as e:
             logger.error(f"Failed to initialize camera module: {e}", exc_info=True)
-            app_state.vision_module = None
+            setattr(app_state, streaming_module_attr, None)
             raise HTTPException(
                 status_code=503,
                 detail=f"Failed to initialize camera system: {str(e)}",
             )
 
     logger.debug("Using shared camera module instance")
-    return app_state.vision_module
+    return getattr(app_state, streaming_module_attr)
 
 
 async def generate_mjpeg_stream(
@@ -782,10 +836,9 @@ async def stream_status(
         Dictionary containing streaming status and statistics
     """
     try:
-        # Check if vision module exists, but don't create it
-        vision_module = (
-            app_state.vision_module if hasattr(app_state, "vision_module") else None
-        )
+        # Check if streaming camera module exists, but don't create it
+        streaming_module_attr = "streaming_camera_module"
+        vision_module = getattr(app_state, streaming_module_attr, None)
 
         if not vision_module:
             # Return minimal status when vision module not initialized

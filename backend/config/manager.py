@@ -53,7 +53,7 @@ class ConfigurationModule:
         self._persistence = ConfigPersistence(base_dir=self.config_dir)
 
         # Initialize loaders
-        self._env_loader = EnvironmentLoader(prefix=self._settings.sources.env_prefix)
+        self._env_loader = EnvironmentLoader()
         self._cli_loader = CLILoader()
 
         # Initialize backup system
@@ -201,11 +201,7 @@ class ConfigurationModule:
                 # Validate and show warnings
                 warnings = migration.validate(config)
                 for warning in warnings:
-                    if warning.startswith("ERROR:"):
-                        print(f"  {warning}")
-                    elif warning.startswith("WARNING:"):
-                        print(f"  {warning}")
-                    elif warning.startswith("DEPRECATED:"):
+                    if warning.startswith(("ERROR:", "WARNING:", "DEPRECATED:")):
                         print(f"  {warning}")
 
                 # Show suggested configuration if there are warnings
@@ -1675,3 +1671,7 @@ class ConfigurationModule:
                 self._config_watcher.stop_watching()
         except Exception:
             pass  # Ignore errors during cleanup
+
+
+# Global configuration manager instance
+config_manager = ConfigurationModule(enable_hot_reload=False)

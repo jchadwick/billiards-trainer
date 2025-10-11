@@ -30,7 +30,6 @@ class EnvironmentLoader:
     """Environment variable configuration loader.
 
     Supports:
-    - Prefix-based filtering
     - Automatic type conversion
     - Nested dictionary structure from dot notation
     - Custom type converters
@@ -39,7 +38,6 @@ class EnvironmentLoader:
 
     def __init__(
         self,
-        prefix: str = "",
         separator: str = "_",
         nested_separator: str = "__",
         type_converters: Optional[dict[str, Callable]] = None,
@@ -47,12 +45,10 @@ class EnvironmentLoader:
         """Initialize the environment loader.
 
         Args:
-            prefix: Prefix to filter environment variables
             separator: Separator for splitting variable names
             nested_separator: Separator for nested keys
             type_converters: Custom type conversion functions
         """
-        self.prefix = prefix
         self.separator = separator
         self.nested_separator = nested_separator
         self.type_converters = type_converters or {}
@@ -84,7 +80,7 @@ class EnvironmentLoader:
         env_vars = self._get_filtered_env_vars(include_patterns, exclude_patterns)
 
         if not env_vars:
-            logger.debug(f"No environment variables found with prefix: {self.prefix}")
+            logger.debug("No environment variables found")
             return {}
 
         config = {}
@@ -210,10 +206,6 @@ class EnvironmentLoader:
         env_vars = {}
 
         for key, value in os.environ.items():
-            # Apply prefix filter
-            if self.prefix and not key.startswith(self.prefix):
-                continue
-
             # Apply include patterns
             if include_patterns:
                 if not any(re.match(pattern, key) for pattern in include_patterns):
@@ -230,13 +222,8 @@ class EnvironmentLoader:
 
     def _env_key_to_config_key(self, env_key: str) -> str:
         """Convert environment variable name to config key."""
-        # Remove prefix
-        key = env_key
-        if self.prefix:
-            key = key[len(self.prefix) :]
-
         # Convert to lowercase and replace separators with dots
-        key = key.lower()
+        key = env_key.lower()
         key = key.replace(self.nested_separator, ".")
         key = key.replace(self.separator, ".")
 
@@ -249,10 +236,6 @@ class EnvironmentLoader:
 
         # Convert to uppercase
         key = key.upper()
-
-        # Add prefix
-        if self.prefix:
-            key = self.prefix + key
 
         return key
 

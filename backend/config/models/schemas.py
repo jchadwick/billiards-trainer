@@ -390,7 +390,6 @@ class ConfigSources(BaseModel):
     enable_environment: bool = True
     enable_cli: bool = True
     file_paths: list[Path] = [Path("default.json"), Path("local.json")]
-    env_prefix: str = "BILLIARDS_"
     precedence: list[str] = ["cli", "environment", "file", "default"]
 
 

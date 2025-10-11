@@ -339,7 +339,6 @@ class ConfigSources(BaseModel):
         Path("config/default.json"),
         Path("config/local.json")
     ]
-    env_prefix: str = "BILLIARDS_"
     precedence: List[str] = [
         "cli", "environment", "file", "default"
     ]
@@ -680,7 +679,7 @@ The camera configuration section supports multiple video input sources including
 **Video Source Type Selection**
 
 - **Configuration Key**: `vision.camera.video_source_type`
-- **Environment Variable**: `BILLIARDS_VISION_CAMERA_VIDEO_SOURCE_TYPE`
+- **Environment Variable**: `VISION__CAMERA__VIDEO_SOURCE_TYPE`
 - **Type**: Enum
 - **Values**: `"camera"`, `"file"`, `"stream"`
 - **Default**: `"camera"`
@@ -690,7 +689,7 @@ The camera configuration section supports multiple video input sources including
 **Video File Path**
 
 - **Configuration Key**: `vision.camera.video_file_path`
-- **Environment Variable**: `BILLIARDS_VISION_CAMERA_VIDEO_FILE_PATH`
+- **Environment Variable**: `VISION__CAMERA__VIDEO_FILE_PATH`
 - **Type**: Optional string (path)
 - **Default**: `null`
 - **Description**: Absolute or relative path to video file when source type is "file"
@@ -703,7 +702,7 @@ The camera configuration section supports multiple video input sources including
 **Loop Video Playback**
 
 - **Configuration Key**: `vision.camera.loop_video`
-- **Environment Variable**: `BILLIARDS_VISION_CAMERA_LOOP_VIDEO`
+- **Environment Variable**: `VISION__CAMERA__LOOP_VIDEO`
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: When true, video file will loop indefinitely; when false, processing stops at end of video
@@ -712,7 +711,7 @@ The camera configuration section supports multiple video input sources including
 **Video Start Frame**
 
 - **Configuration Key**: `vision.camera.video_start_frame`
-- **Environment Variable**: `BILLIARDS_VISION_CAMERA_VIDEO_START_FRAME`
+- **Environment Variable**: `VISION__CAMERA__VIDEO_START_FRAME`
 - **Type**: Integer
 - **Default**: `0`
 - **Description**: Frame number to start video processing (0-based index)
@@ -725,7 +724,7 @@ The camera configuration section supports multiple video input sources including
 **Video End Frame**
 
 - **Configuration Key**: `vision.camera.video_end_frame`
-- **Environment Variable**: `BILLIARDS_VISION_CAMERA_VIDEO_END_FRAME`
+- **Environment Variable**: `VISION__CAMERA__VIDEO_END_FRAME`
 - **Type**: Optional integer
 - **Default**: `null` (process until end of video)
 - **Description**: Frame number to stop video processing (0-based index, exclusive)
@@ -742,7 +741,7 @@ Enhanced processing settings for video file input optimization.
 **Video File Frame Cache**
 
 - **Configuration Key**: `vision.processing.video_file_cache_frames`
-- **Environment Variable**: `BILLIARDS_VISION_PROCESSING_VIDEO_FILE_CACHE_FRAMES`
+- **Environment Variable**: `VISION__PROCESSING__VIDEO_FILE_CACHE_FRAMES`
 - **Type**: Integer
 - **Default**: `30`
 - **Description**: Number of frames to pre-cache from video file for smoother playback
@@ -758,7 +757,7 @@ Enhanced processing settings for video file input optimization.
 **Video Playback Speed**
 
 - **Configuration Key**: `vision.processing.video_playback_speed`
-- **Environment Variable**: `BILLIARDS_VISION_PROCESSING_VIDEO_PLAYBACK_SPEED`
+- **Environment Variable**: `VISION__PROCESSING__VIDEO_PLAYBACK_SPEED`
 - **Type**: Float
 - **Default**: `1.0`
 - **Description**: Playback speed multiplier (1.0 = normal speed, 0.5 = half speed, 2.0 = double speed)
@@ -782,7 +781,7 @@ Network configuration for streaming video feed to the projector module.
 **Stream Video Feed**
 
 - **Configuration Key**: `projector.network.stream_video_feed`
-- **Environment Variable**: `BILLIARDS_PROJECTOR_NETWORK_STREAM_VIDEO_FEED`
+- **Environment Variable**: `PROJECTOR__NETWORK__STREAM_VIDEO_FEED`
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: Enable streaming of raw video feed to projector module via WebSocket
@@ -792,7 +791,7 @@ Network configuration for streaming video feed to the projector module.
 **Video Feed Quality**
 
 - **Configuration Key**: `projector.network.video_feed_quality`
-- **Environment Variable**: `BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_QUALITY`
+- **Environment Variable**: `PROJECTOR__NETWORK__VIDEO_FEED_QUALITY`
 - **Type**: Integer
 - **Default**: `85`
 - **Description**: JPEG/WebP compression quality for video feed (1-100)
@@ -809,7 +808,7 @@ Network configuration for streaming video feed to the projector module.
 **Video Feed FPS**
 
 - **Configuration Key**: `projector.network.video_feed_fps`
-- **Environment Variable**: `BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_FPS`
+- **Environment Variable**: `PROJECTOR__NETWORK__VIDEO_FEED_FPS`
 - **Type**: Integer
 - **Default**: `15`
 - **Description**: Target frames per second for video feed streaming
@@ -825,7 +824,7 @@ Network configuration for streaming video feed to the projector module.
 **Video Feed Scale**
 
 - **Configuration Key**: `projector.network.video_feed_scale`
-- **Environment Variable**: `BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_SCALE`
+- **Environment Variable**: `PROJECTOR__NETWORK__VIDEO_FEED_SCALE`
 - **Type**: Float
 - **Default**: `0.5`
 - **Description**: Resolution scale factor for video feed (0.1-1.0)
@@ -841,7 +840,7 @@ Network configuration for streaming video feed to the projector module.
 **Video Feed Format**
 
 - **Configuration Key**: `projector.network.video_feed_format`
-- **Environment Variable**: `BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_FORMAT`
+- **Environment Variable**: `PROJECTOR__NETWORK__VIDEO_FEED_FORMAT`
 - **Type**: Enum
 - **Values**: `"jpeg"`, `"png"`, `"webp"`
 - **Default**: `"jpeg"`
@@ -861,7 +860,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **Video Feed Enabled**
 
 - **Configuration Key**: `api.video_feed.enabled`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_ENABLED`
+- **Environment Variable**: `API__VIDEO_FEED__ENABLED`
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: Enable HTTP video feed endpoints
@@ -871,7 +870,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **Video Feed Endpoint**
 
 - **Configuration Key**: `api.video_feed.endpoint`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_ENDPOINT`
+- **Environment Variable**: `API__VIDEO_FEED__ENDPOINT`
 - **Type**: String
 - **Default**: `"/api/v1/video/feed"`
 - **Description**: HTTP endpoint path for single-frame video feed access
@@ -883,7 +882,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **MJPEG Stream Enabled**
 
 - **Configuration Key**: `api.video_feed.mjpeg_stream`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_MJPEG_STREAM`
+- **Environment Variable**: `API__VIDEO_FEED__MJPEG_STREAM`
 - **Type**: Boolean
 - **Default**: `false`
 - **Description**: Enable Motion JPEG (MJPEG) streaming endpoint for continuous video feed
@@ -893,7 +892,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **MJPEG Endpoint**
 
 - **Configuration Key**: `api.video_feed.mjpeg_endpoint`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_MJPEG_ENDPOINT`
+- **Environment Variable**: `API__VIDEO_FEED__MJPEG_ENDPOINT`
 - **Type**: String
 - **Default**: `"/api/v1/video/stream"`
 - **Description**: HTTP endpoint path for MJPEG continuous stream
@@ -906,7 +905,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **Maximum Concurrent Clients**
 
 - **Configuration Key**: `api.video_feed.max_clients`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_MAX_CLIENTS`
+- **Environment Variable**: `API__VIDEO_FEED__MAX_CLIENTS`
 - **Type**: Integer
 - **Default**: `5`
 - **Description**: Maximum number of concurrent clients for video feed endpoints
@@ -922,7 +921,7 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 **Frame Buffer Size**
 
 - **Configuration Key**: `api.video_feed.buffer_size`
-- **Environment Variable**: `BILLIARDS_API_VIDEO_FEED_BUFFER_SIZE`
+- **Environment Variable**: `API__VIDEO_FEED__BUFFER_SIZE`
 - **Type**: Integer
 - **Default**: `10`
 - **Description**: Number of frames to buffer for video feed endpoints
@@ -1055,30 +1054,30 @@ HTTP endpoints for accessing the video feed independently of the WebSocket conne
 
 ```bash
 # Video source configuration
-export BILLIARDS_VISION_CAMERA_VIDEO_SOURCE_TYPE="file"
-export BILLIARDS_VISION_CAMERA_VIDEO_FILE_PATH="/opt/videos/pool_game.mp4"
-export BILLIARDS_VISION_CAMERA_LOOP_VIDEO="true"
-export BILLIARDS_VISION_CAMERA_VIDEO_START_FRAME="0"
-export BILLIARDS_VISION_CAMERA_VIDEO_END_FRAME="500"
+export VISION__CAMERA__VIDEO_SOURCE_TYPE="file"
+export VISION__CAMERA__VIDEO_FILE_PATH="/opt/videos/pool_game.mp4"
+export VISION__CAMERA__LOOP_VIDEO="true"
+export VISION__CAMERA__VIDEO_START_FRAME="0"
+export VISION__CAMERA__VIDEO_END_FRAME="500"
 
 # Video processing configuration
-export BILLIARDS_VISION_PROCESSING_VIDEO_FILE_CACHE_FRAMES="30"
-export BILLIARDS_VISION_PROCESSING_VIDEO_PLAYBACK_SPEED="1.0"
+export VISION__PROCESSING__VIDEO_FILE_CACHE_FRAMES="30"
+export VISION__PROCESSING__VIDEO_PLAYBACK_SPEED="1.0"
 
 # Projector video feed configuration
-export BILLIARDS_PROJECTOR_NETWORK_STREAM_VIDEO_FEED="true"
-export BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_QUALITY="85"
-export BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_FPS="15"
-export BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_SCALE="0.5"
-export BILLIARDS_PROJECTOR_NETWORK_VIDEO_FEED_FORMAT="jpeg"
+export PROJECTOR__NETWORK__STREAM_VIDEO_FEED="true"
+export PROJECTOR__NETWORK__VIDEO_FEED_QUALITY="85"
+export PROJECTOR__NETWORK__VIDEO_FEED_FPS="15"
+export PROJECTOR__NETWORK__VIDEO_FEED_SCALE="0.5"
+export PROJECTOR__NETWORK__VIDEO_FEED_FORMAT="jpeg"
 
 # API video feed configuration
-export BILLIARDS_API_VIDEO_FEED_ENABLED="true"
-export BILLIARDS_API_VIDEO_FEED_ENDPOINT="/api/v1/video/feed"
-export BILLIARDS_API_VIDEO_FEED_MJPEG_STREAM="true"
-export BILLIARDS_API_VIDEO_FEED_MJPEG_ENDPOINT="/api/v1/video/stream"
-export BILLIARDS_API_VIDEO_FEED_MAX_CLIENTS="5"
-export BILLIARDS_API_VIDEO_FEED_BUFFER_SIZE="10"
+export API__VIDEO_FEED__ENABLED="true"
+export API__VIDEO_FEED__ENDPOINT="/api/v1/video/feed"
+export API__VIDEO_FEED__MJPEG_STREAM="true"
+export API__VIDEO_FEED__MJPEG_ENDPOINT="/api/v1/video/stream"
+export API__VIDEO_FEED__MAX_CLIENTS="5"
+export API__VIDEO_FEED__BUFFER_SIZE="10"
 ```
 
 ### Configuration Validation Rules

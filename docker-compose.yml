@@ -24,6 +24,11 @@ services:
       - ./game_state_data:/app/game_state_data
       - ./geometry_cache:/app/geometry_cache
       - ./logs:/app/logs
+    develop:
+      watch:
+        - path: ./backend
+          target: /app/backend
+          action: sync
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -32,8 +37,6 @@ services:
       - VIDEO_SOURCE=/app/demo2_short.mp4
       - VIDEO_LOOP=true
       - CONFIG_PATH=/app/config/default.json
-    networks:
-      - billiards-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/api/v1/health"]
       interval: 30s
@@ -41,37 +44,27 @@ services:
       retries: 3
       start_period: 40s
 
-  frontend:
-    build:
-      context: ./frontend/web
-      dockerfile: Dockerfile.dev
-    container_name: billiards-frontend-dev
-    ports:
-      - "3000:3000"
-    volumes:
-      # Mount source code for hot reload
-      - ./frontend/web/src:/app/src
-      - ./frontend/web/public:/app/public
-      - ./frontend/web/index.html:/app/index.html
-      - ./frontend/web/vite.config.ts:/app/vite.config.ts
-      - ./frontend/web/tsconfig.json:/app/tsconfig.json
-      - ./frontend/web/tailwind.config.js:/app/tailwind.config.js
-      - ./frontend/web/postcss.config.js:/app/postcss.config.js
-      # Exclude node_modules to avoid conflicts
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
-      - VITE_API_URL=http://localhost:8081
-      - VITE_WS_URL=ws://localhost:8081
-    networks:
-      - billiards-network
-    depends_on:
-      - backend
-
-
-networks:
-  billiards-network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
+  # frontend:
+  #   build:
+  #     context: ./frontend/web
+  #     dockerfile: Dockerfile.dev
+  #   container_name: billiards-frontend-dev
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     # Mount source code for hot reload
+  #     - ./frontend/web/src:/app/src
+  #     - ./frontend/web/public:/app/public
+  #     - ./frontend/web/index.html:/app/index.html
+  #     - ./frontend/web/vite.config.ts:/app/vite.config.ts
+  #     - ./frontend/web/tsconfig.json:/app/tsconfig.json
+  #     - ./frontend/web/tailwind.config.js:/app/tailwind.config.js
+  #     - ./frontend/web/postcss.config.js:/app/postcss.config.js
+  #     # Exclude node_modules to avoid conflicts
+  #     - /app/node_modules
+  #   environment:
+  #     - NODE_ENV=development
+  #     - VITE_API_URL=http://localhost:8081
+  #     - VITE_WS_URL=ws://localhost:8081
+  #   depends_on:
+  #     - backend

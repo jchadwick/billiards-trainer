@@ -139,18 +139,23 @@ class TestConfigurationModule:
 
     def test_environment_variables(self, config_module):
         """Test loading configuration from environment variables."""
+        # Use unique keys that don't conflict with defaults
         env_vars = {
-            "BILLIARDS_APP_NAME": "env-app",
-            "BILLIARDS_API_PORT": "9000",
-            "BILLIARDS_DEBUG_MODE": "true",
+            "TEST__ENVVAR__NAME": "env-app",
+            "TEST__ENVVAR__PORT": "9000",
+            "TEST__ENVVAR__ENABLED": "true",
         }
 
+        # Add test variables to existing environment (don't clear)
         with patch.dict(os.environ, env_vars):
+            # Reload the config module to pick up the new environment
             config_module.load_environment_variables()
 
-        assert config_module.get("app.name") == "env-app"
-        assert config_module.get("api.port") == 9000  # JSON parsed as integer
-        assert config_module.get("debug.mode") is True  # JSON parsed as boolean
+        assert config_module.get("test.envvar.name") == "env-app"
+        assert config_module.get("test.envvar.port") == 9000  # JSON parsed as integer
+        assert (
+            config_module.get("test.envvar.enabled") is True
+        )  # JSON parsed as boolean
 
     def test_validation_basic(self, config_module):
         """Test basic validation functionality."""
