@@ -2,23 +2,19 @@ import { observer } from "mobx-react-lite";
 import React, { useId } from "react";
 import { useKeyboardDetection } from "../../hooks/useAccessibility";
 import { useUIStore } from "../../hooks/useStores";
-import type { SystemInfo } from "../../types";
 import { AnnouncementRegion } from "../accessibility/AnnouncementRegion";
 import { SkipLinks, SkipLinkTarget } from "../accessibility/SkipLinks";
 import { FullScreenLoading } from "../ui/LoadingSpinner";
-import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { MainContent } from "./MainContent";
 
 export interface AppLayoutProps {
   children: React.ReactNode;
   className?: string;
-  systemInfo?: SystemInfo;
-  showFooter?: boolean;
 }
 
 export const AppLayout = observer<AppLayoutProps>(
-  ({ children, className = "", systemInfo, showFooter = true }) => {
+  ({ children, className = "" }) => {
     const uiStore = useUIStore();
     const isKeyboardUser = useKeyboardDetection();
 
@@ -48,9 +44,6 @@ export const AppLayout = observer<AppLayoutProps>(
           <SkipLinkTarget id={useId()} as="main" className="flex-1">
             <MainContent>{children}</MainContent>
           </SkipLinkTarget>
-
-          {/* Footer */}
-          {showFooter && <Footer systemInfo={systemInfo} />}
         </div>
       </div>
     );
