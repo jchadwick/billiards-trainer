@@ -283,3 +283,6 @@ datasets/
 runs/
 training_images/
 *.pt
+debug_output/
+
+config/backups/

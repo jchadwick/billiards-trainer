@@ -2,35 +2,36 @@
  * MobX store for managing video streaming state and data
  */
 
-import { makeAutoObservable, action, computed, runInAction } from 'mobx';
-import { WebSocketClient, createWebSocketClient } from '../services/websocket-client';
+import { action, computed, makeAutoObservable, runInAction } from "mobx";
+import {
+  WebSocketClient,
+  createWebSocketClient,
+} from "../services/websocket-client";
 import type {
-  VideoStreamConfig,
-  VideoStreamStatus,
-  DetectionFrame,
-  Ball,
-  CueStick,
-  Table,
-  Trajectory,
-  VideoQuality,
-  VideoError,
-  PerformanceMetrics,
-} from '../types/video';
-import type {
-  WebSocketMessage,
+  BallData,
   GameStateData,
   TrajectoryData,
-  BallData,
-  CueData,
-  TableData,
+  WebSocketMessage,
   isGameStateMessage,
   isTrajectoryMessage,
-} from '../types/api';
+} from "../types/api";
+import type {
+  Ball,
+  CueStick,
+  DetectionFrame,
+  PerformanceMetrics,
+  Table,
+  Trajectory,
+  VideoError,
+  VideoQuality,
+  VideoStreamConfig,
+  VideoStreamStatus,
+} from "../types/video";
 
 export class VideoStore {
   // Stream configuration
   config: VideoStreamConfig = {
-    quality: 'medium',
+    quality: "medium",
     fps: 30,
     autoReconnect: true,
     reconnectDelay: 2000,
@@ -41,7 +42,7 @@ export class VideoStore {
     connected: false,
     streaming: false,
     fps: 0,
-    quality: 'medium',
+    quality: "medium",
     latency: 0,
     errors: 0,
     lastFrameTime: 0,
@@ -52,7 +53,7 @@ export class VideoStore {
   currentFrameImage: string | null = null; // For WebSocket frame streaming
 
   // Stream URL and connection
-  private streamUrl = '';
+  private streamUrl = "";
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private performanceInterval: NodeJS.Timeout | null = null;
 
@@ -184,7 +185,7 @@ export class VideoStore {
   }
 
   // Stream control methods
-  async connect(baseUrl: string): Promise<void> {
+  async connect(): Promise<void> {
     if (this.status.connected) {
       return;
     }
@@ -193,13 +194,7 @@ export class VideoStore {
     this.clearErrors();
 
     try {
-      const { apiClient } = await import('../api/client');
-
-      // Update API client base URL if needed
-      if (baseUrl && baseUrl !== 'http://localhost:8080') {
-        // Would need to create a new client instance or update the existing one
-        console.log('Custom base URL requested:', baseUrl);
-      }
+      const { apiClient } = await import("../api/client");
 
       // Check stream status first
       const statusResponse = await apiClient.getStreamStatus();
@@ -210,7 +205,10 @@ export class VideoStore {
       // Start video capture if not already running
       const startResponse = await apiClient.startVideoCapture();
       if (!startResponse.success) {
-        console.warn('Video capture start failed, but continuing:', startResponse.error);
+        console.warn(
+          "Video capture start failed, but continuing:",
+          startResponse.error
+        );
       }
 
       // Set stream URL using API client
@@ -220,18 +218,18 @@ export class VideoStore {
       );
 
       // Initialize WebSocket connection for real-time detection data
-      await this.connectWebSocket(baseUrl);
+      await this.connectWebSocket();
 
       runInAction(() => {
         this.status.connected = true;
         this.status.streaming = true;
         this.setLoading(false);
       });
-
     } catch (error) {
       const videoError: VideoError = {
-        code: 'CONNECTION_FAILED',
-        message: error instanceof Error ? error.message : 'Unknown connection error',
+        code: "CONNECTION_FAILED",
+        message:
+          error instanceof Error ? error.message : "Unknown connection error",
         timestamp: Date.now(),
         recoverable: true,
       };
@@ -253,10 +251,10 @@ export class VideoStore {
 
   async disconnect(): Promise<void> {
     try {
-      const { apiClient } = await import('../api/client');
+      const { apiClient } = await import("../api/client");
       await apiClient.stopVideoCapture();
     } catch (error) {
-      console.warn('Failed to stop video capture:', error);
+      console.warn("Failed to stop video capture:", error);
     }
 
     // Disconnect WebSocket
@@ -290,21 +288,23 @@ export class VideoStore {
 
   async refreshStreamStatus(): Promise<void> {
     try {
-      const { apiClient } = await import('../api/client');
+      const { apiClient } = await import("../api/client");
       const response = await apiClient.getStreamStatus();
 
       if (response.success && response.data) {
         runInAction(() => {
           this.status.connected = response.data.camera?.connected || false;
-          this.status.streaming = response.data.streaming?.active_streams > 0 || false;
+          this.status.streaming =
+            response.data.streaming?.active_streams > 0 || false;
           this.status.fps = response.data.vision?.processing_fps || 0;
           this.status.latency = response.data.streaming?.avg_fps || 0;
         });
       }
     } catch (error) {
       const videoError: VideoError = {
-        code: 'STATUS_REFRESH_FAILED',
-        message: error instanceof Error ? error.message : 'Failed to refresh status',
+        code: "STATUS_REFRESH_FAILED",
+        message:
+          error instanceof Error ? error.message : "Failed to refresh status",
         timestamp: Date.now(),
         recoverable: true,
       };
@@ -314,7 +314,7 @@ export class VideoStore {
 
   async captureFrame(): Promise<string | null> {
     try {
-      const { apiClient } = await import('../api/client');
+      const { apiClient } = await import("../api/client");
       const frameUrl = apiClient.getSingleFrameUrl(
         this.getQualityValue(this.config.quality)
       );
@@ -322,8 +322,9 @@ export class VideoStore {
       return frameUrl;
     } catch (error) {
       const videoError: VideoError = {
-        code: 'FRAME_CAPTURE_FAILED',
-        message: error instanceof Error ? error.message : 'Failed to capture frame',
+        code: "FRAME_CAPTURE_FAILED",
+        message:
+          error instanceof Error ? error.message : "Failed to capture frame",
         timestamp: Date.now(),
         recoverable: true,
       };
@@ -335,13 +336,13 @@ export class VideoStore {
   private updateStreamUrl(): void {
     if (this.status.connected) {
       try {
-        const { apiClient } = require('../api/client');
+        const { apiClient } = require("../api/client");
         this.streamUrl = apiClient.getVideoStreamUrl(
           this.getQualityValue(this.config.quality),
           this.config.fps
         );
       } catch (error) {
-        console.error('Failed to update stream URL:', error);
+        console.error("Failed to update stream URL:", error);
       }
     }
   }
@@ -367,9 +368,9 @@ export class VideoStore {
     }
 
     this.reconnectTimeout = setTimeout(() => {
-      if (!this.status.connected && this.streamUrl) {
-        const baseUrl = this.streamUrl.replace('/api/v1/stream/video', '');
-        this.connect(baseUrl).catch(console.error);
+      if (!this.status.connected) {
+        // Reconnect using the already configured base URL
+        this.connect().catch(console.error);
       }
     }, this.config.reconnectDelay);
   }
@@ -379,7 +380,7 @@ export class VideoStore {
       // Update performance metrics
 
       // Simple memory usage estimation (if available)
-      if ('memory' in performance) {
+      if ("memory" in performance) {
         const memory = (performance as any).memory;
         this.updatePerformance({
           memoryUsage: memory.usedJSHeapSize / 1024 / 1024, // MB
@@ -390,15 +391,16 @@ export class VideoStore {
       this.updatePerformance({
         renderFPS: this.status.fps,
       });
-
     }, 1000);
   }
 
   // WebSocket connection management
-  private async connectWebSocket(baseUrl: string): Promise<void> {
+  private async connectWebSocket(): Promise<void> {
     try {
-      // Create WebSocket URL from base URL
-      const wsUrl = baseUrl.replace(/^http/, 'ws') + '/api/v1/ws';
+      const axiosClient = (await import("../api/axios-client")).default;
+
+      // Get WebSocket URL from axios client
+      const wsUrl = axiosClient.getWebSocketUrl("/api/v1/ws");
 
       // Initialize WebSocket client
       this.wsClient = createWebSocketClient({
@@ -410,33 +412,37 @@ export class VideoStore {
       });
 
       // Set up message handlers
-      this.wsClient.on('frame', this.handleFrameMessage.bind(this));
-      this.wsClient.on('state', this.handleGameStateMessage.bind(this));
-      this.wsClient.on('trajectory', this.handleTrajectoryMessage.bind(this));
-      this.wsClient.on('metrics', this.handleMetricsMessage.bind(this));
-      this.wsClient.on('alert', this.handleAlertMessage.bind(this));
-      this.wsClient.onConnectionState(this.handleWebSocketStateChange.bind(this));
+      this.wsClient.on("frame", this.handleFrameMessage.bind(this));
+      this.wsClient.on("state", this.handleGameStateMessage.bind(this));
+      this.wsClient.on("trajectory", this.handleTrajectoryMessage.bind(this));
+      this.wsClient.on("metrics", this.handleMetricsMessage.bind(this));
+      this.wsClient.on("alert", this.handleAlertMessage.bind(this));
+      this.wsClient.onConnectionState(
+        this.handleWebSocketStateChange.bind(this)
+      );
 
       // Connect and subscribe to real-time data streams
       await this.wsClient.connect();
 
       // Subscribe to detection data streams including video frames
-      this.wsClient.subscribe(['frame', 'state', 'trajectory', 'metrics', 'alert'], {
-        quality: this.config.quality,
-        frame_rate: this.config.fps,
-      });
+      this.wsClient.subscribe(
+        ["frame", "state", "trajectory", "metrics", "alert"],
+        {
+          quality: this.config.quality,
+          frame_rate: this.config.fps,
+        }
+      );
 
       runInAction(() => {
         this.isWebSocketConnected = true;
       });
 
-      console.log('WebSocket connected for real-time detection data');
-
+      console.log("WebSocket connected for real-time detection data");
     } catch (error) {
-      console.error('Failed to connect WebSocket:', error);
+      console.error("Failed to connect WebSocket:", error);
       const videoError: VideoError = {
-        code: 'WEBSOCKET_CONNECTION_FAILED',
-        message: `WebSocket connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        code: "WEBSOCKET_CONNECTION_FAILED",
+        message: `WebSocket connection failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         timestamp: Date.now(),
         recoverable: true,
       };
@@ -457,11 +463,11 @@ export class VideoStore {
 
   private handleWebSocketStateChange(state: string, error?: Error): void {
     runInAction(() => {
-      this.isWebSocketConnected = state === 'connected';
+      this.isWebSocketConnected = state === "connected";
 
       if (error) {
         const videoError: VideoError = {
-          code: 'WEBSOCKET_ERROR',
+          code: "WEBSOCKET_ERROR",
           message: `WebSocket error: ${error.message}`,
           timestamp: Date.now(),
           recoverable: true,
@@ -483,7 +489,9 @@ export class VideoStore {
       radius: ballData.radius,
       type: this.inferBallType(ballData.id, ballData.color),
       number: this.inferBallNumber(ballData.id, ballData.color),
-      velocity: ballData.velocity ? { x: ballData.velocity[0], y: ballData.velocity[1] } : { x: 0, y: 0 },
+      velocity: ballData.velocity
+        ? { x: ballData.velocity[0], y: ballData.velocity[1] }
+        : { x: 0, y: 0 },
       confidence: ballData.confidence,
       color: ballData.color,
     }));
@@ -492,11 +500,23 @@ export class VideoStore {
     let cue: CueStick | null = null;
     if (gameState.cue && gameState.cue.detected) {
       cue = {
-        tipPosition: { x: gameState.cue.position[0], y: gameState.cue.position[1] },
+        tipPosition: {
+          x: gameState.cue.position[0],
+          y: gameState.cue.position[1],
+        },
         tailPosition: gameState.cue.tip_position
-          ? { x: gameState.cue.tip_position[0], y: gameState.cue.tip_position[1] }
-          : { x: gameState.cue.position[0] - Math.cos(gameState.cue.angle) * (gameState.cue.length || 100),
-              y: gameState.cue.position[1] - Math.sin(gameState.cue.angle) * (gameState.cue.length || 100) },
+          ? {
+              x: gameState.cue.tip_position[0],
+              y: gameState.cue.tip_position[1],
+            }
+          : {
+              x:
+                gameState.cue.position[0] -
+                Math.cos(gameState.cue.angle) * (gameState.cue.length || 100),
+              y:
+                gameState.cue.position[1] -
+                Math.sin(gameState.cue.angle) * (gameState.cue.length || 100),
+            },
         angle: gameState.cue.angle,
         elevation: 0,
         detected: gameState.cue.detected,
@@ -509,8 +529,14 @@ export class VideoStore {
     let table: Table | null = null;
     if (gameState.table && gameState.table.calibrated) {
       table = {
-        corners: gameState.table.corners.map(corner => ({ x: corner[0], y: corner[1] })),
-        pockets: gameState.table.pockets.map(pocket => ({ x: pocket[0], y: pocket[1] })),
+        corners: gameState.table.corners.map((corner) => ({
+          x: corner[0],
+          y: corner[1],
+        })),
+        pockets: gameState.table.pockets.map((pocket) => ({
+          x: pocket[0],
+          y: pocket[1],
+        })),
         bounds: { x: 0, y: 0, width: 0, height: 0 }, // Will be calculated
         rails: [], // Will be populated if available
         detected: gameState.table.calibrated,
@@ -519,8 +545,8 @@ export class VideoStore {
 
       // Calculate table bounds from corners
       if (table.corners.length >= 4) {
-        const xs = table.corners.map(c => c.x);
-        const ys = table.corners.map(c => c.y);
+        const xs = table.corners.map((c) => c.x);
+        const ys = table.corners.map((c) => c.y);
         table.bounds = {
           x: Math.min(...xs),
           y: Math.min(...ys),
@@ -552,23 +578,27 @@ export class VideoStore {
     const trajectoryData = message.data as TrajectoryData;
 
     // Convert trajectory data to frontend format
-    const trajectories: Trajectory[] = trajectoryData.lines.map((line, index) => ({
-      ballId: `trajectory_${index}`,
-      points: [
-        { x: line.start[0], y: line.start[1] },
-        { x: line.end[0], y: line.end[1] },
-      ],
-      collisions: trajectoryData.collisions.map(collision => ({
-        position: { x: collision.position[0], y: collision.position[1] },
-        type: collision.ball_id ? 'ball' : 'rail' as 'ball' | 'rail' | 'pocket',
-        targetId: collision.ball_id,
-        angle: collision.angle,
-        impulse: 0, // Not provided
-      })),
-      type: line.type,
-      probability: line.confidence,
-      color: this.getTrajectoryColor(line.type),
-    }));
+    const trajectories: Trajectory[] = trajectoryData.lines.map(
+      (line, index) => ({
+        ballId: `trajectory_${index}`,
+        points: [
+          { x: line.start[0], y: line.start[1] },
+          { x: line.end[0], y: line.end[1] },
+        ],
+        collisions: trajectoryData.collisions.map((collision) => ({
+          position: { x: collision.position[0], y: collision.position[1] },
+          type: collision.ball_id
+            ? "ball"
+            : ("rail" as "ball" | "rail" | "pocket"),
+          targetId: collision.ball_id,
+          angle: collision.angle,
+          impulse: 0, // Not provided
+        })),
+        type: line.type,
+        probability: line.confidence,
+        color: this.getTrajectoryColor(line.type),
+      })
+    );
 
     // Update current frame with trajectory data
     runInAction(() => {
@@ -579,13 +609,13 @@ export class VideoStore {
   }
 
   private handleFrameMessage(message: WebSocketMessage): void {
-    if (!message || message.type !== 'frame') return;
+    if (!message || message.type !== "frame") return;
 
     try {
       const frameData = message.data as any;
 
       // Decode base64 image and create data URL
-      const imageUrl = `data:image/${frameData.format || 'jpeg'};base64,${frameData.image}`;
+      const imageUrl = `data:image/${frameData.format || "jpeg"};base64,${frameData.image}`;
 
       // Update frame image for rendering
       runInAction(() => {
@@ -597,12 +627,12 @@ export class VideoStore {
         this.updateFPSCalculation();
       });
     } catch (error) {
-      console.error('Failed to process frame message:', error);
+      console.error("Failed to process frame message:", error);
     }
   }
 
   private handleMetricsMessage(message: WebSocketMessage): void {
-    if (!message || message.type !== 'metrics') return;
+    if (!message || message.type !== "metrics") return;
 
     try {
       const metricsData = message.data as any;
@@ -610,68 +640,72 @@ export class VideoStore {
       // Update performance metrics from server
       runInAction(() => {
         if (metricsData.fps !== undefined) this.status.fps = metricsData.fps;
-        if (metricsData.latency_ms !== undefined) this.status.latency = metricsData.latency_ms;
-        if (metricsData.dropped_frames !== undefined) this.status.droppedFrames = metricsData.dropped_frames;
+        if (metricsData.latency_ms !== undefined)
+          this.status.latency = metricsData.latency_ms;
+        if (metricsData.dropped_frames !== undefined)
+          this.status.droppedFrames = metricsData.dropped_frames;
       });
     } catch (error) {
-      console.error('Failed to process metrics message:', error);
+      console.error("Failed to process metrics message:", error);
     }
   }
 
   private handleAlertMessage(message: WebSocketMessage): void {
-    if (!message || message.type !== 'alert') return;
+    if (!message || message.type !== "alert") return;
 
     try {
       const alertData = message.data as any;
 
       // Handle alerts by converting to errors if needed
-      if (alertData.level === 'error' || alertData.level === 'critical') {
+      if (alertData.level === "error" || alertData.level === "critical") {
         const videoError: VideoError = {
-          code: alertData.code || 'SYSTEM_ALERT',
+          code: alertData.code || "SYSTEM_ALERT",
           message: alertData.message,
           timestamp: Date.now(),
-          recoverable: alertData.level !== 'critical',
+          recoverable: alertData.level !== "critical",
         };
         this.addError(videoError);
       }
 
       console.log(`Alert received: ${alertData.level} - ${alertData.message}`);
     } catch (error) {
-      console.error('Failed to process alert message:', error);
+      console.error("Failed to process alert message:", error);
     }
   }
 
-  private inferBallType(id: string, color: string): Ball['type'] {
-    if (id.toLowerCase().includes('cue') || id === '0') return 'cue';
-    if (id === '8' || id === 'eight') return 'eight';
+  private inferBallType(id: string, color: string): Ball["type"] {
+    if (id.toLowerCase().includes("cue") || id === "0") return "cue";
+    if (id === "8" || id === "eight") return "eight";
 
     // Check if it's a stripe ball (numbers 9-15)
     const ballNumber = parseInt(id);
-    if (!isNaN(ballNumber) && ballNumber >= 9 && ballNumber <= 15) return 'stripe';
+    if (!isNaN(ballNumber) && ballNumber >= 9 && ballNumber <= 15)
+      return "stripe";
 
     // Default to solid for other numbered balls
-    if (!isNaN(ballNumber) && ballNumber >= 1 && ballNumber <= 7) return 'solid';
+    if (!isNaN(ballNumber) && ballNumber >= 1 && ballNumber <= 7)
+      return "solid";
 
-    return 'solid'; // Default fallback
+    return "solid"; // Default fallback
   }
 
   private inferBallNumber(id: string, color: string): number | undefined {
     const ballNumber = parseInt(id);
     if (!isNaN(ballNumber)) return ballNumber;
 
-    if (id.toLowerCase().includes('cue')) return 0;
-    if (id.toLowerCase().includes('eight')) return 8;
+    if (id.toLowerCase().includes("cue")) return 0;
+    if (id.toLowerCase().includes("eight")) return 8;
 
     return undefined;
   }
 
   private getTrajectoryColor(type: string): string {
     const colors = {
-      primary: '#00FF00',
-      reflection: '#0080FF',
-      collision: '#FF8000',
+      primary: "#00FF00",
+      reflection: "#0080FF",
+      collision: "#FF8000",
     };
-    return colors[type as keyof typeof colors] || '#00FF00';
+    return colors[type as keyof typeof colors] || "#00FF00";
   }
 
   // Cleanup
@@ -694,21 +728,24 @@ export class VideoStore {
     if (!this.streamUrl) {
       // If no stream URL is set, try to generate one using the API client
       try {
-        const { apiClient } = require('../api/client');
+        const { apiClient } = require("../api/client");
         return apiClient.getVideoStreamUrl(
           this.getQualityValue(this.config.quality),
           this.config.fps
         );
       } catch {
-        return '';
+        return "";
       }
     }
 
     const url = new URL(this.streamUrl);
 
     // Add quality and FPS parameters
-    url.searchParams.set('quality', this.getQualityValue(this.config.quality).toString());
-    url.searchParams.set('fps', this.config.fps.toString());
+    url.searchParams.set(
+      "quality",
+      this.getQualityValue(this.config.quality).toString()
+    );
+    url.searchParams.set("fps", this.config.fps.toString());
 
     // Add any additional parameters
     if (params) {
@@ -732,18 +769,18 @@ export class VideoStore {
 
   // Ball finding utilities
   findBallById(id: string): Ball | undefined {
-    return this.currentBalls.find(ball => ball.id === id);
+    return this.currentBalls.find((ball) => ball.id === id);
   }
 
   findBallByNumber(number: number): Ball | undefined {
-    return this.currentBalls.find(ball => ball.number === number);
+    return this.currentBalls.find((ball) => ball.number === number);
   }
 
   findCueBall(): Ball | undefined {
-    return this.currentBalls.find(ball => ball.type === 'cue');
+    return this.currentBalls.find((ball) => ball.type === "cue");
   }
 
-  getBallsByType(type: Ball['type']): Ball[] {
-    return this.currentBalls.filter(ball => ball.type === type);
+  getBallsByType(type: Ball["type"]): Ball[] {
+    return this.currentBalls.filter((ball) => ball.type === type);
   }
 }

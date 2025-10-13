@@ -16,6 +16,7 @@ import { useStores } from '../../stores/context';
 import { StatCard } from '../monitoring/StatCard';
 import { ProgressBar } from '../monitoring/ProgressBar';
 import { StatusIndicator } from '../monitoring/StatusIndicator';
+import { apiClient } from '../../api/client';
 import type { SystemIssue } from './DiagnosticsSystem';
 
 interface TroubleshootingStep {
@@ -366,7 +367,7 @@ export const TroubleshootingWizard: React.FC<TroubleshootingWizardProps> = obser
           action: async () => {
             try {
               // Attempt to reconnect WebSocket
-              await connectionStore.reconnect();
+              await connectionStore.connect();
               return connectionStore.state.isConnected;
             } catch (error) {
               return false;
@@ -547,10 +548,10 @@ export const TroubleshootingWizard: React.FC<TroubleshootingWizardProps> = obser
 
       case 'ping-backend-server':
         try {
-          const response = await fetch('/api/health', { method: 'HEAD' });
+          const response = await apiClient.healthCheck();
           return {
-            success: response.ok,
-            message: response.ok ? 'Backend server responding' : `Server error: ${response.status}`,
+            success: response.success,
+            message: response.success ? 'Backend server responding' : `Server error: ${response.error}`,
           };
         } catch (error) {
           return { success: false, message: 'Cannot reach backend server' };
@@ -558,10 +559,10 @@ export const TroubleshootingWizard: React.FC<TroubleshootingWizardProps> = obser
 
       case 'check-websocket-connection':
         try {
-          await connectionStore.testConnection();
+          const isHealthy = await connectionStore.testConnectionHealth();
           return {
-            success: connectionStore.state.isConnected,
-            message: connectionStore.state.isConnected ?
+            success: isHealthy,
+            message: isHealthy ?
               'WebSocket connection successful' :
               'WebSocket connection failed',
           };

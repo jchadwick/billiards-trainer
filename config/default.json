@@ -18,6 +18,7 @@
       "exposure_mode": "auto",
       "gain": 1.0,
       "buffer_size": 1,
+      "loop_video": true,
       "auto_reconnect": true,
       "reconnect_delay": 1.0,
       "max_reconnect_attempts": 5

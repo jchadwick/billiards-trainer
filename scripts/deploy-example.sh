@@ -59,7 +59,6 @@ BACKEND_IMAGE=$REGISTRY/$REPOSITORY/backend:$IMAGE_TAG
 # Add your environment-specific variables here
 # Example:
 # API_PORT=8000
-# WS_PORT=8001
 # REDIS_PORT=6379
 EOF
 

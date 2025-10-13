@@ -39,7 +39,7 @@ ENV API_PORT=8000
 ENV API_HOST=0.0.0.0
 
 # Expose the API port
-EXPOSE 8000 8081
+EXPOSE 8000
 
 # Use watchdog to auto-reload on file changes
 # Use shell form to expand environment variable

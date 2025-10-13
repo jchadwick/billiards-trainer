@@ -2,20 +2,20 @@
  * Integration tests for API service functionality
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi, Mock } from 'vitest';
-import { ApiService, createApiService } from '../api-service';
-import { ApiClient } from '../api-client';
-import { WebSocketClient } from '../websocket-client';
-import { AuthService } from '../auth-service';
-import { DataProcessingService } from '../data-handlers';
+import { describe, it, expect, beforeEach, afterEach, vi, Mock } from "vitest";
+import { ApiService, createApiService } from "../api-service";
+import { ApiClient } from "../api-client";
+import { WebSocketClient } from "../websocket-client";
+import { AuthService } from "../auth-service";
+import { DataProcessingService } from "../data-handlers";
 
 // Mock implementations
-vi.mock('../api-client');
-vi.mock('../websocket-client');
-vi.mock('../auth-service');
-vi.mock('../data-handlers');
+vi.mock("../api-client");
+vi.mock("../websocket-client");
+vi.mock("../auth-service");
+vi.mock("../data-handlers");
 
-describe('API Integration Tests', () => {
+describe("API Integration Tests", () => {
   let apiService: ApiService;
   let mockApiClient: Mock;
   let mockWsClient: Mock;
@@ -34,10 +34,10 @@ describe('API Integration Tests', () => {
 
     // Setup default mock implementations
     mockApiClient.getHealth = vi.fn().mockResolvedValue({
-      status: 'healthy',
+      status: "healthy",
       timestamp: new Date().toISOString(),
       uptime: 3600,
-      version: '1.0.0',
+      version: "1.0.0",
       components: {},
     });
 
@@ -58,8 +58,8 @@ describe('API Integration Tests', () => {
 
     // Create API service instance
     apiService = createApiService({
-      apiBaseUrl: 'http://localhost:8000',
-      wsBaseUrl: 'ws://localhost:8000/ws',
+      apiBaseUrl: "http://localhost:8000",
+      wsBaseUrl: "ws://localhost:8000/ws",
       autoConnectWebSocket: false, // Don't auto-connect in tests
     });
   });
@@ -68,25 +68,25 @@ describe('API Integration Tests', () => {
     apiService?.destroy();
   });
 
-  describe('Service Initialization', () => {
-    it('should create service with correct configuration', () => {
+  describe("Service Initialization", () => {
+    it("should create service with correct configuration", () => {
       expect(apiService).toBeDefined();
       expect(mockAuthService.onStateChange).toHaveBeenCalled();
     });
 
-    it('should setup WebSocket event handlers', () => {
+    it("should setup WebSocket event handlers", () => {
       expect(mockWsClient.onConnectionState).toHaveBeenCalled();
     });
   });
 
-  describe('Authentication Integration', () => {
-    it('should handle successful login', async () => {
-      const credentials = { username: 'test', password: 'password' };
+  describe("Authentication Integration", () => {
+    it("should handle successful login", async () => {
+      const credentials = { username: "test", password: "password" };
       const mockUser = {
-        id: '1',
-        username: 'test',
-        role: 'admin',
-        permissions: ['admin:*'],
+        id: "1",
+        username: "test",
+        role: "admin",
+        permissions: ["admin:*"],
         loginTimestamp: new Date(),
         lastActivity: new Date(),
       };
@@ -98,24 +98,24 @@ describe('API Integration Tests', () => {
       expect(mockAuthService.login).toHaveBeenCalledWith(credentials);
     });
 
-    it('should handle authentication state changes', () => {
+    it("should handle authentication state changes", () => {
       // Simulate auth state change
       const authStateHandler = mockAuthService.onStateChange.mock.calls[0][0];
 
       authStateHandler({
         isAuthenticated: true,
-        user: { id: '1', username: 'test' },
-        accessToken: 'test-token',
-        refreshToken: 'refresh-token',
+        user: { id: "1", username: "test" },
+        accessToken: "test-token",
+        refreshToken: "refresh-token",
         expiresAt: new Date(Date.now() + 3600000),
         isRefreshing: false,
         lastError: null,
       });
 
-      expect(mockWsClient.updateToken).toHaveBeenCalledWith('test-token');
+      expect(mockWsClient.updateToken).toHaveBeenCalledWith("test-token");
     });
 
-    it('should disconnect WebSocket on logout', async () => {
+    it("should disconnect WebSocket on logout", async () => {
       await apiService.logout();
 
       expect(mockAuthService.logout).toHaveBeenCalled();
@@ -123,40 +123,43 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('WebSocket Integration', () => {
-    it('should connect to WebSocket successfully', async () => {
+  describe("WebSocket Integration", () => {
+    it("should connect to WebSocket successfully", async () => {
       await apiService.connectWebSocket();
 
       expect(mockWsClient.connect).toHaveBeenCalled();
     });
 
-    it('should subscribe to default streams on connection', () => {
+    it("should subscribe to default streams on connection", () => {
       // Simulate WebSocket connection
       const connectionHandler = mockWsClient.onConnectionState.mock.calls[0][0];
-      connectionHandler('connected');
+      connectionHandler("connected");
 
       expect(mockWsClient.subscribe).toHaveBeenCalledWith([
-        'frame', 'state', 'trajectory', 'alert'
+        "frame",
+        "state",
+        "trajectory",
+        "alert",
       ]);
     });
 
-    it('should handle WebSocket messages through data processor', () => {
+    it("should handle WebSocket messages through data processor", () => {
       // Find the message handler for frame messages
       const messageHandlerCall = mockWsClient.on.mock.calls.find(
-        call => call[0] === 'frame'
+        (call) => call[0] === "frame"
       );
 
       expect(messageHandlerCall).toBeDefined();
 
       const messageHandler = messageHandlerCall[1];
       const testMessage = {
-        type: 'frame',
+        type: "frame",
         timestamp: new Date().toISOString(),
         data: {
-          image: 'base64data',
+          image: "base64data",
           width: 1920,
           height: 1080,
-          format: 'jpeg',
+          format: "jpeg",
           quality: 85,
           compressed: false,
           fps: 30,
@@ -166,26 +169,28 @@ describe('API Integration Tests', () => {
 
       messageHandler(testMessage);
 
-      expect(mockDataProcessor.processMessage).toHaveBeenCalledWith(testMessage);
+      expect(mockDataProcessor.processMessage).toHaveBeenCalledWith(
+        testMessage
+      );
     });
   });
 
-  describe('REST API Integration', () => {
-    it('should fetch health status', async () => {
+  describe("REST API Integration", () => {
+    it("should fetch health status", async () => {
       const health = await apiService.getHealth();
 
       expect(mockApiClient.getHealth).toHaveBeenCalled();
-      expect(health.status).toBe('healthy');
+      expect(health.status).toBe("healthy");
     });
 
-    it('should handle API errors gracefully', async () => {
-      const error = new Error('API Error');
+    it("should handle API errors gracefully", async () => {
+      const error = new Error("API Error");
       mockApiClient.getHealth.mockRejectedValue(error);
 
-      await expect(apiService.getHealth()).rejects.toThrow('API Error');
+      await expect(apiService.getHealth()).rejects.toThrow("API Error");
     });
 
-    it('should cache API responses', async () => {
+    it("should cache API responses", async () => {
       // First call
       await apiService.getHealth();
 
@@ -197,12 +202,12 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Configuration Management', () => {
-    it('should load configuration', async () => {
+  describe("Configuration Management", () => {
+    it("should load configuration", async () => {
       const mockConfig = {
         timestamp: new Date().toISOString(),
         values: { camera: { enabled: true } },
-        schema_version: '1.0',
+        schema_version: "1.0",
         last_modified: new Date().toISOString(),
         is_valid: true,
         validation_errors: [],
@@ -216,15 +221,15 @@ describe('API Integration Tests', () => {
       expect(config.values).toEqual({ camera: { enabled: true } });
     });
 
-    it('should update configuration', async () => {
+    it("should update configuration", async () => {
       const updateRequest = {
-        section: 'camera',
+        section: "camera",
         values: { enabled: false },
       };
 
       const mockResponse = {
         success: true,
-        updated_fields: ['enabled'],
+        updated_fields: ["enabled"],
         validation_errors: [],
         warnings: [],
         rollback_available: true,
@@ -240,8 +245,8 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Game State Management', () => {
-    it('should fetch current game state', async () => {
+  describe("Game State Management", () => {
+    it("should fetch current game state", async () => {
       const mockGameState = {
         timestamp: new Date().toISOString(),
         frame_number: 123,
@@ -253,13 +258,15 @@ describe('API Integration Tests', () => {
           pocket_radius: 0.06,
           surface_friction: 0.1,
         },
-        game_type: 'eight_ball',
+        game_type: "eight_ball",
         is_valid: true,
         confidence: 0.95,
         events: [],
       };
 
-      mockApiClient.getCurrentGameState = vi.fn().mockResolvedValue(mockGameState);
+      mockApiClient.getCurrentGameState = vi
+        .fn()
+        .mockResolvedValue(mockGameState);
 
       const gameState = await apiService.getCurrentGameState();
 
@@ -267,10 +274,10 @@ describe('API Integration Tests', () => {
       expect(gameState.confidence).toBe(0.95);
     });
 
-    it('should reset game state', async () => {
+    it("should reset game state", async () => {
       const mockResponse = {
         success: true,
-        message: 'Game state reset successfully',
+        message: "Game state reset successfully",
         timestamp: new Date().toISOString(),
       };
 
@@ -282,22 +289,22 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Real-time Data Handling', () => {
-    it('should process frame data', () => {
+  describe("Real-time Data Handling", () => {
+    it("should process frame data", () => {
       const frameHandler = vi.fn();
       apiService.onFrameData(frameHandler);
 
       expect(mockDataProcessor.onFrame).toHaveBeenCalledWith(frameHandler);
     });
 
-    it('should process game state data', () => {
+    it("should process game state data", () => {
       const stateHandler = vi.fn();
       apiService.onGameStateData(stateHandler);
 
       expect(mockDataProcessor.onGameState).toHaveBeenCalledWith(stateHandler);
     });
 
-    it('should provide access to current processed state', () => {
+    it("should provide access to current processed state", () => {
       const mockProcessedState = {
         timestamp: new Date(),
         balls: [],
@@ -306,7 +313,9 @@ describe('API Integration Tests', () => {
         changesSinceLastFrame: [],
       };
 
-      mockDataProcessor.getCurrentGameState = vi.fn().mockReturnValue(mockProcessedState);
+      mockDataProcessor.getCurrentGameState = vi
+        .fn()
+        .mockReturnValue(mockProcessedState);
 
       const currentState = apiService.getCurrentProcessedGameState();
 
@@ -314,28 +323,30 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle network errors', async () => {
-      const networkError = new Error('Network unreachable');
+  describe("Error Handling", () => {
+    it("should handle network errors", async () => {
+      const networkError = new Error("Network unreachable");
       mockApiClient.getHealth.mockRejectedValue(networkError);
 
-      await expect(apiService.getHealth()).rejects.toThrow('Network unreachable');
+      await expect(apiService.getHealth()).rejects.toThrow(
+        "Network unreachable"
+      );
     });
 
-    it('should handle WebSocket connection errors', () => {
+    it("should handle WebSocket connection errors", () => {
       const connectionHandler = mockWsClient.onConnectionState.mock.calls[0][0];
-      const error = new Error('WebSocket connection failed');
+      const error = new Error("WebSocket connection failed");
 
-      connectionHandler('error', error);
+      connectionHandler("error", error);
 
       // Connection status should be updated
       const status = apiService.getConnectionStatus();
-      expect(status.websocket).toBe('error');
+      expect(status.websocket).toBe("error");
     });
   });
 
-  describe('Caching and Performance', () => {
-    it('should respect cache timeout', async () => {
+  describe("Caching and Performance", () => {
+    it("should respect cache timeout", async () => {
       vi.useFakeTimers();
 
       // First call
@@ -352,7 +363,7 @@ describe('API Integration Tests', () => {
       vi.useRealTimers();
     });
 
-    it('should deduplicate concurrent requests', async () => {
+    it("should deduplicate concurrent requests", async () => {
       // Make multiple concurrent requests
       const promises = [
         apiService.getHealth(),
@@ -367,32 +378,32 @@ describe('API Integration Tests', () => {
     });
   });
 
-  describe('Stream Management', () => {
-    it('should subscribe to specific streams', async () => {
-      const streams = ['frame', 'state'];
+  describe("Stream Management", () => {
+    it("should subscribe to specific streams", async () => {
+      const streams = ["frame", "state"];
       await apiService.subscribeToStreams(streams);
 
       expect(mockWsClient.subscribe).toHaveBeenCalledWith(streams);
     });
 
-    it('should unsubscribe from streams', async () => {
-      const streams = ['frame'];
+    it("should unsubscribe from streams", async () => {
+      const streams = ["frame"];
       await apiService.unsubscribeFromStreams(streams);
 
       expect(mockWsClient.unsubscribe).toHaveBeenCalledWith(streams);
     });
 
-    it('should filter invalid stream types', async () => {
-      const streams = ['frame', 'invalid_stream', 'state'];
+    it("should filter invalid stream types", async () => {
+      const streams = ["frame", "invalid_stream", "state"];
       await apiService.subscribeToStreams(streams);
 
       // Should only subscribe to valid streams
-      expect(mockWsClient.subscribe).toHaveBeenCalledWith(['frame', 'state']);
+      expect(mockWsClient.subscribe).toHaveBeenCalledWith(["frame", "state"]);
     });
   });
 
-  describe('Service Lifecycle', () => {
-    it('should clean up resources on destroy', () => {
+  describe("Service Lifecycle", () => {
+    it("should clean up resources on destroy", () => {
       apiService.destroy();
 
       expect(mockWsClient.destroy).toHaveBeenCalled();
@@ -402,25 +413,25 @@ describe('API Integration Tests', () => {
   });
 });
 
-describe('API Service Factory', () => {
-  it('should create service with minimal configuration', () => {
+describe("API Service Factory", () => {
+  it("should create service with minimal configuration", () => {
     const service = createApiService({
-      apiBaseUrl: 'http://localhost:8000',
-      wsBaseUrl: 'ws://localhost:8000/ws',
+      apiBaseUrl: "http://localhost:8000",
+      wsBaseUrl: "ws://localhost:8000/ws",
     });
 
     expect(service).toBeInstanceOf(ApiService);
     service.destroy();
   });
 
-  it('should create service with full configuration', () => {
+  it("should create service with full configuration", () => {
     const service = createApiService({
-      apiBaseUrl: 'http://localhost:8000',
-      wsBaseUrl: 'ws://localhost:8000/ws',
+      apiBaseUrl: "http://localhost:8000",
+      wsBaseUrl: "ws://localhost:8000/ws",
       enableCaching: true,
       cacheTimeout: 300000,
       autoConnectWebSocket: true,
-      defaultStreamSubscriptions: ['frame', 'state'],
+      defaultStreamSubscriptions: ["frame", "state"],
     });
 
     expect(service).toBeInstanceOf(ApiService);
@@ -429,10 +440,9 @@ describe('API Service Factory', () => {
 });
 
 // Mock environment variable for testing
-Object.defineProperty(import.meta, 'env', {
+Object.defineProperty(import.meta, "env", {
   value: {
-    VITE_API_BASE_URL: 'http://localhost:8000',
-    VITE_WS_BASE_URL: 'ws://localhost:8000/ws',
+    VITE_API_BASE_URL: "http://localhost:8000",
   },
   writable: true,
 });

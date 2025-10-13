@@ -272,24 +272,6 @@ class Operation(BaseModel):
     error: Optional[str] = Field(None, description="Error message if failed")
 
 
-def create_error_response(
-    error_type: str,
-    message: str,
-    code: ErrorCode,
-    details: Optional[dict[str, Any]] = None,
-    request_id: Optional[str] = None,
-) -> dict[str, Any]:
-    """Create a standardized error response."""
-    return {
-        "error": error_type,
-        "message": message,
-        "code": code.value,
-        "details": details or {},
-        "timestamp": datetime.utcnow(),
-        "request_id": request_id,
-    }
-
-
 def create_success_response(
     message: str, data: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:

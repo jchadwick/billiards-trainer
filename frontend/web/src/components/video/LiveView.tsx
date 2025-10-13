@@ -19,7 +19,6 @@ import type { Size2D, ViewportTransform, OverlayConfig, Point2D, VideoError } fr
 interface LiveViewProps {
   className?: string;
   autoConnect?: boolean;
-  baseUrl?: string;
 }
 
 // Default overlay configuration
@@ -64,7 +63,6 @@ const defaultOverlayConfig: OverlayConfig = {
 export const LiveView = observer<LiveViewProps>(({
   className = '',
   autoConnect = true,
-  baseUrl = 'http://localhost:8080',
 }) => {
   const [videoStore] = useState(() => new VideoStore());
   const [containerSize, setContainerSize] = useState<Size2D>({ width: 0, height: 0 });
@@ -87,13 +85,13 @@ export const LiveView = observer<LiveViewProps>(({
   // Auto-connect on mount
   useEffect(() => {
     if (autoConnect) {
-      videoStore.connect(baseUrl).catch(console.error);
+      videoStore.connect().catch(console.error);
     }
 
     return () => {
       videoStore.dispose();
     };
-  }, [autoConnect, baseUrl, videoStore]);
+  }, [autoConnect, videoStore]);
 
   // Handle container resize
   const handleContainerResize = useCallback((size: Size2D) => {

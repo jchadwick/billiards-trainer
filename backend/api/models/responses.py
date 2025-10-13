@@ -782,23 +782,6 @@ class CameraCalibrationApplyResponse(BaseResponse):
 # =============================================================================
 
 
-def create_error_response(
-    error_code: ErrorCode,
-    message: str,
-    details: Optional[dict[str, Any]] = None,
-    request_id: Optional[str] = None,
-) -> ErrorResponse:
-    """Create a standardized error response."""
-    return ErrorResponse(
-        error=error_code.name.lower().replace("_", " "),
-        message=message,
-        code=error_code.value,
-        details=details or {},
-        timestamp=datetime.now(),
-        request_id=request_id,
-    )
-
-
 def create_success_response(
     message: str, data: Optional[dict[str, Any]] = None
 ) -> SuccessResponse:

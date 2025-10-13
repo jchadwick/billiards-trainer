@@ -464,7 +464,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins="*",
+        allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -474,12 +474,13 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # This ensures proper execution order for request/response processing
 
     # 1. Health metrics tracking (last - measures everything)
-    metrics_config = (
-        MetricsConfig(**middleware_config["metrics"])
-        if middleware_config.get("metrics")
-        else MetricsConfig()
-    )
-    app.add_middleware(MetricsMiddleware, config=metrics_config)
+    # TEMPORARILY DISABLED FOR DEBUG
+    # metrics_config = (
+    #     MetricsConfig(**middleware_config["metrics"])
+    #     if middleware_config.get("metrics")
+    #     else MetricsConfig()
+    # )
+    # app.add_middleware(MetricsMiddleware, config=metrics_config)
 
     # 2. Performance monitoring (last - measures everything)
     setup_performance_monitoring(app, middleware_config["performance"])
@@ -574,7 +575,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
             with suppress(Exception):
                 await websocket.close()
 
-    app.add_websocket_route("/ws", websocket_endpoint)
+    app.add_websocket_route("/api/v1/ws", websocket_endpoint)
 
     # API root endpoint
     @app.get("/api")

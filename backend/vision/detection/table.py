@@ -85,6 +85,9 @@ class TableDetector:
         self.max_table_area_ratio = geometry_config.get(
             "max_table_area_ratio", 0.9
         )  # Maximum % of image
+        self.playing_surface_inset_ratio = geometry_config.get(
+            "playing_surface_inset_ratio", 0.05
+        )  # Ratio to inset for playing surface
 
         # Edge detection parameters
         edge_config = config.get("edge_detection", {})
@@ -136,12 +139,15 @@ class TableDetector:
         self.debug_images: list[tuple[str, NDArray[np.uint8]]] = []
 
     def detect_table_boundaries(
-        self, frame: NDArray[np.uint8]
+        self, frame: NDArray[np.uint8], use_pocket_detection: bool = False
     ) -> Optional[TableCorners]:
         """Detect table edges and corners (FR-VIS-011, FR-VIS-012).
 
         Uses combined color and edge detection for robust boundary identification.
         Achieves sub-pixel accuracy through corner refinement.
+
+        If use_pocket_detection is True, attempts to detect corner pockets and
+        use their centers as the table corners for more accurate boundaries.
         """
         if frame is None or frame.size == 0:
             return None
@@ -166,6 +172,12 @@ class TableDetector:
 
         if corners is None:
             return None
+
+        # Try pocket-based detection if enabled
+        if use_pocket_detection:
+            pocket_corners = self._detect_corners_from_pockets(frame, corners)
+            if pocket_corners is not None:
+                corners = pocket_corners
 
         # Validate geometry
         if not self._validate_table_geometry(corners):
@@ -403,10 +415,17 @@ class TableDetector:
             mask = cv2.inRange(hsv, color_range["lower"], color_range["upper"])
             masks.append(mask)
 
-        # Combine all color masks
-        combined_mask = masks[0]
-        for mask in masks[1:]:
-            combined_mask = cv2.bitwise_or(combined_mask, mask)
+        # If no color ranges configured, create a default mask using green felt
+        if not masks:
+            # Default green felt color range in HSV
+            default_lower = np.array([35, 40, 40])
+            default_upper = np.array([85, 255, 255])
+            combined_mask = cv2.inRange(hsv, default_lower, default_upper)
+        else:
+            # Combine all color masks
+            combined_mask = masks[0]
+            for mask in masks[1:]:
+                combined_mask = cv2.bitwise_or(combined_mask, mask)
 
         # Clean up the mask
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, self.large_kernel)
@@ -452,6 +471,16 @@ class TableDetector:
                 if len(approx) == 4:
                     break
 
+        # If we still don't have 4 points, use convex hull (handles pockets)
+        if len(approx) != 4:
+            hull = cv2.convexHull(contour)
+            # Try to approximate the convex hull to a quadrilateral
+            for epsilon_mult in [0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10]:
+                epsilon = epsilon_mult * cv2.arcLength(hull, True)
+                approx = cv2.approxPolyDP(hull, epsilon, True)
+                if len(approx) == 4:
+                    break
+
         if len(approx) != 4:
             return None
 
@@ -460,6 +489,9 @@ class TableDetector:
 
         # Sort corners to consistent order (top-left, top-right, bottom-right, bottom-left)
         corners = self._sort_corners(corners)
+
+        # Apply inset to find the cushion edge (playing surface boundary)
+        corners = self._inset_corners(corners)
 
         # Refine corners using edge detection
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -478,33 +510,81 @@ class TableDetector:
 
     def _sort_corners(self, corners: NDArray[np.float64]) -> NDArray[np.float64]:
         """Sort corners to consistent order: top-left, top-right, bottom-left, bottom-right."""
-        # Calculate center point
-        center = np.mean(corners, axis=0)
+        # Sort points by y-coordinate to separate top and bottom rows
+        corners_by_y = sorted(corners, key=lambda p: p[1])
 
-        # Sort by angle from center
-        def angle_from_center(point):
-            return math.atan2(point[1] - center[1], point[0] - center[0])
+        # Top two points (smallest y values)
+        top_points = corners_by_y[:2]
+        # Bottom two points (largest y values)
+        bottom_points = corners_by_y[2:]
 
-        # Sort corners by angle
-        corners_with_angles = [
-            (corner, angle_from_center(corner)) for corner in corners
+        # Sort each pair by x-coordinate (left to right)
+        top_points = sorted(top_points, key=lambda p: p[0])
+        bottom_points = sorted(bottom_points, key=lambda p: p[0])
+
+        # Arrange in the expected order: top-left, top-right, bottom-left, bottom-right
+        sorted_corners = [
+            top_points[0],  # top-left
+            top_points[1],  # top-right
+            bottom_points[0],  # bottom-left
+            bottom_points[1],  # bottom-right
         ]
-        corners_with_angles.sort(key=lambda x: x[1])
-
-        sorted_corners = [corner for corner, _ in corners_with_angles]
-
-        # Ensure correct order: top-left, top-right, bottom-right, bottom-left
-        # The first corner with smallest angle should be the rightmost
-        # We need to rotate the list to get top-left first
-
-        # Find the top-left corner (smallest x + y)
-        sum_coords = [corner[0] + corner[1] for corner in sorted_corners]
-        top_left_idx = sum_coords.index(min(sum_coords))
-
-        # Rotate list to start with top-left
-        sorted_corners = sorted_corners[top_left_idx:] + sorted_corners[:top_left_idx]
 
         return np.array(sorted_corners)
+
+    def _inset_corners(self, corners: NDArray[np.float64]) -> NDArray[np.float64]:
+        """Inset corners to find the playing surface (inner rectangle without rails).
+
+        Takes the detected table boundary and moves each corner inward by a ratio
+        of the table dimensions to approximate the playing surface.
+        """
+        # Calculate table dimensions
+        top_left, top_right, bottom_left, bottom_right = corners
+
+        # Calculate width and height
+        width = np.linalg.norm(top_right - top_left)
+        height = np.linalg.norm(bottom_left - top_left)
+
+        # Calculate inset distance
+        inset_horizontal = width * self.playing_surface_inset_ratio
+        inset_vertical = height * self.playing_surface_inset_ratio
+
+        # Calculate direction vectors for each edge
+        # Top edge: left to right
+        top_dir = (top_right - top_left) / width
+        # Bottom edge: left to right
+        bottom_dir = (bottom_right - bottom_left) / np.linalg.norm(
+            bottom_right - bottom_left
+        )
+        # Left edge: top to bottom
+        left_dir = (bottom_left - top_left) / height
+        # Right edge: top to bottom
+        right_dir = (bottom_right - top_right) / np.linalg.norm(
+            bottom_right - top_right
+        )
+
+        # Inset each corner
+        # Top-left: move right and down
+        new_top_left = top_left + top_dir * inset_horizontal + left_dir * inset_vertical
+
+        # Top-right: move left and down
+        new_top_right = (
+            top_right - top_dir * inset_horizontal + right_dir * inset_vertical
+        )
+
+        # Bottom-left: move right and up
+        new_bottom_left = (
+            bottom_left + bottom_dir * inset_horizontal - left_dir * inset_vertical
+        )
+
+        # Bottom-right: move left and up
+        new_bottom_right = (
+            bottom_right - bottom_dir * inset_horizontal - right_dir * inset_vertical
+        )
+
+        return np.array(
+            [new_top_left, new_top_right, new_bottom_left, new_bottom_right]
+        )
 
     def _refine_corner_subpixel(
         self,
@@ -574,6 +654,135 @@ class TableDetector:
     def _distance(self, p1: tuple[float, float], p2: tuple[float, float]) -> float:
         """Calculate Euclidean distance between two points."""
         return math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
+
+    def _detect_corners_from_pockets(
+        self, frame: NDArray[np.uint8], approximate_corners: TableCorners
+    ) -> Optional[TableCorners]:
+        """Detect table corners by finding the centers of corner pockets.
+
+        Uses the approximate corners to establish a search region, then detects
+        the four corner pockets and uses their centers as the precise table corners.
+        """
+        # Convert to grayscale for dark region detection
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Create an expanded region of interest to search for pockets
+        # We'll search slightly beyond the approximate corners
+        corner_list = approximate_corners.to_list()
+        expansion_factor = 0.15  # Expand search region by 15%
+
+        # Calculate bounds with expansion
+        min_x = min(c[0] for c in corner_list)
+        max_x = max(c[0] for c in corner_list)
+        min_y = min(c[1] for c in corner_list)
+        max_y = max(c[1] for c in corner_list)
+
+        width = max_x - min_x
+        height = max_y - min_y
+
+        search_min_x = max(0, int(min_x - width * expansion_factor))
+        search_max_x = min(gray.shape[1], int(max_x + width * expansion_factor))
+        search_min_y = max(0, int(min_y - height * expansion_factor))
+        search_max_y = min(gray.shape[0], int(max_y + height * expansion_factor))
+
+        # Create ROI mask for pocket search
+        roi_mask = np.zeros(gray.shape, dtype=np.uint8)
+        roi_mask[search_min_y:search_max_y, search_min_x:search_max_x] = 255
+
+        # Find dark regions (potential pockets) with lower threshold for better detection
+        dark_mask = cv2.inRange(gray, 0, self.pocket_color_threshold)
+        dark_mask = cv2.bitwise_and(dark_mask, roi_mask)
+
+        # Apply morphological operations to clean up
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_CLOSE, kernel)
+        dark_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, kernel)
+
+        if self.debug_mode:
+            self.debug_images.append(("corner_pockets_mask", dark_mask))
+
+        # Find contours for potential pockets
+        contours, _ = cv2.findContours(
+            dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        # Filter contours by area and find corner pockets
+        pocket_candidates = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+
+            # Use a relaxed area constraint for pockets
+            if self.min_pocket_area * 0.5 <= area <= self.max_pocket_area * 2.0:
+                # Calculate center
+                M = cv2.moments(contour)
+                if M["m00"] == 0:
+                    continue
+
+                center_x = M["m10"] / M["m00"]
+                center_y = M["m01"] / M["m00"]
+
+                # Calculate how "corner-like" this pocket is (should be near the extremes)
+                corner_score = 0
+                if abs(center_x - min_x) < width * 0.2:  # Near left edge
+                    corner_score += 1
+                if abs(center_x - max_x) < width * 0.2:  # Near right edge
+                    corner_score += 1
+                if abs(center_y - min_y) < height * 0.2:  # Near top edge
+                    corner_score += 1
+                if abs(center_y - max_y) < height * 0.2:  # Near bottom edge
+                    corner_score += 1
+
+                # Corner pockets should be near two edges
+                if corner_score >= 2:
+                    pocket_candidates.append((center_x, center_y, area, corner_score))
+
+        # Sort by corner_score (descending) and area (descending)
+        pocket_candidates.sort(key=lambda p: (p[3], p[2]), reverse=True)
+
+        # We need exactly 4 corner pockets
+        if len(pocket_candidates) < 4:
+            return None  # Fall back to approximate corners
+
+        # Instead of just taking the top 4, we need to ensure we get one pocket
+        # from each corner quadrant (TL, TR, BL, BR)
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+
+        # Group candidates by quadrant
+        quadrants = {"TL": [], "TR": [], "BL": [], "BR": []}
+        for cx, cy, area, score in pocket_candidates:
+            if cx < center_x and cy < center_y:
+                quadrants["TL"].append((cx, cy, area, score))
+            elif cx >= center_x and cy < center_y:
+                quadrants["TR"].append((cx, cy, area, score))
+            elif cx < center_x and cy >= center_y:
+                quadrants["BL"].append((cx, cy, area, score))
+            else:
+                quadrants["BR"].append((cx, cy, area, score))
+
+        # Check if we have at least one candidate in each quadrant
+        if not all(quadrants.values()):
+            return None  # Missing pocket in at least one quadrant
+
+        # Take the best candidate from each quadrant
+        pocket_centers = []
+        for quadrant in ["TL", "TR", "BL", "BR"]:
+            # Sort by score then area
+            quadrants[quadrant].sort(key=lambda p: (p[3], p[2]), reverse=True)
+            best = quadrants[quadrant][0]
+            pocket_centers.append((best[0], best[1]))
+
+        # Sort the pocket centers to match the expected corner order
+        # top-left, top-right, bottom-left, bottom-right
+        pocket_centers_array = np.array(pocket_centers, dtype=np.float32)
+        sorted_pockets = self._sort_corners(pocket_centers_array)
+
+        return TableCorners(
+            top_left=tuple(sorted_pockets[0]),
+            top_right=tuple(sorted_pockets[1]),
+            bottom_left=tuple(sorted_pockets[2]),
+            bottom_right=tuple(sorted_pockets[3]),
+        )
 
     def _create_table_roi_mask(
         self, image_shape: tuple[int, int], corners: TableCorners

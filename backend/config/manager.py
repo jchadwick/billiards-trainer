@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -25,7 +26,38 @@ from .utils.watcher import ConfigChangeEvent, ConfigWatcher
 
 
 class ConfigurationModule:
-    """Main configuration interface providing centralized settings management."""
+    """Main configuration interface providing centralized settings management.
+
+    This class implements a singleton pattern to ensure only one instance exists
+    per config directory, preventing duplicate file watchers and resource conflicts.
+    """
+
+    # Class-level singleton instances keyed by config_dir path
+    _instances: dict[str, "ConfigurationModule"] = {}
+    _instances_lock = threading.Lock()
+
+    def __new__(cls, config_dir: Path = Path("config"), enable_hot_reload: bool = True):
+        """Create or return existing singleton instance for the config directory.
+
+        Args:
+            config_dir: Directory containing configuration files
+            enable_hot_reload: Whether to enable hot reload functionality
+
+        Returns:
+            ConfigurationModule instance (singleton per config_dir)
+        """
+        # Normalize the config directory path to ensure consistent keys
+        config_dir_key = str(Path(config_dir).resolve())
+
+        with cls._instances_lock:
+            if config_dir_key not in cls._instances:
+                # Create new instance
+                instance = super().__new__(cls)
+                cls._instances[config_dir_key] = instance
+                # Mark as uninitialized so __init__ runs
+                instance._initialized = False
+
+            return cls._instances[config_dir_key]
 
     def __init__(
         self, config_dir: Path = Path("config"), enable_hot_reload: bool = True
@@ -36,6 +68,10 @@ class ConfigurationModule:
             config_dir: Directory containing configuration files
             enable_hot_reload: Whether to enable hot reload functionality
         """
+        # Only initialize once per instance
+        if getattr(self, "_initialized", False):
+            return
+
         self.config_dir = Path(config_dir)
         self._settings = create_default_config()
         self._data: dict[str, ConfigValue] = {}
@@ -94,6 +130,9 @@ class ConfigurationModule:
             except Exception as e:
                 print(f"Error initializing hot reload during construction: {e}")
                 self._enable_hot_reload = False
+
+        # Mark as initialized
+        self._initialized = True
 
     def _init_directories(self) -> None:
         """Initialize required directories."""
@@ -1671,6 +1710,41 @@ class ConfigurationModule:
                 self._config_watcher.stop_watching()
         except Exception:
             pass  # Ignore errors during cleanup
+
+    @classmethod
+    def get_instance(
+        cls, config_dir: Path = Path("config"), enable_hot_reload: bool = True
+    ) -> "ConfigurationModule":
+        """Get the singleton instance for the specified config directory.
+
+        This is an alternative to calling the constructor directly, making
+        the singleton pattern more explicit.
+
+        Args:
+            config_dir: Directory containing configuration files
+            enable_hot_reload: Whether to enable hot reload functionality
+
+        Returns:
+            ConfigurationModule singleton instance
+        """
+        return cls(config_dir=config_dir, enable_hot_reload=enable_hot_reload)
+
+    @classmethod
+    def clear_instances(cls) -> None:
+        """Clear all singleton instances.
+
+        This is primarily useful for testing to ensure a clean state.
+        WARNING: This will stop all file watchers and clear all instances.
+        """
+        with cls._instances_lock:
+            for instance in cls._instances.values():
+                try:
+                    if instance._config_watcher is not None:
+                        instance._config_watcher.stop_watching()
+                except Exception:
+                    pass  # Ignore errors during cleanup
+
+            cls._instances.clear()
 
 
 # Global configuration manager instance

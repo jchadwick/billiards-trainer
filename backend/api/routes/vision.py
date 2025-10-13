@@ -8,12 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+import numpy as np
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from ...vision.detection.yolo_detector import ModelValidationError, YOLODetector
 from ..dependencies import ApplicationState, get_app_state
-from ..models.common import ErrorCode, create_error_response
+from ..models.common import ErrorCode
 from ..models.vision_models import ModelInfoResponse, ModelUploadResponse
 
 logger = logging.getLogger(__name__)
@@ -359,12 +360,7 @@ async def reload_yolo_model(
         if not app_state.vision_module:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=create_error_response(
-                    "Vision Module Unavailable",
-                    "Vision module is not initialized or not available",
-                    ErrorCode.SYS_MODULE_UNAVAILABLE,
-                    {"module": "vision"},
-                ),
+                detail="Vision module is not initialized or not available",
             )
 
         vision_module = app_state.vision_module
@@ -373,12 +369,7 @@ async def reload_yolo_model(
         if not hasattr(vision_module, "detector") or vision_module.detector is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=create_error_response(
-                    "No Detector Available",
-                    "Vision module does not have a YOLO detector configured",
-                    ErrorCode.VAL_INVALID_CONFIGURATION,
-                    {"hint": "Vision module may be using OpenCV-only detection"},
-                ),
+                detail="Vision module does not have a YOLO detector configured",
             )
 
         detector = vision_module.detector
@@ -387,12 +378,7 @@ async def reload_yolo_model(
         if not hasattr(detector, "reload_model"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=create_error_response(
-                    "Detector Does Not Support Hot-Swapping",
-                    "Current detector does not support model reloading",
-                    ErrorCode.VAL_UNSUPPORTED_OPERATION,
-                    {"detector_type": type(detector).__name__},
-                ),
+                detail=f"Current detector does not support model reloading: {type(detector).__name__}",
             )
 
         # Validate model path
@@ -401,23 +387,13 @@ async def reload_yolo_model(
         if not model_path.is_absolute():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=create_error_response(
-                    "Invalid Model Path",
-                    "Model path must be an absolute path",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"provided_path": request.model_path},
-                ),
+                detail=f"Model path must be an absolute path: {request.model_path}",
             )
 
         if not model_path.exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=create_error_response(
-                    "Model File Not Found",
-                    f"Model file does not exist: {request.model_path}",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"model_path": request.model_path},
-                ),
+                detail=f"Model file does not exist: {request.model_path}",
             )
 
         # Validate model format
@@ -425,15 +401,7 @@ async def reload_yolo_model(
         if model_path.suffix.lower() not in valid_extensions:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=create_error_response(
-                    "Invalid Model Format",
-                    f"Model must be one of: {', '.join(valid_extensions)}",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {
-                        "provided_extension": model_path.suffix,
-                        "valid_extensions": valid_extensions,
-                    },
-                ),
+                detail=f"Model must be one of: {', '.join(valid_extensions)}, got: {model_path.suffix}",
             )
 
         # Get current model info before reload
@@ -449,22 +417,13 @@ async def reload_yolo_model(
 
         if not success:
             # Reload failed but detector handled it gracefully
-            current_model_info = (
+            (
                 detector.get_model_info() if hasattr(detector, "get_model_info") else {}
             )
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=create_error_response(
-                    "Model Reload Failed",
-                    "Failed to reload model. Previous model may still be active.",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {
-                        "requested_model": request.model_path,
-                        "current_model": current_model_info.get("model_path"),
-                        "fallback_mode": current_model_info.get("fallback_mode"),
-                    },
-                ),
+                detail=f"Failed to reload model: {request.model_path}. Previous model may still be active.",
             )
 
         # Get updated model info
@@ -488,132 +447,11 @@ async def reload_yolo_model(
         logger.error(f"Model validation error during reload: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=create_error_response(
-                "Model Validation Failed",
-                str(e),
-                ErrorCode.VAL_INVALID_CONFIGURATION,
-                {"model_path": request.model_path, "error": str(e)},
-            ),
+            detail=f"Model validation failed: {str(e)}",
         )
     except Exception as e:
         logger.error(f"Unexpected error during model reload: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=create_error_response(
-                "Model Reload Error",
-                "An unexpected error occurred during model reload",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e), "model_path": request.model_path},
-            ),
-        )
-
-
-@router.get(
-    "/detection/table",
-    summary="Detect table boundaries",
-    description="""
-    Automatically detect the pool table boundaries in the current camera frame.
-
-    Returns the 4 corner points of the detected table playing surface.
-    Points are returned in order: top-left, top-right, bottom-right, bottom-left.
-    """,
-)
-async def detect_table_boundaries(
-    app_state: ApplicationState = Depends(get_app_state),
-) -> dict[str, Any]:
-    """Detect table boundaries from the current camera frame.
-
-    Returns:
-        Dictionary with table_corners and additional detection info
-
-    Raises:
-        HTTPException: If vision module or camera is unavailable
-    """
-    try:
-        # Get vision module
-        if not app_state.vision_module:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=create_error_response(
-                    "Vision Module Unavailable",
-                    "Vision module is not initialized or not available",
-                    ErrorCode.SYS_MODULE_UNAVAILABLE,
-                    {"module": "vision"},
-                ),
-            )
-
-        vision_module = app_state.vision_module
-
-        # Get camera module to capture current frame
-        camera_module = getattr(vision_module, "camera", None)
-        if not camera_module:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=create_error_response(
-                    "Camera Module Unavailable",
-                    "Camera module is not initialized",
-                    ErrorCode.SYS_MODULE_UNAVAILABLE,
-                    {"module": "camera"},
-                ),
-            )
-
-        # Get current frame
-        frame = camera_module.get_frame()
-        if frame is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=create_error_response(
-                    "No Frame Available",
-                    "Could not capture frame from camera",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {},
-                ),
-            )
-
-        # Import and create table detector
-        from ...vision.detection.table import TableDetector
-
-        # Create detector with default config
-        detector_config = {}
-        detector = TableDetector(detector_config)
-
-        # Perform table detection
-        calibration_result = await asyncio.to_thread(detector.calibrate_table, frame)
-
-        if not calibration_result.get("success"):
-            error_msg = calibration_result.get("error", "Unknown error")
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=create_error_response(
-                    "Table Detection Failed",
-                    f"Could not detect table boundaries: {error_msg}",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"error": error_msg},
-                ),
-            )
-
-        logger.info(
-            f"Table detected successfully with {calibration_result.get('pocket_count', 0)} pockets"
-        )
-
-        return {
-            "success": True,
-            "table_corners": calibration_result["table_corners"],
-            "confidence": calibration_result.get("confidence", 0.0),
-            "table_dimensions": calibration_result.get("table_dimensions"),
-            "pocket_count": calibration_result.get("pocket_count", 0),
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error detecting table boundaries: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=create_error_response(
-                "Table Detection Error",
-                "An unexpected error occurred during table detection",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail=f"An unexpected error occurred during model reload: {str(e)}",
         )

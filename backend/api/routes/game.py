@@ -19,7 +19,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from ..dependencies import get_core_module
-from ..models.common import ErrorCode, create_error_response
 from ..models.responses import (
     BallInfo,
     CueInfo,
@@ -180,12 +179,7 @@ async def get_current_game_state(
         logger.error(f"Failed to retrieve current game state: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Game State Retrieval Failed",
-                "Unable to retrieve current game state",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to retrieve current game state",
         )
 
 
@@ -219,12 +213,7 @@ async def get_game_history(
         if start_time and end_time and end_time <= start_time:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid Time Range",
-                    "End time must be after start time",
-                    ErrorCode.VAL_PARAMETER_OUT_OF_RANGE,
-                    {"start_time": start_time, "end_time": end_time},
-                ),
+                detail="End time must be after start time",
             )
 
         # Get historical states from core module
@@ -278,12 +267,7 @@ async def get_game_history(
         logger.error(f"Failed to retrieve game history: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Game History Retrieval Failed",
-                "Unable to retrieve game history",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to retrieve game history",
         )
 
 
@@ -334,12 +318,7 @@ async def reset_game_state(
         except ValueError:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid Game Type",
-                    f"Game type '{game_type}' is not supported",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"supported_types": ["practice", "8ball", "9ball", "straight"]},
-                ),
+                detail=f"Game type '{game_type}' is not supported",
             )
 
         # Reset game state
@@ -355,12 +334,7 @@ async def reset_game_state(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Game Reset Failed",
-                    f"Failed to reset game state: {str(e)}",
-                    ErrorCode.SYSTEM_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Failed to reset game state: {str(e)}",
             )
 
         # Convert new state to response format
@@ -381,12 +355,7 @@ async def reset_game_state(
         logger.error(f"Failed to reset game state: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Game Reset Failed",
-                "Unable to reset game state",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to reset game state",
         )
 
 
@@ -542,12 +511,7 @@ async def export_session_data(
         logger.error(f"Failed to export session data: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Session Export Failed",
-                "Unable to export session data",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to export session data",
         )
 
 
@@ -582,12 +546,7 @@ async def download_session_export(export_id: str) -> FileResponse:
         if not file_path or not Path(file_path).exists():
             raise HTTPException(
                 status_code=404,
-                detail=create_error_response(
-                    "Export Not Found",
-                    f"Export file with ID '{export_id}' not found or has expired",
-                    ErrorCode.RES_NOT_FOUND,
-                    {"export_id": export_id},
-                ),
+                detail=f"Export file with ID '{export_id}' not found or has expired",
             )
 
         filename = Path(file_path).name
@@ -605,12 +564,7 @@ async def download_session_export(export_id: str) -> FileResponse:
         logger.error(f"Failed to download export: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Export Download Failed",
-                "Unable to download export file",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to download export file",
         )
 
 
@@ -676,10 +630,5 @@ async def get_game_statistics(
         logger.error(f"Failed to get game statistics: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Statistics Retrieval Failed",
-                "Unable to retrieve game statistics",
-                ErrorCode.SYSTEM_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Unable to retrieve game statistics",
         )

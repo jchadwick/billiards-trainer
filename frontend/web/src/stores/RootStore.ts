@@ -1,12 +1,13 @@
-import { makeAutoObservable } from 'mobx';
-import { SystemStore } from './SystemStore';
-import { GameStore } from './GameStore';
-import { VisionStore } from './VisionStore';
-import { ConfigStore } from './ConfigStore';
-import { UIStore } from './UIStore';
-import { ConnectionStore } from './ConnectionStore';
-import { VideoStore } from './VideoStore';
-import type { PersistedState } from './types';
+import { makeAutoObservable } from "mobx";
+import { SystemStore } from "./SystemStore";
+import { GameStore } from "./GameStore";
+import { VisionStore } from "./VisionStore";
+import { ConfigStore } from "./ConfigStore";
+import { UIStore } from "./UIStore";
+import { ConnectionStore } from "./ConnectionStore";
+import { VideoStore } from "./VideoStore";
+import axiosClient from "../api/axios-client";
+import type { PersistedState } from "./types";
 
 export class RootStore {
   // Core stores
@@ -39,7 +40,7 @@ export class RootStore {
       config: false,
       ui: false,
       connection: false,
-      videoStore: false
+      videoStore: false,
     });
 
     // Initialize the root store
@@ -48,9 +49,9 @@ export class RootStore {
 
   // Computed values
   get isHealthy(): boolean {
-    return this.system.isHealthy &&
-           this.isInitialized &&
-           !this.initializationError;
+    return (
+      this.system.isHealthy && this.isInitialized && !this.initializationError
+    );
   }
 
   get allStores() {
@@ -59,7 +60,7 @@ export class RootStore {
       game: this.game,
       vision: this.vision,
       config: this.config,
-      ui: this.ui
+      ui: this.ui,
     };
   }
 
@@ -78,11 +79,15 @@ export class RootStore {
       this.setupStoreConnections();
 
       this.isInitialized = true;
-      this.ui.showInfo('System Ready', 'Billiards trainer initialized successfully');
+      this.ui.showInfo(
+        "System Ready",
+        "Billiards trainer initialized successfully"
+      );
     } catch (error) {
-      this.initializationError = error instanceof Error ? error.message : 'Unknown initialization error';
-      this.ui.showError('Initialization Failed', this.initializationError);
-      console.error('Failed to initialize root store:', error);
+      this.initializationError =
+        error instanceof Error ? error.message : "Unknown initialization error";
+      this.ui.showError("Initialization Failed", this.initializationError);
+      console.error("Failed to initialize root store:", error);
     } finally {
       this.ui.setGlobalLoading(false);
     }
@@ -93,19 +98,8 @@ export class RootStore {
     const theme = this.config.theme;
     this.ui.applyTheme(theme);
 
-    // Connect to backend system if configured
-    // Auto-detect WebSocket URL from current location
-    const getWebSocketUrl = () => {
-      if (typeof window !== 'undefined') {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws`;
-      }
-      return 'ws://localhost:8000/ws';
-    };
-
-    const websocketUrl = getWebSocketUrl();
-    // Connect without authentication requirement
-    await this.system.connect(websocketUrl);
+    // Connect using centralized WebSocket base URL from axios client
+    await this.system.connect(axiosClient.getWsBaseURL());
   }
 
   private setupStoreConnections(): void {
@@ -125,47 +119,49 @@ export class RootStore {
       try {
         // Route messages to appropriate stores based on type
         switch (message.type) {
-          case 'game_update':
+          case "game_update":
             if (this.game.handleGameUpdate) {
               this.game.handleGameUpdate(message);
             }
             break;
 
-          case 'detection_frame':
+          case "detection_frame":
             if (this.vision.updateDetectionFrame) {
               this.vision.updateDetectionFrame(message.data);
             }
             // Also update video store with frame data if it has setCurrentFrame method
-            if ('setCurrentFrame' in this.vision) {
+            if ("setCurrentFrame" in this.vision) {
               const videoFrame = {
                 ...message.data,
-                timestamp: Date.now()
+                timestamp: Date.now(),
               };
               (this.vision as any).setCurrentFrame(videoFrame);
             }
             break;
 
-          case 'config_update':
+          case "config_update":
             // Reload configuration when backend config changes
             if (this.config.loadFromBackend) {
               this.config.loadFromBackend().catch(console.error);
             }
             break;
 
-          case 'system_alert':
+          case "system_alert":
             this.ui.showNotification(
-              message.data.level || 'info',
-              'System Alert',
+              message.data.level || "info",
+              "System Alert",
               message.data.message,
               { autoHide: true, duration: 5000 }
             );
             break;
 
-          case 'vision_status':
+          case "vision_status":
             if (message.data.camera_status) {
               // Update vision store camera status
-              if ('updateCameraStatus' in this.vision) {
-                (this.vision as any).updateCameraStatus(message.data.camera_status);
+              if ("updateCameraStatus" in this.vision) {
+                (this.vision as any).updateCameraStatus(
+                  message.data.camera_status
+                );
               }
             }
             break;
@@ -175,49 +171,52 @@ export class RootStore {
             break;
         }
       } catch (error) {
-        console.error('Error routing WebSocket message:', error);
+        console.error("Error routing WebSocket message:", error);
       }
     };
   }
 
   private setupMobXReactions(): void {
     // Import reaction from mobx
-    import('mobx').then(({ reaction }) => {
-      // React to theme changes and apply them to UI
-      reaction(
-        () => this.config.theme,
-        (theme) => {
-          this.ui.applyTheme(theme);
-        }
-      );
-
-      // Auth removed - no need for auth-based connection management
-
-      // React to config changes and mark them as dirty
-      reaction(
-        () => [
-          this.config.config.camera,
-          this.config.config.detection,
-          this.config.config.game,
-          this.config.config.ui
-        ],
-        () => {
-          // Auto-save configuration changes to backend after a delay
-          this.debounceConfigSave();
-        }
-      );
-
-      // React to system errors and show notifications
-      reaction(
-        () => this.system.status.errors.length,
-        () => {
-          const latestError = this.system.status.errors[this.system.status.errors.length - 1];
-          if (latestError && latestError.level === 'critical') {
-            this.ui.showError('Critical System Error', latestError.message);
+    import("mobx")
+      .then(({ reaction }) => {
+        // React to theme changes and apply them to UI
+        reaction(
+          () => this.config.theme,
+          (theme) => {
+            this.ui.applyTheme(theme);
           }
-        }
-      );
-    }).catch(console.error);
+        );
+
+        // Auth removed - no need for auth-based connection management
+
+        // React to config changes and mark them as dirty
+        reaction(
+          () => [
+            this.config.config.camera,
+            this.config.config.detection,
+            this.config.config.game,
+            this.config.config.ui,
+          ],
+          () => {
+            // Auto-save configuration changes to backend after a delay
+            this.debounceConfigSave();
+          }
+        );
+
+        // React to system errors and show notifications
+        reaction(
+          () => this.system.status.errors.length,
+          () => {
+            const latestError =
+              this.system.status.errors[this.system.status.errors.length - 1];
+            if (latestError && latestError.level === "critical") {
+              this.ui.showError("Critical System Error", latestError.message);
+            }
+          }
+        );
+      })
+      .catch(console.error);
   }
 
   private configSaveTimeout: NodeJS.Timeout | null = null;
@@ -229,8 +228,8 @@ export class RootStore {
 
     this.configSaveTimeout = setTimeout(() => {
       if (this.config.hasUnsavedChanges && this.config.isValid) {
-        this.config.saveToBackend().catch(error => {
-          console.error('Auto-save configuration failed:', error);
+        this.config.saveToBackend().catch((error) => {
+          console.error("Auto-save configuration failed:", error);
         });
       }
     }, 2000); // Save after 2 seconds of no changes
@@ -239,14 +238,14 @@ export class RootStore {
   // State persistence
   async loadPersistedState(): Promise<void> {
     try {
-      const persistedJson = localStorage.getItem('billiards_app_state');
+      const persistedJson = localStorage.getItem("billiards_app_state");
       if (!persistedJson) return;
 
       const persisted: PersistedState = JSON.parse(persistedJson);
 
       // Validate version compatibility
-      if (persisted.version !== '1.0.0') {
-        console.warn('Persisted state version mismatch, using defaults');
+      if (persisted.version !== "1.0.0") {
+        console.warn("Persisted state version mismatch, using defaults");
         return;
       }
 
@@ -259,9 +258,9 @@ export class RootStore {
         this.ui.restoreUIState(persisted.ui);
       }
     } catch (error) {
-      console.error('Failed to load persisted state:', error);
+      console.error("Failed to load persisted state:", error);
       // Clear corrupted state
-      localStorage.removeItem('billiards_app_state');
+      localStorage.removeItem("billiards_app_state");
     }
   }
 
@@ -270,13 +269,16 @@ export class RootStore {
       const persistedState: PersistedState = {
         config: this.config.exportConfig(),
         ui: this.ui.getPersistedUIState(),
-        version: '1.0.0'
+        version: "1.0.0",
       };
 
-      localStorage.setItem('billiards_app_state', JSON.stringify(persistedState));
+      localStorage.setItem(
+        "billiards_app_state",
+        JSON.stringify(persistedState)
+      );
     } catch (error) {
-      console.error('Failed to save persisted state:', error);
-      this.ui.showWarning('Save Failed', 'Could not save application state');
+      console.error("Failed to save persisted state:", error);
+      this.ui.showWarning("Save Failed", "Could not save application state");
     }
   }
 
@@ -291,9 +293,9 @@ export class RootStore {
       this.vision.destroy();
       this.ui.destroy();
 
-      this.ui.showInfo('Shutdown', 'Application shutdown complete');
+      this.ui.showInfo("Shutdown", "Application shutdown complete");
     } catch (error) {
-      console.error('Error during shutdown:', error);
+      console.error("Error during shutdown:", error);
     }
   }
 
@@ -305,39 +307,39 @@ export class RootStore {
       stores: {
         system: {
           connected: this.system.status.isConnected,
-          errors: this.system.status.errors.length
+          errors: this.system.status.errors.length,
         },
         game: {
           active: this.game.gameState.isActive,
-          ballCount: this.game.balls.length
+          ballCount: this.game.balls.length,
         },
         vision: {
           connected: this.vision.isConnected,
           calibrated: this.vision.isCalibrated,
-          detecting: this.vision.isDetecting
+          detecting: this.vision.isDetecting,
         },
         config: {
           profile: this.config.currentProfile,
-          valid: this.config.isValid
+          valid: this.config.isValid,
         },
         ui: {
           loading: this.ui.isAnyLoading,
           notifications: this.ui.unreadNotificationCount,
-          modals: this.ui.isAnyModalOpen
-        }
-      }
+          modals: this.ui.isAnyModalOpen,
+        },
+      },
     };
   }
 
   // Reset application state (for development/testing)
   async reset(): Promise<void> {
-    await this.ui.withLoading('global', async () => {
+    await this.ui.withLoading("global", async () => {
       // Clear persisted state
       localStorage.clear();
 
       // Reinitialize all stores
-      Object.values(this.allStores).forEach(store => {
-        if ('destroy' in store && typeof store.destroy === 'function') {
+      Object.values(this.allStores).forEach((store) => {
+        if ("destroy" in store && typeof store.destroy === "function") {
           store.destroy();
         }
       });

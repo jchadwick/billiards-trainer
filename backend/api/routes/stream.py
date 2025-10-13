@@ -236,8 +236,11 @@ async def get_vision_module(
         logger.info(
             f"[get_vision_module] stream_config keys: {list(stream_config.keys()) if stream_config else 'None'}"
         )
+        # Use vision.camera.* as fallback source of truth for camera settings
         camera_cfg = stream_config.get("camera", {})
-        logger.info(f"[get_vision_module] camera_cfg from api.stream: {camera_cfg}")
+        logger.info(
+            f"[get_vision_module] camera_cfg from api.stream (fallback only): {camera_cfg}"
+        )
         processing_cfg = stream_config.get("processing", {})
 
         # Check if calibration file exists
@@ -292,17 +295,46 @@ async def get_vision_module(
                     f"Failed to load from streaming config: {e}, falling back to manual config"
                 )
                 logger.exception("Full exception:")
-                # Fall back to manual configuration from api.stream section
-                resolution = camera_cfg.get("resolution", [3840, 2160])
-                # Get device_id - can be int or string
-                device_id = camera_cfg.get("device_id", 1)
+                # Fall back to manual configuration using vision.camera.* as source of truth
+                # Get values from vision.camera.* hierarchy, with api.stream as last resort fallback
+                vision_device_id = app_state.config_module.get(
+                    "vision.camera.device_id", None
+                )
+                vision_resolution = app_state.config_module.get(
+                    "vision.camera.resolution", None
+                )
+                vision_fps = app_state.config_module.get("vision.camera.fps", None)
+                vision_buffer_size = app_state.config_module.get(
+                    "vision.camera.buffer_size", None
+                )
+
+                # Use vision.camera.* values if available, otherwise fall back to api.stream
+                device_id = (
+                    vision_device_id
+                    if vision_device_id is not None
+                    else camera_cfg.get("device_id", 0)
+                )
+                resolution = (
+                    vision_resolution
+                    if vision_resolution is not None
+                    else camera_cfg.get("resolution", [1920, 1080])
+                )
+                fps = (
+                    vision_fps if vision_fps is not None else camera_cfg.get("fps", 30)
+                )
+                buffer_size = (
+                    vision_buffer_size
+                    if vision_buffer_size is not None
+                    else camera_cfg.get("buffer_size", 1)
+                )
+
                 logger.info(
-                    f"Fallback config: device_id={device_id}, type={type(device_id)}"
+                    f"Fallback config: device_id={device_id}, type={type(device_id)}, resolution={resolution}, fps={fps}"
                 )
                 camera_config = EnhancedCameraConfig(
                     device_id=device_id,
                     resolution=tuple(resolution) if resolution else None,
-                    fps=camera_cfg.get("fps", 30),
+                    fps=fps,
                     enable_fisheye_correction=enable_fisheye,
                     calibration_file=calibration_path if enable_fisheye else None,
                     fisheye_alpha=1.0,
@@ -321,23 +353,29 @@ async def get_vision_module(
                     clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
                     default_jpeg_quality=80,
                     enable_gpu=False,
-                    buffer_size=camera_cfg.get("buffer_size", 1),
+                    buffer_size=buffer_size,
                     startup_timeout_seconds=5.0,
                     thread_join_timeout_seconds=2.0,
                 )
         else:
-            # No config module, use hardcoded defaults (should not happen in normal operation)
+            # No config module, use hardcoded defaults matching vision.camera.* defaults
             logger.warning("No config module available, using hardcoded defaults")
-            resolution = camera_cfg.get("resolution", [3840, 2160])
-            # Get device_id - can be int or string
-            device_id = camera_cfg.get("device_id", 1)
+            # Use vision.camera.* default values (matching default.json)
+            device_id = camera_cfg.get(
+                "device_id", 0
+            )  # Match vision.camera.device_id default
+            resolution = camera_cfg.get(
+                "resolution", [1920, 1080]
+            )  # Match vision.camera.resolution default
+            fps = camera_cfg.get("fps", 30)
+            buffer_size = camera_cfg.get("buffer_size", 1)
             logger.info(
-                f"No config module - device_id={device_id}, type={type(device_id)}"
+                f"No config module - device_id={device_id}, type={type(device_id)}, resolution={resolution}, fps={fps}"
             )
             camera_config = EnhancedCameraConfig(
                 device_id=device_id,
                 resolution=tuple(resolution) if resolution else None,
-                fps=camera_cfg.get("fps", 30),
+                fps=fps,
                 enable_fisheye_correction=enable_fisheye,
                 calibration_file=calibration_path if enable_fisheye else None,
                 fisheye_alpha=1.0,
@@ -354,7 +392,7 @@ async def get_vision_module(
                 clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
                 default_jpeg_quality=80,
                 enable_gpu=False,
-                buffer_size=camera_cfg.get("buffer_size", 1),
+                buffer_size=buffer_size,
                 startup_timeout_seconds=5.0,
                 thread_join_timeout_seconds=2.0,
             )

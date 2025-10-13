@@ -151,7 +151,6 @@ jobs:
 
   #         # API configuration
   #         API_PORT=8000
-  #         WS_PORT=8001
   #         METRICS_PORT=9090
 
   #         # Redis configuration

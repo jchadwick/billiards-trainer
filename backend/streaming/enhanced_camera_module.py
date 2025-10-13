@@ -32,6 +32,7 @@ class EnhancedCameraConfig:
     device_id: int | str  # Integer for camera device, string for video file path
     resolution: Optional[tuple[int, int]]  # Auto-detect if None
     fps: int
+    loop_video: bool  # Loop video playback for file sources
 
     # Fisheye correction
     enable_fisheye_correction: bool
@@ -80,12 +81,14 @@ class EnhancedCameraConfig:
         logger = logging.getLogger(__name__)
 
         # Access config using dot notation for flattened keys
-        device_id = config.get("streaming.camera.device_id", 1)
-        resolution = config.get("streaming.camera.resolution")
+        # Use vision.camera.* as the single source of truth for camera settings
+        device_id = config.get("vision.camera.device_id", 0)
+        resolution = config.get("vision.camera.resolution")
         if resolution and isinstance(resolution, list) and len(resolution) == 2:
             resolution = tuple(resolution)
-        fps = config.get("streaming.camera.fps", 30)
-        buffer_size = config.get("streaming.camera.buffer_size", 1)
+        fps = config.get("vision.camera.fps", 30)
+        buffer_size = config.get("vision.camera.buffer_size", 1)
+        loop_video = config.get("vision.camera.loop_video", True)
 
         logger.info(
             f"[from_config] Loaded from flattened config: device_id={device_id}, resolution={resolution}, fps={fps}"
@@ -135,6 +138,7 @@ class EnhancedCameraConfig:
             device_id=device_id,
             resolution=resolution,
             fps=fps,
+            loop_video=loop_video,
             enable_fisheye_correction=enable_fisheye_correction,
             calibration_file=calibration_file,
             fisheye_alpha=fisheye_alpha,
@@ -405,8 +409,9 @@ class EnhancedCameraModule:
 
             if not ret:
                 # End of video or read error - loop back to start for video files
-                if isinstance(self.config.device_id, str):
-                    # This is a video file, loop it
+                if isinstance(self.config.device_id, str) and self.config.loop_video:
+                    # This is a video file with looping enabled, loop it
+                    logger.info("End of video reached, looping back to start...")
                     self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ret, frame = self.capture.read()
                     if not ret:
@@ -416,6 +421,12 @@ class EnhancedCameraModule:
                         )
                         time.sleep(0.1)
                         continue
+                elif isinstance(self.config.device_id, str):
+                    # Video file without looping - stop capture
+                    logger.info(
+                        "End of video reached, stopping capture (loop_video=False)"
+                    )
+                    break
                 else:
                     # This is a camera, just skip this frame
                     time.sleep(0.01)
@@ -702,6 +713,7 @@ if __name__ == "__main__":
         device_id=0,
         resolution=(1920, 1080),
         fps=30,
+        loop_video=True,
         enable_fisheye_correction=True,
         calibration_file="calibration/camera.yaml",
         fisheye_alpha=1.0,

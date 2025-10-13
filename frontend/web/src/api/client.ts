@@ -3,6 +3,10 @@
  * Provides a centralized interface for all HTTP requests and WebSocket connections
  */
 
+import axiosClient from './axios-client';
+import { AxiosError } from './axios-client';
+import type { ApiErrorResponse, AxiosResponse } from './axios-client';
+
 export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
@@ -27,18 +31,21 @@ export interface SystemMetrics {
 }
 
 export interface HealthResponse {
-  status: 'healthy' | 'degraded' | 'unhealthy';
+  status: "healthy" | "degraded" | "unhealthy";
   timestamp: string;
   uptime: number;
   version: string;
-  components?: Record<string, {
-    name: string;
-    status: 'healthy' | 'degraded' | 'unhealthy';
-    message: string;
-    last_check: string;
-    uptime?: number;
-    error_count?: number;
-  }>;
+  components?: Record<
+    string,
+    {
+      name: string;
+      status: "healthy" | "degraded" | "unhealthy";
+      message: string;
+      last_check: string;
+      uptime?: number;
+      error_count?: number;
+    }
+  >;
   metrics?: SystemMetrics;
 }
 
@@ -58,155 +65,108 @@ export interface WebSocketMessage {
 }
 
 export class ApiClient {
-  private baseURL: string;
-  private token: string | null = null;
-  private wsUrl: string;
-
-  constructor(baseURL?: string, wsUrl?: string) {
-    // Auto-detect base URL from current window location if not provided
-    if (!baseURL) {
-      if (typeof window !== 'undefined') {
-        // Use current origin when running in browser
-        baseURL = window.location.origin;
-      } else {
-        // Fallback for SSR or testing
-        baseURL = 'http://localhost:8000';
-      }
-    }
-
-    // Auto-detect WebSocket URL from current window location if not provided
-    if (!wsUrl) {
-      if (typeof window !== 'undefined') {
-        // Use current origin with ws/wss protocol
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${protocol}//${window.location.host}`;
-      } else {
-        // Fallback for SSR or testing
-        wsUrl = 'ws://localhost:8000';
-      }
-    }
-
-    this.baseURL = baseURL.replace(/\/$/, ''); // Remove trailing slash
-    this.wsUrl = wsUrl.replace(/\/$/, '');
-  }
-
   setAuthToken(token: string | null): void {
-    this.token = token;
+    axiosClient.setAuthToken(token);
   }
 
-  private getHeaders(): HeadersInit {
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
+  /**
+   * Transform AxiosResponse to ApiResponse format
+   */
+  private handleResponse<T>(response: AxiosResponse<T>): ApiResponse<T> {
+    return {
+      success: true,
+      data: response.data,
+      timestamp: new Date().toISOString(),
     };
-
-    if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
-    }
-
-    return headers;
   }
 
-  private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
-    try {
-      const data = await response.json();
+  /**
+   * Transform AxiosError to ApiResponse error format
+   */
+  private handleError(error: unknown): ApiResponse {
+    if (error instanceof AxiosError) {
+      const errorData = error.response?.data as ApiErrorResponse | undefined;
+      const errorMessage =
+        errorData?.detail?.message ||
+        errorData?.message ||
+        errorData?.error ||
+        error.message ||
+        'Network error';
 
-      if (!response.ok) {
-        return {
-          success: false,
-          error: data.detail?.message || data.message || `HTTP ${response.status}`,
-          timestamp: new Date().toISOString(),
-        };
-      }
-
-      return {
-        success: true,
-        data,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to parse response',
+        error: errorMessage,
         timestamp: new Date().toISOString(),
       };
     }
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   // Health and System endpoints
-  async getHealth(includeDetails = false, includeMetrics = false): Promise<ApiResponse<HealthResponse>> {
+  async getHealth(
+    includeDetails = false,
+    includeMetrics = false
+  ): Promise<ApiResponse<HealthResponse>> {
     try {
-      const params = new URLSearchParams();
-      if (includeDetails) params.append('include_details', 'true');
-      if (includeMetrics) params.append('include_metrics', 'true');
+      const params: Record<string, string> = {};
+      if (includeDetails) params.include_details = 'true';
+      if (includeMetrics) params.include_metrics = 'true';
 
-      const response = await fetch(`${this.baseURL}/api/v1/health?${params}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
-      return this.handleResponse<HealthResponse>(response);
+      const response = await axiosClient.get<HealthResponse>('/api/v1/health', { params });
+      return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
-  async getMetrics(timeRange = '5m'): Promise<ApiResponse<SystemMetrics>> {
+  async healthCheck(): Promise<ApiResponse<void>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/health/metrics?time_range=${timeRange}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
-      return this.handleResponse<SystemMetrics>(response);
+      const response = await axiosClient.head('/api/health');
+      return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
+    }
+  }
+
+  async getMetrics(timeRange = "5m"): Promise<ApiResponse<SystemMetrics>> {
+    try {
+      const response = await axiosClient.get<SystemMetrics>('/api/v1/health/metrics', {
+        params: { time_range: timeRange },
+      });
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
     }
   }
 
   async getVersion(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/health/version`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.get('/api/v1/health/version');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   // Configuration endpoints
-  async getConfiguration(section?: string, includeMetadata = true): Promise<ApiResponse<ConfigResponse>> {
+  async getConfiguration(
+    section?: string,
+    includeMetadata = true
+  ): Promise<ApiResponse<ConfigResponse>> {
     try {
-      const params = new URLSearchParams();
-      if (section) params.append('section', section);
-      if (includeMetadata) params.append('include_metadata', 'true');
+      const params: Record<string, string> = {};
+      if (section) params.section = section;
+      if (includeMetadata) params.include_metadata = 'true';
 
-      const response = await fetch(`${this.baseURL}/api/v1/config?${params}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
-      return this.handleResponse<ConfigResponse>(response);
+      const response = await axiosClient.get<ConfigResponse>('/api/v1/config', { params });
+      return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
@@ -217,137 +177,103 @@ export class ApiClient {
     forceUpdate = false
   ): Promise<ApiResponse<any>> {
     try {
-      const params = new URLSearchParams();
-      if (section) params.append('section', section);
-      if (validateOnly) params.append('validate_only', 'true');
-      if (forceUpdate) params.append('force_update', 'true');
+      const params: Record<string, string> = {};
+      if (section) params.section = section;
+      if (validateOnly) params.validate_only = 'true';
+      if (forceUpdate) params.force_update = 'true';
 
-      const response = await fetch(`${this.baseURL}/api/v1/config?${params}`, {
-        method: 'PUT',
-        headers: this.getHeaders(),
-        body: JSON.stringify(configData),
-      });
-
+      const response = await axiosClient.put('/api/v1/config', configData, { params });
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async resetConfiguration(
     confirm = true,
     backupCurrent = true,
-    resetType = 'all',
+    resetType = "all",
     sections?: string[]
   ): Promise<ApiResponse<any>> {
     try {
-      const params = new URLSearchParams({
+      const params: Record<string, string | string[]> = {
         confirm: confirm.toString(),
         backup_current: backupCurrent.toString(),
         reset_type: resetType,
-      });
+      };
 
       if (sections) {
-        sections.forEach(section => params.append('sections', section));
+        params.sections = sections;
       }
 
-      const response = await fetch(`${this.baseURL}/api/v1/config/reset?${params}`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.post('/api/v1/config/reset', null, { params });
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async exportConfiguration(
-    format = 'json',
+    format = "json",
     sections?: string[],
     includeDefaults = false,
     includeMetadata = true
   ): Promise<ApiResponse<any>> {
     try {
-      const params = new URLSearchParams({
+      const params: Record<string, string | string[]> = {
         format,
         include_defaults: includeDefaults.toString(),
         include_metadata: includeMetadata.toString(),
-      });
+      };
 
       if (sections) {
-        sections.forEach(section => params.append('sections', section));
+        params.sections = sections;
       }
 
-      const response = await fetch(`${this.baseURL}/api/v1/config/export?${params}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.get('/api/v1/config/export', { params });
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async importConfiguration(
     file: File,
-    mergeStrategy = 'replace',
+    mergeStrategy = "replace",
     validateOnly = false
   ): Promise<ApiResponse<any>> {
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append("file", file);
 
-      const params = new URLSearchParams({
+      const params: Record<string, string> = {
         merge_strategy: mergeStrategy,
         validate_only: validateOnly.toString(),
-      });
+      };
 
-      const headers: HeadersInit = {};
-      if (this.token) {
-        headers.Authorization = `Bearer ${this.token}`;
-      }
-
-      const response = await fetch(`${this.baseURL}/api/v1/config/import?${params}`, {
-        method: 'POST',
-        headers,
-        body: formData,
-      });
-
+      const response = await axiosClient.upload('/api/v1/config/import', formData, { params });
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   // Video streaming endpoints
-  getVideoStreamUrl(quality = 80, fps = 30, width?: number, height?: number): string {
+  getVideoStreamUrl(
+    quality = 80,
+    fps = 30,
+    width?: number,
+    height?: number
+  ): string {
     const params = new URLSearchParams({
       quality: quality.toString(),
       fps: fps.toString(),
     });
 
-    if (width) params.append('width', width.toString());
-    if (height) params.append('height', height.toString());
+    if (width) params.append("width", width.toString());
+    if (height) params.append("height", height.toString());
 
-    return `${this.baseURL}/api/v1/stream/video?${params}`;
+    return `${axiosClient.getBaseURL()}/api/v1/stream/video?${params}`;
   }
 
   getSingleFrameUrl(quality = 90, width?: number, height?: number): string {
@@ -355,154 +281,124 @@ export class ApiClient {
       quality: quality.toString(),
     });
 
-    if (width) params.append('width', width.toString());
-    if (height) params.append('height', height.toString());
+    if (width) params.append("width", width.toString());
+    if (height) params.append("height", height.toString());
 
-    return `${this.baseURL}/api/v1/stream/video/frame?${params}`;
+    return `${axiosClient.getBaseURL()}/api/v1/stream/video/frame?${params}`;
   }
 
   async getStreamStatus(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/stream/video/status`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.get('/api/v1/stream/video/status');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async startVideoCapture(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/stream/video/start`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.post('/api/v1/stream/video/start');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async stopVideoCapture(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/stream/video/stop`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.post('/api/v1/stream/video/stop');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   // WebSocket connection
   createWebSocket(token?: string): WebSocket {
-    const wsUrl = `${this.wsUrl}/api/v1/ws`;
-    const url = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
-    return new WebSocket(url);
+    return axiosClient.createWebSocket('/api/v1/ws', token);
   }
 
   // Vision and Calibration endpoints
   async performCalibration(calibrationData: any): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/vision/calibration`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(calibrationData),
-      });
-
+      const response = await axiosClient.post('/api/v1/vision/calibration', calibrationData);
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async getCalibrationData(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/vision/calibration`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.get('/api/v1/vision/calibration');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async getVisionStatus(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/vision/status`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.get('/api/v1/vision/status');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
+    }
+  }
+
+  async getPlayingArea(): Promise<ApiResponse<any>> {
+    try {
+      const response = await axiosClient.get('/api/v1/config/table/playing-area');
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async updatePlayingArea(data: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await axiosClient.post('/api/v1/config/table/playing-area', data);
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
     }
   }
 
   async startDetection(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/vision/detection/start`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.post('/api/v1/vision/detection/start');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
     }
   }
 
   async stopDetection(): Promise<ApiResponse<any>> {
     try {
-      const response = await fetch(`${this.baseURL}/api/v1/vision/detection/stop`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-
+      const response = await axiosClient.post('/api/v1/vision/detection/stop');
       return this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-        timestamp: new Date().toISOString(),
-      };
+      return this.handleError(error);
+    }
+  }
+
+  // Test endpoints
+  async testDownload(sizeMb: number): Promise<ApiResponse<any>> {
+    try {
+      const response = await axiosClient.get(`/api/test/download/${sizeMb}mb`);
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  async testUpload(data: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await axiosClient.post('/api/test/upload', data);
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
     }
   }
 }

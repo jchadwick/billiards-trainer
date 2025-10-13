@@ -102,7 +102,6 @@ ENV PYTHONUNBUFFERED=1 \
     # API configuration
     API_HOST=0.0.0.0 \
     API_PORT=8000 \
-    WS_PORT=8001 \
     # Performance
     MAX_CONCURRENT_CONNECTIONS=100 \
     API_TIMEOUT=30 \

@@ -36,7 +36,8 @@ export const StreamControls = observer<StreamControlsProps>(({
   // Connection controls
   const handleConnect = useCallback(async () => {
     try {
-      await videoStore.connect('http://localhost:8080');
+      // Use centralized configuration from axios client
+      await videoStore.connect();
     } catch (error) {
       console.error('Failed to connect:', error);
     }

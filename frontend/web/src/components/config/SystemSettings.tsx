@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useStores } from '../../stores/context'
+import axiosClient from '../../api/axios-client'
 import { Card, CardHeader, CardTitle, CardContent, Input, Select, Checkbox, Button, LoadingSpinner } from '../ui'
 import type { SelectOption } from '../ui'
 
@@ -10,7 +11,7 @@ export const SystemSettings = observer(() => {
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   // API Settings
-  const [apiUrl, setApiUrl] = useState('http://localhost:8000')
+  const [apiUrl, setApiUrl] = useState(axiosClient.getBaseURL())
   const [apiTimeout, setApiTimeout] = useState(10000)
   const [enableRetries, setEnableRetries] = useState(true)
   const [maxRetries, setMaxRetries] = useState(3)
@@ -129,7 +130,7 @@ export const SystemSettings = observer(() => {
   }
 
   const handleReset = () => {
-    setApiUrl('http://localhost:8000')
+    setApiUrl(axiosClient.getBaseURL())
     setApiTimeout(10000)
     setEnableRetries(true)
     setMaxRetries(3)
@@ -176,7 +177,7 @@ export const SystemSettings = observer(() => {
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               error={errors.apiUrl}
-              placeholder="http://localhost:8000"
+              placeholder={axiosClient.getBaseURL()}
               fullWidth
             />
 

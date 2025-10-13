@@ -187,7 +187,6 @@ __all__ = [
     # "get_all_examples_for_model",
     # "list_available_examples",
     # Utility Functions
-    "create_error_response",
     "create_success_response",
     "validate_coordinate_bounds",
     "validate_confidence",

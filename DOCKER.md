@@ -71,7 +71,6 @@ Key environment variables that can be customized:
 #### API Configuration
 - `API_HOST`: Host to bind to (default: `0.0.0.0`)
 - `API_PORT`: API port (default: `8000`)
-- `WS_PORT`: WebSocket port (default: `8001`)
 
 #### Computer Vision
 - `CAMERA_INDEX`: Camera device index (default: `0`)
@@ -238,7 +237,7 @@ sudo chown -R $USER:$USER ./data ./logs ./config
 lsof -i :8000
 
 # Use different ports
-API_PORT=8080 WS_PORT=8081 docker-compose up
+API_PORT=8080 docker-compose up
 ```
 
 **4. Memory issues:**

@@ -15,12 +15,22 @@ from pathlib import Path
 from typing import Any, Optional
 
 import yaml
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+)
+from fastapi import Request as FastAPIRequest
+from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..dependencies import get_config_module
-from ..models.common import ErrorCode, create_error_response, create_success_response
+from ..models.common import create_success_response
 from ..models.responses import (
     ConfigExportResponse,
     ConfigResponse,
@@ -30,7 +40,10 @@ from ..models.responses import (
 
 try:
     from ...config import ConfigurationModule
+    from ...config.models.schemas import ConfigSource
 except ImportError:
+    from config.models.schemas import ConfigSource
+
     from config import ConfigurationModule
 
 logger = logging.getLogger(__name__)
@@ -48,12 +61,7 @@ def validate_config_section(section: str, allowed_sections: list[str]) -> str:
     if section not in allowed_sections:
         raise HTTPException(
             status_code=400,
-            detail=create_error_response(
-                "Invalid Configuration Section",
-                f"Section '{section}' is not valid. Allowed sections: {allowed_sections}",
-                ErrorCode.VALIDATION_INVALID_FORMAT,
-                {"valid_sections": allowed_sections},
-            ),
+            detail=f"Invalid configuration section. Section '{section}' is not valid. Allowed sections: {allowed_sections}",
         )
     return section
 
@@ -124,12 +132,7 @@ async def get_configuration(
         logger.error(f"Failed to retrieve configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Retrieval Failed",
-                "Unable to retrieve system configuration",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration retrieval failed. Unable to retrieve system configuration",
         )
 
 
@@ -209,24 +212,14 @@ async def update_configuration(
         if warnings and not force_update:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Configuration Warnings",
-                    "Configuration has warnings. Use force_update=true to proceed",
-                    ErrorCode.VAL_INVALID_CONFIGURATION,
-                    {"warnings": warnings, "validation_errors": validation_errors},
-                ),
+                detail="Configuration has warnings. Use force_update=true to proceed",
             )
 
         # Stop if validation errors exist
         if validation_errors:
             raise HTTPException(
                 status_code=422,
-                detail=create_error_response(
-                    "Configuration Validation Failed",
-                    "Configuration contains validation errors",
-                    ErrorCode.VAL_INVALID_CONFIGURATION,
-                    {"validation_errors": validation_errors},
-                ),
+                detail="Configuration validation failed. Configuration contains validation errors",
             )
 
         # Apply configuration update
@@ -240,12 +233,7 @@ async def update_configuration(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Configuration Update Failed",
-                    f"Failed to apply configuration changes: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Configuration update failed. Failed to apply configuration changes: {str(e)}",
             )
 
         # Determine if restart is required
@@ -270,12 +258,7 @@ async def update_configuration(
         logger.error(f"Failed to update configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Update Failed",
-                "Unable to update system configuration",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration update failed. Unable to update system configuration",
         )
 
 
@@ -299,12 +282,7 @@ async def reset_configuration(
         if not confirm:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Reset Not Confirmed",
-                    "Configuration reset must be explicitly confirmed",
-                    ErrorCode.VAL_MISSING_PARAMETER,
-                    {"required_parameter": "confirm"},
-                ),
+                detail="Configuration reset must be explicitly confirmed",
             )
 
         available_sections = [
@@ -355,12 +333,7 @@ async def reset_configuration(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Configuration Reset Failed",
-                    f"Failed to reset configuration: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Configuration reset failed. Failed to reset configuration: {str(e)}",
             )
 
         logger.warning("Configuration reset performed")
@@ -383,12 +356,7 @@ async def reset_configuration(
         logger.error(f"Failed to reset configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Reset Failed",
-                "Unable to reset system configuration",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration reset failed. Unable to reset system configuration",
         )
 
 
@@ -413,12 +381,7 @@ async def import_configuration(
         if file_extension not in allowed_extensions:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid File Format",
-                    f"File format '{file_extension}' not supported. Allowed: {allowed_extensions}",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"allowed_formats": allowed_extensions},
-                ),
+                detail=f"Invalid file format. File format '{file_extension}' not supported. Allowed: {allowed_extensions}",
             )
 
         # Read and parse file
@@ -434,24 +397,14 @@ async def import_configuration(
         except Exception as e:
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "File Parse Error",
-                    f"Unable to parse configuration file: {str(e)}",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"error": str(e)},
-                ),
+                detail=f"File parse error. Unable to parse configuration file: {str(e)}",
             )
 
         # Validate configuration structure
         if not isinstance(config_data, dict):
             raise HTTPException(
                 status_code=400,
-                detail=create_error_response(
-                    "Invalid Configuration Structure",
-                    "Configuration must be a JSON/YAML object",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"received_type": type(config_data).__name__},
-                ),
+                detail="Invalid configuration structure. Configuration must be a JSON/YAML object",
             )
 
         # If validation-only mode, just return validation results
@@ -491,12 +444,7 @@ async def import_configuration(
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=create_error_response(
-                    "Configuration Import Failed",
-                    f"Failed to import configuration: {str(e)}",
-                    ErrorCode.SYS_INTERNAL_ERROR,
-                    {"error": str(e)},
-                ),
+                detail=f"Configuration import failed. Failed to import configuration: {str(e)}",
             )
 
         logger.info(f"Configuration imported from file {file.filename}")
@@ -517,12 +465,7 @@ async def import_configuration(
         logger.error(f"Failed to import configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Import Failed",
-                "Unable to import configuration file",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration import failed. Unable to import configuration file",
         )
 
 
@@ -605,12 +548,7 @@ async def export_configuration(
         logger.error(f"Failed to export configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Export Failed",
-                "Unable to export system configuration",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration export failed. Unable to export system configuration",
         )
 
 
@@ -659,12 +597,7 @@ async def download_configuration(
         logger.error(f"Failed to download configuration: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Download Failed",
-                "Unable to generate configuration download",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration download failed. Unable to generate configuration download",
         )
 
 
@@ -730,99 +663,74 @@ async def get_configuration_schema(
         logger.error(f"Failed to get configuration schema: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Schema Retrieval Failed",
-                "Unable to retrieve configuration schema",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Schema retrieval failed. Unable to retrieve configuration schema",
         )
+
+
+class Corner(BaseModel):
+    """A single corner point."""
+
+    x: float
+    y: float
 
 
 class PlayingAreaCornersRequest(BaseModel):
     """Request model for setting playing area corners."""
 
-    corners: list[dict[str, float]] = Field(
+    corners: list[Corner] = Field(
         ...,
         description="List of 4 corner points in order: top-left, top-right, bottom-right, bottom-left",
-        min_items=4,
-        max_items=4,
+        min_length=4,
+        max_length=4,
     )
 
 
-@router.post("/table/playing-area", response_model=SuccessResponse)
+@router.post("/table/playing-area")
 async def set_playing_area_corners(
-    request: PlayingAreaCornersRequest,
-    config_module: ConfigurationModule = Depends(get_config_module),
-) -> SuccessResponse:
-    """Set the playing area corner points for table calibration.
+    request: FastAPIRequest,
+) -> dict:
+    """Set the playing area corner points for table calibration."""
+    logger.info("===== ENDPOINT CALLED =====")
 
-    Args:
-        request: Corner points for the playing area
-        config_module: Configuration module (injected)
+    # Parse JSON body
+    body = await request.json()
+    logger.info(f"Body: {body}")
+
+    # Just return success immediately to test if endpoint is reachable
+    return {
+        "success": True,
+        "message": "Playing area corners received",
+        "corners": body.get("corners", []),
+        "count": len(body.get("corners", [])),
+    }
+
+
+@router.get("/table/playing-area", response_model=dict)
+async def get_playing_area_corners(
+    config_module: ConfigurationModule = Depends(get_config_module),
+) -> dict[str, Any]:
+    """Get the current playing area corner points for table calibration.
 
     Returns:
-        Success response with saved corners
+        Dictionary with corners array and metadata
 
     Raises:
-        HTTPException: If validation or save fails
+        HTTPException: If configuration retrieval fails
     """
     try:
-        # Validate corner format
-        if len(request.corners) != 4:
-            raise HTTPException(
-                status_code=400,
-                detail=create_error_response(
-                    "Invalid Corner Count",
-                    "Exactly 4 corners are required (top-left, top-right, bottom-right, bottom-left)",
-                    ErrorCode.VALIDATION_INVALID_FORMAT,
-                    {"provided_count": len(request.corners)},
-                ),
-            )
+        # Get playing area corners from configuration
+        playing_area_corners = config_module.get("table.playing_area_corners", [])
 
-        # Validate each corner has x and y coordinates
-        for i, corner in enumerate(request.corners):
-            if "x" not in corner or "y" not in corner:
-                raise HTTPException(
-                    status_code=400,
-                    detail=create_error_response(
-                        "Invalid Corner Format",
-                        f"Corner {i} must have 'x' and 'y' coordinates",
-                        ErrorCode.VALIDATION_INVALID_FORMAT,
-                        {"corner_index": i, "corner": corner},
-                    ),
-                )
+        return {
+            "success": True,
+            "corners": playing_area_corners,
+            "count": len(playing_area_corners),
+            "calibrated": len(playing_area_corners) == 4,
+        }
 
-        # Convert corners to the format expected by TableState
-        playing_area_corners = [
-            {"x": corner["x"], "y": corner["y"]} for corner in request.corners
-        ]
-
-        # Save to configuration
-        table_config = config_module.data.get("table", {})
-        table_config["playing_area_corners"] = playing_area_corners
-
-        # Update config
-        config_module.data["table"] = table_config
-        config_module.save_config()
-
-        logger.info(f"Playing area corners saved: {playing_area_corners}")
-
-        return create_success_response(
-            "Playing area corners saved successfully",
-            {"corners": playing_area_corners, "count": len(playing_area_corners)},
-        )
-
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Failed to save playing area corners: {e}")
+        logger.error(f"Failed to get playing area corners: {e}")
         raise HTTPException(
             status_code=500,
-            detail=create_error_response(
-                "Configuration Save Failed",
-                "Unable to save playing area corners",
-                ErrorCode.SYS_INTERNAL_ERROR,
-                {"error": str(e)},
-            ),
+            detail="Configuration retrieval failed. Unable to get playing area corners",
         )

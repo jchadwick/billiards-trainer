@@ -138,7 +138,6 @@ pip install -e .
 Edit `.env` and change:
 ```bash
 API_PORT=8080
-WS_PORT=8081
 ```
 
 ### Re-run setup

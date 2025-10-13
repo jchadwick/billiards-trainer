@@ -29,9 +29,11 @@ This directory contains the comprehensive WebSocket and REST API client integrat
 ## Core Components
 
 ### 1. API Service (`api-service.ts`)
+
 The high-level service that orchestrates all API interactions.
 
 **Features:**
+
 - Unified interface for REST and WebSocket APIs
 - Request caching and deduplication
 - Loading state management
@@ -40,22 +42,23 @@ The high-level service that orchestrates all API interactions.
 - Connection monitoring
 
 **Usage:**
+
 ```typescript
-import { createApiService } from './services/api-service';
+import { createApiService } from "./services/api-service";
 
 const apiService = createApiService({
-  apiBaseUrl: 'http://localhost:8000',
-  wsBaseUrl: 'ws://localhost:8000/ws',
+  apiBaseUrl: "http://localhost:8000",
+  wsBaseUrl: "ws://localhost:8000/ws",
   enableCaching: true,
   autoConnectWebSocket: true,
 });
 
 // Authentication
-await apiService.login({ username: 'user', password: 'pass' });
+await apiService.login({ username: "user", password: "pass" });
 
 // Real-time data
 apiService.onGameStateData((state) => {
-  console.log('Game state update:', state);
+  console.log("Game state update:", state);
 });
 
 // REST API calls
@@ -63,9 +66,11 @@ const health = await apiService.getHealth();
 ```
 
 ### 2. WebSocket Client (`websocket-client.ts`)
+
 Advanced WebSocket client with auto-reconnection and message handling.
 
 **Features:**
+
 - Auto-reconnection with exponential backoff
 - Message queuing during disconnection
 - Heartbeat/ping-pong mechanism
@@ -74,30 +79,33 @@ Advanced WebSocket client with auto-reconnection and message handling.
 - Subscription management
 
 **Usage:**
+
 ```typescript
-import { createWebSocketClient } from './services/websocket-client';
+import { createWebSocketClient } from "./services/websocket-client";
 
 const wsClient = createWebSocketClient({
-  url: 'ws://localhost:8000/ws',
-  token: 'jwt-token',
+  url: "ws://localhost:8000/ws",
+  token: "jwt-token",
   autoReconnect: true,
   maxReconnectAttempts: 10,
 });
 
 // Connect and subscribe
 await wsClient.connect();
-wsClient.subscribe(['frame', 'state', 'trajectory']);
+wsClient.subscribe(["frame", "state", "trajectory"]);
 
 // Handle messages
-wsClient.on('frame', (message) => {
-  console.log('Frame received:', message.data);
+wsClient.on("frame", (message) => {
+  console.log("Frame received:", message.data);
 });
 ```
 
 ### 3. REST API Client (`api-client.ts`)
+
 Comprehensive REST API client with authentication and error handling.
 
 **Features:**
+
 - Automatic token management and refresh
 - Request/response interceptors
 - Retry logic with exponential backoff
@@ -106,11 +114,12 @@ Comprehensive REST API client with authentication and error handling.
 - Error classification
 
 **Usage:**
+
 ```typescript
-import { apiClient } from './services/api-client';
+import { apiClient } from "./services/api-client";
 
 // Set authentication
-apiClient.setAuthToken('jwt-token');
+apiClient.setAuthToken("jwt-token");
 
 // Make API calls
 const config = await apiClient.getConfig();
@@ -121,15 +130,17 @@ try {
   await apiClient.updateConfig({ values: { camera: { enabled: true } } });
 } catch (error) {
   if (isApiError(error)) {
-    console.log('API Error:', error.code, error.message);
+    console.log("API Error:", error.code, error.message);
   }
 }
 ```
 
 ### 4. Authentication Service (`auth-service.ts`)
+
 Complete authentication and session management.
 
 **Features:**
+
 - JWT token management
 - Automatic token refresh
 - Session persistence
@@ -138,8 +149,9 @@ Complete authentication and session management.
 - Logout handling
 
 **Usage:**
+
 ```typescript
-import { createAuthService } from './services/auth-service';
+import { createAuthService } from "./services/auth-service";
 
 const authService = createAuthService(apiClient, {
   persistAuth: true,
@@ -149,20 +161,22 @@ const authService = createAuthService(apiClient, {
 
 // Login
 const user = await authService.login({
-  username: 'admin',
-  password: 'password'
+  username: "admin",
+  password: "password",
 });
 
 // Check permissions
-if (authService.hasPermission('config:write')) {
+if (authService.hasPermission("config:write")) {
   // User can modify configuration
 }
 ```
 
 ### 5. Data Processing Service (`data-handlers.ts`)
+
 Real-time data processing and transformation.
 
 **Features:**
+
 - Frame rate limiting and quality filtering
 - Ball tracking and movement analysis
 - Trajectory smoothing and prediction
@@ -171,8 +185,9 @@ Real-time data processing and transformation.
 - Performance optimization
 
 **Usage:**
+
 ```typescript
-import { createDataProcessingService } from './services/data-handlers';
+import { createDataProcessingService } from "./services/data-handlers";
 
 const dataProcessor = createDataProcessingService({
   frameProcessing: {
@@ -187,15 +202,17 @@ const dataProcessor = createDataProcessingService({
 
 // Handle processed data
 dataProcessor.onGameState((processedState) => {
-  console.log('Processed game state:', processedState);
-  console.log('Ball movements:', processedState.changesSinceLastFrame);
+  console.log("Processed game state:", processedState);
+  console.log("Ball movements:", processedState.changesSinceLastFrame);
 });
 ```
 
 ### 6. Error Handling Service (`error-handler.ts`)
+
 Comprehensive error handling and connection monitoring.
 
 **Features:**
+
 - Global error catching and reporting
 - Error categorization and severity assessment
 - Connection health monitoring
@@ -204,18 +221,19 @@ Comprehensive error handling and connection monitoring.
 - User-friendly error presentation
 
 **Usage:**
+
 ```typescript
-import { errorHandler, reportError } from './services/error-handler';
+import { errorHandler, reportError } from "./services/error-handler";
 
 // Report errors
-reportError(new Error('Something went wrong'), {
-  component: 'game-view',
-  action: 'load_state',
+reportError(new Error("Something went wrong"), {
+  component: "game-view",
+  action: "load_state",
 });
 
 // Monitor connection health
 errorHandler.onConnectionHealth((health) => {
-  if (health.status === 'poor') {
+  if (health.status === "poor") {
     showConnectionWarning();
   }
 });
@@ -229,19 +247,21 @@ const result = await errorHandler.withRetry(() => {
 ## MobX Store Integration
 
 ### Store Structure
+
 ```typescript
 // Root store that contains all other stores
 interface RootStore {
-  authStore: AuthStore;           // Authentication state
+  authStore: AuthStore; // Authentication state
   gameStateStore: GameStateStore; // Real-time game data
-  configStore: ConfigStore;       // Configuration management
+  configStore: ConfigStore; // Configuration management
   calibrationStore: CalibrationStore; // Calibration process
-  systemStore: SystemStore;       // System health and monitoring
-  uiStore: UIStore;              // UI state and preferences
+  systemStore: SystemStore; // System health and monitoring
+  uiStore: UIStore; // UI state and preferences
 }
 ```
 
 ### Usage with React Components
+
 ```typescript
 import { observer } from 'mobx-react-lite';
 import { useStore } from './stores';
@@ -273,10 +293,10 @@ const GameView = observer(() => {
 ## Configuration
 
 ### Environment Variables
+
 ```env
 # API Configuration
 VITE_API_BASE_URL=http://localhost:8000
-VITE_WS_BASE_URL=ws://localhost:8000/ws
 
 # Feature Flags
 VITE_ENABLE_REAL_TIME=true
@@ -285,15 +305,16 @@ VITE_DEBUG_MODE=false
 ```
 
 ### Service Configuration
+
 ```typescript
 const config = {
   // API Service
-  apiBaseUrl: 'http://localhost:8000',
-  wsBaseUrl: 'ws://localhost:8000/ws',
+  apiBaseUrl: "http://localhost:8000",
+  wsBaseUrl: "ws://localhost:8000/ws",
   enableCaching: true,
   cacheTimeout: 300000,
   autoConnectWebSocket: true,
-  defaultStreamSubscriptions: ['frame', 'state', 'trajectory', 'alert'],
+  defaultStreamSubscriptions: ["frame", "state", "trajectory", "alert"],
 
   // WebSocket Client
   maxReconnectAttempts: 10,
@@ -324,6 +345,7 @@ const config = {
 ## Error Handling Patterns
 
 ### API Error Handling
+
 ```typescript
 try {
   const result = await apiService.updateConfig(changes);
@@ -336,7 +358,7 @@ try {
         break;
       case 403:
         // Show permission error
-        uiStore.showError('Insufficient permissions');
+        uiStore.showError("Insufficient permissions");
         break;
       case 422:
         // Show validation errors
@@ -351,24 +373,23 @@ try {
 ```
 
 ### Connection Error Recovery
+
 ```typescript
 // Automatic retry with exponential backoff
 const robustApiCall = async () => {
-  return errorHandler.withRetry(
-    () => apiService.getHealth(),
-    {
-      maxAttempts: 3,
-      initialDelay: 1000,
-      backoffFactor: 2,
-      retryCondition: (error) => error.status >= 500,
-    }
-  );
+  return errorHandler.withRetry(() => apiService.getHealth(), {
+    maxAttempts: 3,
+    initialDelay: 1000,
+    backoffFactor: 2,
+    retryCondition: (error) => error.status >= 500,
+  });
 };
 ```
 
 ## Real-time Data Flow
 
 ### Message Processing Pipeline
+
 ```
 WebSocket Message → Data Processor → MobX Store → React Component
       ↓                   ↓              ↓             ↓
@@ -376,6 +397,7 @@ WebSocket Message → Data Processor → MobX Store → React Component
 ```
 
 ### Example: Frame Processing
+
 ```typescript
 // 1. Raw WebSocket message
 {
@@ -405,6 +427,7 @@ gameStateStore.currentFrame = processedFrame;
 ## Performance Considerations
 
 ### Optimization Strategies
+
 1. **Frame Rate Limiting**: Limit processing to target FPS
 2. **Quality Filtering**: Skip low-quality frames
 3. **Request Deduplication**: Avoid duplicate API calls
@@ -413,6 +436,7 @@ gameStateStore.currentFrame = processedFrame;
 6. **Error Rate Limiting**: Prevent error spam
 
 ### Memory Management
+
 ```typescript
 // Automatic cleanup of old data
 const maxHistoryLength = 100;
@@ -428,18 +452,21 @@ setInterval(() => {
 ## Testing
 
 ### Unit Tests
+
 ```bash
 npm test services/
 ```
 
 ### Integration Tests
+
 ```bash
 npm test services/__tests__/api-integration.test.ts
 ```
 
 ### Manual Testing
+
 ```typescript
-import { runApiIntegrationDemo } from './examples/api-integration-demo';
+import { runApiIntegrationDemo } from "./examples/api-integration-demo";
 
 // Run comprehensive demo
 runApiIntegrationDemo();
@@ -448,12 +475,14 @@ runApiIntegrationDemo();
 ## Development Workflow
 
 ### Setup
+
 1. Install dependencies: `npm install`
 2. Configure environment variables
 3. Start development server: `npm run dev`
 4. Initialize API services in your app
 
 ### Adding New Features
+
 1. Define TypeScript interfaces in `types/api.ts`
 2. Implement API client methods
 3. Add WebSocket message handlers
@@ -463,6 +492,7 @@ runApiIntegrationDemo();
 7. Update documentation
 
 ### Debugging
+
 ```typescript
 // Enable debug mode
 if (import.meta.env.DEV) {
@@ -470,13 +500,14 @@ if (import.meta.env.DEV) {
   window.__MOBX_STORES__ = stores;
 
   // Enable detailed logging
-  console.log('API Services initialized');
+  console.log("API Services initialized");
 }
 ```
 
 ## Deployment Considerations
 
 ### Production Configuration
+
 - Enable authentication persistence
 - Set appropriate cache timeouts
 - Configure retry limits
@@ -484,6 +515,7 @@ if (import.meta.env.DEV) {
 - Set up monitoring alerts
 
 ### Security
+
 - Use HTTPS/WSS in production
 - Validate all user inputs
 - Implement rate limiting
@@ -493,12 +525,14 @@ if (import.meta.env.DEV) {
 ## Support and Maintenance
 
 ### Monitoring
+
 - Connection health metrics
 - Error rates and types
 - Performance statistics
 - User activity tracking
 
 ### Troubleshooting
+
 1. Check browser console for errors
 2. Verify network connectivity
 3. Validate authentication tokens
