@@ -1567,69 +1567,140 @@ love --fuse . projector
 
 **Architecture**: Visualizer supersedes `tools/video_debugger.py` with comprehensive HUD diagnostics and runs natively or as love2d.js web application.
 
-### Status: **IN PROGRESS** - 25% Complete
+### Status: **IN PROGRESS** - 65% Complete
 
-**Last Updated:** 2025-10-13 (Comprehensive 10-agent analysis completed)
+**Last Updated:** 2025-10-13 (Comprehensive 10-agent parallel analysis completed)
 
-**Overall Completion:** ~25% (solid foundation, but 75% of functionality missing)
+**Overall Completion:** ~65% (solid foundation with core functionality working, but 35% missing)
 
-#### What's Working ✅ (25%):
-- ✅ **Core Infrastructure** (90% complete)
-  - State management (core/state_manager.lua) - tracks balls, cue, table state
-  - Message routing (core/message_handler.lua) - parses and routes WebSocket messages
-  - JSON library integrated
-  - LOVE2D configuration (conf.lua) - proper anti-aliasing, VSync
-  - Basic HUD rendering (embedded in main.lua)
-  - FPS counter and keyboard controls (F1/F2/ESC)
+#### What's Working ✅ (65%):
 
-- ✅ **Calibration Module** (35% complete)
-  - Basic corner adjustment UI with mouse/keyboard
-  - Save/load single calibration profile
-  - Grid display overlay
-  - ⚠️ **LIMITATION**: Only linear transformation (not true perspective correction)
+##### Core Infrastructure (85% complete)
+- ✅ **State Management** (`core/state_manager.lua`) - 65% complete
+  - Ball tracking with unique IDs, position, velocity
+  - Cue stick and table geometry tracking
+  - Sequence number tracking
+  - Missing: validation, error handling, state history
 
-- ✅ **Trajectory Module** (20% structural, 0% functional)
-  - Data structures for trajectories, collisions, ghost balls
-  - Animation fade logic implemented
-  - ❌ **BLOCKING**: Cannot render due to missing Renderer module
+- ✅ **Message Routing** (`core/message_handler.lua`) - 85% complete
+  - JSON parsing with error handling
+  - Type-based message routing (state, motion, trajectory, frame, alert, config)
+  - Sequence gap detection and logging
+  - Callback system for trajectory, frame, alert, config messages
+  - Missing: 7 message types (metrics, event, command, response, heartbeat, error, subscription_confirmed)
 
-#### Critical Blocking Issues 🚨 (Must fix before any progress):
-1. **MISSING: Core Renderer Module** (`core/renderer.lua`)
-   - Trajectory module references `_G.Renderer` but it doesn't exist
-   - Calls undefined methods: `drawTrajectory()`, `drawDashedLine()`, `drawCircle()`, `reset()`
-   - **Impact**: Trajectory rendering fails silently (lines 150-154, 188, 218, 256, 267 of trajectory/init.lua)
+- ✅ **Core Renderer** (`core/renderer.lua`) - 75% complete
+  - Complete drawing primitives: lines, dashed lines, circles, trajectories, text, rectangles, polygons, arcs
+  - State management with push/pop stack
+  - Gradient color interpolation for trajectories
+  - Anti-aliasing enabled (4x MSAA)
+  - Missing: animation system, visual effects, overlay primitives, configuration system
 
-2. **MISSING: WebSocket Client** (No network connectivity)
-   - No WebSocket library integrated
+- ✅ **Trajectory Module** (`modules/trajectory/init.lua`) - 70% complete
+  - Primary trajectory rendering with gradient fade
+  - Collision markers (ball, cushion, pocket)
+  - Ghost ball rendering
+  - Aim line visualization
+  - Time-based fade-out animation (2.0s configurable)
+  - Missing: reflection/collision path differentiation, spin visualization, pulsing effects
+
+- ✅ **LOVE2D Lifecycle** (`main.lua`) - 70% complete
+  - Proper love.load(), love.update(), love.draw(), love.keypressed()
+  - Error handling with pcall wrapping
+  - Module initialization and wiring
+  - **CRITICAL BUG**: Graphics state stack error at line 132 (pop without matching push)
+
+- ✅ **Basic Debug HUD** (embedded in `main.lua`) - 23% complete
+  - FPS display, connection status, message count, last message time
+  - Ball count, cue ball position, cue detection status
+  - Keyboard toggles (F1: HUD, F2: debug, E: clear error, ESC: quit)
+  - Missing: modular architecture, individual section toggles, detailed metrics
+
+##### Partial Implementations (30-40% complete)
+
+- ⚠️ **Calibration Module** (`rendering/calibration.lua`) - 35% complete
+  - Save/load calibration profiles (JSON)
+  - Corner adjustment UI (manual positioning, drag, arrow keys)
+  - Calibration grid overlay visualization
+  - **CRITICAL LIMITATION**: Linear transformation only (not true perspective)
+  - Missing: 4-point perspective transform, keystone correction, distortion compensation, auto-detection
+
+- ⚠️ **Configuration System** - 15% complete
+  - Hardcoded CONFIG table in main.lua
+  - Trajectory module has configure() method
+  - MessageHandler routes config messages
+  - Missing: core/config.lua module, config/default.json file, schema validation, persistence
+
+#### Critical Issues 🚨 (Must fix immediately):
+
+1. **CRITICAL BUG: Graphics State Stack Error** (`main.lua:132`)
+   - `love.graphics.pop()` called without matching `push()`
+   - **Impact**: Will crash on first frame
+   - **Fix**: Remove line 132 or add push() at line 123
+
+2. **CRITICAL: Green-on-Green Visibility Problem** (`modules/trajectory/init.lua:24`)
+   - Primary trajectory color is GREEN (RGB: 77, 204, 77)
+   - Standard pool table felt is GREEN (RGB: 34, 139, 34)
+   - Contrast ratio: ~1.5:1 (violates NFR-VIS-006 requirement of 4.5:1)
+   - **Impact**: Trajectories will be nearly invisible on green felt
+   - **Fix**: Implement adaptive color system immediately
+
+3. **CRITICAL: No WebSocket Implementation** (Multiple locations)
    - No `modules/network/` directory exists
-   - MessageHandler ready but has no data source
-   - **Impact**: Cannot receive any real-time data from backend
+   - No WebSocket library integrated
+   - TODO markers at main.lua:75, 103, 242
+   - **Impact**: Cannot receive data from backend, system is non-functional end-to-end
+   - **Priority**: Highest - blocks all integration testing
 
-3. **MISSING: Global Initialization** (main.lua incomplete)
-   - `_G.Renderer` never created
-   - `_G.Calibration` never loaded
-   - Modules never initialized
-   - **Impact**: Modules cannot function even when implemented
+4. **HIGH: Calibration Not Integrated**
+   - Calibration module loaded at main.lua:54 but transform never applied
+   - Trajectory module calls Calibration:transform() but uses linear interpolation
+   - **Impact**: Trajectories rendered in uncalibrated coordinates
+   - **Fix**: Implement proper 4-point perspective transform
 
-#### What's Missing ❌ (75%):
+#### Component Status Table:
 
-| Component | Status | Completeness | Critical Issue |
-|-----------|--------|--------------|----------------|
-| **Core Renderer** | ❌ Not Started | 0% | Blocks all rendering |
-| **WebSocket Client** | ❌ Not Started | 0% | Blocks all data flow |
-| **Configuration System** | ❌ Not Started | 10% | No config.json support |
-| **Debug HUD Module** | ❌ Not Started | 15% | Only basic HUD in main.lua |
-| **Color Management** | ❌ Not Started | 0% | Hardcoded colors (green on green!) |
-| **Video Feed Module** | ❌ Not Started | 0% | Module directory empty |
-| **Ball Display Module** | ❌ Not Started | 0% | Module directory empty |
-| **Cue Display Module** | ❌ Not Started | 0% | Module directory empty |
-| **Table Overlay Module** | ❌ Not Started | 0% | Module directory empty |
-| **Perspective Transform** | ⚠️ Incomplete | 35% | Only linear, not proper perspective |
-| **Adaptive Colors** | ❌ Not Started | 0% | Will be invisible on green felt |
+| Component | Status | Completeness | Critical Issues |
+|-----------|--------|--------------|-----------------|
+| **Core Renderer** | ✅ Working | 75% | Missing animation system, effects primitives |
+| **State Manager** | ✅ Working | 65% | Missing validation, history tracking |
+| **Message Handler** | ✅ Working | 85% | Missing 7 message types |
+| **Trajectory Module** | ✅ Working | 70% | Green-on-green colors, no reflections/spin |
+| **Calibration** | ⚠️ Partial | 35% | Linear transform only, not integrated |
+| **Debug HUD** | ⚠️ Inline | 23% | Not modular, missing detailed metrics |
+| **WebSocket Client** | ❌ Missing | 0% | **BLOCKS ALL DATA FLOW** |
+| **Configuration System** | ⚠️ Minimal | 15% | No config.json, no persistence |
+| **Color Management** | ❌ Missing | 0% | **CRITICAL: Green on green problem** |
+| **Video Feed Module** | ❌ Missing | 0% | Planned for Task Group 5 |
+| **Perspective Transform** | ❌ Missing | 0% | Linear only, needs homography |
+| **Visual Effects** | ❌ Missing | 0% | No pulsing, no advanced animations |
 
-**Next Priority:** Fix critical blockers before implementing new features
+**Next Priorities:**
+1. Fix graphics state stack bug (immediate)
+2. Implement WebSocket client (critical path)
+3. Implement adaptive color system (visibility crisis)
+4. Integrate calibration transform (accuracy)
 
 ### Implementation Tasks
+
+#### Task Group 0: Critical Bug Fixes ✅ **DO FIRST** (1-2 hours)
+1. ❌ **Fix graphics state stack error** (`main.lua:132`)
+   - Remove `love.graphics.pop()` at line 132 OR add matching `push()` at line 123
+   - **Priority**: IMMEDIATE - crashes on startup
+   - **Effort**: 5 minutes
+
+2. ❌ **Quick fix for green-on-green colors** (`modules/trajectory/init.lua:24`)
+   - Change primary color from green to high-contrast color (cyan, magenta, white)
+   - Temporary fix until adaptive color system implemented
+   - **Priority**: IMMEDIATE - trajectories invisible
+   - **Effort**: 5 minutes
+
+3. ❌ **Wire calibration grid overlay** (`main.lua`)
+   - Add keyboard toggle for calibration mode (F3 key)
+   - Call `Calibration:drawOverlay()` when calibration mode active
+   - Route arrow keys to `Calibration:adjustCorner()` in calibration mode
+   - **Priority**: HIGH - calibration UI exists but inaccessible
+   - **Effort**: 30 minutes
 
 #### Task Group 1: Core Visualizer Setup ✅ COMPLETE
 1. ✅ Create visualizer directory structure
@@ -1637,23 +1708,89 @@ love --fuse . projector
 3. ✅ Move core files (main.lua, conf.lua, lib/json.lua)
 4. ✅ Create state_manager.lua (track ball/cue positions from WebSocket)
 5. ✅ Create message_handler.lua (parse and route WebSocket messages)
+6. ✅ Create renderer.lua (drawing primitives with gradient support)
 
-#### Task Group 2: WebSocket Integration (6-8 hours) - HIGH PRIORITY
-6. Add WebSocket library (love2d-lua-websocket)
-7. Implement websocket_client.lua with auto-reconnect
-8. Implement subscription management (video frames)
-9. Test WebSocket connection with backend
+#### Task Group 2: WebSocket Integration **CRITICAL PATH** (6-8 hours) - DO NEXT
+6. ❌ Add WebSocket library (lua-websockets or love2d-lua-websocket)
+   - Research LÖVE2D compatible WebSocket libraries
+   - Install to `lib/websocket.lua`
+   - Verify compatibility and basic connection test
+   - **Effort**: 1-2 hours
 
-#### Task Group 3: Basic Visualization Modules (8-10 hours) - HIGH PRIORITY
-10. Update trajectory module for AR overlay rendering
-11. Create table_overlay module (boundaries, guides, zones)
-12. Update video_feed module for WebSocket frame reception
+7. ❌ Create `modules/network/` directory structure
+   - `modules/network/init.lua` - Network abstraction layer
+   - `modules/network/websocket.lua` - WebSocket client implementation
+   - `modules/network/messages.lua` - Message helpers
+   - **Effort**: 30 minutes
 
-#### Task Group 4: Diagnostic HUD (10-12 hours) - MEDIUM PRIORITY
-13. Implement HUD data collector (connection, balls, cue, performance)
-14. Implement HUD renderer (layout, sections, opacity)
-15. Implement HUD sections (connection, balls, cue, table, performance, video)
-16. Implement HUD controls (F1-F8 toggles, layout modes)
+8. ❌ Implement websocket_client.lua with auto-reconnect
+   - Connection establishment to configurable URL
+   - Text frame reception handler
+   - Exponential backoff reconnection (1s to 30s max delay)
+   - Connection state tracking (disconnected, connecting, connected, reconnecting)
+   - Heartbeat/ping-pong every 30 seconds
+   - **Effort**: 3-4 hours
+
+9. ❌ Create configuration system
+   - Create `config/` directory
+   - Create `default.json` with network settings per SPECS
+   - Implement config loader in main.lua
+   - Pass config to network module
+   - **Effort**: 1-2 hours
+
+10. ❌ Integrate WebSocket with MessageHandler
+    - Wire WebSocket message events to MessageHandler.handleMessage()
+    - Update main.lua:75 to initialize WebSocket client
+    - Update main.lua:103 to call WebSocket:update(dt)
+    - Update main.lua:242 to call WebSocket:close()
+    - Test with real backend connection
+    - **Effort**: 1-2 hours
+
+#### Task Group 3: Adaptive Color System **CRITICAL** (4-6 hours) - DO AFTER WEBSOCKET
+11. ❌ Create `modules/colors/` directory structure
+    - `modules/colors/init.lua` - Color management API
+    - `modules/colors/adaptive.lua` - Color generation algorithms
+    - `modules/colors/contrast.lua` - Contrast ratio calculations
+    - **Effort**: 30 minutes
+
+12. ❌ Implement contrast ratio calculation
+    - Relative luminance calculation (WCAG 2.0)
+    - Contrast ratio formula: (L1 + 0.05) / (L2 + 0.05)
+    - Validation: ensure 4.5:1 minimum for NFR-VIS-006
+    - **Effort**: 1-2 hours
+
+13. ❌ Implement complementary color generation
+    - RGB to HSL conversion
+    - Complementary color calculation (opposite hue)
+    - High-contrast color selection based on table felt color
+    - **Effort**: 2-3 hours
+
+14. ❌ Integrate with trajectory and calibration modules
+    - Add table color configuration (manual for now)
+    - Replace hardcoded colors in trajectory module
+    - Test visibility on green, blue, red felt colors
+    - **Effort**: 1-2 hours
+
+#### Task Group 4: Calibration Enhancement (6-8 hours) - MEDIUM PRIORITY
+15. ❌ Implement 4-point perspective transformation
+    - Add Lua matrix library or implement 3x3 matrix operations
+    - Implement homography calculation from 4 point pairs
+    - Replace linear transform in `calibration.lua:calculateTransform()`
+    - Update `transform()` to use homogeneous coordinates
+    - **Effort**: 4-6 hours
+
+16. ❌ Integrate calibration into render pipeline
+    - Ensure all rendering uses calibrated coordinates
+    - Test alignment with projected content
+    - **Effort**: 1-2 hours
+
+#### Task Group 5: Modular Debug HUD (8-10 hours) - MEDIUM PRIORITY
+17. ❌ Create `modules/debug_hud/` directory structure
+18. ❌ Refactor inline HUD from main.lua to module
+19. ❌ Implement HUD sections (connection, balls, cue, table, performance)
+20. ❌ Add individual section toggles (F1-F6 keys)
+21. ❌ Add HUD layout presets (minimal, standard, detailed)
+22. ❌ Add performance metrics (frame time, memory, latency)
 
 #### Task Group 5: Video Feed Module (4-6 hours) - MEDIUM PRIORITY
 17. Update video_feed for WebSocket frames (base64 JPEG)
