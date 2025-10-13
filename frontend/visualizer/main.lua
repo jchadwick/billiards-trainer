@@ -121,8 +121,7 @@ function love.draw()
 
     if not success then
         state.lastError = err
-        love.graphics.push()
-        love.graphics.origin()
+        love.graphics.origin()  -- Reset graphics state after error
     end
 
     -- Draw calibration overlay (if in calibration mode)

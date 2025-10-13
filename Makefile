@@ -180,6 +180,10 @@ run-frontend: ## Run frontend dev server only
 	@echo "$(BLUE)Starting frontend dev server...$(RESET)"
 	cd frontend/web && npm run dev
 
+run-visualizer: ## Run LOVE2D visualizer only
+	@echo "$(BLUE)Starting LOVE2D visualizer...$(RESET)"
+	love frontend/visualizer
+
 run-vision: ## Run vision system only
 	@echo "$(BLUE)Starting vision system...$(RESET)"
 	$(PYTHON) -m backend.vision.main
