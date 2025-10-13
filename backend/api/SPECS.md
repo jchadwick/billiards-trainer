@@ -41,6 +41,8 @@ The API module serves as the primary interface between the backend processing sy
 - **FR-API-020**: Execute complete vision system diagnostics
 - **FR-API-021**: Generate comprehensive diagnostic summary
 
+**Note**: Module logging endpoints return summary information. Detailed logs are accessible directly on the filesystem for troubleshooting.
+
 ### 2. Real-time Communication Requirements
 
 #### 2.1 Real-time Streaming (WebSocket & UDP)

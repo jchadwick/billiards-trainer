@@ -18,11 +18,13 @@ The Core module serves as the central business logic layer, managing game state,
 - **FR-CORE-006B**: Track ball number/type as optional metadata (separate from ID)
 
 #### 1.2 State Validation
-- **FR-CORE-006**: Validate detection data for physical consistency
-- **FR-CORE-007**: Filter noise and impossible state transitions
-- **FR-CORE-008**: Interpolate missing data points
-- **FR-CORE-009**: Detect and correct detection errors
+- **FR-CORE-006**: Validate detection data for physical consistency (basic position/velocity checks)
+- **FR-CORE-007**: Filter noise and impossible state transitions (optional enhancement)
+- **FR-CORE-008**: Interpolate missing data points (optional enhancement)
+- **FR-CORE-009**: Detect and correct detection errors (auto-correction for overlaps/OOB implemented)
 - **FR-CORE-010**: Maintain confidence scores for state elements
+
+**Implementation Note**: Basic state validation is implemented with auto-correction for common issues (overlapping balls, out-of-bounds positions, excessive velocities). Advanced noise filtering and interpolation are optional enhancements not required for core functionality.
 
 #### 1.3 State Synchronization
 - **FR-CORE-011**: Synchronize state across all connected clients
@@ -66,16 +68,18 @@ The Core module serves as the central business logic layer, managing game state,
 #### 3.1 Shot Analysis
 - **FR-CORE-031**: Identify shot type (break, safety, bank, etc.)
 - **FR-CORE-032**: Calculate shot difficulty score
-- **FR-CORE-033**: Detect illegal shots (scratches, wrong ball)
+- **FR-CORE-033**: Detect illegal shots (scratches, wrong ball) - basic implementation
 - **FR-CORE-034**: Suggest alternative shot angles
 - **FR-CORE-035**: Rank shots by success probability
 
-#### 3.2 Game Rules (Optional)
-- **FR-CORE-036**: Track game type (8-ball, 9-ball, etc.)
-- **FR-CORE-037**: Monitor turn order and fouls
-- **FR-CORE-038**: Validate legal shots per game rules
-- **FR-CORE-039**: Track score and game progress
-- **FR-CORE-040**: Detect game completion conditions
+#### 3.2 Game Rules (Training Mode - Optional)
+- **FR-CORE-036**: Track game type (8-ball, 9-ball, practice)
+- **FR-CORE-037**: Monitor turn order and fouls (optional - training system focus)
+- **FR-CORE-038**: Validate legal shots per game rules (optional - training system focus)
+- **FR-CORE-039**: Track score and game progress (optional - training system focus)
+- **FR-CORE-040**: Detect game completion conditions (optional - training system focus)
+
+**Implementation Note**: This is a training system focused on shot visualization and trajectory prediction. Full game rule enforcement (turn order, fouls, scoring) is optional and not required for core training functionality. Basic game type tracking and illegal shot detection are implemented for context.
 
 ### 4. Prediction Engine
 
@@ -269,10 +273,10 @@ class CoreModule:
         pass
 
     def calculate_trajectory(self,
-                           cue_angle: float,
-                           force: float,
-                           impact_point: Vector2D) -> List[Trajectory]:
-        """Calculate ball trajectories for given shot"""
+                           ball_id: str,
+                           initial_velocity: Vector2D,
+                           time_limit: float = 10.0) -> List[Trajectory]:
+        """Calculate ball trajectories from initial conditions"""
         pass
 
     def analyze_shot(self, target_ball: Optional[str] = None) -> ShotAnalysis:

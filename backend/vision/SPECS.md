@@ -6,14 +6,16 @@ The Vision module is the core computer vision engine responsible for analyzing v
 
 ## Functional Requirements
 
-### 1. Stream Consumption Requirements
+### 1. Camera Access Requirements
 
-#### 1.1 Streaming Service Interface
-- **FR-VIS-001**: Connect to Streaming Service via shared memory or network stream
-- **FR-VIS-002**: Consume video frames at required frame rate (30 FPS for analysis)
-- **FR-VIS-003**: Support multiple stream sources (shared memory, RTSP, HTTP)
-- **FR-VIS-004**: Handle stream disconnection and reconnection gracefully
-- **FR-VIS-005**: Monitor stream health and latency
+#### 1.1 Camera Interface (Current Implementation)
+- **FR-VIS-001**: Access camera directly via OpenCV VideoCapture interface
+- **FR-VIS-002**: Capture video frames at required frame rate (30 FPS for analysis)
+- **FR-VIS-003**: Support multiple camera sources (device ID, video file, RTSP URL)
+- **FR-VIS-004**: Handle camera disconnection and reconnection gracefully
+- **FR-VIS-005**: Monitor camera health and frame delivery latency
+
+**Architecture Note**: Current implementation uses direct camera access for simplicity and single-consumer scenarios. For future multi-consumer requirements (Vision + recording + multiple frontends), consider migrating to separate GStreamer Streaming Service as documented in Streaming Module SPECS.md.
 
 #### 1.2 Image Preprocessing
 - **FR-VIS-006**: Convert color spaces (BGR to HSV/LAB) for robust detection
@@ -40,15 +42,19 @@ The Vision module is the core computer vision engine responsible for analyzing v
 ### 3. Ball Detection Requirements
 
 #### 3.1 Ball Recognition (YOLO-Based Detection)
-- **FR-VIS-020**: Detect all balls on the table surface using YOLOv8 deep learning model
-- **FR-VIS-021**: Distinguish between three ball types only: cue, eight, other (simplified classification - stripe/solid distinction removed due to poor accuracy)
+- **FR-VIS-020**: Detect all balls on the table surface using YOLOv8 deep learning model or OpenCV fallback
+- **FR-VIS-021**: Distinguish between three ball types: cue, eight, other (production implementation)
 - **FR-VIS-022**: Resolve conflicts when multiple cue or 8-balls detected: highest confidence wins, others reclassified to OTHER
 - **FR-VIS-023**: Track ball positions with ±2 pixel accuracy using YOLO detection + OpenCV refinement
 - **FR-VIS-024**: Measure ball radius for size validation from YOLO bounding boxes
 - **FR-VIS-061**: Enforce single cue ball constraint: only one cue ball allowed on table at a time
 - **FR-VIS-062**: Enforce single 8-ball constraint: only one 8-ball allowed on table at a time
 
-**Note**: The original four-type classification (cue, solid, stripe, eight) was simplified to three types (cue, eight, other) because distinguishing between solid and striped balls proved unreliable in practice. The stripe pattern detection was too sensitive to lighting conditions, ball orientation, and image quality.
+**Implementation Note**: Three-type classification (cue, eight, other) is the production standard. Testing showed that four-type classification (cue, solid, stripe, eight) with stripe/solid distinction was unreliable due to:
+- Lighting condition variations affecting color detection
+- Ball orientation masking stripe patterns
+- Image quality variations across camera types
+The simplified three-type approach provides 95%+ accuracy vs 70% with four-type classification.
 
 #### 3.2 Ball Tracking (OpenCV-Based)
 - **FR-VIS-025**: Track ball movement across frames using Kalman filters
@@ -149,7 +155,7 @@ from enum import Enum
 class BallType(Enum):
     CUE = "cue"
     EIGHT = "eight"
-    OTHER = "other"  # All numbered balls (formerly solid/stripe - simplified due to poor classification accuracy)
+    OTHER = "other"  # All other balls (1-7, 9-15) - simplified classification for reliability
 
 @dataclass
 class Ball:

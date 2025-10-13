@@ -1,0 +1,2385 @@
+"""Cue stick detection and shot analysis algorithms.
+
+Implements requirements FR-VIS-030 to FR-VIS-038:
+- Cue stick detection using advanced line detection
+- Cue angle and position tracking
+- Shot detection and analysis
+- Strike force estimation
+- English/spin detection
+"""
+
+import logging
+import math
+from collections import deque
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Optional
+
+import cv2
+import numpy as np
+from numpy.typing import NDArray
+
+# Import from models to use consistent data structures
+from ..models import CueState, CueStick
+
+
+class ShotType(Enum):
+    """Type of shot detected."""
+
+    STRAIGHT = "straight"
+    ENGLISH_LEFT = "english_left"
+    ENGLISH_RIGHT = "english_right"
+    FOLLOW = "follow"
+    DRAW = "draw"
+    MASSE = "masse"
+
+
+@dataclass
+class ExtendedShotEvent:
+    """Extended shot event with detailed analysis."""
+
+    # Basic shot information
+    shot_id: int
+    timestamp: float
+    cue_ball_position: tuple[float, float]
+    target_ball_position: Optional[tuple[float, float]] = None
+    cue_angle: float = 0.0
+    estimated_force: float = 0.0
+
+    # Contact analysis
+    contact_point: tuple[float, float] = (0.0, 0.0)  # on cue ball
+    strike_force: float = 0.0  # estimated force 0-100
+    strike_angle: float = 0.0  # angle of contact
+
+    # Ball analysis
+    cue_ball_velocity_pre: tuple[float, float] = (0.0, 0.0)
+    cue_ball_velocity_post: tuple[float, float] = (0.0, 0.0)
+
+    # Shot classification
+    shot_type: ShotType = ShotType.STRAIGHT
+    english_amount: float = 0.0  # -1 to 1 (left to right)
+    follow_draw: float = 0.0  # -1 to 1 (draw to follow)
+
+    confidence: float = 0.0
+
+
+class CueDetector:
+    """Advanced cue stick detection and shot analysis.
+
+    Implements:
+    - Multi-algorithm line detection (Hough, LSD, probabilistic)
+    - Temporal tracking and filtering
+    - Motion analysis and state detection
+    - Shot event detection and classification
+    - False positive filtering
+    """
+
+    def __init__(self, config: dict[str, Any], yolo_detector=None) -> None:
+        """Initialize cue detector with configuration.
+
+        Args:
+            config: Configuration dictionary with detection parameters
+            yolo_detector: Optional YOLODetector instance for YOLO-based cue detection
+        """
+        self.config = config
+        self.logger = logging.getLogger(__name__)
+        self.yolo_detector = yolo_detector
+
+        # Geometry parameters
+        geometry = config.get("geometry", {})
+        self.min_cue_length = geometry.get("min_cue_length", 150)
+        self.max_cue_length = geometry.get("max_cue_length", 800)
+        self.min_line_thickness = geometry.get("min_line_thickness", 3)
+        self.max_line_thickness = geometry.get("max_line_thickness", 25)
+        self.ball_radius = geometry.get("ball_radius", 15)
+
+        # Hough transform parameters
+        hough = config.get("hough", {})
+        self.hough_threshold = hough.get("threshold", 100)
+        self.hough_min_line_length = hough.get("min_line_length", 100)
+        self.hough_max_line_gap = hough.get("max_line_gap", 20)
+        self.hough_rho = hough.get("rho", 1)
+        self.hough_theta_divisor = hough.get("theta_divisor", 180)
+
+        # LSD parameters
+        lsd = config.get("lsd", {})
+        self.lsd_scale = lsd.get("scale", 0.8)
+        self.lsd_sigma = lsd.get("sigma", 0.6)
+        self.lsd_quant = lsd.get("quant", 2.0)
+        self.lsd_ang_th = lsd.get("ang_th", 22.5)
+        self.lsd_log_eps = lsd.get("log_eps", 0)
+        self.lsd_density_th = lsd.get("density_th", 0.7)
+        self.lsd_n_bins = lsd.get("n_bins", 1024)
+
+        # Edge detection parameters
+        edge = config.get("edge_detection", {})
+        self.canny_low_threshold = edge.get("canny_low_threshold", 50)
+        self.canny_high_threshold = edge.get("canny_high_threshold", 150)
+        self.canny_aperture_size = edge.get("canny_aperture_size", 3)
+        self.gradient_threshold = edge.get("gradient_threshold", 20)
+
+        # Preprocessing parameters
+        preproc = config.get("preprocessing", {})
+        self.gaussian_kernel_size = preproc.get("gaussian_kernel_size", 5)
+        self.gaussian_sigma = preproc.get("gaussian_sigma", 1.0)
+        self.clahe_clip_limit = preproc.get("clahe_clip_limit", 2.0)
+        self.clahe_tile_grid_size = preproc.get("clahe_tile_grid_size", 8)
+        self.morphology_kernel_size = preproc.get("morphology_kernel_size", 3)
+        self.morphology_horizontal_kernel = preproc.get(
+            "morphology_horizontal_kernel", [15, 3]
+        )
+        self.morphology_vertical_kernel = preproc.get(
+            "morphology_vertical_kernel", [3, 15]
+        )
+        self.morphology_diagonal_kernel_size = preproc.get(
+            "morphology_diagonal_kernel_size", 11
+        )
+        self.min_frame_sum = preproc.get("min_frame_sum", 1000)
+        self.min_contrast_std = preproc.get("min_contrast_std", 10)
+        self.min_morph_content = preproc.get("min_morph_content", 100)
+
+        # Motion analysis parameters
+        motion = config.get("motion", {})
+        self.velocity_threshold = motion.get("velocity_threshold", 5.0)
+        self.acceleration_threshold = motion.get("acceleration_threshold", 2.0)
+        self.striking_velocity_threshold = motion.get(
+            "striking_velocity_threshold", 15.0
+        )
+        self.position_movement_threshold = motion.get(
+            "position_movement_threshold", 10.0
+        )
+        self.angle_change_threshold = motion.get("angle_change_threshold", 5.0)
+        self.min_ball_speed = motion.get("min_ball_speed", 2.0)
+
+        # Tracking parameters
+        tracking = config.get("tracking", {})
+        self.max_tracking_distance = tracking.get("max_tracking_distance", 50)
+        self.tracking_history_size = tracking.get("tracking_history_size", 10)
+        self.confidence_decay = tracking.get("confidence_decay", 0.95)
+        self.temporal_smoothing = tracking.get("temporal_smoothing", 0.7)
+
+        # Validation parameters
+        validation = config.get("validation", {})
+        self.min_detection_confidence = validation.get("min_detection_confidence", 0.6)
+        self.use_background_subtraction = validation.get(
+            "use_background_subtraction", False
+        )
+        self.background_threshold = validation.get("background_threshold", 30)
+        self.thickness_sample_count = validation.get("thickness_sample_count", 5)
+        self.max_thickness_search = validation.get("max_thickness_search", 30)
+        self.edge_margin = validation.get("edge_margin", 20)
+        self.position_edge_margin = validation.get("position_edge_margin", 10)
+
+        # Proximity parameters
+        proximity = config.get("proximity", {})
+        self.max_distance_to_cue_ball = proximity.get("max_distance_to_cue_ball", 40)
+        self.max_tip_distance = proximity.get("max_tip_distance", 300)
+        self.max_reasonable_distance = proximity.get("max_reasonable_distance", 200)
+        self.contact_threshold = proximity.get("contact_threshold", 30)
+        self.overlap_threshold = proximity.get("overlap_threshold", 50)
+        self.max_angle_overlap = proximity.get("max_angle_overlap", 30)
+
+        # Scoring parameters
+        scoring = config.get("scoring", {})
+        self.length_weight = scoring.get("length_weight", 0.3)
+        self.position_weight = scoring.get("position_weight", 0.2)
+        self.proximity_weight = scoring.get("proximity_weight", 0.3)
+        self.temporal_weight = scoring.get("temporal_weight", 0.2)
+        self.no_cue_ball_score = scoring.get("no_cue_ball_score", 0.15)
+        self.no_temporal_score = scoring.get("no_temporal_score", 0.1)
+        self.max_angle_change = scoring.get("max_angle_change", 45.0)
+        self.edge_penalty = scoring.get("edge_penalty", 0.2)
+        self.min_confidence_for_shot = scoring.get("min_confidence_for_shot", 0.9)
+
+        # Shot detection parameters
+        shot = config.get("shot_detection", {})
+        self.max_velocity = shot.get("max_velocity", 50.0)
+        self.english_deviation_angle = shot.get("english_deviation_angle", 30)
+        self.follow_draw_threshold = shot.get("follow_draw_threshold", 5)
+        self.center_offset_threshold = shot.get("center_offset_threshold", 5)
+
+        # Advanced parameters
+        advanced = config.get("advanced", {})
+        self.enable_yolo_detection = advanced.get("enable_yolo_detection", True)
+        self.enable_lsd_detection = advanced.get("enable_lsd_detection", True)
+        self.enable_morphological_detection = advanced.get(
+            "enable_morphological_detection", True
+        )
+        self.top_candidates_to_validate = advanced.get("top_candidates_to_validate", 3)
+        self.max_cues_to_detect = advanced.get("max_cues_to_detect", 2)
+
+        # Cassapa-style HSV color filtering parameters (Phase 1)
+        # Reference: cassapa/detector.cpp:423-450
+        cassapa = config.get("cassapa", {})
+        hsv_config = cassapa.get("hsv_config", {})
+        self.cassapa_hsv_config = {
+            "lh": hsv_config.get("lh", 10),  # Hue lower bound (brown/orange wood)
+            "uh": hsv_config.get("uh", 20),  # Hue upper bound
+            "ls": hsv_config.get("ls", 50),  # Saturation lower bound
+            "us": hsv_config.get("us", 255),  # Saturation upper bound
+            "lv": hsv_config.get("lv", 50),  # Value lower bound
+            "uv": hsv_config.get("uv", 255),  # Value upper bound
+        }
+        self.cassapa_erode_size = cassapa.get("erode_size", 1)
+        self.cassapa_dilate_size = cassapa.get("dilate_size", 2)
+
+        # Cassapa HoughLinesP parameters (Phase 2.1-2.3)
+        # Reference: cassapa/detector.cpp:474-620
+        self.cassapa_hlp_rho = 1.0
+        self.cassapa_hlp_theta = np.pi / 180
+        self.cassapa_hlp_threshold = 50
+        self.cassapa_hlp_min_length = 100
+        self.cassapa_hlp_max_gap = 3
+        self.cassapa_hlp_max_lines = 200  # Reject if more lines detected
+
+        # Cassapa HoughLines (precision mode) parameters (Phase 2.4)
+        # Reference: cassapa/detector.cpp:672-790
+        self.cassapa_hl_rho = 1.0
+        self.cassapa_hl_theta = np.pi / 180
+        self.cassapa_hl_threshold = 100
+        self.cassapa_hl_threshold_fallback1 = 80
+        self.cassapa_hl_threshold_fallback2 = 50
+
+        # Canny parameters for precision mode
+        self.cassapa_canny_apply = True
+        self.cassapa_canny_threshold1 = 50
+        self.cassapa_canny_threshold2 = 150
+        self.cassapa_canny_aperture = 3
+        self.cassapa_canny_l2_gradient = True
+
+        # Internal state
+        self.previous_cues: deque = deque(maxlen=self.tracking_history_size)
+        self.frame_count = 0
+        self.shot_events: list[ExtendedShotEvent] = []
+        self.background_frame: Optional[NDArray[np.uint8]] = None
+
+        # Initialize line segment detector
+        self._init_line_detectors()
+
+    def _init_line_detectors(self) -> None:
+        """Initialize line detection algorithms."""
+        try:
+            # Line Segment Detector
+            self.lsd = cv2.createLineSegmentDetector(
+                scale=self.lsd_scale,
+                sigma_scale=self.lsd_sigma,
+                quant=self.lsd_quant,
+                ang_th=self.lsd_ang_th,
+                log_eps=self.lsd_log_eps,
+                density_th=self.lsd_density_th,
+                n_bins=self.lsd_n_bins,
+            )
+        except Exception as e:
+            self.logger.warning(f"LSD initialization failed: {e}")
+            self.lsd = None
+
+    def detect_cue(
+        self,
+        frame: NDArray[np.uint8],
+        cue_ball_pos: Optional[tuple[float, float]] = None,
+        all_ball_positions: Optional[list[tuple[float, float]]] = None,
+        table_corners: Optional[
+            tuple[
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+            ]
+        ] = None,
+    ) -> Optional[CueStick]:
+        """Detect cue stick in frame using multiple algorithms.
+
+        Tries YOLO detection first (if available), then falls back to line-based detection.
+
+        Args:
+            frame: Input image frame
+            cue_ball_pos: Optional cue ball position for improved detection
+            all_ball_positions: Optional list of all ball positions for orientation detection
+            table_corners: Optional table corners (top_left, top_right, bottom_left, bottom_right) for cushion-based orientation
+
+        Returns:
+            Detected CueStick object or None
+        """
+        self.frame_count += 1
+
+        if frame is None or frame.size == 0:
+            return None
+
+        try:
+            # Try YOLO detection first if available
+            if self.yolo_detector is not None and cue_ball_pos is not None:
+                yolo_cue = self._detect_cue_with_yolo(
+                    frame, cue_ball_pos, all_ball_positions, table_corners
+                )
+                if yolo_cue is not None:
+                    return yolo_cue
+
+            # Fallback to traditional line-based detection
+            # Check if frame has sufficient content
+            if np.sum(frame) < self.min_frame_sum:  # Very dark/empty frame
+                return None
+
+            # Preprocess frame
+            processed_frame = self._preprocess_frame(frame)
+
+            # Check if preprocessed frame has sufficient contrast
+            if np.std(processed_frame) < self.min_contrast_std:  # Very low contrast
+                return None
+
+            # Detect lines using multiple methods
+            all_lines = self._detect_lines_multi_method(processed_frame)
+
+            if not all_lines:
+                return None
+
+            # Filter and score cue candidates
+            cue_candidates = self._filter_cue_candidates(
+                all_lines, frame.shape, cue_ball_pos, all_ball_positions, table_corners
+            )
+
+            if not cue_candidates:
+                return None
+
+            # Select best cue candidate
+            best_cue = self._select_best_cue(cue_candidates, frame)
+
+            if best_cue is None:
+                return None
+
+            # Apply temporal tracking and smoothing
+            tracked_cue = self._apply_temporal_tracking(best_cue)
+
+            # Analyze motion and state
+            self._analyze_cue_motion(tracked_cue)
+
+            # Store for next frame
+            self.previous_cues.append(tracked_cue)
+
+            # Convert to base CueStick format for compatibility
+            return CueStick(
+                tip_position=tracked_cue.tip_position,
+                angle=tracked_cue.angle,
+                length=tracked_cue.length,
+                confidence=tracked_cue.confidence,
+                state=tracked_cue.state,
+                is_aiming=(tracked_cue.state == CueState.AIMING),
+                tip_velocity=tracked_cue.velocity,
+                angular_velocity=tracked_cue.angular_velocity,
+            )
+
+        except Exception as e:
+            self.logger.error(f"Cue detection failed: {e}")
+            return None
+
+    def set_background_frame(self, frame: NDArray[np.uint8]) -> None:
+        """Set the background reference frame (empty table).
+
+        Args:
+            frame: Reference frame of empty table
+        """
+        self.background_frame = frame.copy()
+        self.use_background_subtraction = True
+        self.logger.info("Background frame set for cue detection")
+
+    def _distance_to_nearest_cushion(
+        self,
+        point: tuple[float, float],
+        table_corners: tuple[
+            tuple[float, float],
+            tuple[float, float],
+            tuple[float, float],
+            tuple[float, float],
+        ],
+    ) -> float:
+        """Calculate distance from a point to the nearest table cushion/rail.
+
+        Args:
+            point: Point (x, y) to measure from
+            table_corners: Table corners (top_left, top_right, bottom_left, bottom_right)
+
+        Returns:
+            Distance to the nearest cushion edge in pixels
+        """
+        top_left, top_right, bottom_left, bottom_right = table_corners
+        x, y = point
+
+        # Calculate distances to each of the four rails
+        # Top rail: line from top_left to top_right
+        top_dist = self._point_to_line_distance(
+            point, np.array([top_left[0], top_left[1], top_right[0], top_right[1]])
+        )
+
+        # Bottom rail: line from bottom_left to bottom_right
+        bottom_dist = self._point_to_line_distance(
+            point,
+            np.array(
+                [bottom_left[0], bottom_left[1], bottom_right[0], bottom_right[1]]
+            ),
+        )
+
+        # Left rail: line from top_left to bottom_left
+        left_dist = self._point_to_line_distance(
+            point, np.array([top_left[0], top_left[1], bottom_left[0], bottom_left[1]])
+        )
+
+        # Right rail: line from top_right to bottom_right
+        right_dist = self._point_to_line_distance(
+            point,
+            np.array([top_right[0], top_right[1], bottom_right[0], bottom_right[1]]),
+        )
+
+        # Return the minimum distance to any cushion
+        return min(top_dist, bottom_dist, left_dist, right_dist)
+
+    def _find_closest_ball_on_cue_line(
+        self,
+        tip_pos: tuple[float, float],
+        butt_pos: tuple[float, float],
+        all_ball_positions: list[tuple[float, float]],
+        cue_ball_pos: Optional[tuple[float, float]] = None,
+    ) -> Optional[tuple[float, float]]:
+        """Find the closest ball that the cue line is pointing at.
+
+        Args:
+            tip_pos: Cue tip position
+            butt_pos: Cue butt position
+            all_ball_positions: List of all ball positions
+            cue_ball_pos: Optional cue ball position to exclude from consideration
+
+        Returns:
+            Position of the closest ball the cue is pointing at, or None if no ball is close enough
+        """
+        if not all_ball_positions:
+            return None
+
+        # Create line from tip to butt
+        line = np.array([tip_pos[0], tip_pos[1], butt_pos[0], butt_pos[1]])
+
+        # Find balls that are close to the cue line
+        closest_ball = None
+        min_distance = float("inf")
+
+        for ball_pos in all_ball_positions:
+            # Skip the cue ball - we're looking for TARGET balls
+            if cue_ball_pos is not None:
+                cue_ball_distance = np.sqrt(
+                    (ball_pos[0] - cue_ball_pos[0]) ** 2
+                    + (ball_pos[1] - cue_ball_pos[1]) ** 2
+                )
+                # If this ball is very close to the cue ball position, skip it
+                if cue_ball_distance < self.ball_radius * 2:  # Within 2 ball radii
+                    continue
+            # Calculate distance from ball to cue line
+            distance = self._point_to_line_distance(ball_pos, line)
+
+            # Only consider balls that are close to the line
+            if distance <= self.max_distance_to_cue_ball:
+                # Check if ball is "in front" of the tip (not behind the butt)
+                # Vector from butt to tip
+                cue_dx = tip_pos[0] - butt_pos[0]
+                cue_dy = tip_pos[1] - butt_pos[1]
+
+                # Vector from butt to ball
+                ball_dx = ball_pos[0] - butt_pos[0]
+                ball_dy = ball_pos[1] - butt_pos[1]
+
+                # Dot product to check if ball is in the direction of the tip
+                dot_product = cue_dx * ball_dx + cue_dy * ball_dy
+
+                if dot_product > 0:  # Ball is ahead of butt
+                    # Calculate distance from tip to ball
+                    tip_to_ball_dist = np.sqrt(
+                        (tip_pos[0] - ball_pos[0]) ** 2
+                        + (tip_pos[1] - ball_pos[1]) ** 2
+                    )
+
+                    if tip_to_ball_dist < min_distance:
+                        min_distance = tip_to_ball_dist
+                        closest_ball = ball_pos
+
+        return closest_ball
+
+    def _detect_mass_near_point(
+        self,
+        frame: NDArray[np.uint8],
+        point: tuple[float, float],
+        table_color_hsv: Optional[tuple[int, int, int]] = None,
+        radius: float = 100.0,
+    ) -> float:
+        """Detect amount of non-table mass (person's body) near a point.
+
+        The butt end of the cue will have more visual mass (player's body) nearby,
+        while the tip will have less obstruction.
+
+        Args:
+            frame: Input frame in BGR format
+            point: Point to check (x, y)
+            table_color_hsv: Table color to exclude (if known)
+            radius: Radius around point to check
+
+        Returns:
+            Amount of non-table content near the point (0.0-1.0)
+        """
+        try:
+            x, y = int(point[0]), int(point[1])
+            r = int(radius)
+
+            # Extract region around point
+            x1 = max(0, x - r)
+            y1 = max(0, y - r)
+            x2 = min(frame.shape[1], x + r)
+            y2 = min(frame.shape[0], y + r)
+
+            if x2 <= x1 or y2 <= y1:
+                return 0.0
+
+            region = frame[y1:y2, x1:x2]
+
+            # Convert to HSV
+            hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
+
+            # Create mask excluding table color (green/blue felt)
+            # Typical pool table colors
+            lower_table = np.array([35, 40, 40], dtype=np.uint8)  # Green
+            upper_table = np.array([90, 255, 255], dtype=np.uint8)
+
+            table_mask = cv2.inRange(hsv, lower_table, upper_table)
+
+            # Invert to get non-table pixels (this is the "mass")
+            non_table_mask = cv2.bitwise_not(table_mask)
+
+            # Calculate proportion of non-table pixels
+            total_pixels = non_table_mask.size
+            mass_pixels = np.count_nonzero(non_table_mask)
+
+            return mass_pixels / total_pixels if total_pixels > 0 else 0.0
+
+        except Exception as e:
+            self.logger.debug(f"Mass detection failed: {e}")
+            return 0.0
+
+    def _detect_cue_with_yolo(
+        self,
+        frame: NDArray[np.uint8],
+        cue_ball_pos: tuple[float, float],
+        all_ball_positions: Optional[list[tuple[float, float]]] = None,
+        table_corners: Optional[
+            tuple[
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+            ]
+        ] = None,
+    ) -> Optional[CueStick]:
+        """Detect cue using YOLO and convert bounding box to CueStick object.
+
+        Args:
+            frame: Input image frame
+            cue_ball_pos: Cue ball position for orientation
+            all_ball_positions: Optional list of all ball positions for improved orientation detection
+            table_corners: Optional table corners (top_left, top_right, bottom_left, bottom_right) for cushion-based orientation
+
+        Returns:
+            CueStick object or None if not detected
+        """
+        try:
+            # Get YOLO cue detection
+            yolo_detection = self.yolo_detector.detect_cue(frame)
+            if yolo_detection is None:
+                return None
+
+            # Convert YOLO bounding box to CueStick
+            # Extract bounding box coordinates
+            x1, y1, x2, y2 = yolo_detection.bbox
+            center_x, center_y = yolo_detection.center
+            width, height = yolo_detection.width, yolo_detection.height
+
+            # Use YOLO's calculated angle (from Hough line detection)
+            angle = yolo_detection.angle
+
+            # Calculate cue length from bounding box diagonal
+            length = max(width, height)
+
+            # Calculate angle in radians
+            angle_rad = np.radians(angle)
+
+            # Use the line endpoints if available (from Hough line detection), otherwise calculate from center and angle
+            if (
+                hasattr(yolo_detection, "line_end1")
+                and yolo_detection.line_end1 is not None
+                and hasattr(yolo_detection, "line_end2")
+                and yolo_detection.line_end2 is not None
+            ):
+                # Use actual detected line endpoints - these give us the true line orientation
+                end1_x, end1_y = yolo_detection.line_end1
+                end2_x, end2_y = yolo_detection.line_end2
+                self.logger.debug(
+                    f"Using Hough line endpoints: end1=({end1_x:.1f}, {end1_y:.1f}), end2=({end2_x:.1f}, {end2_y:.1f})"
+                )
+            else:
+                # Fallback: calculate endpoints from center and angle
+                # Use the line center if available (from Hough line detection), otherwise use bbox center
+                if (
+                    hasattr(yolo_detection, "line_center")
+                    and yolo_detection.line_center is not None
+                ):
+                    center_x, center_y = yolo_detection.line_center
+                    self.logger.debug(
+                        f"Using Hough line center: ({center_x:.1f}, {center_y:.1f})"
+                    )
+                else:
+                    self.logger.debug(
+                        f"Using bbox center: ({center_x:.1f}, {center_y:.1f})"
+                    )
+
+                # Calculate two endpoints of the cue based on center and angle
+                # Endpoint 1: center + (length/2) in angle direction
+                end1_x = center_x + (length / 2) * np.cos(angle_rad)
+                end1_y = center_y + (length / 2) * np.sin(angle_rad)
+
+                # Endpoint 2: center - (length/2) in angle direction
+                end2_x = center_x - (length / 2) * np.cos(angle_rad)
+                end2_y = center_y - (length / 2) * np.sin(angle_rad)
+
+            # Determine orientation: the butt end will have more mass (player's body) nearby
+            # PRIMARY METHOD: Check mass at both ends
+            mass_at_end1 = self._detect_mass_near_point(frame, (end1_x, end1_y))
+            mass_at_end2 = self._detect_mass_near_point(frame, (end2_x, end2_y))
+
+            self.logger.debug(
+                f"Mass at end1: {mass_at_end1:.3f}, Mass at end2: {mass_at_end2:.3f}"
+            )
+
+            # If there's a significant difference in mass, use that to determine orientation
+            mass_threshold = 0.10  # 10% difference is significant
+            if abs(mass_at_end1 - mass_at_end2) > mass_threshold:
+                if mass_at_end1 > mass_at_end2:
+                    # End1 has more mass, so it's the butt, end2 is the tip
+                    tip_x, tip_y = end2_x, end2_y
+                    self.logger.debug(
+                        "Using mass detection: end1=butt (more mass), end2=tip"
+                    )
+                else:
+                    # End2 has more mass, so it's the butt, end1 is the tip
+                    tip_x, tip_y = end1_x, end1_y
+                    self.logger.debug(
+                        "Using mass detection: end2=butt (more mass), end1=tip"
+                    )
+            # FALLBACK METHOD: Try both orientations and find which one has the closest ball in front of the tip
+            elif all_ball_positions and len(all_ball_positions) > 0:
+                # Option 1: end1 is tip, end2 is butt
+                closest_ball_1 = self._find_closest_ball_on_cue_line(
+                    (end1_x, end1_y), (end2_x, end2_y), all_ball_positions, cue_ball_pos
+                )
+
+                # Option 2: end2 is tip, end1 is butt
+                closest_ball_2 = self._find_closest_ball_on_cue_line(
+                    (end2_x, end2_y), (end1_x, end1_y), all_ball_positions, cue_ball_pos
+                )
+
+                # Choose the orientation where we found a ball the cue is pointing at
+                if closest_ball_1 is not None and closest_ball_2 is None:
+                    tip_x, tip_y = end1_x, end1_y
+                elif closest_ball_2 is not None and closest_ball_1 is None:
+                    tip_x, tip_y = end2_x, end2_y
+                elif closest_ball_1 is not None and closest_ball_2 is not None:
+                    # Both found a ball - choose the one with the closer ball
+                    dist1 = np.sqrt(
+                        (end1_x - closest_ball_1[0]) ** 2
+                        + (end1_y - closest_ball_1[1]) ** 2
+                    )
+                    dist2 = np.sqrt(
+                        (end2_x - closest_ball_2[0]) ** 2
+                        + (end2_y - closest_ball_2[1]) ** 2
+                    )
+
+                    # Check if distances are similar (within 20% of each other)
+                    # If so, use cushion-based tie-breaker
+                    if (
+                        table_corners is not None
+                        and abs(dist1 - dist2) / max(dist1, dist2) < 0.2
+                    ):
+                        # Tie-breaker: prefer orientation where butt is closer to a cushion
+                        # This is more realistic as players typically position themselves near the table edge
+                        butt_cushion_dist_1 = self._distance_to_nearest_cushion(
+                            (end2_x, end2_y), table_corners
+                        )
+                        butt_cushion_dist_2 = self._distance_to_nearest_cushion(
+                            (end1_x, end1_y), table_corners
+                        )
+
+                        if butt_cushion_dist_1 < butt_cushion_dist_2:
+                            # Option 1 butt is closer to cushion
+                            tip_x, tip_y = end1_x, end1_y
+                        else:
+                            # Option 2 butt is closer to cushion
+                            tip_x, tip_y = end2_x, end2_y
+                    elif dist1 < dist2:
+                        tip_x, tip_y = end1_x, end1_y
+                    else:
+                        tip_x, tip_y = end2_x, end2_y
+                else:
+                    # Fallback to closest to cue ball
+                    dist1 = np.sqrt(
+                        (end1_x - cue_ball_pos[0]) ** 2
+                        + (end1_y - cue_ball_pos[1]) ** 2
+                    )
+                    dist2 = np.sqrt(
+                        (end2_x - cue_ball_pos[0]) ** 2
+                        + (end2_y - cue_ball_pos[1]) ** 2
+                    )
+                    if dist1 < dist2:
+                        tip_x, tip_y = end1_x, end1_y
+                    else:
+                        tip_x, tip_y = end2_x, end2_y
+            else:
+                # Fallback: determine which end is closer to cue ball (that's the tip)
+                dist1 = np.sqrt(
+                    (end1_x - cue_ball_pos[0]) ** 2 + (end1_y - cue_ball_pos[1]) ** 2
+                )
+                dist2 = np.sqrt(
+                    (end2_x - cue_ball_pos[0]) ** 2 + (end2_y - cue_ball_pos[1]) ** 2
+                )
+                if dist1 < dist2:
+                    tip_x, tip_y = end1_x, end1_y
+                else:
+                    tip_x, tip_y = end2_x, end2_y
+
+            # Create CueStick object
+            cue_stick = CueStick(
+                tip_position=(tip_x, tip_y),
+                angle=angle,
+                length=length,
+                confidence=yolo_detection.confidence,
+                state=CueState.AIMING,  # Default to aiming (motion detection requires temporal info)
+                is_aiming=True,
+                tip_velocity=(0.0, 0.0),  # Would need temporal info for velocity
+                angular_velocity=0.0,
+            )
+
+            return cue_stick
+
+        except Exception as e:
+            self.logger.debug(f"YOLO cue detection failed: {e}")
+            return None
+
+    def _create_hsv_mask(
+        self, frame: NDArray[np.uint8], hsv_config: Optional[dict] = None
+    ) -> NDArray[np.uint8]:
+        """Create binary mask using HSV color filtering for cue detection.
+
+        Implements Cassapa-style HSV color filtering to isolate cue stick pixels
+        based on their color characteristics (typically brown/orange wood tones).
+
+        Reference: cassapa/detector.cpp:423-424
+
+        Args:
+            frame: Input BGR frame
+            hsv_config: Optional HSV configuration dict with keys: lh, uh, ls, us, lv, uv.
+                       If None, uses self.cassapa_hsv_config
+
+        Returns:
+            Binary mask where white pixels (255) indicate potential cue pixels
+
+        Raises:
+            None - returns empty mask on error
+        """
+        try:
+            # Validate input
+            if frame is None or frame.size == 0:
+                self.logger.warning("Empty frame provided to _create_hsv_mask")
+                return np.zeros((1, 1), dtype=np.uint8)
+
+            # Use provided config or default
+            config = hsv_config if hsv_config is not None else self.cassapa_hsv_config
+
+            # Convert BGR to HSV color space
+            # Reference: detector.cpp:423
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+            # Create binary mask using inRange
+            # Reference: detector.cpp:423-424
+            lower_bound = np.array(
+                [config["lh"], config["ls"], config["lv"]], dtype=np.uint8
+            )
+            upper_bound = np.array(
+                [config["uh"], config["us"], config["uv"]], dtype=np.uint8
+            )
+
+            mask = cv2.inRange(hsv, lower_bound, upper_bound)
+
+            return mask
+
+        except Exception as e:
+            self.logger.error(f"HSV mask creation failed: {e}")
+            return np.zeros_like(frame[:, :, 0], dtype=np.uint8)
+
+    def _apply_morphology(
+        self,
+        mask: NDArray[np.uint8],
+        erode_size: Optional[int] = None,
+        dilate_size: Optional[int] = None,
+    ) -> NDArray[np.uint8]:
+        """Apply morphological operations to clean up binary mask.
+
+        Applies erosion followed by dilation to remove noise and fill gaps
+        in the binary mask. This is a standard morphological cleaning operation.
+
+        Reference: cassapa/detector.cpp:436-450
+
+        Args:
+            mask: Input binary mask
+            erode_size: Erosion kernel size (0 = skip erosion).
+                       If None, uses self.cassapa_erode_size
+            dilate_size: Dilation kernel size (0 = skip dilation).
+                        If None, uses self.cassapa_dilate_size
+
+        Returns:
+            Cleaned binary mask
+
+        Raises:
+            None - returns original mask on error
+        """
+        try:
+            # Validate input
+            if mask is None or mask.size == 0:
+                self.logger.warning("Empty mask provided to _apply_morphology")
+                return np.zeros((1, 1), dtype=np.uint8)
+
+            # Use provided sizes or defaults
+            erode = erode_size if erode_size is not None else self.cassapa_erode_size
+            dilate = (
+                dilate_size if dilate_size is not None else self.cassapa_dilate_size
+            )
+
+            result = mask.copy()
+
+            # Apply erosion if size > 0
+            # Reference: detector.cpp:436-442
+            if erode > 0:
+                # Create rectangular structuring element
+                # Size formula from cassapa: 2*size + 1
+                kernel_size = 2 * erode + 1
+                kernel = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (kernel_size, kernel_size)
+                )
+                result = cv2.erode(result, kernel)
+
+            # Apply dilation if size > 0
+            # Reference: detector.cpp:444-450
+            if dilate > 0:
+                # Create rectangular structuring element
+                # Size formula from cassapa: 2*size + 1
+                kernel_size = 2 * dilate + 1
+                kernel = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (kernel_size, kernel_size)
+                )
+                result = cv2.dilate(result, kernel)
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Morphology application failed: {e}")
+            return mask
+
+    def _preprocess_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
+        """Preprocess frame for line detection.
+
+        Args:
+            frame: Input BGR frame
+
+        Returns:
+            Preprocessed grayscale frame
+        """
+        # Convert to grayscale
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame.copy()
+
+        # Apply background subtraction if enabled
+        if self.use_background_subtraction and self.background_frame is not None:
+            # Convert background to grayscale if needed
+            if len(self.background_frame.shape) == 3:
+                bg_gray = cv2.cvtColor(self.background_frame, cv2.COLOR_BGR2GRAY)
+            else:
+                bg_gray = self.background_frame
+
+            # Compute absolute difference
+            diff = cv2.absdiff(gray, bg_gray)
+
+            # Threshold to get foreground mask
+            _, fg_mask = cv2.threshold(
+                diff, self.background_threshold, 255, cv2.THRESH_BINARY
+            )
+
+            # Morphological operations to clean up
+            kernel = cv2.getStructuringElement(
+                cv2.MORPH_RECT,
+                (self.morphology_kernel_size, self.morphology_kernel_size),
+            )
+            fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_OPEN, kernel)
+            fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
+
+            # Apply mask to keep only foreground
+            gray = cv2.bitwise_and(gray, gray, mask=fg_mask)
+
+        # Apply Gaussian blur to reduce noise
+        blurred = cv2.GaussianBlur(
+            gray,
+            (self.gaussian_kernel_size, self.gaussian_kernel_size),
+            self.gaussian_sigma,
+        )
+
+        # Enhance contrast
+        enhanced = cv2.createCLAHE(
+            clipLimit=self.clahe_clip_limit,
+            tileGridSize=(self.clahe_tile_grid_size, self.clahe_tile_grid_size),
+        ).apply(blurred)
+
+        return enhanced
+
+    def _detect_lines_multi_method(self, frame: NDArray[np.uint8]) -> list[np.ndarray]:
+        """Detect lines using multiple algorithms.
+
+        Args:
+            frame: Preprocessed grayscale frame
+
+        Returns:
+            List of detected lines from all methods
+        """
+        all_lines = []
+
+        # Method 1: Canny + Probabilistic Hough
+        hough_lines = self._detect_lines_hough(frame)
+        if hough_lines is not None:
+            all_lines.extend(hough_lines)
+
+        # Method 2: Line Segment Detector (LSD)
+        if self.lsd is not None:
+            lsd_lines = self._detect_lines_lsd(frame)
+            if lsd_lines is not None:
+                all_lines.extend(lsd_lines)
+
+        # Method 3: Morphological line detection
+        morph_lines = self._detect_lines_morphological(frame)
+        if morph_lines is not None:
+            all_lines.extend(morph_lines)
+
+        return all_lines
+
+    def _detect_lines_hough(
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[list[np.ndarray]]:
+        """Detect lines using Canny edge detection + Probabilistic Hough Transform."""
+        try:
+            # Canny edge detection
+            edges = cv2.Canny(
+                frame,
+                self.canny_low_threshold,
+                self.canny_high_threshold,
+                apertureSize=self.canny_aperture_size,
+            )
+
+            # Probabilistic Hough Line Transform
+            lines = cv2.HoughLinesP(
+                edges,
+                rho=self.hough_rho,
+                theta=np.pi / self.hough_theta_divisor,
+                threshold=self.hough_threshold,
+                minLineLength=self.hough_min_line_length,
+                maxLineGap=self.hough_max_line_gap,
+            )
+
+            if lines is not None:
+                return [line[0] for line in lines]
+
+        except Exception as e:
+            self.logger.debug(f"Hough line detection failed: {e}")
+
+        return None
+
+    def _detect_lines_lsd(self, frame: NDArray[np.uint8]) -> Optional[list[np.ndarray]]:
+        """Detect lines using Line Segment Detector (LSD)."""
+        try:
+            lines = self.lsd.detect(frame)[0]
+
+            if lines is not None and len(lines) > 0:
+                # Convert LSD format to standard format [x1, y1, x2, y2]
+                converted_lines = []
+                for line in lines:
+                    x1, y1, x2, y2 = line[0:4]
+                    converted_lines.append(np.array([x1, y1, x2, y2]))
+                return converted_lines
+
+        except Exception as e:
+            self.logger.debug(f"LSD line detection failed: {e}")
+
+        return None
+
+    def _detect_lines_morphological(
+        self, frame: NDArray[np.uint8]
+    ) -> Optional[list[np.ndarray]]:
+        """Detect lines using morphological operations."""
+        try:
+            # Create morphological kernels for different orientations
+            kernels = [
+                cv2.getStructuringElement(
+                    cv2.MORPH_RECT, tuple(self.morphology_horizontal_kernel)
+                ),  # Horizontal
+                cv2.getStructuringElement(
+                    cv2.MORPH_RECT, tuple(self.morphology_vertical_kernel)
+                ),  # Vertical
+            ]
+
+            # Create diagonal kernels
+            diag1 = np.zeros(
+                (
+                    self.morphology_diagonal_kernel_size,
+                    self.morphology_diagonal_kernel_size,
+                ),
+                dtype=np.uint8,
+            )
+            np.fill_diagonal(diag1, 1)
+            diag2 = np.zeros(
+                (
+                    self.morphology_diagonal_kernel_size,
+                    self.morphology_diagonal_kernel_size,
+                ),
+                dtype=np.uint8,
+            )
+            np.fill_diagonal(np.fliplr(diag2), 1)
+            kernels.extend([diag1, diag2])
+
+            all_lines = []
+
+            for kernel in kernels:
+                # Apply morphological opening
+                opened = cv2.morphologyEx(frame, cv2.MORPH_OPEN, kernel)
+
+                # Only proceed if we have meaningful content
+                if (
+                    np.sum(opened) < self.min_morph_content
+                ):  # Skip if very little content
+                    continue
+
+                # Find contours
+                contours, _ = cv2.findContours(
+                    opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+                )
+
+                for contour in contours:
+                    # Fit line to contour
+                    if len(contour) >= 4:
+                        [vx, vy, x, y] = cv2.fitLine(
+                            contour, cv2.DIST_L2, 0, 0.01, 0.01
+                        )
+
+                        # Calculate line endpoints
+                        if abs(vx) > 0.001:  # Avoid division by zero
+                            lefty = int((-x * vy / vx) + y)
+                            righty = int(((frame.shape[1] - x) * vy / vx) + y)
+
+                            if (
+                                0 <= lefty < frame.shape[0]
+                                and 0 <= righty < frame.shape[0]
+                            ):
+                                line = np.array([0, lefty, frame.shape[1] - 1, righty])
+                                # Check if line is long enough
+                                line_length = np.sqrt(
+                                    (frame.shape[1] - 1) ** 2 + (righty - lefty) ** 2
+                                )
+                                if line_length >= self.min_cue_length:
+                                    all_lines.append(line)
+
+            return all_lines if all_lines else None
+
+        except Exception as e:
+            self.logger.debug(f"Morphological line detection failed: {e}")
+
+        return None
+
+
+    def _detect_with_hough_standard_cassapa(
+        self, mask: NDArray[np.uint8], canny_apply: bool = True
+    ) -> Optional[NDArray[np.float64]]:
+        """Detect cue line using standard Hough Transform (Cassapa high precision mode).
+
+        This implements the Cassapa detector's precision mode which uses standard HoughLines
+        instead of probabilistic HoughLinesP. The standard transform finds the complete line
+        equation (rho, theta) for all detected lines, then uses cv2.fitLine to combine them
+        into a single best-fit line.
+
+        Reference: cassapa/detector.cpp:672-790
+        - Lines 672-676: Optional Canny edge detection
+        - Lines 687-699: HoughLines with fallback thresholds (100 -> 80 -> 50)
+        - Lines 707-733: Polar to Cartesian conversion and point collection
+        - Lines 740: cv2.fitLine to get single line through all points
+        - Lines 753-756: Convert fitLine output to line endpoints
+
+        Algorithm:
+        1. Optionally apply Canny edge detection
+        2. Apply standard HoughLines with threshold=100
+        3. If no lines found, try threshold=80, then threshold=50
+        4. Convert each polar line (rho, theta) to Cartesian points
+        5. Use cv2.fitLine() to fit single line through all points
+        6. Return line as [x1, y1, x2, y2]
+
+        Args:
+            mask: Input mask (grayscale, typically from ROI extraction)
+            canny_apply: Whether to apply Canny edge detection first (default: True)
+
+        Returns:
+            Line as [x1, y1, x2, y2] in numpy array, or None if no line detected
+        """
+        try:
+            # Step 1: Optionally apply Canny edge detection
+            # Reference: detector.cpp:672-676
+            if canny_apply:
+                edges = cv2.Canny(
+                    mask,
+                    self.cassapa_canny_threshold1,
+                    self.cassapa_canny_threshold2,
+                    apertureSize=self.cassapa_canny_aperture,
+                    L2gradient=self.cassapa_canny_l2_gradient,
+                )
+            else:
+                edges = mask
+
+            # Step 2: Apply standard HoughLines with threshold=100
+            # Reference: detector.cpp:687-699
+            lines2f = cv2.HoughLines(
+                edges,
+                rho=self.cassapa_hl_rho,
+                theta=self.cassapa_hl_theta,
+                threshold=self.cassapa_hl_threshold,
+            )
+
+            # Step 3: Fallback to lower thresholds if no lines found
+            # Reference: detector.cpp:691-699
+            if lines2f is None or len(lines2f) == 0:
+                # Try threshold=80
+                lines2f = cv2.HoughLines(
+                    edges,
+                    rho=1,
+                    theta=np.pi / 180.0,
+                    threshold=self.cassapa_hl_threshold_fallback1,
+                )
+
+                if lines2f is None or len(lines2f) == 0:
+                    # Try threshold=50
+                    lines2f = cv2.HoughLines(
+                        edges,
+                        rho=1,
+                        theta=np.pi / 180.0,
+                        threshold=self.cassapa_hl_threshold_fallback2,
+                    )
+
+            # If still no lines, return None
+            # Reference: detector.cpp:735-738
+            if lines2f is None or len(lines2f) == 0:
+                return None
+
+            # Step 4: Convert polar lines (rho, theta) to Cartesian points
+            # Reference: detector.cpp:707-733
+            points = []
+
+            for i in range(len(lines2f)):
+                rho = lines2f[i][0][0]
+                theta = lines2f[i][0][1]
+
+                # Handle near-zero theta (detector.cpp:710-713)
+                diff = abs(theta - 0.001)
+                if diff < 0.002:
+                    theta = 0.01
+
+                # Convert polar to Cartesian (detector.cpp:715-723)
+                a = np.cos(theta)
+                b = np.sin(theta)
+                x0 = a * rho
+                y0 = b * rho
+
+                # Calculate two points on the line extending 1000 pixels in each direction
+                x1 = int(x0 + 1000 * (-b))
+                y1 = int(y0 + 1000 * a)
+                x2 = int(x0 - 1000 * (-b))
+                y2 = int(y0 - 1000 * a)
+
+                # Add both points to our collection
+                points.extend([[x1, y1], [x2, y2]])
+
+            # Step 5: Use cv2.fitLine to fit single line through all points
+            # Reference: detector.cpp:740
+            points_array = np.array(points, dtype=np.float32)
+            line = cv2.fitLine(points_array, cv2.DIST_L2, 0, 0.01, 0.01)
+
+            # Extract line parameters
+            # line[0], line[1]: direction vector (vx, vy)
+            # line[2], line[3]: point on the line (x0, y0)
+            vx = float(line[0][0])
+            vy = float(line[1][0])
+            x0 = float(line[2][0])
+            y0 = float(line[3][0])
+
+            # Step 6: Calculate line endpoints
+            # Reference: detector.cpp:753-756
+            # Extend line 1000 pixels in each direction from the point
+            x1 = int(x0 - 1000 * vx)
+            y1 = int(y0 - 1000 * vy)
+            x2 = int(x0 + 1000 * vx)
+            y2 = int(y0 + 1000 * vy)
+
+            return np.array([x1, y1, x2, y2], dtype=np.float64)
+
+        except Exception as e:
+            self.logger.debug(f"Cassapa standard Hough line detection failed: {e}")
+            return None
+
+
+
+        self,
+        lines: list[np.ndarray],
+        frame_shape: tuple[int, ...],
+        cue_ball_pos: Optional[tuple[float, float]] = None,
+        all_ball_positions: Optional[list[tuple[float, float]]] = None,
+        table_corners: Optional[
+            tuple[
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+                tuple[float, float],
+            ]
+        ] = None,
+    ) -> list[CueStick]:
+        """Filter and score potential cue stick candidates.
+
+        Args:
+            lines: Detected lines
+            frame_shape: Shape of the input frame
+            cue_ball_pos: Optional cue ball position for scoring
+            all_ball_positions: Optional list of all ball positions for improved orientation detection
+            table_corners: Optional table corners (top_left, top_right, bottom_left, bottom_right) for cushion-based orientation
+
+        Returns:
+            List of CueStick candidates with scores
+        """
+        candidates = []
+
+        for line in lines:
+            x1, y1, x2, y2 = line
+
+            # Calculate line properties
+            length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+            angle = math.degrees(math.atan2(y2 - y1, x2 - x1))
+
+            # Normalize angle to 0-360
+            if angle < 0:
+                angle += 360
+
+            # Filter by length
+            if not (self.min_cue_length <= length <= self.max_cue_length):
+                continue
+
+            # Determine tip and butt positions
+            # Strategy: the butt should face away from the closest ball the cue is pointing at
+            if all_ball_positions and len(all_ball_positions) > 0:
+                # Option 1: x1,y1 is tip, x2,y2 is butt
+                closest_ball_1 = self._find_closest_ball_on_cue_line(
+                    (x1, y1), (x2, y2), all_ball_positions, cue_ball_pos
+                )
+
+                # Option 2: x2,y2 is tip, x1,y1 is butt
+                closest_ball_2 = self._find_closest_ball_on_cue_line(
+                    (x2, y2), (x1, y1), all_ball_positions, cue_ball_pos
+                )
+
+                # Choose the orientation where we found a ball the cue is pointing at
+                if closest_ball_1 is not None and closest_ball_2 is None:
+                    tip_pos = (x1, y1)
+                    butt_pos = (x2, y2)
+                elif closest_ball_2 is not None and closest_ball_1 is None:
+                    tip_pos = (x2, y2)
+                    butt_pos = (x1, y1)
+                elif closest_ball_1 is not None and closest_ball_2 is not None:
+                    # Both found a ball - choose the one with the closer ball
+                    dist1 = np.sqrt(
+                        (x1 - closest_ball_1[0]) ** 2 + (y1 - closest_ball_1[1]) ** 2
+                    )
+                    dist2 = np.sqrt(
+                        (x2 - closest_ball_2[0]) ** 2 + (y2 - closest_ball_2[1]) ** 2
+                    )
+
+                    # Check if distances are similar (within 20% of each other)
+                    # If so, use cushion-based tie-breaker
+                    if (
+                        table_corners is not None
+                        and abs(dist1 - dist2) / max(dist1, dist2) < 0.2
+                    ):
+                        # Tie-breaker: prefer orientation where butt is closer to a cushion
+                        # This is more realistic as players typically position themselves near the table edge
+                        butt_cushion_dist_1 = self._distance_to_nearest_cushion(
+                            (x2, y2), table_corners
+                        )
+                        butt_cushion_dist_2 = self._distance_to_nearest_cushion(
+                            (x1, y1), table_corners
+                        )
+
+                        if butt_cushion_dist_1 < butt_cushion_dist_2:
+                            # Option 1 butt is closer to cushion
+                            tip_pos = (x1, y1)
+                            butt_pos = (x2, y2)
+                        else:
+                            # Option 2 butt is closer to cushion
+                            tip_pos = (x2, y2)
+                            butt_pos = (x1, y1)
+                    elif dist1 < dist2:
+                        tip_pos = (x1, y1)
+                        butt_pos = (x2, y2)
+                    else:
+                        tip_pos = (x2, y2)
+                        butt_pos = (x1, y1)
+                elif cue_ball_pos is not None:
+                    # Fallback to closest to cue ball
+                    dist1 = np.sqrt(
+                        (x1 - cue_ball_pos[0]) ** 2 + (y1 - cue_ball_pos[1]) ** 2
+                    )
+                    dist2 = np.sqrt(
+                        (x2 - cue_ball_pos[0]) ** 2 + (y2 - cue_ball_pos[1]) ** 2
+                    )
+                    if dist1 < dist2:
+                        tip_pos = (x1, y1)
+                        butt_pos = (x2, y2)
+                    else:
+                        tip_pos = (x2, y2)
+                        butt_pos = (x1, y1)
+                else:
+                    # No balls detected - skip this candidate
+                    continue
+
+                # CRITICAL: Only accept cues that are pointing at a ball
+                if cue_ball_pos is not None and not self._is_pointing_at_cue_ball(
+                    tip_pos, butt_pos, cue_ball_pos
+                ):
+                    continue
+            elif cue_ball_pos is not None:
+                # Fallback: determine which end is closer to cue ball (that's the tip)
+                dist1 = np.sqrt(
+                    (x1 - cue_ball_pos[0]) ** 2 + (y1 - cue_ball_pos[1]) ** 2
+                )
+                dist2 = np.sqrt(
+                    (x2 - cue_ball_pos[0]) ** 2 + (y2 - cue_ball_pos[1]) ** 2
+                )
+
+                if dist1 < dist2:
+                    tip_pos = (x1, y1)
+                    butt_pos = (x2, y2)
+                else:
+                    tip_pos = (x2, y2)
+                    butt_pos = (x1, y1)
+
+                # CRITICAL: Only accept cues that are pointing at the cue ball
+                if not self._is_pointing_at_cue_ball(tip_pos, butt_pos, cue_ball_pos):
+                    continue
+            else:
+                # No cue ball position - skip this candidate (we require cue ball)
+                continue
+
+            # Calculate confidence score
+            confidence = self._calculate_line_confidence(
+                line, frame_shape, cue_ball_pos
+            )
+
+            if confidence >= self.min_detection_confidence:
+                cue = CueStick(
+                    tip_position=tip_pos,
+                    butt_position=butt_pos,
+                    angle=angle,
+                    length=length,
+                    confidence=confidence,
+                    frame_id=self.frame_count,
+                )
+                candidates.append(cue)
+
+        # Sort by confidence
+        candidates.sort(key=lambda c: c.confidence, reverse=True)
+
+        return candidates
+
+    def _is_pointing_at_cue_ball(
+        self,
+        tip_pos: tuple[float, float],
+        butt_pos: tuple[float, float],
+        cue_ball_pos: tuple[float, float],
+    ) -> bool:
+        """Check if the cue line is pointing at the cue ball.
+
+        Args:
+            tip_pos: Cue tip position
+            butt_pos: Cue butt position
+            cue_ball_pos: Cue ball position
+
+        Returns:
+            True if cue is pointing at cue ball within tolerance
+        """
+        # Calculate the distance from cue ball to the cue line
+        line = np.array([tip_pos[0], tip_pos[1], butt_pos[0], butt_pos[1]])
+        distance_to_line = self._point_to_line_distance(cue_ball_pos, line)
+
+        # Maximum distance from line to cue ball center (in pixels)
+        # This accounts for cue ball radius + some tolerance
+        max_distance = (
+            self.max_distance_to_cue_ball
+        )  # Adjust based on typical ball size + tolerance
+
+        if distance_to_line > max_distance:
+            return False
+
+        # Also check that the cue ball is "in front" of the tip (not behind the butt)
+        # Vector from butt to tip
+        cue_dx = tip_pos[0] - butt_pos[0]
+        cue_dy = tip_pos[1] - butt_pos[1]
+
+        # Vector from butt to cue ball
+        ball_dx = cue_ball_pos[0] - butt_pos[0]
+        ball_dy = cue_ball_pos[1] - butt_pos[1]
+
+        # Dot product to check if cue ball is in the direction of the tip
+        dot_product = cue_dx * ball_dx + cue_dy * ball_dy
+
+        # Must be positive (cue ball is ahead of butt in the direction of tip)
+        if dot_product <= 0:
+            return False
+
+        # Also check the tip is reasonably close to the cue ball
+        tip_distance = np.sqrt(
+            (tip_pos[0] - cue_ball_pos[0]) ** 2 + (tip_pos[1] - cue_ball_pos[1]) ** 2
+        )
+
+        # Maximum distance from tip to cue ball (adjust based on typical aiming distance)
+        max_tip_distance = self.max_tip_distance  # pixels
+
+        return tip_distance <= max_tip_distance
+
+    def _calculate_line_confidence(
+        self,
+        line: NDArray[np.float64],
+        frame_shape: tuple[int, ...],
+        cue_ball_pos: Optional[tuple[float, float]] = None,
+    ) -> float:
+        """Calculate confidence score for a potential cue line.
+
+        Args:
+            line: Line coordinates [x1, y1, x2, y2]
+            frame_shape: Shape of the input frame
+            cue_ball_pos: Optional cue ball position
+
+        Returns:
+            Confidence score 0.0-1.0
+        """
+        x1, y1, x2, y2 = line
+        length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+        confidence = 0.0
+
+        # Length score (prefer longer lines)
+        length_score = min(1.0, length / self.max_cue_length)
+        confidence += self.length_weight * length_score
+
+        # Position score (prefer lines not at frame edges)
+        h, w = frame_shape[:2]
+        edge_margin = self.edge_margin
+
+        edge_penalty = 0.0
+        if (
+            x1 < edge_margin
+            or x1 > w - edge_margin
+            or y1 < edge_margin
+            or y1 > h - edge_margin
+            or x2 < edge_margin
+            or x2 > w - edge_margin
+            or y2 < edge_margin
+            or y2 > h - edge_margin
+        ):
+            edge_penalty = self.edge_penalty
+
+        confidence += self.position_weight * (1.0 - edge_penalty)
+
+        # Cue ball proximity score
+        if cue_ball_pos is not None:
+            cx, cy = cue_ball_pos
+
+            # Distance to line
+            line_dist = self._point_to_line_distance((cx, cy), line)
+            max_reasonable_distance = self.max_reasonable_distance
+
+            proximity_score = max(0.0, 1.0 - line_dist / max_reasonable_distance)
+            confidence += self.proximity_weight * proximity_score
+        else:
+            confidence += (
+                self.no_cue_ball_score
+            )  # Neutral score when no cue ball position
+
+        # Temporal consistency score (if we have previous detections)
+        if self.previous_cues:
+            prev_cue = self.previous_cues[-1]
+
+            # Angle consistency
+            angle_diff = abs(
+                math.degrees(math.atan2(y2 - y1, x2 - x1)) - prev_cue.angle
+            )
+            if angle_diff > 180:
+                angle_diff = 360 - angle_diff
+
+            angle_score = max(
+                0.0, 1.0 - angle_diff / self.max_angle_change
+            )  # Penalize >max changes
+
+            # Position consistency
+            tip_dist = np.sqrt(
+                (x1 - prev_cue.tip_position[0]) ** 2
+                + (y1 - prev_cue.tip_position[1]) ** 2
+            )
+            position_score = max(0.0, 1.0 - tip_dist / self.max_tracking_distance)
+
+            temporal_score = 0.5 * angle_score + 0.5 * position_score
+            confidence += self.temporal_weight * temporal_score
+        else:
+            confidence += self.no_temporal_score  # Neutral score for first detection
+
+        return min(1.0, confidence)
+
+    def _point_to_line_distance(
+        self, point: tuple[float, float], line: NDArray[np.float64]
+    ) -> float:
+        """Calculate distance from point to line segment."""
+        x0, y0 = point
+        x1, y1, x2, y2 = line
+
+        # Vector from line start to end
+        dx = x2 - x1
+        dy = y2 - y1
+
+        if dx == 0 and dy == 0:
+            # Line is a point
+            return float(np.sqrt(x0 - x1) ** 2 + (y0 - y1) ** 2)
+
+        # Parameter t for closest point on line
+        t = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy)
+        t = max(0, min(1, t))  # Clamp to line segment
+
+        # Closest point on line
+        closest_x = x1 + t * dx
+        closest_y = y1 + t * dy
+
+        # Distance to closest point
+        return float(np.sqrt((x0 - closest_x) ** 2 + (y0 - closest_y) ** 2))
+
+    def _select_best_cue(
+        self, candidates: list[CueStick], frame: NDArray[np.uint8]
+    ) -> Optional[CueStick]:
+        """Select the best cue candidate from the list.
+
+        Args:
+            candidates: List of cue candidates
+            frame: Original frame for additional validation
+
+        Returns:
+            Best CueStick candidate or None
+        """
+        if not candidates:
+            return None
+
+        # Additional validation for top candidates
+        validated_candidates = []
+
+        for candidate in candidates[
+            : self.top_candidates_to_validate
+        ]:  # Check top candidates
+            if self._validate_cue_candidate(candidate, frame):
+                validated_candidates.append(candidate)
+
+        if not validated_candidates:
+            return None
+
+        # Return highest confidence validated candidate
+        return validated_candidates[0]
+
+    def _validate_cue_candidate(self, cue: CueStick, frame: NDArray[np.uint8]) -> bool:
+        """Additional validation for cue candidate.
+
+        Args:
+            cue: Cue candidate to validate
+            frame: Original frame
+
+        Returns:
+            True if candidate is valid
+        """
+        try:
+            # Check for reasonable thickness along the line
+            thickness_valid = self._check_line_thickness(cue, frame)
+
+            # Check for consistent color/texture along line
+            texture_valid = self._check_line_texture(cue, frame)
+
+            # Check for reasonable position (not intersecting with table edges too much)
+            position_valid = self._check_cue_position(cue, frame)
+
+            return thickness_valid and texture_valid and position_valid
+
+        except Exception as e:
+            self.logger.debug(f"Cue validation failed: {e}")
+            return False
+
+    def _check_line_thickness(self, cue: CueStick, frame: NDArray[np.uint8]) -> bool:
+        """Check if line has reasonable thickness for a cue stick."""
+        # Sample perpendicular profiles at multiple points along the line
+        x1, y1 = cue.tip_position
+        x2, y2 = cue.butt_position
+
+        # Direction vector
+        dx = x2 - x1
+        dy = y2 - y1
+        length = np.sqrt(dx * dx + dy * dy)
+
+        if length == 0:
+            return False
+
+        # Normalized direction and perpendicular vectors
+        dir_x, dir_y = dx / length, dy / length
+        perp_x, perp_y = -dir_y, dir_x
+
+        valid_thickness_count = 0
+        sample_count = self.thickness_sample_count
+
+        for i in range(sample_count):
+            # Sample point along the line
+            t = (i + 1) / (sample_count + 1)
+            sample_x = x1 + t * dx
+            sample_y = y1 + t * dy
+
+            # Check thickness at this point
+            thickness = self._measure_line_thickness_at_point(
+                frame, (sample_x, sample_y), (perp_x, perp_y)
+            )
+
+            if self.min_line_thickness <= thickness <= self.max_line_thickness:
+                valid_thickness_count += 1
+
+        return valid_thickness_count >= sample_count // 2
+
+    def _measure_line_thickness_at_point(
+        self,
+        frame: NDArray[np.uint8],
+        point: tuple[float, float],
+        perpendicular: tuple[float, float],
+    ) -> float:
+        """Measure line thickness at a specific point."""
+        x, y = point
+        perp_x, perp_y = perpendicular
+
+        if not (0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]):
+            return 0
+
+        # Convert to grayscale if needed
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame
+
+        # Sample along perpendicular direction
+        max_search = self.max_thickness_search
+        intensities = []
+
+        for offset in range(-max_search, max_search + 1):
+            sample_x = int(x + offset * perp_x)
+            sample_y = int(y + offset * perp_y)
+
+            if 0 <= sample_x < gray.shape[1] and 0 <= sample_y < gray.shape[0]:
+                intensities.append(gray[sample_y, sample_x])
+            else:
+                intensities.append(0)
+
+        if len(intensities) < 10:
+            return 0
+
+        # Find edges (significant intensity changes)
+        gradient = np.gradient(intensities)
+        edges = np.where(np.abs(gradient) > self.gradient_threshold)[0]
+
+        if len(edges) >= 2:
+            # Distance between first and last significant edge
+            return edges[-1] - edges[0]
+
+        return 0
+
+    def _check_line_texture(self, cue: CueStick, frame: NDArray[np.uint8]) -> bool:
+        """Check for consistent texture along the line (simplified check)."""
+        # For now, just check that the line region has reasonable contrast
+        # More sophisticated texture analysis could be added later
+        return True
+
+    def _check_cue_position(self, cue: CueStick, frame: NDArray[np.uint8]) -> bool:
+        """Check if cue position is reasonable (not intersecting table boundaries too much)."""
+        # This would need table detection integration
+        # For now, just check it's not entirely at the frame edge
+        x1, y1 = cue.tip_position
+        x2, y2 = cue.butt_position
+        h, w = frame.shape[:2]
+
+        edge_margin = self.position_edge_margin
+
+        # Check if both endpoints are at frame edges (likely false positive)
+        tip_at_edge = (
+            x1 < edge_margin
+            or x1 > w - edge_margin
+            or y1 < edge_margin
+            or y1 > h - edge_margin
+        )
+        butt_at_edge = (
+            x2 < edge_margin
+            or x2 > w - edge_margin
+            or y2 < edge_margin
+            or y2 > h - edge_margin
+        )
+
+        return not (tip_at_edge and butt_at_edge)
+
+    def _apply_temporal_tracking(self, current_cue: CueStick) -> CueStick:
+        """Apply temporal tracking and smoothing to cue detection.
+
+        Args:
+            current_cue: Current frame detection
+
+        Returns:
+            Smoothed and tracked cue
+        """
+        if not self.previous_cues:
+            return current_cue
+
+        prev_cue = self.previous_cues[-1]
+
+        # Apply temporal smoothing
+        alpha = self.temporal_smoothing
+
+        # Smooth position
+        smoothed_tip_x = (
+            alpha * prev_cue.tip_position[0] + (1 - alpha) * current_cue.tip_position[0]
+        )
+        smoothed_tip_y = (
+            alpha * prev_cue.tip_position[1] + (1 - alpha) * current_cue.tip_position[1]
+        )
+
+        smoothed_butt_x = (
+            alpha * prev_cue.butt_position[0]
+            + (1 - alpha) * current_cue.butt_position[0]
+        )
+        smoothed_butt_y = (
+            alpha * prev_cue.butt_position[1]
+            + (1 - alpha) * current_cue.butt_position[1]
+        )
+
+        # Smooth angle (handle wraparound)
+        angle_diff = current_cue.angle - prev_cue.angle
+        if angle_diff > 180:
+            angle_diff -= 360
+        elif angle_diff < -180:
+            angle_diff += 360
+
+        smoothed_angle = prev_cue.angle + (1 - alpha) * angle_diff
+        if smoothed_angle < 0:
+            smoothed_angle += 360
+        elif smoothed_angle >= 360:
+            smoothed_angle -= 360
+
+        # Update cue with smoothed values
+        current_cue.tip_position = (smoothed_tip_x, smoothed_tip_y)
+        current_cue.butt_position = (smoothed_butt_x, smoothed_butt_y)
+        current_cue.angle = smoothed_angle
+        current_cue.length = np.sqrt(
+            (smoothed_butt_x - smoothed_tip_x) ** 2
+            + (smoothed_butt_y - smoothed_tip_y) ** 2
+        )
+
+        return current_cue
+
+    def _analyze_cue_motion(self, cue: CueStick) -> None:
+        """Analyze cue motion and determine state.
+
+        Args:
+            cue: Current cue detection to analyze
+        """
+        if len(self.previous_cues) < 2:
+            cue.state = CueState.AIMING
+            return
+
+        prev_cue = self.previous_cues[-1]
+        prev_prev_cue = self.previous_cues[-2]
+
+        # Calculate velocity
+        dt = 1.0  # Assuming 1 frame time unit
+        vx = (cue.tip_position[0] - prev_cue.tip_position[0]) / dt
+        vy = (cue.tip_position[1] - prev_cue.tip_position[1]) / dt
+        cue.velocity = (vx, vy)
+
+        # Calculate acceleration
+        prev_vx = (prev_cue.tip_position[0] - prev_prev_cue.tip_position[0]) / dt
+        prev_vy = (prev_cue.tip_position[1] - prev_prev_cue.tip_position[1]) / dt
+
+        ax = (vx - prev_vx) / dt
+        ay = (vy - prev_vy) / dt
+        cue.acceleration = (ax, ay)
+
+        # Calculate angular velocity
+        angle_diff = cue.angle - prev_cue.angle
+        if angle_diff > 180:
+            angle_diff -= 360
+        elif angle_diff < -180:
+            angle_diff += 360
+        cue.angular_velocity = angle_diff / dt
+
+        # Determine state based on motion
+        speed = np.sqrt(vx * vx + vy * vy)
+        acceleration_mag = np.sqrt(ax * ax + ay * ay)
+
+        if speed > self.striking_velocity_threshold:
+            cue.state = CueState.STRIKING
+            cue.strike_velocity = speed
+            cue.strike_angle = cue.angle
+        elif speed > self.velocity_threshold:
+            if acceleration_mag > self.acceleration_threshold:
+                # Accelerating - likely starting to strike
+                cue.state = CueState.STRIKING
+            else:
+                # Moving but not accelerating much - aiming adjustment
+                cue.state = CueState.AIMING
+        else:
+            # Low speed - steady aiming or stationary
+            cue.state = CueState.AIMING
+
+    def detect_shot_event(
+        self,
+        cue: CueStick,
+        cue_ball_pos: tuple[float, float],
+        cue_ball_velocity: tuple[float, float],
+    ) -> Optional[ExtendedShotEvent]:
+        """Detect if a shot event occurred.
+
+        Args:
+            cue: Current cue detection
+            cue_ball_pos: Current cue ball position
+            cue_ball_velocity: Current cue ball velocity
+
+        Returns:
+            ShotEvent if detected, None otherwise
+        """
+        if cue.state != CueState.STRIKING:
+            return None
+
+        # Check if cue tip is close to cue ball
+        distance = np.sqrt(
+            (cue.tip_position[0] - cue_ball_pos[0]) ** 2
+            + (cue.tip_position[1] - cue_ball_pos[1]) ** 2
+        )
+
+        # Threshold for contact detection (adjust based on typical ball size)
+        contact_threshold = self.contact_threshold  # pixels
+
+        if distance > contact_threshold:
+            return None
+
+        # Check if cue ball started moving
+        ball_speed = np.sqrt(cue_ball_velocity[0] ** 2 + cue_ball_velocity[1] ** 2)
+        if ball_speed < self.min_ball_speed:  # Minimum speed to consider movement
+            return None
+
+        # Get strike velocity - prioritize from cue state or tip velocity
+        strike_velocity = 0.0
+        if hasattr(cue, "strike_velocity") and cue.strike_velocity > 0:
+            strike_velocity = cue.strike_velocity
+        elif hasattr(cue, "tip_velocity") and cue.tip_velocity != (0.0, 0.0):
+            strike_velocity = np.sqrt(
+                cue.tip_velocity[0] ** 2 + cue.tip_velocity[1] ** 2
+            )
+        else:
+            # Estimate from ball velocity
+            strike_velocity = ball_speed * 1.5  # Rough approximation
+
+        # Create shot event
+        shot_event = ExtendedShotEvent(
+            shot_id=len(self.shot_events) + 1,
+            timestamp=self.frame_count,
+            cue_ball_position=cue_ball_pos,
+            cue_angle=cue.angle,
+            estimated_force=self._estimate_strike_force(strike_velocity),
+            contact_point=self._calculate_contact_point(cue, cue_ball_pos),
+            strike_force=self._estimate_strike_force(strike_velocity),
+            strike_angle=cue.angle,
+            cue_ball_velocity_pre=(0.0, 0.0),  # Assume stationary before
+            cue_ball_velocity_post=cue_ball_velocity,
+            shot_type=self._classify_shot_type(cue, cue_ball_pos, cue_ball_velocity),
+            confidence=min(
+                cue.confidence, self.min_confidence_for_shot
+            ),  # Shot detection is inherently uncertain
+        )
+
+        # Calculate English and follow/draw
+        shot_event.english_amount = self._calculate_english(cue, cue_ball_pos)
+        shot_event.follow_draw = self._calculate_follow_draw(cue, cue_ball_pos)
+
+        self.shot_events.append(shot_event)
+        return shot_event
+
+    def _calculate_contact_point(
+        self, cue: CueStick, cue_ball_pos: tuple[float, float]
+    ) -> tuple[float, float]:
+        """Calculate the contact point on the cue ball surface.
+
+        Args:
+            cue: Cue stick information
+            cue_ball_pos: Cue ball center position
+
+        Returns:
+            Contact point coordinates
+        """
+        # Vector from cue ball center to cue tip
+        dx = cue.tip_position[0] - cue_ball_pos[0]
+        dy = cue.tip_position[1] - cue_ball_pos[1]
+
+        # Normalize to ball surface (assuming standard ball radius)
+        ball_radius = self.ball_radius  # pixels (adjust based on actual detection)
+        distance = np.sqrt(dx * dx + dy * dy)
+
+        if distance == 0:
+            return cue_ball_pos
+
+        # Point on ball surface closest to cue tip
+        factor = ball_radius / distance
+        contact_x = cue_ball_pos[0] + dx * factor
+        contact_y = cue_ball_pos[1] + dy * factor
+
+        return (contact_x, contact_y)
+
+    def _estimate_strike_force(self, strike_velocity: float) -> float:
+        """Estimate strike force from cue velocity.
+
+        Args:
+            strike_velocity: Cue tip velocity at contact
+
+        Returns:
+            Estimated force (0-100 scale)
+        """
+        # Simple linear mapping (could be improved with physics modeling)
+        max_velocity = self.max_velocity  # pixels/frame
+        force = min(100.0, (strike_velocity / max_velocity) * 100.0)
+        return force
+
+    def _classify_shot_type(
+        self,
+        cue: CueStick,
+        cue_ball_pos: tuple[float, float],
+        cue_ball_velocity: tuple[float, float],
+    ) -> ShotType:
+        """Classify the type of shot based on cue and ball motion.
+
+        Args:
+            cue: Cue stick information
+            cue_ball_pos: Cue ball position
+            cue_ball_velocity: Cue ball velocity after contact
+
+        Returns:
+            Classified shot type
+        """
+        # Angle between cue direction and cue ball velocity
+        cue_dir_x = np.cos(np.radians(cue.angle))
+        cue_dir_y = np.sin(np.radians(cue.angle))
+
+        ball_speed = np.sqrt(cue_ball_velocity[0] ** 2 + cue_ball_velocity[1] ** 2)
+        if ball_speed == 0:
+            return ShotType.STRAIGHT
+
+        ball_dir_x = cue_ball_velocity[0] / ball_speed
+        ball_dir_y = cue_ball_velocity[1] / ball_speed
+
+        # Dot product for angle between directions
+        dot_product = cue_dir_x * ball_dir_x + cue_dir_y * ball_dir_y
+        angle_diff = np.degrees(np.arccos(np.clip(dot_product, -1, 1)))
+
+        # Simple classification based on angle difference
+        if angle_diff > self.english_deviation_angle:
+            # Significant deviation suggests English
+            cross_product = cue_dir_x * ball_dir_y - cue_dir_y * ball_dir_x
+            if cross_product > 0:
+                return ShotType.ENGLISH_LEFT
+            else:
+                return ShotType.ENGLISH_RIGHT
+        else:
+            # Check for follow/draw based on contact point
+            contact_point = self._calculate_contact_point(cue, cue_ball_pos)
+
+            # Distance from center (positive = above center)
+            center_offset = contact_point[1] - cue_ball_pos[1]
+
+            if center_offset < -self.follow_draw_threshold:  # Hit below center
+                return ShotType.DRAW
+            elif center_offset > self.follow_draw_threshold:  # Hit above center
+                return ShotType.FOLLOW
+            else:
+                return ShotType.STRAIGHT
+
+    def _calculate_english(
+        self, cue: CueStick, cue_ball_pos: tuple[float, float]
+    ) -> float:
+        """Calculate amount of English (side spin) applied.
+
+        Args:
+            cue: Cue stick information
+            cue_ball_pos: Cue ball position
+
+        Returns:
+            English amount (-1 to 1, left to right)
+        """
+        contact_point = self._calculate_contact_point(cue, cue_ball_pos)
+
+        # Horizontal offset from center
+        horizontal_offset = contact_point[0] - cue_ball_pos[0]
+
+        # Normalize by ball radius
+        ball_radius = self.ball_radius  # pixels
+        english = np.clip(horizontal_offset / ball_radius, -1.0, 1.0)
+
+        return english
+
+    def _calculate_follow_draw(
+        self, cue: CueStick, cue_ball_pos: tuple[float, float]
+    ) -> float:
+        """Calculate amount of follow/draw applied.
+
+        Args:
+            cue: Cue stick information
+            cue_ball_pos: Cue ball position
+
+        Returns:
+            Follow/draw amount (-1 to 1, draw to follow)
+        """
+        contact_point = self._calculate_contact_point(cue, cue_ball_pos)
+
+        # Vertical offset from center (negative = below center = draw)
+        vertical_offset = cue_ball_pos[1] - contact_point[1]
+
+        # Normalize by ball radius
+        ball_radius = self.ball_radius  # pixels
+        follow_draw = np.clip(vertical_offset / ball_radius, -1.0, 1.0)
+
+        return follow_draw
+
+    def get_multiple_cues(
+        self, frame: NDArray[np.uint8], max_cues: int = 2
+    ) -> list[CueStick]:
+        """Detect multiple cue sticks in frame (FR-VIS-034).
+
+        Args:
+            frame: Input image frame
+            max_cues: Maximum number of cues to detect
+
+        Returns:
+            List of detected cue sticks
+        """
+        try:
+            # Check if frame has sufficient content
+            if np.sum(frame) < self.min_frame_sum:  # Very dark/empty frame
+                return []
+
+            # Get all line candidates
+            processed_frame = self._preprocess_frame(frame)
+
+            # Check if preprocessed frame has sufficient contrast
+            if np.std(processed_frame) < self.min_contrast_std:  # Very low contrast
+                return []
+
+            all_lines = self._detect_lines_multi_method(processed_frame)
+
+            if not all_lines:
+                return []
+
+            # Get all cue candidates
+            all_candidates = self._filter_cue_candidates(all_lines, frame.shape)
+
+            # Filter out overlapping detections
+            unique_cues = self._filter_overlapping_cues(all_candidates)
+
+            # Convert to base CueStick format and return top candidates
+            result_cues = []
+            for extended_cue in unique_cues[: self.max_cues_to_detect]:
+                base_cue = CueStick(
+                    tip_position=extended_cue.tip_position,
+                    angle=extended_cue.angle,
+                    length=extended_cue.length,
+                    confidence=extended_cue.confidence,
+                    state=extended_cue.state,
+                    is_aiming=(extended_cue.state == CueState.AIMING),
+                )
+                result_cues.append(base_cue)
+
+            return result_cues
+
+        except Exception as e:
+            self.logger.error(f"Multiple cue detection failed: {e}")
+            return []
+
+    def _filter_overlapping_cues(self, candidates: list[CueStick]) -> list[CueStick]:
+        """Filter out overlapping cue detections.
+
+        Args:
+            candidates: List of cue candidates
+
+        Returns:
+            Filtered list without overlaps
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        unique_cues = []
+        overlap_threshold = self.overlap_threshold  # pixels
+
+        for candidate in candidates:
+            is_unique = True
+
+            for existing in unique_cues:
+                # Check distance between tip positions
+                tip_dist = np.sqrt(
+                    (candidate.tip_position[0] - existing.tip_position[0]) ** 2
+                    + (candidate.tip_position[1] - existing.tip_position[1]) ** 2
+                )
+
+                # Check angle similarity
+                angle_diff = abs(candidate.angle - existing.angle)
+                if angle_diff > 180:
+                    angle_diff = 360 - angle_diff
+
+                if tip_dist < overlap_threshold and angle_diff < self.max_angle_overlap:
+                    is_unique = False
+                    break
+
+            if is_unique:
+                unique_cues.append(candidate)
+
+        return unique_cues
+
+    def estimate_cue_angle(
+        self,
+        cue_line: NDArray[np.float64],
+        reference_frame: Optional[NDArray[np.float64]] = None,
+    ) -> float:
+        """Calculate cue angle relative to table coordinate system.
+
+        Args:
+            cue_line: Line coordinates [x1, y1, x2, y2]
+            reference_frame: Optional reference frame for table coordinate transformation
+
+        Returns:
+            Cue angle in degrees (0-360)
+        """
+        x1, y1, x2, y2 = cue_line
+
+        # Calculate angle from horizontal
+        angle_rad = math.atan2(y2 - y1, x2 - x1)
+        angle_deg = math.degrees(angle_rad)
+
+        # Normalize to 0-360 range
+        if angle_deg < 0:
+            angle_deg += 360
+
+        # Apply table coordinate transformation if reference frame is available
+        if reference_frame is not None:
+            try:
+                # Try to detect table in reference frame to get transformation matrix
+                from ..detection.table import TableDetector
+
+                table_detector = TableDetector()
+                table_result = table_detector.detect_complete_table(reference_frame)
+
+                if table_result and table_result.perspective_transform is not None:
+                    # Transform the line endpoints to table coordinates
+                    points = np.array([[x1, y1], [x2, y2]], dtype=np.float32)
+                    points = points.reshape(-1, 1, 2)
+
+                    # Apply perspective transformation
+                    transformed_points = cv2.perspectiveTransform(
+                        points, table_result.perspective_transform
+                    )
+                    transformed_points = transformed_points.reshape(-1, 2)
+
+                    # Recalculate angle in table coordinates
+                    tx1, ty1 = transformed_points[0]
+                    tx2, ty2 = transformed_points[1]
+
+                    table_angle_rad = math.atan2(ty2 - ty1, tx2 - tx1)
+                    table_angle_deg = math.degrees(table_angle_rad)
+
+                    # Normalize to 0-360 range
+                    if table_angle_deg < 0:
+                        table_angle_deg += 360
+
+                    return table_angle_deg
+
+            except Exception as e:
+                # Fall back to image coordinates if transformation fails
+                self.logger.debug(f"Table coordinate transformation failed: {e}")
+
+        return angle_deg
+
+    def detect_cue_movement(
+        self, current_cue: CueStick, previous_cue: Optional[CueStick]
+    ) -> bool:
+        """Detect if cue is moving (shooting vs aiming).
+
+        Args:
+            current_cue: Current cue detection
+            previous_cue: Previous cue detection
+
+        Returns:
+            True if cue is moving significantly
+        """
+        if previous_cue is None:
+            return False
+
+        # Calculate position change
+        tip_movement = np.sqrt(
+            (current_cue.tip_position[0] - previous_cue.tip_position[0]) ** 2
+            + (current_cue.tip_position[1] - previous_cue.tip_position[1]) ** 2
+        )
+
+        # Calculate angle change
+        angle_change = abs(current_cue.angle - previous_cue.angle)
+        if angle_change > 180:
+            angle_change = 360 - angle_change
+
+        # Movement threshold
+        position_threshold = self.position_movement_threshold  # pixels
+        angle_threshold = self.angle_change_threshold  # degrees
+
+        return tip_movement > position_threshold or angle_change > angle_threshold
+
+    def get_detection_statistics(self) -> dict[str, Any]:
+        """Get detection performance statistics.
+
+        Returns:
+            Dictionary with detection statistics
+        """
+        if not self.previous_cues:
+            return {
+                "total_detections": 0,
+                "average_confidence": 0.0,
+                "shot_events": 0,
+                "detection_rate": 0.0,
+            }
+
+        detections = len(self.previous_cues)
+        avg_confidence = sum(cue.confidence for cue in self.previous_cues) / detections
+        detection_rate = detections / max(1, self.frame_count)
+
+        return {
+            "total_detections": detections,
+            "average_confidence": avg_confidence,
+            "shot_events": len(self.shot_events),
+            "detection_rate": detection_rate,
+            "frames_processed": self.frame_count,
+        }
+
+    def reset_tracking(self) -> None:
+        """Reset tracking state (useful for new game/session)."""
+        self.previous_cues.clear()
+        self.shot_events.clear()
+        self.frame_count = 0
+
+    def set_cue_ball_position(self, position: tuple[float, float]) -> None:
+        """Set known cue ball position to improve detection accuracy.
+
+        Args:
+            position: Cue ball (x, y) position in pixels
+        """
+        self.cue_ball_position = position
+
+    def visualize_detection(
+        self,
+        frame: NDArray[np.uint8],
+        cue: CueStick,
+        shot_event: Optional[ExtendedShotEvent] = None,
+    ) -> NDArray[np.float64]:
+        """Visualize cue detection results on frame.
+
+        Args:
+            frame: Original frame
+            cue: Detected cue stick
+            shot_event: Optional shot event to visualize
+
+        Returns:
+            Frame with visualization overlay
+        """
+        vis_frame = frame.copy()
+
+        if cue is None:
+            return vis_frame
+
+        # Draw cue line
+        tip_pos = (int(cue.tip_position[0]), int(cue.tip_position[1]))
+
+        # Calculate butt position if not available
+        if hasattr(cue, "shaft_points") and cue.shaft_points:
+            butt_pos = (int(cue.shaft_points[-1][0]), int(cue.shaft_points[-1][1]))
+        else:
+            # Estimate butt position from tip and angle
+            butt_x = cue.tip_position[0] - cue.length * np.cos(np.radians(cue.angle))
+            butt_y = cue.tip_position[1] - cue.length * np.sin(np.radians(cue.angle))
+            butt_pos = (int(butt_x), int(butt_y))
+
+        # Color based on state
+        if cue.state == CueState.STRIKING:
+            color = (0, 0, 255)  # Red for striking
+        elif cue.state == CueState.AIMING:
+            color = (0, 255, 0)  # Green for aiming
+        else:
+            color = (128, 128, 128)  # Gray for unknown
+
+        # Draw cue line
+        cv2.line(vis_frame, tip_pos, butt_pos, color, 3)
+
+        # Draw tip marker
+        cv2.circle(vis_frame, tip_pos, 8, color, -1)
+
+        # Draw info text
+        info_text = f"Angle: {cue.angle:.1f}° Conf: {cue.confidence:.2f} State: {cue.state.value}"
+        cv2.putText(
+            vis_frame, info_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2
+        )
+
+        # Draw velocity vector if available
+        if hasattr(cue, "tip_velocity") and cue.tip_velocity != (0.0, 0.0):
+            vel_end_x = int(tip_pos[0] + cue.tip_velocity[0] * 5)
+            vel_end_y = int(tip_pos[1] + cue.tip_velocity[1] * 5)
+            cv2.arrowedLine(
+                vis_frame, tip_pos, (vel_end_x, vel_end_y), (255, 255, 0), 2
+            )
+
+        # Draw shot event info if available
+        if shot_event:
+            shot_text = f"Shot: {shot_event.shot_type.value} Force: {shot_event.strike_force:.1f}"
+            cv2.putText(
+                vis_frame,
+                shot_text,
+                (10, 60),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2,
+            )
+
+            # Draw contact point
+            contact_pos = (
+                int(shot_event.contact_point[0]),
+                int(shot_event.contact_point[1]),
+            )
+            cv2.circle(vis_frame, contact_pos, 5, (0, 255, 255), -1)
+
+        return vis_frame
