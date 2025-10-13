@@ -265,7 +265,6 @@ async def update_configuration(
 @router.post("/reset", response_model=SuccessResponse)
 async def reset_configuration(
     confirm: bool = Query(..., description="Confirmation that reset is intended"),
-    backup_current: bool = Query(True, description="Create backup before reset"),
     reset_type: str = Query(
         "all", pattern="^(all|user|section)$", description="Type of reset"
     ),
@@ -276,7 +275,7 @@ async def reset_configuration(
 ) -> SuccessResponse:
     """Reset configuration to defaults (FR-API-007).
 
-    Supports full reset or section-specific reset with backup option.
+    Supports full reset or section-specific reset.
     """
     try:
         if not confirm:
@@ -297,30 +296,6 @@ async def reset_configuration(
         if reset_type == "section" and sections:
             for section in sections:
                 validate_config_section(section, available_sections)
-
-        # Create backup if requested
-        backup_path = None
-        if backup_current:
-            try:
-                if hasattr(config_module, "get_configuration"):
-                    current_config = await config_module.get_configuration()
-                else:
-                    current_config = getattr(config_module, "_data", {})
-
-                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-                backup_path = f"/tmp/config_backup_{timestamp}.json"
-
-                with open(backup_path, "w") as f:
-                    if isinstance(current_config, dict):
-                        json.dump(current_config, f, indent=2, default=str)
-                    else:
-                        json.dump(current_config.__dict__, f, indent=2, default=str)
-
-                logger.info(f"Configuration backup created at {backup_path}")
-
-            except Exception as e:
-                logger.warning(f"Failed to create backup: {e}")
-                # Continue with reset even if backup fails
 
         # Perform reset
         try:
@@ -345,8 +320,6 @@ async def reset_configuration(
                 "sections_reset": (
                     sections if reset_type == "section" else available_sections
                 ),
-                "backup_created": backup_current,
-                "backup_path": backup_path,
             },
         )
 

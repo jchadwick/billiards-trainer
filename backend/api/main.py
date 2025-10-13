@@ -37,7 +37,6 @@ from .middleware.performance import PerformanceConfig, setup_performance_monitor
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import (
     calibration,
-    calibration_storage,
     config,
     diagnostics,
     game,
@@ -295,12 +294,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     app_state.startup_time = time.time()
 
     try:
-        # Initialize database
-        logger.info("Initializing database...")
-        from .database import init_db
-
-        init_db()
-
         # Initialize configuration module
         logger.info("Initializing configuration module...")
         app_state.config_module = ConfigurationModule(enable_hot_reload=False)
@@ -507,7 +500,6 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(config.router, prefix="/api/v1")
     app.include_router(calibration.router, prefix="/api/v1/vision")
-    app.include_router(calibration_storage.router, prefix="/api/v1/vision")
     app.include_router(vision.router, prefix="/api/v1/vision")
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
