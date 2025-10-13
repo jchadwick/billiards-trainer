@@ -19,9 +19,10 @@ local Trajectory = {
     showCollisionMarkers = true,
     showSpinIndicators = true,
 
-    -- Colors
+    -- Colors (TEMP: Cyan instead of green for visibility on green felt)
+    -- TODO: Replace with adaptive color system (Task Group 3)
     colors = {
-        primary = {0.3, 0.8, 0.3, 0.8},      -- Green trajectory
+        primary = {0, 1, 1, 0.9},            -- Cyan trajectory (high contrast on green)
         collision = {1, 0.8, 0, 0.8},        -- Yellow collision
         ghost = {1, 1, 1, 0.3},              -- White ghost ball
         spin = {0, 0.5, 1, 0.6},             -- Blue spin indicator

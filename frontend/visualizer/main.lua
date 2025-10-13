@@ -14,7 +14,8 @@ local CONFIG = {
     debug = true,
     showFPS = true,
     backgroundColor = {0.1, 0.1, 0.1},  -- Dark background for visualizer
-    showHUD = true
+    showHUD = true,
+    calibrationMode = false  -- F3 to toggle calibration grid overlay
 }
 
 -- Calculate contrasting text color
@@ -124,12 +125,15 @@ function love.draw()
         love.graphics.origin()
     end
 
+    -- Draw calibration overlay (if in calibration mode)
+    if CONFIG.calibrationMode and _G.Calibration then
+        _G.Calibration:drawOverlay()
+    end
+
     -- Draw HUD overlay
     if CONFIG.showHUD then
         drawHUD()
     end
-
-    love.graphics.pop()
 end
 
 function drawHUD()
@@ -217,16 +221,56 @@ function love.keypressed(key)
     -- Toggle HUD
     if key == "f1" then
         CONFIG.showHUD = not CONFIG.showHUD
+        print("HUD " .. (CONFIG.showHUD and "enabled" or "disabled"))
     end
 
     -- Toggle debug
     if key == "f2" then
         CONFIG.debug = not CONFIG.debug
+        print("Debug mode " .. (CONFIG.debug and "enabled" or "disabled"))
+    end
+
+    -- Toggle calibration mode
+    if key == "f3" then
+        CONFIG.calibrationMode = not CONFIG.calibrationMode
+        print("Calibration mode " .. (CONFIG.calibrationMode and "enabled" or "disabled"))
+    end
+
+    -- Calibration controls (only in calibration mode)
+    if CONFIG.calibrationMode and _G.Calibration then
+        if key == "up" then
+            _G.Calibration:adjustCorner(0, -1)
+        elseif key == "down" then
+            _G.Calibration:adjustCorner(0, 1)
+        elseif key == "left" then
+            _G.Calibration:adjustCorner(-1, 0)
+        elseif key == "right" then
+            _G.Calibration:adjustCorner(1, 0)
+        elseif key == "tab" then
+            _G.Calibration:nextCorner()
+            print("Calibration corner: " .. _G.Calibration.selectedCorner)
+        elseif key == "s" then
+            if _G.Calibration:save() then
+                print("Calibration saved successfully")
+            else
+                print("Calibration save failed")
+            end
+        elseif key == "l" then
+            if _G.Calibration:load() then
+                print("Calibration loaded successfully")
+            else
+                print("Calibration load failed")
+            end
+        elseif key == "r" then
+            _G.Calibration:reset()
+            print("Calibration reset to defaults")
+        end
     end
 
     -- Clear error
     if key == "e" and state.lastError then
         state.lastError = nil
+        print("Error cleared")
     end
 
     -- Quit
