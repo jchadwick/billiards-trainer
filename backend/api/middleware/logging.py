@@ -130,9 +130,25 @@ class RequestLogger:
         return request.client.host if request.client else "unknown"
 
     async def read_body(self, request: Request) -> bytes:
-        """Read request body for logging."""
+        """Read request body for logging and cache it for re-reading.
+
+        This method reads the body stream once and caches it in the request
+        object so that endpoints can read it again later.
+        """
         try:
-            return await request.body()
+            # Check if body is already cached
+            if hasattr(request, '_body'):
+                return request._body
+
+            # Read the body stream
+            body = await request.body()
+
+            # Cache it for future reads
+            # Note: Starlette's Request.body() internally caches in _body,
+            # but we explicitly ensure it's set for clarity
+            request._body = body
+
+            return body
         except Exception:
             return b""
 
@@ -291,7 +307,12 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         self.request_logger = RequestLogger(self.config)
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Process request and response with logging."""
+        """Process request and response with logging.
+
+        NOTE: Due to a known issue with BaseHTTPMiddleware, we cannot reliably
+        read request bodies in middleware without breaking endpoint body parsing.
+        Body logging is disabled for POST/PUT/PATCH to avoid this issue.
+        """
         # Generate request ID for correlation
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
@@ -309,13 +330,11 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             user_agent=request.headers.get("User-Agent", ""),
         )
 
-        # Read request body for logging
+        # Skip body reading entirely due to BaseHTTPMiddleware limitations
+        # Body logging is not supported with BaseHTTPMiddleware
         request_body = b""
-        if self.config.log_body and request.method in ["POST", "PUT", "PATCH"]:
-            request_body = await self.request_logger.read_body(request)
-            metrics.request_size = len(request_body)
 
-        # Log request
+        # Log request (without body)
         self.request_logger.log_request(request, request_id, request_body)
 
         try:

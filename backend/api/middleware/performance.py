@@ -499,13 +499,10 @@ class PerformanceMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
 
         # Get request size
+        # NOTE: We don't read the body here because BaseHTTPMiddleware has a bug
+        # where reading the body can prevent endpoints from reading it later.
+        # Request size tracking is less important than functional endpoints.
         request_size = 0
-        try:
-            if hasattr(request, "body"):
-                body = await request.body()
-                request_size = len(body)
-        except Exception:
-            pass
 
         try:
             # Process request
