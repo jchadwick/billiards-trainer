@@ -2,20 +2,13 @@
 
 ## Purpose
 
-The Projector application is a **native wrapper for fullscreen projector deployment**. It is a thin layer that launches the core visualizer (located in `frontend/visualizer`) in fullscreen mode on a dedicated display/projector device. The projector wrapper handles display management, system integration, and hardware-specific optimizations for production deployment on dedicated projector hardware.
+The Projector application is responsible for rendering and displaying augmented reality overlays directly onto the pool table surface via a physical projector. It receives trajectory and game state data from the backend, performs geometric corrections for proper alignment, and generates real-time visual feedback that enhances the playing experience.
 
-**For core visualization functionality** (rendering trajectories, AR overlays, calibration, etc.), see `frontend/visualizer/SPECS.md`.
+The application must be architected in such a way that it is easy to extend via addons/modules/plugins to add new features by providing a core API for addons/modules/plugins to interact with the main application. The application should be modular, with clear separation of concerns between components such as rendering, calibration, and network communication. The application should also include comprehensive logging and error handling to facilitate debugging and maintenance.
 
-### Wrapper Architecture
+The first module shall be a calibration module to allow the user to calibrate the projector to the table. The second module shall be a trajectory rendering module to render the trajectories and other visual aids on the table.
 
-The projector wrapper:
-1. Loads and initializes the core visualizer module from `frontend/visualizer`
-2. Applies projector-specific configuration (display selection, fullscreen mode)
-3. Manages system integration (systemd service, logging to system journal)
-4. Handles hardware-specific optimizations for the target platform
-5. Provides a production deployment environment for the visualizer
-
-The application should be primarily designed to operate with no user interaction, expecting all commands to arrive over the network (originating from the API, triggered by the user's interaction with the web interface).
+The application should be primarily designed to operated with no user interaction, expecting all of the commands to arrive from commands over the network (originating from the API, triggered by various things including the user's interaction with the web interface).
 
 ## Deployment Options
 

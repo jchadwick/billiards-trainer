@@ -2,8 +2,13 @@
 
 This plan outlines the remaining tasks to complete the Billiards Trainer system. The tasks are prioritized based on comprehensive codebase analysis conducted on 2025-10-03.
 
-**Last Updated:** 2025-10-08 (Comprehensive 10-Agent Module Analysis Completed)
-**Status:** Backend 95% complete and production-ready. All critical systems operational: Vision detection, trajectory calculation, WebSocket/UDP broadcasting, calibration, configuration management. Running stably on target environment.
+**Last Updated:** 2025-10-13 (LOVE2D Visualizer Restructuring Plan Added)
+**Status:** Backend 95% complete and production-ready. Frontend restructuring in progress: Separating LOVE2D visualizer from native projector wrapper.
+
+**Current Priority (2025-10-13):**
+- **LOVE2D Visualizer Restructuring**: Creating pure data-driven visualizer component that receives all data via WebSocket from backend
+- **Architecture Change**: `/frontend/projector` → split into `/frontend/visualizer` (pure LOVE2D) + `/frontend/projector` (native wrapper)
+- **Goal**: Visualizer supersedes `tools/video_debugger.py` with comprehensive HUD diagnostics and runs natively or as web application
 
 **Latest Analysis (2025-10-08):**
 - Conducted comprehensive 10-agent parallel analysis of all modules vs SPECS.md
@@ -1534,3 +1539,237 @@ love --fuse . projector
 - ✅ Backend integration complete (UDP broadcasting)
 - ✅ Calibration system operational
 - ⏳ Awaiting real-world hardware testing with billiard table
+
+---
+
+## 🎯 LOVE2D Visualizer Restructuring Plan (Added 2025-10-13)
+
+### Overview
+
+**Goal**: Restructure `/frontend/projector` into three distinct components:
+1. **Pure LOVE2D Visualizer** (`/frontend/visualizer`) - Data-driven rendering and visualization
+2. **Web Interface** (existing `/frontend/web`) - Browser-based control
+3. **Native Application Wrapper** (`/frontend/projector`) - Fullscreen projector mode
+
+### Key Architectural Decisions
+
+**What the Visualizer DOES:**
+- Display video feed from backend (camera stream)
+- Draw AR overlays: trajectories, aiming guides, safe zones, table boundaries
+- Highlight balls for training modules (positions come from backend)
+- Show diagnostic HUD with connection/performance info
+- Receive ALL data via WebSocket (no direct camera access)
+
+**What the Visualizer DOES NOT DO:**
+- ❌ Draw ball/cue representations (visible on table/video feed)
+- ❌ Access camera directly (backend handles all video)
+- ❌ Recreate the scene from scratch
+
+**Architecture**: Visualizer supersedes `tools/video_debugger.py` with comprehensive HUD diagnostics and runs natively or as love2d.js web application.
+
+###Status: **IN PROGRESS** - Foundation Complete
+
+**Completed (2025-10-13):**
+- ✅ Created `/frontend/visualizer` directory structure
+- ✅ Updated `frontend/projector/SPECS.md` to focus on wrapper responsibilities
+- ✅ Created visualizer specifications document
+- ✅ Comprehensive 39-52 hour implementation plan documented
+
+**In Progress:**
+- 🔄 Moving core Lua files from projector to visualizer
+- 🔄 Creating state manager for WebSocket data
+- 🔄 Creating message handler for routing
+
+**Pending (Task Groups 2-7):**
+- WebSocket integration (6-8 hours)
+- Basic visualization modules (8-10 hours)
+- Diagnostic HUD (10-12 hours)
+- Video feed module (4-6 hours)
+- Projector wrapper (3-4 hours)
+- Testing and polish (4-6 hours)
+
+### Implementation Tasks
+
+#### Task Group 1: Core Visualizer Setup ✅ FOUNDATION COMPLETE
+1. ✅ Create visualizer directory structure
+2. ✅ Copy and update SPECS.md files (visualizer + projector)
+3. ⏳ Move core files (main.lua, conf.lua, lib/json.lua)
+4. ⏳ Create state_manager.lua (track ball/cue positions from WebSocket)
+5. ⏳ Create message_handler.lua (parse and route WebSocket messages)
+
+#### Task Group 2: WebSocket Integration (6-8 hours) - HIGH PRIORITY
+6. Add WebSocket library (love2d-lua-websocket)
+7. Implement websocket_client.lua with auto-reconnect
+8. Implement subscription management (video frames)
+9. Test WebSocket connection with backend
+
+#### Task Group 3: Basic Visualization Modules (8-10 hours) - HIGH PRIORITY
+10. Update trajectory module for AR overlay rendering
+11. Create table_overlay module (boundaries, guides, zones)
+12. Update video_feed module for WebSocket frame reception
+
+#### Task Group 4: Diagnostic HUD (10-12 hours) - MEDIUM PRIORITY
+13. Implement HUD data collector (connection, balls, cue, performance)
+14. Implement HUD renderer (layout, sections, opacity)
+15. Implement HUD sections (connection, balls, cue, table, performance, video)
+16. Implement HUD controls (F1-F8 toggles, layout modes)
+
+#### Task Group 5: Video Feed Module (4-6 hours) - MEDIUM PRIORITY
+17. Update video_feed for WebSocket frames (base64 JPEG)
+18. Implement video display modes (fullscreen/inset/overlay)
+
+#### Task Group 6: Projector Wrapper (3-4 hours) - LOW PRIORITY
+19. Create projector wrapper (main.lua that loads visualizer)
+20. Create systemd service for auto-start
+21. Update projector documentation
+
+#### Task Group 7: Testing and Polish (4-6 hours) - FINAL
+22. Integration testing with real backend
+23. Performance testing (FPS, memory, latency)
+24. Documentation updates (READMEs, usage examples)
+
+### Files to Create/Modify
+
+**New Visualizer Files:**
+```
+frontend/visualizer/
+├── SPECS.md (✅ created)
+├── README.md
+├── main.lua (from projector, modified)
+├── conf.lua (from projector, modified for windowed)
+├── core/
+│   ├── state_manager.lua (⏳ new - track positions)
+│   ├── message_handler.lua (⏳ new - route messages)
+│   └── websocket_client.lua (new - WebSocket with auto-reconnect)
+├── rendering/
+│   ├── primitives.lua (from projector/core/renderer.lua)
+│   └── calibration.lua (from projector/core/calibration.lua)
+├── modules/
+│   ├── trajectory/ (from projector, updated for AR overlay)
+│   ├── table_overlay/ (new - boundaries, guides, zones)
+│   ├── video_feed/ (from projector, updated for WebSocket)
+│   ├── diagnostic_hud/ (new - comprehensive HUD)
+│   └── ball_highlight/ (optional - reusable ball highlighting helper)
+├── lib/
+│   ├── json.lua (from projector)
+│   ├── websocket.lua (new - love2d-lua-websocket)
+│   └── base64.lua (new - for video frame decoding)
+└── config/
+    └── default.json (new - visualizer configuration)
+```
+
+**Updated Projector Files:**
+```
+frontend/projector/
+├── SPECS.md (✅ updated - wrapper focus)
+├── README.md (update - reference visualizer)
+├── main.lua (new - thin wrapper loads visualizer)
+├── conf.lua (update - fullscreen config)
+├── projector_wrapper.lua (new - display selection, sys integration)
+└── systemd/
+    └── projector.service (new - auto-start service)
+```
+
+### WebSocket Message Protocol
+
+**Messages FROM Backend TO Visualizer:**
+- `state`: Periodic ball positions (500ms) → state_manager
+- `motion`: Immediate ball motion events → state_manager
+- `trajectory`: Trajectory predictions → trajectory module
+- `frame`: Video frame data (base64 JPEG) → video_feed module
+- `alert`: System alerts → diagnostic_hud
+- `config`: Configuration updates → apply to modules
+
+**Messages FROM Visualizer TO Backend:**
+- `subscribe`: Request video feed subscription
+- `unsubscribe`: Cancel video feed subscription
+
+### Configuration Example
+
+```json
+{
+  "display": {
+    "width": 1440,
+    "height": 810,
+    "fullscreen": false,
+    "vsync": true
+  },
+  "network": {
+    "websocket_url": "ws://localhost:8000/api/v1/game/state/ws",
+    "auto_connect": true,
+    "reconnect_enabled": true
+  },
+  "video_feed": {
+    "enabled": false,
+    "auto_subscribe": false,
+    "display_mode": "inset",
+    "opacity": 0.8
+  },
+  "diagnostic_hud": {
+    "enabled": true,
+    "default_layout": "standard",
+    "sections": {
+      "connection": true,
+      "balls": true,
+      "cue": true,
+      "performance": true
+    }
+  }
+}
+```
+
+### Success Criteria
+
+**Functional:**
+- [ ] Visualizer connects to backend via WebSocket
+- [ ] Receives and displays video feed correctly
+- [ ] Trajectory overlays render accurately
+- [ ] Table boundaries and guides display correctly
+- [ ] Diagnostic HUD shows all information with working toggles
+- [ ] Reconnection works automatically
+- [ ] Configuration persists between sessions
+
+**Performance:**
+- [ ] Maintains 60 FPS with full HUD enabled
+- [ ] WebSocket latency < 50ms average
+- [ ] Video frame decode < 16ms (60 FPS target)
+- [ ] Memory usage < 500MB
+
+**Quality:**
+- [ ] All features from video_debugger.py replicated
+- [ ] Code is well-documented
+- [ ] Error messages are clear
+
+### Estimated Total Effort: 39-52 hours
+
+**Breakdown:**
+- Core Setup: 4-6 hours
+- WebSocket: 6-8 hours
+- Visualization: 8-10 hours
+- HUD: 10-12 hours
+- Video Feed: 4-6 hours
+- Wrapper: 3-4 hours
+- Testing: 4-6 hours
+
+### Next Steps
+
+1. **Complete Task Group 1** (Core Setup)
+   - Move core Lua files to visualizer
+   - Create state_manager.lua
+   - Create message_handler.lua
+
+2. **Implement Task Group 2** (WebSocket Integration)
+   - Critical for data flow from backend
+   - Enables all other visualization features
+
+3. **Incremental Development**
+   - Complete one task group at a time
+   - Test each group before moving to next
+   - Can parallelize Groups 4 (HUD) and 5 (Video Feed) after Group 3
+
+4. **Iterative Testing**
+   - Test with backend after each major component
+   - Verify WebSocket message handling
+   - Validate visualization accuracy
+
+---
