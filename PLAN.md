@@ -1567,21 +1567,19 @@ love --fuse . projector
 
 **Architecture**: Visualizer supersedes `tools/video_debugger.py` with comprehensive HUD diagnostics and runs natively or as love2d.js web application.
 
-###Status: **IN PROGRESS** - Foundation Complete
+###Status: **IN PROGRESS** - Task Group 1 Complete
 
 **Completed (2025-10-13):**
 - ✅ Created `/frontend/visualizer` directory structure
 - ✅ Updated `frontend/projector/SPECS.md` to focus on wrapper responsibilities
 - ✅ Created visualizer specifications document
 - ✅ Comprehensive 39-52 hour implementation plan documented
+- ✅ **Task Group 1 Complete**: All core files moved, state_manager.lua and message_handler.lua created
 
-**In Progress:**
-- 🔄 Moving core Lua files from projector to visualizer
-- 🔄 Creating state manager for WebSocket data
-- 🔄 Creating message handler for routing
+**Next Priority (Task Group 2):**
+- 🔜 WebSocket integration (6-8 hours) - Add WebSocket library and client with auto-reconnect
 
-**Pending (Task Groups 2-7):**
-- WebSocket integration (6-8 hours)
+**Pending (Task Groups 3-7):**
 - Basic visualization modules (8-10 hours)
 - Diagnostic HUD (10-12 hours)
 - Video feed module (4-6 hours)
@@ -1590,12 +1588,12 @@ love --fuse . projector
 
 ### Implementation Tasks
 
-#### Task Group 1: Core Visualizer Setup ✅ FOUNDATION COMPLETE
+#### Task Group 1: Core Visualizer Setup ✅ COMPLETE
 1. ✅ Create visualizer directory structure
 2. ✅ Copy and update SPECS.md files (visualizer + projector)
-3. ⏳ Move core files (main.lua, conf.lua, lib/json.lua)
-4. ⏳ Create state_manager.lua (track ball/cue positions from WebSocket)
-5. ⏳ Create message_handler.lua (parse and route WebSocket messages)
+3. ✅ Move core files (main.lua, conf.lua, lib/json.lua)
+4. ✅ Create state_manager.lua (track ball/cue positions from WebSocket)
+5. ✅ Create message_handler.lua (parse and route WebSocket messages)
 
 #### Task Group 2: WebSocket Integration (6-8 hours) - HIGH PRIORITY
 6. Add WebSocket library (love2d-lua-websocket)

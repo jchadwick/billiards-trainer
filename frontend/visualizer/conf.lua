@@ -1,0 +1,57 @@
+-- LÖVE2D Configuration for Billiards Visualizer
+-- Windowed mode by default for development and diagnostics
+
+function love.conf(t)
+    t.identity = "billiards-visualizer"            -- Save directory name
+    t.appendidentity = false                        -- Search files in source directory before save directory
+    t.version = "11.5"                              -- LÖVE2D version this was made for
+    t.console = false                               -- Attach a console (Windows only)
+    t.accelerometerjoystick = false                 -- Enable accelerometer on iOS and Android
+    t.externalstorage = false                       -- Android only
+    t.gammacorrect = false                          -- Enable gamma correction
+
+    t.audio.mic = false                             -- Request microphone permission
+    t.audio.mixwithsystem = true                    -- Keep background music playing
+
+    t.window.title = "Billiards Visualizer"        -- Window title
+    t.window.icon = nil                             -- Filepath to an image to use as the window's icon
+
+    -- Windowed mode by default (1440x810 = 75% of 1920x1080)
+    t.window.width = 1440
+    t.window.height = 810
+    t.window.borderless = false                     -- Keep window border for easy resizing
+    t.window.resizable = true                       -- Allow user to resize window
+    t.window.minwidth = 640                         -- Minimum window width
+    t.window.minheight = 360                        -- Minimum window height
+    t.window.fullscreen = false                     -- Windowed mode by default
+    t.window.fullscreentype = "desktop"             -- Desktop fullscreen if enabled
+    t.window.vsync = 1                              -- Vertical sync mode (1 = on, 0 = off, -1 = adaptive)
+    t.window.msaa = 4                               -- Number of samples to use with multi-sampled antialiasing
+    t.window.depth = nil                            -- Number of bits per sample in the depth buffer
+    t.window.stencil = nil                          -- Number of bits per sample in the stencil buffer
+    t.window.display = 1                            -- Index of the monitor to show the window in
+    t.window.highdpi = false                        -- Enable high-dpi mode (Retina display on Mac)
+    t.window.usedpiscale = true                     -- Enable automatic DPI scaling
+    t.window.x = nil                                -- X coordinate of window position
+    t.window.y = nil                                -- Y coordinate of window position
+
+    -- Module configuration
+    t.modules.audio = false                         -- Disable audio (not needed for visualizer)
+    t.modules.data = true                           -- Enable data module
+    t.modules.event = true                          -- Enable event module
+    t.modules.font = true                           -- Enable font module
+    t.modules.graphics = true                       -- Enable graphics module
+    t.modules.image = true                          -- Enable image module
+    t.modules.joystick = false                      -- Disable joystick
+    t.modules.keyboard = true                       -- Enable keyboard
+    t.modules.math = true                           -- Enable math module
+    t.modules.mouse = true                          -- Enable mouse
+    t.modules.physics = false                       -- Disable physics (backend handles physics)
+    t.modules.sound = false                         -- Disable sound
+    t.modules.system = true                         -- Enable system module
+    t.modules.thread = true                         -- Enable thread module
+    t.modules.timer = true                          -- Enable timer module
+    t.modules.touch = false                         -- Disable touch
+    t.modules.video = false                         -- Disable video
+    t.modules.window = true                         -- Enable window module
+end
