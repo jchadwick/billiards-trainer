@@ -7,14 +7,16 @@ This guide explains how to build and deploy the projector application as a web a
 The projector application can now be deployed in two modes:
 
 1. **Native Application** (LÖVE2D) - Recommended for production
-   - UDP datagram socket communication
+   - WebSocket communication
    - Full hardware acceleration
-   - Lower latency
+   - Direct system integration
 
 2. **Web Application** (love.js) - Easier deployment and testing
-   - WebSocket communication (UDP not available in browsers)
+   - WebSocket communication
    - Runs in any modern browser
    - No installation required
+
+**Note**: Both modes use WebSocket for network communication with the backend API.
 
 ## Building the Web Version
 

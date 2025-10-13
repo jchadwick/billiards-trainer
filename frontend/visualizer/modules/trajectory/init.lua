@@ -154,23 +154,6 @@ function Trajectory:draw()
         return
     end
 
-    -- DEBUG: Draw a test circle to verify draw is being called
-    love.graphics.setColor(1, 0, 0, 1)  -- Red
-    love.graphics.circle("fill", 200, 200, 50)
-
-    -- DEBUG: Draw a simple test line using calibration
-    local x1, y1 = Calibration:transform(0.2, 0.3)
-    local x2, y2 = Calibration:transform(0.8, 0.7)
-
-    -- Show transformed coordinates
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.print(string.format("Transform test: (0.2,0.3)->(%d,%d) (0.8,0.7)->(%d,%d)",
-        math.floor(x1), math.floor(y1), math.floor(x2), math.floor(y2)), 10, 210)
-
-    love.graphics.setColor(0, 1, 0, 1)  -- Green
-    love.graphics.setLineWidth(5)
-    love.graphics.line(x1, y1, x2, y2)
-
     -- Draw aim line
     if self.aimLine then
         local alpha = 1.0 - (currentTime - self.aimLine.timestamp) / self.fadeTime

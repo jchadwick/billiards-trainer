@@ -44,14 +44,35 @@ function love.load()
 
     -- Initialize core systems
     local success, err = pcall(function()
+        -- Load and initialize Renderer (global for modules to use)
+        local RendererModule = require("core.renderer")
+        _G.Renderer = RendererModule
+        _G.Renderer:init()
+        print("✓ Renderer initialized")
+
+        -- Load Calibration module (global for modules to use)
+        _G.Calibration = require("rendering.calibration")
+        _G.Calibration:load()  -- Load saved calibration
+        print("✓ Calibration loaded")
+
         -- Create state manager
         state.stateManager = StateManager.new()
+        print("✓ State Manager initialized")
 
         -- Create message handler
         state.messageHandler = MessageHandler.new(state.stateManager)
+        print("✓ Message Handler initialized")
 
-        -- TODO: Initialize WebSocket client in Task Group 2
-        -- TODO: Load modules in Task Group 3
+        -- Load trajectory module
+        state.trajectoryModule = require("modules.trajectory.init")
+        print("✓ Trajectory Module loaded")
+
+        -- Wire trajectory callback to message handler
+        state.messageHandler:setTrajectoryCallback(function(data)
+            state.trajectoryModule:updateTrajectory(data)
+        end)
+
+        -- TODO: Initialize WebSocket client in Task Group 2 (Phase 1)
     end)
 
     if not success then
@@ -65,9 +86,6 @@ function love.load()
 end
 
 function love.update(dt)
-    -- TODO: Update WebSocket client in Task Group 2
-    -- TODO: Update modules in Task Group 3
-
     -- Update state manager timing
     if state.stateManager then
         local timeSinceUpdate = love.timer.getTime() - state.stateManager:getLastUpdateTime()
@@ -76,6 +94,13 @@ function love.update(dt)
             state.connectionStatus.websocket = false
         end
     end
+
+    -- Update trajectory module
+    if state.trajectoryModule then
+        state.trajectoryModule:update(dt)
+    end
+
+    -- TODO: Update WebSocket client in Task Group 2 (Phase 1)
 end
 
 function love.draw()
@@ -84,16 +109,13 @@ function love.draw()
         -- Clear screen
         love.graphics.clear(CONFIG.backgroundColor)
 
-        -- TODO: Draw video feed in Task Group 5
-        -- TODO: Draw trajectory overlays in Task Group 3
-        -- TODO: Draw table overlays in Task Group 3
+        -- Draw trajectory overlays
+        if state.trajectoryModule then
+            state.trajectoryModule:draw()
+        end
 
-        -- Draw placeholder content
-        love.graphics.setColor(0.3, 0.3, 0.3, 1)
-        love.graphics.rectangle("fill", 100, 100, 1240, 610)
-        love.graphics.setColor(TEXT_COLOR)
-        love.graphics.printf("Visualizer Ready\n\nWaiting for WebSocket connection...\n\n(WebSocket integration in Task Group 2)",
-            100, 300, 1240, "center")
+        -- TODO: Draw video feed in Task Group 5 (Phase 4)
+        -- TODO: Draw table overlays in Task Group 3 (Phase 2)
     end)
 
     if not success then
