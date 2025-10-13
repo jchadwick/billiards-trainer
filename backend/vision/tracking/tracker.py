@@ -47,7 +47,7 @@ class Ball:
         if self.number is not None:
             return str(self.number)
         elif self.ball_type == BallType.CUE:
-            return "Cue"
+            return "Cue Ball"
         elif self.ball_type == BallType.EIGHT:
             return "8"
         else:

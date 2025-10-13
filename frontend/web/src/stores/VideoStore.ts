@@ -12,11 +12,14 @@ import type {
   GameStateData,
   TrajectoryData,
   WebSocketMessage,
+} from "../types/api";
+import {
   isGameStateMessage,
   isTrajectoryMessage,
 } from "../types/api";
 import type {
   Ball,
+  CalibrationData,
   CueStick,
   DetectionFrame,
   PerformanceMetrics,
@@ -51,6 +54,7 @@ export class VideoStore {
   // Current detection data
   currentFrame: DetectionFrame | null = null;
   currentFrameImage: string | null = null; // For WebSocket frame streaming
+  calibrationData: CalibrationData | null = null;
 
   // Stream URL and connection
   private streamUrl = "";
@@ -99,6 +103,7 @@ export class VideoStore {
       currentTrajectories: computed,
       hasErrors: computed,
       latestError: computed,
+      hasCalibration: computed,
     });
 
     // Start performance monitoring
@@ -136,6 +141,10 @@ export class VideoStore {
 
   get latestError(): VideoError | null {
     return this.errors.length > 0 ? this.errors[this.errors.length - 1] : null;
+  }
+
+  get hasCalibration(): boolean {
+    return this.calibrationData !== null && this.calibrationData.isValid;
   }
 
   // Actions
@@ -219,6 +228,9 @@ export class VideoStore {
 
       // Initialize WebSocket connection for real-time detection data
       await this.connectWebSocket();
+
+      // Fetch calibration data if available
+      await this.fetchCalibrationData();
 
       runInAction(() => {
         this.status.connected = true;
@@ -309,6 +321,56 @@ export class VideoStore {
         recoverable: true,
       };
       this.addError(videoError);
+    }
+  }
+
+  async fetchCalibrationData(): Promise<void> {
+    try {
+      const { apiClient } = await import("../api/client");
+      const response = await apiClient.getCalibrationData();
+
+      if (response.success && response.data) {
+        // Transform API response to CalibrationData format
+        const apiData = response.data;
+
+        // Convert API calibration data to our CalibrationData format
+        const calibrationData: CalibrationData = {
+          corners: (apiData.corners || []).map((corner: any, index: number) => ({
+            id: `corner-${index}`,
+            screenPosition: {
+              x: Array.isArray(corner) ? corner[0] : corner.x,
+              y: Array.isArray(corner) ? corner[1] : corner.y,
+            },
+            worldPosition: {
+              x: Array.isArray(corner) ? corner[0] : corner.x,
+              y: Array.isArray(corner) ? corner[1] : corner.y,
+            },
+            timestamp: Date.now(),
+            confidence: apiData.accuracy || 1.0,
+          })),
+          transformationMatrix: apiData.transformation_matrix,
+          calibratedAt: apiData.calibrated_at ? new Date(apiData.calibrated_at).getTime() : Date.now(),
+          accuracy: apiData.accuracy,
+          isValid: apiData.is_valid !== false && (apiData.corners || []).length >= 4,
+          tableType: apiData.table_type,
+          dimensions: apiData.dimensions,
+        };
+
+        runInAction(() => {
+          this.calibrationData = calibrationData;
+        });
+      } else {
+        // No calibration data available or invalid response
+        runInAction(() => {
+          this.calibrationData = null;
+        });
+      }
+    } catch (error) {
+      console.warn("Failed to fetch calibration data:", error);
+      // Don't add error since calibration is optional
+      runInAction(() => {
+        this.calibrationData = null;
+      });
     }
   }
 
@@ -577,20 +639,25 @@ export class VideoStore {
 
     const trajectoryData = message.data as TrajectoryData;
 
+    // Get the ball_id from the trajectory data (the moving ball, typically cue ball)
+    const movingBallId = trajectoryData.ball_id || `trajectory_0`;
+
     // Convert trajectory data to frontend format
     const trajectories: Trajectory[] = trajectoryData.lines.map(
       (line, index) => ({
-        ballId: `trajectory_${index}`,
+        // Use the ball1_id from collisions (the moving ball) or fall back to trajectory ball_id
+        ballId: trajectoryData.collisions[0]?.ball1_id || movingBallId,
         points: [
           { x: line.start[0], y: line.start[1] },
           { x: line.end[0], y: line.end[1] },
         ],
         collisions: trajectoryData.collisions.map((collision) => ({
           position: { x: collision.position[0], y: collision.position[1] },
-          type: collision.ball_id
+          // Use ball2_id to determine collision type (if ball2_id exists, it's a ball collision)
+          type: collision.ball2_id
             ? "ball"
-            : ("rail" as "ball" | "rail" | "pocket"),
-          targetId: collision.ball_id,
+            : (collision.type === "ball_pocket" ? "pocket" : "rail") as "ball" | "rail" | "pocket",
+          targetId: collision.ball2_id || undefined,  // Target ball ID (ball being hit)
           angle: collision.angle,
           impulse: 0, // Not provided
         })),

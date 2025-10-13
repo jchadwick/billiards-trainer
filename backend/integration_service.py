@@ -267,6 +267,61 @@ class IntegrationService:
 
         return detection_data
 
+    def _find_ball_cue_is_pointing_at(self, cue, balls) -> Optional[Any]:
+        """Find which ball the cue is currently pointing at.
+
+        Args:
+            cue: Detected cue stick with tip and tail position
+            balls: List of detected balls
+
+        Returns:
+            The ball the cue is pointing at, or None
+        """
+        if not cue or not balls:
+            return None
+
+        # Calculate cue direction vector
+        cue_dx = cue.tip_position[0] - cue.tail_position[0]
+        cue_dy = cue.tip_position[1] - cue.tail_position[1]
+        cue_length = np.sqrt(cue_dx**2 + cue_dy**2)
+
+        if cue_length == 0:
+            return None
+
+        # Normalize direction
+        cue_dx /= cue_length
+        cue_dy /= cue_length
+
+        # Find the closest ball along the cue direction
+        closest_ball = None
+        min_distance = float("inf")
+        max_perpendicular_distance = 40  # pixels tolerance
+
+        for ball in balls:
+            # Vector from cue tip to ball center
+            ball_dx = ball.position[0] - cue.tip_position[0]
+            ball_dy = ball.position[1] - cue.tip_position[1]
+
+            # Distance along cue direction (projection)
+            distance_along_cue = ball_dx * cue_dx + ball_dy * cue_dy
+
+            # Skip balls behind the cue tip
+            if distance_along_cue < 0:
+                continue
+
+            # Calculate perpendicular distance from cue line to ball center
+            perpendicular_distance = abs(ball_dx * cue_dy - ball_dy * cue_dx)
+
+            # Check if ball is within tolerance and closer than current closest
+            if (
+                perpendicular_distance < max_perpendicular_distance
+                and distance_along_cue < min_distance
+            ):
+                min_distance = distance_along_cue
+                closest_ball = ball
+
+        return closest_ball
+
     async def _check_trajectory_calculation(self, detection: DetectionResult) -> None:
         """Check if trajectory should be calculated and trigger if needed.
 
@@ -276,7 +331,7 @@ class IntegrationService:
         # Only calculate trajectory if:
         # 1. Cue is detected and in aiming state
         # 2. All balls are stationary
-        # 3. Cue ball is detected
+        # 3. At least one ball is detected
 
         if not detection.cue:
             return
@@ -290,9 +345,10 @@ class IntegrationService:
         if not detection.balls:
             return
 
-        # Find cue ball
-        cue_ball = next((b for b in detection.balls if b.number == 0), None)
-        if not cue_ball:
+        # Find the ball the cue is pointing at (could be any ball, not just cue ball)
+        target_ball = self._find_ball_cue_is_pointing_at(detection.cue, detection.balls)
+        if not target_ball:
+            logger.debug("No ball found in cue direction")
             return
 
         # Estimate velocity from cue angle and force
@@ -301,11 +357,13 @@ class IntegrationService:
 
             # Calculate trajectory
             await self.core.calculate_trajectory(
-                ball_id=cue_ball.id, initial_velocity=velocity
+                ball_id=target_ball.id, initial_velocity=velocity
             )
 
             # Trajectory broadcast will be handled by event subscription
-            logger.debug(f"Trajectory calculated for cue ball {cue_ball.id}")
+            logger.debug(
+                f"Trajectory calculated for ball {target_ball.id} (number: {target_ball.number})"
+            )
 
         except Exception as e:
             logger.error(f"Failed to calculate trajectory: {e}")

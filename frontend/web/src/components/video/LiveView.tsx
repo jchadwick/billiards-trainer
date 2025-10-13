@@ -58,6 +58,15 @@ const defaultOverlayConfig: OverlayConfig = {
     spacing: 50,
     opacity: 0.3,
   },
+  calibration: {
+    visible: true,
+    showPoints: true,
+    showLines: true,
+    showLabels: true,
+    showAccuracy: true,
+    lineWidth: 2,
+    opacity: 0.8,
+  },
 };
 
 export const LiveView = observer<LiveViewProps>(({
@@ -605,6 +614,107 @@ export const LiveView = observer<LiveViewProps>(({
                 </div>
               </div>
             </div>
+
+            {/* Calibration overlay */}
+            {videoStore.hasCalibration && (
+              <div className="mb-6 border-t pt-4">
+                <h4 className="font-medium mb-2 text-purple-600">Calibration</h4>
+                <div className="space-y-2">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={overlayConfig.calibration.visible}
+                      onChange={(e) => {
+                        updateOverlayConfig('calibration', { visible: e.target.checked });
+                        announce(`Calibration overlay ${e.target.checked ? 'enabled' : 'disabled'}`);
+                      }}
+                      className="mr-2 focus:ring-2 focus:ring-purple-500"
+                      aria-describedby="show-calibration-desc"
+                    />
+                    <span>Show calibration</span>
+                    <ScreenReaderOnly id="show-calibration-desc">
+                      Toggle visibility of table calibration boundaries and points
+                    </ScreenReaderOnly>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={overlayConfig.calibration.showPoints}
+                      onChange={(e) => updateOverlayConfig('calibration', { showPoints: e.target.checked })}
+                      className="mr-2"
+                      disabled={!overlayConfig.calibration.visible}
+                    />
+                    Show corner points
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={overlayConfig.calibration.showLines}
+                      onChange={(e) => updateOverlayConfig('calibration', { showLines: e.target.checked })}
+                      className="mr-2"
+                      disabled={!overlayConfig.calibration.visible}
+                    />
+                    Show boundary lines
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={overlayConfig.calibration.showLabels}
+                      onChange={(e) => updateOverlayConfig('calibration', { showLabels: e.target.checked })}
+                      className="mr-2"
+                      disabled={!overlayConfig.calibration.visible}
+                    />
+                    Show labels
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={overlayConfig.calibration.showAccuracy}
+                      onChange={(e) => updateOverlayConfig('calibration', { showAccuracy: e.target.checked })}
+                      className="mr-2"
+                      disabled={!overlayConfig.calibration.visible}
+                    />
+                    Show accuracy info
+                  </label>
+
+                  <div className="flex items-center space-x-2">
+                    <label className="text-sm">Opacity:</label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={overlayConfig.calibration.opacity}
+                      onChange={(e) => updateOverlayConfig('calibration', { opacity: parseFloat(e.target.value) })}
+                      className="flex-1"
+                      disabled={!overlayConfig.calibration.visible}
+                    />
+                    <span className="text-sm w-10">{Math.round(overlayConfig.calibration.opacity * 100)}%</span>
+                  </div>
+
+                  {videoStore.calibrationData && (
+                    <div className="mt-2 p-2 bg-purple-50 rounded text-xs">
+                      <div className="font-medium text-purple-800">Calibration Info:</div>
+                      <div className="text-gray-600 mt-1">
+                        <div>Points: {videoStore.calibrationData.corners.length}</div>
+                        {videoStore.calibrationData.accuracy && (
+                          <div>Accuracy: {Math.round(videoStore.calibrationData.accuracy * 100)}%</div>
+                        )}
+                        {videoStore.calibrationData.calibratedAt && (
+                          <div>
+                            Calibrated: {new Date(videoStore.calibrationData.calibratedAt).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Debug info */}
@@ -615,6 +725,9 @@ export const LiveView = observer<LiveViewProps>(({
               <div>Trajectories: {videoStore.currentTrajectories.length}</div>
               <div>Table: {videoStore.currentTable ? 'Detected' : 'Not detected'}</div>
               <div>Cue: {videoStore.currentCue?.detected ? 'Detected' : 'Not detected'}</div>
+              <div className={videoStore.hasCalibration ? 'text-purple-600 font-medium' : ''}>
+                Calibration: {videoStore.hasCalibration ? 'Active' : 'Not available'}
+              </div>
               <div>Video: {videoSize.width}×{videoSize.height}</div>
               <div>Canvas: {containerSize.width}×{containerSize.height}</div>
               <div>Transform: {Math.round(transform.scale * 100)}% scale</div>

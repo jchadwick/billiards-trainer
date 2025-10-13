@@ -688,21 +688,84 @@ class PlayingAreaCornersRequest(BaseModel):
 @router.post("/table/playing-area")
 async def set_playing_area_corners(
     request: FastAPIRequest,
+    config_module: ConfigurationModule = Depends(get_config_module),
 ) -> dict:
-    """Set the playing area corner points for table calibration."""
-    logger.info("===== ENDPOINT CALLED =====")
+    """Set the playing area corner points for table calibration.
 
-    # Parse JSON body
-    body = await request.json()
-    logger.info(f"Body: {body}")
+    Saves the corners to the config file for persistence.
 
-    # Just return success immediately to test if endpoint is reachable
-    return {
-        "success": True,
-        "message": "Playing area corners received",
-        "corners": body.get("corners", []),
-        "count": len(body.get("corners", [])),
-    }
+    Args:
+        request: FastAPI request containing corners data
+        config_module: Configuration module (injected)
+
+    Returns:
+        Dictionary with success status and saved corners
+
+    Raises:
+        HTTPException: If save fails or validation fails
+    """
+    try:
+        # Parse JSON body
+        body = await request.json()
+        corners = body.get("corners", [])
+
+        # Validate corners data
+        if not corners:
+            raise HTTPException(
+                status_code=400,
+                detail="No corners provided in request body",
+            )
+
+        if len(corners) != 4:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Expected 4 corners, got {len(corners)}",
+            )
+
+        # Validate each corner has x and y
+        for i, corner in enumerate(corners):
+            if not isinstance(corner, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Corner {i} must be an object with x and y properties",
+                )
+            if "x" not in corner or "y" not in corner:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Corner {i} missing x or y coordinate",
+                )
+
+        # Save to config file using persist=True
+        success = config_module.set(
+            "table.playing_area_corners",
+            corners,
+            source=ConfigSource.RUNTIME,
+            persist=True,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save playing area corners to configuration",
+            )
+
+        logger.info(f"Playing area corners saved to config: {corners}")
+
+        return {
+            "success": True,
+            "message": "Playing area corners saved successfully",
+            "corners": corners,
+            "count": len(corners),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set playing area corners: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save playing area corners: {str(e)}",
+        )
 
 
 @router.get("/table/playing-area", response_model=dict)

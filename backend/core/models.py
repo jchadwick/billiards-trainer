@@ -378,6 +378,28 @@ class TableState:
 
         return closest_cushion, closest_distance, normals[closest_cushion]
 
+    def scale_playing_area_corners(
+        self, from_width: float, from_height: float, to_width: float, to_height: float
+    ) -> None:
+        """Scale playing area corners from one resolution to another.
+
+        Args:
+            from_width: Source resolution width
+            from_height: Source resolution height
+            to_width: Target resolution width
+            to_height: Target resolution height
+        """
+        if not self.playing_area_corners or len(self.playing_area_corners) != 4:
+            return
+
+        scale_x = to_width / from_width
+        scale_y = to_height / from_height
+
+        self.playing_area_corners = [
+            Vector2D(corner.x * scale_x, corner.y * scale_y)
+            for corner in self.playing_area_corners
+        ]
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {

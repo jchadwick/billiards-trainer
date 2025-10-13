@@ -611,6 +611,30 @@ class DetectionBackend(str, Enum):
     YOLO = "yolo"
 
 
+class CassapaEdgeRefinementConfig(BaseConfig):
+    """Configuration for Cassapa-style edge refinement (used with YOLO detection).
+
+    This simplified configuration only includes the edge refinement parameters
+    that are used to refine YOLO-detected cue lines for sub-pixel accuracy.
+
+    Reference: cassapa/detector.cpp:827-954
+    """
+
+    # Edge detection along normals (centerline refinement)
+    edge_search_distance: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max perpendicular search distance in pixels",
+    )
+    edge_sample_step: int = Field(
+        default=3, ge=1, le=10, description="Sample every Nth point along line"
+    )
+    edge_min_points: int = Field(
+        default=5, ge=3, description="Minimum edge points required for centerline"
+    )
+
+
 class DetectionSettings(BaseConfig):
     """Vision detection algorithm settings."""
 
@@ -622,8 +646,8 @@ class DetectionSettings(BaseConfig):
 
     # YOLO configuration
     yolo_model_path: str = Field(
-        default="models/yolov8n-pool.onnx",
-        description="Path to YOLO model file (ONNX format)",
+        default="models/yolov8n-pool-1280.onnx",
+        description="Path to YOLO model file (ONNX format) - uses 1280x1280 input for better detection",
     )
     yolo_confidence: float = Field(
         default=0.4,
@@ -639,6 +663,12 @@ class DetectionSettings(BaseConfig):
     )
     yolo_device: str = Field(
         default="cpu", description="YOLO inference device (cpu, cuda, or tpu)"
+    )
+    yolo_min_ball_size: int = Field(
+        default=20,
+        ge=5,
+        le=100,
+        description="Minimum ball size in pixels (width/height) for YOLO detections - filters out small markers and noise",
     )
     use_opencv_validation: bool = Field(
         default=True,
@@ -721,6 +751,10 @@ class DetectionSettings(BaseConfig):
     )
     cue_color: Optional[ColorThresholds] = Field(
         default=None, description="Cue color thresholds (optional)"
+    )
+    cassapa: CassapaEdgeRefinementConfig = Field(
+        default_factory=CassapaEdgeRefinementConfig,
+        description="Cassapa-style edge refinement configuration (used with YOLO)",
     )
 
 

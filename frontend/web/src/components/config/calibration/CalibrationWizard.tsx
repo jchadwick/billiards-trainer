@@ -3,6 +3,7 @@ import { observer } from "mobx-react-lite";
 import { Card, CardHeader, CardTitle, CardContent, Button } from "../../ui";
 import { useStores } from "../../../hooks/useStores";
 import { apiClient } from "../../../api/client";
+import type { CalibrationData } from "../../../types/video";
 
 // Types for calibration workflow
 interface Point {
@@ -22,7 +23,8 @@ const VideoFeedCanvas: React.FC<{
   width: number;
   height: number;
   overlayVisible: boolean;
-}> = ({ onPointSelect, points, width, height, overlayVisible }) => {
+  savedCalibrationData?: CalibrationData | null;
+}> = ({ onPointSelect, points, width, height, overlayVisible, savedCalibrationData }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -50,11 +52,78 @@ const VideoFeedCanvas: React.FC<{
       ctx.drawImage(img, 0, 0, width, height);
     }
 
-    // Draw calibration points overlay if visible
+    // Draw saved calibration overlay in magenta/purple (if exists)
+    if (savedCalibrationData && savedCalibrationData.isValid && savedCalibrationData.corners.length >= 4) {
+      // Draw saved calibration boundary lines
+      ctx.strokeStyle = "#d946ef"; // Magenta
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 4]); // Dashed line
+
+      ctx.beginPath();
+      savedCalibrationData.corners.forEach((corner, index) => {
+        const x = corner.screenPosition.x;
+        const y = corner.screenPosition.y;
+        if (index === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]); // Reset dash pattern
+
+      // Draw saved calibration corner points
+      savedCalibrationData.corners.forEach((corner, index) => {
+        const x = corner.screenPosition.x;
+        const y = corner.screenPosition.y;
+
+        // Outer glow
+        ctx.fillStyle = "rgba(217, 70, 239, 0.3)"; // Magenta with transparency
+        ctx.beginPath();
+        ctx.arc(x, y, 12, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Main point
+        ctx.fillStyle = "#d946ef"; // Magenta
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Label
+        ctx.fillStyle = "#d946ef";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 3;
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const label = `S${index + 1}`; // "S" for "Saved"
+        ctx.strokeText(label, x, y - 18);
+        ctx.fillText(label, x, y - 18);
+      });
+
+      // Draw "Saved Calibration" badge
+      ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+      ctx.fillRect(10, 10, 150, 30);
+      ctx.strokeStyle = "#d946ef";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, 150, 30);
+
+      ctx.fillStyle = "#d946ef";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText("✓ Saved Calibration", 18, 25);
+    }
+
+    // Draw calibration points overlay if visible (new points being set)
     if (overlayVisible) {
       points.forEach((point, index) => {
-        ctx.fillStyle = "#3b82f6";
-        ctx.strokeStyle = "#1e40af";
+        ctx.fillStyle = "#3b82f6"; // Blue
+        ctx.strokeStyle = "#1e40af"; // Darker blue
         ctx.lineWidth = 2;
 
         // Draw point circle
@@ -72,7 +141,7 @@ const VideoFeedCanvas: React.FC<{
 
       // Draw connecting lines for table outline
       if (points.length >= 4) {
-        ctx.strokeStyle = "#ef4444";
+        ctx.strokeStyle = "#3b82f6"; // Blue
         ctx.lineWidth = 3;
         ctx.beginPath();
         points.forEach((point, index) => {
@@ -99,7 +168,7 @@ const VideoFeedCanvas: React.FC<{
 
     // Request next frame
     animationFrameRef.current = requestAnimationFrame(drawFrame);
-  }, [points, width, height, overlayVisible]);
+  }, [points, width, height, overlayVisible, savedCalibrationData]);
 
   // Start animation loop
   useEffect(() => {
@@ -170,6 +239,7 @@ const PlayingAreaCalibrationStep: React.FC<{
   const [isApplying, setIsApplying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [existingCalibration, setExistingCalibration] = useState<any>(null);
+  const [savedCalibrationData, setSavedCalibrationData] = useState<CalibrationData | null>(null);
 
   const pointInstructions = [
     "Top-left corner of the playing area",
@@ -182,6 +252,7 @@ const PlayingAreaCalibrationStep: React.FC<{
   useEffect(() => {
     const loadExistingCalibration = async () => {
       try {
+        // Fetch from playing area config
         const response = await apiClient.getPlayingArea();
         if (response.success && response.data) {
           setExistingCalibration(response.data);
@@ -201,6 +272,37 @@ const PlayingAreaCalibrationStep: React.FC<{
             );
             setPoints(loadedPoints);
           }
+        }
+
+        // Also fetch calibration data for overlay
+        const calibrationResponse = await apiClient.getCalibrationData();
+        if (calibrationResponse.success && calibrationResponse.data) {
+          const apiData = calibrationResponse.data;
+
+          // Convert API calibration data to CalibrationData format
+          const calibrationData: CalibrationData = {
+            corners: (apiData.corners || []).map((corner: any, index: number) => ({
+              id: `corner-${index}`,
+              screenPosition: {
+                x: Array.isArray(corner) ? corner[0] : corner.x,
+                y: Array.isArray(corner) ? corner[1] : corner.y,
+              },
+              worldPosition: {
+                x: Array.isArray(corner) ? corner[0] : corner.x,
+                y: Array.isArray(corner) ? corner[1] : corner.y,
+              },
+              timestamp: Date.now(),
+              confidence: apiData.accuracy || 1.0,
+            })),
+            transformationMatrix: apiData.transformation_matrix,
+            calibratedAt: apiData.calibrated_at ? new Date(apiData.calibrated_at).getTime() : Date.now(),
+            accuracy: apiData.accuracy,
+            isValid: apiData.is_valid !== false && (apiData.corners || []).length >= 4,
+            tableType: apiData.table_type,
+            dimensions: apiData.dimensions,
+          };
+
+          setSavedCalibrationData(calibrationData);
         }
       } catch (error) {
         console.error("Failed to load existing calibration:", error);
@@ -361,6 +463,7 @@ const PlayingAreaCalibrationStep: React.FC<{
               width={640}
               height={360}
               overlayVisible={true}
+              savedCalibrationData={savedCalibrationData}
             />
           </div>
         </CardContent>

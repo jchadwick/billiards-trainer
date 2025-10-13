@@ -18,7 +18,7 @@ def test_hybrid_detection():
     # Initialize YOLO detector
     print("1. Initializing YOLO detector...")
     yolo_detector = YOLODetector(
-        model_path="models/yolov8n-billiards.onnx",
+        model_path="models/yolov8n-pool-1280.onnx",  # High-res 1280x1280 model
         device="cpu",
         confidence=0.4,
     )

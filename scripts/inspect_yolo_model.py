@@ -33,4 +33,4 @@ def inspect_model(model_path):
         print(f"  {key}: {value}")
 
 if __name__ == "__main__":
-    inspect_model("models/yolov8n-billiards.onnx")
+    inspect_model("models/yolov8n-pool-1280.onnx")  # High-res 1280x1280 model

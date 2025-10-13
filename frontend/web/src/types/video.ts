@@ -140,6 +140,15 @@ export interface OverlayConfig {
     spacing: number;
     opacity: number;
   };
+  calibration: {
+    visible: boolean;
+    showPoints: boolean;
+    showLines: boolean;
+    showLabels: boolean;
+    showAccuracy: boolean;
+    lineWidth: number;
+    opacity: number;
+  };
 }
 
 // Interaction types
@@ -211,4 +220,26 @@ export interface CoordinateTransform {
   canvasToVideo: (point: Point2D) => Point2D;
   screenToCanvas: (point: Point2D) => Point2D;
   canvasToScreen: (point: Point2D) => Point2D;
+}
+
+// Calibration data types
+export interface CalibrationPoint {
+  id: string;
+  screenPosition: Point2D;
+  worldPosition: Point2D;
+  timestamp: number;
+  confidence?: number;
+}
+
+export interface CalibrationData {
+  corners: CalibrationPoint[];
+  transformationMatrix?: number[][];
+  calibratedAt: number;
+  accuracy?: number;
+  isValid: boolean;
+  tableType?: string;
+  dimensions?: {
+    width: number;
+    height: number;
+  };
 }

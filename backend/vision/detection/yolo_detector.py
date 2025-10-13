@@ -137,6 +137,7 @@ class YOLODetector:
         auto_fallback: bool = True,
         tpu_device_path: Optional[str] = None,
         enable_opencv_classification: bool = False,
+        min_ball_size: int = 20,
     ) -> None:
         """Initialize YOLO detector.
 
@@ -149,6 +150,7 @@ class YOLODetector:
             auto_fallback: Automatically fall back to None model if loading fails
             tpu_device_path: Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto)
             enable_opencv_classification: Enable OpenCV-based ball type classification refinement
+            min_ball_size: Minimum ball size in pixels (width or height) to filter out small detections like markers (default 20px)
 
         Raises:
             FileNotFoundError: If model_path is provided but file doesn't exist
@@ -161,6 +163,7 @@ class YOLODetector:
         self.auto_fallback = auto_fallback
         self.tpu_device_path = tpu_device_path
         self.enable_opencv_classification = enable_opencv_classification
+        self.min_ball_size = min_ball_size
 
         # Model state
         self.model: Optional[Any] = None
@@ -654,7 +657,28 @@ class YOLODetector:
                 # Full model: classes 0-15 are individual ball types
                 ball_detections = [det for det in detections if 0 <= det.class_id <= 15]
 
-            return ball_detections
+            # Explicitly filter out cue stick detections to prevent them from being returned as balls
+            # This prevents trajectory lines from being drawn from cue stick positions
+            ball_detections = [
+                det
+                for det in ball_detections
+                if det.class_name.lower() not in ["cue", "cue_stick"]
+            ]
+
+            # Filter out small detections (marker dots, noise) based on size
+            # Billiard balls should have a minimum size in pixels
+            filtered_detections = []
+            for det in ball_detections:
+                # Check if detection meets minimum size requirement
+                if det.width >= self.min_ball_size and det.height >= self.min_ball_size:
+                    filtered_detections.append(det)
+                else:
+                    logger.debug(
+                        f"Filtered out small detection: {det.class_name} "
+                        f"size={det.width:.1f}x{det.height:.1f}px (min={self.min_ball_size}px)"
+                    )
+
+            return filtered_detections
 
         except Exception as e:
             logger.error(f"Ball detection failed: {e}")
@@ -860,6 +884,8 @@ class YOLODetector:
             x1_l, y1_l, x2_l, y2_l = longest_line
 
             # Calculate angle in radians, then convert to degrees
+            # NOTE: This angle represents the direction from (x1_l, y1_l) to (x2_l, y2_l)
+            # but Hough can return endpoints in either order, so we need to normalize later
             angle_rad = np.arctan2(y2_l - y1_l, x2_l - x1_l)
             angle_deg = np.degrees(angle_rad)
 
@@ -867,10 +893,18 @@ class YOLODetector:
             if angle_deg < 0:
                 angle_deg += 360
 
-            # Store the line center in the cue_detection object for positioning
+            # Store the line endpoints in the cue_detection object for orientation correction later
             # Convert from cue_region coordinates to full frame coordinates
-            line_center_x = (x1_l + x2_l) / 2 + x1  # x1 is the region offset
-            line_center_y = (y1_l + y2_l) / 2 + y1  # y1 is the region offset
+            line_end1_x = x1_l + x1  # x1 is the region offset
+            line_end1_y = y1_l + y1  # y1 is the region offset
+            line_end2_x = x2_l + x1
+            line_end2_y = y2_l + y1
+            cue_detection.line_end1 = (line_end1_x, line_end1_y)
+            cue_detection.line_end2 = (line_end2_x, line_end2_y)
+
+            # Store the line center in the cue_detection object for positioning
+            line_center_x = (line_end1_x + line_end2_x) / 2
+            line_center_y = (line_end1_y + line_end2_y) / 2
             cue_detection.line_center = (line_center_x, line_center_y)
 
             logger.debug(
@@ -1603,6 +1637,7 @@ def create_detector(
             - nms_threshold: float 0.0-1.0
             - auto_fallback: bool
             - tpu_device_path: str (optional, for TPU)
+            - min_ball_size: int (optional, minimum ball size in pixels)
 
     Returns:
         Configured YOLODetector instance
@@ -1616,7 +1651,8 @@ def create_detector(
         confidence=config.get("confidence", 0.4),
         nms_threshold=config.get("nms_threshold", 0.45),
         auto_fallback=config.get("auto_fallback", True),
-        tpu_device_path=config.get("tpu_device_path", None),
+        tpu_device_path=config.get("tpu_device_path"),
+        min_ball_size=config.get("min_ball_size", 20),
     )
 
 

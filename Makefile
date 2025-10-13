@@ -170,7 +170,7 @@ build: build-frontend ## Build the entire application
 
 run: ## Run the main application
 	@echo "$(BLUE)Starting billiards trainer...$(RESET)"
-	$(PYTHON) -m backend.main
+	uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
 
 run-api: ## Run API server only
 	@echo "$(BLUE)Starting API server...$(RESET)"

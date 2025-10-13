@@ -14,6 +14,7 @@ import type {
   CanvasContext,
 } from '../../types/video';
 import { createCoordinateTransform } from '../../utils/coordinates';
+import { renderCalibrationOverlay } from './overlays/CalibrationOverlay';
 
 interface OverlayCanvasProps {
   videoStore: VideoStore;
@@ -299,6 +300,21 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
     ctx.globalAlpha = 1.0;
   }, [config.table, videoStore]);
 
+  // Draw calibration overlay
+  const drawCalibration = useCallback((ctx: CanvasRenderingContext2D, transform: CoordinateTransform) => {
+    if (!config.calibration.visible) return;
+
+    const calibrationData = videoStore.calibrationData;
+    if (!calibrationData || !calibrationData.isValid) return;
+
+    renderCalibrationOverlay({
+      calibrationData,
+      transform,
+      config: config.calibration,
+      ctx,
+    });
+  }, [config.calibration, videoStore]);
+
   // Draw cue stick overlay
   const drawCue = useCallback((ctx: CanvasRenderingContext2D, transform: CoordinateTransform) => {
     if (!config.cue.visible) return;
@@ -399,12 +415,13 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
 
     // Draw overlays in order
     drawGrid(ctx);
+    drawCalibration(ctx, coordinateTransform);
     drawTable(ctx, coordinateTransform);
     drawTrajectories(ctx, coordinateTransform);
     drawBalls(ctx, coordinateTransform);
     drawCue(ctx, coordinateTransform);
 
-  }, [coordinateTransform, setupCanvas, clearCanvas, drawGrid, drawTable, drawTrajectories, drawBalls, drawCue]);
+  }, [coordinateTransform, setupCanvas, clearCanvas, drawGrid, drawCalibration, drawTable, drawTrajectories, drawBalls, drawCue]);
 
   // Animation loop
   useEffect(() => {

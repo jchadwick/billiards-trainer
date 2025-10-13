@@ -120,7 +120,10 @@ export interface TrajectoryLine {
 
 export interface CollisionData {
   position: [number, number];
-  ball_id: string;
+  ball_id?: string;  // Target ball ID (for backwards compatibility)
+  ball1_id?: string;  // Moving ball ID (e.g., cue ball)
+  ball2_id?: string;  // Target ball ID (ball being hit, None for cushion/pocket)
+  type?: string;  // Collision type (ball_ball, ball_cushion, ball_pocket)
   angle: number;
   velocity_before?: [number, number];
   velocity_after?: [number, number];
@@ -128,6 +131,7 @@ export interface CollisionData {
 }
 
 export interface TrajectoryData {
+  ball_id?: string;  // ID of the moving ball (typically cue ball)
   lines: TrajectoryLine[];
   collisions: CollisionData[];
   confidence: number;

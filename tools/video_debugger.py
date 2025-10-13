@@ -36,6 +36,7 @@ Controls:
 """
 
 import argparse
+import json
 import logging
 import math
 import sys
@@ -147,6 +148,12 @@ math_utils_path = base_path / "backend" / "core" / "utils" / "math.py"
 math_utils_module = import_from_path("backend.core.utils.math", math_utils_path)
 sys.modules["backend.core.utils.math"] = math_utils_module
 
+# Import geometric collision module FIRST (needed by trajectory)
+# Note: moved to collision module to avoid import chain issues
+geometric_collision_path = base_path / "backend" / "core" / "collision" / "geometric_collision.py"
+geometric_collision_module = import_from_path("backend.core.collision.geometric_collision", geometric_collision_path)
+sys.modules["backend.core.collision.geometric_collision"] = geometric_collision_module
+
 # Import trajectory calculator from backend (do this BEFORE game_state to avoid circular import)
 # The trajectory module needs models which we already loaded
 trajectory_path = base_path / "backend" / "core" / "physics" / "trajectory.py"
@@ -231,6 +238,7 @@ class VideoDebugger:
                     nms_threshold=0.45,
                     auto_fallback=True,
                     enable_opencv_classification=True,  # Enable hybrid YOLO+OpenCV detection
+                    min_ball_size=20,  # Filter out small markers and noise
                 )
                 logger.info("YOLO detector initialized successfully with OpenCV classification")
             except Exception as e:
@@ -282,9 +290,8 @@ class VideoDebugger:
         # Initialize trajectory calculator from backend
         self.trajectory_calculator = TrajectoryCalculator()
 
-        # Table configuration - use backend standard table
-        # Will be updated with actual frame dimensions
-        self.table_state = TableState.standard_9ft_table()
+        # Table configuration - load from saved config if available
+        self.table_state = self._load_table_state_from_config()
 
         # Initialize table detector for playing area detection
         table_detector_config = {}
@@ -294,6 +301,64 @@ class VideoDebugger:
         self.current_trajectory = None
 
         logger.info("Video debugger initialized")
+
+    def _load_table_state_from_config(self) -> TableState:
+        """Load table state from saved configuration file.
+
+        Returns:
+            TableState with playing_area_corners from config if available,
+            otherwise returns a standard table.
+        """
+        try:
+            # Try to load config from standard location
+            config_path = Path(__file__).parent.parent / "config" / "current.json"
+
+            if not config_path.exists():
+                logger.warning(f"Config file not found at {config_path}, using standard table")
+                return TableState.standard_9ft_table()
+
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+
+            # Extract table config
+            table_config = config.get("table", {})
+            playing_area_corners_data = table_config.get("playing_area_corners")
+            calibration_res = table_config.get("calibration_resolution", {})
+
+            if not playing_area_corners_data or len(playing_area_corners_data) != 4:
+                logger.warning("No valid playing_area_corners in config, using standard table")
+                return TableState.standard_9ft_table()
+
+            # Store calibration resolution for later scaling
+            self.calibration_resolution = (
+                calibration_res.get("width", 640),
+                calibration_res.get("height", 360)
+            )
+
+            # Convert corner dicts to Vector2D objects (in calibration resolution)
+            # These will be scaled when we get the first frame
+            playing_area_corners = [
+                Vector2D(corner["x"], corner["y"])
+                for corner in playing_area_corners_data
+            ]
+
+            # Create table state with corners (dimensions will be updated from frame)
+            table_state = TableState.standard_9ft_table()
+            table_state.playing_area_corners = playing_area_corners
+
+            logger.info(f"Loaded playing area corners from config (calibration res: {self.calibration_resolution[0]}x{self.calibration_resolution[1]}):")
+            for i, corner in enumerate(playing_area_corners):
+                logger.info(f"  Corner {i+1}: ({corner.x:.1f}, {corner.y:.1f})")
+
+            return table_state
+
+        except Exception as e:
+            logger.error(f"Failed to load config: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            # Set default calibration resolution
+            self.calibration_resolution = (640, 360)
+            return TableState.standard_9ft_table()
 
     def draw_ball(
         self, frame: np.ndarray, x: float, y: float, radius: float, color: tuple, label: str = ""
@@ -532,6 +597,67 @@ class VideoDebugger:
                              (int(final_point.x), int(final_point.y)),
                              ball_radius, hit_color, 2)
 
+    def _find_ball_cue_is_pointing_at(self, cue, balls):
+        """Find which ball the cue is currently pointing at.
+
+        Args:
+            cue: Detected cue stick with tip and butt positions
+            balls: List of detected balls
+
+        Returns:
+            The ball the cue is pointing at, or None
+        """
+        if not cue or not balls:
+            return None
+
+        # Get butt position (use calculated if not set)
+        if cue.butt_position and cue.butt_position != (0.0, 0.0):
+            butt_x, butt_y = cue.butt_position
+        else:
+            # Fallback: calculate from tip, angle, and length
+            angle_rad = np.radians(cue.angle)
+            butt_x = cue.tip_position[0] - cue.length * np.cos(angle_rad)
+            butt_y = cue.tip_position[1] - cue.length * np.sin(angle_rad)
+
+        # Calculate cue direction vector
+        cue_dx = cue.tip_position[0] - butt_x
+        cue_dy = cue.tip_position[1] - butt_y
+        cue_length = np.sqrt(cue_dx**2 + cue_dy**2)
+
+        if cue_length == 0:
+            return None
+
+        # Normalize direction
+        cue_dx /= cue_length
+        cue_dy /= cue_length
+
+        # Find the closest ball along the cue direction
+        closest_ball = None
+        min_distance = float('inf')
+        max_perpendicular_distance = 40  # pixels tolerance
+
+        for ball in balls:
+            # Vector from cue tip to ball center
+            ball_dx = ball.position[0] - cue.tip_position[0]
+            ball_dy = ball.position[1] - cue.tip_position[1]
+
+            # Distance along cue direction (projection)
+            distance_along_cue = ball_dx * cue_dx + ball_dy * cue_dy
+
+            # Skip balls behind the cue tip
+            if distance_along_cue < 0:
+                continue
+
+            # Calculate perpendicular distance from cue line to ball center
+            perpendicular_distance = abs(ball_dx * cue_dy - ball_dy * cue_dx)
+
+            # Check if ball is within tolerance and closer than current closest
+            if perpendicular_distance < max_perpendicular_distance and distance_along_cue < min_distance:
+                min_distance = distance_along_cue
+                closest_ball = ball
+
+        return closest_ball
+
     def draw_hud(self, frame: np.ndarray) -> None:
         """Draw heads-up display with info and controls.
 
@@ -620,19 +746,28 @@ class VideoDebugger:
         Returns:
             Frame with visualizations drawn
         """
-        # Update table dimensions from frame if needed
-        if self.table_state.width != frame.shape[1] or self.table_state.height != frame.shape[0]:
-            self.table_state.width = frame.shape[1]
-            self.table_state.height = frame.shape[0]
+        # Update table dimensions from frame if needed, and scale corners if resolution changed
+        frame_width, frame_height = frame.shape[1], frame.shape[0]
 
-        # Auto-detect table on first frame if requested
-        if self.auto_detect_on_first_frame and not self.auto_detect_done:
-            logger.info("Auto-detecting table playing area from first frame...")
-            if self.detect_and_set_playing_area(frame):
-                logger.info("Auto-detection successful!")
-            else:
-                logger.warning("Auto-detection failed, continuing without playing area")
-            self.auto_detect_done = True
+        if self.table_state.width != frame_width or self.table_state.height != frame_height:
+            # Scale playing area corners from calibration resolution to current frame resolution
+            if hasattr(self, 'calibration_resolution') and self.table_state.playing_area_corners:
+                calib_width, calib_height = self.calibration_resolution
+
+                # Use the TableState method to scale the corners
+                self.table_state.scale_playing_area_corners(
+                    from_width=calib_width,
+                    from_height=calib_height,
+                    to_width=frame_width,
+                    to_height=frame_height
+                )
+
+                logger.info(f"Scaled playing area corners from {calib_width}x{calib_height} to {frame_width}x{frame_height}:")
+                for i, corner in enumerate(self.table_state.playing_area_corners):
+                    logger.info(f"  Corner {i+1}: ({corner.x:.1f}, {corner.y:.1f})")
+
+            self.table_state.width = frame_width
+            self.table_state.height = frame_height
 
         # Create a copy for drawing
         display_frame = frame.copy()
@@ -671,7 +806,7 @@ class VideoDebugger:
         # Use tracked balls if available, otherwise show detections
         balls_to_draw = tracked_balls if tracked_balls else detected_balls
 
-        # Find cue ball
+        # Find cue ball (for cue detection - needs a reference point)
         cue_ball = None
         cue_ball_pos = None
         for ball in balls_to_draw:
@@ -680,7 +815,7 @@ class VideoDebugger:
                 cue_ball_pos = ball.position
                 break
 
-        # If no cue ball identified, use first detected ball as approximation
+        # If no cue ball identified, use first detected ball as approximation for cue detection
         if cue_ball is None and balls_to_draw:
             cue_ball = balls_to_draw[0]
             cue_ball_pos = balls_to_draw[0].position
@@ -744,61 +879,81 @@ class VideoDebugger:
             )
 
         # Calculate trajectory if cue is detected (regardless of aiming state for visualization)
-        elif detected_cue and cue_ball:
+        elif detected_cue and balls_to_draw:
             try:
-                # Create CueState for trajectory calculation
-                cue_state = CueState(
-                    angle=detected_cue.angle,
-                    estimated_force=5.0,  # Default moderate force
-                    impact_point=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
-                    tip_position=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
-                    elevation=getattr(detected_cue, 'elevation', 0.0),
-                    is_visible=True,
-                    confidence=detected_cue.confidence,
-                    last_update=0,
-                )
+                # Find which ball the cue is pointing at (not just cue ball!)
+                target_ball = self._find_ball_cue_is_pointing_at(detected_cue, balls_to_draw)
 
-                # Create BallState for cue ball
-                ball_state = BallState(
-                    id="cue",
-                    position=Vector2D(cue_ball_pos[0], cue_ball_pos[1]),
-                    velocity=Vector2D(0, 0),
-                    radius=cue_ball.radius,
-                    mass=0.17,  # Standard pool ball mass in kg
-                    is_cue_ball=True,
-                    confidence=getattr(cue_ball, 'confidence', 1.0),
-                    last_update=0,
-                )
+                if target_ball is None:
+                    if self.current_frame_num % 30 == 0:
+                        logger.info("No target ball found for cue trajectory")
+                    self.current_trajectory = None
+                else:
+                    if self.current_frame_num % 30 == 0:
+                        logger.info(f"Target ball found at ({target_ball.position[0]:.1f}, {target_ball.position[1]:.1f})")
+                    # Create CueState for trajectory calculation
+                    cue_state = CueState(
+                        angle=detected_cue.angle,
+                        estimated_force=5.0,  # Default moderate force
+                        impact_point=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
+                        tip_position=Vector2D(detected_cue.tip_position[0], detected_cue.tip_position[1]),
+                        elevation=getattr(detected_cue, 'elevation', 0.0),
+                        is_visible=True,
+                        confidence=detected_cue.confidence,
+                        last_update=0,
+                    )
 
-                # Create BallState objects for other balls
-                other_ball_states = []
-                for i, ball in enumerate(balls_to_draw):
-                    if ball != cue_ball:
-                        other_ball_states.append(
-                            BallState(
-                                id=f"ball_{i}",
-                                position=Vector2D(ball.position[0], ball.position[1]),
-                                velocity=Vector2D(0, 0),
-                                radius=ball.radius,
-                                mass=0.17,
-                                confidence=getattr(ball, 'confidence', 1.0),
-                                last_update=0,
+                    # Create BallState for the ball the cue is pointing at
+                    ball_state = BallState(
+                        id=f"target_ball",
+                        position=Vector2D(target_ball.position[0], target_ball.position[1]),
+                        velocity=Vector2D(0, 0),
+                        radius=target_ball.radius,
+                        mass=0.17,  # Standard pool ball mass in kg
+                        is_cue_ball=False,  # Might not be cue ball!
+                        confidence=getattr(target_ball, 'confidence', 1.0),
+                        last_update=0,
+                    )
+
+                    # Create BallState objects for other balls
+                    other_ball_states = []
+                    for i, ball in enumerate(balls_to_draw):
+                        if ball != target_ball:
+                            other_ball_states.append(
+                                BallState(
+                                    id=f"ball_{i}",
+                                    position=Vector2D(ball.position[0], ball.position[1]),
+                                    velocity=Vector2D(0, 0),
+                                    radius=ball.radius,
+                                    mass=0.17,
+                                    confidence=getattr(ball, 'confidence', 1.0),
+                                    last_update=0,
+                                )
                             )
-                        )
 
-                # Calculate multiball trajectory using backend calculator
-                self.current_trajectory = self.trajectory_calculator.predict_multiball_cue_shot(
-                    cue_state,
-                    ball_state,
-                    self.table_state,
-                    other_ball_states,
-                    quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
-                    max_collision_depth=5,  # Calculate up to 5 collision levels deep
-                )
+                    # Calculate multiball trajectory using backend calculator
+                    if self.current_frame_num % 30 == 0:
+                        logger.info(f"Calculating trajectory: cue angle={cue_state.angle:.1f}, ball pos=({ball_state.position.x:.1f}, {ball_state.position.y:.1f}), other_balls={len(other_ball_states)}")
+
+                    self.current_trajectory = self.trajectory_calculator.predict_multiball_cue_shot(
+                        cue_state,
+                        ball_state,
+                        self.table_state,
+                        other_ball_states,
+                        quality=TrajectoryQuality.LOW,  # Use low quality for real-time visualization
+                        max_collision_depth=5,  # Calculate up to 5 collision levels deep
+                    )
+
+                    if self.current_frame_num % 30 == 0:
+                        if self.current_trajectory and self.current_trajectory.trajectories:
+                            logger.info(f"Trajectory calculated successfully: {len(self.current_trajectory.trajectories)} ball(s)")
+                        else:
+                            logger.info("Trajectory calculation returned empty result")
             except Exception as e:
-                logger.debug(f"Trajectory calculation failed: {e}")
-                import traceback
-                logger.debug(traceback.format_exc())
+                if self.current_frame_num % 30 == 0:
+                    logger.error(f"Trajectory calculation failed: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
                 self.current_trajectory = None
         else:
             self.current_trajectory = None
@@ -1007,7 +1162,7 @@ def main():
         loop=args.loop,
         max_trace_length=100,
         detection_backend="yolo",
-        yolo_model_path="models/yolov8n-billiards.onnx",
+        yolo_model_path="models/yolov8n-pool-1280.onnx",  # High-res 1280x1280 model
         yolo_device="cpu",
     )
 

@@ -127,6 +127,10 @@ class CueStick:
     angular_velocity: float = 0.0  # degrees/second
 
     # Geometry
+    butt_position: tuple[float, float] = (
+        0.0,
+        0.0,
+    )  # Butt (back end) position in pixels
     shaft_points: list[tuple[float, float]] = field(
         default_factory=list
     )  # Points along the shaft
