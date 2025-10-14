@@ -489,7 +489,7 @@ export class ConnectionQualityMonitor {
   }
 
   getQualityScore(): number {
-    const stats = this.client.connectionStats();
+    const stats = this.client.connectionStats;
     let score = 1.0;
 
     // Factor in reconnection count
@@ -520,7 +520,7 @@ export class ConnectionQualityMonitor {
     issues: string[];
   } {
     const score = this.getQualityScore();
-    const stats = this.client.connectionStats();
+    const stats = this.client.connectionStats;
     const issues: string[] = [];
 
     if (stats.reconnect_count > 3) {

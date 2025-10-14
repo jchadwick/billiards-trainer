@@ -316,6 +316,48 @@ class CoreModule:
                 self.metrics.avg_physics_time * self.metrics.total_updates + calc_time
             ) / (self.metrics.total_updates + 1)
 
+            # Emit trajectory_calculated event with full trajectory data
+            # Convert trajectory_points to lines format for visualization
+            lines = []
+            for i in range(len(trajectory) - 1):
+                lines.append(
+                    {
+                        "start": [trajectory[i].x, trajectory[i].y],
+                        "end": [trajectory[i + 1].x, trajectory[i + 1].y],
+                        "type": "primary",
+                        "confidence": 1.0,
+                    }
+                )
+
+            # Extract collision information from trajectory points if available
+            collisions = []
+            if hasattr(trajectory_points[0], "__dict__"):
+                # Try to extract collision data from trajectory points
+                for i, point in enumerate(trajectory_points):
+                    if hasattr(point, "collision") and point.collision:
+                        collisions.append(
+                            {
+                                "time": (
+                                    point.time if hasattr(point, "time") else i * 0.1
+                                ),
+                                "position": [point.position.x, point.position.y],
+                                "type": "unknown",
+                            }
+                        )
+
+            await self._emit_event(
+                "trajectory_calculated",
+                {
+                    "trajectory": {
+                        "ball_id": ball_id,
+                        "lines": lines,
+                        "collisions": collisions,
+                        "points": [{"x": p.x, "y": p.y} for p in trajectory],
+                    },
+                    "calculation_time_ms": calc_time * 1000,
+                },
+            )
+
             logger.debug(f"Trajectory calculated in {calc_time:.4f}s")
             return trajectory
 
@@ -534,7 +576,10 @@ class CoreModule:
                     if ball.position.x < 0 or ball.position.y < 0:
                         issues.append(f"Ball {ball.id} has invalid position")
 
-                    if ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
+                    # Check velocity (with None check)
+                    if ball.velocity is None:
+                        issues.append(f"Ball {ball.id} has None velocity")
+                    elif ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
                         issues.append(f"Ball {ball.id} has unrealistic velocity")
 
                 # Check table bounds

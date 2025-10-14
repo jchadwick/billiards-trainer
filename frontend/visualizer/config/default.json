@@ -1,0 +1,57 @@
+{
+  "display": {
+    "width": 1440,
+    "height": 810,
+    "fullscreen": false,
+    "vsync": true
+  },
+  "network": {
+    "websocket_url": "ws://127.0.0.1:8000/api/v1/ws",
+    "auto_connect": true,
+    "reconnect_enabled": true,
+    "reconnect_delay": 1000,
+    "max_reconnect_delay": 30000,
+    "heartbeat_interval": 30000
+  },
+  "calibration": {
+    "profile": "default",
+    "auto_load": true
+  },
+  "rendering": {
+    "fps_target": 60,
+    "line_thickness": 3,
+    "anti_aliasing": true,
+    "theme": "default"
+  },
+  "video_feed": {
+    "enabled": false,
+    "opacity": 1.0,
+    "layer": "background",
+    "subscribe_on_start": false,
+    "quality": 85,
+    "fps": 30
+  },
+  "debug_hud": {
+    "enabled": true,
+    "position": "top_left",
+    "opacity": 0.9,
+    "font_size": 14,
+    "color": [255, 255, 255],
+    "background": [0, 0, 0, 128],
+    "sections": {
+      "connection": true,
+      "balls": true,
+      "cue": true,
+      "table": false,
+      "performance": true
+    },
+    "layout": "standard",
+    "update_rate": 10
+  },
+  "colors": {
+    "table_felt": [34, 139, 34],
+    "auto_adapt": true,
+    "trajectory_primary": null,
+    "trajectory_secondary": null
+  }
+}

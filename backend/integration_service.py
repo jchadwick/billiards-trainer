@@ -4,7 +4,7 @@ This service is the critical missing piece that ties all modules together:
 1. Polls Vision for detection results
 2. Updates Core game state with detection data
 3. Subscribes to Core events for state changes
-4. Triggers WebSocket/UDP broadcasts on state updates
+4. Triggers WebSocket broadcasts on state updates
 5. Calculates and broadcasts trajectories when cue detected
 """
 
@@ -17,6 +17,7 @@ import numpy as np
 
 from backend.config.manager import ConfigurationModule
 from backend.core import CoreModule
+from backend.core.models import Vector2D
 from backend.vision import VisionModule
 from backend.vision.models import DetectionResult
 
@@ -38,7 +39,7 @@ class IntegrationService:
         Args:
             vision_module: Vision processing module
             core_module: Core game state and physics module
-            message_broadcaster: WebSocket/UDP broadcaster
+            message_broadcaster: WebSocket broadcaster
             config_module: Configuration module (optional, will create default if not provided)
         """
         self.vision = vision_module
@@ -73,6 +74,22 @@ class IntegrationService:
 
         logger.info("Starting integration service...")
         self.running = True
+
+        # Start vision module camera capture
+        logger.info("Starting vision module camera capture...")
+        try:
+            if self.vision.start_capture():
+                logger.info("Vision camera capture started successfully")
+            else:
+                logger.error(
+                    "Failed to start vision camera capture - integration will continue "
+                    "but no detections will be available until camera is started"
+                )
+        except Exception as e:
+            logger.error(
+                f"Error starting vision camera capture: {e} - "
+                "integration will continue but no detections will be available"
+            )
 
         # Check vision calibration status
         try:
@@ -112,6 +129,14 @@ class IntegrationService:
                 await self.integration_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop vision module camera capture
+        logger.info("Stopping vision module camera capture...")
+        try:
+            self.vision.stop_capture()
+            logger.info("Vision camera capture stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping vision camera capture: {e}")
 
         logger.info("Integration service stopped")
 
@@ -219,13 +244,27 @@ class IntegrationService:
         if detection.balls:
             detection_data["balls"] = [
                 {
-                    "id": ball.id,
+                    # Use track_id if available, otherwise generate ID from position
+                    "id": (
+                        ball.track_id
+                        if ball.track_id is not None
+                        else hash(
+                            (
+                                round(ball.position[0]),
+                                round(ball.position[1]),
+                                ball.ball_type.value,
+                            )
+                        )
+                        % 10000
+                    ),
                     "position": {"x": ball.position[0], "y": ball.position[1]},
                     "velocity": {"x": ball.velocity[0], "y": ball.velocity[1]},
                     "is_moving": ball.is_moving,
                     "number": ball.number,
                     "type": ball.ball_type.value if ball.ball_type else "unknown",
-                    "is_cue_ball": ball.number == 0,
+                    "is_cue_ball": (
+                        ball.ball_type.value == "cue" if ball.ball_type else False
+                    ),
                     "confidence": ball.confidence,
                 }
                 for ball in detection.balls
@@ -281,8 +320,8 @@ class IntegrationService:
             return None
 
         # Calculate cue direction vector
-        cue_dx = cue.tip_position[0] - cue.tail_position[0]
-        cue_dy = cue.tip_position[1] - cue.tail_position[1]
+        cue_dx = cue.tip_position[0] - cue.butt_position[0]
+        cue_dy = cue.tip_position[1] - cue.butt_position[1]
         cue_length = np.sqrt(cue_dx**2 + cue_dy**2)
 
         if cue_length == 0:
@@ -353,16 +392,31 @@ class IntegrationService:
 
         # Estimate velocity from cue angle and force
         try:
-            velocity = self._estimate_velocity_from_cue(detection.cue)
+            velocity_dict = self._estimate_velocity_from_cue(detection.cue)
+            velocity = Vector2D(x=velocity_dict["vx"], y=velocity_dict["vy"])
 
             # Calculate trajectory
+            # Generate ball ID same way as in conversion method
+            ball_id = (
+                target_ball.track_id
+                if target_ball.track_id is not None
+                else hash(
+                    (
+                        round(target_ball.position[0]),
+                        round(target_ball.position[1]),
+                        target_ball.ball_type.value,
+                    )
+                )
+                % 10000
+            )
+
             await self.core.calculate_trajectory(
-                ball_id=target_ball.id, initial_velocity=velocity
+                ball_id=ball_id, initial_velocity=velocity
             )
 
             # Trajectory broadcast will be handled by event subscription
             logger.debug(
-                f"Trajectory calculated for ball {target_ball.id} (number: {target_ball.number})"
+                f"Trajectory calculated for ball {ball_id} (number: {target_ball.number}, type: {target_ball.ball_type.value})"
             )
 
         except Exception as e:
@@ -389,10 +443,13 @@ class IntegrationService:
 
         return {"vx": vx, "vy": vy, "vz": 0.0}
 
-    async def _on_state_updated(self, event_data: dict[str, Any]) -> None:
+    async def _on_state_updated(
+        self, event_type: str, event_data: dict[str, Any]
+    ) -> None:
         """Handle Core state update events.
 
         Args:
+            event_type: Type of event (e.g., "state_updated")
             event_data: Event data containing updated state
         """
         try:
@@ -413,10 +470,13 @@ class IntegrationService:
         except Exception as e:
             logger.error(f"Failed to broadcast state update: {e}", exc_info=True)
 
-    async def _on_trajectory_calculated(self, event_data: dict[str, Any]) -> None:
+    async def _on_trajectory_calculated(
+        self, event_type: str, event_data: dict[str, Any]
+    ) -> None:
         """Handle trajectory calculation events.
 
         Args:
+            event_type: Type of event (e.g., "trajectory_calculated")
             event_data: Event data containing trajectory
         """
         try:
@@ -428,7 +488,7 @@ class IntegrationService:
             lines = trajectory.get("lines", [])
             collisions = trajectory.get("collisions", [])
 
-            # Broadcast to WebSocket/UDP
+            # Broadcast to WebSocket
             await self.broadcaster.broadcast_trajectory(lines, collisions)
 
             logger.debug(

@@ -343,7 +343,7 @@ class CueDetector:
                 confidence=tracked_cue.confidence,
                 state=tracked_cue.state,
                 is_aiming=(tracked_cue.state == CueState.AIMING),
-                tip_velocity=tracked_cue.velocity,
+                tip_velocity=tracked_cue.tip_velocity,
                 angular_velocity=tracked_cue.angular_velocity,
             )
 
@@ -1896,7 +1896,6 @@ class CueDetector:
                     angle=angle,
                     length=length,
                     confidence=confidence,
-                    frame_id=self.frame_count,
                 )
                 candidates.append(cue)
 
@@ -2397,15 +2396,14 @@ class CueDetector:
         dt = 1.0  # Assuming 1 frame time unit
         vx = (cue.tip_position[0] - prev_cue.tip_position[0]) / dt
         vy = (cue.tip_position[1] - prev_cue.tip_position[1]) / dt
-        cue.velocity = (vx, vy)
+        cue.tip_velocity = (vx, vy)
 
-        # Calculate acceleration
+        # Calculate acceleration (for state detection, not stored in model)
         prev_vx = (prev_cue.tip_position[0] - prev_prev_cue.tip_position[0]) / dt
         prev_vy = (prev_cue.tip_position[1] - prev_prev_cue.tip_position[1]) / dt
 
         ax = (vx - prev_vx) / dt
         ay = (vy - prev_vy) / dt
-        cue.acceleration = (ax, ay)
 
         # Calculate angular velocity
         angle_diff = cue.angle - prev_cue.angle

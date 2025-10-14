@@ -4,18 +4,26 @@
 
 local StateManager = require("core.state_manager")
 local MessageHandler = require("core.message_handler")
+-- Load configuration system
+local Config = require("core.config")
+local Network = require("modules.network.init")
+local Colors = require("modules.colors.init")
+local DebugHUD = require("modules.debug_hud.init")
 
--- Global references for easy access
-_G.StateManager = StateManager
-_G.MessageHandler = MessageHandler
+-- Global references for easy access (will be set to instances after initialization)
+_G.Network = Network
 
--- Configuration
+-- Legacy CONFIG for backward compatibility
+-- Real configuration is in _G.Config (core/config.lua)
 local CONFIG = {
-    debug = true,
-    showFPS = true,
-    backgroundColor = {0.1, 0.1, 0.1},  -- Dark background for visualizer
-    showHUD = true,
-    calibrationMode = false  -- F3 to toggle calibration grid overlay
+    debug = function() return _G.Config and _G.Config:get("debug_hud.enabled") or true end,
+    showFPS = function() return _G.Config and _G.Config:get("debug_hud.sections.performance") or true end,
+    backgroundColor = function()
+        local bg = _G.Config and _G.Config:get("display.background_color") or {0.1, 0.1, 0.1}
+        return bg
+    end,
+    showHUD = function() return _G.Config and _G.Config:get("debug_hud.enabled") or true end,
+    calibrationMode = false  -- Runtime toggle, not from config
 }
 
 -- Calculate contrasting text color
@@ -28,6 +36,7 @@ local TEXT_COLOR_WARNING = {1, 1, 0, 0.9}  -- Yellow
 local state = {
     stateManager = nil,
     messageHandler = nil,
+    debugHUD = nil,
     lastError = nil,
     connectionStatus = {
         websocket = false,
@@ -40,8 +49,21 @@ function love.load()
     print("Billiards Visualizer Starting...")
     print("This is a data-driven visualizer - all data comes from backend via WebSocket")
 
+    -- Initialize configuration
+    _G.Config = Config.get_instance()
+    _G.Config:init()
+    print("✓ Configuration loaded")
+
+    -- Set window mode from config
+    local width = _G.Config:get("display.width") or 1440
+    local height = _G.Config:get("display.height") or 810
+    love.window.setMode(width, height, {
+        fullscreen = _G.Config:get("display.fullscreen") or false,
+        vsync = _G.Config:get("display.vsync") or true
+    })
+
     -- Set background color
-    love.graphics.setBackgroundColor(CONFIG.backgroundColor)
+    love.graphics.setBackgroundColor(CONFIG.backgroundColor())
 
     -- Initialize core systems
     local success, err = pcall(function()
@@ -56,12 +78,20 @@ function love.load()
         _G.Calibration:load()  -- Load saved calibration
         print("✓ Calibration loaded")
 
+        -- Initialize Colors module
+        print("Initializing colors module...")
+        _G.Colors = Colors
+        Colors:init()
+        print("✓ Colors module initialized")
+
         -- Create state manager
         state.stateManager = StateManager.new()
+        _G.StateManager = state.stateManager  -- Set global to instance
         print("✓ State Manager initialized")
 
         -- Create message handler
         state.messageHandler = MessageHandler.new(state.stateManager)
+        _G.MessageHandler = state.messageHandler  -- Set global to instance
         print("✓ Message Handler initialized")
 
         -- Load trajectory module
@@ -73,7 +103,17 @@ function love.load()
             state.trajectoryModule:updateTrajectory(data)
         end)
 
-        -- TODO: Initialize WebSocket client in Task Group 2 (Phase 1)
+        -- Initialize network module
+        print("Initializing network module...")
+        state.network = Network
+        Network:init()
+        print("✓ Network module initialized")
+
+        -- Initialize debug HUD module
+        print("Initializing debug HUD module...")
+        state.debugHUD = DebugHUD
+        DebugHUD:init()
+        print("✓ Debug HUD module initialized")
     end)
 
     if not success then
@@ -87,11 +127,18 @@ function love.load()
 end
 
 function love.update(dt)
-    -- Update state manager timing
-    if state.stateManager then
+    -- Update connection status from network module
+    if state.network then
+        local status = state.network:getStatus()
+        state.connectionStatus.websocket = (status.state == "CONNECTED")
+        state.connectionStatus.messagesReceived = status.messages_received or 0
+        if state.connectionStatus.messagesReceived > 0 then
+            state.connectionStatus.lastMessage = love.timer.getTime()
+        end
+    else
+        -- Fall back to old timeout-based detection
         local timeSinceUpdate = love.timer.getTime() - state.stateManager:getLastUpdateTime()
         if timeSinceUpdate > 2.0 then
-            -- No updates for 2 seconds - mark as disconnected
             state.connectionStatus.websocket = false
         end
     end
@@ -101,14 +148,22 @@ function love.update(dt)
         state.trajectoryModule:update(dt)
     end
 
-    -- TODO: Update WebSocket client in Task Group 2 (Phase 1)
+    -- Update network module
+    if state.network then
+        state.network:update(dt)
+    end
+
+    -- Update debug HUD
+    if state.debugHUD then
+        state.debugHUD:update(dt)
+    end
 end
 
 function love.draw()
     -- Wrap everything in pcall to catch errors
     local success, err = pcall(function()
         -- Clear screen
-        love.graphics.clear(CONFIG.backgroundColor)
+        love.graphics.clear(CONFIG.backgroundColor())
 
         -- Draw trajectory overlays
         if state.trajectoryModule then
@@ -129,104 +184,36 @@ function love.draw()
         _G.Calibration:drawOverlay()
     end
 
-    -- Draw HUD overlay
-    if CONFIG.showHUD then
-        drawHUD()
+    -- Draw debug HUD (uses new module)
+    if state.debugHUD and state.debugHUD.config.enabled then
+        state.debugHUD:draw()
     end
 end
 
+-- Legacy drawHUD function (replaced by DebugHUD module)
+-- Kept for reference, but no longer used
 function drawHUD()
-    love.graphics.push()
-    love.graphics.origin()
-
-    local y = 10
-    local lineHeight = 20
-
-    -- Show FPS
-    if CONFIG.showFPS then
-        love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print(string.format("FPS: %d", love.timer.getFPS()), 10, y)
-        y = y + lineHeight
-    end
-
-    -- Show errors
-    if state.lastError then
-        love.graphics.setColor(TEXT_COLOR_ERROR)
-        love.graphics.print("ERROR: " .. tostring(state.lastError), 10, y)
-        y = y + lineHeight
-    end
-
-    -- Show connection status
-    if state.connectionStatus.websocket then
-        love.graphics.setColor(TEXT_COLOR_SUCCESS)
-        love.graphics.print("WebSocket: Connected", 10, y)
-    else
-        love.graphics.setColor(TEXT_COLOR_ERROR)
-        love.graphics.print("WebSocket: Disconnected", 10, y)
-    end
-    y = y + lineHeight
-
-    -- Show message stats
-    love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(string.format("Messages received: %d", state.connectionStatus.messagesReceived), 10, y)
-    y = y + lineHeight
-
-    if state.connectionStatus.lastMessage then
-        local timeSince = love.timer.getTime() - state.connectionStatus.lastMessage
-        love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print(string.format("Last message: %.1fs ago", timeSince), 10, y)
-        y = y + lineHeight
-    end
-
-    -- Show state manager info
-    if state.stateManager then
-        love.graphics.setColor(TEXT_COLOR)
-        local ballCount = 0
-        for _ in pairs(state.stateManager:getBalls()) do
-            ballCount = ballCount + 1
-        end
-        love.graphics.print(string.format("Balls tracked: %d", ballCount), 10, y)
-        y = y + lineHeight
-
-        local cueBall = state.stateManager:getCueBall()
-        if cueBall then
-            love.graphics.setColor(TEXT_COLOR_SUCCESS)
-            love.graphics.print(string.format("Cue ball: (%.1f, %.1f)", cueBall.position.x, cueBall.position.y), 10, y)
-        else
-            love.graphics.setColor(TEXT_COLOR_WARNING)
-            love.graphics.print("Cue ball: Not detected", 10, y)
-        end
-        y = y + lineHeight
-
-        local cue = state.stateManager:getCue()
-        if cue then
-            love.graphics.setColor(TEXT_COLOR_SUCCESS)
-            love.graphics.print("Cue stick: Detected", 10, y)
-        else
-            love.graphics.setColor(TEXT_COLOR)
-            love.graphics.print("Cue stick: Not detected", 10, y)
-        end
-        y = y + lineHeight
-
-        love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print(string.format("Sequence #: %d", state.stateManager:getSequenceNumber()), 10, y)
-        y = y + lineHeight
-    end
-
-    love.graphics.pop()
+    -- This function is now handled by the DebugHUD module
+    -- See modules/debug_hud/init.lua
 end
 
 function love.keypressed(key)
     -- Toggle HUD
     if key == "f1" then
-        CONFIG.showHUD = not CONFIG.showHUD
-        print("HUD " .. (CONFIG.showHUD and "enabled" or "disabled"))
+        if _G.Config then
+            local current = _G.Config:get("debug_hud.enabled")
+            _G.Config:set("debug_hud.enabled", not current)
+            print("HUD " .. (not current and "enabled" or "disabled"))
+        end
     end
 
     -- Toggle debug
     if key == "f2" then
-        CONFIG.debug = not CONFIG.debug
-        print("Debug mode " .. (CONFIG.debug and "enabled" or "disabled"))
+        if _G.Config then
+            local current = _G.Config:get("debug_hud.enabled")
+            _G.Config:set("debug_hud.enabled", not current)
+            print("Debug mode " .. (not current and "enabled" or "disabled"))
+        end
     end
 
     -- Toggle calibration mode
@@ -281,8 +268,19 @@ end
 function love.quit()
     print("Billiards Visualizer Shutting down...")
 
+    -- Cleanup network module
+    if state.network then
+        state.network:disconnect()
+    end
+    print("Network connection closed")
+
+    -- Cleanup debug HUD module
+    if state.debugHUD then
+        state.debugHUD:cleanup()
+    end
+    print("Debug HUD cleaned up")
+
     -- TODO: Cleanup modules in Task Group 3
-    -- TODO: Close WebSocket connection in Task Group 2
 
     print("Goodbye!")
     return false -- Allow quit

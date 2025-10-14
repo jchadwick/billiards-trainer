@@ -323,26 +323,33 @@ class ErrorCorrector:
         for ball in balls:
             corrected_ball = ball.copy()
             original_velocity = corrected_ball.velocity
-            velocity_magnitude = original_velocity.magnitude()
 
             # Check for invalid velocities
             needs_correction = False
             correction_reason = ""
 
-            if math.isnan(velocity_magnitude) or math.isinf(velocity_magnitude):
+            # Handle None velocity
+            if original_velocity is None:
                 corrected_ball.velocity = Vector2D.zero()
                 needs_correction = True
-                correction_reason = "NaN/Inf velocity"
-            elif velocity_magnitude > self.max_velocity:
-                # Scale down to maximum allowed velocity
-                direction = original_velocity.normalize()
-                corrected_ball.velocity = direction * self.max_velocity
-                needs_correction = True
-                correction_reason = f"velocity exceeds maximum ({velocity_magnitude:.2f} > {self.max_velocity})"
-            elif velocity_magnitude < 0:
-                corrected_ball.velocity = Vector2D.zero()
-                needs_correction = True
-                correction_reason = "negative velocity magnitude"
+                correction_reason = "None velocity"
+            else:
+                velocity_magnitude = original_velocity.magnitude()
+
+                if math.isnan(velocity_magnitude) or math.isinf(velocity_magnitude):
+                    corrected_ball.velocity = Vector2D.zero()
+                    needs_correction = True
+                    correction_reason = "NaN/Inf velocity"
+                elif velocity_magnitude > self.max_velocity:
+                    # Scale down to maximum allowed velocity
+                    direction = original_velocity.normalize()
+                    corrected_ball.velocity = direction * self.max_velocity
+                    needs_correction = True
+                    correction_reason = f"velocity exceeds maximum ({velocity_magnitude:.2f} > {self.max_velocity})"
+                elif velocity_magnitude < 0:
+                    corrected_ball.velocity = Vector2D.zero()
+                    needs_correction = True
+                    correction_reason = "negative velocity magnitude"
 
             if needs_correction and self._should_apply_correction(ball.id):
                 record = CorrectionRecord(
@@ -481,6 +488,11 @@ class ErrorCorrector:
         """Separate two overlapping balls."""
         # Calculate the direction vector from ball1 to ball2
         direction = ball2.position - ball1.position
+
+        if direction is None:
+            # Cannot separate if direction cannot be calculated
+            return
+
         distance = direction.magnitude()
 
         if distance == 0:

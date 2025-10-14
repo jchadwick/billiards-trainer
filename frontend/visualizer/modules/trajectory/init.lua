@@ -1,6 +1,8 @@
 -- Trajectory Visualization Module
 -- Renders ball trajectories, collisions, and aiming guides
 
+local Colors = require("modules.colors.init")
+
 local Trajectory = {
     name = "trajectory",
     priority = 100,  -- Draw order (lower = earlier)
@@ -19,19 +21,26 @@ local Trajectory = {
     showCollisionMarkers = true,
     showSpinIndicators = true,
 
-    -- Colors (TEMP: Cyan instead of green for visibility on green felt)
-    -- TODO: Replace with adaptive color system (Task Group 3)
-    colors = {
-        primary = {0, 1, 1, 0.9},            -- Cyan trajectory (high contrast on green)
-        collision = {1, 0.8, 0, 0.8},        -- Yellow collision
-        ghost = {1, 1, 1, 0.3},              -- White ghost ball
-        spin = {0, 0.5, 1, 0.6},             -- Blue spin indicator
-        aimLine = {1, 1, 1, 0.5}             -- White aim line
-    }
+    -- Colors now provided by adaptive color management system (Task Group 3)
+    -- Falls back to hardcoded cyan if color module not available
+    colors = nil  -- Will be set by init()
 }
 
 -- Initialize module
 function Trajectory:init()
+    -- Get adaptive colors from color management system
+    if Colors then
+        self.colors = Colors:getTrajectoryColors()
+    else
+        -- Fallback to hardcoded cyan if colors module not loaded
+        self.colors = {
+            primary = {0, 1, 1, 0.9},
+            collision = {1, 0.8, 0, 0.8},
+            ghost = {1, 1, 1, 0.3},
+            spin = {0, 0.5, 1, 0.6},
+            aimLine = {1, 1, 1, 0.5}
+        }
+    end
     print("Trajectory module initialized")
 end
 
@@ -268,6 +277,14 @@ function Trajectory:configure(config)
             if self.colors[key] then
                 self.colors[key] = color
             end
+        end
+    end
+
+    -- If table felt color changes, get new colors
+    if config.table_felt then
+        if Colors then
+            Colors:setTableFeltColor(config.table_felt[1]/255, config.table_felt[2]/255, config.table_felt[3]/255)
+            self.colors = Colors:getTrajectoryColors()
         end
     end
 end

@@ -1,6 +1,8 @@
 """Event management system for module coordination and comprehensive event handling."""
 
+import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import threading
@@ -296,7 +298,25 @@ class EventManager:
         # Call subscribers outside lock to prevent deadlocks
         for subscription_id, callback in subscribers.items():
             try:
-                callback(event_type, data)
+                # Check if callback is async and handle appropriately
+                if inspect.iscoroutinefunction(callback):
+                    # Try to get running event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # Create task in the running loop
+                        loop.create_task(callback(event_type, data))
+                    except RuntimeError:
+                        # No running event loop - run in thread pool
+                        import threading
+
+                        def run_async():
+                            asyncio.run(callback(event_type, data))
+
+                        thread = threading.Thread(target=run_async, daemon=True)
+                        thread.start()
+                else:
+                    # Call sync callback normally
+                    callback(event_type, data)
             except Exception as e:
                 logger.error(f"Error in event callback {subscription_id}: {e}")
                 # Consider removing failing callbacks

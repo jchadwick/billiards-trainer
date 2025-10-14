@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WebsocketEventsRouteImport } from './routes/websocket-events'
 import { Route as TestVideoRouteImport } from './routes/test-video'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as DiagnosticsRouteImport } from './routes/diagnostics'
@@ -16,6 +17,11 @@ import { Route as ConfigurationRouteImport } from './routes/configuration'
 import { Route as CalibrationRouteImport } from './routes/calibration'
 import { Route as IndexRouteImport } from './routes/index'
 
+const WebsocketEventsRoute = WebsocketEventsRouteImport.update({
+  id: '/websocket-events',
+  path: '/websocket-events',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TestVideoRoute = TestVideoRouteImport.update({
   id: '/test-video',
   path: '/test-video',
@@ -54,6 +60,7 @@ export interface FileRoutesByFullPath {
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
   '/test-video': typeof TestVideoRoute
+  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -62,6 +69,7 @@ export interface FileRoutesByTo {
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
   '/test-video': typeof TestVideoRoute
+  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -71,6 +79,7 @@ export interface FileRoutesById {
   '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
   '/test-video': typeof TestVideoRoute
+  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -81,6 +90,7 @@ export interface FileRouteTypes {
     | '/diagnostics'
     | '/live'
     | '/test-video'
+    | '/websocket-events'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -89,6 +99,7 @@ export interface FileRouteTypes {
     | '/diagnostics'
     | '/live'
     | '/test-video'
+    | '/websocket-events'
   id:
     | '__root__'
     | '/'
@@ -97,6 +108,7 @@ export interface FileRouteTypes {
     | '/diagnostics'
     | '/live'
     | '/test-video'
+    | '/websocket-events'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,10 +118,18 @@ export interface RootRouteChildren {
   DiagnosticsRoute: typeof DiagnosticsRoute
   LiveRoute: typeof LiveRoute
   TestVideoRoute: typeof TestVideoRoute
+  WebsocketEventsRoute: typeof WebsocketEventsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/websocket-events': {
+      id: '/websocket-events'
+      path: '/websocket-events'
+      fullPath: '/websocket-events'
+      preLoaderRoute: typeof WebsocketEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/test-video': {
       id: '/test-video'
       path: '/test-video'
@@ -162,6 +182,7 @@ const rootRouteChildren: RootRouteChildren = {
   DiagnosticsRoute: DiagnosticsRoute,
   LiveRoute: LiveRoute,
   TestVideoRoute: TestVideoRoute,
+  WebsocketEventsRoute: WebsocketEventsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

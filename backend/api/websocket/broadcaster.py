@@ -16,11 +16,25 @@ import numpy as np
 
 from backend.config import config_manager
 
-from ..udp.broadcaster import udp_broadcaster
 from .handler import websocket_handler
 from .manager import StreamType, websocket_manager
 
 logger = logging.getLogger(__name__)
+
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy types."""
+
+    def default(self, obj):
+        if isinstance(obj, (np.integer, np.int32, np.int64)):
+            return int(obj)
+        elif isinstance(obj, (np.floating, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+        return super().default(obj)
 
 
 @dataclass
@@ -227,13 +241,15 @@ class MessageBroadcaster:
             # Add to frame buffer
             self.frame_buffer.add_frame(frame_data)
 
-            # Queue for processing if streaming
-            if self.is_streaming and not self.frame_queue.full():
-                try:
-                    self.frame_queue.put_nowait(frame_data)
-                except asyncio.QueueFull:
-                    self.broadcast_stats.frame_metrics.dropped_frames += 1
-                    logger.warning("Frame queue full, dropping frame")
+            # DISABLED: Frame broadcasting via WebSocket to prevent browser crashes from large base64 images
+            # Frames are still buffered for internal metrics and potential future use
+            # If you need frame streaming, implement a separate optimized endpoint (e.g., MJPEG stream)
+            # if self.is_streaming and not self.frame_queue.full():
+            #     try:
+            #         self.frame_queue.put_nowait(frame_data)
+            #     except asyncio.QueueFull:
+            #         self.broadcast_stats.frame_metrics.dropped_frames += 1
+            #         logger.warning("Frame queue full, dropping frame")
 
             # Update metrics
             self.broadcast_stats.frame_metrics.frames_sent += 1
@@ -265,9 +281,6 @@ class MessageBroadcaster:
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.STATE, state_data)
 
-        # Also broadcast via UDP to projector
-        udp_broadcaster.send_game_state(balls, cue, table)
-
     async def broadcast_trajectory(
         self,
         lines: list[dict[str, Any]],
@@ -289,9 +302,6 @@ class MessageBroadcaster:
 
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.TRAJECTORY, trajectory_data)
-
-        # Also broadcast via UDP to projector
-        udp_broadcaster.send_trajectory(lines, collisions)
 
     async def broadcast_alert(
         self,
@@ -341,7 +351,12 @@ class MessageBroadcaster:
     async def send_performance_metrics(
         self, target_clients: Optional[list[str]] = None
     ):
-        """Send performance metrics to specified clients or all subscribers."""
+        """Send performance metrics to specified clients only.
+
+        IMPORTANT: Metrics are NO LONGER automatically broadcast to all clients
+        to prevent browser crashes from large metric payloads. Metrics should be
+        requested via REST API endpoint or sent to specific clients only.
+        """
         metrics_data = {
             "broadcast_stats": {
                 "messages_sent": self.broadcast_stats.messages_sent,
@@ -372,7 +387,7 @@ class MessageBroadcaster:
         }
 
         if target_clients:
-            # Send to specific clients
+            # Send to specific clients only
             tasks = [
                 websocket_handler.send_to_client(client_id, message)
                 for client_id in target_clients
@@ -380,8 +395,12 @@ class MessageBroadcaster:
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
         else:
-            # Send to all connected clients
-            await websocket_handler.broadcast_message(message)
+            # DISABLED: Do not broadcast metrics to all clients to prevent browser overload
+            # Use REST API endpoint /api/v1/websocket/metrics instead
+            logger.warning(
+                "send_performance_metrics called without target_clients. "
+                "Metrics should be retrieved via REST API, not broadcast to all clients."
+            )
 
     def get_broadcast_stats(self) -> dict[str, Any]:
         """Get current broadcasting statistics."""
@@ -392,6 +411,34 @@ class MessageBroadcaster:
             "queue_size": self.frame_queue.qsize(),
             "broadcast_stats": self.broadcast_stats.__dict__,
             "active_tasks": list(self.broadcast_tasks.keys()),
+        }
+
+    def get_performance_metrics(self) -> dict[str, Any]:
+        """Get performance metrics as data (for REST API use).
+
+        This method returns metrics as a dictionary without broadcasting
+        to clients, suitable for REST API endpoints.
+        """
+        return {
+            "broadcast_stats": {
+                "messages_sent": self.broadcast_stats.messages_sent,
+                "bytes_sent": self.broadcast_stats.bytes_sent,
+                "failed_sends": self.broadcast_stats.failed_sends,
+                "average_latency": self.broadcast_stats.average_latency,
+                "peak_latency": self.broadcast_stats.peak_latency,
+                "compression_enabled": self.broadcast_stats.compression_enabled,
+            },
+            "frame_metrics": {
+                "frames_sent": self.broadcast_stats.frame_metrics.frames_sent,
+                "bytes_sent": self.broadcast_stats.frame_metrics.bytes_sent,
+                "compression_ratio": self.broadcast_stats.frame_metrics.compression_ratio,
+                "average_latency": self.broadcast_stats.frame_metrics.average_latency,
+                "dropped_frames": self.broadcast_stats.frame_metrics.dropped_frames,
+                "target_fps": self.broadcast_stats.frame_metrics.target_fps,
+                "actual_fps": self.broadcast_stats.frame_metrics.actual_fps,
+            },
+            "connection_stats": websocket_handler.get_connection_stats(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def _broadcast_to_stream(self, stream_type: StreamType, data: dict[str, Any]):
@@ -416,7 +463,7 @@ class MessageBroadcaster:
             )
 
             # Estimate bytes sent (rough approximation)
-            message_size = len(json.dumps(data).encode())
+            message_size = len(json.dumps(data, cls=NumpyEncoder).encode())
             self.broadcast_stats.bytes_sent += message_size
 
         except Exception as e:

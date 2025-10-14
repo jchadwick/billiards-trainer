@@ -19,7 +19,7 @@
     },
     "detection": {
       "detection_backend": "opencv",
-      "yolo_model_path": "models/yolov8n-pool-1280.onnx",
+      "yolo_model_path": "models/yolov8n-pool.onnx",
       "yolo_confidence": 0.4,
       "yolo_nms_threshold": 0.45,
       "yolo_device": "cpu",
@@ -298,29 +298,5 @@
     }
   },
   "lang": "en_US.UTF-8",
-  "makelevel": 1,
-  "table": {
-    "calibration_resolution": {
-      "width": 640,
-      "height": 360
-    },
-    "playing_area_corners": [
-      {
-        "x": 30,
-        "y": 33
-      },
-      {
-        "x": 610,
-        "y": 27
-      },
-      {
-        "x": 596,
-        "y": 307
-      },
-      {
-        "x": 42,
-        "y": 307
-      }
-    ]
-  }
+  "makelevel": 1
 }

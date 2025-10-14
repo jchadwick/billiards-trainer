@@ -27,7 +27,10 @@ logger = logging.getLogger(__name__)
 
 def create_simple_app():
     """Create a simplified FastAPI application for development."""
-    from fastapi import FastAPI
+    import json
+    from datetime import datetime
+
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
 
     # Get app settings from config
@@ -80,6 +83,68 @@ def create_simple_app():
             "docs": docs_url,
             "health": "/health",
         }
+
+    # Simple WebSocket endpoint for development/diagnostic purposes
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket):
+        """Basic WebSocket endpoint for development - echoes messages and sends periodic test events."""
+        await websocket.accept()
+
+        # Send connection message
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "connection",
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "data": {
+                        "client_id": "dev-client",
+                        "message": "Connected to development WebSocket",
+                        "version": app_version,
+                    },
+                }
+            )
+        )
+
+        logger.info("WebSocket client connected (development mode)")
+
+        try:
+            while True:
+                # Wait for messages from the client
+                message = await websocket.receive_text()
+
+                # Parse and handle the message
+                try:
+                    data = json.loads(message)
+                    msg_type = data.get("type", "unknown")
+
+                    logger.debug(f"Received WebSocket message: {msg_type}")
+
+                    # Echo back with acknowledgment
+                    response = {
+                        "type": f"{msg_type}_response",
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "data": {
+                            "received": data,
+                            "message": f"Development server received {msg_type} message",
+                        },
+                    }
+
+                    # Send pong for ping messages
+                    if msg_type == "ping":
+                        response = {
+                            "type": "pong",
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "data": data.get("data", {}),
+                        }
+
+                    await websocket.send_text(json.dumps(response))
+
+                except json.JSONDecodeError:
+                    # If message is not JSON, echo it back
+                    await websocket.send_text(message)
+
+        except WebSocketDisconnect:
+            logger.info("WebSocket client disconnected (development mode)")
 
     return app
 

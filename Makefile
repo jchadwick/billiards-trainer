@@ -184,6 +184,10 @@ run-visualizer: ## Run LOVE2D visualizer only
 	@echo "$(BLUE)Starting LOVE2D visualizer...$(RESET)"
 	love frontend/visualizer
 
+test-visualizer: ## Test LOVE2D visualizer module initialization
+	@echo "$(BLUE)Testing LOVE2D visualizer module initialization...$(RESET)"
+	cd frontend/visualizer && ./run_test.sh
+
 run-vision: ## Run vision system only
 	@echo "$(BLUE)Starting vision system...$(RESET)"
 	$(PYTHON) -m backend.vision.main

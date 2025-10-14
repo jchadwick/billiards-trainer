@@ -7,6 +7,7 @@ pool table elements including table boundaries, balls, and cue sticks in real-ti
 import asyncio
 import contextlib
 import logging
+import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -307,8 +308,8 @@ class VisionModule:
         self._capture_thread: Optional[threading.Thread] = None
         self._processing_thread: Optional[threading.Thread] = None
         self._is_running = False
-        self._frame_queue = asyncio.Queue(maxsize=self.config.max_frame_queue_size)
-        self._result_queue = asyncio.Queue(maxsize=self.config.max_frame_queue_size)
+        self._frame_queue = queue.Queue(maxsize=self.config.max_frame_queue_size)
+        self._result_queue = queue.Queue(maxsize=self.config.max_frame_queue_size)
         self._lock = threading.Lock()
 
         # Current state
@@ -586,13 +587,13 @@ class VisionModule:
             while not self._frame_queue.empty():
                 try:
                     self._frame_queue.get_nowait()
-                except asyncio.QueueEmpty:
+                except queue.Empty:
                     break
 
             while not self._result_queue.empty():
                 try:
                     self._result_queue.get_nowait()
-                except asyncio.QueueEmpty:
+                except queue.Empty:
                     break
 
             logger.info("Vision capture stopped successfully")
@@ -865,7 +866,7 @@ class VisionModule:
                     self._frame_number = frame_info.frame_number + 1
                     last_frame_time = current_time
 
-                except asyncio.QueueFull:
+                except queue.Full:
                     logger.debug("Processing queue full, dropping frame")
                     self.stats.frames_dropped += 1
 
@@ -892,7 +893,7 @@ class VisionModule:
                 # Get frame from queue (blocking with timeout)
                 try:
                     frame_data = self._frame_queue.get(timeout=queue_timeout)
-                except asyncio.QueueEmpty:
+                except queue.Empty:
                     continue
 
                 # Process frame

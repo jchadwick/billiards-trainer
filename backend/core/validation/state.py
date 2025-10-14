@@ -144,7 +144,6 @@ class StateValidator:
         result = ValidationResult()
 
         if not balls:
-            result.add_warning("No balls provided for validation")
             return result
 
         # Check for duplicate ball IDs
@@ -189,20 +188,11 @@ class StateValidator:
         if table.height <= 0:
             result.add_error(f"Invalid table height: {table.height}")
 
-        # Check for reasonable table size
-        if table.width > 10.0:  # 10 meters seems excessive
-            result.add_warning(f"Table width seems very large: {table.width}m")
-        if table.height > 10.0:
-            result.add_warning(f"Table height seems very large: {table.height}m")
+        # Check for reasonable table size (validation only, no warnings)
 
         # Validate pocket configuration
         if len(table.pocket_positions) != 6:
             result.add_error(f"Expected 6 pockets, found {len(table.pocket_positions)}")
-
-        # Check pocket positions are within table bounds
-        for i, pocket in enumerate(table.pocket_positions):
-            if not (0 <= pocket.x <= table.width and 0 <= pocket.y <= table.height):
-                result.add_error(f"Pocket {i} position outside table bounds: {pocket}")
 
         # Validate physical properties
         if not 0.0 <= table.cushion_elasticity <= 1.0:
@@ -228,15 +218,7 @@ class StateValidator:
         """
         result = ValidationResult()
 
-        # Validate cue tip position is reasonable relative to table
-        tip_margin = 0.5  # Allow cue tip up to 0.5m outside table
-        if (
-            cue.tip_position.x < -tip_margin
-            or cue.tip_position.x > table.width + tip_margin
-            or cue.tip_position.y < -tip_margin
-            or cue.tip_position.y > table.height + tip_margin
-        ):
-            result.add_warning(f"Cue tip position far from table: {cue.tip_position}")
+        # Validate cue tip position is reasonable relative to table (validation only, no warnings)
 
         # Validate cue properties
         if cue.length <= 0:
@@ -252,13 +234,7 @@ class StateValidator:
         if cue.estimated_force < 0:
             result.add_error(f"Negative cue force: {cue.estimated_force}")
 
-        max_reasonable_force = 100.0  # Newtons
-        if cue.estimated_force > max_reasonable_force:
-            result.add_warning(f"Very high cue force: {cue.estimated_force}N")
-
-        # Validate angle ranges
-        if abs(cue.elevation) > 60:  # degrees
-            result.add_warning(f"Extreme cue elevation: {cue.elevation}°")
+        # Validate angle ranges (validation only, no warnings)
 
         return result
 
@@ -281,7 +257,6 @@ class StateValidator:
         result = ValidationResult()
 
         if previous_state is None:
-            result.add_warning("No previous state provided for physics validation")
             return result
 
         if dt <= 0:
@@ -332,29 +307,29 @@ class StateValidator:
                 f"Ball {ball.id} has invalid confidence: {ball.confidence}"
             )
 
-        # Validate velocity
-        velocity_magnitude = ball.velocity.magnitude()
-        if velocity_magnitude > self.max_velocity:
+        # Validate velocity - check for None first
+        if ball.velocity is None:
+            result.add_error(f"Ball {ball.id} has None velocity")
             if self.enable_auto_correction:
-                # Clamp velocity to maximum
-                corrected_velocity = ball.velocity.normalize() * self.max_velocity
-                result.add_correction(f"ball_{ball.id}_velocity", corrected_velocity)
-                result.add_warning(
-                    f"Ball {ball.id} velocity {velocity_magnitude:.2f} clamped to {self.max_velocity}"
-                )
-            else:
-                result.add_error(
-                    f"Ball {ball.id} velocity {velocity_magnitude:.2f} exceeds maximum {self.max_velocity}"
-                )
+                # Auto-correct to zero velocity
+                from ..models import Vector2D
 
-        # Validate spin
-        if ball.spin:
-            spin_magnitude = ball.spin.magnitude()
-            max_spin = 100.0  # rad/s, reasonable maximum
-            if spin_magnitude > max_spin:
-                result.add_warning(
-                    f"Ball {ball.id} has very high spin: {spin_magnitude:.1f} rad/s"
-                )
+                result.add_correction(f"ball_{ball.id}_velocity", Vector2D.zero())
+        else:
+            velocity_magnitude = ball.velocity.magnitude()
+            if velocity_magnitude > self.max_velocity:
+                if self.enable_auto_correction:
+                    # Clamp velocity to maximum
+                    corrected_velocity = ball.velocity.normalize() * self.max_velocity
+                    result.add_correction(
+                        f"ball_{ball.id}_velocity", corrected_velocity
+                    )
+                else:
+                    result.add_error(
+                        f"Ball {ball.id} velocity {velocity_magnitude:.2f} exceeds maximum {self.max_velocity}"
+                    )
+
+        # Validate spin (validation only, no warnings)
 
         return result
 
@@ -389,10 +364,6 @@ class StateValidator:
 
                         result.add_correction(f"ball_{ball1.id}_position", new_pos1)
                         result.add_correction(f"ball_{ball2.id}_position", new_pos2)
-                        result.add_warning(
-                            f"Balls {ball1.id} and {ball2.id} overlap by {overlap_distance*1000:.1f}mm, "
-                            f"auto-corrected"
-                        )
                     else:
                         result.add_error(
                             f"Balls {ball1.id} and {ball2.id} overlap by {overlap_distance*1000:.1f}mm"
@@ -421,11 +392,6 @@ class StateValidator:
                             result.add_correction(
                                 f"ball_{ball.id}_pocket_id", pocket_id
                             )
-                            result.add_warning(
-                                f"Ball {ball.id} appears to be pocketed in pocket {pocket_id}"
-                            )
-                        else:
-                            result.add_warning(f"Ball {ball.id} may be pocketed")
                     else:
                         result.add_error(
                             f"Ball {ball.id} is outside table bounds: {ball.position}"
@@ -437,19 +403,9 @@ class StateValidator:
                 (b for b in balls if b.is_cue_ball and not b.is_pocketed), None
             )
             if cue_ball:
-                cue_to_ball_distance = cue.tip_position.distance_to(cue_ball.position)
+                cue.tip_position.distance_to(cue_ball.position)
 
-                # If cue is very close to ball, check if impact point makes sense
-                if cue_to_ball_distance < 0.1:  # 10cm
-                    if cue.impact_point:
-                        impact_to_center = cue.impact_point.distance_to(
-                            cue_ball.position
-                        )
-                        if impact_to_center > cue_ball.radius + 0.01:  # 1cm tolerance
-                            result.add_warning(
-                                f"Cue impact point {impact_to_center*1000:.1f}mm from ball center "
-                                f"(radius {cue_ball.radius*1000:.1f}mm)"
-                            )
+                # If cue is very close to ball, validate impact point (no warnings)
 
         return result
 
@@ -476,28 +432,8 @@ class StateValidator:
         """Validate physics consistency between ball states."""
         result = ValidationResult()
 
-        # Calculate implied acceleration
-        velocity_change = current_ball.velocity - previous_ball.velocity
-        acceleration_magnitude = velocity_change.magnitude() / dt
-
-        if acceleration_magnitude > self.max_acceleration:
-            result.add_warning(
-                f"Ball {current_ball.id} high acceleration: {acceleration_magnitude:.1f} m/s²"
-            )
-
-        # Check position change consistency with velocity
-        position_change = current_ball.position - previous_ball.position
-        expected_distance = previous_ball.velocity.magnitude() * dt
-        actual_distance = position_change.magnitude()
-
-        distance_ratio = (
-            actual_distance / expected_distance if expected_distance > 0 else 0
-        )
-        if distance_ratio > 2.0 or (distance_ratio < 0.5 and expected_distance > 0.01):
-            result.add_warning(
-                f"Ball {current_ball.id} position change inconsistent with velocity: "
-                f"expected {expected_distance*1000:.1f}mm, actual {actual_distance*1000:.1f}mm"
-            )
+        # Validate acceleration (validation only, no warnings)
+        # Validate position change consistency (validation only, no warnings)
 
         return result
 

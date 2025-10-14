@@ -1,0 +1,56 @@
+Starting visualizer initialization tests...
+
+Running tests with LOVE2D...
+=== Visualizer Module Initialization Test ===
+Running in LOVE2D environment
+
+Testing: Config ... [32m✓ PASS[0m
+Testing: Renderer ... [32m✓ PASS[0m
+Testing: Calibration ... [32m✓ PASS[0m
+Testing: Colors ... [32m✓ PASS[0m
+Testing: StateManager ... [32m✓ PASS[0m
+Testing: MessageHandler ... [32m✓ PASS[0m
+Testing: Trajectory ... [32m✓ PASS[0m
+Testing: Network ... [32m✓ PASS[0m
+
+=== Test Results ===
+Passed: 8/8
+Failed: 0/8
+
+[32m✓ All modules can be loaded successfully![0m
+
+Testing initialization sequence:
+  ✓ Config initialized
+Renderer initialized
+  ✓ Renderer initialized
+Using default calibration
+  ✓ Calibration loaded
+[ColorManager] Warning: Generated palette does not meet all contrast requirements:
+  primary contrast ratio 3.56 is below minimum 4.50
+  secondary contrast ratio 3.86 is below minimum 4.00
+  collision contrast ratio 3.87 is below minimum 5.00
+  ghost contrast ratio 3.30 is below minimum 3.50
+  aimLine contrast ratio 3.50 meets minimum 3.00
+[ColorManager] Warning: Generated palette does not meet all contrast requirements:
+  primary contrast ratio 3.56 is below minimum 4.50
+  secondary contrast ratio 3.86 is below minimum 4.00
+  collision contrast ratio 3.87 is below minimum 5.00
+  ghost contrast ratio 3.30 is below minimum 3.50
+  aimLine contrast ratio 3.50 meets minimum 3.00
+[ColorManager] Initialized with table felt color:	0.13	0.55	0.13
+[ColorManager] Warning: Initial palette has contrast issues
+  ✓ Colors initialized
+  ✓ StateManager created
+  ✓ MessageHandler created
+  ✓ Trajectory module loaded
+Network module initializing...
+Warning: Invalid websocket_url format: ws://localhost:8000/api/v1/game/state/ws
+Network configuration loaded from Config module
+Warning: Global MessageHandler not found, message routing will be limited
+Auto-connect enabled, connecting...
+Connecting to ws://localhost:8080
+[WebSocket] Connecting to ws://localhost:8080/
+Network module initialized
+  ✓ Network initialized
+
+[32m✓ All modules initialized successfully![0m

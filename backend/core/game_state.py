@@ -110,8 +110,8 @@ class GameStateManager:
             # Extract cue state if present
             cue = self._extract_cue_state(detection_data)
 
-            # Get table state (typically static unless recalibrated)
-            table = detection_data.get("table", self._default_table)
+            # Extract table state (convert from dict if needed)
+            table = self._extract_table_state(detection_data)
 
             # Detect events based on state changes
             events = self._detect_events(balls)
@@ -170,10 +170,29 @@ class GameStateManager:
         ball_detections = detection_data.get("balls", [])
 
         for detection in ball_detections:
+            # Handle both nested dict format (from integration_service) and flat format (legacy)
+            position_data = detection.get("position", {})
+            if isinstance(position_data, dict):
+                pos_x = position_data.get("x", 0.0)
+                pos_y = position_data.get("y", 0.0)
+            else:
+                # Fallback to flat format
+                pos_x = detection.get("x", 0.0)
+                pos_y = detection.get("y", 0.0)
+
+            velocity_data = detection.get("velocity", {})
+            if isinstance(velocity_data, dict):
+                vel_x = velocity_data.get("x", 0.0)
+                vel_y = velocity_data.get("y", 0.0)
+            else:
+                # Fallback to flat format
+                vel_x = detection.get("vx", 0.0)
+                vel_y = detection.get("vy", 0.0)
+
             ball = BallState(
                 id=detection.get("id", f"ball_{len(balls)}"),
-                position=Vector2D(detection["x"], detection["y"]),
-                velocity=Vector2D(detection.get("vx", 0.0), detection.get("vy", 0.0)),
+                position=Vector2D(pos_x, pos_y),
+                velocity=Vector2D(vel_x, vel_y),
                 radius=detection.get(
                     "radius", 0.028575
                 ),  # Standard ball radius in meters
@@ -199,19 +218,106 @@ class GameStateManager:
         if not cue_data:
             return None
 
+        # Handle both nested dict format (from integration_service) and flat format (legacy)
+        tip_position_data = cue_data.get("tip_position", {})
+        if isinstance(tip_position_data, dict):
+            tip_x = tip_position_data.get("x", 0.0)
+            tip_y = tip_position_data.get("y", 0.0)
+        else:
+            # Fallback to flat format
+            tip_x = cue_data.get("tip_x", 0.0)
+            tip_y = cue_data.get("tip_y", 0.0)
+
+        # Handle impact point
+        impact_point = None
+        if "impact_point" in cue_data:
+            impact_data = cue_data["impact_point"]
+            if isinstance(impact_data, dict):
+                impact_point = Vector2D(
+                    impact_data.get("x", 0.0), impact_data.get("y", 0.0)
+                )
+        elif "impact_x" in cue_data and "impact_y" in cue_data:
+            # Fallback to flat format
+            impact_point = Vector2D(cue_data["impact_x"], cue_data["impact_y"])
+
         return CueState(
-            tip_position=Vector2D(cue_data["tip_x"], cue_data["tip_y"]),
+            tip_position=Vector2D(tip_x, tip_y),
             angle=cue_data.get("angle", 0.0),
             elevation=cue_data.get("elevation", 0.0),
             estimated_force=cue_data.get("force", 0.0),
-            impact_point=(
-                Vector2D(cue_data["impact_x"], cue_data["impact_y"])
-                if "impact_x" in cue_data
-                else None
-            ),
+            impact_point=impact_point,
             is_visible=cue_data.get("is_visible", True),
             confidence=cue_data.get("confidence", 1.0),
             last_update=cue_data.get("timestamp", time.time()),
+        )
+
+    def _extract_table_state(self, detection_data: dict[str, Any]) -> TableState:
+        """Extract table state from detection data."""
+        table_data = detection_data.get("table")
+
+        # If no table data or it's already a TableState object, return default or the object
+        if table_data is None:
+            return self._default_table
+        if isinstance(table_data, TableState):
+            return table_data
+
+        # Convert from dict format (from integration_service)
+        # Extract pocket positions from pockets list
+        pocket_positions = []
+        if "pockets" in table_data:
+            for pocket in table_data["pockets"]:
+                pos_data = pocket.get("position", {})
+                if isinstance(pos_data, dict):
+                    pocket_positions.append(
+                        Vector2D(pos_data.get("x", 0.0), pos_data.get("y", 0.0))
+                    )
+
+        # Get table dimensions
+        table_width = table_data.get("width", self._default_table.width)
+        table_height = table_data.get("height", self._default_table.height)
+
+        # If no pockets defined, use default pocket positions scaled to table size
+        if not pocket_positions:
+            # Scale default pocket positions to match actual table dimensions
+            width_scale = table_width / self._default_table.width
+            height_scale = table_height / self._default_table.height
+
+            pocket_positions = [
+                Vector2D(pocket.x * width_scale, pocket.y * height_scale)
+                for pocket in self._default_table.pocket_positions
+            ]
+
+        # Extract corners for playing area
+        playing_area_corners = None
+        if "corners" in table_data:
+            corners = []
+            for corner in table_data["corners"]:
+                if isinstance(corner, dict):
+                    corners.append(Vector2D(corner.get("x", 0.0), corner.get("y", 0.0)))
+            if corners:
+                playing_area_corners = corners
+
+        # Create TableState with extracted data
+        return TableState(
+            width=table_width,
+            height=table_height,
+            pocket_positions=pocket_positions,
+            pocket_radius=table_data.get(
+                "pocket_radius", self._default_table.pocket_radius
+            ),
+            cushion_elasticity=table_data.get(
+                "cushion_elasticity", self._default_table.cushion_elasticity
+            ),
+            surface_friction=table_data.get(
+                "surface_friction", self._default_table.surface_friction
+            ),
+            surface_slope=table_data.get(
+                "surface_slope", self._default_table.surface_slope
+            ),
+            cushion_height=table_data.get(
+                "cushion_height", self._default_table.cushion_height
+            ),
+            playing_area_corners=playing_area_corners,
         )
 
     def _detect_events(self, balls: list[BallState]) -> list[GameEvent]:
@@ -387,7 +493,7 @@ class GameStateManager:
             if not self._auto_correct_enabled:
                 raise StateValidationError(error_msg)
             else:
-                logger.warning(error_msg)
+                logger.debug(error_msg)
 
         # Log validation statistics
         if validation_result.errors or validation_result.warnings:
