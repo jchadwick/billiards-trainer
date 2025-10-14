@@ -14,9 +14,9 @@ def _get_config() -> ConfigurationModule:
     """Get or create configuration instance."""
     global _config
     if _config is None:
-        from pathlib import Path
+        from backend.config import config_manager
 
-        _config = ConfigurationModule(config_dir=Path("config"))
+        _config = config_manager
     return _config
 
 
@@ -399,3 +399,138 @@ class GeometryUtils:
 
         smoothed.append(points[-1])  # Keep last point
         return smoothed
+
+
+def find_ball_cue_is_pointing_at(
+    cue_tip: tuple[float, float] | Vector2D,
+    cue_direction: tuple[float, float] | Vector2D | None = None,
+    cue_angle: float | None = None,
+    balls: list[tuple[float, float] | Vector2D] = None,
+    max_perpendicular_distance: float = 40.0,
+) -> int | None:
+    """Find which ball the cue is currently pointing at.
+
+    This function determines which ball (if any) lies along the cue stick's
+    trajectory using perpendicular distance from the cue line. It's useful for
+    determining aim assistance, target ball identification, and shot prediction.
+
+    REFACTORING NOTE: This is a NEW utility function created during the refactoring
+    to centralize ball-targeting logic that was previously duplicated in video_debugger.py
+    and integration_service.py. Now used system-wide for consistent ball targeting.
+
+    Algorithm:
+    1. Calculate cue direction vector from either:
+       - Provided direction vector (dx, dy), or
+       - Calculated from angle (angle_rad = radians(cue_angle))
+    2. Normalize direction vector to unit length
+    3. For each ball:
+       - Calculate vector from cue tip to ball center
+       - Project onto cue direction (dot product) = distance along cue line
+       - Calculate perpendicular distance (cross product magnitude)
+       - Skip balls behind cue tip (negative projection)
+       - Keep balls within max_perpendicular_distance threshold
+    4. Return index of closest ball along cue direction
+
+    The function works in pixel coordinates and uses a perpendicular distance
+    threshold to determine if a ball is "close enough" to the cue line to be
+    considered the target. Only balls in front of the cue tip are considered.
+
+    Args:
+        cue_tip: Position of the cue tip as (x, y) tuple or Vector2D
+        cue_direction: Direction vector the cue is pointing as (dx, dy) tuple or Vector2D.
+            If None, cue_angle must be provided.
+        cue_angle: Angle of the cue in degrees (0 = pointing right, counter-clockwise positive).
+            Only used if cue_direction is None.
+        balls: List of ball positions as (x, y) tuples or Vector2D objects
+        max_perpendicular_distance: Maximum perpendicular distance (in pixels) from the
+            cue line for a ball to be considered a target. Default is 40 pixels.
+
+    Returns:
+        Index of the ball the cue is pointing at (index in balls list), or None if no
+        ball is close enough to the cue line.
+
+    Raises:
+        ValueError: If neither cue_direction nor cue_angle is provided, or if required
+            parameters are missing.
+
+    Example:
+        >>> cue_tip = (100, 200)
+        >>> cue_angle = 45.0  # pointing up-right
+        >>> balls = [(150, 250), (200, 300), (300, 100)]
+        >>> target_idx = find_ball_cue_is_pointing_at(
+        ...     cue_tip, cue_angle=cue_angle, balls=balls
+        ... )
+        >>> if target_idx is not None:
+        ...     print(f"Aiming at ball at {balls[target_idx]}")
+
+    Note:
+        - The function uses perpendicular distance (cross product) to determine proximity
+        - Only balls in front of the cue tip (positive projection along cue direction) are considered
+        - If multiple balls are within threshold, the closest one along the cue direction is returned
+        - Works with both tuple (x, y) and Vector2D inputs for flexibility
+    """
+    if balls is None or len(balls) == 0:
+        return None
+
+    # Convert cue_tip to tuple if needed
+    if isinstance(cue_tip, Vector2D):
+        tip_x, tip_y = cue_tip.x, cue_tip.y
+    else:
+        tip_x, tip_y = cue_tip
+
+    # Calculate direction vector
+    if cue_direction is not None:
+        if isinstance(cue_direction, Vector2D):
+            dir_x, dir_y = cue_direction.x, cue_direction.y
+        else:
+            dir_x, dir_y = cue_direction
+    elif cue_angle is not None:
+        # Convert angle to direction vector
+        angle_rad = math.radians(cue_angle)
+        dir_x = math.cos(angle_rad)
+        dir_y = math.sin(angle_rad)
+    else:
+        raise ValueError("Either cue_direction or cue_angle must be provided")
+
+    # Normalize direction vector
+    dir_length = math.sqrt(dir_x**2 + dir_y**2)
+    if dir_length == 0:
+        return None
+
+    dir_x /= dir_length
+    dir_y /= dir_length
+
+    # Find the closest ball along the cue direction
+    closest_ball_idx = None
+    min_distance_along_cue = float("inf")
+
+    for i, ball_pos in enumerate(balls):
+        # Convert ball position to tuple if needed
+        if isinstance(ball_pos, Vector2D):
+            ball_x, ball_y = ball_pos.x, ball_pos.y
+        else:
+            ball_x, ball_y = ball_pos
+
+        # Vector from cue tip to ball center
+        ball_dx = ball_x - tip_x
+        ball_dy = ball_y - tip_y
+
+        # Distance along cue direction (dot product)
+        distance_along_cue = ball_dx * dir_x + ball_dy * dir_y
+
+        # Skip balls behind the cue tip
+        if distance_along_cue < 0:
+            continue
+
+        # Calculate perpendicular distance from cue line to ball center (cross product)
+        perpendicular_distance = abs(ball_dx * dir_y - ball_dy * dir_x)
+
+        # Check if ball is within tolerance and closer than current closest
+        if (
+            perpendicular_distance < max_perpendicular_distance
+            and distance_along_cue < min_distance_along_cue
+        ):
+            min_distance_along_cue = distance_along_cue
+            closest_ball_idx = i
+
+    return closest_ball_idx

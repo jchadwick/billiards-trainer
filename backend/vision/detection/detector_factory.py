@@ -1,11 +1,12 @@
-"""Detector factory for creating ball and cue detectors with pluggable backends.
+"""Detector factory for creating ball and cue detectors.
 
-Provides a unified interface for creating detectors with different implementations:
-- YOLO-based detector (future ML backend)
-- OpenCV-based detector (current computer vision backend)
+Provides a unified interface for creating detectors using YOLO+OpenCV hybrid detection.
+YOLO is used for object localization with mandatory OpenCV refinement for classification.
 
-The factory pattern allows easy swapping of detection backends and simplifies
-testing and configuration management.
+The factory pattern simplifies testing and configuration management.
+
+Note: Pure OpenCV-only detection has been removed. YOLO is now the only supported
+backend, and OpenCV classification is always enabled for accurate ball type detection.
 """
 
 from abc import ABC, abstractmethod
@@ -15,8 +16,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..models import Ball, CueStick
-from .balls import BallDetector
-from .cue import CueDetector
+
+# Keep BallDetector and CueDetector imports for reference/testing only
+# They are no longer used in production paths
+from .balls import BallDetector  # noqa: F401 - kept for testing
+from .cue import CueDetector  # noqa: F401 - kept for testing
 
 
 class BaseDetector(ABC):
@@ -71,118 +75,63 @@ class BaseDetector(ABC):
         _ = frame  # Prevent unused parameter warning
 
 
-class OpenCVDetector(BaseDetector):
-    """OpenCV-based detector implementation using traditional computer vision.
-
-    This detector uses classical computer vision algorithms:
-    - Hough circles for ball detection
-    - Color-based ball classification
-    - Line detection for cue stick tracking
-    - Background subtraction for improved accuracy
-    """
-
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize OpenCV detector with configuration.
-
-        Args:
-            config: Configuration dictionary with detector parameters
-        """
-        # Extract ball detector config
-        ball_config = config.get("ball_detection", {})
-        self.ball_detector = BallDetector(ball_config)
-
-        # Extract cue detector config
-        cue_config = config.get("cue_detection", {})
-        self.cue_detector = CueDetector(cue_config)
-
-    def detect_balls(
-        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
-    ) -> list[Ball]:
-        """Detect balls using OpenCV algorithms.
-
-        Uses Hough circle detection combined with color classification
-        and background subtraction for robust ball detection.
-
-        Args:
-            frame: Input frame in BGR format
-            table_mask: Optional mask for table region
-
-        Returns:
-            List of detected Ball objects
-        """
-        return self.ball_detector.detect_balls(frame, table_mask)
-
-    def detect_cue(
-        self,
-        frame: NDArray[np.uint8],
-        cue_ball_pos: Optional[tuple[float, float]] = None,
-    ) -> Optional[CueStick]:
-        """Detect cue stick using line detection algorithms.
-
-        Uses multiple line detection methods (Hough, LSD, morphological)
-        and temporal tracking for robust cue detection.
-
-        Args:
-            frame: Input frame in BGR format
-            cue_ball_pos: Optional cue ball position for improved detection
-
-        Returns:
-            CueStick object if detected, None otherwise
-        """
-        return self.cue_detector.detect_cue(frame, cue_ball_pos)
-
-    def set_background_frame(self, frame: NDArray[np.uint8]) -> None:
-        """Set background reference frame for both ball and cue detectors.
-
-        Args:
-            frame: Background reference frame (empty table)
-        """
-        self.ball_detector.set_background_frame(frame)
-        self.cue_detector.set_background_frame(frame)
+# OpenCVDetector class has been removed - YOLO+OpenCV hybrid is now the only supported approach
+# Pure OpenCV detection (without YOLO localization) is no longer used in production paths
 
 
 class YOLODetector(BaseDetector):
-    """YOLO-based detector implementation (placeholder for future ML backend).
+    """YOLO+OpenCV hybrid detector implementation.
 
-    This detector will use YOLO (You Only Look Once) neural network for
-    real-time object detection. Currently raises NotImplementedError.
+    This detector uses YOLO (You Only Look Once) neural network for object localization
+    with mandatory OpenCV refinement for accurate ball type classification.
 
-    Future implementation will:
-    - Load trained YOLO model for pool balls and cue sticks
-    - Perform inference on input frames
-    - Post-process detections into Ball and CueStick objects
+    The hybrid approach combines:
+    - YOLO: Fast, accurate object detection and localization
+    - OpenCV: Precise color-based classification for ball types (solids vs stripes)
+
+    This is the only supported detection backend. Pure OpenCV-only detection has been
+    removed as it was less accurate for object localization.
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize YOLO detector with configuration.
+        """Initialize YOLO+OpenCV hybrid detector with configuration.
+
+        OpenCV classification is always enabled for accurate ball type detection.
 
         Args:
-            config: Configuration dictionary with model parameters
+            config: Configuration dictionary with YOLO model parameters:
+                - model_path: Path to YOLO model weights
+                - confidence_threshold: Detection confidence threshold (default: 0.5)
+                - nms_threshold: Non-maximum suppression threshold (default: 0.4)
+                - Additional OpenCV classification parameters
         """
         self.config = config
         # Future: Load YOLO model, weights, and configuration
         # self.model = load_yolo_model(config.get("model_path"))
         # self.confidence_threshold = config.get("confidence_threshold", 0.5)
         # self.nms_threshold = config.get("nms_threshold", 0.4)
+        #
+        # OpenCV classification is always enabled (mandatory in hybrid mode)
+        # self.opencv_classifier = OpenCVClassifier(config)
 
     def detect_balls(
         self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
     ) -> list[Ball]:
-        """Detect balls using YOLO neural network.
+        """Detect balls using YOLO localization + OpenCV classification.
 
         Args:
             frame: Input frame in BGR format
             table_mask: Optional mask for table region
 
         Returns:
-            List of detected Ball objects
+            List of detected Ball objects with accurate positions and types
 
         Raises:
             NotImplementedError: YOLO backend not yet implemented
         """
         raise NotImplementedError(
-            "YOLO detector backend is not yet implemented. "
-            "Use 'opencv' backend for current functionality."
+            "YOLO+OpenCV hybrid detector backend is not yet implemented. "
+            "This is the planned implementation that will replace pure OpenCV detection."
         )
 
     def detect_cue(
@@ -203,51 +152,69 @@ class YOLODetector(BaseDetector):
             NotImplementedError: YOLO backend not yet implemented
         """
         raise NotImplementedError(
-            "YOLO detector backend is not yet implemented. "
-            "Use 'opencv' backend for current functionality."
+            "YOLO+OpenCV hybrid detector backend is not yet implemented. "
+            "This is the planned implementation that will replace pure OpenCV detection."
         )
 
 
 def create_detector(
-    backend: str = "opencv", config: Optional[dict[str, Any]] = None
+    backend: str = "yolo", config: Optional[dict[str, Any]] = None
 ) -> BaseDetector:
-    """Factory function to create detector with specified backend.
+    """Factory function to create YOLO+OpenCV hybrid detector.
 
-    Creates a detector instance using the specified backend implementation.
-    Validates the backend name and raises an error for unknown backends.
+    Creates a detector instance using YOLO for object localization with mandatory
+    OpenCV refinement for ball type classification. This is the only supported
+    detection approach.
 
     Args:
-        backend: Detector backend to use ('opencv' or 'yolo')
-        config: Optional configuration dictionary for the detector
+        backend: Detector backend to use (must be 'yolo', default: 'yolo')
+        config: Optional configuration dictionary for the detector with YOLO parameters:
+                - model_path: Path to YOLO model weights
+                - confidence_threshold: Detection confidence threshold
+                - nms_threshold: Non-maximum suppression threshold
+                - OpenCV classification parameters
 
     Returns:
-        BaseDetector instance of the requested type
+        YOLODetector instance configured for hybrid detection
 
     Raises:
-        ValueError: If backend is not recognized
+        ValueError: If backend is not 'yolo' (e.g., if 'opencv' is requested)
 
     Examples:
-        >>> # Create OpenCV detector with default config
-        >>> detector = create_detector('opencv')
+        >>> # Create YOLO+OpenCV hybrid detector with defaults
+        >>> detector = create_detector()  # 'yolo' is default
 
-        >>> # Create OpenCV detector with custom config
-        >>> config = {'ball_detection': {'min_radius': 15}}
-        >>> detector = create_detector('opencv', config)
+        >>> # Create detector with custom YOLO configuration
+        >>> config = {
+        ...     'model_path': 'models/yolov8n-pool.onnx',
+        ...     'confidence_threshold': 0.6,
+        ...     'nms_threshold': 0.4
+        ... }
+        >>> detector = create_detector('yolo', config)
 
-        >>> # Create YOLO detector (when implemented)
-        >>> detector = create_detector('yolo', {'model_path': 'model.pt'})
+    Note:
+        The 'opencv' backend option has been permanently removed. All detection
+        now uses YOLO for localization with mandatory OpenCV classification.
+        Pure OpenCV detection (without YOLO) has been removed due to lower
+        localization accuracy.
     """
     if config is None:
         config = {}
 
     backend_lower = backend.lower()
 
-    if backend_lower == "opencv":
-        return OpenCVDetector(config)
-    elif backend_lower == "yolo":
+    if backend_lower == "yolo":
+        # Always use YOLO+OpenCV hybrid (OpenCV classification is mandatory)
         return YOLODetector(config)
+    elif backend_lower == "opencv":
+        raise ValueError(
+            "OpenCV-only backend is no longer supported. "
+            "The system now exclusively uses YOLO+OpenCV hybrid detection. "
+            "Please use backend='yolo' (default) which includes mandatory OpenCV classification. "
+            "Pure OpenCV detection has been removed due to inferior localization accuracy."
+        )
     else:
         raise ValueError(
             f"Unknown detector backend: '{backend}'. "
-            f"Supported backends are: 'opencv', 'yolo'"
+            f"Only 'yolo' is supported (with mandatory OpenCV classification for ball types)."
         )

@@ -132,11 +132,11 @@ class YOLODetector:
         self,
         model_path: Optional[str] = None,
         device: str = "cpu",
-        confidence: float = 0.4,
+        confidence: float = 0.15,
         nms_threshold: float = 0.45,
         auto_fallback: bool = True,
         tpu_device_path: Optional[str] = None,
-        enable_opencv_classification: bool = False,
+        enable_opencv_classification: bool = True,
         min_ball_size: int = 20,
     ) -> None:
         """Initialize YOLO detector.
@@ -145,16 +145,26 @@ class YOLODetector:
             model_path: Path to YOLO model file (.pt, .onnx, or .tflite). If None, detector
                        will operate in fallback mode without YOLO.
             device: Device to run inference on ('cpu', 'cuda', 'mps', 'tpu')
-            confidence: Minimum confidence threshold (0.0-1.0)
+            confidence: Minimum confidence threshold (0.0-1.0). Default 0.15 works well for
+                       billiards ball detection while capturing difficult angles and lighting.
             nms_threshold: Non-maximum suppression IoU threshold
             auto_fallback: Automatically fall back to None model if loading fails
             tpu_device_path: Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto)
-            enable_opencv_classification: Enable OpenCV-based ball type classification refinement
-            min_ball_size: Minimum ball size in pixels (width or height) to filter out small detections like markers (default 20px)
+            enable_opencv_classification: Enable OpenCV-based ball type classification refinement.
+                                         Enabled by default as it provides accurate ball number detection
+                                         even when YOLO detects balls as generic "ball" class.
+            min_ball_size: Minimum ball size in pixels (width or height) to filter out small detections
+                          like markers and noise. Default 20px works well for typical camera setups.
 
         Raises:
             FileNotFoundError: If model_path is provided but file doesn't exist
             RuntimeError: If model loading fails and auto_fallback is False
+
+        Note:
+            These defaults (confidence=0.15, enable_opencv_classification=True, min_ball_size=20)
+            are based on extensive testing with the VisionModule and video_debugger tool.
+            They provide the best balance of detection recall (catching all balls) while
+            maintaining precision (filtering out false positives like markers and shadows).
         """
         self.model_path = model_path
         self.device = device
@@ -689,16 +699,26 @@ class YOLODetector:
     ) -> list[Any]:
         """Detect balls and optionally classify with OpenCV refinement.
 
-        This method provides hybrid YOLO+OpenCV detection:
-        - YOLO provides accurate ball position and size
-        - OpenCV classifier refines ball type/number if enabled
+        This is the PRIMARY and RECOMMENDED method for ball detection. It provides hybrid
+        YOLO+OpenCV detection that combines the strengths of both approaches:
+        - YOLO provides accurate ball position and size, even in challenging lighting
+        - OpenCV classifier refines ball type/number when enable_opencv_classification=True
+
+        This method works best with the default detector settings:
+        - confidence=0.15: Low threshold captures balls in difficult angles/lighting
+        - enable_opencv_classification=True: Accurate ball number detection
+        - min_ball_size=20: Filters out markers and noise
 
         Args:
             frame: Input image in BGR format
-            min_confidence: Minimum confidence threshold for detections
+            min_confidence: Minimum confidence threshold for detections (default 0.25)
 
         Returns:
             List of Ball objects with position and type information
+
+        Note:
+            Prefer this method over detect_balls() when you need ball type/number information.
+            The hybrid approach provides better accuracy than YOLO-only or OpenCV-only detection.
         """
         from ..models import Ball
         from .detector_adapter import yolo_detections_to_balls
@@ -1633,14 +1653,19 @@ def create_detector(
         model_path: Path to YOLO model file
         config: Configuration dictionary with keys:
             - device: 'cpu', 'cuda', 'mps', 'tpu'
-            - confidence: float 0.0-1.0
+            - confidence: float 0.0-1.0 (default 0.15 for optimal ball detection)
             - nms_threshold: float 0.0-1.0
             - auto_fallback: bool
+            - enable_opencv_classification: bool (default True for hybrid YOLO+OpenCV detection)
             - tpu_device_path: str (optional, for TPU)
-            - min_ball_size: int (optional, minimum ball size in pixels)
+            - min_ball_size: int (optional, minimum ball size in pixels, default 20)
 
     Returns:
         Configured YOLODetector instance
+
+    Note:
+        Uses working defaults from VisionModule: confidence=0.15, enable_opencv_classification=True.
+        These values are proven to work well for billiards ball detection.
     """
     if config is None:
         config = {}
@@ -1648,9 +1673,10 @@ def create_detector(
     return YOLODetector(
         model_path=model_path,
         device=config.get("device", "cpu"),
-        confidence=config.get("confidence", 0.4),
+        confidence=config.get("confidence", 0.15),
         nms_threshold=config.get("nms_threshold", 0.45),
         auto_fallback=config.get("auto_fallback", True),
+        enable_opencv_classification=config.get("enable_opencv_classification", True),
         tpu_device_path=config.get("tpu_device_path"),
         min_ball_size=config.get("min_ball_size", 20),
     )

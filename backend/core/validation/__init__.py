@@ -16,6 +16,7 @@ from .correction import (
 # from .manager import ValidationManager, ValidationReport, validate_game_state
 from .physics import PhysicsValidator, ValidationError
 from .state import StateValidator, ValidationResult
+from .table_state import TableStateValidationError, TableStateValidator
 
 __all__ = [
     "StateValidator",
@@ -27,6 +28,8 @@ __all__ = [
     "CorrectionType",
     "CorrectionRecord",
     "CorrectionStats",
+    "TableStateValidator",
+    "TableStateValidationError",
     # "ValidationManager",
     # "ValidationReport",
     # "validate_game_state",

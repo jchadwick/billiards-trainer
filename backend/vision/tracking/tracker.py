@@ -222,27 +222,73 @@ class ObjectTracker:
     - Handle track loss and recovery
     - Predict positions during occlusions
     - Velocity and acceleration estimation
+    - Ghost ball filtering to prevent false detections during high motion events
     """
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize tracker with configuration.
 
+        These default values have been tuned through empirical testing with video_debugger
+        to provide optimal tracking stability and ghost ball rejection for pool table
+        scenarios. The parameters balance between:
+        - Quick initial detection of stationary balls
+        - Stable tracking during motion
+        - Aggressive filtering of ghost balls during collisions/high-speed events
+        - Smooth velocity estimation for physics calculations
+
         Args:
             config: Configuration dictionary with tracking parameters
+
+        Key Parameters:
+            max_age (default: 30): How many frames to keep a track alive without updates.
+                At 30fps, this is 1 second - enough to handle brief occlusions but not
+                so long that we track balls that have been pocketed.
+
+            min_hits (default: 10): Number of consecutive detections required before a
+                track is confirmed. This is CRITICAL for ghost ball filtering. Higher
+                values (8-10) prevent transient false detections during ball collisions
+                from being reported as real balls. Lower values (3-5) cause ghost balls
+                to appear during collisions.
+
+            max_distance (default: 100.0): Maximum pixel distance for associating a
+                detection with a track. Very forgiving to handle stationary ball
+                detection jitter and ensure balls don't lose their IDs.
+
+            process_noise (default: 5.0): Kalman filter process noise. Higher values
+                (5.0) make the filter more responsive to detection jitter, which is
+                necessary because ball detections can vary by several pixels frame-to-frame
+                even when stationary.
+
+            measurement_noise (default: 20.0): Kalman filter measurement noise. Higher
+                tolerance for noisy detections, smooths out jittery position estimates.
+
+            collision_threshold (default: 60.0): Distance threshold (pixels) to detect
+                potential ball collisions. Used to trigger more conservative track
+                confirmation during high-motion events.
+
+            min_hits_during_collision (default: 30): Higher confirmation threshold during
+                collisions. Extremely conservative to prevent ANY ghost balls from being
+                confirmed during the chaotic collision phase.
+
+            return_tentative_tracks (default: False): When False, only returns tracks
+                that have met min_hits threshold. Essential for ghost ball filtering -
+                tentative tracks are never returned to prevent false positives.
         """
         # Store config for use in Track objects
         self.config = config
 
-        # Tracking parameters
+        # Tracking parameters with tuned defaults from video_debugger testing
         self.max_age = config.get("max_age", 30)
-        self.min_hits = config.get("min_hits", 3)
-        self.max_distance = config.get("max_distance", 50.0)
-        self.kalman_process_noise = config.get("process_noise", 1.0)
-        self.kalman_measurement_noise = config.get("measurement_noise", 10.0)
+        self.min_hits = config.get(
+            "min_hits", 10
+        )  # CRITICAL: Higher value filters ghost balls
+        self.max_distance = config.get("max_distance", 100.0)
+        self.kalman_process_noise = config.get("process_noise", 5.0)
+        self.kalman_measurement_noise = config.get("measurement_noise", 20.0)
 
         # Ghost ball filtering parameters
         self.collision_threshold = config.get("collision_threshold", 60.0)
-        self.min_hits_during_collision = config.get("min_hits_during_collision", 5)
+        self.min_hits_during_collision = config.get("min_hits_during_collision", 30)
         self.motion_speed_threshold = config.get("motion_speed_threshold", 10.0)
         self.return_tentative_tracks = config.get("return_tentative_tracks", False)
 

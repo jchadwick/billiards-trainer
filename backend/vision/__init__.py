@@ -4,7 +4,6 @@ This module provides comprehensive computer vision capabilities for detecting an
 pool table elements including table boundaries, balls, and cue sticks in real-time.
 """
 
-import asyncio
 import contextlib
 import logging
 import queue
@@ -22,18 +21,7 @@ from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
 from .capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
 from .config_manager import VisionConfigurationManager, create_vision_config_manager
-from .detection.balls import BallDetector
-from .detection.cue import CueDetector
-from .detection.detector_factory import BaseDetector, create_detector
 from .detection.table import TableDetector
-
-# Optional camera modules
-try:
-    from .direct_camera import DirectCameraModule
-except ImportError:
-    DirectCameraModule = None
-
-# Import vision components
 from .models import (
     Ball,
     BallType,
@@ -53,13 +41,18 @@ from .models import (
     Table,
 )
 from .preprocessing import ImagePreprocessor
+from .tracking.tracker import ObjectTracker
+
+# Optional camera modules
+try:
+    from .direct_camera import DirectCameraModule
+except ImportError:
+    DirectCameraModule = None
 
 try:
     from .simple_camera import SimpleCameraModule
 except ImportError:
     SimpleCameraModule = None
-
-from .tracking.tracker import ObjectTracker
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -110,11 +103,6 @@ class VisionConfig:
     enable_ball_detection: bool
     enable_cue_detection: bool
     enable_tracking: bool
-
-    # Detector backend configuration (from vision.detection.*)
-    detection_backend: str
-    use_opencv_validation: bool
-    fallback_to_opencv: bool
 
     # Performance settings (from vision.processing.*)
     frame_skip: int
@@ -199,19 +187,6 @@ class VisionConfig:
             enable_tracking=config_dict.get(
                 "enable_tracking",
                 config_mgr.get("vision.processing.enable_tracking", True),
-            ),
-            # Detector backend configuration
-            detection_backend=config_dict.get(
-                "detection_backend",
-                config_mgr.get("vision.detection.detection_backend", "opencv"),
-            ),
-            use_opencv_validation=config_dict.get(
-                "use_opencv_validation",
-                config_mgr.get("vision.detection.use_opencv_validation", False),
-            ),
-            fallback_to_opencv=config_dict.get(
-                "fallback_to_opencv",
-                config_mgr.get("vision.detection.fallback_to_opencv", True),
             ),
             # Performance settings
             frame_skip=config_dict.get(
@@ -354,128 +329,94 @@ class VisionModule:
             logger.debug("Creating ImagePreprocessor")
             self.preprocessor = ImagePreprocessor(preprocessing_config)
 
-            # Detection components
-            # Note: use_background_subtraction and background_threshold are passed to detector
-            # instances after creation, not in the config
-            base_detection_config = {
-                "debug_mode": self.config.debug_mode,
-            }
-
-            # Initialize unified detector using factory
-            # The detector handles both ball and cue detection
+            # Detection components - YOLO+OpenCV hybrid only
             if self.config.enable_ball_detection or self.config.enable_cue_detection:
-                # Get detection backend from config (default to 'opencv')
-                backend = getattr(self.config, "detection_backend", "opencv")
+                # Load YOLO configuration parameters - use shared config manager
+                from ..config import config_manager as config_mgr
 
-                # Create detector configuration
-                detector_config = {
-                    "ball_detection": (
-                        base_detection_config.copy()
-                        if self.config.enable_ball_detection
-                        else {}
-                    ),
-                    "cue_detection": (
-                        base_detection_config.copy()
-                        if self.config.enable_cue_detection
-                        else {}
-                    ),
-                }
+                # Get YOLO parameters from config
+                yolo_model_path = config_mgr.get("vision.detection.yolo_model_path")
+                yolo_confidence = config_mgr.get(
+                    "vision.detection.yolo_confidence", 0.15
+                )
+                yolo_nms_threshold = config_mgr.get(
+                    "vision.detection.yolo_nms_threshold", 0.45
+                )
+                yolo_device = config_mgr.get("vision.detection.yolo_device", "cpu")
+                min_ball_size = config_mgr.get("vision.detection.min_ball_radius", 20)
 
-                logger.info(f"Creating detector with backend: {backend}")
-                self.detector: Optional[BaseDetector] = create_detector(
-                    backend, detector_config
+                logger.info(
+                    f"Initializing YOLO+OpenCV hybrid detector: model={yolo_model_path}, "
+                    f"confidence={yolo_confidence}, device={yolo_device}, "
+                    f"min_ball_size={min_ball_size}"
                 )
 
-                # Set background subtraction parameters on detector instances
-                # (these are instance variables, not config)
-                if (
-                    hasattr(self.detector, "ball_detector")
-                    and self.detector.ball_detector
-                ):
-                    self.detector.ball_detector.use_background_subtraction = (
-                        self.config.use_background_subtraction
-                    )
-                    self.detector.ball_detector.background_threshold = (
-                        self.config.background_threshold
-                    )
-                if (
-                    hasattr(self.detector, "cue_detector")
-                    and self.detector.cue_detector
-                ):
-                    self.detector.cue_detector.use_background_subtraction = (
-                        self.config.use_background_subtraction
-                    )
-                    self.detector.cue_detector.background_threshold = (
-                        self.config.background_threshold
-                    )
+                # Import YOLO detector
+                from .detection.yolo_detector import YOLODetector
 
-                # Check if OpenCV validation is enabled for hybrid approach
-                self.use_opencv_validation = getattr(
-                    self.config, "use_opencv_validation", False
-                )
-                self.fallback_to_opencv = getattr(
-                    self.config, "fallback_to_opencv", True
-                )
+                try:
+                    # Create YOLO detector with OpenCV classification enabled
+                    self.detector = YOLODetector(
+                        model_path=yolo_model_path,
+                        device=yolo_device,
+                        confidence=yolo_confidence,
+                        nms_threshold=yolo_nms_threshold,
+                        auto_fallback=False,  # Fail loudly if YOLO not available
+                        enable_opencv_classification=True,  # Enable hybrid detection
+                        min_ball_size=min_ball_size,  # Filter out markers and noise
+                    )
+                    logger.info("YOLO+OpenCV hybrid detector initialized successfully")
 
-                # Keep legacy ball_detector and cue_detector references for compatibility
-                # These point to the underlying detectors if using OpenCV backend
-                if backend.lower() == "opencv":
-                    from .detection.detector_factory import OpenCVDetector
+                    # Store as ball_detector for compatibility with existing code
+                    self.ball_detector = self.detector
 
-                    if isinstance(self.detector, OpenCVDetector):
-                        self.ball_detector = (
-                            self.detector.ball_detector
-                            if self.config.enable_ball_detection
-                            else None
+                    # Initialize CueDetector with relaxed config for better detection
+                    if self.config.enable_cue_detection:
+                        from .detection.cue import CueDetector
+
+                        # Create relaxed cue detector configuration
+                        cue_config = {
+                            "geometry": {
+                                "min_cue_length": 100,  # Reduced from 150
+                                "max_cue_length": 1000,  # Increased from 800
+                                "min_line_thickness": 2,  # Reduced from 3
+                                "max_line_thickness": 40,  # Increased from 25
+                            },
+                            "hough": {
+                                "threshold": 50,  # Reduced from 80
+                                "min_line_length": 100,
+                                "max_line_gap": 20,
+                            },
+                            "detection": {
+                                "min_detection_confidence": 0.3,  # Reduced from 0.5
+                            },
+                        }
+                        self.cue_detector = CueDetector(
+                            cue_config, yolo_detector=self.detector
                         )
-                        self.cue_detector = (
-                            self.detector.cue_detector
-                            if self.config.enable_cue_detection
-                            else None
+                        logger.info(
+                            "CueDetector initialized with relaxed configuration"
                         )
                     else:
-                        self.ball_detector = None
                         self.cue_detector = None
-                else:
-                    # For YOLO or other backends, keep legacy references as None
-                    # or create OpenCV fallback detectors
-                    if self.fallback_to_opencv:
-                        logger.info("Creating OpenCV fallback detectors")
-                        if self.config.enable_ball_detection:
-                            self.ball_detector = BallDetector(base_detection_config)
-                            # Set background subtraction parameters
-                            self.ball_detector.use_background_subtraction = (
-                                self.config.use_background_subtraction
-                            )
-                            self.ball_detector.background_threshold = (
-                                self.config.background_threshold
-                            )
-                        else:
-                            self.ball_detector = None
 
-                        if self.config.enable_cue_detection:
-                            self.cue_detector = CueDetector(base_detection_config)
-                            # Set background subtraction parameters
-                            self.cue_detector.use_background_subtraction = (
-                                self.config.use_background_subtraction
-                            )
-                            self.cue_detector.background_threshold = (
-                                self.config.background_threshold
-                            )
-                        else:
-                            self.cue_detector = None
-                    else:
-                        self.ball_detector = None
-                        self.cue_detector = None
+                except Exception as e:
+                    logger.error(
+                        f"Failed to initialize YOLO detector: {e}. "
+                        "YOLO detection is required - cannot fall back to OpenCV-only mode."
+                    )
+                    raise VisionModuleError(
+                        f"YOLO detector initialization failed: {e}. "
+                        "Ensure YOLO model is available at the configured path."
+                    )
             else:
                 self.detector = None
                 self.ball_detector = None
                 self.cue_detector = None
-                self.use_opencv_validation = False
-                self.fallback_to_opencv = False
 
             # Table detection (separate from ball/cue detection)
             if self.config.enable_table_detection:
+                base_detection_config = {"debug_mode": self.config.debug_mode}
                 self.table_detector = TableDetector(base_detection_config)
             else:
                 self.table_detector = None
@@ -1012,183 +953,51 @@ class VisionModule:
                     logger.warning(f"Table detection failed: {e}")
                     self.stats.detection_accuracy["table"] = 0.0
 
-            # Ball and Cue detection using unified detector with fallback
-            if self.detector:
-                # Ball detection
-                if self.config.enable_ball_detection:
-                    try:
-                        detected_balls = self.detector.detect_balls(processed_frame)
+            # Ball detection using YOLO+OpenCV hybrid detector
+            if self.detector and self.config.enable_ball_detection:
+                try:
+                    # Use hybrid YOLO+OpenCV detection for ball classification
+                    # YOLO provides accurate position, OpenCV refines ball type
+                    detected_balls = self.detector.detect_balls_with_classification(
+                        processed_frame
+                    )
 
-                        # Update tracking if available
-                        if self.tracker and self.config.enable_tracking:
-                            detected_balls = self.tracker.update_tracking(
-                                detected_balls, timestamp
-                            )
-
-                        max_balls = _get_config_value(
-                            "vision.detection.max_balls_on_table", 16
-                        )
-                        detection_rate = len(detected_balls) / float(max_balls)
-                        self.stats.detection_accuracy["balls"] = min(
-                            detection_rate, 1.0
+                    # Update tracking if available
+                    if self.tracker and self.config.enable_tracking:
+                        detected_balls = self.tracker.update_tracking(
+                            detected_balls, frame_number, timestamp
                         )
 
-                    except NotImplementedError as e:
-                        # YOLO not implemented yet, fall back to OpenCV
-                        logger.warning(
-                            f"Primary detector not implemented: {e}, falling back to OpenCV"
-                        )
-                        if self.fallback_to_opencv and self.ball_detector:
-                            try:
-                                detected_balls = self.ball_detector.detect_balls(
-                                    processed_frame
-                                )
+                    max_balls = _get_config_value(
+                        "vision.detection.max_balls_on_table", 16
+                    )
+                    detection_rate = len(detected_balls) / float(max_balls)
+                    self.stats.detection_accuracy["balls"] = min(detection_rate, 1.0)
 
-                                # Update tracking if available
-                                if self.tracker and self.config.enable_tracking:
-                                    detected_balls = self.tracker.update_tracking(
-                                        detected_balls, timestamp
-                                    )
+                except Exception as e:
+                    logger.error(f"YOLO+OpenCV hybrid ball detection failed: {e}")
+                    self.stats.detection_accuracy["balls"] = 0.0
 
-                                detection_rate = len(detected_balls) / 16.0
-                                self.stats.detection_accuracy["balls"] = min(
-                                    detection_rate, 1.0
-                                )
-                            except Exception as fallback_e:
-                                logger.warning(
-                                    f"Fallback ball detection also failed: {fallback_e}"
-                                )
-                                self.stats.detection_accuracy["balls"] = 0.0
-                        else:
-                            self.stats.detection_accuracy["balls"] = 0.0
+            # Cue detection using CueDetector with YOLO+OpenCV hybrid
+            if self.cue_detector and self.config.enable_cue_detection:
+                try:
+                    # Get cue ball position for improved cue detection
+                    cue_ball_pos = None
+                    for ball in detected_balls:
+                        if ball.ball_type == BallType.CUE:
+                            cue_ball_pos = ball.position
+                            break
 
-                    except Exception as e:
-                        logger.warning(f"Ball detection failed: {e}")
-                        # Try fallback if available
-                        if self.fallback_to_opencv and self.ball_detector:
-                            try:
-                                logger.info(
-                                    "Attempting fallback to OpenCV ball detector"
-                                )
-                                detected_balls = self.ball_detector.detect_balls(
-                                    processed_frame
-                                )
+                    # Use CueDetector which leverages YOLO + OpenCV hybrid detection
+                    detected_cue = self.cue_detector.detect_cue(
+                        processed_frame, cue_ball_pos
+                    )
 
-                                # Update tracking if available
-                                if self.tracker and self.config.enable_tracking:
-                                    detected_balls = self.tracker.update_tracking(
-                                        detected_balls, timestamp
-                                    )
+                    self.stats.detection_accuracy["cue"] = 1.0 if detected_cue else 0.0
 
-                                detection_rate = len(detected_balls) / 16.0
-                                self.stats.detection_accuracy["balls"] = min(
-                                    detection_rate, 1.0
-                                )
-                            except Exception as fallback_e:
-                                logger.warning(
-                                    f"Fallback ball detection also failed: {fallback_e}"
-                                )
-                                self.stats.detection_accuracy["balls"] = 0.0
-                        else:
-                            self.stats.detection_accuracy["balls"] = 0.0
-
-                # Cue detection
-                if self.config.enable_cue_detection:
-                    try:
-                        # Get cue ball position for improved cue detection
-                        cue_ball_pos = None
-                        for ball in detected_balls:
-                            if ball.ball_type == BallType.CUE:
-                                cue_ball_pos = ball.position
-                                break
-
-                        detected_cue = self.detector.detect_cue(
-                            processed_frame, cue_ball_pos
-                        )
-                        self.stats.detection_accuracy["cue"] = (
-                            1.0 if detected_cue else 0.0
-                        )
-
-                    except NotImplementedError as e:
-                        # YOLO not implemented yet, fall back to OpenCV
-                        logger.warning(
-                            f"Primary cue detector not implemented: {e}, falling back to OpenCV"
-                        )
-                        if self.fallback_to_opencv and self.cue_detector:
-                            try:
-                                detected_cue = self.cue_detector.detect_cue(
-                                    processed_frame, cue_ball_pos
-                                )
-                                self.stats.detection_accuracy["cue"] = (
-                                    1.0 if detected_cue else 0.0
-                                )
-                            except Exception as fallback_e:
-                                logger.warning(
-                                    f"Fallback cue detection also failed: {fallback_e}"
-                                )
-                                self.stats.detection_accuracy["cue"] = 0.0
-                        else:
-                            self.stats.detection_accuracy["cue"] = 0.0
-
-                    except Exception as e:
-                        logger.warning(f"Cue detection failed: {e}")
-                        # Try fallback if available
-                        if self.fallback_to_opencv and self.cue_detector:
-                            try:
-                                logger.info(
-                                    "Attempting fallback to OpenCV cue detector"
-                                )
-                                detected_cue = self.cue_detector.detect_cue(
-                                    processed_frame, cue_ball_pos
-                                )
-                                self.stats.detection_accuracy["cue"] = (
-                                    1.0 if detected_cue else 0.0
-                                )
-                            except Exception as fallback_e:
-                                logger.warning(
-                                    f"Fallback cue detection also failed: {fallback_e}"
-                                )
-                                self.stats.detection_accuracy["cue"] = 0.0
-                        else:
-                            self.stats.detection_accuracy["cue"] = 0.0
-            else:
-                # No detector available, use legacy detectors if they exist
-                # Ball detection
-                if self.ball_detector and self.config.enable_ball_detection:
-                    try:
-                        detected_balls = self.ball_detector.detect_balls(
-                            processed_frame
-                        )
-
-                        # Update tracking if available
-                        if self.tracker and self.config.enable_tracking:
-                            detected_balls = self.tracker.update_tracking(
-                                detected_balls, timestamp
-                            )
-
-                        max_balls = _get_config_value(
-                            "vision.detection.max_balls_on_table", 16
-                        )
-                        detection_rate = len(detected_balls) / float(max_balls)
-                        self.stats.detection_accuracy["balls"] = min(
-                            detection_rate, 1.0
-                        )
-
-                    except Exception as e:
-                        logger.warning(f"Ball detection failed: {e}")
-                        self.stats.detection_accuracy["balls"] = 0.0
-
-                # Cue detection
-                if self.cue_detector and self.config.enable_cue_detection:
-                    try:
-                        detected_cue = self.cue_detector.detect_cue(processed_frame)
-                        self.stats.detection_accuracy["cue"] = (
-                            1.0 if detected_cue else 0.0
-                        )
-
-                    except Exception as e:
-                        logger.warning(f"Cue detection failed: {e}")
-                        self.stats.detection_accuracy["cue"] = 0.0
+                except Exception as e:
+                    logger.error(f"Cue detection failed: {e}")
+                    self.stats.detection_accuracy["cue"] = 0.0
 
             # Create result
             processing_time = (

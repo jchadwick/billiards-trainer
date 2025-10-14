@@ -549,6 +549,71 @@ def yolo_to_cue(
         return None
 
 
+def yolo_cue_to_cue_stick(
+    detection: Any,
+    image_shape: tuple[int, int],
+    min_confidence: float = 0.3,
+) -> Optional[CueStick]:
+    """Convert YOLO Detection object (from YOLODetector) to CueStick dataclass.
+
+    This function handles Detection objects directly from the YOLODetector class.
+
+    Args:
+        detection: Detection object from YOLODetector with attributes:
+            - bbox: (x1, y1, x2, y2) bounding box
+            - confidence: Detection confidence
+            - angle: Rotation angle (calculated from Hough lines)
+            - center: (cx, cy) center position
+            - line_center: (cx, cy) line center if available
+            - line_end1, line_end2: Line endpoints if available
+        image_shape: Image dimensions (height, width)
+        min_confidence: Minimum confidence threshold
+
+    Returns:
+        CueStick object or None if detection is invalid
+    """
+    try:
+        # Check confidence
+        if detection.confidence < min_confidence:
+            return None
+
+        # Extract tip position
+        # Use line_center if available (more accurate from Hough line detection)
+        if hasattr(detection, "line_center") and detection.line_center:
+            tip_position = detection.line_center
+        else:
+            tip_position = detection.center
+
+        # Extract angle (already calculated by YOLODetector._estimate_cue_angle)
+        angle = detection.angle if hasattr(detection, "angle") else 0.0
+
+        # Calculate length from bbox
+        x1, y1, x2, y2 = detection.bbox
+        width = x2 - x1
+        height = y2 - y1
+        length = max(width, height)
+
+        # Create CueStick object
+        cue = CueStick(
+            tip_position=tip_position,
+            angle=angle,
+            length=length,
+            confidence=float(detection.confidence),
+            state=CueState.AIMING,  # Default state, will be determined by motion analysis
+            is_aiming=True,
+            tip_velocity=(0.0, 0.0),  # Will be calculated by tracking
+            angular_velocity=0.0,
+        )
+
+        return cue
+
+    except Exception as e:
+        logger.error(
+            f"Failed to convert YOLO Detection to CueStick: {e}", exc_info=True
+        )
+        return None
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================

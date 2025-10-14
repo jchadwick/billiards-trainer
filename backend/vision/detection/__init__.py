@@ -11,7 +11,7 @@ with traditional computer vision (OpenCV) for robust performance.
 
 from .balls import BallDetectionConfig, BallDetector, DetectionMethod
 from .cue import CueDetector
-from .detector_factory import BaseDetector, OpenCVDetector
+from .detector_factory import BaseDetector
 from .detector_factory import YOLODetector as FactoryYOLODetector
 from .detector_factory import create_detector as create_unified_detector
 from .hybrid_validator import (
@@ -31,13 +31,13 @@ from .yolo_detector import (
 )
 
 __all__ = [
-    # Ball detection
+    # Ball detection (kept for reference/testing, not used in production)
     "BallDetector",
     "BallDetectionConfig",
     "DetectionMethod",
-    # Cue detection
+    # Cue detection (kept for reference/testing, not used in production)
     "CueDetector",
-    # YOLO detection (legacy)
+    # YOLO detection (primary implementation)
     "YOLODetector",
     "Detection",
     "TableElements",
@@ -45,9 +45,8 @@ __all__ = [
     "ModelFormat",
     "create_detector",
     "ball_class_to_type",
-    # Detector factory (new unified interface)
+    # Detector factory (unified interface - YOLO+OpenCV hybrid only)
     "BaseDetector",
-    "OpenCVDetector",
     "FactoryYOLODetector",
     "create_unified_detector",
     # Hybrid validation and refinement

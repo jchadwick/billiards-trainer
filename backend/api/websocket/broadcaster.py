@@ -61,6 +61,7 @@ class BroadcastStats:
     peak_latency: float = 0.0
     compression_enabled: bool = True
     frame_metrics: FrameMetrics = None
+    validation_failures: int = 0
 
     def __post_init__(self):
         """Initialize frame metrics if not provided."""
@@ -268,7 +269,63 @@ class MessageBroadcaster:
         table: Optional[dict[str, Any]] = None,
         timestamp: Optional[datetime] = None,
     ):
-        """Broadcast current game state to subscribers."""
+        """Broadcast current game state to subscribers with validation.
+
+        Args:
+            balls: List of ball dictionaries with position and other required fields
+            cue: Optional cue stick information
+            table: Optional table information
+            timestamp: Optional timestamp for the state
+
+        Returns:
+            None. Logs warnings and returns early if validation fails.
+        """
+        # Validate balls parameter
+        if not isinstance(balls, list):
+            logger.warning(
+                f"broadcast_game_state: 'balls' must be a list, got {type(balls).__name__}"
+            )
+            self.broadcast_stats.validation_failures += 1
+            return
+
+        if len(balls) == 0:
+            logger.warning(
+                "broadcast_game_state: 'balls' list is empty, skipping broadcast"
+            )
+            self.broadcast_stats.validation_failures += 1
+            return
+
+        # Validate each ball has required fields
+        required_ball_fields = ["position"]
+        for i, ball in enumerate(balls):
+            if not isinstance(ball, dict):
+                logger.warning(
+                    f"broadcast_game_state: ball at index {i} is not a dict, got {type(ball).__name__}"
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+
+            missing_fields = [
+                field for field in required_ball_fields if field not in ball
+            ]
+            if missing_fields:
+                logger.warning(
+                    f"broadcast_game_state: ball at index {i} missing required fields: {missing_fields}. "
+                    f"Ball data: {ball}"
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+
+            # Validate position field
+            position = ball["position"]
+            if not isinstance(position, (list, tuple)) or len(position) < 2:
+                logger.warning(
+                    f"broadcast_game_state: ball at index {i} has invalid position format. "
+                    f"Expected list/tuple with at least 2 elements, got {type(position).__name__} with value {position}"
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+
         state_data = {
             "balls": balls,
             "cue": cue,
@@ -288,7 +345,70 @@ class MessageBroadcaster:
         confidence: float = 1.0,
         calculation_time_ms: float = 0.0,
     ):
-        """Broadcast trajectory calculations to subscribers."""
+        """Broadcast trajectory calculations to subscribers with validation.
+
+        Args:
+            lines: List of trajectory line dictionaries (must have at least 2 points)
+            collisions: Optional list of collision dictionaries
+            confidence: Confidence score for the trajectory calculation
+            calculation_time_ms: Time taken to calculate the trajectory
+
+        Returns:
+            None. Logs warnings and returns early if validation fails.
+        """
+        # Validate lines parameter
+        if not isinstance(lines, list):
+            logger.warning(
+                f"broadcast_trajectory: 'lines' must be a list, got {type(lines).__name__}"
+            )
+            self.broadcast_stats.validation_failures += 1
+            return
+
+        if len(lines) < 2:
+            logger.warning(
+                f"broadcast_trajectory: 'lines' must have at least 2 points for a valid trajectory, got {len(lines)}"
+            )
+            self.broadcast_stats.validation_failures += 1
+            return
+
+        # Validate each line is a dict
+        for i, line in enumerate(lines):
+            if not isinstance(line, dict):
+                logger.warning(
+                    f"broadcast_trajectory: line at index {i} is not a dict, got {type(line).__name__}"
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+
+        # Validate collisions parameter if provided
+        if collisions is not None:
+            if not isinstance(collisions, list):
+                logger.warning(
+                    f"broadcast_trajectory: 'collisions' must be a list, got {type(collisions).__name__}"
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+
+            # Validate each collision is a dict with expected structure
+            for i, collision in enumerate(collisions):
+                if not isinstance(collision, dict):
+                    logger.warning(
+                        f"broadcast_trajectory: collision at index {i} is not a dict, got {type(collision).__name__}"
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
+
+                # Common collision fields to check (if present)
+                if "position" in collision:
+                    position = collision["position"]
+                    if not isinstance(position, (list, tuple)) or len(position) < 2:
+                        logger.warning(
+                            f"broadcast_trajectory: collision at index {i} has invalid position format. "
+                            f"Expected list/tuple with at least 2 elements, got {type(position).__name__} with value {position}"
+                        )
+                        self.broadcast_stats.validation_failures += 1
+                        return
+
         trajectory_data = {
             "lines": lines,
             "collisions": collisions or [],
@@ -362,6 +482,7 @@ class MessageBroadcaster:
                 "messages_sent": self.broadcast_stats.messages_sent,
                 "bytes_sent": self.broadcast_stats.bytes_sent,
                 "failed_sends": self.broadcast_stats.failed_sends,
+                "validation_failures": self.broadcast_stats.validation_failures,
                 "average_latency": self.broadcast_stats.average_latency,
                 "peak_latency": self.broadcast_stats.peak_latency,
                 "compression_enabled": self.broadcast_stats.compression_enabled,
@@ -424,6 +545,7 @@ class MessageBroadcaster:
                 "messages_sent": self.broadcast_stats.messages_sent,
                 "bytes_sent": self.broadcast_stats.bytes_sent,
                 "failed_sends": self.broadcast_stats.failed_sends,
+                "validation_failures": self.broadcast_stats.validation_failures,
                 "average_latency": self.broadcast_stats.average_latency,
                 "peak_latency": self.broadcast_stats.peak_latency,
                 "compression_enabled": self.broadcast_stats.compression_enabled,

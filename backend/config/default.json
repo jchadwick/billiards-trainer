@@ -149,8 +149,8 @@
       "auto_reconnect": true
     },
     "detection": {
-      "detection_backend": "opencv",
-      "yolo_model_path": "models/yolov8n-pool.onnx",
+      "detection_backend": "yolo",
+      "yolo_model_path": "models/yolov8n-billiards.onnx",
       "yolo_confidence": 0.4,
       "yolo_nms_threshold": 0.45,
       "yolo_device": "cpu",

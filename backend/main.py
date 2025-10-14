@@ -10,6 +10,7 @@ from typing import NoReturn
 
 from backend.api.main import app, lifespan
 from backend.config.manager import ConfigurationModule
+from backend.config.validation import ConfigValidationError, validate_configuration
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,15 @@ def main() -> NoReturn:
 
     # Load configuration
     config_module = ConfigurationModule()
+
+    # Validate configuration at startup (fail fast on critical errors)
+    try:
+        validate_configuration(config_module)
+    except ConfigValidationError as e:
+        logger.critical("Configuration validation failed!")
+        logger.critical(str(e))
+        logger.critical("Cannot start backend with invalid configuration")
+        sys.exit(1)
 
     # Get API server settings from configuration
     api_host = config_module.get("api.server.host", "0.0.0.0")

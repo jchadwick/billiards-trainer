@@ -201,10 +201,12 @@ class CoreModule:
                 self._current_state = new_state
                 self._last_update_time = time.time()
 
-                # Emit state change event
+                # Emit state change event with flattened structure
+                # Convert state to dict and flatten it (avoid nested {"state": {...}})
+                state_dict = asdict(new_state)
                 await self._emit_event(
                     "state_updated",
-                    {"state": asdict(new_state), "timestamp": new_state.timestamp},
+                    state_dict,  # Emit flattened state directly
                 )
 
                 # Update performance metrics

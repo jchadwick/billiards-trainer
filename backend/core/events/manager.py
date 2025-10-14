@@ -12,6 +12,7 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 from queue import Empty, Queue
 from typing import Any, Callable, Optional, Union
 
@@ -237,6 +238,9 @@ class EventManager:
             "events_processed": 0,
             "subscriptions_created": 0,
             "errors": 0,
+            "async_callback_success": 0,
+            "async_callback_errors": 0,
+            "async_callbacks_skipped_no_loop": 0,
         }
 
         # Start enhanced processing
@@ -303,23 +307,51 @@ class EventManager:
                     # Try to get running event loop
                     try:
                         loop = asyncio.get_running_loop()
-                        # Create task in the running loop
-                        loop.create_task(callback(event_type, data))
+                        # Create task in the running loop with exception handler
+                        task = loop.create_task(callback(event_type, data))
+                        # Use functools.partial to properly bind subscription_id
+                        task.add_done_callback(
+                            partial(
+                                self._handle_async_callback_result,
+                                subscription_id=subscription_id,
+                            )
+                        )
+                        self.stats["async_callback_success"] += 1
                     except RuntimeError:
-                        # No running event loop - run in thread pool
-                        import threading
-
-                        def run_async():
-                            asyncio.run(callback(event_type, data))
-
-                        thread = threading.Thread(target=run_async, daemon=True)
-                        thread.start()
+                        # No running event loop - log warning and skip async callback
+                        logger.warning(
+                            f"Cannot execute async callback {subscription_id} for {event_type}: "
+                            f"no event loop running. Consider using sync callbacks or ensuring "
+                            f"an event loop is active."
+                        )
+                        self.stats["async_callbacks_skipped_no_loop"] += 1
                 else:
                     # Call sync callback normally
                     callback(event_type, data)
             except Exception as e:
-                logger.error(f"Error in event callback {subscription_id}: {e}")
-                # Consider removing failing callbacks
+                self.stats["errors"] += 1
+                logger.error(
+                    f"Error in event callback {subscription_id} for {event_type}: {e}",
+                    exc_info=True,
+                )
+
+    def _handle_async_callback_result(
+        self, task: asyncio.Task, subscription_id: str
+    ) -> None:
+        """Handle the result of an async callback task.
+
+        Args:
+            task: The completed asyncio task
+            subscription_id: ID of the subscription for logging
+        """
+        try:
+            # This will raise if the task raised an exception
+            task.result()
+        except Exception as e:
+            self.stats["async_callback_errors"] += 1
+            logger.error(
+                f"Error in async event callback {subscription_id}: {e}", exc_info=True
+            )
 
     def get_subscriber_count(self, event_type: str = None) -> int:
         """Get number of subscribers for event type.

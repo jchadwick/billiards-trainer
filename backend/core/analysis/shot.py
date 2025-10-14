@@ -19,7 +19,9 @@ def _get_config() -> ConfigurationModule:
     """Get or create configuration instance."""
     global _config
     if _config is None:
-        _config = ConfigurationModule(config_dir=Path("config"))
+        from backend.config import config_manager
+
+        _config = config_manager
     return _config
 
 

@@ -605,9 +605,12 @@ class DetectionMethod(str, Enum):
 
 
 class DetectionBackend(str, Enum):
-    """Detection backend types."""
+    """Detection backend types.
 
-    OPENCV = "opencv"
+    Note: OPENCV backend has been removed. YOLO is now the only supported
+    backend, which can optionally use OpenCV for classification refinement.
+    """
+
     YOLO = "yolo"
 
 
@@ -640,14 +643,14 @@ class DetectionSettings(BaseConfig):
 
     # Detection backend selection
     detection_backend: DetectionBackend = Field(
-        default=DetectionBackend.OPENCV,
-        description="Detection backend to use (opencv or yolo)",
+        default=DetectionBackend.YOLO,
+        description="Detection backend to use (only 'yolo' is supported; uses YOLO+OpenCV hybrid)",
     )
 
     # YOLO configuration
     yolo_model_path: str = Field(
-        default="models/yolov8n-pool-1280.onnx",
-        description="Path to YOLO model file (ONNX format) - uses 1280x1280 input for better detection",
+        default="models/yolov8n-billiards.onnx",
+        description="Path to YOLO model file (ONNX format)",
     )
     yolo_confidence: float = Field(
         default=0.4,

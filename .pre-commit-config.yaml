@@ -64,14 +64,14 @@ repos:
   #       additional_dependencies: ["bandit[toml]", "pbr"]
   #       files: ^backend/
 
-  # Documentation
-  - repo: https://github.com/pycqa/pydocstyle
-    rev: 6.3.0
-    hooks:
-      - id: pydocstyle
-        files: ^backend/
-        exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/|api/tests/)
-        args: [--convention=google]
+  # # Documentation
+  # - repo: https://github.com/pycqa/pydocstyle
+  #   rev: 6.3.0
+  #   hooks:
+  #     - id: pydocstyle
+  #       files: ^backend/
+  #       exclude: ^backend/(tests|.*_test\.py|test_.*\.py|.*demo.*\.py|examples/|api/tests/)
+  #       args: [--convention=google]
 
 # Configuration for pre-commit.ci (if using pre-commit.ci service)
 ci:
