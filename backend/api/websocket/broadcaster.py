@@ -289,9 +289,6 @@ class MessageBroadcaster:
             return
 
         if len(balls) == 0:
-            logger.warning(
-                "broadcast_game_state: 'balls' list is empty, skipping broadcast"
-            )
             self.broadcast_stats.validation_failures += 1
             return
 

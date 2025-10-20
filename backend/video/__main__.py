@@ -71,9 +71,9 @@ def apply_environment_overrides(config: Config) -> None:
     # VIDEO_FILE override - useful for testing
     video_file = os.environ.get("VIDEO_FILE")
     if video_file:
-        config.set("vision.camera.device_id", video_file)
+        config.set("vision.camera.video_file_path", video_file)
         config.set("vision.camera.loop_video", True)
-        overrides_applied.append(f"device_id={video_file} (loop=True)")
+        overrides_applied.append(f"video_file_path={video_file} (loop=True)")
 
     # LOG_LEVEL override
     log_level = os.environ.get("LOG_LEVEL")
