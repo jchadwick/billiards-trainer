@@ -21,35 +21,11 @@ def _get_config_value(key: str, default: any = None) -> any:
         Configuration value
     """
     try:
-        from pathlib import Path
+        from backend.config import config
 
-        from backend.config.manager import ConfigurationModule
-
-        # Determine the correct config directory
-        # If we're in the project root, use backend/config
-        # If we're in backend/, use config
-        config_dir = Path("backend/config")
-        if not config_dir.exists():
-            config_dir = Path("config")
-
-        config = ConfigurationModule(config_dir=config_dir)
-
-        # Try to get from config manager first
-        value = config.get(key, None)
-        if value is not None:
-            return value
-
-        # Try to access from settings object using dot notation
-        parts = key.split(".")
-        obj = config._settings
-        for part in parts:
-            if hasattr(obj, part):
-                obj = getattr(obj, part)
-            else:
-                return default
-        return obj if obj is not None else default
+        return config.get(key, default)
     except (ImportError, Exception):
-        # Fallback to default if config manager not available
+        # Fallback to default if config not available
         return default
 
 

@@ -6,13 +6,12 @@ from fastapi import Depends, HTTPException
 
 # Import modules with fallback for different import contexts
 try:
-    from ..config import ConfigurationModule
+    from ..config import Config, config
     from ..core import CoreModule
 except ImportError:
     # If running from the backend directory directly
+    from backend.config import Config, config
     from core import CoreModule
-
-    from config import ConfigurationModule
 
 from .websocket.manager import websocket_manager
 
@@ -23,7 +22,7 @@ class ApplicationState:
     def __init__(self):
         """Initialize application state with default values."""
         self.core_module: Optional[CoreModule] = None
-        self.config_module: Optional[ConfigurationModule] = None
+        self.config_module: Optional[Config] = config  # Use singleton config
         self.websocket_manager = websocket_manager
         self.websocket_handler = None
         self.message_broadcaster: Optional[Any] = None  # MessageBroadcaster instance
@@ -44,7 +43,7 @@ def get_core_module() -> CoreModule:
     return app_state.core_module
 
 
-def get_config_module() -> ConfigurationModule:
+def get_config_module() -> Config:
     """Get the configuration module instance."""
     if not app_state.config_module:
         raise HTTPException(

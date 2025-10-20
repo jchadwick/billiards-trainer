@@ -1,5 +1,6 @@
 """Main entry point for the billiards trainer application."""
 
+import argparse
 import asyncio
 import logging
 import os
@@ -9,14 +10,40 @@ from pathlib import Path
 from typing import NoReturn
 
 from backend.api.main import app, lifespan
-from backend.config.manager import ConfigurationModule
-from backend.config.validation import ConfigValidationError, validate_configuration
+from backend.config import Config
 
 logger = logging.getLogger(__name__)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns:
+        Parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Billiards Trainer - AI-powered billiards training system"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.json",
+        help="Path to configuration file (default: ./config.json)",
+    )
+    return parser.parse_args()
+
+
 def main() -> NoReturn:
     """Main entry point for the application."""
+    # Parse command-line arguments
+    args = parse_args()
+
+    # Set the config file path before any imports that might use config
+    Config.set_config_file(args.config)
+
+    # Get the config instance for convenience
+    config = Config()
+
     # Configure VAAPI for GPU hardware acceleration BEFORE any video operations
     # This must be done early before OpenCV initializes
     try:
@@ -30,26 +57,12 @@ def main() -> NoReturn:
     # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
     # which is called during the FastAPI lifespan startup
 
-    # Load configuration
-    config_module = ConfigurationModule()
-
-    # Validate configuration at startup (fail fast on critical errors)
-    try:
-        validate_configuration(config_module)
-    except ConfigValidationError as e:
-        logger.critical("Configuration validation failed!")
-        logger.critical(str(e))
-        logger.critical("Cannot start backend with invalid configuration")
-        sys.exit(1)
-
     # Get API server settings from configuration
-    api_host = config_module.get("api.server.host", "0.0.0.0")
-    api_port = int(
-        os.getenv("API_PORT", str(config_module.get("api.server.port", 8000)))
-    )
-    reload = config_module.get("api.server.reload", False)
-    log_level = config_module.get(
-        "api.server.log_level", config_module.get("logging.level", "info")
+    api_host = config.get("api.server.host", "0.0.0.0")
+    api_port = int(os.getenv("API_PORT", str(config.get("api.server.port", 8000))))
+    reload = config.get("api.server.reload", False)
+    log_level = config.get(
+        "api.server.log_level", config.get("logging.level", "info")
     ).lower()
 
     logger.info(f"Starting Billiards Trainer on {api_host}:{api_port}")

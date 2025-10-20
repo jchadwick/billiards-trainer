@@ -144,7 +144,7 @@ class YOLODetector:
         Args:
             model_path: Path to YOLO model file (.pt, .onnx, or .tflite). If None, detector
                        will operate in fallback mode without YOLO.
-            device: Device to run inference on ('cpu', 'cuda', 'mps', 'tpu')
+            device: Device to run inference on ('cpu', 'cuda', 'mps', 'coreml', 'tpu')
             confidence: Minimum confidence threshold (0.0-1.0). Default 0.15 works well for
                        billiards ball detection while capturing difficult angles and lighting.
             nms_threshold: Non-maximum suppression IoU threshold
@@ -167,13 +167,19 @@ class YOLODetector:
             maintaining precision (filtering out false positives like markers and shadows).
         """
         self.model_path = model_path
-        self.device = device
         self.confidence = confidence
         self.nms_threshold = nms_threshold
         self.auto_fallback = auto_fallback
         self.tpu_device_path = tpu_device_path
         self.enable_opencv_classification = enable_opencv_classification
         self.min_ball_size = min_ball_size
+
+        # Auto-detect best device if not specified or if "auto"
+        if device == "auto" or device is None:
+            self.device = self._auto_detect_device()
+            logger.info(f"Auto-detected device: {self.device}")
+        else:
+            self.device = device
 
         # Model state
         self.model: Optional[Any] = None
@@ -264,6 +270,61 @@ class YOLODetector:
         # Reverse mapping
         self.name_to_class = {v: k for k, v in self.class_names.items()}
 
+    def _auto_detect_device(self) -> str:
+        """Auto-detect the best available device for inference.
+
+        Priority:
+        1. CUDA GPU (if available)
+        2. CoreML (Apple Silicon Mac with ONNX model)
+        3. MPS (Apple Silicon Mac with PyTorch)
+        4. CPU (fallback)
+
+        Returns:
+            Device string: 'cuda', 'coreml', 'mps', or 'cpu'
+        """
+        import platform
+        import sys
+
+        # Check for CUDA GPU
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                logger.info("CUDA GPU detected")
+                return "cuda"
+        except ImportError:
+            pass
+
+        # Check for Apple Silicon and determine best option
+        if platform.system() == "Darwin" and platform.machine() == "arm64":
+            # Check if we'll be using ONNX model (need to know model format)
+            if self.model_path and self.model_path.endswith(".onnx"):
+                # For ONNX on Apple Silicon, use CoreML execution provider
+                try:
+                    import onnxruntime as ort
+
+                    if "CoreMLExecutionProvider" in ort.get_available_providers():
+                        logger.info(
+                            "Apple Silicon detected with ONNX model - using CoreML"
+                        )
+                        return "coreml"
+                except ImportError:
+                    pass
+
+            # For PyTorch models on Apple Silicon, use MPS
+            try:
+                import torch
+
+                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    logger.info("Apple Silicon detected with PyTorch - using MPS")
+                    return "mps"
+            except ImportError:
+                pass
+
+        # Fallback to CPU
+        logger.info("No GPU acceleration detected - using CPU")
+        return "cpu"
+
     def _detect_tpu(self) -> bool:
         """Detect if Coral Edge TPU is available.
 
@@ -336,11 +397,43 @@ class YOLODetector:
             # Standard YOLO model loading (PyTorch, ONNX, TensorRT)
             try:
                 # Import ultralytics YOLO
+                import os
+
                 from ultralytics import YOLO
 
                 logger.info(
                     f"Loading YOLO model from {model_path} (format: {self.model_format.value})"
                 )
+
+                # Configure CoreML execution provider for ONNX models on Apple Silicon
+                if self.device == "coreml" and self.model_format == ModelFormat.ONNX:
+                    logger.info(
+                        "Configuring ONNX Runtime to use CoreML execution provider"
+                    )
+
+                    # Set environment variables BEFORE loading model to force CoreML provider
+                    os.environ["ORT_COREML_FLAGS"] = "1"
+                    # This tells ONNX Runtime to use all available execution providers in priority order
+                    os.environ["ORT_DISABLE_ALL_OPTIMIZATIONS"] = "0"
+
+                    # Import onnxruntime to verify CoreML availability
+                    try:
+                        import onnxruntime as ort
+
+                        available_providers = ort.get_available_providers()
+                        if "CoreMLExecutionProvider" in available_providers:
+                            logger.info(
+                                f"CoreML execution provider is available. All providers: {available_providers}"
+                            )
+                            # Note: Ultralytics will use providers in order: CoreML, CPU
+                            # CoreML provider should be prioritized automatically on macOS
+                        else:
+                            logger.warning(
+                                "CoreML provider not available, falling back to CPU"
+                            )
+                            self.device = "cpu"
+                    except ImportError:
+                        logger.warning("onnxruntime not found, cannot configure CoreML")
 
                 # Load model
                 self.model = YOLO(str(path))

@@ -14,7 +14,7 @@ from typing import Any, Optional
 import cv2
 import numpy as np
 
-from ..config.manager import ConfigurationModule
+from ..config import Config, config
 from ..vision.calibration.camera import CameraCalibrator
 
 logger = logging.getLogger(__name__)
@@ -64,11 +64,11 @@ class EnhancedCameraConfig:
     thread_join_timeout_seconds: float
 
     @classmethod
-    def from_config(cls, config: ConfigurationModule) -> "EnhancedCameraConfig":
-        """Create configuration from ConfigurationModule.
+    def from_config(cls, cfg: Config) -> "EnhancedCameraConfig":
+        """Create configuration from Config.
 
         Args:
-            config: Configuration module instance
+            cfg: Configuration instance
 
         Returns:
             EnhancedCameraConfig instance with values from config
@@ -82,7 +82,14 @@ class EnhancedCameraConfig:
 
         # Access config using dot notation for flattened keys
         # Use vision.camera.* as the single source of truth for camera settings
-        device_id = config.get("vision.camera.device_id", 0)
+
+        # Auto-detect source: if video_file_path is set, use that; otherwise use device_id
+        video_file_path = config.get("vision.camera.video_file_path")
+        if video_file_path:
+            device_id = video_file_path
+        else:
+            device_id = config.get("vision.camera.device_id", 0)
+
         resolution = config.get("vision.camera.resolution")
         if resolution and isinstance(resolution, list) and len(resolution) == 2:
             resolution = tuple(resolution)
@@ -689,10 +696,9 @@ class EnhancedCameraModule:
 # Example usage for single-application architecture
 if __name__ == "__main__":
     # Example 1: Load from configuration system
-    from ..config.manager import ConfigurationModule
+    from ..config import Config, config
 
-    config_module = ConfigurationModule()
-    camera_config = EnhancedCameraConfig.from_config(config_module)
+    camera_config = EnhancedCameraConfig.from_config(config)
     camera = EnhancedCameraModule(camera_config)
 
     if camera.start_capture():

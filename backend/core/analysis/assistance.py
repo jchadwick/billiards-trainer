@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ...config.manager import ConfigurationModule
+from backend.config import Config, config
+
 from ..models import BallState, GameState, GameType, ShotType, TableState, Vector2D
 from ..utils.geometry import GeometryUtils
 from .prediction import OutcomePredictor
@@ -106,18 +107,18 @@ class AssistancePackage:
 class AssistanceEngine:
     """Player assistance features engine."""
 
-    def __init__(self, config: Optional[ConfigurationModule] = None):
+    def __init__(self, cfg: Optional[Config] = None):
         """Initialize the assistance engine with configuration.
 
         Args:
-            config: Optional configuration module instance. If not provided, creates a new one.
+            cfg: Optional configuration instance. If not provided, uses singleton.
         """
         self.shot_analyzer = ShotAnalyzer()
         self.outcome_predictor = OutcomePredictor()
         self.geometry_utils = GeometryUtils()
 
-        # Configuration manager
-        self.config = config or ConfigurationModule()
+        # Configuration
+        self.config = cfg if cfg is not None else config
 
         # Load assistance configuration
         assistance_config = self.config.get("core.assistance", {})

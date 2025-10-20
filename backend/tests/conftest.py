@@ -17,9 +17,10 @@ import pytest
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from config.manager import ConfigurationModule
 from core.models import BallState, GameState, ShotAnalysis, TableState, Vector2D
 from vision.models import Ball, BallType, DetectionResult
+
+from backend.config import config
 
 # from api.main import create_app  # Skip API for now due to circular imports
 
@@ -107,20 +108,11 @@ def mock_config():
 
 
 @pytest.fixture()
-def config_module(mock_config, temp_dir):
-    """Create a configuration module instance for testing."""
-    config_file = temp_dir / "test_config.yaml"
-
-    # Write config to file
-    import yaml
-
-    with open(config_file, "w") as f:
-        yaml.dump(mock_config, f)
-
-    # Create config module
-    config_module = ConfigurationModule()
-    config_module.load_config(config_file)
-    return config_module
+def config_module(mock_config):
+    """Create a configuration instance for testing."""
+    # Simply return the global config singleton
+    # Tests can modify it if needed
+    return config
 
 
 @pytest.fixture()

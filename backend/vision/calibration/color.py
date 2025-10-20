@@ -11,7 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 from sklearn.cluster import KMeans
 
-from backend.config.manager import config_manager
+from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
 

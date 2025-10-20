@@ -91,20 +91,6 @@ class ConfigurationModel(BaseModel):
     checksum: Optional[str] = Field(None, description="Configuration checksum")
 
 
-class ConfigProfileModel(BaseModel):
-    """Configuration profile model."""
-
-    name: str = Field(..., description="Profile name")
-    description: Optional[str] = Field(None, description="Profile description")
-    configuration: ConfigurationModel = Field(..., description="Profile configuration")
-    is_active: bool = Field(default=False, description="Whether profile is active")
-    created_at: datetime = Field(
-        default_factory=datetime.now, description="Creation time"
-    )
-    updated_at: Optional[datetime] = Field(None, description="Last update time")
-    tags: list[str] = Field(default=[], description="Profile tags")
-
-
 class ConfigChangeModel(BaseModel):
     """Configuration change record."""
 
@@ -209,17 +195,6 @@ class ConfigImportRequest(BaseModel):
     )
 
 
-class ConfigProfileRequest(BaseModel):
-    """Request to manage configuration profiles."""
-
-    name: str = Field(..., description="Profile name")
-    description: Optional[str] = Field(None, description="Profile description")
-    configuration: Optional[dict[str, Any]] = Field(
-        None, description="Profile configuration"
-    )
-    tags: list[str] = Field(default=[], description="Profile tags")
-
-
 class ConfigSearchRequest(BaseModel):
     """Request to search configuration."""
 
@@ -308,28 +283,6 @@ class ConfigImportResponse(BaseModel):
         None, description="Validation results"
     )
     backup_file: Optional[str] = Field(None, description="Backup file path")
-    processing_time: Optional[float] = Field(
-        None, description="Processing time in seconds"
-    )
-
-
-class ConfigProfileResponse(BaseModel):
-    """Configuration profile response."""
-
-    success: bool = Field(default=True, description="Operation success")
-    profile: ConfigProfileModel = Field(..., description="Configuration profile")
-    processing_time: Optional[float] = Field(
-        None, description="Processing time in seconds"
-    )
-
-
-class ConfigProfileListResponse(BaseModel):
-    """Configuration profile list response."""
-
-    success: bool = Field(default=True, description="Operation success")
-    profiles: list[ConfigProfileModel] = Field(..., description="Available profiles")
-    total_profiles: int = Field(..., description="Total number of profiles")
-    active_profile: Optional[str] = Field(None, description="Currently active profile")
     processing_time: Optional[float] = Field(
         None, description="Processing time in seconds"
     )
@@ -424,7 +377,6 @@ __all__ = [
     "ConfigValueModel",
     "ConfigSectionModel",
     "ConfigurationModel",
-    "ConfigProfileModel",
     "ConfigChangeModel",
     "ConfigValidationResult",
     # Request models
@@ -433,7 +385,6 @@ __all__ = [
     "ConfigGetRequest",
     "ConfigExportRequest",
     "ConfigImportRequest",
-    "ConfigProfileRequest",
     "ConfigSearchRequest",
     "ConfigValidationRequest",
     # Response models
@@ -442,8 +393,6 @@ __all__ = [
     "ConfigUpdateResponse",
     "ConfigExportResponse",
     "ConfigImportResponse",
-    "ConfigProfileResponse",
-    "ConfigProfileListResponse",
     "ConfigSearchResponse",
     "ConfigValidationResponse",
     "ConfigHistoryResponse",

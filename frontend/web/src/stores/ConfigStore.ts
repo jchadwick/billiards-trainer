@@ -261,7 +261,7 @@ export class ConfigStore {
     this.updateUIConfig({ language });
   }
 
-  // Profile management
+  // Profile management (client-side only, stored in browser)
   async saveProfile(name: string): Promise<ActionResult> {
     try {
       if (!name.trim()) {
@@ -274,28 +274,17 @@ export class ConfigStore {
 
       const profileConfig = JSON.parse(JSON.stringify(this.config));
 
-      // Save to backend if possible
-      try {
-        const { apiClient } = await import('../api/client');
-        const response = await apiClient.updateConfiguration(
-          { profiles: { [name]: profileConfig } },
-          'profiles',
-          false,
-          true
-        );
-
-        if (!response.success) {
-          console.warn('Failed to save profile to backend:', response.error);
-          // Continue with local save as fallback
-        }
-      } catch (error) {
-        console.warn('Backend not available, saving profile locally only:', error);
-      }
-
       runInAction(() => {
         this.configProfiles[name] = profileConfig;
         this.isDirty = false;
       });
+
+      // Save to localStorage for persistence across sessions
+      try {
+        localStorage.setItem('billiards-config-profiles', JSON.stringify(this.configProfiles));
+      } catch (error) {
+        console.warn('Failed to save profiles to localStorage:', error);
+      }
 
       return {
         success: true,
@@ -358,6 +347,13 @@ export class ConfigStore {
           this.isDirty = false;
         }
       });
+
+      // Update localStorage
+      try {
+        localStorage.setItem('billiards-config-profiles', JSON.stringify(this.configProfiles));
+      } catch (error) {
+        console.warn('Failed to update profiles in localStorage:', error);
+      }
 
       return {
         success: true,
@@ -505,11 +501,24 @@ export class ConfigStore {
       }
     };
 
+    // Start with built-in profiles
     this.configProfiles = {
       default: defaultConfig,
       performance: performanceConfig,
       quality: qualityConfig
     };
+
+    // Load saved profiles from localStorage
+    try {
+      const savedProfiles = localStorage.getItem('billiards-config-profiles');
+      if (savedProfiles) {
+        const parsed = JSON.parse(savedProfiles);
+        // Merge with defaults, allowing localStorage to override
+        this.configProfiles = { ...this.configProfiles, ...parsed };
+      }
+    } catch (error) {
+      console.warn('Failed to load profiles from localStorage:', error);
+    }
   }
 
   private validateConfig(config: AppConfig): string[] {
@@ -588,9 +597,7 @@ export class ConfigStore {
             if (response.data.values.ui) {
               Object.assign(this.config.ui, response.data.values.ui);
             }
-            if (response.data.values.profiles) {
-              this.configProfiles = { ...this.configProfiles, ...response.data.values.profiles };
-            }
+            // Note: Profiles are now managed client-side only, not synced from backend
           }
           this.isDirty = false;
         });
@@ -611,8 +618,8 @@ export class ConfigStore {
         camera: this.config.camera,
         detection: this.config.detection,
         game: this.config.game,
-        ui: this.config.ui,
-        profiles: this.configProfiles
+        ui: this.config.ui
+        // Note: Profiles are client-side only, not synced to backend
       };
 
       const response = await apiClient.updateConfiguration(configData);

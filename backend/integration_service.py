@@ -17,7 +17,7 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-from backend.config.manager import ConfigurationModule
+from backend.config import Config, config
 from backend.core import CoreModule
 from backend.core.models import BallState, CueState, TableState, Vector2D
 from backend.core.physics.trajectory import (
@@ -189,7 +189,7 @@ class IntegrationService:
         vision_module: VisionModule,
         core_module: CoreModule,
         message_broadcaster: Any,  # MessageBroadcaster from api.websocket
-        config_module: Optional[ConfigurationModule] = None,
+        config_module: Optional[Config] = None,
     ):
         """Initialize integration service.
 
@@ -197,13 +197,14 @@ class IntegrationService:
             vision_module: Vision processing module
             core_module: Core game state and physics module
             message_broadcaster: WebSocket broadcaster
-            config_module: Configuration module (optional, will create default if not provided)
+            config_module: Configuration module (optional, will use singleton if not provided)
         """
         self.vision = vision_module
         self.core = core_module
         self.broadcaster = message_broadcaster
         self.running = False
         self.integration_task: Optional[asyncio.Task[None]] = None
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Initialize trajectory calculator for multiball predictions
         self.trajectory_calculator = TrajectoryCalculator()
@@ -212,8 +213,8 @@ class IntegrationService:
         self.physics_validator = PhysicsValidator()
         self.table_state_validator = TableStateValidator()
 
-        # Configuration
-        self.config = config_module or ConfigurationModule()
+        # Configuration (use provided or singleton)
+        self.config = config_module if config_module is not None else config
 
         # Initialize state conversion helpers
         self.state_converter = StateConversionHelpers(
@@ -270,6 +271,9 @@ class IntegrationService:
 
         logger.info("Starting integration service...")
         self.running = True
+
+        # Capture the event loop for use in event callbacks
+        self._event_loop = asyncio.get_running_loop()
 
         # Start vision module camera capture
         logger.info("Starting vision module camera capture...")
@@ -999,10 +1003,38 @@ class IntegrationService:
 
         return False
 
-    async def _on_state_updated(
+    def _on_state_updated(self, event_type: str, event_data: dict[str, Any]) -> None:
+        """Handle Core state update events.
+
+        This is a synchronous callback that schedules async work in the background.
+
+        Args:
+            event_type: Type of event (e.g., "state_updated")
+            event_data: Event data containing updated state (flattened GameState dict)
+        """
+        # Schedule async processing using the stored event loop
+        if self._event_loop is None:
+            logger.error(
+                "No event loop available - cannot process state update. "
+                "Integration service may not be started properly."
+            )
+            return
+
+        # Schedule the coroutine on the stored event loop
+        try:
+            self._event_loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(
+                    self._on_state_updated_async(event_type, event_data),
+                    loop=self._event_loop,
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to schedule state update processing: {e}")
+
+    async def _on_state_updated_async(
         self, event_type: str, event_data: dict[str, Any]
     ) -> None:
-        """Handle Core state update events.
+        """Async handler for Core state update events.
 
         Args:
             event_type: Type of event (e.g., "state_updated")
@@ -1093,10 +1125,40 @@ class IntegrationService:
             table,
         )
 
-    async def _on_trajectory_calculated(
+    def _on_trajectory_calculated(
         self, event_type: str, event_data: dict[str, Any]
     ) -> None:
         """Handle trajectory calculation events.
+
+        This is a synchronous callback that schedules async work in the background.
+
+        Args:
+            event_type: Type of event (e.g., "trajectory_calculated")
+            event_data: Event data containing trajectory
+        """
+        # Schedule async processing using the stored event loop
+        if self._event_loop is None:
+            logger.error(
+                "No event loop available - cannot process trajectory calculation. "
+                "Integration service may not be started properly."
+            )
+            return
+
+        # Schedule the coroutine on the stored event loop
+        try:
+            self._event_loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(
+                    self._on_trajectory_calculated_async(event_type, event_data),
+                    loop=self._event_loop,
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to schedule trajectory calculation processing: {e}")
+
+    async def _on_trajectory_calculated_async(
+        self, event_type: str, event_data: dict[str, Any]
+    ) -> None:
+        """Async handler for trajectory calculation events.
 
         Args:
             event_type: Type of event (e.g., "trajectory_calculated")

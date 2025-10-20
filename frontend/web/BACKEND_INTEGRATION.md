@@ -48,9 +48,9 @@ const status = await apiClient.getStreamStatus();
 
 #### ConfigStore
 - **Backend Persistence**: `saveToBackend()` and `loadFromBackend()` methods
-- **Profile Management**: Profiles saved to backend configuration
 - **Import/Export**: Real file upload/download through backend APIs
 - **Auto-sync**: Configuration changes automatically saved with debouncing
+- **Note**: Profile management is handled client-side in browser localStorage (not synced to backend)
 
 #### VideoStore
 - **Real Streaming**: Connects to `/api/v1/stream/video` endpoint

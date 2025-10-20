@@ -251,6 +251,16 @@ class PhysicsValidator:
             and collision.resulting_velocities
         ):
             for ball_id, velocity in collision.resulting_velocities.items():
+                if velocity is None:
+                    errors.append(
+                        ValidationError(
+                            error_type="null_velocity",
+                            severity="error",
+                            message=f"Resulting velocity is None for ball {ball_id}",
+                            details={"ball_id": ball_id},
+                        )
+                    )
+                    continue
                 velocity_mag = velocity.magnitude()
                 if velocity_mag > self.max_velocity:
                     errors.append(
@@ -324,21 +334,32 @@ class PhysicsValidator:
             )
 
         # Validate velocity
-        velocity_mag = ball_state.velocity.magnitude()
-        if velocity_mag > self.max_velocity:
+        if ball_state.velocity is None:
             errors.append(
                 ValidationError(
-                    error_type="velocity_limit",
+                    error_type="null_velocity",
                     severity="error",
-                    message="Ball velocity exceeds physical limits",
-                    details={
-                        "velocity": velocity_mag,
-                        "max_velocity": self.max_velocity,
-                        "ball_id": ball_state.id,
-                    },
-                    suggested_fix=f"Reduce velocity to below {self.max_velocity} m/s",
+                    message="Ball velocity is None",
+                    details={"ball_id": ball_state.id},
+                    suggested_fix="Set velocity to Vector2D.zero()",
                 )
             )
+        else:
+            velocity_mag = ball_state.velocity.magnitude()
+            if velocity_mag > self.max_velocity:
+                errors.append(
+                    ValidationError(
+                        error_type="velocity_limit",
+                        severity="error",
+                        message="Ball velocity exceeds physical limits",
+                        details={
+                            "velocity": velocity_mag,
+                            "max_velocity": self.max_velocity,
+                            "ball_id": ball_state.id,
+                        },
+                        suggested_fix=f"Reduce velocity to below {self.max_velocity} m/s",
+                    )
+                )
 
         # Validate spin
         if ball_state.spin:
@@ -409,6 +430,19 @@ class PhysicsValidator:
         """
         errors = []
         warnings = []
+
+        # Validate forces is not None
+        if forces is None:
+            errors.append(
+                ValidationError(
+                    error_type="null_forces",
+                    severity="error",
+                    message="Forces vector is None",
+                    details={},
+                    suggested_fix="Set forces to Vector2D.zero()",
+                )
+            )
+            return ValidationResult(False, errors, warnings, 0.0)
 
         # Validate force magnitude
         force_magnitude = forces.magnitude()
@@ -570,12 +604,14 @@ class PhysicsValidator:
         momentum_after = Vector2D(0, 0)
 
         for ball in before_states:
-            momentum_before.x += ball.mass * ball.velocity.x
-            momentum_before.y += ball.mass * ball.velocity.y
+            if ball.velocity is not None:
+                momentum_before.x += ball.mass * ball.velocity.x
+                momentum_before.y += ball.mass * ball.velocity.y
 
         for ball in after_states:
-            momentum_after.x += ball.mass * ball.velocity.x
-            momentum_after.y += ball.mass * ball.velocity.y
+            if ball.velocity is not None:
+                momentum_after.x += ball.mass * ball.velocity.x
+                momentum_after.y += ball.mass * ball.velocity.y
 
         # Calculate momentum change
         momentum_change = Vector2D(

@@ -384,7 +384,7 @@ These could be addressed in a future phase if needed.
 - Document performance impact of key parameters
 
 ### Testing
-- Add integration tests with various config profiles
+- Add integration tests with various configurations
 - Create performance benchmarks
 - Add config validation tests
 

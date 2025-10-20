@@ -757,7 +757,7 @@ def process_yolo_detections(
     image_shape: tuple[int, int],
     class_names: Optional[list[str]] = None,
     min_ball_confidence: float = 0.25,
-    min_cue_confidence: float = 0.3,
+    min_cue_confidence: float = 0.05,  # Lowered from 0.3 to 0.05 to minimize intermittent cue drops
     bbox_format: str = "xyxy",
 ) -> dict[str, Any]:
     """Process YOLO detections and convert to Vision module objects.

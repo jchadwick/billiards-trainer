@@ -20,7 +20,8 @@ from .calibration.camera import CameraCalibrator
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
 from .capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
-from .config_manager import VisionConfigurationManager, create_vision_config_manager
+
+# Config manager no longer used - using simple config instead
 from .detection.table import TableDetector
 from .models import (
     Ball,
@@ -69,10 +70,9 @@ def _get_config_value(key_path: str, default: Any) -> Any:
         Configuration value or default
     """
     try:
-        from ..config.manager import ConfigurationModule
+        from ..config import config
 
-        config_mgr = ConfigurationModule()
-        return config_mgr.get(key_path, default)
+        return config.get(key_path, default)
     except Exception:
         return default
 
@@ -130,10 +130,10 @@ class VisionConfig:
             VisionConfig instance with values from config or defaults
         """
         # Import here to avoid circular dependencies
-        from ..config.manager import ConfigurationModule
+        from ..config import config
 
-        # Get configuration manager (will load from default.json)
-        config_mgr = ConfigurationModule()
+        # Use configuration singleton
+        config_mgr = config
 
         # Extract values from config dict or use config manager defaults
         return cls(
@@ -310,12 +310,32 @@ class VisionModule:
             logger.info("Initializing vision components")
 
             # Camera capture
+            # Auto-detect source: if video_file_path is set, use that; otherwise use device_id
+            from ..config import config as config_mgr
+
+            # Check for video file path first (takes precedence)
+            video_file_path = config_mgr.get("vision.camera.video_file_path")
+
+            if video_file_path:
+                # Use video file path as device_id
+                device_id = video_file_path
+            else:
+                # Use camera device ID (from config or default to 0)
+                device_id = config_mgr.get("vision.camera.device_id", 0)
+
             camera_config = {
-                "device_id": self.config.camera_device_id,
+                "device_id": device_id,
                 "backend": self.config.camera_backend,
                 "resolution": self.config.camera_resolution,
                 "fps": self.config.camera_fps,
                 "buffer_size": self.config.camera_buffer_size,
+                "loop_video": config_mgr.get("vision.camera.loop_video", False),
+                "video_start_frame": config_mgr.get(
+                    "vision.camera.video_start_frame", 0
+                ),
+                "video_end_frame": config_mgr.get(
+                    "vision.camera.video_end_frame", None
+                ),
             }
             logger.info(f"Creating CameraCapture with config: {camera_config}")
             self.camera = CameraCapture(camera_config)
@@ -332,7 +352,7 @@ class VisionModule:
             # Detection components - YOLO+OpenCV hybrid only
             if self.config.enable_ball_detection or self.config.enable_cue_detection:
                 # Load YOLO configuration parameters - use shared config manager
-                from ..config import config_manager as config_mgr
+                from ..config import config as config_mgr
 
                 # Get YOLO parameters from config
                 yolo_model_path = config_mgr.get("vision.detection.yolo_model_path")
@@ -428,10 +448,9 @@ class VisionModule:
             # Tracking
             if self.config.enable_tracking:
                 # Import here to avoid circular dependencies
-                from ..config.manager import ConfigurationModule
+                from ..config import config
 
-                config_mgr = ConfigurationModule()
-                tracking_config = config_mgr.get("vision.tracking", {})
+                tracking_config = config.get("vision.tracking", {})
                 self.tracker = ObjectTracker(tracking_config)
             else:
                 self.tracker = None
@@ -1162,9 +1181,7 @@ __all__ = [
     "CameraStatus",
     "CameraHealth",
     "FrameInfo",
-    # Configuration
-    "VisionConfigurationManager",
-    "create_vision_config_manager",
+    # Configuration (using simple config now)
     # Calibration
     "CameraCalibration",
     "ColorCalibration",

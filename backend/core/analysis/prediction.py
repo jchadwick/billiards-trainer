@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from backend.config.manager import ConfigurationModule
+from backend.config import Config, config
 
 from ..models import BallState, GameState, ShotType, TableState, Vector2D
 from ..physics.trajectory import TrajectoryCalculator
@@ -67,13 +67,13 @@ class ShotPrediction:
 class OutcomePredictor:
     """Game outcome prediction engine."""
 
-    def __init__(self, config: Optional[ConfigurationModule] = None):
+    def __init__(self, cfg: Optional[Config] = None):
         """Initialize the outcome predictor with physics calculators and simulation parameters."""
         self.trajectory_calculator = TrajectoryCalculator()
         self.geometry_utils = GeometryUtils()
 
-        # Load configuration
-        self.config = config or ConfigurationModule()
+        # Load configuration (use provided or singleton)
+        self.config = cfg if cfg is not None else config
         cfg = self.config.get("core.prediction.outcome_predictor", {})
 
         # Simulation parameters

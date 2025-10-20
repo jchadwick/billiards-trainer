@@ -43,13 +43,13 @@ class StateConversionHelpers:
             self.min_ball_confidence = config.get(
                 "integration.min_ball_confidence", 0.1
             )
-            self.min_cue_confidence = config.get("integration.min_cue_confidence", 0.1)
+            self.min_cue_confidence = config.get("integration.min_cue_confidence", 0.05)
         else:
             self.max_ball_velocity = 10.0
             self.max_position_x = 3.0
             self.max_position_y = 2.0
             self.min_ball_confidence = 0.1
-            self.min_cue_confidence = 0.1
+            self.min_cue_confidence = 0.05  # Lowered to minimize intermittent cue drops
 
         # Conversion counters for periodic logging
         self._ball_conversion_count = 0

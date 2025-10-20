@@ -17,14 +17,12 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 try:
-    from ..config.manager import ConfigurationModule
-    from ..config.models.schemas import CameraSettings, VisionConfig
+    from backend.config import Config, config
 except ImportError:
     # Fallback for development/testing
     logging.warning("Configuration module not available, using fallback")
-    ConfigurationModule = None
-    VisionConfig = None
-    CameraSettings = None
+    Config = None  # type: ignore
+    config = None  # type: ignore
 
 from .capture import CameraCapture
 
@@ -125,29 +123,17 @@ class VisionConfigurationManager:
                 return self._vision_config.copy()
             return self._vision_config
 
-    def get_video_source_type(self) -> str:
-        """Get the configured video source type.
-
-        Returns:
-            Video source type: "camera", "file", or "stream"
-            Defaults to "camera" if not specified
-        """
-        config = self.get_config()
-        camera_config = config.get("camera", {})
-        return camera_config.get("video_source_type", "camera")
-
     def is_video_file_input(self) -> bool:
         """Check if video input is from a file.
 
         Returns:
-            True if video source type is "file" or device_id is a string
-            (for backward compatibility)
+            True if video_file_path is set or device_id is a string (backward compatibility)
         """
         config = self.get_config()
         camera_config = config.get("camera", {})
 
-        # Check new video_source_type field
-        if camera_config.get("video_source_type") == "file":
+        # Check if video_file_path is set
+        if camera_config.get("video_file_path"):
             return True
 
         # Backward compatibility: check if device_id is a string
@@ -169,9 +155,8 @@ class VisionConfigurationManager:
 
         video_path = None
 
-        # Check new video_file_path field
-        if camera_config.get("video_source_type") == "file":
-            video_path = camera_config.get("video_file_path")
+        # Check video_file_path field first
+        video_path = camera_config.get("video_file_path")
 
         # Backward compatibility: check device_id if it's a string
         if video_path is None:
@@ -206,7 +191,7 @@ class VisionConfigurationManager:
 
         Returns:
             CameraCapture-compatible configuration dictionary with:
-            - device_id mapped from video_source_type/video_file_path
+            - device_id: video_file_path if set, otherwise device_id setting, otherwise 0
             - All camera settings (resolution, fps, etc.)
             - Video file settings (loop_video, video_start_frame, video_end_frame)
             - Handles backward compatibility with legacy device_id configurations
@@ -214,27 +199,15 @@ class VisionConfigurationManager:
         config = self.get_config()
         camera_config = config.get("camera", {})
 
-        # Determine device_id based on source type
-        video_source_type = self.get_video_source_type()
+        # Determine device_id: video_file_path takes precedence, then device_id, then default to 0
+        video_file_path = camera_config.get("video_file_path")
 
-        if video_source_type == "file":
+        if video_file_path:
             # Use video file path as device_id
             device_id = self.get_video_file_path()
-            if device_id is None:
-                # Fall back to device_id field for backward compatibility
-                device_id = camera_config.get("device_id", 0)
-        elif video_source_type == "stream":
-            # Use stream URL as device_id
-            device_id = camera_config.get(
-                "stream_url", camera_config.get("device_id", 0)
-            )
-        else:  # camera
-            # Use numeric device_id
+        else:
+            # Use device_id setting (can be int for camera, or string for stream/file)
             device_id = camera_config.get("device_id", 0)
-            # For backward compatibility: if device_id is a string, it's a file/stream
-            if isinstance(device_id, str):
-                # Keep the string value - CameraCapture will handle it
-                pass
 
         # Get default camera config for fallback values
         default_config = self._get_default_config()
@@ -496,45 +469,29 @@ class VisionConfigurationManager:
             # Validate camera configuration
             camera_config = config.get("camera", {})
 
-            # Check video source type configuration
-            video_source_type = camera_config.get("video_source_type", "camera")
+            # Check video file path if configured
+            video_file_path = camera_config.get("video_file_path")
+            if video_file_path:
+                # Validate file exists and is readable
+                try:
+                    path_obj = Path(video_file_path)
+                    if not path_obj.is_absolute():
+                        path_obj = Path.cwd() / path_obj
 
-            if video_source_type == "file":
-                # video_file_path is required when source_type is "file"
-                video_file_path = camera_config.get("video_file_path")
-                if not video_file_path:
-                    errors.append(
-                        "camera.video_file_path is required when video_source_type='file'"
-                    )
-                else:
-                    # Validate file exists and is readable
-                    try:
-                        path_obj = Path(video_file_path)
-                        if not path_obj.is_absolute():
-                            path_obj = Path.cwd() / path_obj
-
-                        if not path_obj.exists():
-                            errors.append(
-                                f"camera.video_file_path points to non-existent file: {video_file_path}"
-                            )
-                        elif not path_obj.is_file():
-                            errors.append(
-                                f"camera.video_file_path is not a file: {video_file_path}"
-                            )
-                        elif not os.access(path_obj, os.R_OK):
-                            errors.append(
-                                f"camera.video_file_path is not readable: {video_file_path}"
-                            )
-                    except Exception as e:
-                        errors.append(f"camera.video_file_path validation error: {e}")
-
-            elif video_source_type == "stream":
-                # stream_url is required when source_type is "stream"
-                stream_url = camera_config.get("stream_url")
-                if not stream_url:
-                    errors.append(
-                        "camera.stream_url is required when video_source_type='stream'"
-                    )
+                    if not path_obj.exists():
+                        errors.append(
+                            f"camera.video_file_path points to non-existent file: {video_file_path}"
+                        )
+                    elif not path_obj.is_file():
+                        errors.append(
+                            f"camera.video_file_path is not a file: {video_file_path}"
+                        )
+                    elif not os.access(path_obj, os.R_OK):
+                        errors.append(
+                            f"camera.video_file_path is not readable: {video_file_path}"
+                        )
+                except Exception as e:
+                    errors.append(f"camera.video_file_path validation error: {e}")
 
             # Validate video frame range
             video_start_frame = camera_config.get("video_start_frame", 0)

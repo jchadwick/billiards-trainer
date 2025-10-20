@@ -273,7 +273,8 @@ frontend/web/dist/
 
 *.local.*
 
-# ignore demo videos
+# ignore demo videos and other large binary files
+assets/
 *.mp4
 
 # Model training
@@ -286,3 +287,5 @@ training_images/
 debug_output/
 
 config/backups/
+
+.thinking/

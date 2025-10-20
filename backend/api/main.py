@@ -23,7 +23,7 @@ except ImportError:
 
 # Internal imports
 # Import config module - use absolute import to avoid conflict with api.routes.config
-from backend.config.manager import ConfigurationModule
+from backend.config import config
 
 # Import core module
 from backend.core import CoreModule, CoreModuleConfig
@@ -35,17 +35,9 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsConfig, MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import (
-    calibration,
-    config,
-    diagnostics,
-    game,
-    health,
-    logs,
-    modules,
-    stream,
-    vision,
-)
+from .routes import calibration
+from .routes import config as config_routes
+from .routes import diagnostics, game, health, logs, modules, stream, vision
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -232,30 +224,8 @@ async def _register_shutdown_functions(app_state: ApplicationState) -> None:
 
         async def shutdown_config() -> None:
             """Shutdown configuration module."""
-            # Save current configuration
-            try:
-                if app_state.config_module:
-                    app_state.config_module.save_config()
-
-                    # Stop file watchers if they exist
-                    if (
-                        hasattr(app_state.config_module, "_config_watcher")
-                        and app_state.config_module._config_watcher
-                    ):
-                        watcher = app_state.config_module._config_watcher
-                        if hasattr(watcher, "stop"):
-                            watcher.stop()
-
-                    # Create backup if configured (skipping due to signature issues)
-                    # The backup method may have different signature than expected
-                    # if hasattr(app_state.config_module, "_backup"):
-                    #     backup = app_state.config_module._backup
-                    #     if hasattr(backup, "create_backup"):
-                    #         backup_metadata = backup.create_backup()
-
-                logger.info("Configuration module shutdown completed")
-            except Exception as e:
-                logger.error(f"Error during configuration shutdown: {e}")
+            # Simple config has no shutdown needed
+            logger.info("Configuration module shutdown completed")
 
         await register_module_for_shutdown("config", shutdown_config)
 
@@ -294,13 +264,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     app_state.startup_time = time.time()
 
     try:
-        # Initialize configuration module
-        logger.info("Initializing configuration module...")
-        app_state.config_module = ConfigurationModule(enable_hot_reload=False)
-        await app_state.config_module.initialize()
-
-        # Get configuration
-        config = await app_state.config_module.get_configuration()
+        # Configuration is now available as a simple singleton
+        logger.info("Configuration system initialized")
+        app_state.config_module = config
 
         # Initialize core module
         logger.info("Initializing core module...")
@@ -309,7 +275,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             prediction_enabled=True,
             assistance_enabled=True,
             async_processing=True,
-            debug_mode=config.system.debug if hasattr(config, "system") else False,
+            debug_mode=config.get("system.debug", False),
         )
         app_state.core_module = CoreModule(core_config)
 
@@ -358,18 +324,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
         # Get health monitor configuration
-        if isinstance(config, dict):
-            health_monitor_config = config.get("api", {}).get("health_monitor", {})
-            check_interval = health_monitor_config.get("check_interval", 5.0)
-        else:
-            # Fallback if config is not a dict (Pydantic model or other type)
-            check_interval = (
-                getattr(getattr(config, "api", None), "health_monitor", {}).get(
-                    "check_interval", 5.0
-                )
-                if hasattr(config, "api")
-                else 5.0
-            )
+        check_interval = config.get("api.health_monitor.check_interval", 5.0)
 
         # Start health monitoring
         await health_monitor.start_monitoring(check_interval=check_interval)
@@ -498,7 +453,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
     # Include routers with API prefix
     app.include_router(health.router, prefix="/api/v1")
-    app.include_router(config.router, prefix="/api/v1")
+    app.include_router(config_routes.router, prefix="/api/v1")
     app.include_router(calibration.router, prefix="/api/v1/vision")
     app.include_router(vision.router, prefix="/api/v1/vision")
     app.include_router(game.router, prefix="/api/v1")

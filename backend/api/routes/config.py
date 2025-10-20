@@ -29,6 +29,7 @@ from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from ...config import Config, config
 from ..dependencies import get_config_module
 from ..models.common import create_success_response
 from ..models.responses import (
@@ -37,14 +38,6 @@ from ..models.responses import (
     ConfigUpdateResponse,
     SuccessResponse,
 )
-
-try:
-    from ...config import ConfigurationModule
-    from ...config.models.schemas import ConfigSource
-except ImportError:
-    from config.models.schemas import ConfigSource
-
-    from config import ConfigurationModule
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +65,7 @@ async def get_configuration(
         None, description="Specific configuration section to retrieve"
     ),
     include_metadata: bool = Query(True, description="Include configuration metadata"),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> ConfigResponse:
     """Retrieve current system configuration (FR-API-005).
 
@@ -142,7 +135,7 @@ async def update_configuration(
     section: Optional[str] = Query(None, description="Specific section to update"),
     validate_only: bool = Query(False, description="Only validate without applying"),
     force_update: bool = Query(False, description="Force update even with warnings"),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> ConfigUpdateResponse:
     """Update configuration parameters with validation (FR-API-006).
 
@@ -271,7 +264,7 @@ async def reset_configuration(
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to reset"
     ),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> SuccessResponse:
     """Reset configuration to defaults (FR-API-007).
 
@@ -340,7 +333,7 @@ async def import_configuration(
         "replace", pattern="^(replace|merge)$", description="Import strategy"
     ),
     validate_only: bool = Query(False, description="Only validate without importing"),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> SuccessResponse:
     """Import configuration from file (FR-API-008).
 
@@ -450,7 +443,7 @@ async def export_configuration(
     ),
     include_defaults: bool = Query(False, description="Include default values"),
     include_metadata: bool = Query(True, description="Include metadata"),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> ConfigExportResponse:
     """Export configuration to downloadable format (FR-API-008).
 
@@ -531,7 +524,7 @@ async def download_configuration(
     sections: Optional[list[str]] = Query(
         None, description="Specific sections to export"
     ),
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> FileResponse:
     """Download configuration as file.
 
@@ -661,7 +654,7 @@ class PlayingAreaCornersRequest(BaseModel):
 @router.post("/table/playing-area")
 async def set_playing_area_corners(
     request: FastAPIRequest,
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> dict:
     """Set the playing area corner points for table calibration.
 
@@ -708,18 +701,13 @@ async def set_playing_area_corners(
                     detail=f"Corner {i} missing x or y coordinate",
                 )
 
-        # Save to config file using persist=True
-        success = config_module.set(
-            "table.playing_area_corners",
-            corners,
-            source=ConfigSource.RUNTIME,
-            persist=True,
-        )
-
-        if not success:
+        # Save to config file
+        try:
+            config_module.set("table.playing_area_corners", corners)
+        except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail="Failed to save playing area corners to configuration",
+                detail=f"Failed to save playing area corners to configuration: {e}",
             )
 
         logger.info(f"Playing area corners saved to config: {corners}")
@@ -743,7 +731,7 @@ async def set_playing_area_corners(
 
 @router.get("/table/playing-area", response_model=dict)
 async def get_playing_area_corners(
-    config_module: ConfigurationModule = Depends(get_config_module),
+    config_module: Config = Depends(get_config_module),
 ) -> dict[str, Any]:
     """Get the current playing area corner points for table calibration.
 

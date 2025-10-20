@@ -9,11 +9,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 # Import config module before setting up logging
-from backend.config.manager import ConfigurationModule
-from backend.config.validation import ConfigValidationError, validate_configuration
-
-# Load configuration
-config = ConfigurationModule()
+from backend.config import config
 
 # Configure logging from config
 log_level = getattr(logging, config.get("development.logging.level", "INFO"))
@@ -24,15 +20,6 @@ log_format = config.get(
 logging.basicConfig(level=log_level, format=log_format)
 
 logger = logging.getLogger(__name__)
-
-# Validate configuration at startup
-try:
-    validate_configuration(config)
-except ConfigValidationError as e:
-    logger.critical("Configuration validation failed!")
-    logger.critical(str(e))
-    logger.critical("Cannot start dev server with invalid configuration")
-    sys.exit(1)
 
 
 def create_simple_app():

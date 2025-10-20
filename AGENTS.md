@@ -32,4 +32,6 @@ Leverage subagents extensively.  Definitely use them to handle complex or multi-
 Use a subagent for each task. Each subagent should have a clear purpose and operate independently. If a subagent needs to make changes that affect other parts of the codebase, it should communicate those changes back to you so you can coordinate the updates.
 
 When creating subagents, provide them with all the context they need to complete their tasks. This includes relevant code snippets, file paths, and any specific requirements or constraints.
+
+unless explictly specified otherwise, put any "thinking" documentation in the ./thoughts folder.  This includes plans, research, and any other notes you want to keep track of.
 </agents>

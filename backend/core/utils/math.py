@@ -3,21 +3,14 @@
 import math
 from typing import Callable, Optional
 
-from ...config.manager import ConfigurationModule
+from backend.config import Config, config
+
 from ..models import Vector2D
 
-# Global configuration instance (lazy loaded)
-_config: Optional[ConfigurationModule] = None
 
-
-def _get_config() -> ConfigurationModule:
-    """Get or create configuration instance."""
-    global _config
-    if _config is None:
-        from backend.config import config_manager
-
-        _config = config_manager
-    return _config
+def _get_config() -> Config:
+    """Get the global configuration instance."""
+    return config
 
 
 # Convenience functions that wrap MathUtils methods

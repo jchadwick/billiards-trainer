@@ -10,9 +10,8 @@ Complete guide to creating and managing configuration files for the Billiards Tr
 4. [Configuration Structure](#configuration-structure)
 5. [Common Configuration Scenarios](#common-configuration-scenarios)
 6. [Environment Variables](#environment-variables)
-7. [Configuration Profiles](#configuration-profiles)
-8. [Hot Reload](#hot-reload)
-9. [Validation and Troubleshooting](#validation-and-troubleshooting)
+7. [Hot Reload](#hot-reload)
+8. [Validation and Troubleshooting](#validation-and-troubleshooting)
 
 ## Quick Start
 
@@ -454,64 +453,6 @@ BILLIARDS_VISION_CAMERA_DEVICE_ID=0
 ```
 
 The application will automatically load this file.
-
-## Configuration Profiles
-
-### What are Profiles?
-
-Profiles are named configuration sets for different scenarios (e.g., "development", "production", "testing").
-
-### Using Profiles
-
-#### Via Configuration Files
-
-Create profile-specific files:
-
-```json
-// config/profile-development.json
-{
-  "metadata": {
-    "profile": "development"
-  },
-  "system": {
-    "debug": true
-  }
-}
-
-// config/profile-production.json
-{
-  "metadata": {
-    "profile": "production"
-  },
-  "system": {
-    "debug": false
-  }
-}
-```
-
-#### Via API
-
-Switch profiles at runtime:
-
-```bash
-# List available profiles
-curl http://localhost:8000/api/config/profiles
-
-# Switch to a profile
-curl -X POST http://localhost:8000/api/config/profiles/development/activate
-
-# Get current profile
-curl http://localhost:8000/api/config/profiles/current
-```
-
-### Profile Inheritance
-
-Profiles inherit from base configuration and can override specific settings:
-
-```
-default.json  →  profile-dev.json  →  local.json
-   (base)         (profile)           (overrides)
-```
 
 ## Hot Reload
 

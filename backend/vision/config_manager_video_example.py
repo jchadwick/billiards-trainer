@@ -16,10 +16,10 @@ def example_video_file_input():
     manager = VisionConfigurationManager()
     manager.initialize()
 
-    # Configure for video file input (new method)
+    # Configure for video file input
+    # Simply set video_file_path - no need for video_source_type
     video_config = {
         "camera": {
-            "video_source_type": "file",
             "video_file_path": "/path/to/video.mp4",
             "loop_video": True,
             "video_start_frame": 0,
@@ -31,10 +31,6 @@ def example_video_file_input():
 
     # Update configuration
     manager.update_config(video_config)
-
-    # Check video source type
-    source_type = manager.get_video_source_type()
-    print(f"Video source type: {source_type}")
 
     # Check if using video file input
     is_file = manager.is_video_file_input()
@@ -93,20 +89,16 @@ def example_stream_input():
     manager.initialize()
 
     # Configure for stream input
+    # Use device_id for stream URLs
     stream_config = {
         "camera": {
-            "video_source_type": "stream",
-            "stream_url": "rtsp://example.com/stream",
+            "device_id": "rtsp://example.com/stream",
             "fps": 30,
             "resolution": [1280, 720],
         }
     }
 
     manager.update_config(stream_config)
-
-    # Check configuration
-    source_type = manager.get_video_source_type()
-    print(f"Video source type: {source_type}")
 
     # Get camera configuration
     camera_config = manager.resolve_camera_config()
@@ -122,6 +114,7 @@ def example_camera_input():
     manager.initialize()
 
     # Configure for hardware camera
+    # Use device_id with integer for hardware camera (default is 0)
     camera_config = {
         "camera": {
             "device_id": 0,  # Camera index
@@ -134,9 +127,6 @@ def example_camera_input():
     manager.update_config(camera_config)
 
     # Check configuration
-    source_type = manager.get_video_source_type()
-    print(f"Video source type: {source_type}")
-
     is_file = manager.is_video_file_input()
     print(f"Is video file input: {is_file}")
 
@@ -152,10 +142,9 @@ def example_validation():
 
     manager = VisionConfigurationManager()
 
-    # Valid configuration
+    # Valid configuration with video file
     valid_config = {
         "camera": {
-            "video_source_type": "file",
             "video_file_path": "/tmp/test.mp4",
             "device_id": 0,
         },
@@ -168,11 +157,10 @@ def example_validation():
     if errors:
         print(f"Errors: {errors}")
 
-    # Invalid configuration (missing video_file_path)
+    # Invalid configuration (video file doesn't exist)
     invalid_config = {
         "camera": {
-            "video_source_type": "file",
-            # Missing video_file_path!
+            "video_file_path": "/nonexistent/video.mp4",
         },
         "detection": {},
         "processing": {},
@@ -191,10 +179,9 @@ def example_create_camera_capture():
     manager = VisionConfigurationManager()
     manager.initialize()
 
-    # Configure for video file
+    # Configure for video file - just set video_file_path
     video_config = {
         "camera": {
-            "video_source_type": "file",
             "video_file_path": "/path/to/video.mp4",
             "loop_video": True,
             "video_start_frame": 100,
