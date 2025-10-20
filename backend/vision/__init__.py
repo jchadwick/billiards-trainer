@@ -19,7 +19,6 @@ from numpy.typing import NDArray
 from .calibration.camera import CameraCalibrator
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
-from .capture import CameraCapture, CameraHealth, CameraStatus, FrameInfo
 
 # Config manager no longer used - using simple config instead
 from .detection.table import TableDetector
@@ -56,11 +55,7 @@ except ImportError:
     SimpleCameraModule = None
 
 # Shared memory video consumer (for IPC with Video Module)
-try:
-    from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
-except ImportError:
-    VideoConsumer = None
-    VideoModuleNotAvailableError = None
+from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -283,12 +278,10 @@ class VisionModule:
         self.stats = VisionStatistics()
         self._start_time = time.time()
 
-        # Video source (either VideoConsumer or None for legacy camera mode)
-        # NOTE: Must be initialized BEFORE _initialize_components() which sets the value
+        # Video source - shared memory IPC with Video Module
         self._video_consumer: Optional[VideoConsumer] = None
-        self._use_shared_memory = False
 
-        # Initialize components (will set _use_shared_memory based on config)
+        # Initialize components
         self._initialize_components()
 
         # Threading and state management
@@ -321,61 +314,12 @@ class VisionModule:
         try:
             logger.info("Initializing vision components")
 
-            # Check if we should use shared memory for video frames
-            from ..config import config as config_mgr
+            # Use VideoConsumer to read frames from Video Module via shared memory
+            logger.info("Using shared memory IPC (VideoConsumer)")
 
-            self._use_shared_memory = config_mgr.get("video.use_shared_memory", False)
-            logger.info(
-                f"Video mode configuration: use_shared_memory={self._use_shared_memory}"
-            )
-
-            if self._use_shared_memory:
-                # Use VideoConsumer to read frames from Video Module via shared memory
-                logger.info("Using shared memory mode (VideoConsumer)")
-
-                if VideoConsumer is None:
-                    raise VisionModuleError(
-                        "VideoConsumer not available. Shared memory mode cannot be used."
-                    )
-
-                # Create VideoConsumer (will be started in start_capture)
-                self._video_consumer = VideoConsumer()
-                # Create a dummy camera object for backward compatibility
-                # (some code may check if self.camera exists)
-                self.camera = None
-                logger.info("VideoConsumer initialized (will attach on start_capture)")
-
-            else:
-                # Legacy mode: Use CameraCapture for direct camera access
-                logger.info("Using legacy camera mode (CameraCapture)")
-
-                # Check for video file path first (takes precedence)
-                video_file_path = config_mgr.get("vision.camera.video_file_path")
-
-                if video_file_path:
-                    # Use video file path as device_id
-                    device_id = video_file_path
-                else:
-                    # Use camera device ID (from config or default to 0)
-                    device_id = config_mgr.get("vision.camera.device_id", 0)
-
-                camera_config = {
-                    "device_id": device_id,
-                    "backend": self.config.camera_backend,
-                    "resolution": self.config.camera_resolution,
-                    "fps": self.config.camera_fps,
-                    "buffer_size": self.config.camera_buffer_size,
-                    "loop_video": config_mgr.get("vision.camera.loop_video", False),
-                    "video_start_frame": config_mgr.get(
-                        "vision.camera.video_start_frame", 0
-                    ),
-                    "video_end_frame": config_mgr.get(
-                        "vision.camera.video_end_frame", None
-                    ),
-                }
-                logger.info(f"Creating CameraCapture with config: {camera_config}")
-                self.camera = CameraCapture(camera_config)
-                logger.info("CameraCapture created successfully")
+            # Create VideoConsumer (will be started in start_capture)
+            self._video_consumer = VideoConsumer()
+            logger.info("VideoConsumer initialized (will attach on start_capture)")
 
             # Image preprocessing - create config based on vision module settings
             preprocessing_config = {}
@@ -503,7 +447,7 @@ class VisionModule:
             raise VisionModuleError(f"Component initialization failed: {e}")
 
     def start_capture(self) -> bool:
-        """Start camera capture and processing.
+        """Start video capture and processing via shared memory IPC.
 
         Returns:
             True if capture started successfully
@@ -515,25 +459,17 @@ class VisionModule:
                 logger.warning("Capture is already running")
                 return True
 
-            # Start video source (either VideoConsumer or CameraCapture)
-            if self._use_shared_memory:
-                # Shared memory mode: Attach to Video Module
-                logger.info("Starting VideoConsumer (shared memory mode)...")
-                try:
-                    self._video_consumer.start()
-                    logger.info("VideoConsumer attached to shared memory successfully")
-                except VideoModuleNotAvailableError as e:
-                    logger.error(f"Failed to attach to Video Module: {e}")
-                    raise VisionModuleError(
-                        f"Failed to attach to Video Module via shared memory: {e}\n"
-                        f"Make sure the Video Module is running: python -m backend.video"
-                    ) from e
-            else:
-                # Legacy mode: Start direct camera capture
-                logger.info("Starting camera capture (legacy mode)...")
-                if not self.camera.start_capture():
-                    logger.error("Camera.start_capture returned False")
-                    raise VisionModuleError("Failed to start camera capture")
+            # Attach to Video Module via shared memory
+            logger.info("Starting VideoConsumer (shared memory IPC)...")
+            try:
+                self._video_consumer.start()
+                logger.info("VideoConsumer attached to shared memory successfully")
+            except VideoModuleNotAvailableError as e:
+                logger.error(f"Failed to attach to Video Module: {e}")
+                raise VisionModuleError(
+                    f"Failed to attach to Video Module via shared memory: {e}\n"
+                    f"Make sure the Video Module is running: python -m backend.video"
+                ) from e
 
             logger.info("Video source started, initializing vision module state")
 
@@ -571,7 +507,7 @@ class VisionModule:
             return False
 
     def stop_capture(self) -> None:
-        """Stop camera capture and processing."""
+        """Stop video capture and processing."""
         try:
             if not self._is_running:
                 logger.warning("Capture is not running")
@@ -580,13 +516,10 @@ class VisionModule:
             # Signal shutdown
             self._is_running = False
 
-            # Stop video source (either VideoConsumer or CameraCapture)
-            if self._use_shared_memory and self._video_consumer:
+            # Stop VideoConsumer
+            if self._video_consumer:
                 logger.info("Stopping VideoConsumer...")
                 self._video_consumer.stop()
-            elif self.camera:
-                logger.info("Stopping camera capture...")
-                self.camera.stop_capture()
 
             # Wait for threads to finish
             thread_timeout = _get_config_value(
@@ -618,26 +551,15 @@ class VisionModule:
             self.stats.last_error = str(e)
 
     def process_frame(self) -> Optional[DetectionResult]:
-        """Process single frame and return detections.
+        """Get latest detection results from processing thread.
 
         Returns:
             Detection results or None if no frame available
         """
         try:
-            if not self._is_running:
-                # Single frame processing mode
-                frame_data = self.camera.get_latest_frame()
-                if frame_data is None:
-                    return None
-
-                frame, frame_info = frame_data
-                return self._process_single_frame(
-                    frame, frame_info.frame_number, frame_info.timestamp
-                )
-            else:
-                # Return latest result from processing thread
-                with self._lock:
-                    return self._current_result
+            # Return latest result from processing thread
+            with self._lock:
+                return self._current_result
 
         except Exception as e:
             logger.error(f"Frame processing failed: {e}")
@@ -663,7 +585,11 @@ class VisionModule:
                 return None
 
     def calibrate_camera(self) -> bool:
-        """Perform camera calibration.
+        """Perform camera calibration using current frames.
+
+        Note: Camera calibration should be done on the Video Module side.
+        This method is provided for backwards compatibility but may not work
+        as expected with shared memory IPC.
 
         Returns:
             True if calibration successful
@@ -671,7 +597,7 @@ class VisionModule:
         try:
             logger.info("Starting camera calibration")
 
-            # Capture calibration images
+            # Capture calibration images from current frames
             num_frames = _get_config_value("vision.calibration.camera.num_frames", 20)
             min_frames_required = _get_config_value(
                 "vision.calibration.camera.min_frames_required", 10
@@ -682,9 +608,8 @@ class VisionModule:
 
             calibration_frames = []
             for _i in range(num_frames):
-                frame_data = self.camera.get_latest_frame()
-                if frame_data is not None:
-                    frame, frame_info = frame_data
+                frame = self.get_current_frame()
+                if frame is not None:
                     calibration_frames.append(frame)
                 time.sleep(frame_capture_delay)
 
@@ -799,8 +724,6 @@ class VisionModule:
             "uptime_seconds": self.stats.uptime,
             "last_error": self.stats.last_error,
             "is_running": self._is_running,
-            "camera_connected": self.camera.is_connected() if self.camera else False,
-            "video_mode": "shared_memory" if self._use_shared_memory else "camera",
             "video_consumer_running": (
                 self._video_consumer.is_running if self._video_consumer else False
             ),
@@ -845,47 +768,22 @@ class VisionModule:
                     time.sleep(sleep_interval_sec)
                     continue
 
-                # Get frame from video source (either VideoConsumer or CameraCapture)
-                frame = None
-                frame_info = None
+                # Get frame from VideoConsumer (shared memory IPC)
+                logger.debug("VisionModule: Getting frame from VideoConsumer")
+                frame = self._video_consumer.get_frame()
 
-                if self._use_shared_memory:
-                    # Shared memory mode: Read from VideoConsumer
-                    logger.debug("VisionModule: Getting frame from VideoConsumer")
-                    frame = self._video_consumer.get_frame()
+                if frame is None:
+                    # No new frame available, sleep briefly and continue
+                    time.sleep(sleep_interval_sec)
+                    continue
 
-                    if frame is None:
-                        # No new frame available, sleep briefly and continue
-                        time.sleep(sleep_interval_sec)
-                        continue
-
-                    # Create FrameInfo for consistency with camera interface
-                    frame_count += 1
-                    frame_info = FrameInfo(
-                        frame_number=frame_count,
-                        timestamp=current_time,
-                        width=frame.shape[1],
-                        height=frame.shape[0],
-                    )
-
-                else:
-                    # Legacy mode: Read from CameraCapture
-                    logger.debug("VisionModule: Getting latest frame from camera")
-                    frame_data = self.camera.get_latest_frame()
-                    if frame_data is None:
-                        logger.debug(
-                            "VisionModule: No frame data available from camera"
-                        )
-                        self.stats.frames_dropped += 1
-                        continue
-
-                    frame, frame_info = frame_data
-                    frame_count += 1
+                # Track frame metadata
+                frame_count += 1
 
                 if frame_count % log_interval == 0:
                     logger.debug(
                         f"VisionModule: Received frame #{frame_count}: shape={frame.shape}, "
-                        f"timestamp={frame_info.timestamp}, mode={'SHM' if self._use_shared_memory else 'camera'}"
+                        f"timestamp={current_time:.3f}s"
                     )
 
                 # Apply ROI if enabled
@@ -905,11 +803,11 @@ class VisionModule:
                     self._frame_queue.put_nowait(
                         {
                             "frame": frame,
-                            "timestamp": frame_info.timestamp,
-                            "frame_number": frame_info.frame_number,
+                            "timestamp": current_time,
+                            "frame_number": frame_count,
                         }
                     )
-                    self._frame_number = frame_info.frame_number + 1
+                    self._frame_number = frame_count + 1
                     last_frame_time = current_time
 
                 except queue.Full:
@@ -1262,12 +1160,9 @@ __all__ = [
     "PocketType",
     "DetectionResult",
     "FrameStatistics",
-    # Camera capture
-    "CameraCapture",
-    "CameraStatus",
-    "CameraHealth",
-    "FrameInfo",
-    # Configuration (using simple config now)
+    # Shared memory IPC
+    "VideoConsumer",
+    "VideoModuleNotAvailableError",
     # Calibration
     "CameraCalibration",
     "ColorCalibration",
