@@ -466,6 +466,7 @@
     }
   },
   "video": {
+    "use_shared_memory": false,
     "shared_memory_name": "billiards_video",
     "shared_memory_attach_timeout_sec": 5.0,
     "process": {
