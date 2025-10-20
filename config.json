@@ -465,6 +465,14 @@
       "debug_mode": false
     }
   },
+  "video": {
+    "shared_memory_name": "billiards_video",
+    "shared_memory_attach_timeout_sec": 5.0,
+    "process": {
+      "shutdown_timeout": 10.0,
+      "main_loop_sleep": 0.001
+    }
+  },
   "core": {
     "physics": {
       "gravity": 9.81,
