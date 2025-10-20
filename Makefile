@@ -168,9 +168,26 @@ build: build-frontend ## Build the entire application
 
 # ===== Development Server =====
 
-run: ## Run the main application
+kill-processes: ## Kill existing backend and video processes
+	@echo "$(YELLOW)Stopping existing backend and video processes...$(RESET)"
+	@pkill -f "backend.api.main" 2>/dev/null || true
+	@pkill -f "backend.video" 2>/dev/null || true
+	@pkill -f "uvicorn.*backend" 2>/dev/null || true
+	@sleep 1
+	@echo "$(GREEN)Processes stopped$(RESET)"
+
+run: kill-processes setup-dirs ## Run both video module and API server
 	@echo "$(BLUE)Starting billiards trainer...$(RESET)"
-	uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+	@echo "$(CYAN)Starting Video Module...$(RESET)"
+	@$(PYTHON) -m backend.video > $(LOGS_DIR)/video.log 2>&1 &
+	@sleep 2
+	@echo "$(GREEN)Video Module started (logs: $(LOGS_DIR)/video.log)$(RESET)"
+	@echo "$(CYAN)Starting API Server...$(RESET)"
+	@uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+
+run-video: kill-processes ## Run video module only
+	@echo "$(BLUE)Starting Video Module...$(RESET)"
+	@$(PYTHON) -m backend.video
 
 run-api: ## Run API server only
 	@echo "$(BLUE)Starting API server...$(RESET)"
@@ -205,6 +222,20 @@ run-dev: ## Run in development mode with hot reload
 logs: ## Show recent logs
 	@echo "$(BLUE)Recent application logs:$(RESET)"
 	@if [ -f $(LOGS_DIR)/info.log ]; then tail -50 $(LOGS_DIR)/info.log; else echo "No logs found"; fi
+
+logs-video: ## Show video module logs
+	@echo "$(BLUE)Video module logs:$(RESET)"
+	@if [ -f $(LOGS_DIR)/video.log ]; then tail -50 $(LOGS_DIR)/video.log; else echo "No video logs found"; fi
+
+logs-all: ## Show all recent logs (info, error, video)
+	@echo "$(CYAN)=== Info Logs ===$(RESET)"
+	@if [ -f $(LOGS_DIR)/info.log ]; then tail -30 $(LOGS_DIR)/info.log; else echo "No info logs"; fi
+	@echo ""
+	@echo "$(RED)=== Error Logs ===$(RESET)"
+	@if [ -f $(LOGS_DIR)/error.log ]; then tail -30 $(LOGS_DIR)/error.log; else echo "No error logs"; fi
+	@echo ""
+	@echo "$(BLUE)=== Video Logs ===$(RESET)"
+	@if [ -f $(LOGS_DIR)/video.log ]; then tail -30 $(LOGS_DIR)/video.log; else echo "No video logs"; fi
 
 logs-error: ## Show error logs
 	@echo "$(RED)Recent error logs:$(RESET)"
