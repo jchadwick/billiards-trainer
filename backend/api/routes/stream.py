@@ -5,6 +5,7 @@ Provides video streaming capabilities including:
 - Frame rate control and quality settings
 - Camera status and health monitoring
 - Rate limiting and access control
+- Shared memory based streaming for high concurrency support
 """
 
 import asyncio
@@ -26,6 +27,7 @@ try:
         EnhancedCameraConfig,
         EnhancedCameraModule,
     )
+    from ...video.ipc.shared_memory import SharedMemoryFrameReader
     from ...vision.capture import CameraHealth, CameraStatus
 except ImportError:
     # Fallback for when relative imports don't work
@@ -34,6 +36,7 @@ except ImportError:
         EnhancedCameraModule,
     )
     from backend.vision.capture import CameraHealth, CameraStatus
+    from backend.video.ipc.shared_memory import SharedMemoryFrameReader
 
 from ..dependencies import ApplicationState, get_app_state, get_config_module
 
@@ -605,7 +608,7 @@ async def generate_mjpeg_stream(
 async def video_stream(
     request: Request,
     app_state: ApplicationState = Depends(get_app_state),
-    vision_module: CameraModuleAdapter = Depends(get_vision_module),
+    vision_module: Optional[CameraModuleAdapter] = Depends(get_vision_module),
     quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
     fps: Optional[int] = Query(None, description="Maximum frame rate"),
     width: Optional[int] = Query(None, description="Maximum frame width"),
@@ -616,6 +619,10 @@ async def video_stream(
     Provides real-time video stream from the camera with configurable
     quality and frame rate settings. Supports automatic scaling and
     efficient MJPEG compression.
+
+    This endpoint supports two modes based on the video.use_shared_memory config flag:
+    - If True: Uses shared memory IPC (high concurrency, requires Video Module)
+    - If False: Uses legacy EnhancedCameraModule (backward compatible)
 
     Query Parameters:
         quality: JPEG compression quality (uses config default if not specified)
@@ -632,94 +639,176 @@ async def video_stream(
         Connection: close
     """
     try:
-        # Get stream configuration
-        stream_config = _get_stream_config(app_state)
-        quality_cfg = stream_config.get("quality", {})
-        framerate_cfg = stream_config.get("framerate", {})
-        resolution_cfg = stream_config.get("resolution", {})
-
-        # Apply defaults and validate ranges
-        quality = (
-            quality
-            if quality is not None
-            else quality_cfg.get("default_jpeg_quality", 80)
+        # Check feature flag for shared memory mode
+        use_shared_memory = app_state.config_module.get(
+            "video.use_shared_memory", False
         )
-        fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
 
-        # Validate quality
-        min_quality = quality_cfg.get("min_jpeg_quality", 1)
-        max_quality = quality_cfg.get("max_jpeg_quality", 100)
-        if quality < min_quality or quality > max_quality:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Quality must be between {min_quality} and {max_quality}",
+        if use_shared_memory:
+            # Use shared memory streaming (high concurrency mode)
+            logger.info(
+                "Using shared memory streaming mode (video.use_shared_memory=true)"
             )
 
-        # Validate fps
-        min_fps = framerate_cfg.get("min_fps", 1)
-        max_fps_limit = framerate_cfg.get("max_fps", 60)
-        if fps < min_fps or fps > max_fps_limit:
-            raise HTTPException(
-                status_code=400,
-                detail=f"FPS must be between {min_fps} and {max_fps_limit}",
-            )
+            # Redirect to shared memory endpoint (reuse validation and streaming logic)
+            stream_config = _get_stream_config(app_state)
+            quality_cfg = stream_config.get("quality", {})
+            framerate_cfg = stream_config.get("framerate", {})
 
-        # Validate resolution if provided
-        if width is not None:
-            min_width = resolution_cfg.get("min_width", 160)
-            max_width = resolution_cfg.get("max_width", 3840)
-            if width < min_width or width > max_width:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Width must be between {min_width} and {max_width}",
+            # Apply defaults
+            quality = (
+                quality
+                if quality is not None
+                else quality_cfg.get("default_jpeg_quality", 85)
+            )
+            fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
+
+            # Note: width/height scaling not supported in shared memory mode yet
+            if width or height:
+                logger.warning(
+                    "Width/height scaling not supported in shared memory mode, "
+                    "parameters will be ignored"
                 )
 
-        if height is not None:
-            min_height = resolution_cfg.get("min_height", 120)
-            max_height = resolution_cfg.get("max_height", 2160)
-            if height < min_height or height > max_height:
+            # Validate quality
+            min_quality = quality_cfg.get("min_jpeg_quality", 1)
+            max_quality = quality_cfg.get("max_jpeg_quality", 100)
+            if quality < min_quality or quality > max_quality:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Height must be between {min_height} and {max_height}",
+                    detail=f"Quality must be between {min_quality} and {max_quality}",
                 )
 
-        # Check camera status
-        camera_status = vision_module.camera.get_status()
-        if camera_status == CameraStatus.ERROR:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Camera is in error state (status: {camera_status.value})",
+            # Validate fps
+            min_fps = framerate_cfg.get("min_fps", 1)
+            max_fps_limit = framerate_cfg.get("max_fps", 60)
+            if fps < min_fps or fps > max_fps_limit:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"FPS must be between {min_fps} and {max_fps_limit}",
+                )
+
+            logger.info(
+                f"Starting shared memory video stream: quality={quality}, fps={fps}"
             )
 
-        if camera_status == CameraStatus.DISCONNECTED:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Camera is not connected (status: {camera_status.value})",
+            # Create streaming response using shared memory
+            return StreamingResponse(
+                generate_mjpeg_stream_from_shm(
+                    request=request,
+                    app_state=app_state,
+                    quality=quality,
+                    fps=fps,
+                ),
+                media_type="multipart/x-mixed-replace; boundary=frame",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "Connection": "close",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        else:
+            # Use legacy EnhancedCameraModule streaming
+            logger.info(
+                "Using legacy camera module streaming mode (video.use_shared_memory=false)"
             )
 
-        logger.info(
-            f"Starting video stream: quality={quality}, fps={fps}, size={width}x{height}"
-        )
+            if vision_module is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Vision module not available",
+                )
 
-        # Create streaming response
-        return StreamingResponse(
-            generate_mjpeg_stream(
-                vision_module=vision_module,
-                quality=quality,
-                max_fps=fps,
-                max_width=width,
-                max_height=height,
-                stream_config=stream_config,
-            ),
-            media_type="multipart/x-mixed-replace; boundary=frame",
-            headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
-                "Pragma": "no-cache",
-                "Expires": "0",
-                "Connection": "close",
-                "Access-Control-Allow-Origin": "*",
-            },
-        )
+            # Get stream configuration
+            stream_config = _get_stream_config(app_state)
+            quality_cfg = stream_config.get("quality", {})
+            framerate_cfg = stream_config.get("framerate", {})
+            resolution_cfg = stream_config.get("resolution", {})
+
+            # Apply defaults and validate ranges
+            quality = (
+                quality
+                if quality is not None
+                else quality_cfg.get("default_jpeg_quality", 80)
+            )
+            fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
+
+            # Validate quality
+            min_quality = quality_cfg.get("min_jpeg_quality", 1)
+            max_quality = quality_cfg.get("max_jpeg_quality", 100)
+            if quality < min_quality or quality > max_quality:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Quality must be between {min_quality} and {max_quality}",
+                )
+
+            # Validate fps
+            min_fps = framerate_cfg.get("min_fps", 1)
+            max_fps_limit = framerate_cfg.get("max_fps", 60)
+            if fps < min_fps or fps > max_fps_limit:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"FPS must be between {min_fps} and {max_fps_limit}",
+                )
+
+            # Validate resolution if provided
+            if width is not None:
+                min_width = resolution_cfg.get("min_width", 160)
+                max_width = resolution_cfg.get("max_width", 3840)
+                if width < min_width or width > max_width:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Width must be between {min_width} and {max_width}",
+                    )
+
+            if height is not None:
+                min_height = resolution_cfg.get("min_height", 120)
+                max_height = resolution_cfg.get("max_height", 2160)
+                if height < min_height or height > max_height:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Height must be between {min_height} and {max_height}",
+                    )
+
+            # Check camera status
+            camera_status = vision_module.camera.get_status()
+            if camera_status == CameraStatus.ERROR:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Camera is in error state (status: {camera_status.value})",
+                )
+
+            if camera_status == CameraStatus.DISCONNECTED:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Camera is not connected (status: {camera_status.value})",
+                )
+
+            logger.info(
+                f"Starting video stream: quality={quality}, fps={fps}, size={width}x{height}"
+            )
+
+            # Create streaming response
+            return StreamingResponse(
+                generate_mjpeg_stream(
+                    vision_module=vision_module,
+                    quality=quality,
+                    max_fps=fps,
+                    max_width=width,
+                    max_height=height,
+                    stream_config=stream_config,
+                ),
+                media_type="multipart/x-mixed-replace; boundary=frame",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                    "Connection": "close",
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
 
     except HTTPException:
         raise
@@ -858,6 +947,263 @@ async def video_stream_raw(
         raise HTTPException(
             status_code=500,
             detail=f"Unable to initialize RAW video stream: {str(e)}",
+        )
+
+
+async def generate_mjpeg_stream_from_shm(
+    request: Request,
+    app_state: ApplicationState,
+    quality: int,
+    fps: int,
+) -> bytes:
+    """Generate MJPEG stream from shared memory frames.
+
+    Each client gets an independent SharedMemoryFrameReader for zero-copy
+    frame access. This enables 10+ concurrent clients without degradation.
+
+    Args:
+        request: FastAPI request for disconnect detection
+        app_state: Application state for config access
+        quality: JPEG compression quality (1-100)
+        fps: Target frame rate
+
+    Yields:
+        MJPEG frame data
+    """
+    client_id = id(asyncio.current_task())
+    reader: Optional[SharedMemoryFrameReader] = None
+
+    logger.info(
+        f"Starting shared memory stream for client {client_id} (quality={quality}, fps={fps})"
+    )
+
+    try:
+        # Get shared memory configuration
+        shm_name = app_state.config_module.get(
+            "video.shared_memory_name", "billiards_video"
+        )
+        attach_timeout = app_state.config_module.get(
+            "video.shared_memory_attach_timeout_sec", 5.0
+        )
+
+        # Create independent reader for this client
+        reader = SharedMemoryFrameReader(name=shm_name)
+
+        # Attach with timeout (raises TimeoutError if Video Module not running)
+        try:
+            reader.attach(timeout=attach_timeout)
+            logger.info(f"Client {client_id} attached to shared memory: {shm_name}")
+        except TimeoutError:
+            logger.error(
+                f"Client {client_id} failed to attach: Video Module not running"
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Video Module is not running. "
+                    "Start it with: python -m backend.video"
+                ),
+            )
+
+        # Frame rate limiting
+        frame_delay = 1.0 / fps if fps > 0 else 0
+        last_frame_number = -1
+        last_frame_time = 0
+        frame_count = 0
+
+        # Performance config
+        stream_config = _get_stream_config(app_state)
+        perf_cfg = stream_config.get("performance", {})
+        frame_log_interval = perf_cfg.get("frame_log_interval", 30)
+        sleep_interval = perf_cfg.get("sleep_interval_ms", 10) / 1000.0
+
+        # Track this client
+        _streaming_clients.add(client_id)
+        _stream_stats["active_streams"] = len(_streaming_clients)
+
+        while True:
+            try:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    logger.info(f"Client {client_id} disconnected")
+                    break
+
+                current_time = time.time()
+
+                # Rate limiting
+                if frame_delay > 0 and (current_time - last_frame_time) < frame_delay:
+                    await asyncio.sleep(sleep_interval)
+                    continue
+
+                # Read frame from shared memory (non-blocking, returns None if no new frame)
+                frame, metadata = reader.read_frame()
+
+                if frame is None or (
+                    metadata and metadata.frame_number == last_frame_number
+                ):
+                    # No new frame available
+                    await asyncio.sleep(sleep_interval)
+                    continue
+
+                frame_count += 1
+                if frame_count % frame_log_interval == 0:
+                    logger.debug(f"Client {client_id} processed {frame_count} frames")
+
+                # Encode frame as JPEG
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+                success, buffer = cv2.imencode(".jpg", frame, encode_params)
+
+                if not success:
+                    logger.warning(f"Client {client_id} failed to encode frame as JPEG")
+                    await asyncio.sleep(sleep_interval)
+                    continue
+
+                # Format as MJPEG
+                frame_data = buffer.tobytes()
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    + f"Content-Length: {len(frame_data)}\r\n\r\n".encode()
+                    + frame_data
+                    + b"\r\n"
+                )
+
+                # Update statistics
+                _stream_stats["total_frames_served"] += 1
+                _stream_stats["last_frame_time"] = current_time
+                last_frame_time = current_time
+                if metadata:
+                    last_frame_number = metadata.frame_number
+
+            except Exception as e:
+                logger.error(
+                    f"Error generating frame for client {client_id}: {e}",
+                    exc_info=True,
+                )
+                await asyncio.sleep(sleep_interval * 10)  # Longer sleep on error
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Stream error for client {client_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Stream generation failed: {str(e)}",
+        )
+
+    finally:
+        # Cleanup: detach from shared memory
+        if reader is not None:
+            try:
+                reader.detach()
+                logger.info(f"Client {client_id} detached from shared memory")
+            except Exception as e:
+                logger.error(f"Error detaching reader for client {client_id}: {e}")
+
+        # Remove from tracking
+        _streaming_clients.discard(client_id)
+        _stream_stats["active_streams"] = len(_streaming_clients)
+        logger.info(f"Shared memory stream ended for client {client_id}")
+
+
+@router.get("/video/shm")
+async def video_stream_shm(
+    request: Request,
+    app_state: ApplicationState = Depends(get_app_state),
+    quality: Optional[int] = Query(
+        None, description="JPEG quality (1-100, default: 85)"
+    ),
+    fps: Optional[int] = Query(
+        None, description="Target frame rate (1-60, default: 30)"
+    ),
+) -> StreamingResponse:
+    """Live video streaming endpoint using shared memory IPC.
+
+    This endpoint reads frames from the Video Module's shared memory region,
+    enabling high-concurrency streaming (10+ clients) with minimal CPU overhead
+    per client. Each client gets an independent SharedMemoryFrameReader.
+
+    Prerequisites:
+        - Video Module must be running: python -m backend.video
+        - video.use_shared_memory must be enabled in config
+
+    Query Parameters:
+        quality: JPEG compression quality (1-100, default: 85)
+        fps: Target frame rate (1-60, default: 30)
+
+    Returns:
+        Streaming response with MJPEG video data from shared memory
+
+    Headers:
+        Content-Type: multipart/x-mixed-replace; boundary=frame
+        Cache-Control: no-cache
+        Connection: close
+
+    Error Responses:
+        503: Video Module not running or not available
+        500: Stream generation error
+    """
+    try:
+        # Get stream configuration
+        stream_config = _get_stream_config(app_state)
+        quality_cfg = stream_config.get("quality", {})
+        framerate_cfg = stream_config.get("framerate", {})
+
+        # Apply defaults
+        quality = (
+            quality
+            if quality is not None
+            else quality_cfg.get("default_jpeg_quality", 85)
+        )
+        fps = fps if fps is not None else framerate_cfg.get("default_fps", 30)
+
+        # Validate quality
+        min_quality = quality_cfg.get("min_jpeg_quality", 1)
+        max_quality = quality_cfg.get("max_jpeg_quality", 100)
+        if quality < min_quality or quality > max_quality:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quality must be between {min_quality} and {max_quality}",
+            )
+
+        # Validate fps
+        min_fps = framerate_cfg.get("min_fps", 1)
+        max_fps_limit = framerate_cfg.get("max_fps", 60)
+        if fps < min_fps or fps > max_fps_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"FPS must be between {min_fps} and {max_fps_limit}",
+            )
+
+        logger.info(
+            f"Starting shared memory video stream: quality={quality}, fps={fps}"
+        )
+
+        # Create streaming response
+        return StreamingResponse(
+            generate_mjpeg_stream_from_shm(
+                request=request,
+                app_state=app_state,
+                quality=quality,
+                fps=fps,
+            ),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "Connection": "close",
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Shared memory video stream setup failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to initialize shared memory video stream: {str(e)}",
         )
 
 
