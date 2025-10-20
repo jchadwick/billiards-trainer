@@ -43,6 +43,7 @@ class ModelFormat(Enum):
     ONNX = "onnx"
     TENSORRT = "engine"
     EDGETPU = "tflite"  # Edge TPU TensorFlow Lite
+    COREML = "mlpackage"  # Native CoreML model
 
 
 class BallClass(Enum):
@@ -185,6 +186,11 @@ class YOLODetector:
         self.model: Optional[Any] = None
         self.model_format: Optional[ModelFormat] = None
         self.model_loaded = False
+
+        # ONNX Runtime session for direct CoreML inference
+        self.onnx_session: Optional[Any] = None
+        self.onnx_input_name: Optional[str] = None
+        self.onnx_output_names: Optional[list[str]] = None
 
         # TPU-specific state
         self.tpu_available = False
@@ -377,22 +383,29 @@ class YOLODetector:
         if not path.exists():
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
-        # Determine model format from extension
-        suffix = path.suffix.lower()
-        if suffix == ".pt":
-            self.model_format = ModelFormat.PYTORCH
-        elif suffix == ".onnx":
-            self.model_format = ModelFormat.ONNX
-        elif suffix == ".engine":
-            self.model_format = ModelFormat.TENSORRT
-        elif suffix == ".tflite":
-            self.model_format = ModelFormat.EDGETPU
+        # Determine model format from extension or name
+        # Check for .mlpackage directory (CoreML model)
+        if path.suffix == ".mlpackage" or path.name.endswith(".mlpackage"):
+            self.model_format = ModelFormat.COREML
         else:
-            raise ValueError(f"Unsupported model format: {suffix}")
+            suffix = path.suffix.lower()
+            if suffix == ".pt":
+                self.model_format = ModelFormat.PYTORCH
+            elif suffix == ".onnx":
+                self.model_format = ModelFormat.ONNX
+            elif suffix == ".engine":
+                self.model_format = ModelFormat.TENSORRT
+            elif suffix == ".tflite":
+                self.model_format = ModelFormat.EDGETPU
+            else:
+                raise ValueError(f"Unsupported model format: {suffix}")
 
         # Handle Edge TPU model loading separately
         if self.model_format == ModelFormat.EDGETPU:
             self._load_tpu_model(str(path))
+        elif self.model_format == ModelFormat.COREML:
+            # CoreML models are loaded directly by Ultralytics
+            self._load_coreml_model(str(path))
         else:
             # Standard YOLO model loading (PyTorch, ONNX, TensorRT)
             try:
@@ -411,12 +424,7 @@ class YOLODetector:
                         "Configuring ONNX Runtime to use CoreML execution provider"
                     )
 
-                    # Set environment variables BEFORE loading model to force CoreML provider
-                    os.environ["ORT_COREML_FLAGS"] = "1"
-                    # This tells ONNX Runtime to use all available execution providers in priority order
-                    os.environ["ORT_DISABLE_ALL_OPTIMIZATIONS"] = "0"
-
-                    # Import onnxruntime to verify CoreML availability
+                    # Import onnxruntime to use CoreML directly
                     try:
                         import onnxruntime as ort
 
@@ -425,18 +433,77 @@ class YOLODetector:
                             logger.info(
                                 f"CoreML execution provider is available. All providers: {available_providers}"
                             )
-                            # Note: Ultralytics will use providers in order: CoreML, CPU
-                            # CoreML provider should be prioritized automatically on macOS
+
+                            # Use ONNX Runtime directly with CoreML provider
+                            # This bypasses Ultralytics which doesn't support CoreML with ONNX
+                            logger.info(
+                                "Creating ONNX Runtime session with CoreML provider"
+                            )
+
+                            # Configure session options
+                            sess_options = ort.SessionOptions()
+                            sess_options.graph_optimization_level = (
+                                ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+                            )
+
+                            # Create session with CoreML provider (highest priority)
+                            self.onnx_session = ort.InferenceSession(
+                                str(path),
+                                sess_options=sess_options,
+                                providers=[
+                                    "CoreMLExecutionProvider",
+                                    "CPUExecutionProvider",
+                                ],
+                            )
+
+                            # Get input/output names for inference
+                            self.onnx_input_name = self.onnx_session.get_inputs()[
+                                0
+                            ].name
+                            self.onnx_output_names = [
+                                output.name
+                                for output in self.onnx_session.get_outputs()
+                            ]
+
+                            # Log which provider is actually being used
+                            active_providers = self.onnx_session.get_providers()
+                            logger.info(
+                                f"ONNX Runtime session created. Active providers: {active_providers}"
+                            )
+
+                            if "CoreMLExecutionProvider" in active_providers:
+                                logger.info(
+                                    "✓ Successfully using CoreML execution provider"
+                                )
+                            else:
+                                logger.warning(
+                                    f"CoreML provider not active, using: {active_providers[0]}"
+                                )
+
+                            # Load model with Ultralytics just to get class names
+                            # We won't use it for inference
+                            logger.info(
+                                "Loading model metadata with Ultralytics (for class names only)"
+                            )
+                            self.model = YOLO(str(path))
+
                         else:
                             logger.warning(
-                                "CoreML provider not available, falling back to CPU"
+                                "CoreML provider not available, falling back to CPU with Ultralytics"
                             )
                             self.device = "cpu"
+                            # Load model normally
+                            self.model = YOLO(str(path))
                     except ImportError:
-                        logger.warning("onnxruntime not found, cannot configure CoreML")
-
-                # Load model
-                self.model = YOLO(str(path))
+                        logger.warning(
+                            "onnxruntime not found, falling back to Ultralytics"
+                        )
+                        self.device = "cpu"
+                        # Load model normally
+                        self.model = YOLO(str(path))
+                else:
+                    # Load model normally for non-CoreML cases
+                    self.model = YOLO(str(path))
 
                 # Extract class names from model
                 if hasattr(self.model, "names") and self.model.names:
@@ -527,6 +594,51 @@ class YOLODetector:
             ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to load Edge TPU model: {e}") from e
+
+    def _load_coreml_model(self, model_path: str) -> None:
+        """Load native CoreML model (.mlpackage).
+
+        Args:
+            model_path: Path to .mlpackage directory
+
+        Raises:
+            ImportError: If ultralytics package not installed
+            RuntimeError: If model loading fails
+        """
+        try:
+            from ultralytics import YOLO
+
+            logger.info(f"Loading CoreML model from {model_path}")
+
+            # Ultralytics directly supports .mlpackage files on macOS
+            # Load the model - it will use CoreML natively
+            self.model = YOLO(str(model_path))
+
+            # Extract class names from model
+            if hasattr(self.model, "names") and self.model.names:
+                self.class_names = self.model.names
+                logger.info(
+                    f"Loaded {len(self.class_names)} classes from CoreML model: {self.class_names}"
+                )
+                # Update reverse mapping
+                self.name_to_class = {v: k for k, v in self.class_names.items()}
+            else:
+                logger.warning(
+                    "Could not extract class names from CoreML model, using defaults"
+                )
+
+            self.model_loaded = True
+            logger.info(
+                "✓ CoreML model loaded successfully - using native CoreML acceleration"
+            )
+
+        except ImportError as e:
+            raise ImportError(
+                "ultralytics package not installed. "
+                "Install with: pip install ultralytics"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to load CoreML model: {e}") from e
 
     @staticmethod
     def validate_onnx_model(model_path: str) -> dict[str, Any]:

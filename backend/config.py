@@ -3,6 +3,7 @@
 A minimal, straightforward configuration loader that:
 - Loads from a single JSON file (default: ./config.json)
 - Provides dot-notation access (e.g., config.get("vision.camera.device_id", 0))
+- Automatically saves changes to file asynchronously
 - Is a singleton instance
 - Has no dependencies beyond stdlib
 """
@@ -10,6 +11,7 @@ A minimal, straightforward configuration loader that:
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -107,6 +109,9 @@ class Config:
     def set(self, key: str, value: Any) -> None:
         """Set configuration value using dot notation.
 
+        Updates the in-memory configuration immediately and triggers an
+        asynchronous save to the config file.
+
         Args:
             key: Dot-separated key path (e.g., "vision.camera.device_id")
             value: Value to set
@@ -124,8 +129,31 @@ class Config:
                 data[k] = {}
             data = data[k]
 
-        # Set the final key
+        # Set the final key (in-memory update first)
         data[keys[-1]] = value
+
+        # Always save to file asynchronously
+        self._save_config_async()
+
+    def _save_config_async(self) -> None:
+        """Save configuration to file asynchronously in a background thread."""
+        thread = threading.Thread(target=self._save_config, daemon=True)
+        thread.start()
+
+    def _save_config(self) -> None:
+        """Save configuration to config.json file (runs in background thread)."""
+        if self._config_file is None:
+            self._config_file = Path(os.getcwd()) / "config.json"
+
+        try:
+            # Create a copy of the data to avoid race conditions
+            data_to_save = self._config_data.copy()
+
+            with open(self._config_file, "w", encoding="utf-8") as f:
+                json.dump(data_to_save, f, indent=2, ensure_ascii=False)
+            logger.debug(f"Saved configuration to {self._config_file}")
+        except Exception as e:
+            logger.error(f"Error saving config to {self._config_file}: {e}")
 
     def reload(self) -> None:
         """Reload configuration from file."""

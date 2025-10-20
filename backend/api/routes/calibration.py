@@ -902,7 +902,92 @@ async def get_calibration_session(session_id: str) -> CalibrationSession:
         )
 
 
-@router.get("/", response_model=list[CalibrationSession])
+@router.get("/")
+async def get_current_calibration(
+    core_module: CoreModule = Depends(get_core_module),
+) -> dict[str, Any]:
+    """Get the currently applied calibration data.
+
+    Returns the most recently applied calibration including table boundaries,
+    transformation matrix, and accuracy metrics.
+    """
+    try:
+        from ...config import config
+
+        # Get playing area corners from config
+        corners = config.get("table.playing_area_corners", [])
+
+        # Find the most recently applied calibration session
+        applied_sessions = [
+            (session_id, session)
+            for session_id, session in _calibration_sessions.items()
+            if session.get("status") == "applied"
+        ]
+
+        # Sort by applied_at timestamp
+        if applied_sessions:
+            applied_sessions.sort(
+                key=lambda x: x[1].get(
+                    "applied_at", datetime.min.replace(tzinfo=timezone.utc)
+                ),
+                reverse=True,
+            )
+            latest_session = applied_sessions[0][1]
+
+            return {
+                "success": True,
+                "corners": (
+                    corners
+                    if corners
+                    else [
+                        [p["screen_x"], p["screen_y"]]
+                        for p in latest_session.get("points", [])
+                    ]
+                ),
+                "transformation_matrix": latest_session.get("transformation_matrix"),
+                "accuracy": latest_session.get("accuracy"),
+                "calibrated_at": latest_session.get(
+                    "applied_at", datetime.now(timezone.utc)
+                ).isoformat(),
+                "is_valid": True,
+                "table_type": "standard",
+                "dimensions": {"width": 2.54, "height": 1.27},
+            }
+
+        # If no applied session, return corners from config if available
+        if corners and len(corners) >= 4:
+            return {
+                "success": True,
+                "corners": corners,
+                "transformation_matrix": None,
+                "accuracy": None,
+                "calibrated_at": None,
+                "is_valid": True,
+                "table_type": "standard",
+                "dimensions": {"width": 2.54, "height": 1.27},
+            }
+
+        # No calibration data available
+        return {
+            "success": True,
+            "corners": [],
+            "transformation_matrix": None,
+            "accuracy": None,
+            "calibrated_at": None,
+            "is_valid": False,
+            "table_type": None,
+            "dimensions": None,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get current calibration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to retrieve current calibration: {e}",
+        )
+
+
+@router.get("/sessions", response_model=list[CalibrationSession])
 async def list_calibration_sessions(
     status: Optional[str] = Query(
         None,

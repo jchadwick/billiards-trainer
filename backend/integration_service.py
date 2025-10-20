@@ -1102,6 +1102,20 @@ class IntegrationService:
             )
             return
 
+        # Convert position dicts to lists for broadcaster compatibility
+        # The broadcaster expects positions as [x, y] but asdict() converts Vector2D to {'x': ..., 'y': ...}
+        balls_converted = []
+        for ball in balls:
+            ball_copy = ball.copy()
+            position = ball_copy.get("position")
+            if isinstance(position, dict) and "x" in position and "y" in position:
+                ball_copy["position"] = [position["x"], position["y"]]
+            # Also convert velocity if present
+            velocity = ball_copy.get("velocity")
+            if isinstance(velocity, dict) and "x" in velocity and "y" in velocity:
+                ball_copy["velocity"] = [velocity["x"], velocity["y"]]
+            balls_converted.append(ball_copy)
+
         # Create summary for logging
         data_summary = f"{len(balls)} balls, cue={'present' if cue else 'absent'}, table={'present' if table else 'absent'}"
 
@@ -1120,7 +1134,7 @@ class IntegrationService:
             self.broadcaster.broadcast_game_state,
             "broadcast_game_state",
             data_summary,
-            balls,
+            balls_converted,
             cue,
             table,
         )

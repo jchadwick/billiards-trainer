@@ -81,9 +81,22 @@ class VideoProcess:
         try:
             logger.info("Initializing camera...")
 
+            # Determine device_id: video_file_path takes precedence over device_id
+            # This aligns with the logic in vision/config_manager.py
+            video_file_path = self.config.get("vision.camera.video_file_path")
+
+            if video_file_path:
+                # Use video file path as device_id
+                device_id = video_file_path
+                logger.info(f"Using video file: {video_file_path}")
+            else:
+                # Use device_id setting (can be int for camera, or string for stream/file)
+                device_id = self.config.get("vision.camera.device_id", 0)
+                logger.info(f"Using camera device: {device_id}")
+
             # Get camera configuration from config
             camera_config = {
-                "device_id": self.config.get("vision.camera.device_id", 0),
+                "device_id": device_id,
                 "backend": self.config.get("vision.camera.backend", "auto"),
                 "resolution": self.config.get("vision.camera.resolution", [1920, 1080]),
                 "fps": self.config.get("vision.camera.fps", 30),

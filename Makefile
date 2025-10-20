@@ -170,9 +170,11 @@ build: build-frontend ## Build the entire application
 
 kill-processes: ## Kill existing backend and video processes
 	@echo "$(YELLOW)Stopping existing backend and video processes...$(RESET)"
-	@pkill -f "backend.api.main" 2>/dev/null || true
-	@pkill -f "backend.video" 2>/dev/null || true
-	@pkill -f "uvicorn.*backend" 2>/dev/null || true
+	@pkill -9 -f "backend.api.main" 2>/dev/null || true
+	@pkill -9 -f "backend.video" 2>/dev/null || true
+	@pkill -9 -f "uvicorn.*backend" 2>/dev/null || true
+	@pkill -9 -f "python.*backend" 2>/dev/null || true
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
 	@sleep 1
 	@echo "$(GREEN)Processes stopped$(RESET)"
 

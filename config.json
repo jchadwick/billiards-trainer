@@ -32,7 +32,10 @@
     "camera": {
       "device_id": 0,
       "backend": "auto",
-      "resolution": [1920, 1080],
+      "resolution": [
+        1920,
+        1080
+      ],
       "fps": 30,
       "exposure_mode": "auto",
       "exposure_value": null,
@@ -57,7 +60,7 @@
     },
     "detection": {
       "detection_backend": "yolo",
-      "yolo_model_path": "models/billiards-yolov8n.onnx",
+      "yolo_model_path": "models/billiards-yolov8n.mlpackage",
       "yolo_confidence": 0.4,
       "yolo_nms_threshold": 0.45,
       "yolo_device": "auto",
@@ -86,20 +89,52 @@
       "table_detection": {
         "color_ranges": {
           "green": {
-            "lower_hsv": [35, 40, 40],
-            "upper_hsv": [85, 255, 255]
+            "lower_hsv": [
+              35,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              85,
+              255,
+              255
+            ]
           },
           "turquoise": {
-            "lower_hsv": [75, 100, 120],
-            "upper_hsv": [95, 255, 255]
+            "lower_hsv": [
+              75,
+              100,
+              120
+            ],
+            "upper_hsv": [
+              95,
+              255,
+              255
+            ]
           },
           "blue": {
-            "lower_hsv": [100, 40, 40],
-            "upper_hsv": [130, 255, 255]
+            "lower_hsv": [
+              100,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              130,
+              255,
+              255
+            ]
           },
           "red": {
-            "lower_hsv": [0, 40, 40],
-            "upper_hsv": [10, 255, 255]
+            "lower_hsv": [
+              0,
+              40,
+              40
+            ],
+            "upper_hsv": [
+              10,
+              255,
+              255
+            ]
           }
         },
         "geometry": {
@@ -114,7 +149,12 @@
           "canny_low_threshold": 50,
           "canny_high_threshold": 150,
           "contour_epsilon_factor": 0.02,
-          "contour_epsilon_multipliers": [0.01, 0.03, 0.04, 0.05]
+          "contour_epsilon_multipliers": [
+            0.01,
+            0.03,
+            0.04,
+            0.05
+          ]
         },
         "corner_refinement": {
           "window_size": 5,
@@ -129,8 +169,14 @@
           "max_expected_distance": 100
         },
         "morphology": {
-          "large_kernel_size": [5, 5],
-          "small_kernel_size": [3, 3]
+          "large_kernel_size": [
+            5,
+            5
+          ],
+          "small_kernel_size": [
+            3,
+            3
+          ]
         },
         "temporal_stability": {
           "blending_alpha": 0.7,
@@ -357,40 +403,112 @@
       },
       "ball_colors": {
         "cue": {
-          "lower": [0, 0, 150],
-          "upper": [180, 50, 255]
+          "lower": [
+            0,
+            0,
+            150
+          ],
+          "upper": [
+            180,
+            50,
+            255
+          ]
         },
         "yellow": {
-          "lower": [10, 80, 80],
-          "upper": [35, 255, 255]
+          "lower": [
+            10,
+            80,
+            80
+          ],
+          "upper": [
+            35,
+            255,
+            255
+          ]
         },
         "blue": {
-          "lower": [90, 80, 80],
-          "upper": [140, 255, 255]
+          "lower": [
+            90,
+            80,
+            80
+          ],
+          "upper": [
+            140,
+            255,
+            255
+          ]
         },
         "red": {
-          "lower": [0, 80, 80],
-          "upper": [15, 255, 255]
+          "lower": [
+            0,
+            80,
+            80
+          ],
+          "upper": [
+            15,
+            255,
+            255
+          ]
         },
         "purple": {
-          "lower": [120, 80, 80],
-          "upper": [170, 255, 255]
+          "lower": [
+            120,
+            80,
+            80
+          ],
+          "upper": [
+            170,
+            255,
+            255
+          ]
         },
         "orange": {
-          "lower": [8, 80, 80],
-          "upper": [25, 255, 255]
+          "lower": [
+            8,
+            80,
+            80
+          ],
+          "upper": [
+            25,
+            255,
+            255
+          ]
         },
         "green": {
-          "lower": [30, 80, 80],
-          "upper": [90, 255, 255]
+          "lower": [
+            30,
+            80,
+            80
+          ],
+          "upper": [
+            90,
+            255,
+            255
+          ]
         },
         "maroon": {
-          "lower": [0, 60, 30],
-          "upper": [15, 255, 120]
+          "lower": [
+            0,
+            60,
+            30
+          ],
+          "upper": [
+            15,
+            255,
+            120
+          ]
         },
         "black": {
-          "lower": [0, 0, 0],
-          "upper": [180, 255, 70]
+          "lower": [
+            0,
+            0,
+            0
+          ],
+          "upper": [
+            180,
+            255,
+            70
+          ]
         }
       },
       "brightness_filters": {
@@ -417,11 +535,20 @@
           "standard_height_meters": 1.27
         },
         "chessboard": {
-          "pattern_size": [9, 6],
+          "pattern_size": [
+            9,
+            6
+          ],
           "square_size_meters": 0.025,
           "corner_refinement": {
-            "window_size": [11, 11],
-            "zero_zone": [-1, -1],
+            "window_size": [
+              11,
+              11
+            ],
+            "zero_zone": [
+              -1,
+              -1
+            ],
             "max_iterations": 30,
             "epsilon": 0.001
           }
@@ -459,7 +586,10 @@
       "contrast_enhancement": true,
       "gamma_correction": 1.0,
       "clahe_clip_limit": 2.0,
-      "clahe_tile_grid_size": [8, 8],
+      "clahe_tile_grid_size": [
+        8,
+        8
+      ],
       "contrast_alpha": 1.2,
       "contrast_beta": 10,
       "debug_mode": false
@@ -816,9 +946,22 @@
     },
     "cors": {
       "enabled": true,
-      "allow_origins": ["http://192.168.1.31:3000", "http://192.168.1.31:8000", "http://localhost:3000", "*"],
-      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      "allow_headers": ["*"],
+      "allow_origins": [
+        "http://192.168.1.31:3000",
+        "http://192.168.1.31:8000",
+        "http://localhost:3000",
+        "*"
+      ],
+      "allow_methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE",
+        "OPTIONS"
+      ],
+      "allow_headers": [
+        "*"
+      ],
       "allow_credentials": true,
       "max_age": 600
     },
@@ -840,15 +983,32 @@
         "log_headers": false,
         "log_body": false,
         "max_body_size": 1024,
-        "excluded_paths": ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"],
-        "excluded_headers": ["authorization", "cookie", "x-api-key", "x-auth-token"],
+        "excluded_paths": [
+          "/health",
+          "/metrics",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ],
+        "excluded_headers": [
+          "authorization",
+          "cookie",
+          "x-api-key",
+          "x-auth-token"
+        ],
         "include_performance_metrics": true,
         "slow_request_threshold": 1.0,
         "max_metrics_storage": 1000,
         "recent_metrics_window": 100
       },
       "metrics": {
-        "excluded_paths": ["/health/live", "/health/ready", "/docs", "/redoc", "/openapi.json"],
+        "excluded_paths": [
+          "/health/live",
+          "/health/ready",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ],
         "slow_request_threshold": 1.0
       },
       "tracing": {
@@ -856,7 +1016,10 @@
         "enable_correlation_ids": true,
         "sample_rate_production": 0.1,
         "sample_rate_development": 1.0,
-        "excluded_paths": ["/health", "/metrics"]
+        "excluded_paths": [
+          "/health",
+          "/metrics"
+        ]
       },
       "performance": {
         "enable_monitoring": true,
@@ -869,8 +1032,19 @@
         "system_metrics_interval_seconds": 30,
         "memory_alert_threshold_mb": 512,
         "cpu_alert_threshold_percent": 80.0,
-        "response_time_percentiles": [50, 90, 95, 99],
-        "excluded_paths": ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"]
+        "response_time_percentiles": [
+          50,
+          90,
+          95,
+          99
+        ],
+        "excluded_paths": [
+          "/health",
+          "/metrics",
+          "/docs",
+          "/redoc",
+          "/openapi.json"
+        ]
       }
     },
     "health_monitor": {
@@ -1022,10 +1196,16 @@
       "access_log": false
     },
     "cors": {
-      "allow_origins": ["*"],
+      "allow_origins": [
+        "*"
+      ],
       "allow_credentials": false,
-      "allow_methods": ["*"],
-      "allow_headers": ["*"]
+      "allow_methods": [
+        "*"
+      ],
+      "allow_headers": [
+        "*"
+      ]
     },
     "logging": {
       "level": "ERROR",
@@ -1043,7 +1223,10 @@
     "display": {
       "mode": "window",
       "monitor_index": 0,
-      "resolution": [1920, 1080],
+      "resolution": [
+        1920,
+        1080
+      ],
       "refresh_rate": 60,
       "vsync": true,
       "gamma": 1.0,
@@ -1066,9 +1249,21 @@
     },
     "visual": {
       "trajectory_width": 3.0,
-      "trajectory_color": [0, 255, 0],
-      "collision_color": [255, 0, 0],
-      "reflection_color": [255, 255, 0],
+      "trajectory_color": [
+        0,
+        255,
+        0
+      ],
+      "collision_color": [
+        255,
+        0,
+        0
+      ],
+      "reflection_color": [
+        255,
+        255,
+        0
+      ],
       "enable_glow": true,
       "glow_intensity": 0.5,
       "enable_animations": true,
@@ -1079,7 +1274,11 @@
       "overlay_opacity": 0.6,
       "font_family": "Arial",
       "font_size": 24,
-      "text_color": [255, 255, 255]
+      "text_color": [
+        255,
+        255,
+        255
+      ]
     },
     "rendering": {
       "renderer": "opengl",
@@ -1146,5 +1345,25 @@
       "startup_timeout_seconds": 5.0,
       "thread_join_timeout_seconds": 2.0
     }
+  },
+  "table": {
+    "playing_area_corners": [
+      {
+        "x": 37,
+        "y": 45
+      },
+      {
+        "x": 606,
+        "y": 39
+      },
+      {
+        "x": 604,
+        "y": 326
+      },
+      {
+        "x": 40,
+        "y": 322
+      }
+    ]
   }
 }

@@ -167,7 +167,7 @@ class BallState:
         linear_ke = 0.5 * self.mass * self.velocity.magnitude_squared()
         # Rotational KE: 0.5 * I * ω², where I = (2/5) * m * r² for sphere
         moment_of_inertia = 0.4 * self.mass * self.radius**2
-        angular_velocity = self.spin.magnitude()
+        angular_velocity = self.spin.magnitude() if self.spin is not None else 0.0
         rotational_ke = 0.5 * moment_of_inertia * angular_velocity**2
         return linear_ke + rotational_ke
 
@@ -177,7 +177,7 @@ class BallState:
 
     def is_spinning(self, threshold: float = 0.1) -> bool:
         """Check if the ball has significant spin."""
-        return self.spin.magnitude() > threshold
+        return self.spin.magnitude() > threshold if self.spin is not None else False
 
     def distance_to(self, other: "BallState") -> float:
         """Calculate distance to another ball's center."""
