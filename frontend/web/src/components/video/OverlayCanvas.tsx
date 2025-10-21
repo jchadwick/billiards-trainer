@@ -401,32 +401,38 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
     ctx.globalAlpha = 1.0;
   }, [config.grid, canvasSize]);
 
-  // Main render function
-  const renderOverlays = useCallback(() => {
-    if (!canvasRef.current || !coordinateTransform) return;
+  // Main render function - stored in ref to avoid animation loop recreation
+  const renderOverlaysRef = useRef<() => void>();
 
-    const canvasContext = setupCanvas(canvasRef.current);
-    if (!canvasContext) return;
+  // Update the render function when dependencies change
+  useEffect(() => {
+    renderOverlaysRef.current = () => {
+      if (!canvasRef.current || !coordinateTransform) return;
 
-    const { ctx } = canvasContext;
+      const canvasContext = setupCanvas(canvasRef.current);
+      if (!canvasContext) return;
 
-    // Clear canvas
-    clearCanvas(ctx);
+      const { ctx } = canvasContext;
 
-    // Draw overlays in order
-    drawGrid(ctx);
-    drawCalibration(ctx, coordinateTransform);
-    drawTable(ctx, coordinateTransform);
-    drawTrajectories(ctx, coordinateTransform);
-    drawBalls(ctx, coordinateTransform);
-    drawCue(ctx, coordinateTransform);
+      // Clear canvas
+      clearCanvas(ctx);
 
+      // Draw overlays in order
+      drawGrid(ctx);
+      drawCalibration(ctx, coordinateTransform);
+      drawTable(ctx, coordinateTransform);
+      drawTrajectories(ctx, coordinateTransform);
+      drawBalls(ctx, coordinateTransform);
+      drawCue(ctx, coordinateTransform);
+    };
   }, [coordinateTransform, setupCanvas, clearCanvas, drawGrid, drawCalibration, drawTable, drawTrajectories, drawBalls, drawCue]);
 
-  // Animation loop
+  // Animation loop - runs once on mount
   useEffect(() => {
     const animate = () => {
-      renderOverlays();
+      if (renderOverlaysRef.current) {
+        renderOverlaysRef.current();
+      }
       animationFrameRef.current = requestAnimationFrame(animate);
     };
 
@@ -437,7 +443,7 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [renderOverlays]);
+  }, []); // Empty dependency array - runs once
 
   // Handle canvas clicks
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {

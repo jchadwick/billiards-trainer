@@ -20,7 +20,7 @@ interface VideoStreamProps {
   onResize?: (size: Size2D) => void;
 }
 
-export const VideoStream = observer<VideoStreamProps>(({
+export const VideoStream = observer(React.forwardRef<any, VideoStreamProps>(({
   videoStore,
   className = '',
   width,
@@ -30,7 +30,7 @@ export const VideoStream = observer<VideoStreamProps>(({
   onError,
   onLoad,
   onResize,
-}) => {
+}, ref) => {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState<Size2D>({ width: 0, height: 0 });
@@ -216,7 +216,7 @@ export const VideoStream = observer<VideoStreamProps>(({
   }, [resetTransform]);
 
   // Provide transform control methods to parent
-  React.useImperativeHandle(React.useRef(), () => ({
+  React.useImperativeHandle(ref, () => ({
     resetTransform,
     setTransform,
     getTransform: () => transform,
@@ -326,6 +326,6 @@ export const VideoStream = observer<VideoStreamProps>(({
       )}
     </div>
   );
-});
+}));
 
 VideoStream.displayName = 'VideoStream';

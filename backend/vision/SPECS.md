@@ -433,12 +433,50 @@ def detect_table(image: np.ndarray, config: DetectionSettings) -> Table:
 
 ## Testing Requirements
 
+### PRIMARY: Ground Truth Test Data Validation
+
+**The vision/test_data directory contains curated test images and annotations that are the PRIMARY quality validation for the vision system.**
+
+All vision system changes MUST pass validation against these ground truth test images before being considered complete:
+
+- **Test Suite**: `backend/vision/test_vision_with_test_data.py`
+- **Test Data**: `backend/vision/test_data/` (images + JSON annotations)
+- **Coverage**: Empty table, multiple balls, clustered balls, cue detection, motion blur, calibration views
+
+**Ground Truth Test Scenarios:**
+1. `empty_table.png` - False positive testing (no ghost detections)
+2. `multiple_balls.png` - Multi-object detection accuracy
+3. `clustered_balls.png` - Ball separation in tight clusters
+4. `full_table.png` - Stress testing with all 15 balls
+5. `frame_with_cue.png` - Cue stick detection
+6. `cue_aiming.png` - Aiming state detection
+7. `motion_blur.png` - Motion blur handling
+8. `calibration_straight_on.png` - Optimal camera angle
+9. `table_corners_visible.png` - Calibration with visible corners
+
+**Quality Gates:**
+- All ground truth tests must pass before merging changes
+- Detection accuracy ≥ 98% on standard scenarios (NFR-VIS-006)
+- Position error ≤ 2 pixels (FR-VIS-023)
+- False positive rate < 1% on empty table (NFR-VIS-007)
+- Zero regressions on existing passing test cases
+
+**Running Ground Truth Tests:**
+```bash
+# Run all ground truth validation tests
+python -m pytest backend/vision/test_vision_with_test_data.py -v
+
+# Run specific test scenario
+python -m pytest backend/vision/test_vision_with_test_data.py::TestVisionWithGroundTruth::test_multiple_balls_detection_accuracy -v
+```
+
 ### Unit Testing
 - Test each detection algorithm independently
 - Mock camera input with test images
 - Validate color space conversions
 - Test edge cases (empty table, clustered balls)
 - Coverage target: 85%
+- **MUST validate against ground truth test_data before considering complete**
 
 ### Integration Testing
 - Test complete pipeline with pre-recorded videos
@@ -446,20 +484,21 @@ def detect_table(image: np.ndarray, config: DetectionSettings) -> Table:
 - Test with various lighting conditions
 - Validate tracking across frames
 - Test calibration procedures
+- **MUST validate against ground truth test_data scenarios**
 
 ### Performance Testing
 - Benchmark processing times per component
-- Stress test with maximum ball count
+- Stress test with maximum ball count (use `full_table.png` from test_data)
 - Test with different resolutions
 - Measure resource usage over time
 - Profile for bottlenecks
 
 ### Accuracy Testing
-- Ground truth comparison with known positions
-- Measure detection rates across scenarios
-- Validate angle measurements
+- **PRIMARY**: Ground truth comparison using vision/test_data images and annotations
+- Measure detection rates across scenarios (use ground truth test suite)
+- Validate angle measurements (use `cue_aiming.png`)
 - Test color classification accuracy
-- Compare with manual annotations
+- Compare with manual annotations in test_data/*.json files
 
 ## Implementation Guidelines
 

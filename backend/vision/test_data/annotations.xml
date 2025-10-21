@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<annotations>
+  <version>1.1</version>
+  <meta>
+    <task>
+      <id>1703897</id>
+      <name>Annotate</name>
+      <size>9</size>
+      <mode>annotation</mode>
+      <overlap>0</overlap>
+      <bugtracker></bugtracker>
+      <created>2025-10-18 14:22:23.248737+00:00</created>
+      <updated>2025-10-18 14:42:06.903225+00:00</updated>
+      <subset>default</subset>
+      <start_frame>0</start_frame>
+      <stop_frame>8</stop_frame>
+      <frame_filter></frame_filter>
+      <segments>
+        <segment>
+          <id>3135406</id>
+          <start>0</start>
+          <stop>8</stop>
+          <url>https://app.cvat.ai/api/jobs/3133685</url>
+        </segment>
+      </segments>
+      <owner>
+        <username>jess6</username>
+        <email>jesschadwick@gmail.com</email>
+      </owner>
+      <assignee></assignee>
+      <labels>
+        <label>
+          <name>cue</name>
+          <color>#66ff66</color>
+          <type>rectangle</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>ball</name>
+          <color>#804080</color>
+          <type>rectangle</type>
+          <attributes>
+          </attributes>
+        </label>
+      </labels>
+    </task>
+    <dumped>2025-10-18 14:42:23.706506+00:00</dumped>
+  </meta>
+  <image id="0" name="calibration_straight_on.png" width="3840" height="2160">
+  </image>
+  <image id="1" name="clustered_balls.png" width="3840" height="2160">
+    <box label="ball" source="manual" occluded="0" xtl="894.10" ytl="249.21" xbr="987.52" ybr="355.97" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1257.75" ytl="252.54" xbr="1361.17" ybr="352.63" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2965.90" ytl="232.53" xbr="3086.00" ybr="342.62" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3519.71" ytl="943.14" xbr="3619.80" ybr="1046.57" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="804.02" ytl="255.88" xbr="894.10" ybr="349.30" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2688.99" ytl="836.38" xbr="2792.42" ybr="936.47" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2729.03" ytl="993.19" xbr="2815.77" ybr="1103.28" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2805.76" ytl="946.48" xbr="2915.86" ybr="1043.23" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2772.40" ytl="1386.86" xbr="2882.49" ybr="1486.95" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2695.67" ytl="1440.24" xbr="2802.42" ybr="1540.33" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2785.74" ytl="1483.61" xbr="2882.49" ybr="1577.03" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1604.72" ytl="689.59" xbr="1708.14" ybr="793.01" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1000.86" ytl="1096.61" xbr="1110.96" ybr="1193.36" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1127.64" ytl="1840.59" xbr="1234.40" ybr="1937.34" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="223.52" ytl="1403.54" xbr="336.95" ybr="1503.63" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="220.18" ytl="1029.89" xbr="336.95" ybr="1123.30" z_order="0">
+    </box>
+  </image>
+  <image id="2" name="cue_aiming.png" width="3840" height="2160">
+    <box label="ball" source="manual" occluded="0" xtl="1007.53" ytl="282.57" xbr="1117.63" ybr="389.33" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="503.76" ytl="439.37" xbr="613.86" ybr="539.46" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1264.42" ytl="1119.96" xbr="1364.51" ybr="1216.71" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1127.64" ytl="1426.90" xbr="1241.07" ybr="1530.32" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2118.50" ytl="906.45" xbr="2228.59" ybr="1016.54" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3523.05" ytl="285.91" xbr="3649.83" ybr="389.33" z_order="0">
+    </box>
+    <box label="cue" source="manual" occluded="0" xtl="2408.75" ytl="1113.29" xbr="3523.05" ybr="1867.28" z_order="0">
+    </box>
+  </image>
+  <image id="3" name="empty_table.png" width="3840" height="2160">
+  </image>
+  <image id="4" name="frame_with_cue.png" width="3840" height="2160">
+    <box label="ball" source="manual" occluded="0" xtl="2051.77" ytl="1797.22" xbr="2168.54" ybr="1900.64" z_order="0">
+    </box>
+    <box label="cue" source="manual" occluded="0" xtl="2201.90" ytl="352.63" xbr="3829.98" ybr="559.48" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3282.84" ytl="249.21" xbr="3396.27" ybr="352.63" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3116.03" ytl="329.28" xbr="3222.79" ybr="432.70" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2899.18" ytl="1540.33" xbr="3012.61" ybr="1647.09" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="680.58" ytl="1506.97" xbr="800.69" ybr="1607.05" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="210.17" ytl="1019.88" xbr="343.62" ybr="1129.97" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="230.19" ytl="302.59" xbr="360.30" ybr="409.35" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="827.38" ytl="335.95" xbr="940.81" ybr="439.37" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1257.75" ytl="249.21" xbr="1361.17" ybr="362.64" z_order="0">
+    </box>
+  </image>
+  <image id="5" name="full_table.png" width="3840" height="2160">
+    <box label="ball" source="manual" occluded="0" xtl="2789.08" ytl="1480.28" xbr="2879.16" ybr="1580.36" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3529.72" ytl="949.82" xbr="3623.14" ybr="1039.89" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2692.33" ytl="843.06" xbr="2789.08" ybr="933.14" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2812.43" ytl="949.82" xbr="2912.52" ybr="1046.57" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2725.69" ytl="996.52" xbr="2819.11" ybr="1096.61" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2782.41" ytl="1393.53" xbr="2875.82" ybr="1483.61" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2702.34" ytl="1443.58" xbr="2805.76" ybr="1543.67" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="216.85" ytl="1029.89" xbr="330.28" ybr="1123.30" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="220.18" ytl="1403.54" xbr="340.29" ybr="1500.29" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1134.31" ytl="1840.59" xbr="1231.06" ybr="1940.68" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1000.86" ytl="1096.61" xbr="1110.96" ybr="1196.70" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="890.77" ytl="252.54" xbr="990.85" ybr="352.63" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="804.02" ytl="252.54" xbr="897.44" ybr="352.63" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1261.09" ytl="259.22" xbr="1354.50" ybr="345.96" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1611.39" ytl="692.93" xbr="1708.14" ybr="789.68" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="2972.57" ytl="239.20" xbr="3082.67" ybr="342.62" z_order="0">
+    </box>
+  </image>
+  <image id="6" name="motion_blur.png" width="3840" height="2160">
+    <box label="cue" source="manual" occluded="0" xtl="3129.38" ytl="335.95" xbr="3829.98" ybr="446.05" z_order="0">
+    </box>
+  </image>
+  <image id="7" name="multiple_balls.png" width="3840" height="2160">
+    <box label="ball" source="manual" occluded="0" xtl="1127.70" ytl="1426.90" xbr="1234.40" ybr="1527.00" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3312.87" ytl="1610.39" xbr="3422.96" ybr="1713.81" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="3516.38" ytl="289.24" xbr="3666.51" ybr="396.00" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="1814.90" ytl="542.80" xbr="1921.66" ybr="646.22" z_order="0">
+    </box>
+    <box label="ball" source="manual" occluded="0" xtl="507.10" ytl="442.71" xbr="623.87" ybr="539.46" z_order="0">
+    </box>
+  </image>
+  <image id="8" name="table_corners_visible.png" width="3840" height="2160">
+  </image>
+</annotations>

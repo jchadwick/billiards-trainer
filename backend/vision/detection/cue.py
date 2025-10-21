@@ -284,7 +284,8 @@ class CueDetector:
 
         try:
             # Fallback to YOLO detection if available (PRIMARY METHOD)
-            if self.yolo_detector is not None and cue_ball_pos is not None:
+            # Note: cue_ball_pos is optional - YOLO can detect cues without it
+            if self.yolo_detector is not None:
                 yolo_cue = self._detect_cue_with_yolo(
                     frame, cue_ball_pos, all_ball_positions, table_corners
                 )

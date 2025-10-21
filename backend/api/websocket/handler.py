@@ -450,10 +450,15 @@ class WebSocketHandler:
         connection = self.connections[client_id]
         valid_streams = ["frame", "state", "trajectory", "alert", "config"]
 
+        # Import websocket_manager to register subscriptions properly
+        from . import websocket_manager
+
         added_streams = []
         for stream_type in stream_types:
             if stream_type in valid_streams:
                 connection.add_subscription(stream_type)
+                # BUGFIX: Register with websocket_manager so broadcaster can find subscribers
+                await websocket_manager.subscribe_to_stream(client_id, stream_type)
                 added_streams.append(stream_type)
             else:
                 logger.warning(

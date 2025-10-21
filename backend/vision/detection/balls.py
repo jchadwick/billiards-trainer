@@ -103,8 +103,8 @@ class BallDetectionConfig:
         # Extract size constraints
         size_config = config.get("size_constraints", {})
 
-        # Extract quality filters
-        quality_config = config.get("quality_filters", {})
+        # Extract quality filters (support both "quality" and "quality_filters" keys)
+        quality_config = config.get("quality_filters", config.get("quality", {}))
 
         # Extract performance settings
         perf_config = config.get("performance", {})
@@ -754,7 +754,7 @@ class BallDetector:
     def _detect_hough_circles(
         self, frame: NDArray[np.uint8]
     ) -> list[tuple[float, float, float]]:
-        """Detect circles using Hough transform."""
+        """Detect circles using Hough transform with adaptive thresholding."""
         # FIRST: Apply color pre-filter to eliminate obvious non-balls
         color_mask = self._create_ball_color_mask(frame)
         masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
@@ -771,13 +771,18 @@ class BallDetector:
         # Calculate dynamic parameters
         min_dist = int(self.config.min_radius * 2 * self.config.hough_min_dist_ratio)
 
+        # Adaptive param2 based on image content
+        # Key insight: Empty tables need high param2 (strict), tables with balls need lower param2 (lenient)
+        # Analyze color mask to determine image context
+        scaled_param2 = self._calculate_adaptive_param2(frame, color_mask)
+
         circles = cv2.HoughCircles(
             blurred,
             cv2.HOUGH_GRADIENT,
             dp=self.config.hough_dp,
             minDist=min_dist,
             param1=self.config.hough_param1,
-            param2=self.config.hough_param2,
+            param2=scaled_param2,
             minRadius=self.config.min_radius,
             maxRadius=self.config.max_radius,
         )
@@ -790,6 +795,45 @@ class BallDetector:
 
         self.stats["detection_method_stats"]["hough"] += len(candidates)
         return candidates
+
+    def _calculate_adaptive_param2(
+        self, frame: NDArray[np.uint8], color_mask: NDArray[np.uint8]
+    ) -> int:
+        """Calculate param2 threshold with optimized scaling for high-resolution images.
+
+        For 4K images with 50-65px radius balls, we need param2 ~38-42 to balance:
+        - Avoiding false positives on empty tables
+        - Detecting real balls effectively
+
+        Args:
+            frame: Original frame
+            color_mask: Pre-computed color mask (currently not used reliably)
+
+        Returns:
+            Scaled param2 value
+        """
+        base_param2 = self.config.hough_param2
+
+        # Resolution-based scaling using square root to avoid over-scaling
+        # This provides gentler adjustment that works across different ball sizes
+        image_width = frame.shape[1]
+        baseline_width = 1920.0  # 1080p baseline
+        scale_factor = math.sqrt(image_width / baseline_width)
+
+        # Apply scaling with a cap to prevent param2 from getting too high
+        scaled_param2 = int(base_param2 * scale_factor)
+        # Cap at reasonable maximum to ensure we can still detect balls
+        max_param2 = base_param2 + 15
+        scaled_param2 = min(scaled_param2, max_param2)
+
+        if self.config.debug_mode:
+            logger.debug(
+                f"Adaptive param2: width={image_width}, "
+                f"scale_factor={scale_factor:.2f}, "
+                f"base={base_param2}, scaled={scaled_param2}"
+            )
+
+        return scaled_param2
 
     def _detect_contour_based(
         self, frame: NDArray[np.uint8]
