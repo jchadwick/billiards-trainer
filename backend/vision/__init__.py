@@ -555,15 +555,10 @@ class VisionModule:
         Returns:
             Latest frame or None if no frame available
         """
-        logger.debug("get_current_frame called")
         with self._lock:
             if self._current_frame is not None:
-                logger.debug(
-                    f"Returning current frame: shape={self._current_frame.shape}"
-                )
                 return self._current_frame.copy()
             else:
-                logger.debug("No current frame available")
                 return None
 
     def calibrate_camera(self) -> bool:
@@ -773,7 +768,7 @@ class VisionModule:
         """Main capture loop running in separate thread."""
         logger.info("VisionModule capture loop started")
         frame_count = 0
-        log_interval = _get_config_value("vision.frame_logging.log_interval_frames", 30)
+        _get_config_value("vision.frame_logging.log_interval_frames", 30)
         sleep_interval_ms = _get_config_value(
             "vision.processing.capture_frame_interval_ms", 1
         )
@@ -792,7 +787,6 @@ class VisionModule:
                     continue
 
                 # Get frame from VideoConsumer (shared memory IPC)
-                logger.debug("VisionModule: Getting frame from VideoConsumer")
                 frame = self._video_consumer.get_frame()
 
                 if frame is None:
@@ -803,23 +797,13 @@ class VisionModule:
                 # Track frame metadata
                 frame_count += 1
 
-                if frame_count % log_interval == 0:
-                    logger.debug(
-                        f"VisionModule: Received frame #{frame_count}: shape={frame.shape}, "
-                        f"timestamp={current_time:.3f}s"
-                    )
-
                 # Apply ROI if enabled
                 if self.config.roi_enabled and self._roi_corners:
-                    logger.debug("Applying ROI to frame")
                     frame = self._apply_roi(frame)
 
                 # Update current frame
                 with self._lock:
                     self._current_frame = frame
-                    logger.debug(
-                        f"VisionModule: Updated current frame (frame #{frame_count})"
-                    )
 
                 # Add to processing queue (non-blocking)
                 try:
@@ -834,7 +818,6 @@ class VisionModule:
                     last_frame_time = current_time
 
                 except queue.Full:
-                    logger.debug("Processing queue full, dropping frame")
                     self.stats.frames_dropped += 1
 
             except Exception as e:
@@ -1101,10 +1084,6 @@ class VisionModule:
             scale_x = frame_width / calib_width
             scale_y = frame_height / calib_height
 
-            logger.info(
-                f"MASKING: Frame actual size: {frame_width}x{frame_height}, Calibration size: {calib_width}x{calib_height}, Scale factors: {scale_x:.3f}x, {scale_y:.3f}y"
-            )
-
             # MASK 1: Marker dots (spots/stickers on table)
             marker_config = config.get("vision.detection.marker_filtering", {})
             if marker_config.get("enabled", True):
@@ -1118,21 +1097,12 @@ class VisionModule:
                     scaled_x = int(dot["x"] * scale_x)
                     scaled_y = int(dot["y"] * scale_y)
 
-                    logger.info(
-                        f"Masking marker dot: calibration ({dot['x']}, {dot['y']}) -> scaled ({scaled_x}, {scaled_y}) with radius {mask_radius}px"
-                    )
-
                     cv2.circle(
                         masked_frame,
                         (scaled_x, scaled_y),
                         mask_radius,
                         (0, 0, 0),  # Black
                         -1,  # Filled
-                    )
-
-                if marker_dots:
-                    logger.info(
-                        f"Applied marker masking: {len(marker_dots)} dots with radius={mask_radius}px"
                     )
 
             # MASK 2: Table boundaries (outside playing area) - OPTIONAL
@@ -1160,10 +1130,6 @@ class VisionModule:
                     # Apply mask - zeros out everything outside playing area
                     masked_frame = cv2.bitwise_and(
                         masked_frame, masked_frame, mask=mask
-                    )
-
-                    logger.info(
-                        f"Applied boundary masking: scaled corners={corners.tolist()}"
                     )
                 else:
                     logger.warning(
