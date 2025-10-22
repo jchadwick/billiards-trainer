@@ -21,7 +21,6 @@ from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
 
 # Config manager no longer used - using simple config instead
-from .detection.table import TableDetector
 from .models import (
     Ball,
     BallType,
@@ -40,7 +39,9 @@ from .models import (
     ShotEvent,
     Table,
 )
-from .preprocessing import ImagePreprocessor
+
+# Performance profiling
+from .performance_profiler import PerformanceProfiler
 from .tracking.tracker import ObjectTracker
 
 # Optional camera modules
@@ -321,14 +322,6 @@ class VisionModule:
             self._video_consumer = VideoConsumer()
             logger.info("VideoConsumer initialized (will attach on start_capture)")
 
-            # Image preprocessing - create config based on vision module settings
-            preprocessing_config = {}
-            if hasattr(self.config, "enable_gpu"):
-                # Note: PreprocessingConfig doesn't have a use_gpu field, so we skip it
-                pass
-            logger.debug("Creating ImagePreprocessor")
-            self.preprocessor = ImagePreprocessor(preprocessing_config)
-
             # Detection components - YOLO+OpenCV hybrid only
             if self.config.enable_ball_detection or self.config.enable_cue_detection:
                 # Load YOLO configuration parameters - use shared config manager
@@ -371,37 +364,8 @@ class VisionModule:
                     # Store as ball_detector for compatibility with existing code
                     self.ball_detector = self.detector
 
-                    # Initialize CueDetector with relaxed config for better detection
-                    if self.config.enable_cue_detection:
-                        from .detection.cue import CueDetector
-
-                        # Create relaxed cue detector configuration
-                        cue_config = {
-                            "geometry": {
-                                "min_cue_length": 100,  # Reduced from 150
-                                "max_cue_length": 1000,  # Increased from 800
-                                "min_line_thickness": 2,  # Reduced from 3
-                                "max_line_thickness": 40,  # Increased from 25
-                            },
-                            "hough": {
-                                "threshold": 50,  # Reduced from 80
-                                "min_line_length": 100,
-                                "max_line_gap": 20,
-                            },
-                            "detection": {
-                                "min_detection_confidence": 0.3,  # Reduced from 0.5
-                            },
-                        }
-                        self.cue_detector = CueDetector(
-                            cue_config,
-                            camera_resolution=self.config.camera_resolution,
-                            yolo_detector=self.detector,
-                        )
-                        logger.info(
-                            "CueDetector initialized with relaxed configuration"
-                        )
-                    else:
-                        self.cue_detector = None
+                    # CueDetector has been removed - YOLO handles cue detection directly
+                    self.cue_detector = None
 
                 except Exception as e:
                     logger.error(
@@ -417,15 +381,8 @@ class VisionModule:
                 self.ball_detector = None
                 self.cue_detector = None
 
-            # Table detection (separate from ball/cue detection)
-            if self.config.enable_table_detection:
-                base_detection_config = {"debug_mode": self.config.debug_mode}
-                self.table_detector = TableDetector(
-                    base_detection_config,
-                    camera_resolution=self.config.camera_resolution,
-                )
-            else:
-                self.table_detector = None
+            # Table detection removed - using static calibration only
+            self.table_detector = None
 
             # Load background frame if configured
             if self.config.background_image_path:
@@ -919,11 +876,8 @@ class VisionModule:
             if timestamp is None:
                 timestamp = time.time()
 
-            # Preprocessing
-            if self.config.preprocessing_enabled:
-                processed_frame = self.preprocessor.process(frame)
-            else:
-                processed_frame = frame
+            # No preprocessing - use frame as-is
+            processed_frame = frame
 
             # Apply masking ONCE - marker dots and table boundaries
             # This happens BEFORE any detection so YOLO/OpenCV never see masked regions
@@ -934,37 +888,8 @@ class VisionModule:
             detected_balls = []
             detected_cue = None
 
-            # Table detection
-            if self.table_detector and self.config.enable_table_detection:
-                try:
-                    table_confidence_threshold = _get_config_value(
-                        "vision.detection.table_detection_confidence_threshold", 0.5
-                    )
-                    table_result = self.table_detector.detect_complete_table(
-                        processed_frame
-                    )
-                    if (
-                        table_result
-                        and table_result.confidence > table_confidence_threshold
-                    ):
-                        # Convert to our Table model format
-                        detected_table = Table(
-                            corners=table_result.corners.to_list(),
-                            pockets=[
-                                pocket.position for pocket in table_result.pockets
-                            ],
-                            width=table_result.width,
-                            height=table_result.height,
-                            surface_color=table_result.surface_color,
-                        )
-
-                        self.stats.detection_accuracy["table"] = table_result.confidence
-                    else:
-                        self.stats.detection_accuracy["table"] = 0.0
-
-                except Exception as e:
-                    logger.warning(f"Table detection failed: {e}")
-                    self.stats.detection_accuracy["table"] = 0.0
+            # Table detection removed - using static calibration only
+            self.stats.detection_accuracy["table"] = 0.0
 
             # Ball detection using YOLO+OpenCV hybrid detector
             if self.detector and self.config.enable_ball_detection:
@@ -991,26 +916,8 @@ class VisionModule:
                     logger.error(f"YOLO+OpenCV hybrid ball detection failed: {e}")
                     self.stats.detection_accuracy["balls"] = 0.0
 
-            # Cue detection using CueDetector with YOLO+OpenCV hybrid
-            if self.cue_detector and self.config.enable_cue_detection:
-                try:
-                    # Get cue ball position for improved cue detection
-                    cue_ball_pos = None
-                    for ball in detected_balls:
-                        if ball.ball_type == BallType.CUE:
-                            cue_ball_pos = ball.position
-                            break
-
-                    # Use CueDetector which leverages YOLO + OpenCV hybrid detection
-                    detected_cue = self.cue_detector.detect_cue(
-                        processed_frame, cue_ball_pos
-                    )
-
-                    self.stats.detection_accuracy["cue"] = 1.0 if detected_cue else 0.0
-
-                except Exception as e:
-                    logger.error(f"Cue detection failed: {e}")
-                    self.stats.detection_accuracy["cue"] = 0.0
+            # Cue detection has been removed - YOLO detector handles cues directly
+            # No separate CueDetector processing needed
 
             # Create result
             processing_time = (
@@ -1117,7 +1024,6 @@ class VisionModule:
 
             # MASK 1: Marker dots (spots/stickers on table)
             marker_config = config.get("vision.detection.marker_filtering", {})
-            marker_dots_applied = False
             if marker_config.get("enabled", True):
                 marker_dots = config.get("table.marker_dots", [])
                 mask_radius = marker_config.get(
@@ -1142,13 +1048,11 @@ class VisionModule:
                     )
 
                 if marker_dots:
-                    marker_dots_applied = True
                     logger.info(
                         f"Applied marker masking: {len(marker_dots)} dots with radius={mask_radius}px"
                     )
 
             # MASK 2: Table boundaries (outside playing area) - OPTIONAL
-            boundary_mask_applied = False
             enable_boundary_mask = config.get(
                 "vision.detection.enable_boundary_masking", False
             )
@@ -1175,7 +1079,6 @@ class VisionModule:
                         masked_frame, masked_frame, mask=mask
                     )
 
-                    boundary_mask_applied = True
                     logger.info(
                         f"Applied boundary masking: scaled corners={corners.tolist()}"
                     )
@@ -1183,64 +1086,6 @@ class VisionModule:
                     logger.warning(
                         f"Boundary masking enabled but got {len(playing_area_corners)} corners (need 4)"
                     )
-
-            # DEBUG: Save EXACT frame that detection sees
-            save_mask_debug = config.get(
-                "vision.detection.save_mask_visualization", False
-            )
-            if save_mask_debug:
-                try:
-                    # Save the EXACT masked frame that YOLO/OpenCV will see
-                    debug_path = "/tmp/vision_masked_frame.jpg"
-                    cv2.imwrite(debug_path, masked_frame)
-                    logger.info(
-                        f"Saved EXACT masked frame (what detection sees) to {debug_path}"
-                    )
-
-                    # Also save a visualization with markers overlaid
-                    if marker_dots_applied or boundary_mask_applied:
-                        debug_vis = frame.copy()
-
-                        # Show marker dots as red circles (SCALED coordinates, UNSCALED radius)
-                        if marker_dots_applied:
-                            marker_dots = config.get("table.marker_dots", [])
-                            vis_radius = marker_config.get(
-                                "mask_radius_px", 25
-                            )  # DO NOT SCALE
-                            for dot in marker_dots:
-                                scaled_x = int(dot["x"] * scale_x)
-                                scaled_y = int(dot["y"] * scale_y)
-                                cv2.circle(
-                                    debug_vis,
-                                    (scaled_x, scaled_y),
-                                    vis_radius,
-                                    (0, 0, 255),
-                                    2,
-                                )
-                                cv2.circle(
-                                    debug_vis, (scaled_x, scaled_y), 3, (0, 0, 255), -1
-                                )
-
-                        # Show boundary mask as green polygon (SCALED coordinates)
-                        if boundary_mask_applied:
-                            playing_area_corners = config.get(
-                                "table.playing_area_corners", []
-                            )
-                            corners = np.array(
-                                [
-                                    [int(c["x"] * scale_x), int(c["y"] * scale_y)]
-                                    for c in playing_area_corners
-                                ],
-                                dtype=np.int32,
-                            )
-                            cv2.polylines(debug_vis, [corners], True, (0, 255, 0), 2)
-
-                        # Save visualization
-                        vis_path = "/tmp/mask_visualization.jpg"
-                        cv2.imwrite(vis_path, debug_vis)
-                        logger.info(f"Saved mask visualization (overlay) to {vis_path}")
-                except Exception as e:
-                    logger.error(f"Failed to save debug images: {e}")
 
             return masked_frame
 
@@ -1294,18 +1139,14 @@ class VisionModule:
                 self.detector.set_background_frame(background_frame)
                 logger.info("Background frame set for unified detector")
 
-            # Set background for fallback detectors if they exist
+            # Set background for fallback ball detector if it exists
             if self.ball_detector and self.ball_detector != getattr(
                 getattr(self.detector, "ball_detector", None), None, None
             ):
                 self.ball_detector.set_background_frame(background_frame)
                 logger.info("Background frame set for fallback ball detector")
 
-            if self.cue_detector and self.cue_detector != getattr(
-                getattr(self.detector, "cue_detector", None), None, None
-            ):
-                self.cue_detector.set_background_frame(background_frame)
-                logger.info("Background frame set for fallback cue detector")
+            # CueDetector has been removed - no background frame setting needed
 
         except Exception as e:
             logger.error(f"Failed to load background frame: {e}")

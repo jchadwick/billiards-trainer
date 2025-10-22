@@ -66,10 +66,7 @@ CameraCalibrator = load_module_from_file(
     "vision.calibration.camera", camera_cal_path
 ).CameraCalibrator
 
-table_detect_path = backend_dir / "vision" / "detection" / "table.py"
-TableDetector = load_module_from_file(
-    "vision.detection.table", table_detect_path
-).TableDetector
+# TableDetector has been removed - using manual corner selection only
 
 # Configure logging
 logging.basicConfig(
@@ -166,55 +163,20 @@ def detect_table_corners_auto(
 ) -> Optional[list[tuple[float, float]]]:
     """Automatically detect table corners using TableDetector.
 
+    NOTE: TableDetector has been removed. This function now always returns None.
+    Use manual corner selection instead.
+
     Args:
         image: Input image
 
     Returns:
-        List of 4 corner points or None if detection failed
+        None (automatic detection disabled)
     """
-    logger.info("Attempting automatic table corner detection...")
-
-    # Create minimal config for TableDetector
-    table_detector_config = {
-        "color_ranges": {
-            "green": {
-                "lower_hsv": [35, 40, 40],
-                "upper_hsv": [85, 255, 255],
-            }
-        },
-        "geometry": {
-            "expected_aspect_ratio": 2.0,
-            "aspect_ratio_tolerance": 0.5,
-            "side_length_tolerance": 0.15,
-            "min_table_area_ratio": 0.1,
-            "max_table_area_ratio": 0.95,
-            "playing_surface_inset_ratio": 0.02,
-        },
-        "edge_detection": {
-            "canny_low_threshold": 50,
-            "canny_high_threshold": 150,
-            "contour_epsilon_factor": 0.02,
-            "contour_epsilon_multipliers": [0.01, 0.02, 0.03, 0.04, 0.05],
-        },
-        "corner_refinement": {
-            "window_size": 5,
-            "max_iterations": 30,
-            "epsilon": 0.001,
-        },
-        "debug": True,
-    }
-
-    detector = TableDetector(table_detector_config)
-    corners_obj = detector.detect_table_boundaries(image, use_pocket_detection=False)
-
-    if corners_obj is None:
-        logger.warning("Automatic detection failed")
-        return None
-
-    corners_list = corners_obj.to_list()
-    logger.info(f"Auto-detected corners: {corners_list}")
-
-    return corners_list
+    logger.warning(
+        "Automatic table corner detection has been disabled. "
+        "TableDetector module has been removed. Please use manual corner selection."
+    )
+    return None
 
 
 def visualize_distortion_lines(

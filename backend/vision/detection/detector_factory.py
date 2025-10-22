@@ -17,10 +17,9 @@ from numpy.typing import NDArray
 
 from ..models import Ball, CueStick
 
-# Keep BallDetector and CueDetector imports for reference/testing only
-# They are no longer used in production paths
+# Keep BallDetector import for reference/testing only
+# It is no longer used in production paths
 from .balls import BallDetector  # noqa: F401 - kept for testing
-from .cue import CueDetector  # noqa: F401 - kept for testing
 
 
 class BaseDetector(ABC):

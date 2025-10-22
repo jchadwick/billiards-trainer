@@ -10,7 +10,6 @@ with traditional computer vision (OpenCV) for robust performance.
 """
 
 from .balls import BallDetectionConfig, BallDetector, DetectionMethod
-from .cue import CueDetector
 from .detector_factory import BaseDetector
 from .detector_factory import YOLODetector as FactoryYOLODetector
 from .detector_factory import create_detector as create_unified_detector
@@ -35,8 +34,6 @@ __all__ = [
     "BallDetector",
     "BallDetectionConfig",
     "DetectionMethod",
-    # Cue detection (kept for reference/testing, not used in production)
-    "CueDetector",
     # YOLO detection (primary implementation)
     "YOLODetector",
     "Detection",

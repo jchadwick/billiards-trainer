@@ -8,14 +8,14 @@
     "debug": false,
     "environment": "production",
     "logging": {
-      "level": "ERROR",
+      "level": "INFO",
       "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
       "file_logging": true,
-      "console_logging": false,
+      "console_logging": true,
       "log_modules": {
-        "vision": "ERROR",
-        "core": "ERROR",
-        "api": "ERROR",
+        "vision": "INFO",
+        "core": "INFO",
+        "api": "INFO",
         "projector": "ERROR",
         "config": "ERROR"
       }
@@ -29,6 +29,11 @@
     }
   },
   "vision": {
+    "performance": {
+      "enable_profiling": true,
+      "profile_log_interval": 30,
+      "profile_history_size": 100
+    },
     "camera": {
       "device_id": 0,
       "backend": "auto",
@@ -64,250 +69,19 @@
       "yolo_confidence": 0.4,
       "yolo_nms_threshold": 0.45,
       "yolo_device": "auto",
-      "enable_table_detection": true,
       "enable_ball_detection": true,
-      "enable_cue_detection": true,
       "use_opencv_validation": true,
       "fallback_to_opencv": true,
-      "table_detection_confidence_threshold": 0.5,
       "max_balls_on_table": 16,
       "marker_filtering": {
         "enabled": true,
         "mask_radius_px": 15
       },
       "save_mask_visualization": true,
-      "enable_boundary_masking": true,
-      "table_color": {
-        "hue_min": 35,
-        "hue_max": 85,
-        "saturation_min": 50,
-        "saturation_max": 255,
-        "value_min": 50,
-        "value_max": 255
-      },
-      "table_edge_threshold": 0.7,
-      "min_table_area": 0.3,
-      "background_subtraction": {
-        "enabled": false,
-        "threshold": 30,
-        "background_image_path": null
-      },
-      "table_detection": {
-        "color_ranges": {
-          "green": {
-            "lower_hsv": [
-              35,
-              40,
-              40
-            ],
-            "upper_hsv": [
-              85,
-              255,
-              255
-            ]
-          },
-          "turquoise": {
-            "lower_hsv": [
-              75,
-              100,
-              120
-            ],
-            "upper_hsv": [
-              95,
-              255,
-              255
-            ]
-          },
-          "blue": {
-            "lower_hsv": [
-              100,
-              40,
-              40
-            ],
-            "upper_hsv": [
-              130,
-              255,
-              255
-            ]
-          },
-          "red": {
-            "lower_hsv": [
-              0,
-              40,
-              40
-            ],
-            "upper_hsv": [
-              10,
-              255,
-              255
-            ]
-          }
-        },
-        "geometry": {
-          "expected_aspect_ratio": 2.0,
-          "aspect_ratio_tolerance": 1.5,
-          "side_length_tolerance": 0.2,
-          "min_table_area_ratio": 0.1,
-          "max_table_area_ratio": 0.9,
-          "playing_surface_inset_ratio": 0.26
-        },
-        "edge_detection": {
-          "canny_low_threshold": 50,
-          "canny_high_threshold": 150,
-          "contour_epsilon_factor": 0.02,
-          "contour_epsilon_multipliers": [
-            0.01,
-            0.03,
-            0.04,
-            0.05
-          ]
-        },
-        "corner_refinement": {
-          "window_size": 5,
-          "max_iterations": 30,
-          "epsilon": 0.001
-        },
-        "pocket_detection": {
-          "color_threshold": 50,
-          "min_area": 10,
-          "max_area": 5000,
-          "min_confidence": 0.5,
-          "max_expected_distance": 100
-        },
-        "morphology": {
-          "large_kernel_size": [
-            5,
-            5
-          ],
-          "small_kernel_size": [
-            3,
-            3
-          ]
-        },
-        "temporal_stability": {
-          "blending_alpha": 0.7,
-          "min_previous_confidence": 0.5
-        },
-        "confidence_weights": {
-          "geometry": 0.4,
-          "pockets": 0.3,
-          "surface": 0.3
-        }
-      },
-      "ball_colors": {
-        "cue": {
-          "hue_min": 0,
-          "hue_max": 179,
-          "saturation_min": 0,
-          "saturation_max": 50
-        },
-        "solid": {
-          "hue_min": 0,
-          "hue_max": 179,
-          "saturation_min": 100,
-          "saturation_max": 255
-        },
-        "stripe": {
-          "hue_min": 0,
-          "hue_max": 179,
-          "saturation_min": 50,
-          "saturation_max": 255
-        }
-      },
-      "min_ball_radius": 10,
-      "max_ball_radius": 40,
-      "ball_detection_method": "hough",
-      "ball_sensitivity": 0.8,
-      "cue_detection_enabled": true,
-      "min_cue_length": 100,
-      "cue_line_threshold": 0.6,
-      "cue_detection": {
-        "geometry": {
-          "min_cue_length": 150,
-          "max_cue_length": 800,
-          "min_line_thickness": 3,
-          "max_line_thickness": 25,
-          "ball_radius": 15
-        },
-        "hough": {
-          "threshold": 100,
-          "min_line_length": 100,
-          "max_line_gap": 20,
-          "rho": 1,
-          "theta_divisor": 180
-        },
-        "edge_detection": {
-          "canny_low_threshold": 50,
-          "canny_high_threshold": 150,
-          "canny_aperture_size": 3,
-          "gradient_threshold": 20
-        },
-        "preprocessing": {
-          "gaussian_kernel_size": 5,
-          "gaussian_sigma": 1.0,
-          "clahe_clip_limit": 2.0,
-          "clahe_tile_grid_size": 8,
-          "morphology_kernel_size": 3,
-          "min_frame_sum": 1000,
-          "min_contrast_std": 10,
-          "min_morph_content": 100
-        },
-        "motion": {
-          "velocity_threshold": 5.0,
-          "acceleration_threshold": 2.0,
-          "striking_velocity_threshold": 15.0,
-          "position_movement_threshold": 10.0,
-          "angle_change_threshold": 5.0,
-          "min_ball_speed": 2.0
-        },
-        "tracking": {
-          "max_tracking_distance": 50,
-          "tracking_history_size": 10,
-          "confidence_decay": 0.95,
-          "temporal_smoothing": 0.7
-        },
-        "validation": {
-          "min_detection_confidence": 0.6,
-          "use_background_subtraction": false,
-          "background_threshold": 30,
-          "thickness_sample_count": 5,
-          "max_thickness_search": 30,
-          "edge_margin": 20,
-          "position_edge_margin": 10
-        },
-        "proximity": {
-          "max_distance_to_cue_ball": 40,
-          "max_tip_distance": 300,
-          "max_reasonable_distance": 200,
-          "contact_threshold": 30,
-          "overlap_threshold": 50,
-          "max_angle_overlap": 30
-        },
-        "scoring": {
-          "length_weight": 0.3,
-          "position_weight": 0.2,
-          "proximity_weight": 0.3,
-          "temporal_weight": 0.2,
-          "no_cue_ball_score": 0.15,
-          "no_temporal_score": 0.1,
-          "max_angle_change": 45.0,
-          "edge_penalty": 0.2,
-          "min_confidence_for_shot": 0.9
-        },
-        "advanced": {
-          "enable_yolo_detection": true,
-          "enable_lsd_detection": true,
-          "enable_morphological_detection": true,
-          "top_candidates_to_validate": 3,
-          "max_cues_to_detect": 2
-        }
-      }
+      "enable_boundary_masking": true
     },
     "processing": {
       "use_gpu": true,
-      "enable_preprocessing": true,
-      "blur_kernel_size": 5,
-      "morphology_kernel_size": 3,
       "enable_tracking": true,
       "tracking_max_distance": 50,
       "frame_skip": 0,
@@ -577,29 +351,6 @@
         }
       },
       "pixels_per_meter": 1511.8110236220473
-    },
-    "preprocessing": {
-      "target_color_space": "hsv",
-      "normalize_brightness": true,
-      "auto_white_balance": true,
-      "noise_reduction_enabled": true,
-      "noise_method": "gaussian",
-      "gaussian_kernel_size": 5,
-      "gaussian_sigma": 1.0,
-      "morphology_enabled": true,
-      "morphology_kernel_size": 3,
-      "morphology_iterations": 1,
-      "auto_exposure_correction": true,
-      "contrast_enhancement": true,
-      "gamma_correction": 1.0,
-      "clahe_clip_limit": 2.0,
-      "clahe_tile_grid_size": [
-        8,
-        8
-      ],
-      "contrast_alpha": 1.2,
-      "contrast_beta": 10,
-      "debug_mode": false
     }
   },
   "video": {
@@ -1109,10 +860,6 @@
       "processing": {
         "enable_fisheye_correction": true,
         "enable_table_crop": false,
-        "enable_preprocessing": false,
-        "enable_clahe": false,
-        "clahe_clip_limit": 2.0,
-        "clahe_grid_size": 8,
         "calibration_file": "calibration/camera_fisheye_default.yaml"
       },
       "quality": {
@@ -1333,16 +1080,6 @@
       "resolution": null,
       "fps": 30,
       "buffer_size": 1
-    },
-    "preprocessing": {
-      "enable": true,
-      "brightness": 0.0,
-      "contrast": 1.0,
-      "clahe": {
-        "enable": true,
-        "clip_limit": 2.0,
-        "grid_size": 8
-      }
     },
     "encoding": {
       "default_jpeg_quality": 80,

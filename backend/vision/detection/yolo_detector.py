@@ -1233,6 +1233,7 @@ class YOLODetector:
         import time
 
         start_time = time.time()
+        inference_start = None
 
         try:
             # Acquire lock for thread-safe model access during inference
@@ -1240,14 +1241,16 @@ class YOLODetector:
                 if not self.model_loaded or self.model is None:
                     return []
 
-                # Run YOLO inference
+                # Run YOLO inference - time this specifically
                 # ultralytics YOLO expects BGR format (OpenCV standard)
+                inference_start = time.time()
                 results = self.model(
                     frame,
                     conf=self.confidence,
                     iou=self.nms_threshold,
                     verbose=False,
                 )
+                inference_time = (time.time() - inference_start) * 1000  # ms
 
             # Parse results (outside lock - parsing doesn't need model access)
             detections = []
@@ -1296,18 +1299,21 @@ class YOLODetector:
                         detections.append(detection)
 
             # Update statistics
-            inference_time = (time.time() - start_time) * 1000  # ms
+            total_time = (time.time() - start_time) * 1000  # ms
             self.stats["total_inferences"] += 1
             self.stats["total_detections"] += len(detections)
 
             # Update average inference time (exponential moving average)
             alpha = 0.1
             self.stats["avg_inference_time"] = (
-                alpha * inference_time + (1 - alpha) * self.stats["avg_inference_time"]
+                alpha * total_time + (1 - alpha) * self.stats["avg_inference_time"]
             )
 
+            # Log detailed timing breakdown
+            parse_time = total_time - inference_time if inference_start else 0
             logger.debug(
-                f"YOLO inference: {len(detections)} detections in {inference_time:.1f}ms"
+                f"YOLO: {len(detections)} detections | "
+                f"inference={inference_time:.1f}ms, parse={parse_time:.1f}ms, total={total_time:.1f}ms"
             )
 
             return detections

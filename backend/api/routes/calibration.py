@@ -1597,92 +1597,12 @@ async def auto_calibrate_from_table(
                 detail="Unable to capture frame from camera",
             )
 
-        # Import table detector
-        try:
-            from ...vision.detection.table import TableDetector
-        except ImportError:
-            from vision.detection.table import TableDetector
-
-        # Detect table corners with very relaxed constraints for fisheye-distorted images
-        # Since we're calibrating FOR fisheye correction, the image will be heavily distorted
-        table_config = {
-            "expected_aspect_ratio": table_width / table_height,
-            "aspect_ratio_tolerance": 10.0,  # Effectively disable aspect ratio check
-            "min_table_area_ratio": 0.05,  # Allow smaller table detection
-            "side_length_tolerance": 0.5,  # Allow 50% difference in opposite sides (fisheye!)
-        }
-        table_detector = TableDetector(table_config)
-        table_corners_result = table_detector.detect_table_boundaries(frame)
-
-        if table_corners_result is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not detect table boundaries in the frame. Ensure the table is clearly visible and well-lit.",
-            )
-
-        # Convert TableCorners to list format
-        table_corners = table_corners_result.to_list()
-
-        logger.info(f"Detected table corners: {table_corners}")
-
-        # Import camera calibrator
-        try:
-            from ...vision.calibration.camera import CameraCalibrator
-        except ImportError:
-            from vision.calibration.camera import CameraCalibrator
-
-        # Perform automatic fisheye calibration
-        calibrator = CameraCalibrator()
-        success, camera_params = calibrator.calibrate_fisheye_from_table(
-            frame, table_corners, (table_width, table_height)
-        )
-
-        if not success or camera_params is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to calculate fisheye distortion parameters from table geometry",
-            )
-
-        # Save calibration to YAML file
-        import os
-
-        save_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), save_to
-        )
-
-        success_save = calibrator.save_fisheye_calibration_yaml(
-            save_path, camera_params
-        )
-
-        if not success_save:
-            raise HTTPException(
-                status_code=500,
-                detail="Calibration computed successfully but failed to save to file",
-            )
-
-        # Determine quality rating based on RMS error
-        rms_error = camera_params.calibration_error
-        if rms_error < 0.5:
-            quality_rating = "excellent"
-        elif rms_error < 1.0:
-            quality_rating = "good"
-        elif rms_error < 2.0:
-            quality_rating = "fair"
-        else:
-            quality_rating = "poor"
-
-        logger.info(f"Automatic fisheye calibration completed and saved to {save_path}")
-
-        return CameraCalibrationProcessResponse(
-            success=True,
-            calibration_error=float(rms_error),
-            images_used=1,  # Single frame used
-            camera_matrix=camera_params.camera_matrix.tolist(),
-            distortion_coefficients=camera_params.distortion_coefficients.flatten().tolist(),
-            resolution=camera_params.resolution,
-            saved_to=save_path,
-            quality_rating=quality_rating,
-            message=f"Automatic fisheye calibration successful using table rectangle detection (RMS error: {rms_error:.4f})",
+        # TableDetector has been removed - automatic fisheye calibration is no longer supported
+        # This endpoint would need to be reimplemented to accept manual corner selection
+        raise HTTPException(
+            status_code=501,
+            detail="Automatic fisheye calibration via table detection has been removed. "
+            "Please use manual corner selection or pre-calibrate the camera using OpenCV's calibration tools.",
         )
 
     except HTTPException:
@@ -1782,7 +1702,6 @@ async def calibrate_fisheye_from_table(
         import numpy as np
 
         from backend.vision.calibration.camera import CameraCalibrator
-        from backend.vision.detection.table import TableDetector
 
         try:
             # Step 1: Capture frame at full resolution
