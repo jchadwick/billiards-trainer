@@ -152,6 +152,10 @@ async def get_current_game_state(
 
         if not game_state:
             # Return empty state if no game is active
+            # TODO: Get table from calibration config instead of using factory method
+            # For now, use standard_9ft_table() as fallback for backward compatibility
+            # In production, table should be initialized from camera calibration via
+            # TableState.from_calibration() during system startup
             from ...core.models import TableState
 
             empty_table = TableState.standard_9ft_table()

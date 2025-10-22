@@ -645,6 +645,13 @@ class Corner(BaseModel):
     y: float
 
 
+class MarkerDot(BaseModel):
+    """A table marker dot position (for masking)."""
+
+    x: float
+    y: float
+
+
 class PlayingAreaCornersRequest(BaseModel):
     """Request model for setting playing area corners."""
 
@@ -653,6 +660,18 @@ class PlayingAreaCornersRequest(BaseModel):
         description="List of 4 corner points in order: top-left, top-right, bottom-right, bottom-left",
         min_length=4,
         max_length=4,
+    )
+    marker_dots: list[MarkerDot] | None = Field(
+        default=None,
+        description="Optional list of table marker dots (spots/markings) to be masked during ball detection",
+    )
+    calibration_resolution_width: int | None = Field(
+        default=None,
+        description="Width of the video resolution used during calibration (for coordinate scaling)",
+    )
+    calibration_resolution_height: int | None = Field(
+        default=None,
+        description="Height of the video resolution used during calibration (for coordinate scaling)",
     )
 
 
@@ -679,6 +698,9 @@ async def set_playing_area_corners(
         # Parse JSON body
         body = await request.json()
         corners = body.get("corners", [])
+        marker_dots = body.get("marker_dots", [])
+        calibration_resolution_width = body.get("calibration_resolution_width")
+        calibration_resolution_height = body.get("calibration_resolution_height")
 
         # Validate corners data
         if not corners:
@@ -706,22 +728,53 @@ async def set_playing_area_corners(
                     detail=f"Corner {i} missing x or y coordinate",
                 )
 
+        # Validate marker dots if provided
+        if marker_dots:
+            for i, dot in enumerate(marker_dots):
+                if not isinstance(dot, dict):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Marker dot {i} must be an object with x and y properties",
+                    )
+                if "x" not in dot or "y" not in dot:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Marker dot {i} missing x or y coordinate",
+                    )
+
         # Save to config file
         try:
             config_module.set("table.playing_area_corners", corners)
+            config_module.set("table.marker_dots", marker_dots)
+            if calibration_resolution_width is not None:
+                config_module.set(
+                    "table.calibration_resolution_width", calibration_resolution_width
+                )
+            if calibration_resolution_height is not None:
+                config_module.set(
+                    "table.calibration_resolution_height", calibration_resolution_height
+                )
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to save playing area corners to configuration: {e}",
+                detail=f"Failed to save playing area configuration: {e}",
             )
 
         logger.info(f"Playing area corners saved to config: {corners}")
+        logger.info(f"Table marker dots saved to config: {marker_dots}")
+        logger.info(
+            f"Calibration resolution saved: {calibration_resolution_width}x{calibration_resolution_height}"
+        )
 
         return {
             "success": True,
-            "message": "Playing area corners saved successfully",
+            "message": "Playing area configuration saved successfully",
             "corners": corners,
             "count": len(corners),
+            "marker_dots": marker_dots,
+            "marker_dots_count": len(marker_dots),
+            "calibration_resolution_width": calibration_resolution_width,
+            "calibration_resolution_height": calibration_resolution_height,
         }
 
     except HTTPException:
@@ -747,14 +800,17 @@ async def get_playing_area_corners(
         HTTPException: If configuration retrieval fails
     """
     try:
-        # Get playing area corners from configuration
+        # Get playing area corners and marker dots from configuration
         playing_area_corners = config_module.get("table.playing_area_corners", [])
+        marker_dots = config_module.get("table.marker_dots", [])
 
         return {
             "success": True,
             "corners": playing_area_corners,
             "count": len(playing_area_corners),
             "calibrated": len(playing_area_corners) == 4,
+            "marker_dots": marker_dots,
+            "marker_dots_count": len(marker_dots),
         }
 
     except Exception as e:

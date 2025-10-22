@@ -1,10 +1,14 @@
 """4K Coordinate System Constants.
 
-All measurements are in 4K pixels (3840×2160).
-Standard 9ft pool table dimensions mapped to pixel space.
-
-This module defines the canonical 4K resolution-based coordinate system
+This module defines the canonical 4K resolution (3840×2160) coordinate system
 that serves as the foundation for all spatial calculations in the billiards trainer.
+
+The 4K resolution is the coordinate system canvas - think of it as the coordinate space.
+Table dimensions within this canvas vary based on camera positioning and must come from
+calibration data. Use TableState.from_calibration() to create tables with proper dimensions.
+
+Only physical constants (ball diameter, pocket size, etc.) that are independent of
+camera positioning are defined here.
 """
 
 # ============================================================================
@@ -17,27 +21,45 @@ CANONICAL_HEIGHT = 2160
 
 
 # ============================================================================
-# TABLE DIMENSIONS (in 4K pixels)
+# TABLE DIMENSIONS - REFERENCE VALUES ONLY
 # ============================================================================
 
-# Standard 9ft pool table mapped to 4K space
+# WARNING: These are reference values for a standard 9ft table in idealized positioning.
+# PRODUCTION CODE MUST USE ACTUAL CALIBRATED TABLE DIMENSIONS from TableState.
+# These constants are kept ONLY for:
+# 1. Default/fallback values in analysis code
+# 2. Unit tests that don't require calibration
+# 3. Documentation and reference
+#
+# DO NOT use these for actual game state management or trajectory calculations.
+# Use TableState.from_calibration() or TableState from vision detection instead.
+
+# Standard 9ft pool table mapped to 4K space (idealized centered positioning)
 # Physical: 2.54m × 1.27m (100" × 50")
 # Aspect Ratio: 2:1 (maintained in pixel space)
-TABLE_WIDTH_4K = 3200  # pixels - maintains 2:1 aspect ratio
-TABLE_HEIGHT_4K = 1600  # pixels
+TABLE_WIDTH_4K = 3200  # pixels - reference only, actual width from calibration
+TABLE_HEIGHT_4K = 1600  # pixels - reference only, actual height from calibration
 
-
-# ============================================================================
-# TABLE POSITIONING (center of 4K frame)
-# ============================================================================
-
+# Table positioning (idealized - assumes centered in 4K frame)
 TABLE_CENTER_4K = (1920, 1080)  # Center of 4K frame
 
-# Derived bounds (table centered in frame)
+# Derived bounds (reference only - actual bounds from calibration)
 TABLE_LEFT_4K = TABLE_CENTER_4K[0] - TABLE_WIDTH_4K // 2  # 320
 TABLE_TOP_4K = TABLE_CENTER_4K[1] - TABLE_HEIGHT_4K // 2  # 280
 TABLE_RIGHT_4K = TABLE_LEFT_4K + TABLE_WIDTH_4K  # 3520
 TABLE_BOTTOM_4K = TABLE_TOP_4K + TABLE_HEIGHT_4K  # 1880
+
+# Standard 6-pocket positions (reference only - actual positions from calibration)
+POCKET_POSITIONS_4K = [
+    # Top row
+    (TABLE_LEFT_4K, TABLE_TOP_4K),  # Top-left corner
+    (TABLE_CENTER_4K[0], TABLE_TOP_4K),  # Top-middle
+    (TABLE_RIGHT_4K, TABLE_TOP_4K),  # Top-right corner
+    # Bottom row
+    (TABLE_LEFT_4K, TABLE_BOTTOM_4K),  # Bottom-left corner
+    (TABLE_CENTER_4K[0], TABLE_BOTTOM_4K),  # Bottom-middle
+    (TABLE_RIGHT_4K, TABLE_BOTTOM_4K),  # Bottom-right corner
+]
 
 
 # ============================================================================
@@ -70,23 +92,6 @@ CUSHION_WIDTH_4K = 48  # pixels in 4K
 
 
 # ============================================================================
-# POCKET POSITIONS (in 4K pixels)
-# ============================================================================
-
-# Standard 6-pocket positions (4 corners + 2 middle)
-POCKET_POSITIONS_4K = [
-    # Top row
-    (TABLE_LEFT_4K, TABLE_TOP_4K),  # Top-left corner
-    (TABLE_CENTER_4K[0], TABLE_TOP_4K),  # Top-middle
-    (TABLE_RIGHT_4K, TABLE_TOP_4K),  # Top-right corner
-    # Bottom row
-    (TABLE_LEFT_4K, TABLE_BOTTOM_4K),  # Bottom-left corner
-    (TABLE_CENTER_4K[0], TABLE_BOTTOM_4K),  # Bottom-middle
-    (TABLE_RIGHT_4K, TABLE_BOTTOM_4K),  # Bottom-right corner
-]
-
-
-# ============================================================================
 # REFERENCE CONVERSIONS (DOCUMENTATION ONLY - NOT USED IN CODE)
 # ============================================================================
 
@@ -94,16 +99,20 @@ POCKET_POSITIONS_4K = [
 # They are NOT used in production code.
 # All calculations should use pixels directly.
 
-# Physical table dimensions
-PHYSICAL_TABLE_WIDTH_MM = 2540.0  # 2.54m = 2540mm
-PHYSICAL_TABLE_HEIGHT_MM = 1270.0  # 1.27m = 1270mm
+# Physical table dimensions (standard 9ft pool table)
+PHYSICAL_TABLE_WIDTH_MM = 2540.0  # 2.54m = 2540mm (100 inches)
+PHYSICAL_TABLE_HEIGHT_MM = 1270.0  # 1.27m = 1270mm (50 inches)
 
-# Conversion factors (REFERENCE ONLY)
+# Conversion factors (REFERENCE ONLY - actual values depend on calibration)
+# These are calculated from the reference table dimensions above
 PIXELS_PER_METER_REFERENCE = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter
 MM_PER_PIXEL_REFERENCE = PHYSICAL_TABLE_WIDTH_MM / TABLE_WIDTH_4K  # ~0.79375 mm/pixel
 PIXELS_PER_MM_REFERENCE = (
     TABLE_WIDTH_4K / PHYSICAL_TABLE_WIDTH_MM
 )  # ~1.259842 pixels/mm
+
+# NOTE: These conversion factors depend on actual table dimensions in the calibrated
+# coordinate space. For production use, calculate these from TableState dimensions.
 
 
 # ============================================================================
@@ -125,7 +134,10 @@ def is_valid_4k_coordinate(x: float, y: float) -> bool:
 
 
 def is_on_table(x: float, y: float, include_cushions: bool = True) -> bool:
-    """Check if coordinates are on the table surface.
+    """Check if coordinates are on the reference table surface.
+
+    WARNING: Uses reference table dimensions. For production use, check against
+    actual TableState bounds from calibration.
 
     Args:
         x: X coordinate in pixels
@@ -133,7 +145,7 @@ def is_on_table(x: float, y: float, include_cushions: bool = True) -> bool:
         include_cushions: If True, include cushion area in bounds
 
     Returns:
-        True if coordinates are on table
+        True if coordinates are on reference table
     """
     if include_cushions:
         # Include cushion width in bounds
@@ -154,7 +166,10 @@ def is_on_table(x: float, y: float, include_cushions: bool = True) -> bool:
 def get_table_bounds_4k(
     include_cushions: bool = False,
 ) -> tuple[float, float, float, float]:
-    """Get table bounds in 4K coordinates.
+    """Get reference table bounds in 4K coordinates.
+
+    WARNING: Returns reference table dimensions. For production use, get bounds from
+    actual TableState from calibration.
 
     Args:
         include_cushions: If True, include cushion area in bounds
@@ -182,7 +197,7 @@ __all__ = [
     "CANONICAL_RESOLUTION",
     "CANONICAL_WIDTH",
     "CANONICAL_HEIGHT",
-    # Table dimensions
+    # Table dimensions (reference values only - use TableState for actual dimensions)
     "TABLE_WIDTH_4K",
     "TABLE_HEIGHT_4K",
     "TABLE_CENTER_4K",
@@ -190,17 +205,25 @@ __all__ = [
     "TABLE_TOP_4K",
     "TABLE_RIGHT_4K",
     "TABLE_BOTTOM_4K",
+    "POCKET_POSITIONS_4K",
     # Ball dimensions
     "BALL_RADIUS_4K",
     "BALL_DIAMETER_4K",
+    "BALL_DIAMETER_MM",
     "BALL_MASS_KG",
     # Pocket dimensions
     "POCKET_RADIUS_4K",
     "POCKET_DIAMETER_MM",
-    "POCKET_POSITIONS_4K",
     # Cushion dimensions
     "CUSHION_WIDTH_4K",
     "CUSHION_WIDTH_MM",
+    # Physical reference dimensions
+    "PHYSICAL_TABLE_WIDTH_MM",
+    "PHYSICAL_TABLE_HEIGHT_MM",
+    # Conversion factors (reference only)
+    "PIXELS_PER_METER_REFERENCE",
+    "MM_PER_PIXEL_REFERENCE",
+    "PIXELS_PER_MM_REFERENCE",
     # Validation helpers
     "is_valid_4k_coordinate",
     "is_on_table",

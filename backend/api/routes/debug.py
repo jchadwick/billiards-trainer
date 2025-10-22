@@ -360,7 +360,6 @@ async def ball_detection_debug_page():
             // Debug: Log received data (only log coordinate_metadata if it changed)
             if (!window.lastLoggedCoordMetadata ||
                 JSON.stringify(data.coordinate_metadata) !== window.lastLoggedCoordMetadata) {
-                console.log('Game state update - coordinate_metadata:', data.coordinate_metadata);
                 window.lastLoggedCoordMetadata = JSON.stringify(data.coordinate_metadata);
             }
 
@@ -368,9 +367,14 @@ async def ball_detection_debug_page():
             const ballCount = data.balls ? data.balls.length : 0;
             document.getElementById('ballCount').textContent = ballCount;
 
-            // Update cue detection
-            const cueDetected = data.cue ? 'Yes' : 'No';
+            // Update cue detection (check for tip_position to confirm it's valid)
+            const cueDetected = (data.cue && data.cue.tip_position) ? 'Yes' : 'No';
             document.getElementById('cueDetected').textContent = cueDetected;
+
+            // Debug: Log cue data when it changes
+            if (data.cue && (!window.lastCueData || JSON.stringify(data.cue) !== window.lastCueData)) {
+                window.lastCueData = JSON.stringify(data.cue);
+            }
 
             // Update last update time
             const now = new Date().toLocaleTimeString();
@@ -430,7 +434,6 @@ async def ball_detection_debug_page():
                     width: 3840 / scaleX,   // 4K canonical width / scale
                     height: 2160 / scaleY   // 4K canonical height / scale
                 };
-                console.log(`Detected source resolution from scale [${scaleX}, ${scaleY}]: ${sourceResolution.width}x${sourceResolution.height}`);
             } else {
                 // Fallback: assume 4K canonical (scale = [1.0, 1.0])
                 sourceResolution = { width: 3840, height: 2160 };
@@ -440,8 +443,6 @@ async def ball_detection_debug_page():
             // Calculate scale factors from source resolution to canvas
             const scaleX = canvas.width / sourceResolution.width;
             const scaleY = canvas.height / sourceResolution.height;
-
-            console.log(`Canvas: ${canvas.width}x${canvas.height}, Source: ${sourceResolution.width}x${sourceResolution.height}, Scale: ${scaleX.toFixed(3)}x${scaleY.toFixed(3)}`);
 
             // Draw table boundary
             if (gameState.table && gameState.table.boundary) {
@@ -492,16 +493,95 @@ async def ball_detection_debug_page():
             }
 
             // Draw cue
-            if (gameState.cue && gameState.cue.line) {
-                const line = gameState.cue.line;
-                if (line.start && line.end) {
-                    ctx.strokeStyle = '#ff00ff';
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.moveTo(line.start.x * scaleX, line.start.y * scaleY);
-                    ctx.lineTo(line.end.x * scaleX, line.end.y * scaleY);
-                    ctx.stroke();
-                }
+            if (gameState.cue && gameState.cue.tip_position) {
+                const cue = gameState.cue;
+                const tipPos = cue.tip_position;
+
+                // Cue has tip_position, angle (degrees), and length (meters)
+                // Convert angle from degrees to radians
+                const angleRad = (cue.angle || 0) * Math.PI / 180;
+
+                // Get cue length in pixels (convert from meters to 4K pixels)
+                // Typical pool table is 2.54m long (9ft), which is about 3840 pixels in 4K
+                // So rough conversion: 1 meter ≈ 1512 pixels in 4K
+                const metersTo4kPixels = 1512;
+                const cueLength4k = (cue.length || 1.47) * metersTo4kPixels;
+
+                // Calculate cue back position (opposite direction from angle)
+                // Cue points from back (start) to tip (end)
+                const tipScale = tipPos.scale || [1.0, 1.0];
+
+                // Convert tip position to 4K canonical
+                const tip4k = {
+                    x: tipPos.x * tipScale[0],
+                    y: tipPos.y * tipScale[1]
+                };
+
+                // Calculate back position (start of cue) by going opposite of angle
+                const back4k = {
+                    x: tip4k.x - cueLength4k * Math.cos(angleRad),
+                    y: tip4k.y - cueLength4k * Math.sin(angleRad)
+                };
+
+                // Convert from 4K canonical to canvas
+                const tipX = tip4k.x * (canvas.width / 3840);
+                const tipY = tip4k.y * (canvas.height / 2160);
+                const backX = back4k.x * (canvas.width / 3840);
+                const backY = back4k.y * (canvas.height / 2160);
+
+                // Draw cue line with gradient for depth effect
+                const gradient = ctx.createLinearGradient(backX, backY, tipX, tipY);
+                gradient.addColorStop(0, '#ff00ff80');
+                gradient.addColorStop(1, '#ff00ff');
+
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 4;
+                ctx.setLineDash([]);
+                ctx.beginPath();
+                ctx.moveTo(backX, backY);
+                ctx.lineTo(tipX, tipY);
+                ctx.stroke();
+
+                // Draw arrow head at the tip
+                const headLength = 15;
+
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(
+                    tipX - headLength * Math.cos(angleRad - Math.PI / 6),
+                    tipY - headLength * Math.sin(angleRad - Math.PI / 6)
+                );
+                ctx.lineTo(
+                    tipX - headLength * Math.cos(angleRad + Math.PI / 6),
+                    tipY - headLength * Math.sin(angleRad + Math.PI / 6)
+                );
+                ctx.closePath();
+                ctx.fill();
+
+                // Draw cue tip circle for better visibility
+                ctx.fillStyle = '#ff00ff';
+                ctx.beginPath();
+                ctx.arc(tipX, tipY, 5, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Draw extended aiming line (dashed)
+                ctx.strokeStyle = '#ff00ff60';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([10, 5]);
+                const extendLength = 500; // Extend the line for aiming
+                const extendX = tipX + extendLength * Math.cos(angleRad);
+                const extendY = tipY + extendLength * Math.sin(angleRad);
+                ctx.beginPath();
+                ctx.moveTo(tipX, tipY);
+                ctx.lineTo(extendX, extendY);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Add "CUE" label
+                ctx.fillStyle = '#ff00ff';
+                ctx.font = 'bold 14px Arial';
+                ctx.fillText('CUE', backX + 10, backY - 10);
             }
         }
 

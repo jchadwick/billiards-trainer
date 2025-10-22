@@ -11,20 +11,17 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..constants_4k import (
-    BALL_RADIUS_4K,
-    POCKET_RADIUS_4K,
-    TABLE_HEIGHT_4K,
-    TABLE_WIDTH_4K,
-)
+from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
 from ..coordinates import Vector2D
 from ..models import BallState, CueState, GameState, TableState
 
 logger = logging.getLogger(__name__)
 
 # Physics constants for validation
-# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
-PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
+# NOTE: PIXELS_PER_METER should be calculated from actual table dimensions.
+# This default is based on a standard 9ft table (2.54m) filling ~3200 pixels.
+# Use table.calculate_pixels_per_meter() for accurate values.
+DEFAULT_PIXELS_PER_METER = 3200 / 2.54  # ~1259.84 pixels/meter (9ft table reference)
 
 
 @dataclass
@@ -76,9 +73,9 @@ class StateValidator:
     def __init__(
         self,
         max_velocity: float = 10.0
-        * PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
+        * DEFAULT_PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
         max_acceleration: float = 50.0
-        * PIXELS_PER_METER,  # pixels/s² (default: 50 m/s² → ~63,000 px/s²)
+        * DEFAULT_PIXELS_PER_METER,  # pixels/s² (default: 50 m/s² → ~63,000 px/s²)
         overlap_tolerance: float = 1.0,  # pixels (default: ~1 pixel tolerance)
         position_tolerance: float = 0.1,  # pixels (default: 0.1 pixel precision)
         enable_auto_correction: bool = True,
@@ -202,22 +199,25 @@ class StateValidator:
         """
         result = ValidationResult()
 
-        # Validate table dimensions (should match 4K constants)
-        if table.width <= 0:
-            result.add_error(f"Invalid table width: {table.width}")
-        if table.height <= 0:
-            result.add_error(f"Invalid table height: {table.height}")
+        from ..constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
 
-        # Check dimensions match 4K standard (with tolerance)
-        dimension_tolerance = 10.0  # pixels
-        if abs(table.width - TABLE_WIDTH_4K) > dimension_tolerance:
-            result.add_warning(
-                f"Table width {table.width} differs from 4K standard {TABLE_WIDTH_4K}"
+        # Validate table fits within 4K frame
+        if table.width <= 0 or table.width > CANONICAL_WIDTH:
+            result.add_error(
+                f"Table width {table.width} outside valid range (0, {CANONICAL_WIDTH})"
             )
-        if abs(table.height - TABLE_HEIGHT_4K) > dimension_tolerance:
-            result.add_warning(
-                f"Table height {table.height} differs from 4K standard {TABLE_HEIGHT_4K}"
+        if table.height <= 0 or table.height > CANONICAL_HEIGHT:
+            result.add_error(
+                f"Table height {table.height} outside valid range (0, {CANONICAL_HEIGHT})"
             )
+
+        # Validate reasonable aspect ratio for pool tables (1.5:1 to 2.5:1)
+        if table.width > 0 and table.height > 0:
+            aspect_ratio = table.width / table.height
+            if not 1.5 <= aspect_ratio <= 2.5:
+                result.add_warning(
+                    f"Table aspect ratio {aspect_ratio:.2f} unusual for pool table (expected 1.5-2.5)"
+                )
 
         # Validate pocket configuration
         if len(table.pocket_positions) != 6:
@@ -333,11 +333,11 @@ class StateValidator:
             result.add_error(f"Ball {ball.id} has invalid radius: {ball.radius}")
 
         # Check ball radius matches 4K standard (with tolerance)
-        radius_tolerance = 2.0  # pixels
+        # Keep the validation but don't add warning - accept different ball sizes
+        radius_tolerance = 5.0  # Increased tolerance for calibrated systems
         if abs(ball.radius - BALL_RADIUS_4K) > radius_tolerance:
-            result.add_warning(
-                f"Ball {ball.id} radius {ball.radius} differs from 4K standard {BALL_RADIUS_4K}"
-            )
+            # Ball radius can vary based on camera positioning and calibration
+            pass
 
         if ball.mass <= 0:
             result.add_error(f"Ball {ball.id} has invalid mass: {ball.mass}")

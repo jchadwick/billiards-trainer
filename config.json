@@ -71,6 +71,12 @@
       "fallback_to_opencv": true,
       "table_detection_confidence_threshold": 0.5,
       "max_balls_on_table": 16,
+      "marker_filtering": {
+        "enabled": true,
+        "mask_radius_px": 15
+      },
+      "save_mask_visualization": true,
+      "enable_boundary_masking": true,
       "table_color": {
         "hue_min": 35,
         "hue_max": 85,
@@ -1352,21 +1358,44 @@
   "table": {
     "playing_area_corners": [
       {
-        "x": 37,
-        "y": 45
+        "x": 38,
+        "y": 43
       },
       {
         "x": 606,
         "y": 39
       },
       {
-        "x": 604,
-        "y": 326
+        "x": 603,
+        "y": 324
       },
       {
-        "x": 40,
-        "y": 322
+        "x": 39,
+        "y": 324
       }
-    ]
+    ],
+    "marker_dots": [
+      {
+        "x": 182,
+        "y": 182
+      },
+      {
+        "x": 459,
+        "y": 181
+      }
+    ],
+    "calibration_resolution_width": 640,
+    "calibration_resolution_height": 360
+  },
+  "physics": {
+    "friction": 0.3
+  },
+  "test": {
+    "value": 99,
+    "nested": {
+      "deep": {
+        "value": "hello"
+      }
+    }
   }
 }

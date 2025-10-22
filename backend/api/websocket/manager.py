@@ -281,8 +281,12 @@ class WebSocketManager:
 
         # Send to subscribers, applying filters if requested
         tasks = []
+        task_client_mapping = []  # Track which task corresponds to which client
+
         for client_id in subscribers:
             if client_id not in self.sessions:
+                # Clean up stale subscriber
+                self.stream_subscribers[stream_type].discard(client_id)
                 continue
 
             session = self.sessions[client_id]
@@ -300,15 +304,26 @@ class WebSocketManager:
             # Send message
             task = websocket_handler.send_to_client(client_id, filtered_message)
             tasks.append(task)
+            task_client_mapping.append(client_id)
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            failed_count = sum(
-                1 for result in results if not result or isinstance(result, Exception)
-            )
-            if failed_count > 0:
-                logger.warning(
-                    f"Failed to send to {failed_count}/{len(tasks)} subscribers for {stream_type.value}"
+
+            # Clean up failed clients and track failures
+            failed_clients = []
+            for i, result in enumerate(results):
+                if not result or isinstance(result, Exception):
+                    client_id = task_client_mapping[i]
+                    failed_clients.append(client_id)
+                    # Remove failed client from this stream's subscribers
+                    self.stream_subscribers[stream_type].discard(client_id)
+                    logger.debug(
+                        f"Removed client {client_id} from {stream_type.value} subscribers due to send failure"
+                    )
+
+            if failed_clients:
+                logger.debug(
+                    f"Cleaned up {len(failed_clients)}/{len(tasks)} failed subscribers for {stream_type.value}"
                 )
 
     async def send_to_user(self, user_id: str, message: dict[str, Any]) -> int:
@@ -416,6 +431,32 @@ class WebSocketManager:
             },
             "sessions": sessions_info,
         }
+
+    async def cleanup_stale_subscribers(self) -> dict[str, int]:
+        """Clean up subscribers that are no longer in active sessions.
+
+        Returns:
+            Dictionary mapping stream types to number of stale subscribers removed.
+        """
+        cleanup_counts = {}
+
+        for stream_type, subscribers in self.stream_subscribers.items():
+            # Find subscribers that don't have active sessions
+            stale_subscribers = [
+                client_id for client_id in subscribers if client_id not in self.sessions
+            ]
+
+            # Remove stale subscribers
+            for client_id in stale_subscribers:
+                self.stream_subscribers[stream_type].discard(client_id)
+
+            if stale_subscribers:
+                cleanup_counts[stream_type.value] = len(stale_subscribers)
+                logger.info(
+                    f"Cleaned up {len(stale_subscribers)} stale subscribers from {stream_type.value}"
+                )
+
+        return cleanup_counts
 
     async def handle_connection_lost(self, client_id: str):
         """Handle unexpected connection loss."""

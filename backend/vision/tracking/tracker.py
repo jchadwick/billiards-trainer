@@ -136,10 +136,21 @@ class Track:
         self.position_history.append(detection.position)
         self.radius_history.append(detection.radius)
 
+        # Update ball type if detection has more specific type information
+        # Only update if detection has classified type (not UNKNOWN)
+        if detection.ball_type != BallType.UNKNOWN:
+            self.ball_type = detection.ball_type
+            self.ball_number = detection.number
+
         # Update track state
+        # Require both hit count AND minimum average confidence to confirm
+        min_confidence_threshold = self.config.get("thresholds", {}).get(
+            "min_confirmation_confidence", 0.3
+        )
         if (
             self.state == TrackState.TENTATIVE
             and self.detection_count >= self.min_hits
+            and self.average_confidence >= min_confidence_threshold
             or self.state == TrackState.LOST
         ):
             self.state = TrackState.CONFIRMED
@@ -280,15 +291,23 @@ class ObjectTracker:
         # Tracking parameters with tuned defaults from video_debugger testing
         self.max_age = config.get("max_age", 30)
         self.min_hits = config.get(
-            "min_hits", 10
-        )  # CRITICAL: Higher value filters ghost balls
-        self.max_distance = config.get("max_distance", 100.0)
-        self.kalman_process_noise = config.get("process_noise", 5.0)
-        self.kalman_measurement_noise = config.get("measurement_noise", 20.0)
+            "min_hits", 3
+        )  # Reduced from 10 to 3 for faster ball confirmation (100ms @ 30fps)
+        self.max_distance = config.get(
+            "max_distance", 200.0
+        )  # Increased from 100 to handle fast-moving balls
+        self.kalman_process_noise = config.get(
+            "process_noise", 15.0
+        )  # Increased from 10.0 for even more responsive motion tracking
+        self.kalman_measurement_noise = config.get(
+            "measurement_noise", 10.0
+        )  # Reduced from 15.0 for tighter position lock
 
         # Ghost ball filtering parameters
         self.collision_threshold = config.get("collision_threshold", 60.0)
-        self.min_hits_during_collision = config.get("min_hits_during_collision", 30)
+        self.min_hits_during_collision = config.get(
+            "min_hits_during_collision", 5
+        )  # Reduced from 30 to 5 for faster confirmation during motion
         self.motion_speed_threshold = config.get("motion_speed_threshold", 10.0)
         self.return_tentative_tracks = config.get("return_tentative_tracks", False)
 
@@ -393,48 +412,81 @@ class ObjectTracker:
         if not detections or not self.tracks:
             return [], list(range(len(detections))), list(range(len(self.tracks)))
 
-        # Build cost matrix
-        cost_matrix = self._build_cost_matrix(detections)
+        # Build cost matrix and get per-track distance thresholds
+        # NOTE: cost_matrix uses valid_tracks indices, not actual track indices
+        cost_matrix, distance_thresholds, valid_track_indices = self._build_cost_matrix(
+            detections
+        )
+
+        if len(valid_track_indices) == 0:
+            # No valid tracks, all detections are unmatched
+            return [], list(range(len(detections))), list(range(len(self.tracks)))
 
         # Solve assignment problem
-        track_indices, detection_indices = linear_sum_assignment(cost_matrix)
+        cost_matrix_row_indices, detection_indices = linear_sum_assignment(cost_matrix)
 
         # Filter out invalid associations
         matched_tracks = []
         unmatched_detections = set(range(len(detections)))
         unmatched_tracks = set(range(len(self.tracks)))
 
-        for track_idx, detection_idx in zip(track_indices, detection_indices):
-            cost = cost_matrix[track_idx, detection_idx]
+        for cost_matrix_row_idx, detection_idx in zip(
+            cost_matrix_row_indices, detection_indices
+        ):
+            # Map from cost matrix row index to actual track index
+            actual_track_idx = valid_track_indices[cost_matrix_row_idx]
 
-            # Check if association is valid
+            cost = cost_matrix[cost_matrix_row_idx, detection_idx]
+            threshold = distance_thresholds[cost_matrix_row_idx]
+
+            # Check if association is valid using per-track threshold
             if (
-                cost < self.max_distance
-                and self.tracks[track_idx].is_valid()
+                cost < threshold
+                and self.tracks[actual_track_idx].is_valid()
                 and self._is_compatible_detection(
-                    self.tracks[track_idx], detections[detection_idx]
+                    self.tracks[actual_track_idx], detections[detection_idx]
                 )
             ):
-                matched_tracks.append((track_idx, detection_idx))
+                matched_tracks.append((actual_track_idx, detection_idx))
                 unmatched_detections.discard(detection_idx)
-                unmatched_tracks.discard(track_idx)
+                unmatched_tracks.discard(actual_track_idx)
 
         return matched_tracks, list(unmatched_detections), list(unmatched_tracks)
 
-    def _build_cost_matrix(self, detections: list[Ball]) -> NDArray[np.float64]:
-        """Build cost matrix for Hungarian algorithm."""
+    def _build_cost_matrix(
+        self, detections: list[Ball]
+    ) -> tuple[NDArray[np.float64], list[float], list[int]]:
+        """Build cost matrix for Hungarian algorithm.
+
+        Returns:
+            Tuple of (cost_matrix, distance_thresholds, valid_track_indices) where:
+            - cost_matrix: NxM matrix of association costs
+            - distance_thresholds: per-track maximum association distances
+            - valid_track_indices: mapping from cost_matrix row index to actual track index
+        """
         valid_tracks = [i for i, track in enumerate(self.tracks) if track.is_valid()]
 
         if not valid_tracks:
-            return np.empty((0, len(detections)))
+            return np.empty((0, len(detections))), [], []
 
         cost_matrix = np.full(
             (len(valid_tracks), len(detections)), self.max_distance + 1
         )
+        distance_thresholds = []
 
         for i, track_idx in enumerate(valid_tracks):
             track = self.tracks[track_idx]
             predicted_pos = track.kalman_filter.get_position()
+
+            # Get velocity to adjust search radius for fast-moving balls
+            velocity = track.kalman_filter.get_velocity()
+            speed = np.sqrt(velocity[0] ** 2 + velocity[1] ** 2)
+
+            # Expand search radius for fast-moving balls
+            # Allow up to 2x max_distance for balls moving > 20 pixels/frame
+            speed_factor = min(2.0, 1.0 + (speed / 20.0))
+            adjusted_max_distance = self.max_distance * speed_factor
+            distance_thresholds.append(adjusted_max_distance)
 
             for j, detection in enumerate(detections):
                 # Euclidean distance
@@ -450,9 +502,11 @@ class ObjectTracker:
                 invalid_measurement_penalty = penalties.get("invalid_measurement", 5.0)
 
                 # Add penalty for type mismatch
+                # Skip penalty if either is UNKNOWN (generic ball detection)
                 if (
                     track.ball_type != detection.ball_type
-                    and detection.ball_type != BallType.CUE
+                    and detection.ball_type not in [BallType.CUE, BallType.UNKNOWN]
+                    and track.ball_type not in [BallType.CUE, BallType.UNKNOWN]
                 ):
                     distance *= type_mismatch_penalty
 
@@ -470,15 +524,18 @@ class ObjectTracker:
 
                 cost_matrix[i, j] = distance
 
-        return cost_matrix
+        return cost_matrix, distance_thresholds, valid_tracks
 
     def _is_compatible_detection(self, track: Track, detection: Ball) -> bool:
         """Check if detection is compatible with track."""
         # Type compatibility
+        # Allow UNKNOWN detections to match any track (generic "ball" from YOLO)
+        # Allow CUE to match CUE
+        # Otherwise require exact type match
         if (
             track.ball_type != detection.ball_type
-            and detection.ball_type != BallType.CUE
-            and track.ball_type != BallType.CUE
+            and detection.ball_type not in [BallType.CUE, BallType.UNKNOWN]
+            and track.ball_type not in [BallType.CUE, BallType.UNKNOWN]
         ):
             return False
 

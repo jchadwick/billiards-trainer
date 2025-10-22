@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { observer } from "mobx-react-lite";
-import { Card, CardHeader, CardTitle, CardContent, Button } from "../../ui";
-import { useStores } from "../../../hooks/useStores";
+import { Card, CardContent, Button } from "../../ui";
 import { apiClient } from "../../../api/client";
 import type { CalibrationData } from "../../../types/video";
+
+const CALIBRATION_CANVAS_WIDTH = 640;
+const CALIBRATION_CANVAS_HEIGHT = 360;
 
 // Types for calibration workflow
 interface Point {
@@ -16,21 +18,39 @@ interface Point {
   worldY: number;
 }
 
+interface MarkerDot {
+  id: string;
+  x: number;
+  y: number;
+}
+
 // Interactive video feed with point selection
 const VideoFeedCanvas: React.FC<{
   onPointSelect: (x: number, y: number) => void;
   points: Point[];
+  markerDots: MarkerDot[];
   width: number;
   height: number;
   overlayVisible: boolean;
   savedCalibrationData?: CalibrationData | null;
-}> = ({ onPointSelect, points, width, height, overlayVisible, savedCalibrationData }) => {
+  selectionMode?: 'corners' | 'markers';
+}> = ({
+  onPointSelect,
+  points,
+  markerDots,
+  width,
+  height,
+  overlayVisible,
+  savedCalibrationData,
+  selectionMode = 'corners',
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
   const [streamConnected, setStreamConnected] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
   // Get the video stream URL from the API client
   const videoStreamUrl = apiClient.getVideoStreamUrl();
@@ -122,6 +142,25 @@ const VideoFeedCanvas: React.FC<{
     // Draw calibration points overlay if visible (new points being set)
     if (overlayVisible) {
       points.forEach((point, index) => {
+        // Draw crosshair lines (X and Y axis through the point)
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.5)"; // Semi-transparent blue
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]); // Dashed line
+
+        // Vertical line (Y-axis)
+        ctx.beginPath();
+        ctx.moveTo(point.screenX, 0);
+        ctx.lineTo(point.screenX, height);
+        ctx.stroke();
+
+        // Horizontal line (X-axis)
+        ctx.beginPath();
+        ctx.moveTo(0, point.screenY);
+        ctx.lineTo(width, point.screenY);
+        ctx.stroke();
+
+        ctx.setLineDash([]); // Reset dash pattern
+
         ctx.fillStyle = "#3b82f6"; // Blue
         ctx.strokeStyle = "#1e40af"; // Darker blue
         ctx.lineWidth = 2;
@@ -159,16 +198,99 @@ const VideoFeedCanvas: React.FC<{
       ctx.fillStyle = "#9ca3af";
       ctx.font = "14px sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText(
-        "Click on the 4 corners of the playing area to set them manually",
-        width / 2,
-        height - 20
-      );
+      const instructionText = selectionMode === 'markers'
+        ? "Click on table marker dots (spots/markings) to mark them for masking"
+        : "Click on the 4 corners of the playing area to set them manually";
+      ctx.fillText(instructionText, width / 2, height - 20);
+    }
+
+    // Draw marker dots (table spots/markings to be masked)
+    if (markerDots.length > 0) {
+      markerDots.forEach((dot, index) => {
+        // Draw outer circle with glow effect
+        ctx.fillStyle = "rgba(239, 68, 68, 0.3)"; // Red with transparency
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 15, 0, 2 * Math.PI);
+        ctx.fill();
+
+        // Draw inner circle
+        ctx.fillStyle = "#ef4444"; // Red
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(dot.x, dot.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+
+        // Draw X mark inside
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        const size = 4;
+        ctx.beginPath();
+        ctx.moveTo(dot.x - size, dot.y - size);
+        ctx.lineTo(dot.x + size, dot.y + size);
+        ctx.moveTo(dot.x + size, dot.y - size);
+        ctx.lineTo(dot.x - size, dot.y + size);
+        ctx.stroke();
+
+        // Draw label
+        ctx.fillStyle = "#ef4444";
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 3;
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const label = `M${index + 1}`;
+        ctx.strokeText(label, dot.x, dot.y - 22);
+        ctx.fillText(label, dot.x, dot.y - 22);
+      });
+
+      // Draw marker dots count badge
+      if (markerDots.length > 0) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(10, 50, 150, 30);
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(10, 50, 150, 30);
+
+        ctx.fillStyle = "#ef4444";
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${markerDots.length} Table Marker${markerDots.length !== 1 ? 's' : ''}`, 18, 65);
+      }
+    }
+
+    // Draw crosshair guidelines from mouse cursor
+    if (mousePos) {
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)"; // Semi-transparent white
+      ctx.lineWidth = 1;
+      ctx.setLineDash([5, 5]); // Dashed line
+
+      // Vertical line
+      ctx.beginPath();
+      ctx.moveTo(mousePos.x, 0);
+      ctx.lineTo(mousePos.x, height);
+      ctx.stroke();
+
+      // Horizontal line
+      ctx.beginPath();
+      ctx.moveTo(0, mousePos.y);
+      ctx.lineTo(width, mousePos.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]); // Reset dash pattern
+
+      // Draw crosshair center point
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.beginPath();
+      ctx.arc(mousePos.x, mousePos.y, 3, 0, 2 * Math.PI);
+      ctx.fill();
     }
 
     // Request next frame
     animationFrameRef.current = requestAnimationFrame(drawFrame);
-  }, [points, width, height, overlayVisible, savedCalibrationData]);
+  }, [points, markerDots, width, height, overlayVisible, savedCalibrationData, selectionMode, mousePos]);
 
   // Start animation loop
   useEffect(() => {
@@ -191,6 +313,20 @@ const VideoFeedCanvas: React.FC<{
     onPointSelect(x, y);
   };
 
+  const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    setMousePos({ x, y });
+  };
+
+  const handleMouseLeave = () => {
+    setMousePos(null);
+  };
+
   return (
     <div ref={containerRef} className="relative">
       {/* MJPEG stream image (hidden, used as source for canvas) */}
@@ -199,8 +335,11 @@ const VideoFeedCanvas: React.FC<{
         src={videoStreamUrl}
         alt="Camera stream"
         style={{ display: "none" }}
-        onLoad={() => setStreamConnected(true)}
-        onError={(e) => {
+        onLoad={() => {
+          setStreamConnected(true);
+          setStreamError(null);
+        }}
+        onError={() => {
           setStreamError("Failed to load video stream");
           setStreamConnected(false);
         }}
@@ -212,6 +351,8 @@ const VideoFeedCanvas: React.FC<{
         width={width}
         height={height}
         onClick={handleCanvasClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
         className="border border-gray-300 dark:border-gray-600 rounded-lg cursor-crosshair bg-gray-900"
       />
 
@@ -236,6 +377,8 @@ const PlayingAreaCalibrationStep: React.FC<{
   onComplete: () => void;
 }> = ({ onComplete }) => {
   const [points, setPoints] = useState<Point[]>([]);
+  const [markerDots, setMarkerDots] = useState<MarkerDot[]>([]);
+  const [selectionMode, setSelectionMode] = useState<'corners' | 'markers'>('corners');
   const [isApplying, setIsApplying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [existingCalibration, setExistingCalibration] = useState<any>(null);
@@ -271,6 +414,18 @@ const PlayingAreaCalibrationStep: React.FC<{
               })
             );
             setPoints(loadedPoints);
+          }
+
+          // If marker dots exist, load them
+          if (response.data.marker_dots && Array.isArray(response.data.marker_dots)) {
+            const loadedMarkerDots: MarkerDot[] = response.data.marker_dots.map(
+              (dot: { x: number; y: number }, index: number) => ({
+                id: `marker_${index}_${Date.now()}`,
+                x: dot.x,
+                y: dot.y,
+              })
+            );
+            setMarkerDots(loadedMarkerDots);
           }
         }
 
@@ -315,6 +470,18 @@ const PlayingAreaCalibrationStep: React.FC<{
   }, []);
 
   const handlePointSelect = (screenX: number, screenY: number) => {
+    if (selectionMode === 'markers') {
+      // Add a new marker dot
+      const newMarkerDot: MarkerDot = {
+        id: `marker_${markerDots.length}_${Date.now()}`,
+        x: screenX,
+        y: screenY,
+      };
+      setMarkerDots([...markerDots, newMarkerDot]);
+      return;
+    }
+
+    // Corner selection mode
     // Find the nearest corner and update it
     if (points.length === 0) {
       // No points yet, just add sequentially
@@ -383,6 +550,16 @@ const PlayingAreaCalibrationStep: React.FC<{
     setPoints([]);
   };
 
+  const removeLastMarkerDot = () => {
+    if (markerDots.length > 0) {
+      setMarkerDots(markerDots.slice(0, -1));
+    }
+  };
+
+  const clearAllMarkerDots = () => {
+    setMarkerDots([]);
+  };
+
   const applyCalibration = async () => {
     if (points.length !== 4) {
       alert("Please set all 4 corners of the playing area");
@@ -391,12 +568,24 @@ const PlayingAreaCalibrationStep: React.FC<{
 
     setIsApplying(true);
     try {
-      // Send the corners to the backend to save in table configuration
+      // Report the calibration canvas dimensions; backend scales to physical resolution.
+      const calibration_resolution_width = CALIBRATION_CANVAS_WIDTH;
+      const calibration_resolution_height = CALIBRATION_CANVAS_HEIGHT;
+
+      console.log(`Saving calibration with resolution: ${calibration_resolution_width}x${calibration_resolution_height}`);
+
+      // Send the corners, marker dots, and resolution to the backend
       const response = await apiClient.updatePlayingArea({
         corners: points.map((p) => ({
           x: p.screenX,
           y: p.screenY,
         })),
+        marker_dots: markerDots.map((dot) => ({
+          x: dot.x,
+          y: dot.y,
+        })),
+        calibration_resolution_width,
+        calibration_resolution_height,
       });
 
       if (!response.success) {
@@ -460,31 +649,74 @@ const PlayingAreaCalibrationStep: React.FC<{
             <VideoFeedCanvas
               onPointSelect={handlePointSelect}
               points={points}
-              width={640}
-              height={360}
+              markerDots={markerDots}
+              width={CALIBRATION_CANVAS_WIDTH}
+              height={CALIBRATION_CANVAS_HEIGHT}
               overlayVisible={true}
               savedCalibrationData={savedCalibrationData}
+              selectionMode={selectionMode}
             />
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Mode Selection */}
+      <div className="flex justify-center gap-2">
         <Button
-          variant="outline"
-          onClick={removeLastPoint}
-          disabled={points.length === 0}
+          variant={selectionMode === 'corners' ? 'primary' : 'outline'}
+          onClick={() => setSelectionMode('corners')}
+          className="flex-1"
         >
-          Remove Last
+          Set Corners ({points.length}/4)
         </Button>
         <Button
-          variant="outline"
-          onClick={clearAllPoints}
-          disabled={points.length === 0}
+          variant={selectionMode === 'markers' ? 'primary' : 'outline'}
+          onClick={() => setSelectionMode('markers')}
+          className="flex-1"
         >
-          Clear All
+          Mark Table Dots ({markerDots.length})
         </Button>
       </div>
+
+      {/* Corner Controls */}
+      {selectionMode === 'corners' && (
+        <div className="grid grid-cols-2 gap-4">
+          <Button
+            variant="outline"
+            onClick={removeLastPoint}
+            disabled={points.length === 0}
+          >
+            Remove Last Corner
+          </Button>
+          <Button
+            variant="outline"
+            onClick={clearAllPoints}
+            disabled={points.length === 0}
+          >
+            Clear All Corners
+          </Button>
+        </div>
+      )}
+
+      {/* Marker Dot Controls */}
+      {selectionMode === 'markers' && (
+        <div className="grid grid-cols-2 gap-4">
+          <Button
+            variant="outline"
+            onClick={removeLastMarkerDot}
+            disabled={markerDots.length === 0}
+          >
+            Remove Last Marker
+          </Button>
+          <Button
+            variant="outline"
+            onClick={clearAllMarkerDots}
+            disabled={markerDots.length === 0}
+          >
+            Clear All Markers
+          </Button>
+        </div>
+      )}
 
       <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
         <h4 className="font-medium text-gray-900 dark:text-white mb-2">
@@ -529,7 +761,6 @@ const PlayingAreaCalibrationStep: React.FC<{
 // Main CalibrationWizard component
 export const CalibrationWizard = observer(() => {
   const [completed, setCompleted] = useState(false);
-  const { calibrationStore } = useStores();
 
   const handleComplete = () => {
     setCompleted(true);

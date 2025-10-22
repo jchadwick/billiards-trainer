@@ -302,11 +302,13 @@ class WebSocketHandler:
             return True
 
         except WebSocketDisconnect:
-            logger.info(f"Client {client_id} disconnected during send")
+            logger.debug(f"Client {client_id} disconnected during send")
+            connection.is_alive = False
             await self.disconnect(client_id)
             return False
         except Exception as e:
-            logger.error(f"Failed to send message to {client_id}: {e}")
+            logger.debug(f"Failed to send message to {client_id}: {e}")
+            connection.is_alive = False
             return False
 
     async def broadcast_to_subscribers(self, stream_type: str, message: dict[str, Any]):
@@ -328,13 +330,22 @@ class WebSocketHandler:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Log any failures
-        failed_count = sum(
-            1 for result in results if not result or isinstance(result, Exception)
-        )
-        if failed_count > 0:
-            logger.warning(
-                f"Failed to send to {failed_count}/{len(subscribers)} subscribers for {stream_type}"
+        # Clean up failed clients
+        failed_clients = []
+        for i, result in enumerate(results):
+            if not result or isinstance(result, Exception):
+                client_id = subscribers[i]
+                failed_clients.append(client_id)
+                # Remove subscription for failed client
+                if client_id in self.connections:
+                    self.connections[client_id].remove_subscription(stream_type)
+                    logger.debug(
+                        f"Removed {stream_type} subscription for client {client_id} due to send failure"
+                    )
+
+        if failed_clients:
+            logger.debug(
+                f"Cleaned up {len(failed_clients)}/{len(subscribers)} failed subscribers for {stream_type}"
             )
 
     async def broadcast_message(self, message: dict[str, Any]):

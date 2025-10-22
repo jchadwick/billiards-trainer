@@ -13,19 +13,16 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
-from ..constants_4k import (
-    BALL_RADIUS_4K,
-    POCKET_RADIUS_4K,
-    TABLE_HEIGHT_4K,
-    TABLE_WIDTH_4K,
-)
+from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
 from ..coordinates import Vector2D
 from ..models import BallState, Collision, TableState, Trajectory
 from ..physics.engine import PhysicsConstants, TrajectoryPoint
 
 # Physics constants for validation
-# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
-PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
+# NOTE: PIXELS_PER_METER should be calculated from actual table dimensions.
+# This default is based on a standard 9ft table (2.54m) filling ~3200 pixels.
+# Use table.calculate_pixels_per_meter() for accurate values.
+DEFAULT_PIXELS_PER_METER = 3200 / 2.54  # ~1259.84 pixels/meter (9ft table reference)
 
 
 @dataclass
@@ -84,10 +81,10 @@ class PhysicsValidator:
         # Physics limits in 4K pixel coordinates
         # Default limits converted from physical units to pixels
         self.max_velocity = self.config.get(
-            "max_velocity", 20.0 * PIXELS_PER_METER
+            "max_velocity", 20.0 * DEFAULT_PIXELS_PER_METER
         )  # pixels/s (default: 20 m/s → ~25,200 px/s)
         self.max_acceleration = self.config.get(
-            "max_acceleration", 100.0 * PIXELS_PER_METER
+            "max_acceleration", 100.0 * DEFAULT_PIXELS_PER_METER
         )  # pixels/s² (default: 100 m/s² → ~126,000 px/s²)
         self.max_spin = self.config.get("max_spin", 100.0)  # rad/s (unitless)
         self.max_force = self.config.get(

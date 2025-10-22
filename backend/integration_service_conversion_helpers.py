@@ -58,11 +58,8 @@ class StateConversionHelpers:
         self.config = config
         self.physics_validator = physics_validator or PhysicsValidator()
 
-        # Get table dimensions from config or use default 9ft table
-        # Standard 9ft table dimensions in 4K pixels: 3200px × 1600px (using ~1260 px/m scale)
-        # Note: These dimensions are used for validation bounds only
-        self.table_width_4k = 3200.0  # 9 feet in 4K pixels (~2.54m * 1260px/m)
-        self.table_height_4k = 1600.0  # 4.5 feet in 4K pixels (~1.27m * 1260px/m)
+        # NOTE: Table dimensions come from calibration/detection, not hardcoded values
+        # The system requires table detection/calibration to determine actual table bounds
 
         # Validation thresholds from config or defaults
         # All thresholds are now in 4K pixel units
@@ -71,9 +68,16 @@ class StateConversionHelpers:
             self.max_ball_velocity_4k = config.get(
                 "integration.max_ball_velocity_4k_px_per_s", 12600.0
             )
-            # Position bounds: 4K frame is 3840×2160, table playing area is ~(320,280) to (3520,1880)
-            self.max_position_x_4k = config.get("integration.max_position_x_4k", 3840.0)
-            self.max_position_y_4k = config.get("integration.max_position_y_4k", 2160.0)
+            # Position bounds: 4K frame is 3840×2160
+            # These are frame bounds for validation, not table bounds
+            from core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+
+            self.max_position_x_4k = config.get(
+                "integration.max_position_x_4k", CANONICAL_WIDTH
+            )
+            self.max_position_y_4k = config.get(
+                "integration.max_position_y_4k", CANONICAL_HEIGHT
+            )
             self.min_ball_confidence = config.get(
                 "integration.min_ball_confidence", 0.1
             )
@@ -82,9 +86,11 @@ class StateConversionHelpers:
             camera_height = config.get("camera.resolution.height", 1080)
         else:
             # Default values in 4K pixels
+            from core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+
             self.max_ball_velocity_4k = 12600.0  # ~10 m/s in 4K pixels/second
-            self.max_position_x_4k = 3840.0  # 4K frame width
-            self.max_position_y_4k = 2160.0  # 4K frame height
+            self.max_position_x_4k = CANONICAL_WIDTH  # 4K frame width
+            self.max_position_y_4k = CANONICAL_HEIGHT  # 4K frame height
             self.min_ball_confidence = 0.1
             self.min_cue_confidence = 0.05  # Lowered to minimize intermittent cue drops
             camera_width = 1920
@@ -193,21 +199,22 @@ class StateConversionHelpers:
             )
 
         # Validate position is reasonable (in 4K pixels)
-        # Table bounds in 4K: roughly (320, 280) to (3520, 1880)
-        # Allow some margin for balls near rails
+        # 4K frame bounds: (0, 0) to (3840, 2160)
+        # Table bounds vary based on calibration
         if (
             position_4k.x < 0
-            or position_4k.x > 3840
+            or position_4k.x > self.max_position_x_4k
             or position_4k.y < 0
-            or position_4k.y > 2160
+            or position_4k.y > self.max_position_y_4k
         ):
             logger.warning(
                 f"Ball conversion #{self._ball_conversion_count}: "
                 f"Position ({position_4k.x:.1f}, {position_4k.y:.1f}) outside 4K frame, clamping"
             )
+            # Clamp to frame bounds
             position_4k = Vector2D(
-                max(0, min(3840, position_4k.x)),
-                max(0, min(2160, position_4k.y)),
+                max(0, min(self.max_position_x_4k, position_4k.x)),
+                max(0, min(self.max_position_y_4k, position_4k.y)),
                 scale=(1.0, 1.0),
             )
             self._validation_warnings += 1
@@ -234,8 +241,7 @@ class StateConversionHelpers:
             id=ball_id,
             x=position_4k.x,
             y=position_4k.y,
-            vx=velocity_4k.x,
-            vy=velocity_4k.y,
+            velocity=velocity_4k,
             radius=radius_4k,
             mass=0.17,  # Standard pool ball mass in kg
             is_cue_ball=(ball.ball_type.value == "cue" if ball.ball_type else False),
@@ -401,19 +407,22 @@ class StateConversionHelpers:
             )
 
         # Validate tip position is reasonable (in 4K pixels)
+        # 4K frame bounds: (0, 0) to (3840, 2160)
+        # Table bounds vary based on calibration
         if (
             tip_position_4k.x < 0
-            or tip_position_4k.x > 3840
+            or tip_position_4k.x > self.max_position_x_4k
             or tip_position_4k.y < 0
-            or tip_position_4k.y > 2160
+            or tip_position_4k.y > self.max_position_y_4k
         ):
             logger.warning(
                 f"Cue conversion #{self._cue_conversion_count}: "
                 f"Tip position ({tip_position_4k.x:.1f}, {tip_position_4k.y:.1f}) outside 4K frame, clamping"
             )
+            # Clamp to frame bounds
             tip_position_4k = Vector2D(
-                max(0, min(3840, tip_position_4k.x)),
-                max(0, min(2160, tip_position_4k.y)),
+                max(0, min(self.max_position_x_4k, tip_position_4k.x)),
+                max(0, min(self.max_position_y_4k, tip_position_4k.y)),
                 scale=(1.0, 1.0),
             )
             self._validation_warnings += 1

@@ -858,7 +858,7 @@ class YOLODetector:
             return []
 
         try:
-            # Run inference
+            # Run inference (masking already applied upstream in VisionModule)
             detections = self._run_inference(frame)
 
             # Filter for ball classes
@@ -887,15 +887,26 @@ class YOLODetector:
 
             # Filter out small detections (marker dots, noise) based on size
             # Billiard balls should have a minimum size in pixels
+            # For elongated balls (on edges/in motion), use the larger dimension
             filtered_detections = []
             for det in ball_detections:
                 # Check if detection meets minimum size requirement
-                if det.width >= self.min_ball_size and det.height >= self.min_ball_size:
+                # Use max dimension to handle elongated balls (perspective/motion blur)
+                max_dimension = max(det.width, det.height)
+                min_dimension = min(det.width, det.height)
+
+                # Accept if max dimension meets threshold AND aspect ratio not too extreme
+                # This handles edge balls (slightly elongated) while filtering markers
+                aspect_ratio = (
+                    max_dimension / min_dimension if min_dimension > 0 else 999
+                )
+                if max_dimension >= self.min_ball_size and aspect_ratio < 3.0:
                     filtered_detections.append(det)
                 else:
                     logger.debug(
-                        f"Filtered out small detection: {det.class_name} "
-                        f"size={det.width:.1f}x{det.height:.1f}px (min={self.min_ball_size}px)"
+                        f"Filtered out detection: {det.class_name} "
+                        f"size={det.width:.1f}x{det.height:.1f}px (min={self.min_ball_size}px, "
+                        f"aspect={aspect_ratio:.2f})"
                     )
 
             return filtered_detections
@@ -933,7 +944,7 @@ class YOLODetector:
         from ..models import Ball
         from .detector_adapter import yolo_detections_to_balls
 
-        # Get YOLO detections
+        # Get YOLO detections (masking already applied upstream in VisionModule)
         yolo_detections = self.detect_balls(frame)
 
         if not yolo_detections:
@@ -960,7 +971,7 @@ class YOLODetector:
             # Optionally refine with OpenCV classification
             for ball in balls:
                 if self._opencv_classifier is not None and det.class_name == "ball":
-                    # Extract ball region for classification
+                    # Extract ball region for classification (frame already masked upstream)
                     x, y = ball.position
                     r = ball.radius
                     x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))

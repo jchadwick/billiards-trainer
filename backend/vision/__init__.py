@@ -925,6 +925,10 @@ class VisionModule:
             else:
                 processed_frame = frame
 
+            # Apply masking ONCE - marker dots and table boundaries
+            # This happens BEFORE any detection so YOLO/OpenCV never see masked regions
+            processed_frame = self._apply_all_masks(processed_frame)
+
             # Detection
             detected_table = None
             detected_balls = []
@@ -1067,6 +1071,182 @@ class VisionModule:
             logger.error(f"Frame processing failed: {e}")
             self.stats.last_error = str(e)
             return None
+
+    def _apply_all_masks(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
+        """Apply all masking in ONE place before any detection.
+
+        Masks applied:
+        1. Marker dots - black out table markers to prevent false detections
+        2. Table boundaries - black out area outside playing area
+
+        IMPORTANT: Coordinates are scaled from calibration resolution to current frame resolution.
+
+        Args:
+            frame: Preprocessed frame
+
+        Returns:
+            Fully masked frame ready for detection
+        """
+        try:
+            from ..config import config
+
+            # Create copy to avoid modifying original
+            masked_frame = frame.copy()
+
+            # Get current frame dimensions
+            frame_height, frame_width = frame.shape[:2]
+
+            # Get calibration resolution (must be set during calibration)
+            calib_width = config.get("table.calibration_resolution_width")
+            calib_height = config.get("table.calibration_resolution_height")
+
+            if calib_width is None or calib_height is None:
+                logger.error(
+                    "Calibration resolution not set! Please recalibrate. "
+                    "Skipping masking to avoid incorrect scaling."
+                )
+                return frame  # Return unmasked to avoid incorrect scaling
+
+            # Calculate scaling factors
+            scale_x = frame_width / calib_width
+            scale_y = frame_height / calib_height
+
+            logger.info(
+                f"MASKING: Frame actual size: {frame_width}x{frame_height}, Calibration size: {calib_width}x{calib_height}, Scale factors: {scale_x:.3f}x, {scale_y:.3f}y"
+            )
+
+            # MASK 1: Marker dots (spots/stickers on table)
+            marker_config = config.get("vision.detection.marker_filtering", {})
+            marker_dots_applied = False
+            if marker_config.get("enabled", True):
+                marker_dots = config.get("table.marker_dots", [])
+                mask_radius = marker_config.get(
+                    "mask_radius_px", 25
+                )  # DO NOT SCALE radius
+
+                for dot in marker_dots:
+                    # Scale coordinates from calibration resolution to frame resolution
+                    scaled_x = int(dot["x"] * scale_x)
+                    scaled_y = int(dot["y"] * scale_y)
+
+                    logger.info(
+                        f"Masking marker dot: calibration ({dot['x']}, {dot['y']}) -> scaled ({scaled_x}, {scaled_y}) with radius {mask_radius}px"
+                    )
+
+                    cv2.circle(
+                        masked_frame,
+                        (scaled_x, scaled_y),
+                        mask_radius,
+                        (0, 0, 0),  # Black
+                        -1,  # Filled
+                    )
+
+                if marker_dots:
+                    marker_dots_applied = True
+                    logger.info(
+                        f"Applied marker masking: {len(marker_dots)} dots with radius={mask_radius}px"
+                    )
+
+            # MASK 2: Table boundaries (outside playing area) - OPTIONAL
+            boundary_mask_applied = False
+            enable_boundary_mask = config.get(
+                "vision.detection.enable_boundary_masking", False
+            )
+            if enable_boundary_mask:
+                playing_area_corners = config.get("table.playing_area_corners", [])
+                if len(playing_area_corners) == 4:
+                    # Create mask - everything OUTSIDE the table is black
+                    mask = np.zeros(masked_frame.shape[:2], dtype=np.uint8)
+
+                    # Scale corners from calibration resolution to frame resolution
+                    corners = np.array(
+                        [
+                            [int(c["x"] * scale_x), int(c["y"] * scale_y)]
+                            for c in playing_area_corners
+                        ],
+                        dtype=np.int32,
+                    )
+
+                    # Fill the playing area with white (keep it)
+                    cv2.fillPoly(mask, [corners], 255)
+
+                    # Apply mask - zeros out everything outside playing area
+                    masked_frame = cv2.bitwise_and(
+                        masked_frame, masked_frame, mask=mask
+                    )
+
+                    boundary_mask_applied = True
+                    logger.info(
+                        f"Applied boundary masking: scaled corners={corners.tolist()}"
+                    )
+                else:
+                    logger.warning(
+                        f"Boundary masking enabled but got {len(playing_area_corners)} corners (need 4)"
+                    )
+
+            # DEBUG: Save EXACT frame that detection sees
+            save_mask_debug = config.get(
+                "vision.detection.save_mask_visualization", False
+            )
+            if save_mask_debug:
+                try:
+                    # Save the EXACT masked frame that YOLO/OpenCV will see
+                    debug_path = "/tmp/vision_masked_frame.jpg"
+                    cv2.imwrite(debug_path, masked_frame)
+                    logger.info(
+                        f"Saved EXACT masked frame (what detection sees) to {debug_path}"
+                    )
+
+                    # Also save a visualization with markers overlaid
+                    if marker_dots_applied or boundary_mask_applied:
+                        debug_vis = frame.copy()
+
+                        # Show marker dots as red circles (SCALED coordinates, UNSCALED radius)
+                        if marker_dots_applied:
+                            marker_dots = config.get("table.marker_dots", [])
+                            vis_radius = marker_config.get(
+                                "mask_radius_px", 25
+                            )  # DO NOT SCALE
+                            for dot in marker_dots:
+                                scaled_x = int(dot["x"] * scale_x)
+                                scaled_y = int(dot["y"] * scale_y)
+                                cv2.circle(
+                                    debug_vis,
+                                    (scaled_x, scaled_y),
+                                    vis_radius,
+                                    (0, 0, 255),
+                                    2,
+                                )
+                                cv2.circle(
+                                    debug_vis, (scaled_x, scaled_y), 3, (0, 0, 255), -1
+                                )
+
+                        # Show boundary mask as green polygon (SCALED coordinates)
+                        if boundary_mask_applied:
+                            playing_area_corners = config.get(
+                                "table.playing_area_corners", []
+                            )
+                            corners = np.array(
+                                [
+                                    [int(c["x"] * scale_x), int(c["y"] * scale_y)]
+                                    for c in playing_area_corners
+                                ],
+                                dtype=np.int32,
+                            )
+                            cv2.polylines(debug_vis, [corners], True, (0, 255, 0), 2)
+
+                        # Save visualization
+                        vis_path = "/tmp/mask_visualization.jpg"
+                        cv2.imwrite(vis_path, debug_vis)
+                        logger.info(f"Saved mask visualization (overlay) to {vis_path}")
+                except Exception as e:
+                    logger.error(f"Failed to save debug images: {e}")
+
+            return masked_frame
+
+        except Exception as e:
+            logger.error(f"Failed to apply masks: {e}", exc_info=True)
+            return frame  # Return unmasked on error
 
     def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
         """Apply region of interest cropping to frame."""

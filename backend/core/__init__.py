@@ -137,7 +137,9 @@ class CoreModule:
         """Initialize all core components."""
         try:
             # Core managers
-            self.state_manager = GameStateManager()
+            # Note: GameStateManager initialized without table - table will be provided
+            # through detection/calibration data in the first update_state() call
+            self.state_manager = GameStateManager(table=None)
             self.event_manager = EventManager()
 
             # Physics components

@@ -504,38 +504,86 @@ class TableState:
         )
 
     @classmethod
-    def standard_table_4k(cls) -> "TableState":
-        """Create standard 9-foot table in 4K pixel coordinates.
+    def from_calibration(
+        cls,
+        table_corners_pixel: list[tuple[float, float]],
+        camera_resolution: tuple[int, int],
+        table_dimensions_real: Optional[tuple[float, float]] = None,
+        pocket_positions_pixel: Optional[list[tuple[float, float]]] = None,
+    ) -> "TableState":
+        """Create TableState from calibration data.
+
+        Args:
+            table_corners_pixel: Table corners in camera pixel coordinates (4 corners)
+            camera_resolution: Camera resolution (width, height)
+            table_dimensions_real: Optional real-world table dimensions in meters (width, height).
+                                  If not provided, dimensions are calculated from corners.
+            pocket_positions_pixel: Optional pocket positions in camera pixels (6 pockets)
 
         Returns:
-            TableState with all positions in 4K canonical space
+            TableState with dimensions in 4K canonical coordinates
         """
-        from .constants_4k import POCKET_POSITIONS_4K, TABLE_HEIGHT_4K, TABLE_WIDTH_4K
+        _ = table_dimensions_real  # Reserved for future use - currently calculate from corners
+        from .constants_4k import CANONICAL_RESOLUTION
+        from .resolution_converter import ResolutionConverter
 
-        # Create pockets at standard positions (in 4K pixels)
-        pockets = [Vector2D.from_4k(x, y) for x, y in POCKET_POSITIONS_4K]
+        # Transform corners from camera pixels to 4K canonical
+        corners_4k = []
+        for corner in table_corners_pixel:
+            x_4k, y_4k = ResolutionConverter.scale_to_4k(
+                corner[0], corner[1], camera_resolution
+            )
+            corners_4k.append(Vector2D.from_4k(x_4k, y_4k))
+
+        # Calculate table dimensions from corners (average of parallel sides)
+        top_width = corners_4k[1].distance_to(corners_4k[0])
+        bottom_width = corners_4k[2].distance_to(corners_4k[3])
+        width_4k = (top_width + bottom_width) / 2
+
+        left_height = corners_4k[3].distance_to(corners_4k[0])
+        right_height = corners_4k[2].distance_to(corners_4k[1])
+        height_4k = (left_height + right_height) / 2
+
+        # Calculate pocket positions (6 standard positions)
+        if pocket_positions_pixel:
+            pockets = []
+            for pocket in pocket_positions_pixel:
+                x_4k, y_4k = ResolutionConverter.scale_to_4k(
+                    pocket[0], pocket[1], camera_resolution
+                )
+                pockets.append(Vector2D.from_4k(x_4k, y_4k))
+        else:
+            # Generate standard pocket positions from corners
+            pockets = [
+                corners_4k[0],  # Top-left
+                Vector2D.from_4k(
+                    (corners_4k[0].x + corners_4k[1].x) / 2, corners_4k[0].y
+                ),  # Top-middle
+                corners_4k[1],  # Top-right
+                corners_4k[3],  # Bottom-left
+                Vector2D.from_4k(
+                    (corners_4k[3].x + corners_4k[2].x) / 2, corners_4k[3].y
+                ),  # Bottom-middle
+                corners_4k[2],  # Bottom-right
+            ]
 
         return cls(
-            width=TABLE_WIDTH_4K, height=TABLE_HEIGHT_4K, pocket_positions=pockets
+            width=width_4k,
+            height=height_4k,
+            pocket_positions=pockets,
+            playing_area_corners=corners_4k,
         )
 
-    @classmethod
-    def standard_9ft_table(cls) -> "TableState":
-        """Create a standard 9-foot pool table."""
-        width = 2.54  # 9 feet in meters
-        height = 1.27  # 4.5 feet in meters
+    def calculate_pixels_per_meter(self) -> tuple[float, float]:
+        """Calculate pixels per meter for this table.
 
-        # Standard pocket positions for 9-foot table
-        pocket_positions = [
-            Vector2D(0, 0, scale=(1.0, 1.0)),  # Bottom left corner
-            Vector2D(width / 2, 0, scale=(1.0, 1.0)),  # Bottom middle
-            Vector2D(width, 0, scale=(1.0, 1.0)),  # Bottom right corner
-            Vector2D(0, height, scale=(1.0, 1.0)),  # Top left corner
-            Vector2D(width / 2, height, scale=(1.0, 1.0)),  # Top middle
-            Vector2D(width, height, scale=(1.0, 1.0)),  # Top right corner
-        ]
-
-        return cls(width=width, height=height, pocket_positions=pocket_positions)
+        Returns:
+            Tuple of (pixels_per_meter_width, pixels_per_meter_height)
+        """
+        # This requires physical dimensions, which should be stored
+        # For now, return a reasonable default based on standard 9ft table
+        # TODO: Store physical dimensions in TableState
+        return (self.width / 2.54, self.height / 1.27)
 
 
 @dataclass
@@ -995,11 +1043,18 @@ class GameState:
 
     @classmethod
     def create_initial_state(
-        cls, game_type: GameType = GameType.PRACTICE
+        cls, table: TableState, game_type: GameType = GameType.PRACTICE
     ) -> "GameState":
-        """Create an initial game state with standard ball setup."""
+        """Create an initial game state with standard ball setup.
+
+        Args:
+            table: TableState to use (must be provided, typically from calibration)
+            game_type: Type of game to initialize
+
+        Returns:
+            GameState with initial ball setup
+        """
         timestamp = datetime.now().timestamp()
-        table = TableState.standard_9ft_table()
 
         # Create standard 15-ball rack
         balls = []

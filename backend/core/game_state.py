@@ -50,11 +50,15 @@ class GameStateManager:
     """
 
     def __init__(
-        self, max_history_frames: int = 1000, persistence_path: Optional[Path] = None
+        self,
+        table: Optional[TableState] = None,
+        max_history_frames: int = 1000,
+        persistence_path: Optional[Path] = None,
     ):
         """Initialize game state manager.
 
         Args:
+            table: TableState from calibration (required for operation)
             max_history_frames: Maximum number of frames to keep in history
             persistence_path: Path for state persistence files
         """
@@ -74,8 +78,15 @@ class GameStateManager:
             enable_auto_correction=self._auto_correct_enabled
         )
 
-        # Default table configuration (standard 9-foot table)
-        self._default_table = self._create_default_table()
+        # Table must be provided or system cannot operate
+        if table is None:
+            logger.warning(
+                "GameStateManager initialized without table. "
+                "Table detection/calibration must be completed before processing frames."
+            )
+            self._default_table = None
+        else:
+            self._default_table = table
 
         # Event detection state
         self._last_ball_positions: dict[str, Vector2D] = {}
@@ -93,10 +104,6 @@ class GameStateManager:
         self._game_rules: Optional[GameRules] = None
 
         logger.info("GameStateManager initialized")
-
-    def _create_default_table(self) -> TableState:
-        """Create default table configuration for 9-foot pool table."""
-        return TableState.standard_9ft_table()
 
     def update_state(self, detection_data: dict[str, Any]) -> GameState:
         """Update game state from vision detection data (FR-CORE-001).
@@ -422,9 +429,14 @@ class GameStateManager:
         """Extract table state from detection data."""
         table_data = detection_data.get("table")
 
-        # If no table data or it's already a TableState object, return default or the object
+        # If no table data, use default (which may be None)
         if table_data is None:
+            if self._default_table is None:
+                raise ValueError(
+                    "No table data available and no default table configured"
+                )
             return self._default_table
+
         if isinstance(table_data, TableState):
             return table_data
 
@@ -439,23 +451,19 @@ class GameStateManager:
                         Vector2D.from_4k(pos_data.get("x", 0.0), pos_data.get("y", 0.0))
                     )
 
-        # Get table dimensions
-        table_width = table_data.get("width", self._default_table.width)
-        table_height = table_data.get("height", self._default_table.height)
+        # Use actual detected/calibrated dimensions
+        table_width = table_data.get("width")
+        table_height = table_data.get("height")
 
-        # If no pockets defined, use default pocket positions scaled to table size
-        if not pocket_positions:
-            # Scale default pocket positions to match actual table dimensions
-            width_scale = table_width / self._default_table.width
-            height_scale = table_height / self._default_table.height
+        if table_width is None or table_height is None:
+            if self._default_table is None:
+                raise ValueError(
+                    "Table dimensions not provided and no default available"
+                )
+            return self._default_table
 
-            pocket_positions = [
-                Vector2D.from_4k(pocket.x * width_scale, pocket.y * height_scale)
-                for pocket in self._default_table.pocket_positions
-            ]
-
-        # Extract corners for playing area
-        playing_area_corners = None
+        # Extract corners early so we can use them for pocket calculation if needed
+        detected_corners = None
         if "corners" in table_data:
             corners = []
             for corner in table_data["corners"]:
@@ -463,29 +471,121 @@ class GameStateManager:
                     corners.append(
                         Vector2D.from_4k(corner.get("x", 0.0), corner.get("y", 0.0))
                     )
-            if corners:
-                playing_area_corners = corners
+            if len(corners) >= 4:
+                detected_corners = corners
+
+        # If no pockets defined, generate standard 6-pocket positions
+        if not pocket_positions:
+            if detected_corners:
+                # Use detected corners to calculate pocket positions
+                # Corners are typically: [top-left, top-right, bottom-right, bottom-left]
+                tl, tr, br, bl = (
+                    detected_corners[0],
+                    detected_corners[1],
+                    detected_corners[2],
+                    detected_corners[3],
+                )
+
+                # Calculate middle points along top and bottom edges
+                top_middle = Vector2D.from_4k((tl.x + tr.x) / 2, (tl.y + tr.y) / 2)
+                bottom_middle = Vector2D.from_4k((bl.x + br.x) / 2, (bl.y + br.y) / 2)
+
+                pocket_positions = [
+                    tl,  # Top-left
+                    top_middle,  # Top-middle
+                    tr,  # Top-right
+                    bl,  # Bottom-left
+                    bottom_middle,  # Bottom-middle
+                    br,  # Bottom-right
+                ]
+            elif self._default_table is not None:
+                # Scale default pocket positions to match actual table dimensions
+                width_scale = table_width / self._default_table.width
+                height_scale = table_height / self._default_table.height
+
+                pocket_positions = [
+                    Vector2D.from_4k(pocket.x * width_scale, pocket.y * height_scale)
+                    for pocket in self._default_table.pocket_positions
+                ]
+            else:
+                # Generate standard pocket positions from table dimensions
+                # Assume table is centered in 4K frame and calculate corner/middle positions
+                from .constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+
+                # Calculate approximate table position (centered in frame)
+                left = (CANONICAL_WIDTH - table_width) / 2
+                top = (CANONICAL_HEIGHT - table_height) / 2
+                right = left + table_width
+                bottom = top + table_height
+                center_x = (left + right) / 2
+
+                pocket_positions = [
+                    Vector2D.from_4k(left, top),  # Top-left
+                    Vector2D.from_4k(center_x, top),  # Top-middle
+                    Vector2D.from_4k(right, top),  # Top-right
+                    Vector2D.from_4k(left, bottom),  # Bottom-left
+                    Vector2D.from_4k(center_x, bottom),  # Bottom-middle
+                    Vector2D.from_4k(right, bottom),  # Bottom-right
+                ]
+
+        # Ensure we have exactly 6 pockets (required for pool table)
+        if len(pocket_positions) != 6:
+            logger.warning(
+                f"Expected 6 pockets but got {len(pocket_positions)}. "
+                "Generating standard pocket positions."
+            )
+            # Generate standard positions as fallback
+            from .constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+
+            left = (CANONICAL_WIDTH - table_width) / 2
+            top = (CANONICAL_HEIGHT - table_height) / 2
+            right = left + table_width
+            bottom = top + table_height
+            center_x = (left + right) / 2
+
+            pocket_positions = [
+                Vector2D.from_4k(left, top),
+                Vector2D.from_4k(center_x, top),
+                Vector2D.from_4k(right, top),
+                Vector2D.from_4k(left, bottom),
+                Vector2D.from_4k(center_x, bottom),
+                Vector2D.from_4k(right, bottom),
+            ]
+
+        # Use detected corners for playing area if available
+        playing_area_corners = detected_corners
+
+        # Get default values from default table if available, otherwise use standard defaults
+        default_pocket_radius = (
+            self._default_table.pocket_radius if self._default_table else 72.0
+        )
+        default_cushion_elasticity = (
+            self._default_table.cushion_elasticity if self._default_table else 0.8
+        )
+        default_surface_friction = (
+            self._default_table.surface_friction if self._default_table else 0.2
+        )
+        default_surface_slope = (
+            self._default_table.surface_slope if self._default_table else 0.0
+        )
+        default_cushion_height = (
+            self._default_table.cushion_height if self._default_table else 48.0
+        )
 
         # Create TableState with extracted data
         return TableState(
             width=table_width,
             height=table_height,
             pocket_positions=pocket_positions,
-            pocket_radius=table_data.get(
-                "pocket_radius", self._default_table.pocket_radius
-            ),
+            pocket_radius=table_data.get("pocket_radius", default_pocket_radius),
             cushion_elasticity=table_data.get(
-                "cushion_elasticity", self._default_table.cushion_elasticity
+                "cushion_elasticity", default_cushion_elasticity
             ),
             surface_friction=table_data.get(
-                "surface_friction", self._default_table.surface_friction
+                "surface_friction", default_surface_friction
             ),
-            surface_slope=table_data.get(
-                "surface_slope", self._default_table.surface_slope
-            ),
-            cushion_height=table_data.get(
-                "cushion_height", self._default_table.cushion_height
-            ),
+            surface_slope=table_data.get("surface_slope", default_surface_slope),
+            cushion_height=table_data.get("cushion_height", default_cushion_height),
             playing_area_corners=playing_area_corners,
         )
 

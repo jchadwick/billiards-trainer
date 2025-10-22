@@ -15,18 +15,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from ..constants_4k import (
-    BALL_RADIUS_4K,
-    POCKET_RADIUS_4K,
-    TABLE_HEIGHT_4K,
-    TABLE_WIDTH_4K,
-)
+from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
 from ..coordinates import Vector2D
 from ..models import BallState, GameState, TableState
 
 # Physics constants for validation
-# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
-PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
+# NOTE: PIXELS_PER_METER should be calculated from actual table dimensions.
+# This default is based on a standard 9ft table (2.54m) filling ~3200 pixels.
+# Use table.calculate_pixels_per_meter() for accurate values.
+DEFAULT_PIXELS_PER_METER = 3200 / 2.54  # ~1259.84 pixels/meter (9ft table reference)
 
 
 class CorrectionStrategy(Enum):
@@ -133,7 +130,7 @@ class ErrorCorrector:
         self,
         strategy: CorrectionStrategy = CorrectionStrategy.CONFIDENCE_BASED,
         max_velocity: float = 10.0
-        * PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
+        * DEFAULT_PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
         confidence_threshold: float = 0.5,
         enable_logging: bool = True,
         oscillation_prevention: bool = True,
@@ -540,6 +537,7 @@ class ErrorCorrector:
         Table bounds are in 4K pixels.
         """
         # Clamp position to table bounds with ball radius consideration
+        # Use actual table dimensions instead of hardcoded bounds
         margin = radius + 1.0  # Small buffer (1 pixel)
 
         x = max(margin, min(table.width - margin, position.x))
