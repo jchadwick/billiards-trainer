@@ -5,8 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
-from backend.config import Config
+from config import Config
 
 
 def test_config_singleton():

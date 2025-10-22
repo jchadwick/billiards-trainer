@@ -9,6 +9,8 @@ This module implements comprehensive collision detection and response for billia
 - Collision prediction for trajectory calculation
 - Edge case handling (simultaneous collisions, near-misses)
 - Performance optimizations for real-time simulation
+
+All calculations use 4K pixels (3840×2160) as the canonical coordinate system.
 """
 
 import math
@@ -16,7 +18,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from ..models import BallState, TableState, Vector2D
+from ..constants_4k import BALL_RADIUS_4K, PIXELS_PER_METER_REFERENCE
+from ..coordinates import Vector2D
+from ..models import BallState, TableState
 from .spin import SpinCalculator, SpinState
 
 
@@ -30,12 +34,12 @@ class CollisionType(Enum):
 
 @dataclass
 class CollisionPoint:
-    """Collision point information."""
+    """Collision point information in 4K pixel coordinates."""
 
-    position: Vector2D  # World coordinates
-    normal: Vector2D  # Collision normal vector
+    position: Vector2D  # Position in 4K pixels (scale=[1.0, 1.0])
+    normal: Vector2D  # Collision normal vector (unitless direction)
     time: float  # Time when collision occurs (seconds)
-    relative_velocity: float  # Relative velocity at collision point
+    relative_velocity: float  # Relative velocity magnitude in pixels/second
 
 
 @dataclass

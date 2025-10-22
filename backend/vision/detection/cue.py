@@ -13,10 +13,12 @@ import math
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import cv2
 import numpy as np
+from core.constants_4k import BALL_RADIUS_4K, TABLE_WIDTH_4K
+from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 # Import from models to use consistent data structures
@@ -74,30 +76,53 @@ class CueDetector:
     - False positive filtering
     """
 
-    def __init__(self, config: dict[str, Any], yolo_detector=None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        camera_resolution: tuple[int, int] = (1920, 1080),
+        yolo_detector=None,
+    ) -> None:
         """Initialize cue detector with configuration.
 
         Args:
             config: Configuration dictionary with detection parameters
+            camera_resolution: Camera resolution (width, height) for scaling pixel-based parameters.
+                             Defaults to 1080p. All pixel values are scaled from 4K canonical.
             yolo_detector: Optional YOLODetector instance for YOLO-based cue detection
         """
         self.config = config
         self.logger = logging.getLogger(__name__)
         self.yolo_detector = yolo_detector
+        self.camera_resolution = camera_resolution
 
-        # Geometry parameters
+        # Calculate scale factor from 4K to camera resolution
+        scale_x, scale_y = ResolutionConverter.calculate_scale_from_4k(
+            camera_resolution
+        )
+        self.scale = scale_x  # Use X scale for consistency
+
+        # Geometry parameters (RESOLUTION-AWARE)
         geometry = config.get("geometry", {})
-        self.min_cue_length = geometry.get("min_cue_length", 150)
-        self.max_cue_length = geometry.get("max_cue_length", 800)
-        self.min_line_thickness = geometry.get("min_line_thickness", 3)
-        self.max_line_thickness = geometry.get("max_line_thickness", 25)
-        self.ball_radius = geometry.get("ball_radius", 15)
+        # Default cue length based on table width (cues are ~150cm, table is ~250cm wide)
+        # In 4K: cue ~1800px, table 3200px
+        default_max_cue_length = int(1800 * self.scale)
+        default_min_cue_length = int(300 * self.scale)
 
-        # Hough transform parameters
+        self.min_cue_length = geometry.get("min_cue_length", default_min_cue_length)
+        self.max_cue_length = geometry.get("max_cue_length", default_max_cue_length)
+        self.min_line_thickness = geometry.get(
+            "min_line_thickness", max(2, int(6 * self.scale))
+        )
+        self.max_line_thickness = geometry.get(
+            "max_line_thickness", int(50 * self.scale)
+        )
+        self.ball_radius = geometry.get("ball_radius", int(BALL_RADIUS_4K * self.scale))
+
+        # Hough transform parameters (RESOLUTION-AWARE for distance-based params)
         hough = config.get("hough", {})
         self.hough_threshold = hough.get("threshold", 100)
-        self.hough_min_line_length = hough.get("min_line_length", 100)
-        self.hough_max_line_gap = hough.get("max_line_gap", 20)
+        self.hough_min_line_length = hough.get("min_line_length", int(200 * self.scale))
+        self.hough_max_line_gap = hough.get("max_line_gap", int(40 * self.scale))
         self.hough_rho = hough.get("rho", 1)
         self.hough_theta_divisor = hough.get("theta_divisor", 180)
 
@@ -138,27 +163,37 @@ class CueDetector:
         self.min_contrast_std = preproc.get("min_contrast_std", 10)
         self.min_morph_content = preproc.get("min_morph_content", 100)
 
-        # Motion analysis parameters
+        # Motion analysis parameters (RESOLUTION-AWARE for distance/position-based params)
         motion = config.get("motion", {})
-        self.velocity_threshold = motion.get("velocity_threshold", 5.0)
-        self.acceleration_threshold = motion.get("acceleration_threshold", 2.0)
+        self.velocity_threshold = motion.get(
+            "velocity_threshold", 10.0 * self.scale
+        )  # pixels/frame
+        self.acceleration_threshold = motion.get(
+            "acceleration_threshold", 4.0 * self.scale
+        )  # pixels/frame^2
         self.striking_velocity_threshold = motion.get(
-            "striking_velocity_threshold", 15.0
+            "striking_velocity_threshold", 30.0 * self.scale
         )
         self.position_movement_threshold = motion.get(
-            "position_movement_threshold", 10.0
+            "position_movement_threshold", 20.0 * self.scale
         )
-        self.angle_change_threshold = motion.get("angle_change_threshold", 5.0)
-        self.min_ball_speed = motion.get("min_ball_speed", 2.0)
+        self.angle_change_threshold = motion.get(
+            "angle_change_threshold", 5.0
+        )  # degrees, not pixels
+        self.min_ball_speed = motion.get(
+            "min_ball_speed", 4.0 * self.scale
+        )  # pixels/frame
 
-        # Tracking parameters
+        # Tracking parameters (RESOLUTION-AWARE for distance-based params)
         tracking = config.get("tracking", {})
-        self.max_tracking_distance = tracking.get("max_tracking_distance", 50)
+        self.max_tracking_distance = tracking.get(
+            "max_tracking_distance", int(100 * self.scale)
+        )
         self.tracking_history_size = tracking.get("tracking_history_size", 10)
         self.confidence_decay = tracking.get("confidence_decay", 0.95)
         self.temporal_smoothing = tracking.get("temporal_smoothing", 0.7)
 
-        # Validation parameters
+        # Validation parameters (RESOLUTION-AWARE for distance/pixel-based params)
         validation = config.get("validation", {})
         self.min_detection_confidence = validation.get("min_detection_confidence", 0.6)
         self.use_background_subtraction = validation.get(
@@ -166,18 +201,35 @@ class CueDetector:
         )
         self.background_threshold = validation.get("background_threshold", 30)
         self.thickness_sample_count = validation.get("thickness_sample_count", 5)
-        self.max_thickness_search = validation.get("max_thickness_search", 30)
-        self.edge_margin = validation.get("edge_margin", 20)
-        self.position_edge_margin = validation.get("position_edge_margin", 10)
+        self.max_thickness_search = validation.get(
+            "max_thickness_search", int(60 * self.scale)
+        )
+        self.edge_margin = validation.get("edge_margin", int(40 * self.scale))
+        self.position_edge_margin = validation.get(
+            "position_edge_margin", int(20 * self.scale)
+        )
 
-        # Proximity parameters
+        # Proximity parameters (RESOLUTION-AWARE)
         proximity = config.get("proximity", {})
-        self.max_distance_to_cue_ball = proximity.get("max_distance_to_cue_ball", 40)
-        self.max_tip_distance = proximity.get("max_tip_distance", 300)
-        self.max_reasonable_distance = proximity.get("max_reasonable_distance", 200)
-        self.contact_threshold = proximity.get("contact_threshold", 30)
-        self.overlap_threshold = proximity.get("overlap_threshold", 50)
-        self.max_angle_overlap = proximity.get("max_angle_overlap", 30)
+        # Distances scaled from 4K
+        self.max_distance_to_cue_ball = proximity.get(
+            "max_distance_to_cue_ball", int(80 * self.scale)
+        )  # ~2x ball radius
+        self.max_tip_distance = proximity.get(
+            "max_tip_distance", int(600 * self.scale)
+        )  # Max reasonable cue-ball distance
+        self.max_reasonable_distance = proximity.get(
+            "max_reasonable_distance", int(400 * self.scale)
+        )
+        self.contact_threshold = proximity.get(
+            "contact_threshold", int(60 * self.scale)
+        )  # ~ball diameter for contact
+        self.overlap_threshold = proximity.get(
+            "overlap_threshold", int(100 * self.scale)
+        )
+        self.max_angle_overlap = proximity.get(
+            "max_angle_overlap", 30
+        )  # degrees, not pixels
 
         # Scoring parameters
         scoring = config.get("scoring", {})
@@ -191,12 +243,18 @@ class CueDetector:
         self.edge_penalty = scoring.get("edge_penalty", 0.2)
         self.min_confidence_for_shot = scoring.get("min_confidence_for_shot", 0.9)
 
-        # Shot detection parameters
+        # Shot detection parameters (RESOLUTION-AWARE for distance-based params)
         shot = config.get("shot_detection", {})
-        self.max_velocity = shot.get("max_velocity", 50.0)
-        self.english_deviation_angle = shot.get("english_deviation_angle", 30)
-        self.follow_draw_threshold = shot.get("follow_draw_threshold", 5)
-        self.center_offset_threshold = shot.get("center_offset_threshold", 5)
+        self.max_velocity = shot.get("max_velocity", 100.0 * self.scale)  # pixels/frame
+        self.english_deviation_angle = shot.get(
+            "english_deviation_angle", 30
+        )  # degrees, not pixels
+        self.follow_draw_threshold = shot.get(
+            "follow_draw_threshold", int(10 * self.scale)
+        )  # pixels
+        self.center_offset_threshold = shot.get(
+            "center_offset_threshold", int(10 * self.scale)
+        )  # pixels
 
         # Advanced parameters
         advanced = config.get("advanced", {})

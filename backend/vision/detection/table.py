@@ -3,10 +3,12 @@
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import cv2
 import numpy as np
+from core.constants_4k import POCKET_RADIUS_4K
+from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 
@@ -57,9 +59,24 @@ class TableDetectionResult:
 class TableDetector:
     """Pool table detection and boundary identification."""
 
-    def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize table detector with configuration."""
+    def __init__(
+        self, config: dict[str, Any], camera_resolution: tuple[int, int] = (1920, 1080)
+    ) -> None:
+        """Initialize table detector with configuration.
+
+        Args:
+            config: Configuration dictionary
+            camera_resolution: Camera resolution (width, height) for scaling pixel-based parameters.
+                             Defaults to 1080p. All pixel values are scaled from 4K canonical.
+        """
         self.config = config
+        self.camera_resolution = camera_resolution
+
+        # Calculate scale factor from 4K to camera resolution
+        scale_x, scale_y = ResolutionConverter.calculate_scale_from_4k(
+            camera_resolution
+        )
+        self.scale = scale_x  # Use X scale for consistency
 
         # Load color ranges configuration
         color_ranges_config = config.get("color_ranges", {})
@@ -104,14 +121,25 @@ class TableDetector:
         self.corner_max_iterations = corner_config.get("max_iterations", 30)
         self.corner_epsilon = corner_config.get("epsilon", 0.001)
 
-        # Pocket detection parameters
+        # Pocket detection parameters (RESOLUTION-AWARE)
         pocket_config = config.get("pocket_detection", {})
         self.pocket_color_threshold = pocket_config.get("color_threshold", 30)
-        self.min_pocket_area = pocket_config.get("min_area", 100)
-        self.max_pocket_area = pocket_config.get("max_area", 2000)
+
+        # Scale pocket dimensions from 4K
+        # POCKET_RADIUS_4K = 72 pixels in 4K
+        pocket_radius_scaled = POCKET_RADIUS_4K * self.scale
+        default_min_pocket_area = int(
+            math.pi * (pocket_radius_scaled * 0.3) ** 2
+        )  # 30% of pocket area
+        default_max_pocket_area = int(
+            math.pi * (pocket_radius_scaled * 1.5) ** 2
+        )  # 150% of pocket area
+
+        self.min_pocket_area = pocket_config.get("min_area", default_min_pocket_area)
+        self.max_pocket_area = pocket_config.get("max_area", default_max_pocket_area)
         self.min_pocket_confidence = pocket_config.get("min_confidence", 0.5)
         self.max_expected_pocket_distance = pocket_config.get(
-            "max_expected_distance", 100
+            "max_expected_distance", int(200 * self.scale)
         )
 
         # Morphology parameters
@@ -334,7 +362,11 @@ class TableDetector:
     def detect_complete_table(
         self, frame: NDArray[np.uint8]
     ) -> Optional[TableDetectionResult]:
-        """Complete table detection pipeline combining all detection methods."""
+        """Complete table detection pipeline combining all detection methods.
+
+        Returns table detection with all coordinates converted to 4K canonical (3840×2160).
+        This ensures consistent coordinate space regardless of camera resolution.
+        """
         # Detect table boundaries
         corners = self.detect_table_boundaries(frame)
 
@@ -364,12 +396,56 @@ class TableDetector:
         # Generate perspective correction transform
         transform = self._generate_perspective_transform(corners, width, height)
 
+        # Convert all coordinates to 4K canonical
+        source_resolution = (
+            frame.shape[1],
+            frame.shape[0],
+        )  # (width, height) from (height, width)
+
+        # Convert corners to 4K
+        corner_list = corners.to_list()
+        corners_4k = []
+        for corner in corner_list:
+            x_4k, y_4k = ResolutionConverter.scale_to_4k(
+                corner[0], corner[1], source_resolution
+            )
+            corners_4k.append((x_4k, y_4k))
+
+        corners_4k_obj = TableCorners(
+            top_left=corners_4k[0],
+            top_right=corners_4k[1],
+            bottom_left=corners_4k[2],
+            bottom_right=corners_4k[3],
+        )
+
+        # Convert pockets to 4K
+        pockets_4k = []
+        for pocket in pockets:
+            pos_x_4k, pos_y_4k = ResolutionConverter.scale_to_4k(
+                pocket.position[0], pocket.position[1], source_resolution
+            )
+            size_4k = ResolutionConverter.scale_distance_to_4k(
+                pocket.size, source_resolution
+            )
+            pockets_4k.append(
+                Pocket(
+                    position=(pos_x_4k, pos_y_4k),
+                    size=size_4k,
+                    pocket_type=pocket.pocket_type,
+                    confidence=pocket.confidence,
+                )
+            )
+
+        # Convert dimensions to 4K
+        width_4k = ResolutionConverter.scale_distance_to_4k(width, source_resolution)
+        height_4k = ResolutionConverter.scale_distance_to_4k(height, source_resolution)
+
         return TableDetectionResult(
-            corners=corners,
-            pockets=pockets,
+            corners=corners_4k_obj,
+            pockets=pockets_4k,
             surface_color=surface_color,
-            width=width,
-            height=height,
+            width=width_4k,
+            height=height_4k,
             confidence=confidence,
             perspective_transform=transform,
         )

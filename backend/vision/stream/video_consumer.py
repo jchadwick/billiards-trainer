@@ -9,7 +9,7 @@ from typing import Optional
 
 import numpy as np
 
-from ...video.ipc.shared_memory import SharedMemoryFrameReader
+from backend.video.ipc.shared_memory import SharedMemoryFrameReader
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class VideoConsumer:
         self.is_running = False
 
         # Load configuration
-        from ...config import config
+        from config import config
 
         self._shm_name = config.get("video.shared_memory_name", "billiards_video")
         self._attach_timeout = config.get("video.shared_memory_attach_timeout_sec", 5.0)

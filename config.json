@@ -569,7 +569,8 @@
           "integration_ball_accuracy": 0.9,
           "integration_table_accuracy": 0.95
         }
-      }
+      },
+      "pixels_per_meter": 1511.8110236220473
     },
     "preprocessing": {
       "target_color_space": "hsv",
@@ -598,6 +599,8 @@
   "video": {
     "shared_memory_name": "billiards_video",
     "shared_memory_attach_timeout_sec": 5.0,
+    "enable_distortion_correction": true,
+    "calibration_file_path": "backend/calibration_data/camera/camera_params.yaml",
     "process": {
       "shutdown_timeout": 10.0,
       "main_loop_sleep": 0.001
@@ -770,22 +773,22 @@
       },
       "safe_zones": {
         "defensive": {
-          "cluster_distance_threshold": 0.15,
+          "cluster_distance_threshold": 480,
           "min_nearby_balls": 2,
-          "zone_radius": 0.1,
+          "zone_radius": 320,
           "safety_score": 0.7,
           "access_difficulty": 0.6
         },
         "scratch_safe": {
-          "safe_distance_from_pocket": 0.2,
-          "zone_radius": 0.08,
+          "safe_distance_from_pocket": 640,
+          "zone_radius": 256,
           "safety_score": 0.8,
           "access_difficulty": 0.4
         },
         "position_play": {
           "table_position_x_factor": 0.4,
           "table_position_y_factor": 0.5,
-          "zone_radius": 0.15,
+          "zone_radius": 480,
           "safety_score": 0.6,
           "access_difficulty": 0.5,
           "min_legal_targets": 2
@@ -881,7 +884,7 @@
       "force_calculation": {
         "base_force": 8.0,
         "distance_scale_factor": 5.0,
-        "distance_scale_divisor": 1000.0,
+        "distance_scale_divisor": 2000.0,
         "type_multipliers": {
           "direct": 1.0,
           "bank": 1.2,
@@ -915,9 +918,9 @@
       },
       "problem_thresholds": {
         "angle_difficulty_threshold": 0.7,
-        "long_distance_threshold": 1500,
-        "scratch_risk_distance": 200,
-        "cushion_shot_margin": 50
+        "long_distance_threshold": 3000,
+        "scratch_risk_distance": 400,
+        "cushion_shot_margin": 100
       }
     }
   },

@@ -17,14 +17,26 @@ from typing import Any, Callable, Optional
 from .analysis.assistance import AssistanceEngine
 from .analysis.prediction import OutcomePredictor
 from .analysis.shot import ShotAnalysis, ShotAnalyzer
-from .events.manager import EventManager
+
+# 4K coordinate system imports
+from .constants_4k import (
+    BALL_RADIUS_4K,
+    CANONICAL_RESOLUTION,
+    POCKET_RADIUS_4K,
+    TABLE_CENTER_4K,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
 
 # Core component imports
+from .coordinates import Vector2D
+from .events.manager import EventManager
 from .game_state import BallState, GameState, GameStateManager, GameType
-from .models import Collision, ShotType, Vector2D
+from .models import Collision, ShotType
 from .physics.collision import CollisionDetector, CollisionResolver
 from .physics.engine import PhysicsEngine
 from .physics.trajectory import TrajectoryCalculator
+from .resolution_converter import ResolutionConverter
 from .utils.cache import CalculationCache
 from .utils.geometry import GeometryUtils
 from .utils.math import MathUtils
@@ -969,4 +981,12 @@ __all__ = [
     "PhysicsValidator",
     "StateValidator",
     "ValidationResult",
+    # 4K coordinate system
+    "CANONICAL_RESOLUTION",
+    "TABLE_WIDTH_4K",
+    "TABLE_HEIGHT_4K",
+    "TABLE_CENTER_4K",
+    "BALL_RADIUS_4K",
+    "POCKET_RADIUS_4K",
+    "ResolutionConverter",
 ]

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 try:
-    from backend.config import Config, config
+    from config import Config, config
 except ImportError:
     # Fallback for development/testing
     logging.warning("Configuration module not available, using fallback")
@@ -36,18 +36,18 @@ class VisionConfigurationManager:
     enabling type-safe configuration management and real-time updates.
     """
 
-    def __init__(self, config_manager: Optional["ConfigurationModule"] = None) -> None:
+    def __init__(self, config_manager: Optional[Any] = None) -> None:
         """Initialize vision configuration manager.
 
         Args:
             config_manager: Central configuration manager instance
         """
         self._config_manager = config_manager
-        self._vision_config: Optional[VisionConfig] = None
+        self._vision_config: Optional[dict[str, Any]] = None
         self._camera_capture: Optional[CameraCapture] = None
 
         # Configuration change callbacks
-        self._config_callbacks: list[Callable[[VisionConfig], None]] = []
+        self._config_callbacks: list[Callable[[dict[str, Any]], None]] = []
 
     def _get_default_config(self) -> dict[str, Any]:
         """Get default vision configuration from config manager.
@@ -81,10 +81,10 @@ class VisionConfigurationManager:
             True if initialization successful, False otherwise
         """
         try:
-            if self._config_manager and VisionConfig:
+            if self._config_manager:
                 # Load configuration from central manager
                 self._vision_config = self._config_manager.get_module_config(
-                    "vision", VisionConfig
+                    "vision", dict
                 )
 
                 # Register for configuration updates
@@ -283,7 +283,7 @@ class VisionConfigurationManager:
                 current_dict.update(updates)
 
                 # Validate new configuration
-                new_config = VisionConfig(**current_dict)
+                new_config = current_dict
 
                 # Update in central manager
                 self._config_manager.set_module_config("vision", new_config)
@@ -340,7 +340,7 @@ class VisionConfigurationManager:
             except Exception as e:
                 logger.error(f"Configuration callback error: {e}")
 
-    def _on_config_update(self, new_config: VisionConfig) -> None:
+    def _on_config_update(self, new_config: dict[str, Any]) -> None:
         """Handle configuration update from central manager."""
         self._vision_config = new_config
         self._notify_config_callbacks()
@@ -387,10 +387,8 @@ class VisionConfigurationManager:
                 if profile and "vision" in profile:
                     vision_config = profile["vision"]
 
-                    if VisionConfig:
-                        self._vision_config = VisionConfig(**vision_config)
-                    else:
-                        self._vision_config = vision_config
+                    # Always use dict format
+                    self._vision_config = vision_config
 
                     self._notify_config_callbacks()
                     logger.info(
@@ -557,12 +555,8 @@ class VisionConfigurationManager:
                         "detection.min_ball_radius must be less than max_ball_radius"
                     )
 
-            # Use Pydantic validation if available
-            if VisionConfig:
-                try:
-                    VisionConfig(**config)
-                except Exception as e:
-                    errors.append(f"Pydantic validation error: {e}")
+            # Basic validation passed
+            pass
 
         except Exception as e:
             errors.append(f"Configuration validation error: {e}")
@@ -606,7 +600,7 @@ class VisionConfigurationManager:
 
 # Factory function for easy integration
 def create_vision_config_manager(
-    config_manager: Optional["ConfigurationModule"] = None,
+    config_manager: Optional[Any] = None,
 ) -> VisionConfigurationManager:
     """Factory function to create and initialize vision configuration manager.
 

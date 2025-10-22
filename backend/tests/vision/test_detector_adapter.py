@@ -9,7 +9,8 @@ Implements comprehensive testing for FR-VIS-020 through FR-VIS-024, FR-VIS-030, 
 
 import numpy as np
 import pytest
-from vision.detection.detector_adapter import (
+
+from backend.vision.detection.detector_adapter import (
     bbox_center_to_center_radius,
     bbox_to_center_radius,
     estimate_ball_radius_from_bbox,
@@ -24,7 +25,7 @@ from vision.detection.detector_adapter import (
     yolo_to_ball,
     yolo_to_cue,
 )
-from vision.models import Ball, BallType, CueState, CueStick
+from backend.vision.models import Ball, BallType, CueState, CueStick
 
 # =============================================================================
 # Test Fixtures

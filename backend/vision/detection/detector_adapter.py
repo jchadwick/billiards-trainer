@@ -6,12 +6,22 @@ into the Vision module's Ball and CueStick dataclasses. It handles:
 - Class ID mapping to BallType enum and ball numbers
 - Confidence score extraction and filtering
 - CueStick parameter extraction from bounding box orientation
+- Coordinate space metadata tracking
+- Resolution scaling to 4K canonical (3840×2160)
 
 YOLO Format:
 - Bounding boxes: [x, y, w, h] where (x,y) is top-left corner
 - Can be normalized [0-1] or pixel coordinates
 - Class IDs: Map to ball types (e.g., "cue", "solid_1", "stripe_9", "eight")
 - Confidence scores: [0-1] detection confidence
+
+Coordinate Space:
+- All YOLO detections are converted from camera pixel coordinates to 4K canonical (3840×2160)
+- Output Ball and CueStick objects include:
+  * coordinate_space="4k_canonical" - indicates 4K canonical coordinate space
+  * source_resolution=(width, height) - original camera frame resolution
+  * position and radius scaled to 4K canonical using ResolutionConverter
+- This standardization enables consistent downstream processing regardless of camera resolution
 
 Implements FR-VIS-020 through FR-VIS-024, FR-VIS-030, FR-VIS-031
 """
@@ -21,6 +31,7 @@ import math
 from typing import Any, Optional, Union
 
 import numpy as np
+from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 from ..models import Ball, BallType, CueState, CueStick
@@ -276,7 +287,10 @@ def yolo_to_ball(
     min_confidence: float = 0.25,
     bbox_format: str = "xyxy",
 ) -> Optional[Ball]:
-    """Convert YOLO detection to Ball dataclass.
+    """Convert YOLO detection to Ball dataclass with 4K canonical coordinates.
+
+    Detections are converted from camera pixel coordinates to 4K canonical (3840×2160)
+    for standardized downstream processing.
 
     Args:
         detection: YOLO detection dictionary with keys:
@@ -294,7 +308,11 @@ def yolo_to_ball(
             - "normalized": Any format but with [0-1] coordinates
 
     Returns:
-        Ball object or None if detection is invalid or below confidence threshold
+        Ball object with 4K canonical coordinates, or None if detection is invalid.
+        All Ball objects include:
+        - coordinate_space="4k_canonical"
+        - source_resolution=(width, height) from image_shape
+        - position and radius scaled to 4K canonical (3840×2160)
     """
     try:
         # Extract confidence score
@@ -320,13 +338,27 @@ def yolo_to_ball(
             x1, y1, x2, y2 = bbox
             bbox = np.array([x1, y1, x2 - x1, y2 - y1])
 
-        # Extract center and radius based on format
+        # Extract center and radius based on format (in camera pixels)
         if "cxcywh" in bbox_format or "center" in bbox_format:
-            position, radius = bbox_center_to_center_radius(
+            position_px, radius_px = bbox_center_to_center_radius(
                 bbox, image_shape, normalized
             )
         else:
-            position, radius = bbox_to_center_radius(bbox, image_shape, normalized)
+            position_px, radius_px = bbox_to_center_radius(
+                bbox, image_shape, normalized
+            )
+
+        # Convert to 4K canonical coordinates
+        source_resolution = (
+            image_shape[1],
+            image_shape[0],
+        )  # (width, height) from (height, width)
+        x_4k, y_4k = ResolutionConverter.scale_to_4k(
+            position_px[0], position_px[1], source_resolution
+        )
+        radius_4k = ResolutionConverter.scale_distance_to_4k(
+            radius_px, source_resolution
+        )
 
         # Extract class information
         class_id = detection.get("class_id", detection.get("class"))
@@ -343,16 +375,18 @@ def yolo_to_ball(
             logger.warning("Detection missing both 'class_id' and 'class_name'")
             return None
 
-        # Create Ball object
+        # Create Ball object with 4K canonical coordinates
         ball = Ball(
-            position=position,
-            radius=radius,
+            position=(x_4k, y_4k),
+            radius=radius_4k,
             ball_type=ball_type,
             number=ball_number,
             confidence=float(confidence),
             velocity=(0.0, 0.0),  # Will be calculated by tracking module
             acceleration=(0.0, 0.0),
             is_moving=False,  # Will be determined by tracking module
+            coordinate_space="4k_canonical",  # Converted to 4K canonical coordinates
+            source_resolution=source_resolution,
         )
 
         return ball
@@ -455,7 +489,10 @@ def yolo_to_cue(
     min_confidence: float = 0.3,
     bbox_format: str = "xyxy",
 ) -> Optional[CueStick]:
-    """Convert YOLO cue detection to CueStick dataclass.
+    """Convert YOLO cue detection to CueStick dataclass with 4K canonical coordinates.
+
+    Detections are converted from camera pixel coordinates to 4K canonical (3840×2160)
+    for standardized downstream processing.
 
     Args:
         detection: YOLO detection dictionary with keys:
@@ -468,7 +505,11 @@ def yolo_to_cue(
         bbox_format: Format of bbox coordinates
 
     Returns:
-        CueStick object or None if detection is invalid
+        CueStick object with 4K canonical coordinates, or None if detection is invalid.
+        All CueStick objects include:
+        - coordinate_space="4k_canonical"
+        - source_resolution=(width, height) from image_shape
+        - tip_position and length scaled to 4K canonical (3840×2160)
     """
     try:
         # Extract confidence score
@@ -494,12 +535,12 @@ def yolo_to_cue(
             x1, y1, x2, y2 = bbox
             bbox = np.array([x1, y1, x2 - x1, y2 - y1])
 
-        # Extract tip position
+        # Extract tip position (in camera pixels)
         # Check if keypoints are available (more accurate)
         keypoints = detection.get("keypoints")
         if keypoints and len(keypoints) >= 1:
             # Assume first keypoint is tip
-            tip_position = (float(keypoints[0][0]), float(keypoints[0][1]))
+            tip_position_px = (float(keypoints[0][0]), float(keypoints[0][1]))
         else:
             # Estimate from bbox center
             if "cxcywh" in bbox_format or "center" in bbox_format:
@@ -508,7 +549,16 @@ def yolo_to_cue(
                 )
             else:
                 position, _ = bbox_to_center_radius(bbox, image_shape, normalized)
-            tip_position = position
+            tip_position_px = position
+
+        # Convert tip position to 4K canonical coordinates
+        source_resolution = (
+            image_shape[1],
+            image_shape[0],
+        )  # (width, height) from (height, width)
+        tip_x_4k, tip_y_4k = ResolutionConverter.scale_to_4k(
+            tip_position_px[0], tip_position_px[1], source_resolution
+        )
 
         # Extract or estimate angle
         angle = detection.get("angle")
@@ -518,7 +568,7 @@ def yolo_to_cue(
         else:
             angle = float(angle)
 
-        # Calculate length from bbox
+        # Calculate length from bbox (in camera pixels)
         x, y, w, h = bbox
         img_h, img_w = image_shape[:2]
         if normalized:
@@ -526,18 +576,25 @@ def yolo_to_cue(
             h *= img_h
 
         # Length is the longer dimension
-        length = max(w, h)
+        length_px = max(w, h)
 
-        # Create CueStick object
+        # Convert length to 4K canonical
+        length_4k = ResolutionConverter.scale_distance_to_4k(
+            length_px, source_resolution
+        )
+
+        # Create CueStick object with 4K canonical coordinates
         cue = CueStick(
-            tip_position=tip_position,
+            tip_position=(tip_x_4k, tip_y_4k),
             angle=angle,
-            length=length,
+            length=length_4k,
             confidence=float(confidence),
             state=CueState.AIMING,  # Default state, will be determined by motion analysis
             is_aiming=True,
             tip_velocity=(0.0, 0.0),  # Will be calculated by tracking
             angular_velocity=0.0,
+            coordinate_space="4k_canonical",  # Converted to 4K canonical coordinates
+            source_resolution=source_resolution,
         )
 
         return cue
@@ -554,9 +611,11 @@ def yolo_cue_to_cue_stick(
     image_shape: tuple[int, int],
     min_confidence: float = 0.3,
 ) -> Optional[CueStick]:
-    """Convert YOLO Detection object (from YOLODetector) to CueStick dataclass.
+    """Convert YOLO Detection object (from YOLODetector) to CueStick dataclass with 4K canonical coordinates.
 
     This function handles Detection objects directly from the YOLODetector class.
+    Detections are converted from camera pixel coordinates to 4K canonical (3840×2160)
+    for standardized downstream processing.
 
     Args:
         detection: Detection object from YOLODetector with attributes:
@@ -570,39 +629,59 @@ def yolo_cue_to_cue_stick(
         min_confidence: Minimum confidence threshold
 
     Returns:
-        CueStick object or None if detection is invalid
+        CueStick object with 4K canonical coordinates, or None if detection is invalid.
+        All CueStick objects include:
+        - coordinate_space="4k_canonical"
+        - source_resolution=(width, height) from image_shape
+        - tip_position and length scaled to 4K canonical (3840×2160)
     """
     try:
         # Check confidence
         if detection.confidence < min_confidence:
             return None
 
-        # Extract tip position
+        # Extract tip position (in camera pixels)
         # Use line_center if available (more accurate from Hough line detection)
         if hasattr(detection, "line_center") and detection.line_center:
-            tip_position = detection.line_center
+            tip_position_px = detection.line_center
         else:
-            tip_position = detection.center
+            tip_position_px = detection.center
+
+        # Convert tip position to 4K canonical coordinates
+        source_resolution = (
+            image_shape[1],
+            image_shape[0],
+        )  # (width, height) from (height, width)
+        tip_x_4k, tip_y_4k = ResolutionConverter.scale_to_4k(
+            tip_position_px[0], tip_position_px[1], source_resolution
+        )
 
         # Extract angle (already calculated by YOLODetector._estimate_cue_angle)
         angle = detection.angle if hasattr(detection, "angle") else 0.0
 
-        # Calculate length from bbox
+        # Calculate length from bbox (in camera pixels)
         x1, y1, x2, y2 = detection.bbox
         width = x2 - x1
         height = y2 - y1
-        length = max(width, height)
+        length_px = max(width, height)
 
-        # Create CueStick object
+        # Convert length to 4K canonical
+        length_4k = ResolutionConverter.scale_distance_to_4k(
+            length_px, source_resolution
+        )
+
+        # Create CueStick object with 4K canonical coordinates
         cue = CueStick(
-            tip_position=tip_position,
+            tip_position=(tip_x_4k, tip_y_4k),
             angle=angle,
-            length=length,
+            length=length_4k,
             confidence=float(detection.confidence),
             state=CueState.AIMING,  # Default state, will be determined by motion analysis
             is_aiming=True,
             tip_velocity=(0.0, 0.0),  # Will be calculated by tracking
             angular_velocity=0.0,
+            coordinate_space="4k_canonical",  # Converted to 4K canonical coordinates
+            source_resolution=source_resolution,
         )
 
         return cue

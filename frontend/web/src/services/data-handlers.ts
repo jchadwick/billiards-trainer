@@ -14,6 +14,7 @@ import {
   type FrameData,
   type GameStateData,
   type MetricsData,
+  type PositionWithScale,
   type StatusData,
   type TableData,
   type TrajectoryData,
@@ -63,9 +64,17 @@ export interface ProcessedGameState {
   changesSinceLastFrame: string[];
 }
 
+// Position type for new dict format with scale metadata
+// Scale is a [width, height] tuple indicating the coordinate space (e.g., [1920, 1080] or [3840, 2160])
+export interface Position2D {
+  x: number;
+  y: number;
+  scale?: [number, number]; // Coordinate space metadata as [width, height]
+}
+
 export interface ProcessedBallData extends BallData {
-  interpolatedPosition?: [number, number];
-  predictedPosition?: [number, number];
+  interpolatedPosition?: Position2D;
+  predictedPosition?: Position2D;
   movementDirection?: number; // angle in degrees
   speed?: number;
   isMoving: boolean;
@@ -73,7 +82,7 @@ export interface ProcessedBallData extends BallData {
 }
 
 export interface ProcessedCueData extends CueData {
-  predictedTrajectory?: [number, number][];
+  predictedTrajectory?: Position2D[];
   aimingAccuracy?: number;
   recommendedAdjustment?: {
     angle: number;
@@ -83,7 +92,7 @@ export interface ProcessedCueData extends CueData {
 
 export interface ProcessedTableData extends TableData {
   scaleFactor?: number;
-  centerPoint?: [number, number];
+  centerPoint?: Position2D;
   bounds?: {
     minX: number;
     maxX: number;
@@ -95,12 +104,12 @@ export interface ProcessedTableData extends TableData {
 export interface ProcessedTrajectory {
   originalData: TrajectoryData;
   smoothedLines: Array<{
-    start: [number, number];
-    end: [number, number];
+    start: Position2D;
+    end: Position2D;
     confidence: number;
   }>;
   collisionPredictions: Array<{
-    position: [number, number];
+    position: Position2D;
     ballId: string;
     probability: number;
     timeToCollision: number;
@@ -125,6 +134,31 @@ export interface ProcessedAlert {
   details: Record<string, any>;
   isActionable: boolean;
   autoCloseDelay?: number;
+}
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Convert position from array or object format to Position2D object
+ * Handles both legacy [x, y] format and new {x, y, scale?} format
+ * PositionWithScale from API is compatible with Position2D
+ */
+function toPosition2D(pos: [number, number] | PositionWithScale | Position2D): Position2D {
+  if (Array.isArray(pos)) {
+    // Legacy array format [x, y] - no scale information
+    return { x: pos[0], y: pos[1] };
+  }
+  // New object format {x, y, scale?} - PositionWithScale or Position2D
+  return pos as Position2D;
+}
+
+/**
+ * Extract x, y coordinates from Position2D (ignoring scale metadata for now)
+ */
+function getXY(pos: Position2D): {x: number, y: number} {
+  return { x: pos.x, y: pos.y };
 }
 
 export class DataProcessingService {
@@ -395,8 +429,10 @@ export class DataProcessingService {
     const processedBalls = stateData.balls.map((ball) => {
       const prevBall = previousState?.balls.find((b) => b.id === ball.id);
 
-      let interpolatedPosition = ball.position;
-      let predictedPosition: [number, number] | undefined;
+      // Convert positions to Position2D format
+      const currentPos = toPosition2D(ball.position);
+      let interpolatedPosition: Position2D | undefined;
+      let predictedPosition: Position2D | undefined;
       let isMoving = false;
       let hasPositionChanged = false;
       let movementDirection: number | undefined;
@@ -404,8 +440,9 @@ export class DataProcessingService {
 
       if (prevBall && this.options.stateProcessing.enablePrediction) {
         // Check if position changed
-        const deltaX = ball.position[0] - prevBall.position[0];
-        const deltaY = ball.position[1] - prevBall.position[1];
+        const prevPos = toPosition2D(prevBall.position);
+        const deltaX = currentPos.x - prevPos.x;
+        const deltaY = currentPos.y - prevPos.y;
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
         hasPositionChanged = distance > 1; // 1 pixel threshold
@@ -420,17 +457,20 @@ export class DataProcessingService {
 
           // Apply smoothing
           const smoothing = this.options.stateProcessing.smoothingFactor;
-          interpolatedPosition = [
-            prevBall.position[0] + deltaX * smoothing,
-            prevBall.position[1] + deltaY * smoothing,
-          ] as [number, number];
+          interpolatedPosition = {
+            x: prevPos.x + deltaX * smoothing,
+            y: prevPos.y + deltaY * smoothing,
+            scale: currentPos.scale, // Preserve scale metadata
+          };
 
           // Predict future position
           if (ball.velocity) {
-            predictedPosition = [
-              ball.position[0] + ball.velocity[0] * 2, // 2 frames ahead
-              ball.position[1] + ball.velocity[1] * 2,
-            ] as [number, number];
+            const velocity = toPosition2D(ball.velocity);
+            predictedPosition = {
+              x: currentPos.x + velocity.x * 2, // 2 frames ahead
+              y: currentPos.y + velocity.y * 2,
+              scale: currentPos.scale, // Preserve scale metadata
+            };
           }
         }
       }
@@ -499,17 +539,18 @@ export class DataProcessingService {
   private calculateCueTrajectory(
     cue: CueData,
     table?: TableData
-  ): [number, number][] {
+  ): Position2D[] {
     // Simplified trajectory calculation
-    const points: [number, number][] = [];
+    const points: Position2D[] = [];
     const angleRad = (cue.angle * Math.PI) / 180;
     const distance = cue.length || 100;
+    const cuePos = toPosition2D(cue.position);
 
     for (let i = 0; i <= 10; i++) {
       const factor = (i / 10) * distance;
-      const x = cue.position[0] + Math.cos(angleRad) * factor;
-      const y = cue.position[1] + Math.sin(angleRad) * factor;
-      points.push([x, y]);
+      const x = cuePos.x + Math.cos(angleRad) * factor;
+      const y = cuePos.y + Math.sin(angleRad) * factor;
+      points.push({ x, y, scale: cuePos.scale });
     }
 
     return points;
@@ -521,26 +562,28 @@ export class DataProcessingService {
   ): number {
     // Simplified aiming accuracy calculation
     // This would need more sophisticated physics calculations
-    const cueBall = balls.find((b) => b.id === "cue" || b.is_cue_ball);
+    const cueBall = balls.find((b) => b.id === "cue" || b.id === "0");
     if (!cueBall) return 0;
 
     // Calculate if cue is aimed at any ball
     const angleRad = (cue.angle * Math.PI) / 180;
-    const aimDirection = [Math.cos(angleRad), Math.sin(angleRad)];
+    const aimDirection = { x: Math.cos(angleRad), y: Math.sin(angleRad) };
+    const cuePos = toPosition2D(cue.position);
 
     let bestAccuracy = 0;
     balls.forEach((ball) => {
       if (ball.id === cueBall.id) return;
 
-      const toBall = [
-        ball.position[0] - cue.position[0],
-        ball.position[1] - cue.position[1],
-      ];
-      const distance = Math.sqrt(toBall[0] * toBall[0] + toBall[1] * toBall[1]);
-      const normalized = [toBall[0] / distance, toBall[1] / distance];
+      const ballPos = toPosition2D(ball.position);
+      const toBall = {
+        x: ballPos.x - cuePos.x,
+        y: ballPos.y - cuePos.y,
+      };
+      const distance = Math.sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
+      const normalized = { x: toBall.x / distance, y: toBall.y / distance };
 
       const dotProduct =
-        aimDirection[0] * normalized[0] + aimDirection[1] * normalized[1];
+        aimDirection.x * normalized.x + aimDirection.y * normalized.y;
       const accuracy = Math.max(0, dotProduct);
 
       if (accuracy > bestAccuracy) {
@@ -551,14 +594,15 @@ export class DataProcessingService {
     return bestAccuracy;
   }
 
-  private calculateTableCenter(table: TableData): [number, number] {
-    const avgX =
-      table.corners.reduce((sum, corner) => sum + corner[0], 0) /
-      table.corners.length;
-    const avgY =
-      table.corners.reduce((sum, corner) => sum + corner[1], 0) /
-      table.corners.length;
-    return [avgX, avgY];
+  private calculateTableCenter(table: TableData): Position2D {
+    // Convert corners to Position2D and calculate center
+    const corners = table.corners.map(toPosition2D);
+    const avgX = corners.reduce((sum, corner) => sum + corner.x, 0) / corners.length;
+    const avgY = corners.reduce((sum, corner) => sum + corner.y, 0) / corners.length;
+
+    // Use scale from first corner if available
+    const scale = corners[0]?.scale;
+    return { x: avgX, y: avgY, scale };
   }
 
   private calculateTableBounds(table: TableData): {
@@ -567,8 +611,10 @@ export class DataProcessingService {
     minY: number;
     maxY: number;
   } {
-    const xs = table.corners.map((corner) => corner[0]);
-    const ys = table.corners.map((corner) => corner[1]);
+    // Convert corners to Position2D and calculate bounds
+    const corners = table.corners.map(toPosition2D);
+    const xs = corners.map((corner) => corner.x);
+    const ys = corners.map((corner) => corner.y);
 
     return {
       minX: Math.min(...xs),
@@ -605,9 +651,10 @@ export class DataProcessingService {
     trajectoryData: TrajectoryData
   ): ProcessedTrajectory {
     // Apply smoothing if enabled
+    // Convert trajectory lines to Position2D format
     let smoothedLines = trajectoryData.lines.map((line) => ({
-      start: line.start,
-      end: line.end,
+      start: toPosition2D(line.start),
+      end: toPosition2D(line.end),
       confidence: line.confidence,
     }));
 
@@ -615,10 +662,10 @@ export class DataProcessingService {
       smoothedLines = this.smoothTrajectoryLines(smoothedLines);
     }
 
-    // Process collision predictions
+    // Process collision predictions with Position2D format
     const collisionPredictions = trajectoryData.collisions.map((collision) => ({
-      position: collision.position,
-      ballId: collision.ball_id,
+      position: toPosition2D(collision.position),
+      ballId: collision.ball_id || '',
       probability: Math.min(1, collision.angle / 90), // Simplified probability
       timeToCollision: collision.time_to_collision || 0,
     }));
@@ -637,8 +684,8 @@ export class DataProcessingService {
 
   private smoothTrajectoryLines(
     lines: Array<{
-      start: [number, number];
-      end: [number, number];
+      start: Position2D;
+      end: Position2D;
       confidence: number;
     }>
   ): typeof lines {
@@ -651,15 +698,17 @@ export class DataProcessingService {
       const prev = lines[index - 1];
       const next = lines[index + 1];
 
-      const smoothedStart: [number, number] = [
-        (prev.end[0] + line.start[0] + next.start[0]) / 3,
-        (prev.end[1] + line.start[1] + next.start[1]) / 3,
-      ];
+      const smoothedStart: Position2D = {
+        x: (prev.end.x + line.start.x + next.start.x) / 3,
+        y: (prev.end.y + line.start.y + next.start.y) / 3,
+        scale: line.start.scale, // Preserve scale metadata
+      };
 
-      const smoothedEnd: [number, number] = [
-        (line.end[0] + next.start[0] + next.end[0]) / 3,
-        (line.end[1] + next.start[1] + next.end[1]) / 3,
-      ];
+      const smoothedEnd: Position2D = {
+        x: (line.end.x + next.start.x + next.end.x) / 3,
+        y: (line.end.y + next.start.y + next.end.y) / 3,
+        scale: line.end.scale, // Preserve scale metadata
+      };
 
       return {
         ...line,

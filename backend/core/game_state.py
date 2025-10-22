@@ -14,15 +14,16 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from .coordinates import Vector2D
 from .events.manager import EventManager
 from .models import (
     BallState,
+    CoordinateMetadata,
     CueState,
     GameEvent,
     GameState,
     GameType,
     TableState,
-    Vector2D,
 )
 from .rules import GameRules
 from .validation import StateValidator, ValidationResult
@@ -80,6 +81,15 @@ class GameStateManager:
         self._last_ball_positions: dict[str, Vector2D] = {}
         self._motion_threshold = 0.005  # meters/frame threshold for motion detection
 
+        # Change detection configuration
+        self._position_change_threshold = (
+            5.0  # pixels - minimum position change to consider significant
+        )
+        self._angle_change_threshold = (
+            2.0  # degrees - minimum angle change to consider significant
+        )
+        self._last_cue_state: Optional[CueState] = None
+
         self._game_rules: Optional[GameRules] = None
 
         logger.info("GameStateManager initialized")
@@ -116,6 +126,11 @@ class GameStateManager:
             # Detect events based on state changes
             events = self._detect_events(balls)
 
+            # Create coordinate metadata from detection data and table
+            coordinate_metadata = self._create_coordinate_metadata(
+                detection_data, table
+            )
+
             # Create new game state
             new_state = GameState(
                 timestamp=timestamp,
@@ -137,11 +152,15 @@ class GameStateManager:
                     self._current_state.last_shot if self._current_state else None
                 ),
                 events=events,
+                coordinate_metadata=coordinate_metadata,
             )
 
             # Validate state
             if self._validation_enabled:
                 self._validate_state(new_state)
+
+            # Check if state has changed significantly
+            has_changed = self._has_significant_change(new_state, self._current_state)
 
             # Update state and history
             self._state_history.append(self._current_state)
@@ -150,19 +169,123 @@ class GameStateManager:
             # Update ball position tracking for event detection
             self._last_ball_positions = {ball.id: ball.position for ball in balls}
 
-            # Emit state change event
-            self._event_manager.emit_event(
-                "state_updated",
-                {
-                    "frame_number": self._frame_counter,
-                    "timestamp": timestamp,
-                    "balls_count": len(balls),
-                    "events": [asdict(event) for event in events],
-                },
-            )
+            # Update cue tracking for change detection
+            self._last_cue_state = cue
 
-            logger.debug(f"State updated for frame {self._frame_counter}")
+            # Emit state change event ONLY if state changed significantly
+            if has_changed:
+                self._event_manager.emit_event(
+                    "state_updated",
+                    {
+                        "frame_number": self._frame_counter,
+                        "timestamp": timestamp,
+                        "balls_count": len(balls),
+                        "events": [asdict(event) for event in events],
+                    },
+                )
+                logger.debug(f"State changed for frame {self._frame_counter}")
+            else:
+                logger.debug(
+                    f"No significant state change for frame {self._frame_counter}"
+                )
+
             return new_state
+
+    def _has_significant_change(
+        self, new_state: GameState, old_state: Optional[GameState]
+    ) -> bool:
+        """Detect if state has changed significantly enough to warrant an event.
+
+        Args:
+            new_state: New game state to compare
+            old_state: Previous game state (None on first frame)
+
+        Returns:
+            True if state changed significantly, False otherwise
+        """
+        # Always emit on first frame
+        if old_state is None:
+            return True
+
+        # Check ball count change
+        if len(new_state.balls) != len(old_state.balls):
+            logger.debug(
+                f"Ball count changed: {len(old_state.balls)} → {len(new_state.balls)}"
+            )
+            return True
+
+        # Check if any ball position changed significantly
+        # Create position maps keyed by ball ID for comparison
+        old_positions = {ball.id: ball.position for ball in old_state.balls}
+        new_positions = {ball.id: ball.position for ball in new_state.balls}
+
+        for ball_id in new_positions:
+            if ball_id not in old_positions:
+                # New ball appeared
+                logger.debug(f"New ball appeared: {ball_id}")
+                return True
+
+            old_pos = old_positions[ball_id]
+            new_pos = new_positions[ball_id]
+
+            # Calculate distance moved (in pixels)
+            dx = new_pos.x - old_pos.x
+            dy = new_pos.y - old_pos.y
+            distance = (dx * dx + dy * dy) ** 0.5
+
+            if distance >= self._position_change_threshold:
+                logger.debug(
+                    f"Ball {ball_id} moved {distance:.2f} pixels (threshold: {self._position_change_threshold})"
+                )
+                return True
+
+        # Check for balls that disappeared
+        for ball_id in old_positions:
+            if ball_id not in new_positions:
+                logger.debug(f"Ball disappeared: {ball_id}")
+                return True
+
+        # Check cue appearance/disappearance
+        old_has_cue = old_state.cue is not None
+        new_has_cue = new_state.cue is not None
+
+        if old_has_cue != new_has_cue:
+            logger.debug(f"Cue {'appeared' if new_has_cue else 'disappeared'}")
+            return True
+
+        # Check cue position/angle change
+        if new_has_cue and old_has_cue:
+            old_cue = old_state.cue
+            new_cue = new_state.cue
+
+            # Check position change (tip or base)
+            if hasattr(old_cue, "tip") and hasattr(new_cue, "tip"):
+                if old_cue.tip and new_cue.tip:
+                    dx = new_cue.tip.x - old_cue.tip.x
+                    dy = new_cue.tip.y - old_cue.tip.y
+                    tip_distance = (dx * dx + dy * dy) ** 0.5
+                    if tip_distance >= self._position_change_threshold:
+                        logger.debug(f"Cue tip moved {tip_distance:.2f} pixels")
+                        return True
+
+            # Check angle change
+            if hasattr(old_cue, "angle") and hasattr(new_cue, "angle"):
+                if old_cue.angle is not None and new_cue.angle is not None:
+                    angle_diff = abs(new_cue.angle - old_cue.angle)
+                    # Normalize to 0-180 range
+                    if angle_diff > 180:
+                        angle_diff = 360 - angle_diff
+                    if angle_diff >= self._angle_change_threshold:
+                        logger.debug(f"Cue angle changed {angle_diff:.2f} degrees")
+                        return True
+
+        # Check for game events (pocket, collision, etc.)
+        if len(new_state.events) > 0:
+            logger.debug(f"Game events detected: {len(new_state.events)}")
+            return True
+
+        # No significant changes detected
+        return False
 
     def _extract_ball_states(self, detection_data: dict[str, Any]) -> list[BallState]:
         """Extract ball states from detection data."""
@@ -191,14 +314,14 @@ class GameStateManager:
 
             ball = BallState(
                 id=detection.get("id", f"ball_{len(balls)}"),
-                position=Vector2D(pos_x, pos_y),
-                velocity=Vector2D(vel_x, vel_y),
-                radius=detection.get(
-                    "radius", 0.028575
-                ),  # Standard ball radius in meters
+                position=Vector2D.from_4k(pos_x, pos_y),
+                velocity=Vector2D.from_4k(vel_x, vel_y),
+                radius=36.0,  # Standard ball radius in 4K pixels (BALL_RADIUS_4K)
                 mass=0.17,  # Standard ball mass in kg
                 spin=(
-                    Vector2D(detection.get("spin_x", 0.0), detection.get("spin_y", 0.0))
+                    Vector2D.from_4k(
+                        detection.get("spin_x", 0.0), detection.get("spin_y", 0.0)
+                    )
                     if "spin_x" in detection
                     else None
                 ),
@@ -233,15 +356,15 @@ class GameStateManager:
         if "impact_point" in cue_data:
             impact_data = cue_data["impact_point"]
             if isinstance(impact_data, dict):
-                impact_point = Vector2D(
+                impact_point = Vector2D.from_4k(
                     impact_data.get("x", 0.0), impact_data.get("y", 0.0)
                 )
         elif "impact_x" in cue_data and "impact_y" in cue_data:
             # Fallback to flat format
-            impact_point = Vector2D(cue_data["impact_x"], cue_data["impact_y"])
+            impact_point = Vector2D.from_4k(cue_data["impact_x"], cue_data["impact_y"])
 
         return CueState(
-            tip_position=Vector2D(tip_x, tip_y),
+            tip_position=Vector2D.from_4k(tip_x, tip_y),
             angle=cue_data.get("angle", 0.0),
             elevation=cue_data.get("elevation", 0.0),
             estimated_force=cue_data.get("force", 0.0),
@@ -249,6 +372,50 @@ class GameStateManager:
             is_visible=cue_data.get("is_visible", True),
             confidence=cue_data.get("confidence", 1.0),
             last_update=cue_data.get("timestamp", time.time()),
+        )
+
+    def _create_coordinate_metadata(
+        self, detection_data: dict[str, Any], table: TableState
+    ) -> Optional[CoordinateMetadata]:
+        """Create coordinate metadata from detection data and table state.
+
+        Args:
+            detection_data: Vision detection results
+            table: Table state with playing area information
+
+        Returns:
+            CoordinateMetadata instance with camera resolution and table bounds
+        """
+        from config import config
+
+        # Get camera resolution from config (fallback to default)
+        camera_res_list = config.get("vision.camera.resolution", [1920, 1080])
+        camera_resolution = (
+            tuple(camera_res_list)
+            if camera_res_list and len(camera_res_list) >= 2
+            else None
+        )
+
+        # Calculate table bounds from playing area corners if available
+        table_bounds = None
+        if table.playing_area_corners and len(table.playing_area_corners) >= 4:
+            x_coords = [corner.x for corner in table.playing_area_corners]
+            y_coords = [corner.y for corner in table.playing_area_corners]
+            table_bounds = (
+                min(x_coords),
+                min(y_coords),
+                max(x_coords),
+                max(y_coords),
+            )
+
+        # Get pixels_per_meter from detection_data if available (from calibration)
+        pixels_per_meter = detection_data.get("pixels_per_meter")
+
+        return CoordinateMetadata(
+            camera_resolution=camera_resolution,
+            table_bounds=table_bounds,
+            coordinate_space="world_meters",  # Ball positions are in world meters
+            pixels_per_meter=pixels_per_meter,
         )
 
     def _extract_table_state(self, detection_data: dict[str, Any]) -> TableState:
@@ -269,7 +436,7 @@ class GameStateManager:
                 pos_data = pocket.get("position", {})
                 if isinstance(pos_data, dict):
                     pocket_positions.append(
-                        Vector2D(pos_data.get("x", 0.0), pos_data.get("y", 0.0))
+                        Vector2D.from_4k(pos_data.get("x", 0.0), pos_data.get("y", 0.0))
                     )
 
         # Get table dimensions
@@ -283,7 +450,7 @@ class GameStateManager:
             height_scale = table_height / self._default_table.height
 
             pocket_positions = [
-                Vector2D(pocket.x * width_scale, pocket.y * height_scale)
+                Vector2D.from_4k(pocket.x * width_scale, pocket.y * height_scale)
                 for pocket in self._default_table.pocket_positions
             ]
 
@@ -293,7 +460,9 @@ class GameStateManager:
             corners = []
             for corner in table_data["corners"]:
                 if isinstance(corner, dict):
-                    corners.append(Vector2D(corner.get("x", 0.0), corner.get("y", 0.0)))
+                    corners.append(
+                        Vector2D.from_4k(corner.get("x", 0.0), corner.get("y", 0.0))
+                    )
             if corners:
                 playing_area_corners = corners
 

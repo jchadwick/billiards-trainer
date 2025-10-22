@@ -2,15 +2,29 @@
 
 Provides comprehensive validation of game states to ensure consistency,
 physical plausibility, and logical correctness.
+
+All spatial measurements are in 4K pixels (3840×2160).
+Velocities are in pixels/second.
 """
 
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    POCKET_RADIUS_4K,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
 from ..models import BallState, CueState, GameState, TableState
 
 logger = logging.getLogger(__name__)
+
+# Physics constants for validation
+# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
+PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
 
 
 @dataclass
@@ -61,19 +75,23 @@ class StateValidator:
 
     def __init__(
         self,
-        max_velocity: float = 10.0,  # m/s
-        max_acceleration: float = 50.0,  # m/s²
-        overlap_tolerance: float = 0.001,  # meters
-        position_tolerance: float = 0.0001,  # meters
+        max_velocity: float = 10.0
+        * PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
+        max_acceleration: float = 50.0
+        * PIXELS_PER_METER,  # pixels/s² (default: 50 m/s² → ~63,000 px/s²)
+        overlap_tolerance: float = 1.0,  # pixels (default: ~1 pixel tolerance)
+        position_tolerance: float = 0.1,  # pixels (default: 0.1 pixel precision)
         enable_auto_correction: bool = True,
     ):
         """Initialize state validator with configuration.
 
+        All parameters are in 4K pixel coordinates.
+
         Args:
-            max_velocity: Maximum allowed ball velocity in m/s
-            max_acceleration: Maximum allowed ball acceleration in m/s²
-            overlap_tolerance: Tolerance for ball overlaps in meters
-            position_tolerance: Tolerance for position precision in meters
+            max_velocity: Maximum allowed ball velocity in pixels/s
+            max_acceleration: Maximum allowed ball acceleration in pixels/s²
+            overlap_tolerance: Tolerance for ball overlaps in pixels
+            position_tolerance: Tolerance for position precision in pixels
             enable_auto_correction: Whether to automatically correct minor errors
         """
         self.max_velocity = max_velocity
@@ -83,8 +101,8 @@ class StateValidator:
         self.enable_auto_correction = enable_auto_correction
 
         logger.info(
-            f"StateValidator initialized with max_velocity={max_velocity}, "
-            f"overlap_tolerance={overlap_tolerance}"
+            f"StateValidator initialized with max_velocity={max_velocity:.1f} px/s, "
+            f"overlap_tolerance={overlap_tolerance} px"
         )
 
     def validate_game_state(self, game_state: GameState) -> ValidationResult:
@@ -174,6 +192,8 @@ class StateValidator:
     def validate_table_state(self, table: TableState) -> ValidationResult:
         """Validate table state consistency.
 
+        Table dimensions should match 4K standard dimensions.
+
         Args:
             table: Table state to validate
 
@@ -182,25 +202,35 @@ class StateValidator:
         """
         result = ValidationResult()
 
-        # Validate table dimensions
+        # Validate table dimensions (should match 4K constants)
         if table.width <= 0:
             result.add_error(f"Invalid table width: {table.width}")
         if table.height <= 0:
             result.add_error(f"Invalid table height: {table.height}")
 
-        # Check for reasonable table size (validation only, no warnings)
+        # Check dimensions match 4K standard (with tolerance)
+        dimension_tolerance = 10.0  # pixels
+        if abs(table.width - TABLE_WIDTH_4K) > dimension_tolerance:
+            result.add_warning(
+                f"Table width {table.width} differs from 4K standard {TABLE_WIDTH_4K}"
+            )
+        if abs(table.height - TABLE_HEIGHT_4K) > dimension_tolerance:
+            result.add_warning(
+                f"Table height {table.height} differs from 4K standard {TABLE_HEIGHT_4K}"
+            )
 
         # Validate pocket configuration
         if len(table.pocket_positions) != 6:
             result.add_error(f"Expected 6 pockets, found {len(table.pocket_positions)}")
 
-        # Validate physical properties
+        # Validate physical properties (unitless)
         if not 0.0 <= table.cushion_elasticity <= 1.0:
             result.add_error(f"Invalid cushion elasticity: {table.cushion_elasticity}")
 
         if table.surface_friction < 0:
             result.add_error(f"Invalid surface friction: {table.surface_friction}")
 
+        # Validate pocket radius (in pixels)
         if table.pocket_radius <= 0:
             result.add_error(f"Invalid pocket radius: {table.pocket_radius}")
 
@@ -292,12 +322,22 @@ class StateValidator:
         return result
 
     def _validate_individual_ball(self, ball: BallState) -> ValidationResult:
-        """Validate a single ball's properties."""
+        """Validate a single ball's properties.
+
+        Ball radius should be in pixels, velocity in pixels/s.
+        """
         result = ValidationResult()
 
         # Validate basic properties
         if ball.radius <= 0:
             result.add_error(f"Ball {ball.id} has invalid radius: {ball.radius}")
+
+        # Check ball radius matches 4K standard (with tolerance)
+        radius_tolerance = 2.0  # pixels
+        if abs(ball.radius - BALL_RADIUS_4K) > radius_tolerance:
+            result.add_warning(
+                f"Ball {ball.id} radius {ball.radius} differs from 4K standard {BALL_RADIUS_4K}"
+            )
 
         if ball.mass <= 0:
             result.add_error(f"Ball {ball.id} has invalid mass: {ball.mass}")
@@ -312,8 +352,6 @@ class StateValidator:
             result.add_error(f"Ball {ball.id} has None velocity")
             if self.enable_auto_correction:
                 # Auto-correct to zero velocity
-                from ..models import Vector2D
-
                 result.add_correction(f"ball_{ball.id}_velocity", Vector2D.zero())
         else:
             velocity_magnitude = ball.velocity.magnitude()
@@ -326,7 +364,7 @@ class StateValidator:
                     )
                 else:
                     result.add_error(
-                        f"Ball {ball.id} velocity {velocity_magnitude:.2f} exceeds maximum {self.max_velocity}"
+                        f"Ball {ball.id} velocity {velocity_magnitude:.1f} px/s exceeds maximum {self.max_velocity:.1f} px/s"
                     )
 
         # Validate spin (validation only, no warnings)
@@ -345,8 +383,8 @@ class StateValidator:
                     )
 
                     if (
-                        self.enable_auto_correction and overlap_distance < 0.01
-                    ):  # Small overlap
+                        self.enable_auto_correction and overlap_distance < 10.0
+                    ):  # Small overlap (< 10 pixels)
                         # Suggest correction by separating balls
                         separation_vector = (
                             ball2.position - ball1.position
@@ -366,7 +404,7 @@ class StateValidator:
                         result.add_correction(f"ball_{ball2.id}_position", new_pos2)
                     else:
                         result.add_error(
-                            f"Balls {ball1.id} and {ball2.id} overlap by {overlap_distance*1000:.1f}mm"
+                            f"Balls {ball1.id} and {ball2.id} overlap by {overlap_distance:.1f} pixels"
                         )
 
         return result

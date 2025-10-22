@@ -1,4 +1,8 @@
-"""Comprehensive trajectory calculation algorithms for billiards simulation."""
+"""Comprehensive trajectory calculation algorithms for billiards simulation.
+
+All calculations are performed in 4K pixels (3840×2160) as the canonical coordinate system.
+Vector2D instances must include scale metadata for proper resolution handling.
+"""
 
 import math
 import time
@@ -6,7 +10,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from ..models import BallState, CueState, TableState, Vector2D
+from ..constants_4k import BALL_RADIUS_4K, PIXELS_PER_METER_REFERENCE
+from ..coordinates import Vector2D
+from ..models import BallState, CueState, TableState
 from ..utils.cache import CacheManager
 from ..utils.geometry import GeometryUtils
 from ..utils.math import MathUtils
@@ -32,14 +38,17 @@ class TrajectoryQuality(Enum):
 
 @dataclass
 class TrajectoryPoint:
-    """A single point along a ball's trajectory."""
+    """A single point along a ball's trajectory.
+
+    All Vector2D values should have scale=[1.0, 1.0] (4K canonical coordinates).
+    """
 
     time: float  # Time from start (seconds)
-    position: Vector2D  # Ball position
-    velocity: Vector2D  # Ball velocity
-    acceleration: Vector2D  # Ball acceleration (friction, etc.)
-    spin: Vector2D  # Spin state
-    energy: float  # Kinetic energy
+    position: Vector2D  # Ball position in 4K pixels
+    velocity: Vector2D  # Ball velocity in pixels/second
+    acceleration: Vector2D  # Ball acceleration in pixels/second²
+    spin: Vector2D  # Spin state (angular velocity)
+    energy: float  # Kinetic energy in joules
 
 
 @dataclass

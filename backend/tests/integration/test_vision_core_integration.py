@@ -6,11 +6,13 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 import pytest
+from core.coordinates import Vector2D
 from core.game_state import GameStateManager
-from core.models import BallState, GameState, Table, Vector2D
-from vision.detection.balls import BallDetector
-from vision.models import CameraFrame
-from vision.tracking.tracker import ObjectTracker
+from core.models import BallState, GameState, Table
+
+from backend.vision.detection.balls import BallDetector
+from backend.vision.models import CameraFrame
+from backend.vision.tracking.tracker import ObjectTracker
 
 
 @pytest.mark.integration()
@@ -78,8 +80,8 @@ class TestVisionCoreIntegration:
         game_manager._current_state = game_state
 
         # Simulate tracking updates
-        from vision.models import Ball as VisionBall
-        from vision.models import BallType
+        from backend.vision.models import Ball as VisionBall
+        from backend.vision.models import BallType
 
         timestamp = time.time()
         for i in range(5):

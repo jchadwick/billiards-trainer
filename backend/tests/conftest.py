@@ -17,10 +17,11 @@ import pytest
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
 
-from core.models import BallState, GameState, ShotAnalysis, TableState, Vector2D
-from vision.models import Ball, BallType, DetectionResult
+from config import config
+from core.coordinates import Vector2D
+from core.models import BallState, GameState, ShotAnalysis, TableState
 
-from backend.config import config
+from backend.vision.models import Ball, BallType, DetectionResult
 
 # from api.main import create_app  # Skip API for now due to circular imports
 

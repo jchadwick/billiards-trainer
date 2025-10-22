@@ -16,18 +16,18 @@ from enum import Enum
 from typing import Any, Callable, Optional
 
 import numpy as np
-
-from backend.config import Config, config
-from backend.core import CoreModule
-from backend.core.models import BallState, CueState, TableState, Vector2D
-from backend.core.physics.trajectory import (
+from config import Config, config
+from core import CoreModule
+from core.models import BallState, CueState, TableState, Vector2D
+from core.physics.trajectory import (
     MultiballTrajectoryResult,
     TrajectoryCalculator,
     TrajectoryQuality,
 )
-from backend.core.validation.physics import PhysicsValidator
-from backend.core.validation.table_state import TableStateValidator
-from backend.integration_service_conversion_helpers import StateConversionHelpers
+from core.validation.physics import PhysicsValidator
+from core.validation.table_state import TableStateValidator
+from integration_service_conversion_helpers import StateConversionHelpers
+
 from backend.vision import VisionModule
 from backend.vision.models import Ball, CueStick, DetectionResult
 
@@ -424,103 +424,41 @@ class IntegrationService:
         # Check if we should calculate trajectory
         await self._check_trajectory_calculation(detection)
 
-    def vision_cue_to_cue_state(
-        self, detected_cue: CueStick, timestamp: Optional[float] = None
-    ) -> Optional[CueState]:
-        """Convert vision CueStick detection to core CueState with validation.
-
-        This is the recommended public method for converting CueStick detections.
-
-        Args:
-            detected_cue: Vision module CueStick detection result
-            timestamp: Optional timestamp for last_update (defaults to current time)
-
-        Returns:
-            Core CueState object with all required fields, or None if validation fails
-        """
-        return self.state_converter.vision_cue_to_cue_state(detected_cue, timestamp)
-
-    def vision_ball_to_ball_state(
-        self,
-        ball: Ball,
-        is_target: bool = False,
-        timestamp: Optional[float] = None,
-    ) -> Optional[BallState]:
-        """Convert vision Ball detection to core BallState with validation.
-
-        This is the recommended public method for converting Ball detections.
-
-        Args:
-            ball: Vision module Ball detection result
-            is_target: Whether this is the target ball for trajectory calculation
-            timestamp: Optional timestamp for last_update (defaults to current time)
-
-        Returns:
-            Core BallState object with all required fields, or None if validation fails
-        """
-        return self.state_converter.vision_ball_to_ball_state(
-            ball, is_target, timestamp
-        )
+    # Deprecated wrapper methods - kept for test compatibility only
+    # Tests should be updated to use the public API methods instead:
+    # - Use state_converter.vision_cue_to_cue_state() directly
+    # - Use state_converter.vision_ball_to_ball_state() directly
 
     def _create_cue_state(self, detected_cue: CueStick) -> CueState:
-        """Create a core CueState from a vision CueStick detection.
+        """DEPRECATED: Use state_converter.vision_cue_to_cue_state() instead.
 
-        DEPRECATED: Use vision_cue_to_cue_state() instead for better validation.
-
-        This method converts Vision module's CueStick detection (pixel coordinates, degrees)
-        into Core module's CueState (physics-ready with force estimation).
-
-        Args:
-            detected_cue: Vision module CueStick detection result
-
-        Returns:
-            Core CueState object with all required fields for physics calculations
+        Kept for backward compatibility with existing tests only.
         """
-        return self.vision_cue_to_cue_state(detected_cue)
+        return self.state_converter.vision_cue_to_cue_state(detected_cue)
 
     def _create_ball_state(self, ball: Ball, is_target: bool = False) -> BallState:
-        """Create a core BallState from a vision Ball detection.
+        """DEPRECATED: Use state_converter.vision_ball_to_ball_state() instead.
 
-        DEPRECATED: Use vision_ball_to_ball_state() instead for better validation.
-
-        This method converts Vision module's Ball detection (pixel coordinates, OpenCV types)
-        into Core module's BallState (physics-ready with SI units and persistent IDs).
-
-        Args:
-            ball: Vision module Ball detection result
-            is_target: Whether this is the target ball for trajectory calculation
-
-        Returns:
-            Core BallState object with all required fields for physics calculations
+        Kept for backward compatibility with existing tests only.
         """
-        return self.vision_ball_to_ball_state(ball, is_target)
+        return self.state_converter.vision_ball_to_ball_state(ball, is_target)
 
     def _create_ball_states(
         self, balls: list[Ball], exclude_ball: Optional[Ball] = None
     ) -> list[BallState]:
-        """Create a list of core BallState objects from vision Ball detections.
+        """DEPRECATED: Use list comprehension with state_converter.vision_ball_to_ball_state() instead.
 
-        DEPRECATED: This is kept for backwards compatibility but uses the new
-        validation-enabled conversion internally.
-
-        Args:
-            balls: List of vision module Ball detection results
-            exclude_ball: Optional ball to exclude from the list (e.g., the target ball)
-
-        Returns:
-            List of core BallState objects (non-None results only)
+        Kept for backward compatibility with existing tests only.
         """
         ball_states = []
         for ball in balls:
-            # Skip the excluded ball if specified
             if exclude_ball is not None and ball == exclude_ball:
                 continue
-
-            ball_state = self.vision_ball_to_ball_state(ball, is_target=False)
-            # Only include successfully converted balls
+            ball_state = self.state_converter.vision_ball_to_ball_state(
+                ball, is_target=False
+            )
             if ball_state is not None:
                 ball_states.append(ball_state)
-
         return ball_states
 
     def _convert_detection_to_core_format(
@@ -557,6 +495,7 @@ class IntegrationService:
                         % 10000
                     ),
                     "position": {"x": ball.position[0], "y": ball.position[1]},
+                    "radius": ball.radius,
                     "velocity": {"x": ball.velocity[0], "y": ball.velocity[1]},
                     "is_moving": ball.is_moving,
                     "number": ball.number,
@@ -1102,19 +1041,9 @@ class IntegrationService:
             )
             return
 
-        # Convert position dicts to lists for broadcaster compatibility
-        # The broadcaster expects positions as [x, y] but asdict() converts Vector2D to {'x': ..., 'y': ...}
-        balls_converted = []
-        for ball in balls:
-            ball_copy = ball.copy()
-            position = ball_copy.get("position")
-            if isinstance(position, dict) and "x" in position and "y" in position:
-                ball_copy["position"] = [position["x"], position["y"]]
-            # Also convert velocity if present
-            velocity = ball_copy.get("velocity")
-            if isinstance(velocity, dict) and "x" in velocity and "y" in velocity:
-                ball_copy["velocity"] = [velocity["x"], velocity["y"]]
-            balls_converted.append(ball_copy)
+        # Balls are already in the correct format (dict with x, y, scale)
+        # The broadcaster validates that positions are dicts with x, y, and scale keys
+        balls_converted = balls
 
         # Create summary for logging
         data_summary = f"{len(balls)} balls, cue={'present' if cue else 'absent'}, table={'present' if table else 'absent'}"

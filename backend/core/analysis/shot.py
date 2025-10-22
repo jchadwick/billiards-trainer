@@ -1,4 +1,8 @@
-"""Shot analysis algorithms."""
+"""Shot analysis algorithms.
+
+All spatial calculations use the 4K coordinate system (3840×2160).
+Distance thresholds and recommendations are scaled appropriately for 4K.
+"""
 
 import math
 from dataclasses import dataclass, field
@@ -6,9 +10,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 
-from backend.config import Config, config
+from config import Config, config
 
-from ..models import BallState, GameState, ShotType, TableState, Vector2D
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    CANONICAL_HEIGHT,
+    CANONICAL_WIDTH,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
+from ..models import BallState, GameState, ShotType, TableState
 from ..physics.trajectory import TrajectoryCalculator
 from ..utils.geometry import GeometryUtils
 
@@ -401,15 +413,18 @@ class ShotAnalyzer:
                     target_ball.position.y
                     - (aim_dy / aim_distance) * target_ball.radius
                 )
-                return Vector2D(aim_x, aim_y)
+                # Inherit scale from target ball position (4K coordinates)
+                return Vector2D(aim_x, aim_y, target_ball.position.scale)
 
-        # Fallback: center of target ball
-        return Vector2D(target_ball.position.x, target_ball.position.y)
+        # Fallback: center of target ball (inherit scale)
+        return Vector2D(
+            target_ball.position.x, target_ball.position.y, target_ball.position.scale
+        )
 
     def _calculate_recommended_force(
         self, cue_ball: BallState, target_ball: BallState, shot_type: ShotType
     ) -> float:
-        """Calculate recommended force for shot."""
+        """Calculate recommended force for shot (4K pixels)."""
         # Base force on distance
         distance = self.geometry_utils.distance_between_points(
             (cue_ball.position.x, cue_ball.position.y),
@@ -421,8 +436,9 @@ class ShotAnalyzer:
         scale_factor = self.config.get(
             "core.shot_analysis.force_calculation.distance_scale_factor", 5.0
         )
+        # Default divisor scaled for 4K: 1000.0 * 2.0 = 2000.0
         scale_divisor = self.config.get(
-            "core.shot_analysis.force_calculation.distance_scale_divisor", 1000.0
+            "core.shot_analysis.force_calculation.distance_scale_divisor", 2000.0
         )
 
         base_force = base + (distance / scale_divisor) * scale_factor
@@ -560,13 +576,14 @@ class ShotAnalyzer:
         if angle_difficulty > angle_threshold:
             problems.append("Very thin cut required")
 
-        # Check for long distance using config threshold
+        # Check for long distance using config threshold (4K pixels)
         distance = self.geometry_utils.distance_between_points(
             (cue_ball.position.x, cue_ball.position.y),
             (target_ball.position.x, target_ball.position.y),
         )
+        # Default threshold scaled for 4K: 1500 * 2.0 = 3000 pixels
         distance_threshold = self.config.get(
-            "core.shot_analysis.problem_thresholds.long_distance_threshold", 1500
+            "core.shot_analysis.problem_thresholds.long_distance_threshold", 3000
         )
         if distance > distance_threshold:
             problems.append("Long distance shot")
@@ -705,11 +722,12 @@ class ShotAnalyzer:
     def _is_cushion_shot(
         self, game_state: GameState, start_pos: Vector2D, aim_point: Vector2D
     ) -> bool:
-        """Check if the shot is aimed at a cushion."""
+        """Check if the shot is aimed at a cushion (4K pixels)."""
         # Check if aim point is near table edges
         table = game_state.table
+        # Default margin scaled for 4K: 50 * 2.0 = 100 pixels
         margin = self.config.get(
-            "core.shot_analysis.problem_thresholds.cushion_shot_margin", 50
+            "core.shot_analysis.problem_thresholds.cushion_shot_margin", 100
         )
 
         return (
@@ -774,10 +792,11 @@ class ShotAnalyzer:
     def _calculate_obstacle_difficulty(
         self, game_state: GameState, cue_ball: BallState, target_ball: BallState
     ) -> float:
-        """Calculate difficulty based on interfering balls."""
+        """Calculate difficulty based on interfering balls (4K pixels)."""
         obstacles = 0
+        # Default margin scaled for 4K: 10 * 2.0 = 20 pixels
         radius_margin = self.config.get(
-            "core.shot_analysis.difficulty_calculations.obstacles.radius_margin", 10
+            "core.shot_analysis.difficulty_calculations.obstacles.radius_margin", 20
         )
 
         for ball in game_state.balls:
@@ -856,11 +875,12 @@ class ShotAnalyzer:
     def _has_scratch_risk(
         self, game_state: GameState, cue_ball: BallState, target_ball: BallState
     ) -> bool:
-        """Check if there's significant risk of scratching."""
+        """Check if there's significant risk of scratching (4K pixels)."""
         # Check if cue ball path after contact leads toward pockets
         # This is a simplified check
+        # Default risk distance scaled for 4K: 200 * 2.0 = 400 pixels
         risk_distance = self.config.get(
-            "core.shot_analysis.problem_thresholds.scratch_risk_distance", 200
+            "core.shot_analysis.problem_thresholds.scratch_risk_distance", 400
         )
 
         for pocket in game_state.table.pocket_positions:

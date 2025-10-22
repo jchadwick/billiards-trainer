@@ -24,7 +24,13 @@ import os
 import sys
 from pathlib import Path
 
-from backend.config import Config
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import Config
+
 from backend.video.process import VideoProcess
 
 # Configure logging

@@ -17,6 +17,8 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .common import PositionWithScale
+
 # =============================================================================
 # Base WebSocket Message Models
 # =============================================================================
@@ -157,15 +159,19 @@ class FrameMessage(TimestampedMessage):
 
 
 class BallStateData(BaseModel):
-    """Ball state information for WebSocket messages."""
+    """Ball state information for WebSocket messages.
+
+    Note: position and velocity now use dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
 
     id: str = Field(..., description="Ball identifier")
     number: Optional[int] = Field(None, description="Ball number (1-15)")
-    position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Ball position [x, y] in meters"
+    position: PositionWithScale = Field(
+        ..., description="Ball position with scale metadata (meters)"
     )
-    velocity: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Ball velocity [x, y] in m/s"
+    velocity: PositionWithScale = Field(
+        ..., description="Ball velocity with scale metadata (m/s)"
     )
     radius: float = Field(default=0.028575, gt=0.0, description="Ball radius in meters")
     is_cue_ball: bool = Field(default=False, description="Whether this is the cue ball")
@@ -176,10 +182,14 @@ class BallStateData(BaseModel):
 
 
 class CueStateData(BaseModel):
-    """Cue stick state information for WebSocket messages."""
+    """Cue stick state information for WebSocket messages.
 
-    tip_position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Cue tip position [x, y] in meters"
+    Note: tip_position now uses dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
+
+    tip_position: PositionWithScale = Field(
+        ..., description="Cue tip position with scale metadata (meters)"
     )
     angle: float = Field(..., ge=-180.0, le=180.0, description="Cue angle in degrees")
     elevation: float = Field(
@@ -195,12 +205,16 @@ class CueStateData(BaseModel):
 
 
 class TableStateData(BaseModel):
-    """Table state information for WebSocket messages."""
+    """Table state information for WebSocket messages.
+
+    Note: pocket_positions now uses dict format with mandatory scale metadata.
+    Each position has format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
 
     width: float = Field(..., gt=0.0, description="Table width in meters")
     height: float = Field(..., gt=0.0, description="Table height in meters")
-    pocket_positions: list[list[float]] = Field(
-        ..., description="Pocket positions [[x, y], ...]"
+    pocket_positions: list[PositionWithScale] = Field(
+        ..., description="Pocket positions with scale metadata"
     )
     pocket_radius: float = Field(
         default=0.0635, gt=0.0, description="Pocket radius in meters"
@@ -241,28 +255,32 @@ class StateMessage(TimestampedMessage):
 
 
 class TrajectoryPoint(BaseModel):
-    """Single point on a trajectory path."""
+    """Single point on a trajectory path.
 
-    position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Point position [x, y] in meters"
+    Note: position and velocity now use dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
+
+    position: PositionWithScale = Field(
+        ..., description="Point position with scale metadata (meters)"
     )
     time: float = Field(..., ge=0.0, description="Time offset in seconds")
-    velocity: Optional[list[float]] = Field(
+    velocity: Optional[PositionWithScale] = Field(
         default=None,
-        min_length=2,
-        max_length=2,
-        description="Velocity at this point [x, y] in m/s",
+        description="Velocity at this point with scale metadata (m/s)",
     )
 
 
 class CollisionInfo(BaseModel):
-    """Collision prediction information."""
+    """Collision prediction information.
 
-    position: list[float] = Field(
+    Note: position now uses dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
+
+    position: PositionWithScale = Field(
         ...,
-        min_length=2,
-        max_length=2,
-        description="Collision position [x, y] in meters",
+        description="Collision position with scale metadata (meters)",
     )
     time: float = Field(..., ge=0.0, description="Time until collision in seconds")
     type: str = Field(

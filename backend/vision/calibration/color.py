@@ -8,10 +8,9 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from config import config as config_manager
 from numpy.typing import NDArray
 from sklearn.cluster import KMeans
-
-from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
 

@@ -9,9 +9,8 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from config import config as config_manager
 from numpy.typing import NDArray
-
-from backend.config import config as config_manager
 
 from .camera import CameraCalibrator
 from .color import ColorCalibrator

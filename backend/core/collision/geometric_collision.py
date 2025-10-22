@@ -8,25 +8,41 @@ pool detection system. It uses pure geometry rather than complex physics:
 - Optimized with bounding box quick rejection
 
 Based on cassapa/code/detector/pool.cpp implementation.
+
+4K Migration (Group 5):
+All collision detection now operates in 4K pixels (3840×2160).
+- Use BALL_RADIUS_4K (36 pixels) for all ball radius calculations
+- All distances are in pixels
+- All collision points include scale metadata [1.0, 1.0] (4K canonical)
 """
 
 import math
 from dataclasses import dataclass
 from typing import Optional
 
-from ..models import BallState, TableState, Vector2D
+from ..constants_4k import BALL_RADIUS_4K
+from ..coordinates import Vector2D
+from ..models import BallState, TableState
 
 
 @dataclass
 class GeometricCollision:
-    """Result of geometric collision detection."""
+    """Result of geometric collision detection.
 
-    distance: float  # Distance along ray to collision point
-    hit_point: Vector2D  # Collision point coordinates
+    4K Migration (Group 5):
+    - distance: in 4K pixels
+    - hit_point: Vector2D in 4K pixels with scale=[1.0, 1.0]
+    - cushion_normal: Vector2D (direction only, no scale)
+    """
+
+    distance: float  # Distance along ray to collision point (4K pixels)
+    hit_point: Vector2D  # Collision point coordinates (4K pixels, scale=[1.0, 1.0])
     collision_type: str  # "ball", "cushion", "pocket", "none"
     ball_id: Optional[str] = None  # ID of ball that was hit (for ball collisions)
     cushion_side: Optional[str] = None  # "top", "bottom", "left", "right"
-    cushion_normal: Optional[Vector2D] = None  # Normal vector for cushion
+    cushion_normal: Optional[Vector2D] = (
+        None  # Normal vector for cushion (direction only)
+    )
     pocket_id: Optional[int] = None  # Pocket ID (for pocket collisions)
 
 
@@ -38,16 +54,26 @@ class GeometricCollisionDetector:
     - Pure geometric calculations
     - No complex physics engine overhead
     - Optimized with early rejection tests
+
+    4K Migration (Group 5):
+    All collision detection operates in 4K pixels (3840×2160):
+    - Default ball radius is BALL_RADIUS_4K (36 pixels)
+    - All distances are in pixels
+    - All collision points have scale=[1.0, 1.0] (4K canonical)
     """
 
     def __init__(self, config: Optional[dict] = None):
         """Initialize geometric collision detector.
+
+        4K Migration: All coordinates and radii should be in 4K pixels.
+        Use BALL_RADIUS_4K (36 pixels) for ball_radius parameters.
 
         Args:
             config: Optional configuration dict
         """
         self.config = config or {}
         self.epsilon = 1e-6  # Small value to avoid division by zero
+        self.ball_radius_4k = BALL_RADIUS_4K  # Standard ball radius in 4K pixels (36)
 
     def check_line_circle_intersection(
         self,
@@ -70,14 +96,20 @@ class GeometricCollisionDetector:
            B = 2(mh - mq - p)
            C = q² - r² + p² - 2hq + h²
 
+        4K Migration (Group 5):
+        All coordinates are in 4K pixels (3840×2160).
+        Use BALL_RADIUS_4K (36 pixels) for circle_radius when checking ball collisions.
+
         Args:
-            line_start: Start point of line segment
-            line_end: End point of line segment
-            circle_center: Center of circle
-            circle_radius: Radius of circle
+            line_start: Start point of line segment (4K pixels)
+            line_end: End point of line segment (4K pixels)
+            circle_center: Center of circle (4K pixels)
+            circle_radius: Radius of circle (4K pixels, use BALL_RADIUS_4K for balls)
 
         Returns:
             GeometricCollision if intersection found, None otherwise
+            - hit_point will have scale=[1.0, 1.0] (4K canonical)
+            - distance will be in 4K pixels
         """
         # Quick rejection: bounding box test (cassapa pool.cpp:737-747)
         if not self._bounding_box_check(
@@ -277,16 +309,22 @@ class GeometricCollisionDetector:
     ) -> Optional[GeometricCollision]:
         """Find closest ball collision along a ray (cassapa pool.cpp FindBallHitByThisBall:687-736).
 
+        4K Migration (Group 5):
+        All coordinates and distances are in 4K pixels.
+        Use BALL_RADIUS_4K (36 pixels) for ball_radius parameter.
+
         Args:
-            ray_start: Starting point of ray
+            ray_start: Starting point of ray (4K pixels)
             ray_direction: Direction vector (should be normalized)
-            balls: List of all balls
+            balls: List of all balls (positions in 4K pixels)
             moving_ball_id: ID of moving ball (to exclude from checks)
-            ball_radius: Radius of balls
-            max_distance: Maximum distance to check (optional)
+            ball_radius: Radius of balls (4K pixels, use BALL_RADIUS_4K = 36)
+            max_distance: Maximum distance to check in 4K pixels (optional)
 
         Returns:
             GeometricCollision for closest ball hit, or None
+            - hit_point will have scale=[1.0, 1.0] (4K canonical)
+            - distance will be in 4K pixels
         """
         closest_collision = None
         min_distance = max_distance if max_distance else float("inf")
@@ -322,13 +360,16 @@ class GeometricCollisionDetector:
 
         Formula: θ_reflected = π - 2θ_incident
 
+        4K Migration (Group 5):
+        Velocity components are in 4K pixels/second (or pixels/frame).
+
         Args:
-            velocity: Incident velocity vector
+            velocity: Incident velocity vector (4K pixels/time)
             cushion_side: "top", "bottom", "left", or "right"
             elasticity: Energy retention coefficient (default 0.95)
 
         Returns:
-            Reflected velocity vector
+            Reflected velocity vector (4K pixels/time)
         """
         speed = velocity.magnitude() * elasticity
 
@@ -356,13 +397,18 @@ class GeometricCollisionDetector:
         Uses simplified collision physics from cassapa: force transfers along
         the line connecting ball centers (cassapa pool.cpp:103-116).
 
+        4K Migration (Group 5):
+        All positions and velocities are in 4K pixels.
+        Ball positions should be in 4K pixels with scale=[1.0, 1.0].
+
         Args:
-            moving_ball: The ball that is moving
-            target_ball: The ball that is hit
-            collision_point: Point where collision occurs
+            moving_ball: The ball that is moving (position/velocity in 4K pixels)
+            target_ball: The ball that is hit (position in 4K pixels)
+            collision_point: Point where collision occurs (4K pixels)
 
         Returns:
             Tuple of (moving_ball_new_velocity, target_ball_new_velocity)
+            Both velocities in 4K pixels/time
         """
         # Direction from collision point to target ball center
         # This represents the force transfer direction
@@ -415,14 +461,21 @@ class GeometricCollisionDetector:
 
         Supports both calibrated playing area corners and rectangular bounds.
 
+        4K Migration (Group 5):
+        All coordinates and distances are in 4K pixels.
+        Use BALL_RADIUS_4K (36 pixels) for ball_radius parameter.
+
         Args:
-            position: Current ball position
+            position: Current ball position (4K pixels)
             direction: Ball direction (normalized)
-            table: Table state
-            ball_radius: Ball radius
+            table: Table state (dimensions in 4K pixels)
+            ball_radius: Ball radius (4K pixels, use BALL_RADIUS_4K = 36)
 
         Returns:
             GeometricCollision for cushion hit, or None
+            - hit_point will have scale=[1.0, 1.0] (4K canonical)
+            - distance will be in 4K pixels
+            - cushion_normal will be a unit vector (no scale)
         """
         # Use playing area corners if available (calibrated system)
         if table.playing_area_corners and len(table.playing_area_corners) == 4:
@@ -651,14 +704,20 @@ class GeometricCollisionDetector:
     ) -> Optional[GeometricCollision]:
         """Find intersection with table pockets (cassapa pool.cpp:326-346).
 
+        4K Migration (Group 5):
+        All coordinates and distances are in 4K pixels.
+        Use BALL_RADIUS_4K (36 pixels) for ball_radius parameter.
+
         Args:
-            position: Current ball position
+            position: Current ball position (4K pixels)
             direction: Ball direction (normalized)
-            table: Table state with pocket positions
-            ball_radius: Ball radius
+            table: Table state with pocket positions (4K pixels)
+            ball_radius: Ball radius (4K pixels, use BALL_RADIUS_4K = 36)
 
         Returns:
             GeometricCollision for pocket hit, or None
+            - hit_point will have scale=[1.0, 1.0] (4K canonical)
+            - distance will be in 4K pixels
         """
         if not table.pocket_positions:
             return None

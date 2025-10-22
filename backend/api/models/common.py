@@ -158,6 +158,42 @@ class Coordinate2D(BaseModel):
     y: float = Field(..., description="Y coordinate")
 
 
+class PositionWithScale(BaseModel):
+    """2D position with mandatory scale metadata.
+
+    This is the new standard format for all position/velocity data in the API.
+    The scale metadata indicates the coordinate space and allows proper conversion
+    between different resolution contexts (e.g., 1080p to 4K).
+
+    Format:
+        {
+            "x": float,          # X coordinate value
+            "y": float,          # Y coordinate value
+            "scale": [sx, sy]    # Scale factors [x_scale, y_scale]
+        }
+
+    The deprecated array format [x, y] without scale should not be used.
+    """
+
+    x: float = Field(..., description="X coordinate value")
+    y: float = Field(..., description="Y coordinate value")
+    scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors [x_scale, y_scale] indicating coordinate space",
+    )
+
+    @validator("scale")
+    def validate_scale(cls, v):
+        """Validate that scale factors are positive."""
+        if len(v) != 2:
+            raise ValueError("Scale must have exactly 2 values [x_scale, y_scale]")
+        if v[0] <= 0 or v[1] <= 0:
+            raise ValueError(f"Scale factors must be positive, got {v}")
+        return v
+
+
 class BoundingBox(BaseModel):
     """Bounding box representation."""
 

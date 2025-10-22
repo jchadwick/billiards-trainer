@@ -57,10 +57,36 @@ class CueStateEnum(str, Enum):
 
 
 class Point2DModel(BaseModel):
-    """2D point model for vision coordinates."""
+    """2D point model for vision coordinates with scale metadata.
+
+    The scale metadata indicates the coordinate space and allows proper conversion
+    between different resolution contexts (e.g., 1080p to 4K).
+
+    Format:
+        {
+            "x": float,          # X coordinate in pixels
+            "y": float,          # Y coordinate in pixels
+            "scale": [sx, sy]    # Scale factors [x_scale, y_scale]
+        }
+    """
 
     x: float = Field(..., description="X coordinate in pixels")
     y: float = Field(..., description="Y coordinate in pixels")
+    scale: list[float] = Field(
+        default=[1.0, 1.0],
+        min_length=2,
+        max_length=2,
+        description="Scale factors [x_scale, y_scale] indicating coordinate space",
+    )
+
+    @validator("scale")
+    def validate_scale(cls, v):
+        """Validate that scale factors are positive."""
+        if len(v) != 2:
+            raise ValueError("Scale must have exactly 2 values [x_scale, y_scale]")
+        if v[0] <= 0 or v[1] <= 0:
+            raise ValueError(f"Scale factors must be positive, got {v}")
+        return v
 
 
 class BoundingBoxModel(BaseModel):

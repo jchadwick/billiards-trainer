@@ -8,14 +8,22 @@ Provides module lifecycle management including:
 
 import asyncio
 import logging
+import sys
 import time
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path, Query
-from pydantic import BaseModel, Field
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
-from ..dependencies import ApplicationState, get_app_state
-from ..models.responses import BaseResponse
+from api.dependencies import ApplicationState, get_app_state
+from api.models.responses import BaseResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import Path as PathParam
+from fastapi import Query
+from pydantic import BaseModel, Field
 
 # SystemOrchestrator was removed - functionality moved to health_monitor
 SystemOrchestrator = None
@@ -189,7 +197,7 @@ async def list_modules(
 
 @router.get("/{module_id}", response_model=ModuleActionResponse)
 async def get_module_status(
-    module_id: str = Path(..., description="Module identifier")
+    module_id: str = PathParam(..., description="Module identifier")
 ) -> ModuleActionResponse:
     """Get detailed status for a specific module.
 
@@ -273,7 +281,7 @@ async def get_module_status(
 
 @router.post("/{module_id}/start", response_model=ModuleActionResponse)
 async def start_module(
-    module_id: str = Path(..., description="Module identifier"),
+    module_id: str = PathParam(..., description="Module identifier"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> ModuleActionResponse:
     """Start a system module.
@@ -344,7 +352,7 @@ async def start_module(
 
 @router.post("/{module_id}/stop", response_model=ModuleActionResponse)
 async def stop_module(
-    module_id: str = Path(..., description="Module identifier"),
+    module_id: str = PathParam(..., description="Module identifier"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> ModuleActionResponse:
     """Stop a system module.
@@ -410,7 +418,7 @@ async def stop_module(
 
 @router.post("/{module_id}/restart", response_model=ModuleActionResponse)
 async def restart_module(
-    module_id: str = Path(..., description="Module identifier"),
+    module_id: str = PathParam(..., description="Module identifier"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> ModuleActionResponse:
     """Restart a system module.
@@ -483,7 +491,7 @@ async def restart_module(
 
 @router.get("/{module_id}/logs")
 async def get_module_logs(
-    module_id: str = Path(..., description="Module identifier"),
+    module_id: str = PathParam(..., description="Module identifier"),
     lines: int = Query(
         100, ge=1, le=1000, description="Number of log lines to retrieve"
     ),

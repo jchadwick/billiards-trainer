@@ -334,16 +334,17 @@ export class VideoStore {
         const apiData = response.data;
 
         // Convert API calibration data to our CalibrationData format
+        // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
         const calibrationData: CalibrationData = {
           corners: (apiData.corners || []).map((corner: any, index: number) => ({
             id: `corner-${index}`,
             screenPosition: {
-              x: Array.isArray(corner) ? corner[0] : corner.x,
-              y: Array.isArray(corner) ? corner[1] : corner.y,
+              x: corner.x,
+              y: corner.y,
             },
             worldPosition: {
-              x: Array.isArray(corner) ? corner[0] : corner.x,
-              y: Array.isArray(corner) ? corner[1] : corner.y,
+              x: corner.x,
+              y: corner.y,
             },
             timestamp: Date.now(),
             confidence: apiData.accuracy || 1.0,
@@ -545,38 +546,40 @@ export class VideoStore {
     const gameState = message.data as GameStateData;
 
     // Convert WebSocket ball data to frontend ball format
+    // Note: API now sends positions/velocities as {x, y, scale} dicts instead of [x, y] arrays
     const balls: Ball[] = gameState.balls.map((ballData: BallData) => ({
       id: ballData.id,
-      position: { x: ballData.position[0], y: ballData.position[1] },
+      position: { x: ballData.position.x, y: ballData.position.y },
       radius: ballData.radius,
       type: this.inferBallType(ballData.id, ballData.color),
       number: this.inferBallNumber(ballData.id, ballData.color),
       velocity: ballData.velocity
-        ? { x: ballData.velocity[0], y: ballData.velocity[1] }
+        ? { x: ballData.velocity.x, y: ballData.velocity.y }
         : { x: 0, y: 0 },
       confidence: ballData.confidence,
       color: ballData.color,
     }));
 
     // Convert cue data
+    // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
     let cue: CueStick | null = null;
     if (gameState.cue && gameState.cue.detected) {
       cue = {
         tipPosition: {
-          x: gameState.cue.position[0],
-          y: gameState.cue.position[1],
+          x: gameState.cue.position.x,
+          y: gameState.cue.position.y,
         },
         tailPosition: gameState.cue.tip_position
           ? {
-              x: gameState.cue.tip_position[0],
-              y: gameState.cue.tip_position[1],
+              x: gameState.cue.tip_position.x,
+              y: gameState.cue.tip_position.y,
             }
           : {
               x:
-                gameState.cue.position[0] -
+                gameState.cue.position.x -
                 Math.cos(gameState.cue.angle) * (gameState.cue.length || 100),
               y:
-                gameState.cue.position[1] -
+                gameState.cue.position.y -
                 Math.sin(gameState.cue.angle) * (gameState.cue.length || 100),
             },
         angle: gameState.cue.angle,
@@ -588,16 +591,17 @@ export class VideoStore {
     }
 
     // Convert table data
+    // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
     let table: Table | null = null;
     if (gameState.table && gameState.table.calibrated) {
       table = {
         corners: gameState.table.corners.map((corner) => ({
-          x: corner[0],
-          y: corner[1],
+          x: corner.x,
+          y: corner.y,
         })),
         pockets: gameState.table.pockets.map((pocket) => ({
-          x: pocket[0],
-          y: pocket[1],
+          x: pocket.x,
+          y: pocket.y,
         })),
         bounds: { x: 0, y: 0, width: 0, height: 0 }, // Will be calculated
         rails: [], // Will be populated if available
@@ -643,16 +647,17 @@ export class VideoStore {
     const movingBallId = trajectoryData.ball_id || `trajectory_0`;
 
     // Convert trajectory data to frontend format
+    // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
     const trajectories: Trajectory[] = trajectoryData.lines.map(
       (line, index) => ({
         // Use the ball1_id from collisions (the moving ball) or fall back to trajectory ball_id
         ballId: trajectoryData.collisions[0]?.ball1_id || movingBallId,
         points: [
-          { x: line.start[0], y: line.start[1] },
-          { x: line.end[0], y: line.end[1] },
+          { x: line.start.x, y: line.start.y },
+          { x: line.end.x, y: line.end.y },
         ],
         collisions: trajectoryData.collisions.map((collision) => ({
-          position: { x: collision.position[0], y: collision.position[1] },
+          position: { x: collision.position.x, y: collision.position.y },
           // Use ball2_id to determine collision type (if ball2_id exists, it's a ball collision)
           type: collision.ball2_id
             ? "ball"

@@ -10,11 +10,26 @@ Provides comprehensive configuration management including:
 import hashlib
 import json
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
 import yaml
+from api.dependencies import get_config_module
+from api.models.common import create_success_response
+from api.models.responses import (
+    ConfigExportResponse,
+    ConfigResponse,
+    ConfigUpdateResponse,
+    SuccessResponse,
+)
+from config import Config, config
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -28,16 +43,6 @@ from fastapi import Request as FastAPIRequest
 from fastapi import UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-
-from ...config import Config, config
-from ..dependencies import get_config_module
-from ..models.common import create_success_response
-from ..models.responses import (
-    ConfigExportResponse,
-    ConfigResponse,
-    ConfigUpdateResponse,
-    SuccessResponse,
-)
 
 logger = logging.getLogger(__name__)
 

@@ -7,6 +7,9 @@ This module implements comprehensive spin physics for billiards balls including:
 - Spin-induced trajectory modifications
 - Magnus force effects on ball movement
 - Surface interaction effects on spin
+
+All spatial calculations use 4K pixels (3840×2160) as the canonical coordinate system.
+Ball radius and distances are in pixels; velocities in pixels/second.
 """
 
 import math
@@ -15,7 +18,9 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 
-from ..models import BallState, Collision, Vector2D
+from ..constants_4k import BALL_MASS_KG, BALL_RADIUS_4K, PIXELS_PER_METER_REFERENCE
+from ..coordinates import Vector2D
+from ..models import BallState, Collision
 
 
 @dataclass
@@ -45,7 +50,7 @@ class SpinState:
 
 
 class SpinPhysics:
-    """Advanced spin physics calculations."""
+    """Advanced spin physics calculations in 4K pixel space."""
 
     def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize spin physics with configuration.
@@ -55,23 +60,25 @@ class SpinPhysics:
         """
         self.config = config or {}
 
-        # Physical constants
-        self.ball_radius = 0.028575  # Standard pool ball radius (m)
-        self.ball_mass = 0.17  # Standard pool ball mass (kg)
+        # Physical constants - converted to 4K pixel space
+        self.ball_radius = BALL_RADIUS_4K  # Ball radius in 4K pixels
+        self.ball_mass = BALL_MASS_KG  # Mass in kg (not spatial)
         self.moment_of_inertia = (
-            0.4 * self.ball_mass * self.ball_radius**2
-        )  # Solid sphere
+            0.4 * self.ball_mass * (self.ball_radius / PIXELS_PER_METER_REFERENCE) ** 2
+        )  # Solid sphere (using radius in meters for calculation)
 
-        # Surface interaction parameters
+        # Surface interaction parameters (dimensionless)
         self.cloth_friction = self.config.get("cloth_friction", 0.3)
-        self.roll_slip_threshold = self.config.get("roll_slip_threshold", 0.1)
+        self.roll_slip_threshold = (
+            self.config.get("roll_slip_threshold", 0.1) * PIXELS_PER_METER_REFERENCE
+        )  # pixels/s
         self.magnus_coefficient = self.config.get("magnus_coefficient", 0.25)
 
-        # Spin transfer coefficients
+        # Spin transfer coefficients (dimensionless)
         self.spin_transfer_efficiency = self.config.get("spin_transfer_efficiency", 0.7)
         self.cushion_spin_retention = self.config.get("cushion_spin_retention", 0.6)
 
-        # Cue interaction parameters
+        # Cue interaction parameters (dimensionless)
         self.cue_efficiency = self.config.get("cue_efficiency", 0.8)
         self.english_effectiveness = self.config.get("english_effectiveness", 0.9)
 

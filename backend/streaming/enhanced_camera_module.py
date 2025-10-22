@@ -6,16 +6,23 @@ into a single efficient pipeline for both vision processing and web streaming.
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
+
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 import cv2
 import numpy as np
+from config import Config, config
 
-from ..config import Config, config
-from ..vision.calibration.camera import CameraCalibrator
+from backend.vision.calibration.camera import CameraCalibrator
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +71,7 @@ class EnhancedCameraConfig:
     thread_join_timeout_seconds: float
 
     @classmethod
-    def from_config(cls, cfg: Config) -> "EnhancedCameraConfig":
+    def from_config(cls, cfg: Config) -> "EnhancedCameraConfig":  # noqa: ARG003
         """Create configuration from Config.
 
         Args:

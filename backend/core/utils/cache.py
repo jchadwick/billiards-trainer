@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from backend.config import Config, config
+from config import Config, config
 
 
 def _get_config() -> Config:

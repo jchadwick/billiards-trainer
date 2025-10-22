@@ -10,16 +10,20 @@ Provides comprehensive game state management including:
 import asyncio
 import json
 import logging
+import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
-from ..dependencies import get_core_module
-from ..models.responses import (
+from api.dependencies import get_core_module
+from api.models.converters import vector2d_to_dict
+from api.models.responses import (
     BallInfo,
     CueInfo,
     GameEvent,
@@ -29,13 +33,10 @@ from ..models.responses import (
     SessionExportResponse,
     TableInfo,
 )
-
-try:
-    from ...core import CoreModule
-    from ...core.models import BallState, CueState, GameState, GameType, TableState
-except ImportError:
-    from core import CoreModule
-    from core.models import BallState, CueState, GameState, GameType, TableState
+from core import CoreModule
+from core.models import BallState, CueState, GameState, GameType, TableState
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +44,15 @@ router = APIRouter(prefix="/game", tags=["Game State Management"])
 
 
 def convert_ball_state_to_info(ball: BallState) -> BallInfo:
-    """Convert core BallState to API BallInfo."""
+    """Convert core BallState to API BallInfo.
+
+    Uses vector2d_to_dict() to preserve scale metadata in position and velocity.
+    """
     return BallInfo(
         id=ball.id,
         number=ball.number,
-        position=[ball.position.x, ball.position.y],
-        velocity=[ball.velocity.x, ball.velocity.y],
+        position=vector2d_to_dict(ball.position),  # Preserves scale metadata
+        velocity=vector2d_to_dict(ball.velocity),  # Preserves scale metadata
         is_cue_ball=ball.is_cue_ball,
         is_pocketed=ball.is_pocketed,
         confidence=ball.confidence,
@@ -57,9 +61,12 @@ def convert_ball_state_to_info(ball: BallState) -> BallInfo:
 
 
 def convert_cue_state_to_info(cue: CueState) -> CueInfo:
-    """Convert core CueState to API CueInfo."""
+    """Convert core CueState to API CueInfo.
+
+    Uses vector2d_to_dict() to preserve scale metadata in tip_position.
+    """
     return CueInfo(
-        tip_position=[cue.tip_position.x, cue.tip_position.y],
+        tip_position=vector2d_to_dict(cue.tip_position),  # Preserves scale metadata
         angle=cue.angle,
         elevation=cue.elevation,
         estimated_force=cue.estimated_force,
@@ -69,11 +76,16 @@ def convert_cue_state_to_info(cue: CueState) -> CueInfo:
 
 
 def convert_table_state_to_info(table: TableState) -> TableInfo:
-    """Convert core TableState to API TableInfo."""
+    """Convert core TableState to API TableInfo.
+
+    Uses vector2d_to_dict() to preserve scale metadata in pocket_positions.
+    """
     return TableInfo(
         width=table.width,
         height=table.height,
-        pocket_positions=[[p.x, p.y] for p in table.pocket_positions],
+        pocket_positions=[
+            vector2d_to_dict(p) for p in table.pocket_positions
+        ],  # Preserves scale metadata
         pocket_radius=table.pocket_radius,
         surface_friction=table.surface_friction,
     )

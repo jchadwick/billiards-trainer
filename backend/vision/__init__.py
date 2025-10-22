@@ -364,6 +364,7 @@ class VisionModule:
                         auto_fallback=False,  # Fail loudly if YOLO not available
                         enable_opencv_classification=True,  # Enable hybrid detection
                         min_ball_size=min_ball_size,  # Filter out markers and noise
+                        camera_resolution=self.config.camera_resolution,
                     )
                     logger.info("YOLO+OpenCV hybrid detector initialized successfully")
 
@@ -392,7 +393,9 @@ class VisionModule:
                             },
                         }
                         self.cue_detector = CueDetector(
-                            cue_config, yolo_detector=self.detector
+                            cue_config,
+                            camera_resolution=self.config.camera_resolution,
+                            yolo_detector=self.detector,
                         )
                         logger.info(
                             "CueDetector initialized with relaxed configuration"
@@ -417,7 +420,10 @@ class VisionModule:
             # Table detection (separate from ball/cue detection)
             if self.config.enable_table_detection:
                 base_detection_config = {"debug_mode": self.config.debug_mode}
-                self.table_detector = TableDetector(base_detection_config)
+                self.table_detector = TableDetector(
+                    base_detection_config,
+                    camera_resolution=self.config.camera_resolution,
+                )
             else:
                 self.table_detector = None
 

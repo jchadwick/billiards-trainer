@@ -15,10 +15,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
 import pytest
-from config.manager import ConfigurationModule
+from config import config
 from core import CoreModule
+from core.coordinates import Vector2D
 from core.game_state import GameStateManager
-from core.models import BallState, CueState, TableState, Vector2D
+from core.models import BallState, CueState, TableState
 from core.physics.trajectory import (
     CollisionType,
     MultiballTrajectoryResult,
@@ -26,14 +27,29 @@ from core.physics.trajectory import (
     TrajectoryQuality,
 )
 from integration_service import IntegrationService
-from vision.models import Ball, BallType, CueStick, CueStickState, DetectionResult
+
+from backend.vision.models import (
+    Ball,
+    BallType,
+    CueStick,
+    CueStickState,
+    DetectionResult,
+)
 
 
 # Fixtures
 @pytest.fixture()
 def config_module():
     """Create a test configuration module."""
-    config = ConfigurationModule()
+
+    # Use dict instead of undefined ConfigurationModule
+    class MockConfig:
+        _config_data = {}
+
+        def get(self, key, default=None):
+            return self._config_data.get(key, default)
+
+    config = MockConfig()
     # Set test configuration values
     config._config_data = {
         "integration": {
@@ -256,11 +272,15 @@ class TestMultiballTrajectoryBasics:
         create_mock_detection_result(cue=cue, balls=[cue_ball, target_ball])
 
         # Calculate trajectory directly using trajectory calculator
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(cue_ball, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [target_ball], exclude_ball=cue_ball
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            cue_ball, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                target_ball, is_target=False
+            )
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -300,11 +320,15 @@ class TestMultiballTrajectoryBasics:
         )
 
         # Calculate trajectory
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(cue_ball, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [target_ball], exclude_ball=cue_ball
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            cue_ball, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                target_ball, is_target=False
+            )
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -413,11 +437,16 @@ class TestMultiballTrajectoryEdgeCases:
         )
 
         # Calculate trajectory
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(ball1, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [ball2, ball3], exclude_ball=ball1
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            ball1, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                b, is_target=False
+            )
+            for b in [ball2, ball3]
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -449,11 +478,16 @@ class TestMultiballTrajectoryEdgeCases:
             balls.append(ball)
 
         # Calculate with max_collision_depth=3
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(balls[0], is_target=True)
-        other_balls = integration_service._create_ball_states(
-            balls[1:], exclude_ball=balls[0]
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            balls[0], is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                b, is_target=False
+            )
+            for b in balls[1:]
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -487,11 +521,15 @@ class TestCollisionInformation:
         )
 
         # Calculate trajectory
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(ball1, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [ball2], exclude_ball=ball1
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            ball1, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                ball2, is_target=False
+            )
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -536,11 +574,15 @@ class TestCollisionInformation:
         )
 
         # Calculate trajectory
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(ball1, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [ball2], exclude_ball=ball1
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            ball1, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                ball2, is_target=False
+            )
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -586,9 +628,11 @@ class TestCollisionInformation:
         )
 
         # Calculate trajectory with high force to reach cushion
-        cue_state = integration_service._create_cue_state(cue)
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
         cue_state.estimated_force = 10.0  # High force
-        ball_state = integration_service._create_ball_state(ball, is_target=True)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            ball, is_target=True
+        )
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -718,11 +762,15 @@ class TestMultiballTrajectoryPerformance:
         # Time the calculation
         start_time = time.perf_counter()
 
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(ball1, is_target=True)
-        other_balls = integration_service._create_ball_states(
-            [ball2], exclude_ball=ball1
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            ball1, is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                ball2, is_target=False
+            )
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,
@@ -759,11 +807,16 @@ class TestMultiballTrajectoryPerformance:
         # Time the calculation
         start_time = time.perf_counter()
 
-        cue_state = integration_service._create_cue_state(cue)
-        ball_state = integration_service._create_ball_state(balls[0], is_target=True)
-        other_balls = integration_service._create_ball_states(
-            balls[1:], exclude_ball=balls[0]
+        cue_state = integration_service.state_converter.vision_cue_to_cue_state(cue)
+        ball_state = integration_service.state_converter.vision_ball_to_ball_state(
+            balls[0], is_target=True
         )
+        other_balls = [
+            integration_service.state_converter.vision_ball_to_ball_state(
+                b, is_target=False
+            )
+            for b in balls[1:]
+        ]
 
         result = integration_service.trajectory_calculator.predict_multiball_cue_shot(
             cue_state=cue_state,

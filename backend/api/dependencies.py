@@ -1,17 +1,18 @@
 """Dependency injection functions for FastAPI routes."""
 
+# Import modules - ensure backend dir is in path
+import sys
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import Depends, HTTPException
 
-# Import modules with fallback for different import contexts
-try:
-    from ..config import Config, config
-    from ..core import CoreModule
-except ImportError:
-    # If running from the backend directory directly
-    from backend.config import Config, config
-    from core import CoreModule
+backend_dir = Path(__file__).parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import Config, config
+from core import CoreModule
 
 from .websocket.manager import websocket_manager
 

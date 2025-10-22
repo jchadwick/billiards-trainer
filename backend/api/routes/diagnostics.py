@@ -10,20 +10,26 @@ Provides specialized diagnostic tools including:
 
 import asyncio
 import logging
+import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
+
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 try:
     import psutil
 except ImportError:
     psutil = None
 
+from api.dependencies import ApplicationState, get_app_state
+from api.models.responses import SystemMetrics
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-
-from ..dependencies import ApplicationState, get_app_state
-from ..models.responses import SystemMetrics
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from backend.config import config_manager
+from config import config_manager
 
 from .handler import websocket_handler
 

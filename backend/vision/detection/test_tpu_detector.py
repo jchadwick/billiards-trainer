@@ -20,7 +20,7 @@ import numpy as np
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from vision.detection.yolo_detector import YOLODetector
+from backend.vision.detection.yolo_detector import YOLODetector
 
 # Configure logging
 logging.basicConfig(

@@ -7,6 +7,22 @@
 // Base Types and Enums
 // =============================================================================
 
+/**
+ * Position with scale metadata for coordinate system tracking.
+ *
+ * The scale metadata indicates the coordinate space this position is in:
+ * - [1920, 1080] = Original 1080p coordinate space
+ * - [3840, 2160] = Native 4K coordinate space
+ *
+ * This allows the frontend to properly interpret and transform coordinates
+ * based on the display resolution and rendering context.
+ */
+export interface PositionWithScale {
+  x: number;
+  y: number;
+  scale: [number, number];
+}
+
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 export type StatusCode = 'success' | 'partial_success' | 'failure' | 'pending' | 'timeout' | 'cancelled';
 export type LogLevel = 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
@@ -77,26 +93,26 @@ export interface FrameData {
 // Ball and Game State Data
 export interface BallData {
   id: string;
-  position: [number, number];
+  position: PositionWithScale;
   radius: number;
   color: string;
-  velocity?: [number, number];
+  velocity?: PositionWithScale;
   confidence: number;
   visible: boolean;
 }
 
 export interface CueData {
   angle: number;
-  position: [number, number];
+  position: PositionWithScale;
   detected: boolean;
   confidence: number;
   length?: number;
-  tip_position?: [number, number];
+  tip_position?: PositionWithScale;
 }
 
 export interface TableData {
-  corners: [number, number][];
-  pockets: [number, number][];
+  corners: PositionWithScale[];
+  pockets: PositionWithScale[];
   rails?: Record<string, any>[];
   calibrated: boolean;
   dimensions?: Record<string, number>;
@@ -112,21 +128,21 @@ export interface GameStateData {
 
 // Trajectory Data
 export interface TrajectoryLine {
-  start: [number, number];
-  end: [number, number];
+  start: PositionWithScale;
+  end: PositionWithScale;
   type: 'primary' | 'reflection' | 'collision';
   confidence: number;
 }
 
 export interface CollisionData {
-  position: [number, number];
+  position: PositionWithScale;
   ball_id?: string;  // Target ball ID (for backwards compatibility)
   ball1_id?: string;  // Moving ball ID (e.g., cue ball)
   ball2_id?: string;  // Target ball ID (ball being hit, None for cushion/pocket)
   type?: string;  // Collision type (ball_ball, ball_cushion, ball_pocket)
   angle: number;
-  velocity_before?: [number, number];
-  velocity_after?: [number, number];
+  velocity_before?: PositionWithScale;
+  velocity_after?: PositionWithScale;
   time_to_collision?: number;
 }
 
@@ -279,8 +295,8 @@ export interface UserCreateResponse extends BaseResponse {
 export interface BallInfo extends BaseResponse {
   id: string;
   number?: number;
-  position: [number, number];
-  velocity: [number, number];
+  position: PositionWithScale;
+  velocity: PositionWithScale;
   is_cue_ball: boolean;
   is_pocketed: boolean;
   confidence: number;
@@ -288,7 +304,7 @@ export interface BallInfo extends BaseResponse {
 }
 
 export interface CueInfo extends BaseResponse {
-  tip_position: [number, number];
+  tip_position: PositionWithScale;
   angle: number;
   elevation: number;
   estimated_force: number;
@@ -299,7 +315,7 @@ export interface CueInfo extends BaseResponse {
 export interface TableInfo extends BaseResponse {
   width: number;
   height: number;
-  pocket_positions: [number, number][];
+  pocket_positions: PositionWithScale[];
   pocket_radius: number;
   surface_friction: number;
 }

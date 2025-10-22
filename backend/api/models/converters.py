@@ -17,6 +17,7 @@ from typing import Any, Union
 
 # Import core models with fallback for different import contexts
 try:
+    from ...core.coordinates import Vector2D
     from ...core.models import (
         BallState,
         Collision,
@@ -27,10 +28,10 @@ try:
         ShotAnalysis,
         TableState,
         Trajectory,
-        Vector2D,
     )
 except ImportError:
     # If running from the backend directory directly
+    from core.coordinates import Vector2D
     from core.models import (
         BallState,
         Collision,
@@ -41,7 +42,6 @@ except ImportError:
         ShotAnalysis,
         TableState,
         Trajectory,
-        Vector2D,
     )
 
 from .common import Coordinate2D, ValidationResult
@@ -67,18 +67,56 @@ def vector2d_to_coordinate2d(vector: Vector2D) -> Coordinate2D:
     return Coordinate2D(x=vector.x, y=vector.y)
 
 
+def vector2d_to_dict(vector: Vector2D) -> dict[str, Any]:
+    """Convert core Vector2D to dict with mandatory scale.
+
+    Returns:
+        Dictionary with x, y, and scale fields:
+        {
+            "x": float,
+            "y": float,
+            "scale": [scale_x, scale_y]
+        }
+
+    Raises:
+        ValueError: If vector does not have scale metadata
+    """
+    # Validate scale metadata is present
+    if not hasattr(vector, "scale") or vector.scale is None:
+        raise ValueError("Vector2D must have scale metadata")
+    if not isinstance(vector.scale, (tuple, list)) or len(vector.scale) != 2:
+        raise ValueError(
+            f"Scale must be a 2-element tuple or list, got {type(vector.scale).__name__} with length {len(vector.scale) if isinstance(vector.scale, (tuple, list)) else 'N/A'}"
+        )
+    if vector.scale[0] <= 0 or vector.scale[1] <= 0:
+        raise ValueError(f"Scale factors must be positive, got {vector.scale}")
+
+    return {
+        "x": vector.x,
+        "y": vector.y,
+        "scale": list(vector.scale),  # Convert tuple to list for JSON serialization
+    }
+
+
 def vector2d_to_list(vector: Vector2D) -> list[float]:
-    """Convert core Vector2D to list format [x, y]."""
+    """Convert core Vector2D to list format [x, y].
+
+    DEPRECATED: Use vector2d_to_dict() instead to include mandatory scale metadata.
+    This function is kept for backward compatibility only.
+    """
     return [vector.x, vector.y]
 
 
 def ball_state_to_ball_info(ball: BallState) -> BallInfo:
-    """Convert core BallState to API BallInfo."""
+    """Convert core BallState to API BallInfo.
+
+    Note: This now returns position and velocity as dicts with mandatory scale metadata.
+    """
     return BallInfo(
         id=ball.id,
         number=ball.number,
-        position=vector2d_to_list(ball.position),
-        velocity=vector2d_to_list(ball.velocity),
+        position=vector2d_to_dict(ball.position),
+        velocity=vector2d_to_dict(ball.velocity),
         is_cue_ball=ball.is_cue_ball,
         is_pocketed=ball.is_pocketed,
         confidence=ball.confidence,
@@ -87,12 +125,15 @@ def ball_state_to_ball_info(ball: BallState) -> BallInfo:
 
 
 def ball_state_to_websocket_data(ball: BallState) -> BallStateData:
-    """Convert core BallState to WebSocket BallStateData."""
+    """Convert core BallState to WebSocket BallStateData.
+
+    Note: This now returns position and velocity as dicts with mandatory scale metadata.
+    """
     return BallStateData(
         id=ball.id,
         number=ball.number,
-        position=vector2d_to_list(ball.position),
-        velocity=vector2d_to_list(ball.velocity),
+        position=vector2d_to_dict(ball.position),
+        velocity=vector2d_to_dict(ball.velocity),
         radius=ball.radius,
         is_cue_ball=ball.is_cue_ball,
         is_pocketed=ball.is_pocketed,
@@ -101,9 +142,12 @@ def ball_state_to_websocket_data(ball: BallState) -> BallStateData:
 
 
 def cue_state_to_cue_info(cue: CueState) -> CueInfo:
-    """Convert core CueState to API CueInfo."""
+    """Convert core CueState to API CueInfo.
+
+    Note: This now returns tip_position as dict with mandatory scale metadata.
+    """
     return CueInfo(
-        tip_position=vector2d_to_list(cue.tip_position),
+        tip_position=vector2d_to_dict(cue.tip_position),
         angle=cue.angle,
         elevation=cue.elevation,
         estimated_force=cue.estimated_force,
@@ -113,9 +157,12 @@ def cue_state_to_cue_info(cue: CueState) -> CueInfo:
 
 
 def cue_state_to_websocket_data(cue: CueState) -> CueStateData:
-    """Convert core CueState to WebSocket CueStateData."""
+    """Convert core CueState to WebSocket CueStateData.
+
+    Note: This now returns tip_position as dict with mandatory scale metadata.
+    """
     return CueStateData(
-        tip_position=vector2d_to_list(cue.tip_position),
+        tip_position=vector2d_to_dict(cue.tip_position),
         angle=cue.angle,
         elevation=cue.elevation,
         estimated_force=cue.estimated_force,
@@ -125,22 +172,28 @@ def cue_state_to_websocket_data(cue: CueState) -> CueStateData:
 
 
 def table_state_to_table_info(table: TableState) -> TableInfo:
-    """Convert core TableState to API TableInfo."""
+    """Convert core TableState to API TableInfo.
+
+    Note: This now returns pocket_positions as dicts with mandatory scale metadata.
+    """
     return TableInfo(
         width=table.width,
         height=table.height,
-        pocket_positions=[vector2d_to_list(pos) for pos in table.pocket_positions],
+        pocket_positions=[vector2d_to_dict(pos) for pos in table.pocket_positions],
         pocket_radius=table.pocket_radius,
         surface_friction=table.surface_friction,
     )
 
 
 def table_state_to_websocket_data(table: TableState) -> TableStateData:
-    """Convert core TableState to WebSocket TableStateData."""
+    """Convert core TableState to WebSocket TableStateData.
+
+    Note: This now returns pocket_positions as dicts with mandatory scale metadata.
+    """
     return TableStateData(
         width=table.width,
         height=table.height,
-        pocket_positions=[vector2d_to_list(pos) for pos in table.pocket_positions],
+        pocket_positions=[vector2d_to_dict(pos) for pos in table.pocket_positions],
         pocket_radius=table.pocket_radius,
     )
 
@@ -184,9 +237,12 @@ def game_state_to_websocket_data(state: GameState) -> GameStateData:
 
 
 def collision_to_websocket_collision(collision: Collision) -> WSCollisionInfo:
-    """Convert core Collision to WebSocket CollisionInfo."""
+    """Convert core Collision to WebSocket CollisionInfo.
+
+    Note: This now returns position as dict with mandatory scale metadata.
+    """
     return WSCollisionInfo(
-        position=vector2d_to_list(collision.position),
+        position=vector2d_to_dict(collision.position),
         time=collision.time,
         type=collision.type,
         ball1_id=collision.ball1_id,
@@ -197,7 +253,10 @@ def collision_to_websocket_collision(collision: Collision) -> WSCollisionInfo:
 
 
 def trajectory_to_websocket_data(trajectory: Trajectory) -> TrajectoryData:
-    """Convert core Trajectory to WebSocket TrajectoryData."""
+    """Convert core Trajectory to WebSocket TrajectoryData.
+
+    Note: This now returns trajectory points as dicts with mandatory scale metadata.
+    """
     from .websocket import TrajectoryPoint
 
     # Convert trajectory points
@@ -208,7 +267,7 @@ def trajectory_to_websocket_data(trajectory: Trajectory) -> TrajectoryData:
     for i, point in enumerate(trajectory.points):
         points.append(
             TrajectoryPoint(
-                position=vector2d_to_list(point),
+                position=vector2d_to_dict(point),
                 time=i * time_per_point,
                 velocity=None,  # Would need to calculate from trajectory
             )
@@ -227,10 +286,13 @@ def trajectory_to_websocket_data(trajectory: Trajectory) -> TrajectoryData:
 
 
 def trajectory_to_api_info(trajectory: Trajectory) -> TrajectoryInfo:
-    """Convert core Trajectory to API TrajectoryInfo."""
+    """Convert core Trajectory to API TrajectoryInfo.
+
+    Note: This now returns trajectory points as dicts with mandatory scale metadata.
+    """
     return TrajectoryInfo(
         ball_id=trajectory.ball_id,
-        points=[vector2d_to_list(point) for point in trajectory.points],
+        points=[vector2d_to_dict(point) for point in trajectory.points],
         will_be_pocketed=trajectory.will_be_pocketed,
         pocket_id=trajectory.pocket_id,
         time_to_rest=trajectory.time_to_rest,
@@ -273,11 +335,22 @@ def list_to_vector2d(coords: list[float]) -> Vector2D:
 
 
 def ball_info_to_ball_state(ball_info: BallInfo) -> BallState:
-    """Convert API BallInfo to core BallState."""
+    """Convert API BallInfo to core BallState.
+
+    Note: BallInfo.position and BallInfo.velocity are now PositionWithScale objects.
+    """
     return BallState(
         id=ball_info.id,
-        position=list_to_vector2d(ball_info.position),
-        velocity=list_to_vector2d(ball_info.velocity),
+        position=Vector2D(
+            x=ball_info.position.x,
+            y=ball_info.position.y,
+            scale=tuple(ball_info.position.scale),
+        ),
+        velocity=Vector2D(
+            x=ball_info.velocity.x,
+            y=ball_info.velocity.y,
+            scale=tuple(ball_info.velocity.scale),
+        ),
         is_cue_ball=ball_info.is_cue_ball,
         is_pocketed=ball_info.is_pocketed,
         number=ball_info.number,
@@ -287,11 +360,22 @@ def ball_info_to_ball_state(ball_info: BallInfo) -> BallState:
 
 
 def websocket_ball_data_to_ball_state(ball_data: BallStateData) -> BallState:
-    """Convert WebSocket BallStateData to core BallState."""
+    """Convert WebSocket BallStateData to core BallState.
+
+    Note: BallStateData.position and BallStateData.velocity are now PositionWithScale objects.
+    """
     return BallState(
         id=ball_data.id,
-        position=list_to_vector2d(ball_data.position),
-        velocity=list_to_vector2d(ball_data.velocity),
+        position=Vector2D(
+            x=ball_data.position.x,
+            y=ball_data.position.y,
+            scale=tuple(ball_data.position.scale),
+        ),
+        velocity=Vector2D(
+            x=ball_data.velocity.x,
+            y=ball_data.velocity.y,
+            scale=tuple(ball_data.velocity.scale),
+        ),
         radius=ball_data.radius,
         is_cue_ball=ball_data.is_cue_ball,
         is_pocketed=ball_data.is_pocketed,
@@ -302,9 +386,16 @@ def websocket_ball_data_to_ball_state(ball_data: BallStateData) -> BallState:
 
 
 def cue_info_to_cue_state(cue_info: CueInfo) -> CueState:
-    """Convert API CueInfo to core CueState."""
+    """Convert API CueInfo to core CueState.
+
+    Note: CueInfo.tip_position is now a PositionWithScale object.
+    """
     return CueState(
-        tip_position=list_to_vector2d(cue_info.tip_position),
+        tip_position=Vector2D(
+            x=cue_info.tip_position.x,
+            y=cue_info.tip_position.y,
+            scale=tuple(cue_info.tip_position.scale),
+        ),
         angle=cue_info.angle,
         elevation=cue_info.elevation,
         estimated_force=cue_info.estimated_force,
@@ -315,9 +406,16 @@ def cue_info_to_cue_state(cue_info: CueInfo) -> CueState:
 
 
 def websocket_cue_data_to_cue_state(cue_data: CueStateData) -> CueState:
-    """Convert WebSocket CueStateData to core CueState."""
+    """Convert WebSocket CueStateData to core CueState.
+
+    Note: CueStateData.tip_position is now a PositionWithScale object.
+    """
     return CueState(
-        tip_position=list_to_vector2d(cue_data.tip_position),
+        tip_position=Vector2D(
+            x=cue_data.tip_position.x,
+            y=cue_data.tip_position.y,
+            scale=tuple(cue_data.tip_position.scale),
+        ),
         angle=cue_data.angle,
         elevation=cue_data.elevation,
         estimated_force=cue_data.estimated_force,
@@ -328,22 +426,34 @@ def websocket_cue_data_to_cue_state(cue_data: CueStateData) -> CueState:
 
 
 def table_info_to_table_state(table_info: TableInfo) -> TableState:
-    """Convert API TableInfo to core TableState."""
+    """Convert API TableInfo to core TableState.
+
+    Note: TableInfo.pocket_positions is now a list of PositionWithScale objects.
+    """
     return TableState(
         width=table_info.width,
         height=table_info.height,
-        pocket_positions=[list_to_vector2d(pos) for pos in table_info.pocket_positions],
+        pocket_positions=[
+            Vector2D(x=pos.x, y=pos.y, scale=tuple(pos.scale))
+            for pos in table_info.pocket_positions
+        ],
         pocket_radius=table_info.pocket_radius,
         surface_friction=table_info.surface_friction,
     )
 
 
 def websocket_table_data_to_table_state(table_data: TableStateData) -> TableState:
-    """Convert WebSocket TableStateData to core TableState."""
+    """Convert WebSocket TableStateData to core TableState.
+
+    Note: TableStateData.pocket_positions is now a list of PositionWithScale objects.
+    """
     return TableState(
         width=table_data.width,
         height=table_data.height,
-        pocket_positions=[list_to_vector2d(pos) for pos in table_data.pocket_positions],
+        pocket_positions=[
+            Vector2D(x=pos.x, y=pos.y, scale=tuple(pos.scale))
+            for pos in table_data.pocket_positions
+        ],
         pocket_radius=table_data.pocket_radius,
     )
 

@@ -3,14 +3,29 @@
 This module provides comprehensive physics validation to ensure system reliability
 and catch invalid physics states. It validates trajectories, collisions, ball states,
 forces, and conservation laws.
+
+All spatial measurements are in 4K pixels (3840×2160).
+Velocities are in pixels/second.
+Accelerations are in pixels/second².
 """
 
 import math
 from dataclasses import dataclass
 from typing import Any, Optional, Union
 
-from ..models import BallState, Collision, TableState, Trajectory, Vector2D
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    POCKET_RADIUS_4K,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
+from ..models import BallState, Collision, TableState, Trajectory
 from ..physics.engine import PhysicsConstants, TrajectoryPoint
+
+# Physics constants for validation
+# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
+PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
 
 
 @dataclass
@@ -44,27 +59,40 @@ class PhysicsValidator:
     def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize physics validator with configuration.
 
+        All spatial parameters are in 4K pixel coordinates.
+
         Args:
             config: Configuration dictionary with validation parameters
         """
         self.config = config or {}
         self.constants = PhysicsConstants()
 
-        # Validation tolerances
+        # Validation tolerances (relative percentages and absolute pixel values)
         self.energy_tolerance = self.config.get(
             "energy_tolerance", 0.05
         )  # 5% tolerance
         self.momentum_tolerance = self.config.get(
             "momentum_tolerance", 0.01
         )  # 1% tolerance
-        self.velocity_tolerance = self.config.get("velocity_tolerance", 0.001)  # m/s
-        self.position_tolerance = self.config.get("position_tolerance", 0.001)  # m
+        self.velocity_tolerance = self.config.get(
+            "velocity_tolerance", 1.0
+        )  # pixels/s (default: 1 px/s)
+        self.position_tolerance = self.config.get(
+            "position_tolerance", 1.0
+        )  # pixels (default: 1 pixel)
 
-        # Physics limits
-        self.max_velocity = self.config.get("max_velocity", 20.0)  # m/s
-        self.max_acceleration = self.config.get("max_acceleration", 100.0)  # m/s²
-        self.max_spin = self.config.get("max_spin", 100.0)  # rad/s
-        self.max_force = self.config.get("max_force", 50.0)  # N
+        # Physics limits in 4K pixel coordinates
+        # Default limits converted from physical units to pixels
+        self.max_velocity = self.config.get(
+            "max_velocity", 20.0 * PIXELS_PER_METER
+        )  # pixels/s (default: 20 m/s → ~25,200 px/s)
+        self.max_acceleration = self.config.get(
+            "max_acceleration", 100.0 * PIXELS_PER_METER
+        )  # pixels/s² (default: 100 m/s² → ~126,000 px/s²)
+        self.max_spin = self.config.get("max_spin", 100.0)  # rad/s (unitless)
+        self.max_force = self.config.get(
+            "max_force", 50.0
+        )  # N (force stays in SI units)
 
         # Performance settings
         self.detailed_validation = self.config.get("detailed_validation", True)
@@ -177,7 +205,7 @@ class PhysicsValidator:
                                 "max_velocity": self.max_velocity,
                                 "point_index": i,
                             },
-                            suggested_fix=f"Reduce velocity to below {self.max_velocity} m/s",
+                            suggested_fix=f"Reduce velocity to below {self.max_velocity:.1f} px/s",
                         )
                     )
 
@@ -318,7 +346,7 @@ class PhysicsValidator:
                     severity="error",
                     message="Ball radius must be positive",
                     details={"radius": ball_state.radius},
-                    suggested_fix="Set radius to standard ball radius (0.028575 m)",
+                    suggested_fix=f"Set radius to standard ball radius ({BALL_RADIUS_4K} pixels)",
                 )
             )
 
@@ -357,7 +385,7 @@ class PhysicsValidator:
                             "max_velocity": self.max_velocity,
                             "ball_id": ball_state.id,
                         },
-                        suggested_fix=f"Reduce velocity to below {self.max_velocity} m/s",
+                        suggested_fix=f"Reduce velocity to below {self.max_velocity:.1f} px/s",
                     )
                 )
 
@@ -474,7 +502,7 @@ class PhysicsValidator:
                             "force": force_magnitude,
                             "mass": mass,
                         },
-                        suggested_fix=f"Reduce force or increase mass to limit acceleration to {self.max_acceleration} m/s²",
+                        suggested_fix=f"Reduce force or increase mass to limit acceleration to {self.max_acceleration:.1f} px/s²",
                     )
                 )
         else:

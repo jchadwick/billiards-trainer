@@ -1,9 +1,19 @@
-"""Main physics engine for ball trajectory calculations."""
+"""Main physics engine for ball trajectory calculations.
+
+All spatial measurements use 4K pixels (3840×2160) as the canonical coordinate system.
+Physical constants from meters are converted to pixels for consistency.
+"""
 
 import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    PIXELS_PER_METER_REFERENCE,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
 from ..game_state import BallState, TableState, Vector2D
 from ..models import Collision
 from .collision import CollisionDetector, CollisionResolver
@@ -11,34 +21,43 @@ from .spin import SpinCalculator
 
 
 class PhysicsConstants:
-    """Physical constants for billiard ball simulation."""
+    """Physical constants for billiard ball simulation in 4K pixels.
 
-    # Ball properties - all in SI units (meters)
-    BALL_RADIUS = 0.028575  # m (57.15mm diameter / 2)
-    BALL_MASS = 0.17  # kg (standard pool ball)
+    All spatial measurements are in 4K pixels. Physical constants like gravity
+    are converted from SI units to pixels for consistent calculations.
+    """
 
-    # Table properties
-    TABLE_FRICTION_COEFFICIENT = 0.2  # Rolling friction
-    CUSHION_RESTITUTION = 0.85  # Energy retained in cushion bounce
-    BALL_RESTITUTION = 0.95  # Energy retained in ball-ball collision
+    # Ball properties in 4K pixels
+    BALL_RADIUS = BALL_RADIUS_4K  # pixels (36.0 pixels in 4K)
+    BALL_MASS = 0.17  # kg (mass is not spatial, kept in SI units)
 
-    # Physics simulation
-    GRAVITY = 9.81  # m/s^2
+    # Table properties (dimensionless coefficients)
+    TABLE_FRICTION_COEFFICIENT = 0.2  # Rolling friction (unitless)
+    CUSHION_RESTITUTION = 0.85  # Energy retained in cushion bounce (unitless)
+    BALL_RESTITUTION = 0.95  # Energy retained in ball-ball collision (unitless)
+
+    # Physics simulation - converted to pixel space
+    GRAVITY = 9.81 * PIXELS_PER_METER_REFERENCE  # pixels/s² (gravity in pixel space)
     TIME_STEP = 0.001  # s (1ms for accurate simulation)
-    MIN_VELOCITY = 0.001  # m/s (below this, ball is considered stopped)
+    MIN_VELOCITY = 0.001 * PIXELS_PER_METER_REFERENCE  # pixels/s (stopping threshold)
 
-    # Pocket properties
-    POCKET_RADIUS = 0.0635  # m (standard corner pocket)
-    POCKET_CAPTURE_SPEED = 2.0  # m/s (max speed for clean pocket entry)
+    # Pocket properties in 4K pixels
+    POCKET_RADIUS = 80.0  # pixels (standard 2.5" = 63.5mm pocket in 4K)
+    POCKET_CAPTURE_SPEED = (
+        2.0 * PIXELS_PER_METER_REFERENCE
+    )  # pixels/s (max speed for clean pocket entry)
 
 
 @dataclass
 class TrajectoryPoint:
-    """Single point in a ball's trajectory."""
+    """Single point in a ball's trajectory.
 
-    time: float
-    position: Vector2D
-    velocity: Vector2D
+    All positions and velocities are in 4K pixels with scale metadata.
+    """
+
+    time: float  # Time in seconds
+    position: Vector2D  # Position in 4K pixels (with scale=[1.0, 1.0])
+    velocity: Vector2D  # Velocity in pixels/second (with scale=[1.0, 1.0])
     collision_type: Optional[str] = None  # "ball", "cushion", "pocket", None
 
 

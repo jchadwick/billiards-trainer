@@ -14,8 +14,8 @@ if str(backend_path) not in sys.path:
 
 import logging
 
-from vision.calibration.camera import CameraCalibrator
-from vision.detection.balls import BallDetector
+from backend.vision.calibration.camera import CameraCalibrator
+from backend.vision.detection.balls import BallDetector
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

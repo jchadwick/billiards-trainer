@@ -22,12 +22,20 @@ except ImportError:
         from fastapi.exceptions import WebSocketDisconnect  # type: ignore
 
 # Internal imports
-# Import config module - use absolute import to avoid conflict with api.routes.config
-from backend.config import config
+# Import config module - when running from backend dir, config.py is at same level as api/
+import sys
+from pathlib import Path
+
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import config
 
 # Import core module
-from backend.core import CoreModule, CoreModuleConfig
-from backend.integration_service import IntegrationService
+from core import CoreModule, CoreModuleConfig
+from integration_service import IntegrationService
 
 from .dependencies import ApplicationState, app_state
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
@@ -37,7 +45,7 @@ from .middleware.performance import PerformanceConfig, setup_performance_monitor
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .routes import calibration
 from .routes import config as config_routes
-from .routes import diagnostics, game, health, logs, modules, stream, vision
+from .routes import debug, diagnostics, game, health, logs, modules, stream, vision
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -461,6 +469,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(modules.router, prefix="/api/v1")
     app.include_router(diagnostics.router, prefix="/api/v1")
     app.include_router(logs.router, prefix="/api/v1")
+    app.include_router(debug.router, prefix="/api/v1")
 
     # Include WebSocket management endpoints
     app.include_router(websocket_router, prefix="/api/v1/websocket")
@@ -482,6 +491,15 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
             logger.info(f"New WebSocket connection from {websocket.client}")
             client_id = await websocket_handler.connect(websocket)
             logger.info(f"WebSocket connected successfully: {client_id}")
+
+            # Register client in manager with full permissions
+            permissions = {"stream:*", "control:*", "config:*"}
+            await websocket_manager.register_client(
+                client_id=client_id,
+                user_id=None,
+                permissions=permissions,
+            )
+            logger.info(f"Client registered in manager: {client_id}")
 
             # Message loop - handle incoming messages
             while True:
@@ -524,6 +542,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
             # Always disconnect and cleanup
             if client_id:
                 logger.info(f"WebSocket disconnecting: {client_id}")
+                await websocket_manager.unregister_client(client_id)
                 await websocket_handler.disconnect(client_id)
 
             # Ensure WebSocket is closed

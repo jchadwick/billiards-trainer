@@ -23,10 +23,14 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
-from backend.config import config
+import numpy as np
+from config import config
+
 from backend.video.ipc.shared_memory import FrameFormat, SharedMemoryFrameWriter
+from backend.vision.calibration.camera import CameraCalibrator
 from backend.vision.capture import CameraCapture
 
 # Configure logging
@@ -63,14 +67,170 @@ class VideoProcess:
         self._shutdown_timeout = self.config.get("video.process.shutdown_timeout", 10.0)
         self._main_loop_sleep = self.config.get("video.process.main_loop_sleep", 0.001)
 
+        # Distortion correction configuration
+        self._enable_distortion_correction = self.config.get(
+            "video.enable_distortion_correction", True
+        )
+        self._calibration_file_path = self.config.get(
+            "video.calibration_file_path",
+            "backend/calibration_data/camera/camera_params.yaml",
+        )
+
+        # Camera calibrator for undistortion
+        self.calibrator: Optional[CameraCalibrator] = None
+        self._undistortion_maps: Optional[tuple[np.ndarray, np.ndarray]] = None
+
         # Statistics
         self._start_time = 0.0
         self._frames_written = 0
         self._frames_captured = 0
+        self._frames_undistorted = 0
         self._last_stats_time = 0.0
         self._stats_interval = 10.0  # Log stats every 10 seconds
+        self._total_undistortion_time = 0.0  # Track performance
 
         logger.info("VideoProcess initialized")
+
+    def _load_calibration(self) -> bool:
+        """Load camera calibration for distortion correction.
+
+        Returns:
+            True if calibration loaded successfully, False otherwise
+        """
+        if not self._enable_distortion_correction:
+            logger.info("Distortion correction is disabled")
+            return True
+
+        try:
+            # Check if calibration file exists
+            calibration_path = Path(self._calibration_file_path)
+            if not calibration_path.exists():
+                logger.warning(
+                    f"Calibration file not found: {self._calibration_file_path}. "
+                    "Continuing with raw frames (no distortion correction)."
+                )
+                self._enable_distortion_correction = False
+                return True
+
+            # Load calibration using CameraCalibrator
+            logger.info(
+                f"Loading camera calibration from: {self._calibration_file_path}"
+            )
+            self.calibrator = CameraCalibrator()
+
+            if not self.calibrator.load_calibration(str(calibration_path)):
+                logger.warning(
+                    f"Failed to load calibration from {self._calibration_file_path}. "
+                    "Continuing with raw frames (no distortion correction)."
+                )
+                self._enable_distortion_correction = False
+                self.calibrator = None
+                return True
+
+            # Calibration loaded successfully
+            logger.info(
+                f"Camera calibration loaded successfully. "
+                f"Resolution: {self.calibrator.camera_params.resolution}, "
+                f"Error: {self.calibrator.camera_params.calibration_error:.4f}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Error loading calibration: {e}. "
+                "Continuing with raw frames (no distortion correction).",
+                exc_info=True,
+            )
+            self._enable_distortion_correction = False
+            self.calibrator = None
+            return True
+
+    def _initialize_undistortion_maps(self, width: int, height: int) -> bool:
+        """Initialize undistortion maps for fast processing.
+
+        Pre-computing the undistortion maps allows using cv2.remap() which is
+        much faster than cv2.undistort() for repeated operations.
+
+        Args:
+            width: Frame width in pixels
+            height: Frame height in pixels
+
+        Returns:
+            True if maps created successfully, False otherwise
+        """
+        if not self._enable_distortion_correction or self.calibrator is None:
+            return True
+
+        try:
+            import cv2
+
+            logger.info(f"Initializing undistortion maps for {width}x{height}...")
+
+            # Get camera parameters
+            camera_matrix = self.calibrator.camera_params.camera_matrix
+            dist_coeffs = self.calibrator.camera_params.distortion_coefficients
+
+            # Get optimal new camera matrix
+            new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
+                camera_matrix, dist_coeffs, (width, height), 1, (width, height)
+            )
+
+            # Initialize undistortion maps for fast remap operation
+            map1, map2 = cv2.initUndistortRectifyMap(
+                camera_matrix,
+                dist_coeffs,
+                None,
+                new_camera_matrix,
+                (width, height),
+                cv2.CV_32FC1,
+            )
+
+            self._undistortion_maps = (map1, map2)
+            logger.info("Undistortion maps initialized successfully")
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"Failed to initialize undistortion maps: {e}. "
+                "Disabling distortion correction.",
+                exc_info=True,
+            )
+            self._enable_distortion_correction = False
+            self._undistortion_maps = None
+            return True
+
+    def _undistort_frame(self, frame: np.ndarray) -> np.ndarray:
+        """Apply distortion correction to a frame.
+
+        Args:
+            frame: Input frame (raw from camera)
+
+        Returns:
+            Undistorted frame (or original if correction disabled/failed)
+        """
+        if not self._enable_distortion_correction or self._undistortion_maps is None:
+            return frame
+
+        try:
+            import cv2
+
+            # Track performance
+            start_time = time.time()
+
+            # Apply undistortion using pre-computed maps (fast)
+            map1, map2 = self._undistortion_maps
+            undistorted = cv2.remap(frame, map1, map2, interpolation=cv2.INTER_LINEAR)
+
+            # Update statistics
+            self._total_undistortion_time += time.time() - start_time
+            self._frames_undistorted += 1
+
+            return undistorted
+
+        except Exception as e:
+            logger.error(f"Undistortion failed: {e}", exc_info=True)
+            # Fall back to raw frame on error
+            return frame
 
     def _initialize_camera(self) -> bool:
         """Initialize camera from config.
@@ -184,9 +344,10 @@ class VideoProcess:
 
         This loop runs continuously until shutdown_event is set:
         1. Get latest frame from camera
-        2. Write frame to shared memory
-        3. Update statistics
-        4. Sleep briefly to maintain frame rate
+        2. Apply distortion correction (if enabled)
+        3. Write frame to shared memory
+        4. Update statistics
+        5. Sleep briefly to maintain frame rate
         """
         logger.info("Starting main capture loop")
         self._start_time = time.time()
@@ -205,8 +366,11 @@ class VideoProcess:
                 frame, frame_info = frame_data
                 self._frames_captured += 1
 
+                # Apply distortion correction if enabled
+                processed_frame = self._undistort_frame(frame)
+
                 # Write frame to shared memory
-                self.ipc_writer.write_frame(frame, frame_info.frame_number)
+                self.ipc_writer.write_frame(processed_frame, frame_info.frame_number)
                 self._frames_written += 1
 
                 # Log statistics periodically
@@ -241,7 +405,8 @@ class VideoProcess:
         # Get writer stats
         writer_stats = self.ipc_writer.get_stats() if self.ipc_writer else {}
 
-        logger.info(
+        # Build statistics message
+        stats_msg = (
             f"Stats: uptime={uptime:.1f}s, "
             f"frames_captured={self._frames_captured}, "
             f"frames_written={self._frames_written}, "
@@ -250,6 +415,21 @@ class VideoProcess:
             f"camera_dropped={camera_health.frames_dropped}, "
             f"write_counter={writer_stats.get('write_counter', 0)}"
         )
+
+        # Add undistortion statistics if enabled
+        if self._enable_distortion_correction and self._frames_undistorted > 0:
+            avg_undistortion_time = (
+                self._total_undistortion_time / self._frames_undistorted
+            ) * 1000  # Convert to ms
+            stats_msg += (
+                f", undistortion_enabled=true, "
+                f"frames_undistorted={self._frames_undistorted}, "
+                f"avg_undistortion_time={avg_undistortion_time:.2f}ms"
+            )
+        else:
+            stats_msg += ", undistortion_enabled=false"
+
+        logger.info(stats_msg)
 
     def _cleanup(self) -> None:
         """Clean up resources (camera and shared memory)."""
@@ -300,11 +480,13 @@ class VideoProcess:
 
         This is the main entry point that:
         1. Sets up signal handlers
-        2. Initializes camera
-        3. Gets first frame to determine dimensions
-        4. Initializes shared memory writer
-        5. Runs main capture loop
-        6. Handles shutdown and cleanup
+        2. Loads camera calibration
+        3. Initializes camera
+        4. Gets first frame to determine dimensions
+        5. Initializes undistortion maps
+        6. Initializes shared memory writer
+        7. Runs main capture loop
+        8. Handles shutdown and cleanup
 
         Returns:
             Exit code (0 for success, non-zero for error)
@@ -317,6 +499,11 @@ class VideoProcess:
         logger.info("Signal handlers registered (SIGTERM, SIGINT)")
 
         try:
+            # Load camera calibration (if enabled)
+            if not self._load_calibration():
+                logger.error("Calibration loading failed critically")
+                return 1
+
             # Initialize camera
             if not self._initialize_camera():
                 logger.error("Camera initialization failed")
@@ -345,6 +532,11 @@ class VideoProcess:
             logger.info(
                 f"First frame received: {width}x{height}, channels={frame.shape[2] if len(frame.shape) > 2 else 1}"
             )
+
+            # Initialize undistortion maps for the actual frame dimensions
+            if not self._initialize_undistortion_maps(width, height):
+                logger.error("Undistortion map initialization failed critically")
+                return 1
 
             # Initialize shared memory writer with actual dimensions
             if not self._initialize_ipc_writer(width, height):

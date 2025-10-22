@@ -3,19 +3,25 @@
 import asyncio
 import logging
 import shutil
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
 import numpy as np
+from api.dependencies import ApplicationState, get_app_state
+from api.models.common import ErrorCode
+from api.models.vision_models import ModelInfoResponse, ModelUploadResponse
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
-from ...vision.detection.yolo_detector import ModelValidationError, YOLODetector
-from ..dependencies import ApplicationState, get_app_state
-from ..models.common import ErrorCode
-from ..models.vision_models import ModelInfoResponse, ModelUploadResponse
+from backend.vision.detection.yolo_detector import ModelValidationError, YOLODetector
 
 logger = logging.getLogger(__name__)
 
@@ -417,9 +423,7 @@ async def reload_yolo_model(
 
         if not success:
             # Reload failed but detector handled it gracefully
-            (
-                detector.get_model_info() if hasattr(detector, "get_model_info") else {}
-            )
+            (detector.get_model_info() if hasattr(detector, "get_model_info") else {})
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

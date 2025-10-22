@@ -21,7 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 
 # Import core models for integration testing
-from core.models import BallState, Vector2D
+from core.coordinates import Vector2D
+from core.models import BallState
 
 # Import vision module components
 from vision import (

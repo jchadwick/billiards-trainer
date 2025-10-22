@@ -19,10 +19,12 @@ import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import cv2
 import numpy as np
+from core.constants_4k import BALL_RADIUS_4K
+from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 from ..models import Ball, BallType
@@ -41,7 +43,11 @@ class DetectionMethod(Enum):
 
 @dataclass
 class BallDetectionConfig:
-    """Configuration for ball detection."""
+    """Configuration for ball detection with resolution-aware scaling.
+
+    All pixel-based parameters are automatically scaled based on camera resolution
+    relative to the 4K canonical resolution (3840×2160).
+    """
 
     # Detection method
     detection_method: DetectionMethod = DetectionMethod.COMBINED
@@ -55,7 +61,8 @@ class BallDetectionConfig:
     hough_gaussian_blur_kernel: int = 9
     hough_gaussian_blur_sigma: int = 2
 
-    # Size constraints
+    # Size constraints (RESOLUTION-AWARE - scaled from 4K)
+    # These are calculated automatically based on camera_resolution
     min_radius: int = 15
     max_radius: int = 26
     expected_radius: int = 20
@@ -71,7 +78,7 @@ class BallDetectionConfig:
     min_convexity: float = 0.8
     min_inertia_ratio: float = 0.5
 
-    # Performance optimization
+    # Performance optimization (RESOLUTION-AWARE)
     roi_enabled: bool = True
     roi_margin: int = 50
 
@@ -79,16 +86,27 @@ class BallDetectionConfig:
     debug_mode: bool = False
     save_debug_images: bool = False
 
+    # Camera resolution for scaling (internal use)
+    camera_resolution: tuple[int, int] = (1920, 1080)
+
     @classmethod
-    def from_config(cls, config: dict[str, Any]) -> "BallDetectionConfig":
-        """Create BallDetectionConfig from nested configuration dictionary.
+    def from_config(
+        cls, config: dict[str, Any], camera_resolution: tuple[int, int] = (1920, 1080)
+    ) -> "BallDetectionConfig":
+        """Create BallDetectionConfig from nested configuration dictionary with resolution scaling.
 
         Args:
             config: Nested configuration dictionary with sections like
                    hough_circles, size_constraints, etc.
+            camera_resolution: Camera resolution (width, height) for scaling pixel-based values.
+                             Defaults to 1080p. All pixel values are scaled from 4K canonical.
 
         Returns:
-            BallDetectionConfig instance
+            BallDetectionConfig instance with resolution-aware parameters
+
+        Note:
+            All pixel-based parameters (radii, margins, etc.) are automatically scaled
+            based on the camera resolution relative to 4K (3840×2160).
         """
         # Extract detection method
         method_str = config.get("detection_method", "combined")
@@ -97,17 +115,38 @@ class BallDetectionConfig:
         else:
             detection_method = method_str
 
+        # Calculate scale factor from 4K to camera resolution
+        scale_x, scale_y = ResolutionConverter.calculate_scale_from_4k(
+            camera_resolution
+        )
+        scale = scale_x  # Use X scale for circular objects (assumes square pixels)
+
         # Extract hough parameters
         hough_config = config.get("hough_circles", {})
 
-        # Extract size constraints
+        # Extract size constraints and scale them
         size_config = config.get("size_constraints", {})
+
+        # Scale ball radius from 4K to camera resolution
+        # BALL_RADIUS_4K = 36 pixels in 4K
+        camera_ball_radius = BALL_RADIUS_4K * scale
+
+        # Use scaled values as defaults, or use config values if provided
+        # Config values are assumed to be in the target resolution already
+        min_radius = int(
+            size_config.get("min_radius", camera_ball_radius * 0.7)
+        )  # 70% of expected
+        max_radius = int(
+            size_config.get("max_radius", camera_ball_radius * 1.3)
+        )  # 130% of expected
+        expected_radius = int(size_config.get("expected_radius", camera_ball_radius))
 
         # Extract quality filters (support both "quality" and "quality_filters" keys)
         quality_config = config.get("quality_filters", config.get("quality", {}))
 
-        # Extract performance settings
+        # Extract performance settings and scale pixel-based ones
         perf_config = config.get("performance", {})
+        roi_margin = int(perf_config.get("roi_margin", 50 * scale))
 
         # Extract debug settings
         debug_config = config.get("debug", {})
@@ -131,10 +170,10 @@ class BallDetectionConfig:
             hough_accumulator_threshold=hough_config.get("accumulator_threshold", 15),
             hough_gaussian_blur_kernel=hough_config.get("gaussian_blur_kernel", 9),
             hough_gaussian_blur_sigma=hough_config.get("gaussian_blur_sigma", 2),
-            # Size constraints
-            min_radius=size_config.get("min_radius", 15),
-            max_radius=size_config.get("max_radius", 26),
-            expected_radius=size_config.get("expected_radius", 20),
+            # Size constraints (SCALED)
+            min_radius=min_radius,
+            max_radius=max_radius,
+            expected_radius=expected_radius,
             radius_tolerance=size_config.get("radius_tolerance", 0.30),
             # Ball colors
             ball_colors=ball_colors if ball_colors else None,
@@ -144,12 +183,14 @@ class BallDetectionConfig:
             max_overlap_ratio=quality_config.get("max_overlap_ratio", 0.30),
             min_convexity=quality_config.get("min_convexity", 0.8),
             min_inertia_ratio=quality_config.get("min_inertia_ratio", 0.5),
-            # Performance
+            # Performance (SCALED)
             roi_enabled=perf_config.get("roi_enabled", True),
-            roi_margin=perf_config.get("roi_margin", 50),
+            roi_margin=roi_margin,
             # Debug
             debug_mode=debug_config.get("debug_mode", False),
             save_debug_images=debug_config.get("save_debug_images", False),
+            # Store camera resolution for reference
+            camera_resolution=camera_resolution,
         )
 
     def __post_init__(self) -> None:
@@ -210,15 +251,20 @@ class BallDetector:
     - Motion state detection
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self, config: dict[str, Any], camera_resolution: tuple[int, int] = (1920, 1080)
+    ) -> None:
         """Initialize ball detector with configuration.
 
         Args:
             config: Configuration dictionary
+            camera_resolution: Camera resolution (width, height) for scaling pixel-based parameters.
+                             Defaults to 1080p. All pixel values are scaled from 4K canonical.
         """
         # Store raw config for accessing nested values
         self.raw_config = config
-        self.config = BallDetectionConfig.from_config(config)
+        self.camera_resolution = camera_resolution
+        self.config = BallDetectionConfig.from_config(config, camera_resolution)
 
         # Initialize detection components
         self._initialize_detectors()
@@ -337,8 +383,19 @@ class BallDetector:
         pocket_config = self.raw_config.get("pocket_detection", {})
         threshold = pocket_config.get("threshold", 40)
         morph_kernel_size = pocket_config.get("morph_kernel_size", 9)
-        min_radius = pocket_config.get("min_radius", 35)
-        max_radius = pocket_config.get("max_radius", 80)
+
+        # Scale pocket size from 4K to camera resolution
+        # Pockets are ~2x ball radius in 4K
+        scale_x, _ = ResolutionConverter.calculate_scale_from_4k(self.camera_resolution)
+        default_min_pocket_radius = int(
+            BALL_RADIUS_4K * 2 * 0.5 * scale_x
+        )  # 50% of 2x ball radius
+        default_max_pocket_radius = int(
+            BALL_RADIUS_4K * 2 * 1.5 * scale_x
+        )  # 150% of 2x ball radius
+
+        min_radius = pocket_config.get("min_radius", default_min_pocket_radius)
+        max_radius = pocket_config.get("max_radius", default_max_pocket_radius)
         min_circularity = pocket_config.get("min_circularity", 0.65)
 
         # Convert to grayscale

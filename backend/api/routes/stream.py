@@ -10,7 +10,11 @@ Provides video streaming capabilities including:
 
 import asyncio
 import logging
+
+# Import vision module - ensure backend dir is in path
+import sys
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import cv2
@@ -21,22 +25,16 @@ from fastapi.responses import StreamingResponse
 # Import WebSocket broadcaster for real-time frame streaming
 from ..websocket import message_broadcaster
 
-# Import vision module
-try:
-    from ...streaming.enhanced_camera_module import (
-        EnhancedCameraConfig,
-        EnhancedCameraModule,
-    )
-    from ...video.ipc.shared_memory import SharedMemoryFrameReader
-    from ...vision.capture import CameraHealth, CameraStatus
-except ImportError:
-    # Fallback for when relative imports don't work
-    from backend.streaming.enhanced_camera_module import (
-        EnhancedCameraConfig,
-        EnhancedCameraModule,
-    )
-    from backend.vision.capture import CameraHealth, CameraStatus
-    from backend.video.ipc.shared_memory import SharedMemoryFrameReader
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from backend.streaming.enhanced_camera_module import (
+    EnhancedCameraConfig,
+    EnhancedCameraModule,
+)
+from backend.video.ipc.shared_memory import SharedMemoryFrameReader
+from backend.vision.capture import CameraHealth, CameraStatus
 
 from ..dependencies import ApplicationState, get_app_state, get_config_module
 

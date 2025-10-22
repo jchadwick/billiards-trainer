@@ -3,6 +3,32 @@
 This module contains all the fundamental data structures that represent the game state,
 physics objects, and analysis results. These models serve as the foundation for all
 other core modules and provide the interface for data exchange between modules.
+
+4K Coordinate System:
+    This module uses the 4K-based Vector2D from coordinates.py. All positions are
+    stored in 4K canonical pixels (3840×2160) with mandatory scale metadata for
+    resolution tracking and conversion.
+
+    Factory Methods for Creating Vectors:
+        - Vector2D.from_4k(x, y) - Creates in 4K canonical coordinates (scale = 1.0)
+        - Vector2D.from_resolution(x, y, resolution) - Creates from any resolution with auto-calculated scale
+
+    Conversion Methods:
+        - vector.to_4k_canonical() - Convert to 4K canonical coordinates
+        - vector.to_resolution(target_resolution) - Convert to target resolution
+
+    Example Usage:
+        # Create position in 4K canonical
+        pos = Vector2D.from_4k(1920.0, 1080.0)
+        assert pos.scale == (1.0, 1.0)
+
+        # Create from 1080p coordinates (auto-calculates scale = 2.0)
+        pos_1080p = Vector2D.from_resolution(960.0, 540.0, (1920, 1080))
+        assert pos_1080p.scale == (2.0, 2.0)
+
+        # Convert to 4K canonical
+        pos_4k = pos_1080p.to_4k_canonical()
+        assert (pos_4k.x, pos_4k.y) == (1920.0, 1080.0)
 """
 
 import json
@@ -11,6 +37,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Union
+
+# Import Vector2D from coordinates module
+try:
+    # Try absolute import first (for when used as package)
+    from backend.core.coordinates import Vector2D
+except ImportError:
+    # Fall back to relative import (for direct module usage)
+    from .coordinates import Vector2D
 
 
 class ShotType(Enum):
@@ -34,115 +68,32 @@ class GameType(Enum):
 
 
 @dataclass
-class Vector2D:
-    """2D vector for positions, velocities, and other vector quantities.
-
-    Provides mathematical operations commonly needed for physics calculations
-    and geometric computations in the billiards simulation.
-    """
-
-    x: float
-    y: float
-
-    def magnitude(self) -> float:
-        """Calculate the length of the vector."""
-        return math.sqrt(self.x**2 + self.y**2)
-
-    def magnitude_squared(self) -> float:
-        """Calculate the squared magnitude (avoids sqrt for performance)."""
-        return self.x**2 + self.y**2
-
-    def normalize(self) -> "Vector2D":
-        """Return a normalized (unit) vector in the same direction."""
-        mag = self.magnitude()
-        return Vector2D(self.x / mag, self.y / mag) if mag > 0 else Vector2D(0, 0)
-
-    def dot(self, other: "Vector2D") -> float:
-        """Calculate the dot product with another vector."""
-        return self.x * other.x + self.y * other.y
-
-    def cross(self, other: "Vector2D") -> float:
-        """Calculate the 2D cross product (returns scalar z-component)."""
-        return self.x * other.y - self.y * other.x
-
-    def distance_to(self, other: "Vector2D") -> float:
-        """Calculate the distance to another point."""
-        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
-
-    def angle_to(self, other: "Vector2D") -> float:
-        """Calculate the angle to another vector in radians."""
-        return math.atan2(other.y - self.y, other.x - self.x)
-
-    def rotate(self, angle: float) -> "Vector2D":
-        """Rotate the vector by the given angle in radians."""
-        cos_a = math.cos(angle)
-        sin_a = math.sin(angle)
-        return Vector2D(
-            self.x * cos_a - self.y * sin_a, self.x * sin_a + self.y * cos_a
-        )
-
-    def scale(self, factor: float) -> "Vector2D":
-        """Scale the vector by a scalar factor."""
-        return Vector2D(self.x * factor, self.y * factor)
-
-    def __add__(self, other: "Vector2D") -> "Vector2D":
-        """Add two vectors."""
-        return Vector2D(self.x + other.x, self.y + other.y)
-
-    def __sub__(self, other: "Vector2D") -> "Vector2D":
-        """Subtract two vectors."""
-        return Vector2D(self.x - other.x, self.y - other.y)
-
-    def __mul__(self, scalar: float) -> "Vector2D":
-        """Multiply vector by a scalar."""
-        return Vector2D(self.x * scalar, self.y * scalar)
-
-    def __truediv__(self, scalar: float) -> "Vector2D":
-        """Divide vector by a scalar."""
-        return Vector2D(self.x / scalar, self.y / scalar)
-
-    def __neg__(self) -> "Vector2D":
-        """Negate the vector."""
-        return Vector2D(-self.x, -self.y)
-
-    def to_dict(self) -> dict[str, float]:
-        """Convert to dictionary for serialization."""
-        return {"x": self.x, "y": self.y}
-
-    @classmethod
-    def from_dict(cls, data: dict[str, float]) -> "Vector2D":
-        """Create from dictionary."""
-        return cls(data["x"], data["y"])
-
-    @classmethod
-    def zero(cls) -> "Vector2D":
-        """Create a zero vector."""
-        return cls(0.0, 0.0)
-
-    @classmethod
-    def unit_x(cls) -> "Vector2D":
-        """Create a unit vector in the x direction."""
-        return cls(1.0, 0.0)
-
-    @classmethod
-    def unit_y(cls) -> "Vector2D":
-        """Create a unit vector in the y direction."""
-        return cls(0.0, 1.0)
-
-
-@dataclass
 class BallState:
     """Complete ball state information.
 
     Represents all physical and logical properties of a billiards ball,
     including position, velocity, spin, and game-specific attributes.
+
+    4K Coordinate System:
+        Ball positions are stored using Vector2D with 4K canonical coordinates
+        (3840×2160) and mandatory scale metadata for resolution tracking.
+
+        Positions are created using Vector2D factory methods:
+        - Vector2D.from_4k(x, y): Create in 4K canonical (scale = 1.0)
+        - Vector2D.from_resolution(x, y, resolution): Create from any resolution
+
+        Convert positions using Vector2D methods:
+        - position.to_4k_canonical(): Convert to 4K canonical
+        - position.to_resolution(target_resolution): Convert to target resolution
     """
 
     id: str
     position: Vector2D
     velocity: Vector2D = field(default_factory=Vector2D.zero)
-    radius: float = 0.028575  # Standard pool ball radius in meters (57.15mm diameter)
-    mass: float = 0.17  # kg, standard pool ball mass
+    radius: float = (
+        36.0  # Ball radius in 4K pixels (BALL_RADIUS_4K = 36 pixels, 72px diameter)
+    )
+    mass: float = 0.17  # kg, standard pool ball mass (physical property, not spatial)
     spin: Vector2D = field(default_factory=Vector2D.zero)  # Top/back/side spin
     is_cue_ball: bool = False
     is_pocketed: bool = False
@@ -158,9 +109,10 @@ class BallState:
             raise ValueError("Ball mass must be positive")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Confidence must be between 0.0 and 1.0")
-        # Handle legacy last_seen field
-        if hasattr(self, "last_seen") and self.last_seen is not None:
-            self.last_update = self.last_seen
+        # Handle legacy last_seen field from older serialized data
+        # Check in __dict__ to avoid AttributeError
+        if "last_seen" in self.__dict__ and self.__dict__["last_seen"] is not None:
+            self.last_update = self.__dict__["last_seen"]
 
     def kinetic_energy(self) -> float:
         """Calculate the kinetic energy of the ball."""
@@ -181,7 +133,10 @@ class BallState:
 
     def distance_to(self, other: "BallState") -> float:
         """Calculate distance to another ball's center."""
-        return self.position.distance_to(other.position)
+        # Simple approach - always use raw distance calculation to avoid type issues
+        dx = self.position.x - other.position.x
+        dy = self.position.y - other.position.y
+        return (dx * dx + dy * dy) ** 0.5
 
     def is_touching(self, other: "BallState", tolerance: float = 0.001) -> bool:
         """Check if this ball is touching another ball."""
@@ -189,14 +144,38 @@ class BallState:
         return self.distance_to(other) <= min_distance
 
     def copy(self) -> "BallState":
-        """Create a deep copy of the ball state."""
+        """Create a deep copy of the ball state.
+
+        Preserves scale metadata from Vector2D instances.
+        """
+        # Copy position preserving scale metadata
+        position = Vector2D(
+            self.position.x,
+            self.position.y,
+            scale=self.position.scale,
+        )
+
+        # Copy velocity preserving scale metadata
+        velocity = Vector2D(
+            self.velocity.x,
+            self.velocity.y,
+            scale=self.velocity.scale,
+        )
+
+        # Copy spin preserving scale metadata
+        spin = Vector2D(
+            self.spin.x,
+            self.spin.y,
+            scale=self.spin.scale,
+        )
+
         return BallState(
             id=self.id,
-            position=Vector2D(self.position.x, self.position.y),
-            velocity=Vector2D(self.velocity.x, self.velocity.y),
+            position=position,
+            velocity=velocity,
             radius=self.radius,
             mass=self.mass,
-            spin=Vector2D(self.spin.x, self.spin.y) if self.spin else Vector2D(0, 0),
+            spin=spin,
             is_cue_ball=self.is_cue_ball,
             is_pocketed=self.is_pocketed,
             number=self.number,
@@ -205,14 +184,17 @@ class BallState:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for serialization."""
+        """Convert to dictionary for serialization.
+
+        Includes coordinate space metadata when present.
+        """
         return {
             "id": self.id,
             "position": self.position.to_dict(),
             "velocity": self.velocity.to_dict(),
             "radius": self.radius,
             "mass": self.mass,
-            "spin": self.spin.to_dict(),
+            "spin": self.spin.to_dict() if self.spin is not None else None,
             "is_cue_ball": self.is_cue_ball,
             "is_pocketed": self.is_pocketed,
             "number": self.number,
@@ -222,20 +204,81 @@ class BallState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BallState":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Automatically deserializes Vector2D with coordinate metadata when present.
+        """
+        # Parse position (Vector2D.from_dict handles metadata automatically)
+        position = Vector2D.from_dict(data["position"])
+
+        # Parse velocity
+        velocity_data = data.get("velocity", {"x": 0, "y": 0})
+        velocity = Vector2D.from_dict(velocity_data)
+
+        # Parse spin
+        spin_data = data.get("spin", {"x": 0, "y": 0})
+        spin = Vector2D.from_dict(spin_data)
+
         return cls(
             id=data["id"],
-            position=Vector2D.from_dict(data["position"]),
-            velocity=Vector2D.from_dict(data.get("velocity", {"x": 0, "y": 0})),
-            radius=data.get("radius", 0.028575),
+            position=position,
+            velocity=velocity,
+            radius=data.get("radius", 36.0),  # Default to 4K pixels (BALL_RADIUS_4K)
             mass=data.get("mass", 0.17),
-            spin=Vector2D.from_dict(data.get("spin", {"x": 0, "y": 0})),
+            spin=spin,
             is_cue_ball=data.get("is_cue_ball", False),
             is_pocketed=data.get("is_pocketed", False),
             number=data.get("number"),
             confidence=data.get("confidence", 1.0),
             last_update=data.get("last_update", datetime.now().timestamp()),
         )
+
+    @classmethod
+    def from_4k(
+        cls, id: str, x: float, y: float, number: Optional[int] = None, **kwargs
+    ) -> "BallState":
+        """Create ball from 4K canonical coordinates.
+
+        Args:
+            id: Unique identifier for the ball
+            x: X coordinate in 4K pixels (3840×2160)
+            y: Y coordinate in 4K pixels
+            number: Ball number (0-15, where 0 is cue ball)
+            **kwargs: Additional ball properties (velocity, radius, etc.)
+
+        Returns:
+            BallState with position in 4K canonical space
+        """
+        position = Vector2D.from_4k(x, y)
+        velocity = kwargs.pop("velocity", Vector2D.from_4k(0, 0))
+        return cls(id=id, position=position, velocity=velocity, number=number, **kwargs)
+
+    @classmethod
+    def from_resolution(
+        cls,
+        id: str,
+        x: float,
+        y: float,
+        resolution: tuple[int, int],
+        number: Optional[int] = None,
+        **kwargs,
+    ) -> "BallState":
+        """Create ball from any resolution coordinates.
+
+        Args:
+            id: Unique identifier for the ball
+            x: X coordinate in source resolution
+            y: Y coordinate in source resolution
+            resolution: Source resolution as (width, height) tuple
+            number: Ball number (0-15, where 0 is cue ball)
+            **kwargs: Additional ball properties
+
+        Returns:
+            BallState with position scaled to 4K
+        """
+        position = Vector2D.from_resolution(x, y, resolution)
+        velocity = kwargs.pop("velocity", Vector2D.from_4k(0, 0))
+        return cls(id=id, position=position, velocity=velocity, number=number, **kwargs)
 
 
 @dataclass
@@ -247,10 +290,12 @@ class TableState:
     ball physics.
     """
 
-    width: float  # meters (converted from mm in legacy systems)
-    height: float  # meters (converted from mm in legacy systems)
+    width: float  # 4K pixels (3200) or legacy meters (2.54)
+    height: float  # 4K pixels (1600) or legacy meters (1.27)
     pocket_positions: list[Vector2D]
-    pocket_radius: float = 0.0635  # Standard pocket radius in meters
+    pocket_radius: float = (
+        0.0635  # Standard pocket radius in meters (legacy) or pixels (4K)
+    )
     cushion_elasticity: float = 0.85  # Coefficient of restitution
     surface_friction: float = 0.2  # Rolling friction coefficient
     surface_slope: float = 0.0  # Surface slope in degrees
@@ -264,15 +309,28 @@ class TableState:
     def __post_init__(self) -> None:
         """Validate table state after initialization and handle legacy fields."""
         # Convert legacy mm measurements to meters if needed
-        if self.width > 10:  # Assume values > 10 are in mm
-            self.width = self.width / 1000.0
-        if self.height > 10:  # Assume values > 10 are in mm
-            self.height = self.height / 1000.0
+        # NEW LOGIC: Don't convert 4K pixel values
+        # 4K table dimensions are 3200×1600 (pixels)
+        # Legacy meter values are 2.54×1.27 (< 10)
+        # Legacy mm values are 2540×1270 (100-3000 range)
+        # If EITHER dimension is >= 3000, assume we're in 4K pixel space (don't convert)
+        # Otherwise, if in mm range (100-3000), convert to meters
+        is_4k_pixels = self.width >= 3000 or self.height >= 1500
 
-        # Handle legacy rail_height field
-        if hasattr(self, "rail_height") and self.rail_height > 0:
+        if not is_4k_pixels:
+            if 100 <= self.width < 3000:  # mm range
+                self.width = self.width / 1000.0
+            if 100 <= self.height < 3000:  # mm range
+                self.height = self.height / 1000.0
+
+        # Handle legacy rail_height field from older serialized data
+        # Check in __dict__ to avoid AttributeError
+        if "rail_height" in self.__dict__ and self.__dict__["rail_height"] > 0:
+            rail_height_value = self.__dict__["rail_height"]
             self.cushion_height = (
-                self.rail_height / 1000.0 if self.rail_height > 1 else self.rail_height
+                rail_height_value / 1000.0
+                if rail_height_value > 1
+                else rail_height_value
             )
 
         if self.width <= 0 or self.height <= 0:
@@ -292,7 +350,11 @@ class TableState:
         """Check if a point is in any pocket and return pocket index if found."""
         effective_radius = self.pocket_radius + tolerance
         for i, pocket_pos in enumerate(self.pocket_positions):
-            if point.distance_to(pocket_pos) <= effective_radius:
+            # Calculate distance manually
+            dx = point.x - pocket_pos.x
+            dy = point.y - pocket_pos.y
+            distance = (dx * dx + dy * dy) ** 0.5
+            if distance <= effective_radius:
                 return True, i
         return False, None
 
@@ -329,8 +391,13 @@ class TableState:
             # Shrink each corner towards centroid
             corners = [
                 Vector2D(
-                    c.x + (cx - c.x) * (margin / c.distance_to(Vector2D(cx, cy))),
-                    c.y + (cy - c.y) * (margin / c.distance_to(Vector2D(cx, cy))),
+                    c.x
+                    + (cx - c.x)
+                    * (margin / c.distance_to(Vector2D(cx, cy, scale=c.scale))),
+                    c.y
+                    + (cy - c.y)
+                    * (margin / c.distance_to(Vector2D(cx, cy, scale=c.scale))),
+                    scale=c.scale,
                 )
                 for c in corners
             ]
@@ -370,10 +437,10 @@ class TableState:
 
         # Get normal vector pointing into the table
         normals = {
-            "top": Vector2D(0, -1),
-            "bottom": Vector2D(0, 1),
-            "left": Vector2D(1, 0),
-            "right": Vector2D(-1, 0),
+            "top": Vector2D(0, -1, scale=(1.0, 1.0)),
+            "bottom": Vector2D(0, 1, scale=(1.0, 1.0)),
+            "left": Vector2D(1, 0, scale=(1.0, 1.0)),
+            "right": Vector2D(-1, 0, scale=(1.0, 1.0)),
         }
 
         return closest_cushion, closest_distance, normals[closest_cushion]
@@ -396,7 +463,7 @@ class TableState:
         scale_y = to_height / from_height
 
         self.playing_area_corners = [
-            Vector2D(corner.x * scale_x, corner.y * scale_y)
+            Vector2D(corner.x * scale_x, corner.y * scale_y, scale=corner.scale)
             for corner in self.playing_area_corners
         ]
 
@@ -437,6 +504,22 @@ class TableState:
         )
 
     @classmethod
+    def standard_table_4k(cls) -> "TableState":
+        """Create standard 9-foot table in 4K pixel coordinates.
+
+        Returns:
+            TableState with all positions in 4K canonical space
+        """
+        from .constants_4k import POCKET_POSITIONS_4K, TABLE_HEIGHT_4K, TABLE_WIDTH_4K
+
+        # Create pockets at standard positions (in 4K pixels)
+        pockets = [Vector2D.from_4k(x, y) for x, y in POCKET_POSITIONS_4K]
+
+        return cls(
+            width=TABLE_WIDTH_4K, height=TABLE_HEIGHT_4K, pocket_positions=pockets
+        )
+
+    @classmethod
     def standard_9ft_table(cls) -> "TableState":
         """Create a standard 9-foot pool table."""
         width = 2.54  # 9 feet in meters
@@ -444,12 +527,12 @@ class TableState:
 
         # Standard pocket positions for 9-foot table
         pocket_positions = [
-            Vector2D(0, 0),  # Bottom left corner
-            Vector2D(width / 2, 0),  # Bottom middle
-            Vector2D(width, 0),  # Bottom right corner
-            Vector2D(0, height),  # Top left corner
-            Vector2D(width / 2, height),  # Top middle
-            Vector2D(width, height),  # Top right corner
+            Vector2D(0, 0, scale=(1.0, 1.0)),  # Bottom left corner
+            Vector2D(width / 2, 0, scale=(1.0, 1.0)),  # Bottom middle
+            Vector2D(width, 0, scale=(1.0, 1.0)),  # Bottom right corner
+            Vector2D(0, height, scale=(1.0, 1.0)),  # Top left corner
+            Vector2D(width / 2, height, scale=(1.0, 1.0)),  # Top middle
+            Vector2D(width, height, scale=(1.0, 1.0)),  # Top right corner
         ]
 
         return cls(width=width, height=height, pocket_positions=pocket_positions)
@@ -486,7 +569,7 @@ class CueState:
     def get_direction_vector(self) -> Vector2D:
         """Get the direction vector the cue is pointing."""
         angle_rad = math.radians(self.angle)
-        return Vector2D(math.cos(angle_rad), math.sin(angle_rad))
+        return Vector2D(math.cos(angle_rad), math.sin(angle_rad), scale=(1.0, 1.0))
 
     def get_aim_line(self, length: float = 2.0) -> tuple[Vector2D, Vector2D]:
         """Get the aim line from the cue tip.
@@ -541,6 +624,48 @@ class CueState:
             last_update=data.get("last_update", datetime.now().timestamp()),
         )
 
+    @classmethod
+    def from_4k(
+        cls, tip_x: float, tip_y: float, angle: float = 0.0, **kwargs
+    ) -> "CueState":
+        """Create cue from 4K canonical coordinates.
+
+        Args:
+            tip_x: Tip X coordinate in 4K pixels (3840×2160)
+            tip_y: Tip Y coordinate in 4K pixels
+            angle: Cue angle in degrees (0 = pointing right, positive = counter-clockwise)
+            **kwargs: Additional cue properties (elevation, estimated_force, length, etc.)
+
+        Returns:
+            CueState with tip position in 4K canonical space
+        """
+        tip_position = Vector2D.from_4k(tip_x, tip_y)
+        return cls(tip_position=tip_position, angle=angle, **kwargs)
+
+    @classmethod
+    def from_resolution(
+        cls,
+        tip_x: float,
+        tip_y: float,
+        resolution: tuple[int, int],
+        angle: float = 0.0,
+        **kwargs,
+    ) -> "CueState":
+        """Create cue from any resolution coordinates.
+
+        Args:
+            tip_x: Tip X coordinate in source resolution
+            tip_y: Tip Y coordinate in source resolution
+            resolution: Source resolution as (width, height) tuple
+            angle: Cue angle in degrees
+            **kwargs: Additional cue properties
+
+        Returns:
+            CueState with tip position scaled to 4K
+        """
+        tip_position = Vector2D.from_resolution(tip_x, tip_y, resolution)
+        return cls(tip_position=tip_position, angle=angle, **kwargs)
+
 
 @dataclass
 class GameEvent:
@@ -575,11 +700,71 @@ class GameEvent:
 
 
 @dataclass
+class CoordinateMetadata:
+    """Metadata describing the coordinate space and resolution of positions.
+
+    This metadata helps clarify what coordinate system ball positions are in
+    and provides information needed for coordinate transformations.
+    """
+
+    # Camera resolution (source of detections)
+    camera_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) e.g., (1920, 1080)
+    )
+
+    # Table playing area bounds in camera pixels
+    table_bounds: Optional[tuple[float, float, float, float]] = (
+        None  # (min_x, min_y, max_x, max_y)
+    )
+
+    # Coordinate space description
+    coordinate_space: str = (
+        "world_meters"  # "world_meters", "camera_pixels", "normalized"
+    )
+
+    # Scale factor for pixel to meter conversion (if applicable)
+    pixels_per_meter: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "camera_resolution": (
+                list(self.camera_resolution) if self.camera_resolution else None
+            ),
+            "table_bounds": list(self.table_bounds) if self.table_bounds else None,
+            "coordinate_space": self.coordinate_space,
+            "pixels_per_meter": self.pixels_per_meter,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "CoordinateMetadata":
+        """Create from dictionary."""
+        camera_res = data.get("camera_resolution")
+        if camera_res and isinstance(camera_res, list):
+            camera_res = tuple(camera_res)
+
+        table_bounds = data.get("table_bounds")
+        if table_bounds and isinstance(table_bounds, list):
+            table_bounds = tuple(table_bounds)
+
+        return cls(
+            camera_resolution=camera_res,
+            table_bounds=table_bounds,
+            coordinate_space=data.get("coordinate_space", "world_meters"),
+            pixels_per_meter=data.get("pixels_per_meter"),
+        )
+
+
+@dataclass
 class GameState:
     """Complete game state.
 
     Represents the entire state of the billiards game at a specific point in time,
     including all balls, table configuration, game rules, and metadata.
+
+    Ball positions are stored in world meters (canonical coordinate system).
+    The coordinate_metadata field provides information about the source resolution
+    and coordinate transformations for clients that need to convert positions.
     """
 
     timestamp: float
@@ -596,6 +781,9 @@ class GameState:
     is_valid: bool = True
     validation_errors: list[str] = field(default_factory=list)
     state_confidence: float = 1.0
+    coordinate_metadata: Optional[CoordinateMetadata] = (
+        None  # Resolution and coordinate space info
+    )
 
     def __post_init__(self) -> None:
         """Validate game state after initialization."""
@@ -760,6 +948,9 @@ class GameState:
             "is_valid": self.is_valid,
             "validation_errors": self.validation_errors,
             "state_confidence": self.state_confidence,
+            "coordinate_metadata": (
+                self.coordinate_metadata.to_dict() if self.coordinate_metadata else None
+            ),
         }
 
     @classmethod
@@ -778,6 +969,12 @@ class GameState:
         if data.get("events"):
             events = [GameEvent.from_dict(event) for event in data["events"]]
 
+        coordinate_metadata = None
+        if data.get("coordinate_metadata"):
+            coordinate_metadata = CoordinateMetadata.from_dict(
+                data["coordinate_metadata"]
+            )
+
         return cls(
             timestamp=data["timestamp"],
             frame_number=data["frame_number"],
@@ -793,6 +990,7 @@ class GameState:
             is_valid=data.get("is_valid", True),
             validation_errors=data.get("validation_errors", []),
             state_confidence=data.get("state_confidence", 1.0),
+            coordinate_metadata=coordinate_metadata,
         )
 
     @classmethod
@@ -809,7 +1007,7 @@ class GameState:
         # Cue ball
         cue_ball = BallState(
             id="cue",
-            position=Vector2D(table.width * 0.25, table.height * 0.5),
+            position=Vector2D(table.width * 0.25, table.height * 0.5, scale=(1.0, 1.0)),
             is_cue_ball=True,
         )
         balls.append(cue_ball)
@@ -846,7 +1044,9 @@ class GameState:
             y = rack_y + dy * spacing * 0.5
 
             ball = BallState(
-                id=f"ball_{ball_number}", position=Vector2D(x, y), number=ball_number
+                id=f"ball_{ball_number}",
+                position=Vector2D(x, y, scale=(1.0, 1.0)),
+                number=ball_number,
             )
             balls.append(ball)
 
@@ -1020,7 +1220,9 @@ class Trajectory:
         # Interpolate between points
         t = index - lower_idx
         p1, p2 = self.points[lower_idx], self.points[upper_idx]
-        return Vector2D(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y))
+        return Vector2D(
+            p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y), scale=p1.scale
+        )
 
     def get_collisions_before_time(self, time: float) -> list[Collision]:
         """Get all collisions that occur before the specified time."""
@@ -1209,7 +1411,9 @@ def deserialize_from_json(json_str: str, model_class: Any) -> Any:
 
 def calculate_ball_separation(ball1: BallState, ball2: BallState) -> float:
     """Calculate the separation between two balls (edge to edge)."""
-    center_distance = ball1.position.distance_to(ball2.position)
+    center_distance = ball1.distance_to(
+        ball2
+    )  # Use BallState's distance_to which handles both types
     return max(0.0, center_distance - ball1.radius - ball2.radius)
 
 
@@ -1258,7 +1462,9 @@ def create_standard_ball_set() -> list[BallState]:
     # Cue ball at a reasonable position
     cue_ball = BallState(
         id="cue",
-        position=Vector2D(0.5, 0.5),  # Safe position in middle of a standard table
+        position=Vector2D(
+            0.5, 0.5, scale=(1.0, 1.0)
+        ),  # Safe position in middle of a standard table
         is_cue_ball=True,
     )
     balls.append(cue_ball)
@@ -1271,7 +1477,9 @@ def create_standard_ball_set() -> list[BallState]:
 
     for i in range(1, 16):
         x = start_x + (i - 1) * spacing
-        ball = BallState(id=f"ball_{i}", position=Vector2D(x, start_y), number=i)
+        ball = BallState(
+            id=f"ball_{i}", position=Vector2D(x, start_y, scale=(1.0, 1.0)), number=i
+        )
         balls.append(ball)
 
     return balls

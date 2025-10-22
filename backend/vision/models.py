@@ -64,15 +64,24 @@ class Ball:
     """Detected ball information with tracking data.
 
     Represents a single pool ball with position, type, movement, and tracking metadata.
+
+    All position coordinates are in 4K canonical space (3840×2160) by default,
+    with source_resolution metadata to track the original camera resolution.
     """
 
-    position: tuple[float, float]  # (x, y) in pixels
+    position: tuple[float, float]  # (x, y) in pixel coordinates
     radius: float  # pixels
     ball_type: BallType
     number: Optional[int] = None  # 1-15 for numbered balls, None for cue/8-ball
     confidence: float = 0.0  # 0.0-1.0 detection confidence
-    velocity: tuple[float, float] = (0.0, 0.0)  # (vx, vy) pixels/second
-    acceleration: tuple[float, float] = (0.0, 0.0)  # (ax, ay) pixels/second²
+    velocity: tuple[float, float] = (
+        0.0,
+        0.0,
+    )  # (vx, vy) in pixel coordinates, pixels/second
+    acceleration: tuple[float, float] = (
+        0.0,
+        0.0,
+    )  # (ax, ay) in pixel coordinates, pixels/second²
     is_moving: bool = False
 
     # Tracking information
@@ -86,8 +95,16 @@ class Ball:
     occlusion_state: float = 0.0  # 0.0 = fully visible, 1.0 = fully occluded
 
     # Prediction and filtering
-    predicted_position: Optional[tuple[float, float]] = None
-    position_history: list[tuple[float, float]] = field(default_factory=list)
+    predicted_position: Optional[tuple[float, float]] = None  # in pixel coordinates
+    position_history: list[tuple[float, float]] = field(
+        default_factory=list
+    )  # in pixel coordinates
+
+    # Coordinate space metadata
+    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
+    source_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) of source frame
+    )
 
     def update_history(self, max_history: int = 10) -> None:
         """Update position history, keeping only recent positions."""
@@ -95,15 +112,40 @@ class Ball:
         if len(self.position_history) > max_history:
             self.position_history.pop(0)
 
+    def to_world_coordinates(
+        self, homography_matrix: Optional[NDArray[np.float64]] = None
+    ) -> Optional[tuple[float, float]]:
+        """Convert ball position to world coordinates.
+
+        Args:
+            homography_matrix: 3x3 homography matrix for perspective transformation.
+                             If None, returns None.
+
+        Returns:
+            Position in world coordinates (meters), or None if conversion unavailable.
+        """
+        if homography_matrix is None or self.coordinate_space == "world":
+            return None
+
+        # Apply homography transformation
+        point = np.array([[self.position[0], self.position[1]]], dtype=np.float32)
+        transformed = np.dot(homography_matrix, np.append(point[0], 1.0))
+        transformed = transformed / transformed[2]  # Normalize by w component
+
+        return (float(transformed[0]), float(transformed[1]))
+
 
 @dataclass
 class Pocket:
-    """Pool table pocket information."""
+    """Pool table pocket information.
 
-    position: tuple[float, float]  # Center position in pixels
+    All position coordinates are in pixel space unless otherwise specified.
+    """
+
+    position: tuple[float, float]  # Center position in pixel coordinates
     pocket_type: PocketType
     radius: float  # Effective radius in pixels
-    corners: list[tuple[float, float]]  # Corner points defining pocket shape
+    corners: list[tuple[float, float]]  # Corner points in pixel coordinates
 
 
 @dataclass
@@ -111,9 +153,12 @@ class CueStick:
     """Detected cue stick information with state tracking.
 
     Represents the cue stick with position, orientation, state, and motion data.
+
+    All position coordinates are in 4K canonical space (3840×2160) by default,
+    with source_resolution metadata to track the original camera resolution.
     """
 
-    tip_position: tuple[float, float]  # Tip position in pixels
+    tip_position: tuple[float, float]  # Tip position in pixel coordinates
     angle: float  # degrees from horizontal
     length: float  # visible length in pixels
     confidence: float = 0.0  # 0.0-1.0 detection confidence
@@ -123,23 +168,71 @@ class CueStick:
     is_aiming: bool = False  # Backward compatibility
 
     # Motion tracking
-    tip_velocity: tuple[float, float] = (0.0, 0.0)  # pixels/second
+    tip_velocity: tuple[float, float] = (
+        0.0,
+        0.0,
+    )  # in pixel coordinates, pixels/second
     angular_velocity: float = 0.0  # degrees/second
 
     # Geometry
     butt_position: tuple[float, float] = (
         0.0,
         0.0,
-    )  # Butt (back end) position in pixels
+    )  # Butt (back end) position in pixel coordinates
     shaft_points: list[tuple[float, float]] = field(
         default_factory=list
-    )  # Points along the shaft
+    )  # Points along the shaft in pixel coordinates
     width: float = 0.0  # Estimated cue width in pixels
 
     # Interaction
     target_ball_id: Optional[int] = None  # ID of ball being aimed at
-    predicted_contact_point: Optional[tuple[float, float]] = None
-    aiming_line: Optional[list[tuple[float, float]]] = None  # Line from cue to target
+    predicted_contact_point: Optional[tuple[float, float]] = (
+        None  # in pixel coordinates
+    )
+    aiming_line: Optional[list[tuple[float, float]]] = (
+        None  # Line from cue to target in pixel coordinates
+    )
+
+    # Coordinate space metadata
+    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
+    source_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) of source frame
+    )
+
+    def to_world_coordinates(
+        self, homography_matrix: Optional[NDArray[np.float64]] = None
+    ) -> Optional[tuple[tuple[float, float], tuple[float, float]]]:
+        """Convert cue stick tip and butt positions to world coordinates.
+
+        Args:
+            homography_matrix: 3x3 homography matrix for perspective transformation.
+                             If None, returns None.
+
+        Returns:
+            Tuple of (tip_position, butt_position) in world coordinates (meters),
+            or None if conversion unavailable.
+        """
+        if homography_matrix is None or self.coordinate_space == "world":
+            return None
+
+        # Apply homography to tip position
+        tip_point = np.array(
+            [[self.tip_position[0], self.tip_position[1]]], dtype=np.float32
+        )
+        tip_transformed = np.dot(homography_matrix, np.append(tip_point[0], 1.0))
+        tip_transformed = tip_transformed / tip_transformed[2]
+
+        # Apply homography to butt position
+        butt_point = np.array(
+            [[self.butt_position[0], self.butt_position[1]]], dtype=np.float32
+        )
+        butt_transformed = np.dot(homography_matrix, np.append(butt_point[0], 1.0))
+        butt_transformed = butt_transformed / butt_transformed[2]
+
+        return (
+            (float(tip_transformed[0]), float(tip_transformed[1])),
+            (float(butt_transformed[0]), float(butt_transformed[1])),
+        )
 
 
 @dataclass
@@ -147,9 +240,14 @@ class Table:
     """Detected table information with comprehensive geometry.
 
     Represents the pool table with boundaries, pockets, and surface properties.
+
+    All position coordinates are in 4K canonical space (3840×2160) by default,
+    with source_resolution metadata to track the original camera resolution.
     """
 
-    corners: list[tuple[float, float]]  # 4 corners in clockwise order
+    corners: list[
+        tuple[float, float]
+    ]  # 4 corners in clockwise order, pixel coordinates
     pockets: list[Pocket]  # All 6 pockets
     width: float  # pixels
     height: float  # pixels
@@ -158,10 +256,10 @@ class Table:
     # Geometric properties
     rails: list[list[tuple[float, float]]] = field(
         default_factory=list
-    )  # Rail segments
+    )  # Rail segments in pixel coordinates
     playing_area: list[tuple[float, float]] = field(
         default_factory=list
-    )  # Inner boundary
+    )  # Inner boundary in pixel coordinates
 
     # Calibration data
     perspective_transform: Optional[NDArray[np.float64]] = None  # 3x3 transform matrix
@@ -174,12 +272,25 @@ class Table:
     felt_condition: float = 1.0  # 0.0 = poor, 1.0 = excellent
     lighting_quality: float = 1.0  # 0.0 = poor, 1.0 = excellent
 
+    # Coordinate space metadata
+    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
+    source_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) of source frame
+    )
+
     def get_pocket_by_type(self, pocket_type: PocketType) -> list[Pocket]:
         """Get all pockets of specified type."""
         return [p for p in self.pockets if p.pocket_type == pocket_type]
 
     def nearest_pocket(self, position: tuple[float, float]) -> Optional[Pocket]:
-        """Find nearest pocket to given position."""
+        """Find nearest pocket to given position.
+
+        Args:
+            position: Position in pixel coordinates (x, y)
+
+        Returns:
+            Nearest pocket, or None if no pockets available.
+        """
         if not self.pockets:
             return None
 
@@ -196,6 +307,29 @@ class Table:
 
         return nearest
 
+    def to_world_coordinates(
+        self, point: tuple[float, float]
+    ) -> Optional[tuple[float, float]]:
+        """Convert a point from pixel coordinates to world coordinates.
+
+        Uses the table's perspective_transform if available.
+
+        Args:
+            point: Point in pixel coordinates (x, y)
+
+        Returns:
+            Point in world coordinates (meters), or None if conversion unavailable.
+        """
+        if self.perspective_transform is None or self.coordinate_space == "world":
+            return None
+
+        # Apply homography transformation
+        point_array = np.array([[point[0], point[1]]], dtype=np.float32)
+        transformed = np.dot(self.perspective_transform, np.append(point_array[0], 1.0))
+        transformed = transformed / transformed[2]  # Normalize by w component
+
+        return (float(transformed[0]), float(transformed[1]))
+
 
 # =============================================================================
 # Processing Results
@@ -208,6 +342,9 @@ class CameraFrame:
 
     Wraps a numpy frame array with metadata for passing through the vision pipeline.
     Provides convenient properties for frame dimensions and manipulation.
+
+    All pixel coordinates in this frame are in the coordinate space defined by
+    width x height resolution.
     """
 
     frame: NDArray[np.uint8]  # The actual image data
@@ -216,6 +353,12 @@ class CameraFrame:
     width: int
     height: int
 
+    # Optional resolution metadata for coordinate space tracking
+    original_resolution: Optional[tuple[int, int]] = (
+        None  # Original capture resolution if frame was resized
+    )
+    coordinate_space: str = "pixel"  # "pixel" or other coordinate systems
+
     @property
     def aspect_ratio(self) -> float:
         """Calculate frame aspect ratio."""
@@ -223,12 +366,21 @@ class CameraFrame:
 
     @property
     def center(self) -> tuple[int, int]:
-        """Get frame center coordinates."""
+        """Get frame center coordinates in pixel space."""
         return (self.width // 2, self.height // 2)
 
     @property
     def size(self) -> tuple[int, int]:
         """Get frame dimensions as (width, height) tuple."""
+        return (self.width, self.height)
+
+    @property
+    def resolution(self) -> tuple[int, int]:
+        """Get current frame resolution.
+
+        Returns:
+            Current resolution as (width, height).
+        """
         return (self.width, self.height)
 
     def copy(self) -> "CameraFrame":
@@ -239,6 +391,8 @@ class CameraFrame:
             frame_id=self.frame_id,
             width=self.width,
             height=self.height,
+            original_resolution=self.original_resolution,
+            coordinate_space=self.coordinate_space,
         )
 
 
@@ -422,17 +576,22 @@ class DetectionSession:
 
 @dataclass
 class ShotEvent:
-    """Detected shot event with analysis."""
+    """Detected shot event with analysis.
+
+    All position coordinates are in pixel space unless otherwise specified.
+    """
 
     shot_id: int
     timestamp: float
-    cue_ball_position: tuple[float, float]
-    target_ball_position: Optional[tuple[float, float]]
+    cue_ball_position: tuple[float, float]  # in pixel coordinates
+    target_ball_position: Optional[tuple[float, float]]  # in pixel coordinates
     cue_angle: float
     estimated_force: float
-    contact_point: Optional[tuple[float, float]]
+    contact_point: Optional[tuple[float, float]]  # in pixel coordinates
 
     # Results
     balls_potted: list[int] = field(default_factory=list)
-    final_positions: dict[int, tuple[float, float]] = field(default_factory=dict)
+    final_positions: dict[int, tuple[float, float]] = field(
+        default_factory=dict
+    )  # in pixel coordinates
     shot_quality: float = 0.0  # 0.0-1.0 quality assessment

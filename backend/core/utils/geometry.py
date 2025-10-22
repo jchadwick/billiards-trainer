@@ -1,11 +1,17 @@
-"""Geometric utility functions for billiards calculations."""
+"""Geometric utility functions for billiards calculations.
+
+All spatial operations work in 4K canonical pixel coordinates (3840×2160).
+Distances, positions, and radii are expressed in pixels.
+
+IMPORTANT: All Vector2D instances should include scale metadata to ensure
+proper coordinate space tracking. See constants_4k.py for canonical dimensions.
+"""
 
 import math
-from typing import Optional
 
-from backend.config import Config, config
+from config import Config, config
 
-from ..models import Vector2D
+from ..coordinates import Vector2D
 
 
 def _get_config() -> Config:
@@ -18,13 +24,16 @@ def angle_between_points(x1: float, y1: float, x2: float, y2: float) -> float:
     """Calculate angle in degrees from point (x1, y1) to point (x2, y2).
 
     Args:
-        x1: X coordinate of first point
-        y1: Y coordinate of first point
-        x2: X coordinate of second point
-        y2: Y coordinate of second point
+        x1: X coordinate of first point in 4K pixels
+        y1: Y coordinate of first point in 4K pixels
+        x2: X coordinate of second point in 4K pixels
+        y2: Y coordinate of second point in 4K pixels
 
     Returns:
         Angle in degrees from point 1 to point 2
+
+    Note:
+        All coordinates should be in 4K canonical space for consistency.
     """
     return math.degrees(math.atan2(y2 - y1, x2 - x1))
 
@@ -33,13 +42,16 @@ def distance(x1: float, y1: float, x2: float, y2: float) -> float:
     """Calculate Euclidean distance between two points.
 
     Args:
-        x1: X coordinate of first point
-        y1: Y coordinate of first point
-        x2: X coordinate of second point
-        y2: Y coordinate of second point
+        x1: X coordinate of first point in 4K pixels
+        y1: Y coordinate of first point in 4K pixels
+        x2: X coordinate of second point in 4K pixels
+        y2: Y coordinate of second point in 4K pixels
 
     Returns:
-        Distance between the two points
+        Distance between the two points in 4K pixels
+
+    Note:
+        All coordinates should be in 4K canonical space for consistency.
     """
     return math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
 
@@ -94,12 +106,31 @@ class GeometryUtils:
     def distance_between_points(
         p1: tuple[float, float], p2: tuple[float, float]
     ) -> float:
-        """Calculate distance between two points."""
+        """Calculate distance between two points.
+
+        Args:
+            p1: First point (x, y) in 4K pixels
+            p2: Second point (x, y) in 4K pixels
+
+        Returns:
+            Distance in 4K pixels
+        """
         return math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2)
 
     @staticmethod
     def distance_between_vectors(v1: Vector2D, v2: Vector2D) -> float:
-        """Calculate distance between two vector points."""
+        """Calculate distance between two vector points.
+
+        Args:
+            v1: First point in 4K pixels
+            v2: Second point in 4K pixels
+
+        Returns:
+            Distance in 4K pixels
+
+        Note:
+            Both vectors should be in the same coordinate space (4K canonical).
+        """
         return math.sqrt((v2.x - v1.x) ** 2 + (v2.y - v1.y) ** 2)
 
     @staticmethod
@@ -128,7 +159,20 @@ class GeometryUtils:
     def line_circle_intersection(
         line_start: Vector2D, line_end: Vector2D, circle_center: Vector2D, radius: float
     ) -> list[Vector2D]:
-        """Find intersection points between line segment and circle."""
+        """Find intersection points between line segment and circle.
+
+        Args:
+            line_start: Line start point in 4K pixels
+            line_end: Line end point in 4K pixels
+            circle_center: Circle center in 4K pixels
+            radius: Circle radius in 4K pixels
+
+        Returns:
+            List of intersection points in 4K pixels (0-2 points)
+
+        Note:
+            All coordinates should be in 4K canonical space.
+        """
         # Convert to relative coordinates (circle at origin)
         dx = line_end.x - line_start.x
         dy = line_end.y - line_start.y
@@ -158,7 +202,7 @@ class GeometryUtils:
             if 0 <= t <= 1:
                 x = line_start.x + t * dx
                 y = line_start.y + t * dy
-                intersections.append(Vector2D(x, y))
+                intersections.append(Vector2D(x, y, scale=line_start.scale))
 
         return intersections
 
@@ -166,9 +210,23 @@ class GeometryUtils:
     def point_line_distance(
         point: Vector2D, line_start: Vector2D, line_end: Vector2D
     ) -> float:
-        """Calculate shortest distance from point to line segment."""
+        """Calculate shortest distance from point to line segment.
+
+        Args:
+            point: Point in 4K pixels
+            line_start: Line start point in 4K pixels
+            line_end: Line end point in 4K pixels
+
+        Returns:
+            Distance in 4K pixels
+
+        Note:
+            All coordinates should be in 4K canonical space.
+        """
         # Vector from line_start to line_end
-        line_vec = Vector2D(line_end.x - line_start.x, line_end.y - line_start.y)
+        line_vec = Vector2D(
+            line_end.x - line_start.x, line_end.y - line_start.y, scale=line_start.scale
+        )
         line_length_sq = line_vec.x**2 + line_vec.y**2
 
         if line_length_sq == 0:
@@ -176,14 +234,20 @@ class GeometryUtils:
             return GeometryUtils.distance_between_vectors(point, line_start)
 
         # Vector from line_start to point
-        point_vec = Vector2D(point.x - line_start.x, point.y - line_start.y)
+        point_vec = Vector2D(
+            point.x - line_start.x, point.y - line_start.y, scale=point.scale
+        )
 
         # Project point onto line
         t = (point_vec.x * line_vec.x + point_vec.y * line_vec.y) / line_length_sq
         t = max(0, min(1, t))  # Clamp to line segment
 
         # Find closest point on line segment
-        closest = Vector2D(line_start.x + t * line_vec.x, line_start.y + t * line_vec.y)
+        closest = Vector2D(
+            line_start.x + t * line_vec.x,
+            line_start.y + t * line_vec.y,
+            scale=line_start.scale,
+        )
 
         return GeometryUtils.distance_between_vectors(point, closest)
 
@@ -196,7 +260,9 @@ class GeometryUtils:
         # Calculate reflection: v' = v - 2(v·n)n
         dot_product = incident.x * n.x + incident.y * n.y
         return Vector2D(
-            incident.x - 2 * dot_product * n.x, incident.y - 2 * dot_product * n.y
+            incident.x - 2 * dot_product * n.x,
+            incident.y - 2 * dot_product * n.y,
+            scale=incident.scale,
         )
 
     @staticmethod
@@ -214,7 +280,7 @@ class GeometryUtils:
         rotated_y = dx * sin_a + dy * cos_a
 
         # Translate back
-        return Vector2D(rotated_x + center.x, rotated_y + center.y)
+        return Vector2D(rotated_x + center.x, rotated_y + center.y, scale=point.scale)
 
     @staticmethod
     def normalize_angle(angle: float) -> float:
@@ -258,7 +324,20 @@ class GeometryUtils:
     def circle_circle_intersection(
         center1: Vector2D, radius1: float, center2: Vector2D, radius2: float
     ) -> list[Vector2D]:
-        """Find intersection points between two circles."""
+        """Find intersection points between two circles.
+
+        Args:
+            center1: First circle center in 4K pixels
+            radius1: First circle radius in 4K pixels
+            center2: Second circle center in 4K pixels
+            radius2: Second circle radius in 4K pixels
+
+        Returns:
+            List of intersection points in 4K pixels (0-2 points)
+
+        Note:
+            All coordinates should be in 4K canonical space.
+        """
         # Distance between centers
         d = GeometryUtils.distance_between_vectors(center1, center2)
 
@@ -282,11 +361,13 @@ class GeometryUtils:
         intersection1 = Vector2D(
             p2_x + h * (center2.y - center1.y) / d,
             p2_y - h * (center2.x - center1.x) / d,
+            scale=center1.scale,
         )
 
         intersection2 = Vector2D(
             p2_x - h * (center2.y - center1.y) / d,
             p2_y + h * (center2.x - center1.x) / d,
+            scale=center1.scale,
         )
 
         return [intersection1, intersection2]
@@ -327,7 +408,9 @@ class GeometryUtils:
     def lerp(start: Vector2D, end: Vector2D, t: float) -> Vector2D:
         """Linear interpolation between two points."""
         return Vector2D(
-            start.x + t * (end.x - start.x), start.y + t * (end.y - start.y)
+            start.x + t * (end.x - start.x),
+            start.y + t * (end.y - start.y),
+            scale=start.scale,
         )
 
     @staticmethod
@@ -344,6 +427,7 @@ class GeometryUtils:
         p = Vector2D(
             uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x,
             uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y,
+            scale=p0.scale,
         )
 
         return p
@@ -388,7 +472,7 @@ class GeometryUtils:
             final_x = curr_point.x + smoothing_factor * (smoothed_x - curr_point.x)
             final_y = curr_point.y + smoothing_factor * (smoothed_y - curr_point.y)
 
-            smoothed.append(Vector2D(final_x, final_y))
+            smoothed.append(Vector2D(final_x, final_y, scale=curr_point.scale))
 
         smoothed.append(points[-1])  # Keep last point
         return smoothed
@@ -424,19 +508,16 @@ def find_ball_cue_is_pointing_at(
        - Keep balls within max_perpendicular_distance threshold
     4. Return index of closest ball along cue direction
 
-    The function works in pixel coordinates and uses a perpendicular distance
-    threshold to determine if a ball is "close enough" to the cue line to be
-    considered the target. Only balls in front of the cue tip are considered.
-
     Args:
-        cue_tip: Position of the cue tip as (x, y) tuple or Vector2D
+        cue_tip: Position of the cue tip in 4K pixels as (x, y) tuple or Vector2D
         cue_direction: Direction vector the cue is pointing as (dx, dy) tuple or Vector2D.
             If None, cue_angle must be provided.
         cue_angle: Angle of the cue in degrees (0 = pointing right, counter-clockwise positive).
             Only used if cue_direction is None.
-        balls: List of ball positions as (x, y) tuples or Vector2D objects
-        max_perpendicular_distance: Maximum perpendicular distance (in pixels) from the
-            cue line for a ball to be considered a target. Default is 40 pixels.
+        balls: List of ball positions in 4K pixels as (x, y) tuples or Vector2D objects
+        max_perpendicular_distance: Maximum perpendicular distance in 4K pixels from the
+            cue line for a ball to be considered a target. Default is 40 pixels (approximately
+            one ball diameter in 4K canonical space where ball radius = 36 pixels).
 
     Returns:
         Index of the ball the cue is pointing at (index in balls list), or None if no
@@ -447,9 +528,10 @@ def find_ball_cue_is_pointing_at(
             parameters are missing.
 
     Example:
-        >>> cue_tip = (100, 200)
+        >>> # All coordinates in 4K pixels
+        >>> cue_tip = (1920, 1080)  # Table center
         >>> cue_angle = 45.0  # pointing up-right
-        >>> balls = [(150, 250), (200, 300), (300, 100)]
+        >>> balls = [(2100, 1260), (2300, 1440), (2500, 1000)]
         >>> target_idx = find_ball_cue_is_pointing_at(
         ...     cue_tip, cue_angle=cue_angle, balls=balls
         ... )
@@ -457,10 +539,12 @@ def find_ball_cue_is_pointing_at(
         ...     print(f"Aiming at ball at {balls[target_idx]}")
 
     Note:
+        - All coordinates should be in 4K canonical space (3840×2160)
         - The function uses perpendicular distance (cross product) to determine proximity
-        - Only balls in front of the cue tip (positive projection along cue direction) are considered
-        - If multiple balls are within threshold, the closest one along the cue direction is returned
+        - Only balls in front of the cue tip (positive projection) are considered
+        - If multiple balls are within threshold, the closest one along cue direction is returned
         - Works with both tuple (x, y) and Vector2D inputs for flexibility
+        - Default threshold of 40px ≈ 1 ball diameter (ball radius in 4K is 36px)
     """
     if balls is None or len(balls) == 0:
         return None

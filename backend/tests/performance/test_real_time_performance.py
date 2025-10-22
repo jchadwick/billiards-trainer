@@ -9,8 +9,9 @@ import numpy as np
 import pytest
 from api.websocket.handler import WebSocketHandler
 from core.physics.engine import PhysicsEngine
-from vision.detection.balls import BallDetector
-from vision.tracking.tracker import ObjectTracker
+
+from backend.vision.detection.balls import BallDetector
+from backend.vision.tracking.tracker import ObjectTracker
 
 
 @pytest.mark.performance()

@@ -1,13 +1,25 @@
-"""Player assistance feature algorithms."""
+"""Player assistance feature algorithms.
+
+All spatial calculations use the 4K coordinate system (3840×2160).
+Safe zone radii and distance thresholds are scaled appropriately for 4K.
+"""
 
 import math
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from backend.config import Config, config
+from config import Config, config
 
-from ..models import BallState, GameState, GameType, ShotType, TableState, Vector2D
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    CANONICAL_HEIGHT,
+    CANONICAL_WIDTH,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
+from ..models import BallState, GameState, GameType, ShotType, TableState
 from ..utils.geometry import GeometryUtils
 from .prediction import OutcomePredictor
 from .shot import ShotAnalysis, ShotAnalyzer
@@ -232,12 +244,12 @@ class AssistanceEngine:
         )
 
         # Calculate aim point (contact point on target ball)
-        direction = Vector2D(
+        direction = Vector2D.from_4k(
             ghost_ball_pos.x - target_ball.position.x,
             ghost_ball_pos.y - target_ball.position.y,
         ).normalize()
 
-        aim_point = Vector2D(
+        aim_point = Vector2D.from_4k(
             target_ball.position.x - direction.x * target_ball.radius,
             target_ball.position.y - direction.y * target_ball.radius,
         )
@@ -820,11 +832,13 @@ class AssistanceEngine:
         direction = Vector2D(
             target_ball.position.x - target_point.x,
             target_ball.position.y - target_point.y,
+            target_ball.position.scale,
         ).normalize()
 
         return Vector2D(
             target_ball.position.x + direction.x * ball_diameter,
             target_ball.position.y + direction.y * ball_diameter,
+            target_ball.position.scale,
         )
 
     def _calculate_cut_angle(
@@ -832,13 +846,13 @@ class AssistanceEngine:
     ) -> float:
         """Calculate the cut angle for the shot."""
         # Vector from cue ball to target ball
-        cue_to_target = Vector2D(
+        cue_to_target = Vector2D.from_4k(
             target_ball.position.x - cue_ball.position.x,
             target_ball.position.y - cue_ball.position.y,
         )
 
         # Vector from target ball to target point
-        target_to_point = Vector2D(
+        target_to_point = Vector2D.from_4k(
             target_point.x - target_ball.position.x,
             target_point.y - target_ball.position.y,
         )
@@ -857,24 +871,28 @@ class AssistanceEngine:
         # Get spin recommendations from config
         spin_config = self.config.get("core.assistance.spin_recommendations", {})
 
-        # Simplified spin calculation
+        # Simplified spin calculation (spin values are unitless, use 4K scale)
+        SCALE_4K = (1.0, 1.0)
         if shot_analysis.shot_type == ShotType.BANK:
             # Bank shots often benefit from slight running english
             return Vector2D(
                 spin_config.get("bank_shot_english_x", 0.3),
                 spin_config.get("bank_shot_english_y", 0.0),
+                SCALE_4K,
             )
         elif shot_analysis.shot_type == ShotType.SAFETY:
             # Safety shots often use draw to control cue ball
             return Vector2D(
                 spin_config.get("safety_draw_x", 0.0),
                 spin_config.get("safety_draw_y", -0.2),
+                SCALE_4K,
             )
         else:
             # Most shots are fine with center ball
             return Vector2D(
                 spin_config.get("center_ball_x", 0.0),
                 spin_config.get("center_ball_y", 0.0),
+                SCALE_4K,
             )
 
     def _generate_power_explanation(
@@ -930,14 +948,16 @@ class AssistanceEngine:
 
     # Safe zone calculation methods
     def _find_defensive_zones(self, game_state: GameState) -> list[SafeZone]:
-        """Find zones that make opponent's next shot difficult."""
+        """Find zones that make opponent's next shot difficult (4K pixels)."""
         zones = []
 
-        # Get defensive zone config
+        # Get defensive zone config (4K pixel values)
         defensive_config = self.config.get("core.assistance.safe_zones.defensive", {})
-        cluster_distance = defensive_config.get("cluster_distance_threshold", 0.15)
+        # Cluster distance: reasonable clustering distance in 4K pixels (~480 pixels = ~15% of table width)
+        cluster_distance = defensive_config.get("cluster_distance_threshold", 480)
         min_nearby = defensive_config.get("min_nearby_balls", 2)
-        zone_radius = defensive_config.get("zone_radius", 0.1)
+        # Zone radius in 4K pixels (~320 pixels = ~10% of table width)
+        zone_radius = defensive_config.get("zone_radius", 320)
         safety_score = defensive_config.get("safety_score", 0.7)
         access_difficulty = defensive_config.get("access_difficulty", 0.6)
 
@@ -962,7 +982,7 @@ class AssistanceEngine:
                 # This is a cluster - zone behind it is defensive
                 zone = SafeZone(
                     zone_type=SafeZoneType.DEFENSIVE,
-                    center=Vector2D(ball.position.x, ball.position.y),
+                    center=Vector2D.from_4k(ball.position.x, ball.position.y),
                     radius=zone_radius,
                     safety_score=safety_score,
                     benefits=["Makes opponent's shots more difficult"],
@@ -974,27 +994,29 @@ class AssistanceEngine:
         return zones
 
     def _find_scratch_safe_zones(self, game_state: GameState) -> list[SafeZone]:
-        """Find zones that minimize scratch risk."""
+        """Find zones that minimize scratch risk (4K pixels)."""
         zones = []
 
-        # Get scratch-safe zone config
+        # Get scratch-safe zone config (4K pixel values)
         scratch_config = self.config.get("core.assistance.safe_zones.scratch_safe", {})
-        safe_distance = scratch_config.get("safe_distance_from_pocket", 0.2)
-        zone_radius = scratch_config.get("zone_radius", 0.08)
+        # Safe distance from pocket in 4K pixels (~640 pixels = ~20% of table width)
+        safe_distance = scratch_config.get("safe_distance_from_pocket", 640)
+        # Zone radius in 4K pixels (~256 pixels = ~8% of table width)
+        zone_radius = scratch_config.get("zone_radius", 256)
         safety_score = scratch_config.get("safety_score", 0.8)
         access_difficulty = scratch_config.get("access_difficulty", 0.4)
 
         # Areas away from pockets
         for pocket in game_state.table.pocket_positions:
             # Find direction away from pocket center
-            table_center = Vector2D(
+            table_center = Vector2D.from_4k(
                 game_state.table.width / 2, game_state.table.height / 2
             )
-            away_direction = Vector2D(
+            away_direction = Vector2D.from_4k(
                 table_center.x - pocket.x, table_center.y - pocket.y
             ).normalize()
 
-            safe_center = Vector2D(
+            safe_center = Vector2D.from_4k(
                 pocket.x + away_direction.x * safe_distance,
                 pocket.y + away_direction.y * safe_distance,
             )
@@ -1015,7 +1037,7 @@ class AssistanceEngine:
         return zones
 
     def _find_position_play_zones(self, game_state: GameState) -> list[SafeZone]:
-        """Find zones good for position on next shot."""
+        """Find zones good for position on next shot (4K pixels)."""
         zones = []
 
         # Get position play zone config
@@ -1024,7 +1046,8 @@ class AssistanceEngine:
         )
         x_factor = position_config.get("table_position_x_factor", 0.4)
         y_factor = position_config.get("table_position_y_factor", 0.5)
-        zone_radius = position_config.get("zone_radius", 0.15)
+        # Zone radius in 4K pixels (~480 pixels = ~15% of table width)
+        zone_radius = position_config.get("zone_radius", 480)
         safety_score = position_config.get("safety_score", 0.6)
         access_difficulty = position_config.get("access_difficulty", 0.5)
         min_legal = position_config.get("min_legal_targets", 2)

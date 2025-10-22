@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Optional, Union
 
-from backend.config import config_manager
+from config import config_manager
 
 from .handler import websocket_handler
 
@@ -263,7 +263,14 @@ class WebSocketManager:
         subscribers = self.stream_subscribers[stream_type].copy()
 
         if not subscribers:
+            logger.debug(
+                f"No subscribers for stream '{stream_type.value}' - available subscribers: { {k.value: len(v) for k, v in self.stream_subscribers.items()} }"
+            )
             return
+
+        logger.debug(
+            f"Broadcasting to {len(subscribers)} subscribers on stream '{stream_type.value}'"
+        )
 
         # Create base message
         message = {

@@ -3,6 +3,9 @@
 This module provides automated error correction for common issues detected
 in billiards game states, including overlapping balls, out-of-bounds positions,
 invalid velocities, and physics violations.
+
+All spatial measurements are in 4K pixels (3840×2160).
+Velocities are in pixels/second.
 """
 
 import logging
@@ -12,7 +15,18 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from ..models import BallState, GameState, TableState, Vector2D
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    POCKET_RADIUS_4K,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
+from ..models import BallState, GameState, TableState
+
+# Physics constants for validation
+# PIXELS_PER_METER is used to convert physical limits to 4K pixel scale
+PIXELS_PER_METER = TABLE_WIDTH_4K / 2.54  # ~1259.84 pixels/meter (2.54m table width)
 
 
 class CorrectionStrategy(Enum):
@@ -118,16 +132,19 @@ class ErrorCorrector:
     def __init__(
         self,
         strategy: CorrectionStrategy = CorrectionStrategy.CONFIDENCE_BASED,
-        max_velocity: float = 10.0,
+        max_velocity: float = 10.0
+        * PIXELS_PER_METER,  # pixels/s (default: 10 m/s → ~12,600 px/s)
         confidence_threshold: float = 0.5,
         enable_logging: bool = True,
         oscillation_prevention: bool = True,
     ):
         """Initialize the error corrector.
 
+        All spatial parameters are in 4K pixel coordinates.
+
         Args:
             strategy: Correction strategy to use
-            max_velocity: Maximum allowed velocity for balls
+            max_velocity: Maximum allowed velocity for balls in pixels/s
             confidence_threshold: Minimum confidence to apply corrections
             enable_logging: Whether to log corrections
             oscillation_prevention: Whether to prevent correction oscillations
@@ -235,7 +252,9 @@ class ErrorCorrector:
                 if ball1.is_pocketed or ball2.is_pocketed:
                     continue
 
-                if ball1.is_touching(ball2, tolerance=-0.001):  # Overlapping
+                if ball1.is_touching(
+                    ball2, tolerance=-1.0
+                ):  # Overlapping (tolerance in pixels)
                     if self._should_apply_correction(ball1.id):
                         self._separate_balls(ball1, ball2)
 
@@ -345,7 +364,7 @@ class ErrorCorrector:
                     direction = original_velocity.normalize()
                     corrected_ball.velocity = direction * self.max_velocity
                     needs_correction = True
-                    correction_reason = f"velocity exceeds maximum ({velocity_magnitude:.2f} > {self.max_velocity})"
+                    correction_reason = f"velocity exceeds maximum ({velocity_magnitude:.1f} px/s > {self.max_velocity:.1f} px/s)"
                 elif velocity_magnitude < 0:
                     corrected_ball.velocity = Vector2D.zero()
                     needs_correction = True
@@ -408,7 +427,7 @@ class ErrorCorrector:
 
             # Fix invalid radius
             if ball.radius <= 0:
-                ball.radius = 0.028575  # Standard pool ball radius
+                ball.radius = BALL_RADIUS_4K  # Standard pool ball radius in 4K pixels
 
                 record = CorrectionRecord(
                     timestamp=datetime.now().timestamp(),
@@ -502,8 +521,8 @@ class ErrorCorrector:
         else:
             direction = direction.normalize()
 
-        # Calculate minimum separation distance
-        min_distance = ball1.radius + ball2.radius + 0.001  # Small buffer
+        # Calculate minimum separation distance (in pixels)
+        min_distance = ball1.radius + ball2.radius + 1.0  # Small buffer (1 pixel)
 
         # Calculate how much to move each ball
         overlap = min_distance - distance
@@ -516,9 +535,12 @@ class ErrorCorrector:
     def _move_ball_to_table(
         self, position: Vector2D, radius: float, table: TableState
     ) -> Vector2D:
-        """Move a ball position to be within table bounds."""
+        """Move a ball position to be within table bounds.
+
+        Table bounds are in 4K pixels.
+        """
         # Clamp position to table bounds with ball radius consideration
-        margin = radius + 0.001  # Small buffer
+        margin = radius + 1.0  # Small buffer (1 pixel)
 
         x = max(margin, min(table.width - margin, position.x))
         y = max(margin, min(table.height - margin, position.y))

@@ -16,17 +16,22 @@ IMPROVEMENTS MADE:
 import json
 import logging
 import math
+import sys
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
+
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-
-from ..dependencies import ApplicationState, get_app_state, get_core_module
-from ..models.common import create_success_response
-from ..models.responses import (
+from api.dependencies import ApplicationState, get_app_state, get_core_module
+from api.models.common import create_success_response
+from api.models.responses import (
     CalibrationApplyResponse,
     CalibrationPointResponse,
     CalibrationSession,
@@ -38,17 +43,11 @@ from ..models.responses import (
     CameraImageCaptureResponse,
     SuccessResponse,
 )
-from .stream import get_vision_module
+from api.routes.stream import get_vision_module
+from core import CoreModule
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-try:
-    from ...core import CoreModule
-except ImportError:
-    from core import CoreModule
-
-try:
-    from ...vision.calibration.geometry import GeometricCalibrator
-except ImportError:
-    from vision.calibration.geometry import GeometricCalibrator
+from backend.vision.calibration.geometry import GeometricCalibrator
 
 logger = logging.getLogger(__name__)
 

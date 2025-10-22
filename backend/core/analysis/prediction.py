@@ -1,13 +1,25 @@
-"""Outcome prediction algorithms."""
+"""Outcome prediction algorithms.
+
+All spatial calculations use the 4K coordinate system (3840×2160).
+Physics simulations and trajectory predictions operate in 4K pixel space.
+"""
 
 import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
-from backend.config import Config, config
+from config import Config, config
 
-from ..models import BallState, GameState, ShotType, TableState, Vector2D
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    CANONICAL_HEIGHT,
+    CANONICAL_WIDTH,
+    TABLE_HEIGHT_4K,
+    TABLE_WIDTH_4K,
+)
+from ..coordinates import Vector2D
+from ..models import BallState, GameState, ShotType, TableState
 from ..physics.trajectory import TrajectoryCalculator
 from ..utils.geometry import GeometryUtils
 
@@ -194,10 +206,8 @@ class OutcomePredictor:
                     else base_prob_not_pocketed
                 ),
                 description=f"Ball {ball.id} prediction",
-                final_ball_positions={ball.id: Vector2D(*trajectory.final_position)},
-                ball_trajectories={
-                    ball.id: [Vector2D(*pt) for pt in trajectory.points]
-                },
+                final_ball_positions={ball.id: trajectory.final_position},
+                ball_trajectories={ball.id: trajectory.points},
                 collision_sequence=[],
                 time_to_completion=trajectory.time_to_rest,
                 target_ball_pocketed=trajectory.will_be_pocketed,
@@ -282,7 +292,9 @@ class OutcomePredictor:
                         "time": sim_time,
                         "type": collision["type"],
                         "balls": collision.get("balls", []),
-                        "position": collision.get("position", Vector2D(0, 0)).to_dict(),
+                        "position": collision.get(
+                            "position", Vector2D.from_4k(0, 0)
+                        ).to_dict(),
                     }
                 )
 
@@ -527,14 +539,17 @@ class OutcomePredictor:
         return None
 
     def _calculate_shot_velocity(self, force: float, angle_degrees: float) -> Vector2D:
-        """Calculate velocity vector from force and angle."""
+        """Calculate velocity vector from force and angle (4K coordinates)."""
         angle_rad = math.radians(angle_degrees)
         # Convert force to velocity
         force_to_velocity = self.velocity_cfg.get("force_to_velocity_factor", 0.1)
         velocity_magnitude = force * force_to_velocity
+        # Velocity is in 4K pixel/second units
+        SCALE_4K = (1.0, 1.0)
         return Vector2D(
             velocity_magnitude * math.cos(angle_rad),
             velocity_magnitude * math.sin(angle_rad),
+            SCALE_4K,
         )
 
     def _vary_shot_analysis(
@@ -611,7 +626,7 @@ class OutcomePredictor:
                         {
                             "type": "ball",
                             "balls": [ball1.id, ball2.id],
-                            "position": Vector2D(
+                            "position": Vector2D.from_4k(
                                 (ball1.position.x + ball2.position.x) / 2,
                                 (ball1.position.y + ball2.position.y) / 2,
                             ),

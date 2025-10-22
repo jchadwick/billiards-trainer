@@ -21,7 +21,8 @@ import cv2
 import numpy as np
 import pytest
 from numpy.typing import NDArray
-from vision.detection.yolo_detector import (
+
+from backend.vision.detection.yolo_detector import (
     BallClass,
     Detection,
     ModelFormat,

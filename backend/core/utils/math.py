@@ -1,11 +1,18 @@
-"""Mathematical utility functions for billiards calculations."""
+"""Mathematical utility functions for billiards calculations.
+
+All spatial operations work in 4K canonical pixel coordinates (3840×2160).
+Scale-agnostic mathematical operations (angles, ratios, etc.) work with any units.
+
+IMPORTANT: All Vector2D instances should include scale metadata to ensure
+proper coordinate space tracking. See constants_4k.py for canonical dimensions.
+"""
 
 import math
 from typing import Callable, Optional
 
-from backend.config import Config, config
+from config import Config, config
 
-from ..models import Vector2D
+from ..coordinates import Vector2D
 
 
 def _get_config() -> Config:
@@ -292,10 +299,21 @@ class MathUtils:
     def calculate_trajectory_parabola(
         initial_pos: Vector2D, initial_vel: Vector2D, gravity: float, time: float
     ) -> Vector2D:
-        """Calculate position along parabolic trajectory (for projectile motion)."""
+        """Calculate position along parabolic trajectory (for projectile motion).
+
+        Args:
+            initial_pos: Initial position in 4K pixels (with scale metadata)
+            initial_vel: Initial velocity in pixels/second (with scale metadata)
+            gravity: Gravitational acceleration in pixels/second²
+            time: Time elapsed in seconds
+
+        Returns:
+            Position along trajectory in 4K pixels (preserves scale from initial_pos)
+        """
         x = initial_pos.x + initial_vel.x * time
         y = initial_pos.y + initial_vel.y * time - 0.5 * gravity * time * time
-        return Vector2D(x, y)
+        # Preserve scale from initial position
+        return Vector2D(x, y, scale=initial_pos.scale)
 
     @staticmethod
     def find_roots_bisection(
@@ -367,6 +385,7 @@ class MathUtils:
         return Vector2D(
             vector.x * cos_angle - vector.y * sin_angle,
             vector.x * sin_angle + vector.y * cos_angle,
+            scale=vector.scale,
         )
 
     @staticmethod
@@ -388,7 +407,7 @@ class MathUtils:
     @staticmethod
     def perpendicular_vector_2d(vector: Vector2D) -> Vector2D:
         """Get perpendicular vector (90 degrees counter-clockwise)."""
-        return Vector2D(-vector.y, vector.x)
+        return Vector2D(-vector.y, vector.x, scale=vector.scale)
 
     @staticmethod
     def calculate_momentum(mass: float, velocity: Vector2D) -> Vector2D:
@@ -468,13 +487,17 @@ class MathUtils:
         """Calculate rolling resistance force.
 
         Args:
-            velocity: Velocity vector
-            mass: Mass of object
-            friction_coefficient: Coefficient of rolling friction
-            gravity: Gravitational acceleration. If None, uses config value.
+            velocity: Velocity vector in pixels/second (with scale metadata)
+            mass: Mass of object in kg (SI units maintained)
+            friction_coefficient: Coefficient of rolling friction (dimensionless)
+            gravity: Gravitational acceleration in m/s² (SI). If None, uses config value.
 
         Returns:
-            Rolling resistance force vector
+            Rolling resistance force vector in Newtons (SI units)
+
+        Note:
+            While positions use 4K pixels, mass and force calculations remain
+            in SI units (kg, N) for physical accuracy. Velocity is in pixel space.
         """
         config = _get_config()
         if gravity is None:
@@ -497,7 +520,19 @@ class MathUtils:
 
     @staticmethod
     def is_point_in_circle(point: Vector2D, center: Vector2D, radius: float) -> bool:
-        """Check if point is inside circle."""
+        """Check if point is inside circle.
+
+        Args:
+            point: Point position in 4K pixels
+            center: Circle center in 4K pixels
+            radius: Circle radius in 4K pixels
+
+        Returns:
+            True if point is inside or on circle boundary
+
+        Note:
+            All coordinates should be in the same space (typically 4K canonical).
+        """
         distance_squared = (point - center).magnitude_squared()
         return distance_squared <= radius * radius
 
@@ -508,7 +543,21 @@ class MathUtils:
         circle_center: Vector2D,
         circle_radius: float,
     ) -> list[float]:
-        """Calculate times when moving point intersects circle."""
+        """Calculate times when moving point intersects circle.
+
+        Args:
+            line_start: Starting position in 4K pixels
+            line_velocity: Velocity vector in pixels/second
+            circle_center: Circle center in 4K pixels
+            circle_radius: Circle radius in 4K pixels
+
+        Returns:
+            List of times (in seconds) when intersection occurs.
+            Empty list if no intersection.
+
+        Note:
+            All spatial coordinates should be in 4K canonical space.
+        """
         # Relative position
         rel_pos = line_start - circle_center
 
@@ -525,7 +574,19 @@ class MathUtils:
         trajectory_direction: Vector2D,
         target_center: Vector2D,
     ) -> float:
-        """Calculate impact parameter (closest approach distance) for trajectory."""
+        """Calculate impact parameter (closest approach distance) for trajectory.
+
+        Args:
+            trajectory_start: Starting position in 4K pixels
+            trajectory_direction: Direction vector (any magnitude)
+            target_center: Target center position in 4K pixels
+
+        Returns:
+            Closest approach distance in 4K pixels
+
+        Note:
+            All spatial coordinates should be in 4K canonical space.
+        """
         rel_pos = trajectory_start - target_center
         trajectory_unit = trajectory_direction.normalize()
 

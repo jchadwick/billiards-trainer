@@ -16,6 +16,8 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .common import PositionWithScale
+
 # =============================================================================
 # Base Response Models and Enums
 # =============================================================================
@@ -324,12 +326,20 @@ class CalibrationValidationResponse(BaseResponse):
 
 
 class BallInfo(BaseResponse):
-    """Ball information for game state."""
+    """Ball information for game state.
+
+    Note: position and velocity now use dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
 
     id: str = Field(..., description="Ball identifier")
     number: Optional[int] = Field(None, description="Ball number")
-    position: list[float] = Field(..., description="Ball position [x, y]")
-    velocity: list[float] = Field(..., description="Ball velocity [x, y]")
+    position: PositionWithScale = Field(
+        ..., description="Ball position with scale metadata"
+    )
+    velocity: PositionWithScale = Field(
+        ..., description="Ball velocity with scale metadata"
+    )
     is_cue_ball: bool = Field(..., description="Whether this is the cue ball")
     is_pocketed: bool = Field(..., description="Whether ball is pocketed")
     confidence: float = Field(..., description="Detection confidence")
@@ -337,9 +347,15 @@ class BallInfo(BaseResponse):
 
 
 class CueInfo(BaseResponse):
-    """Cue stick information."""
+    """Cue stick information.
 
-    tip_position: list[float] = Field(..., description="Cue tip position [x, y]")
+    Note: tip_position now uses dict format with mandatory scale metadata.
+    Format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
+
+    tip_position: PositionWithScale = Field(
+        ..., description="Cue tip position with scale metadata"
+    )
     angle: float = Field(..., description="Cue angle in degrees")
     elevation: float = Field(..., description="Cue elevation in degrees")
     estimated_force: float = Field(..., description="Estimated shot force")
@@ -348,11 +364,17 @@ class CueInfo(BaseResponse):
 
 
 class TableInfo(BaseResponse):
-    """Table information."""
+    """Table information.
+
+    Note: pocket_positions now uses dict format with mandatory scale metadata.
+    Each position has format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
 
     width: float = Field(..., description="Table width in meters")
     height: float = Field(..., description="Table height in meters")
-    pocket_positions: list[list[float]] = Field(..., description="Pocket positions")
+    pocket_positions: list[PositionWithScale] = Field(
+        ..., description="Pocket positions with scale metadata"
+    )
     pocket_radius: float = Field(..., description="Pocket radius in meters")
     surface_friction: float = Field(..., description="Surface friction coefficient")
 
@@ -545,10 +567,16 @@ class UserCreateResponse(BaseResponse):
 
 
 class TrajectoryInfo(BaseResponse):
-    """Ball trajectory information."""
+    """Ball trajectory information.
+
+    Note: points now uses dict format with mandatory scale metadata.
+    Each point has format: {"x": float, "y": float, "scale": [sx, sy]}
+    """
 
     ball_id: str = Field(..., description="Ball identifier")
-    points: list[list[float]] = Field(..., description="Trajectory points")
+    points: list[PositionWithScale] = Field(
+        ..., description="Trajectory points with scale metadata"
+    )
     will_be_pocketed: bool = Field(..., description="Whether ball will be pocketed")
     pocket_id: Optional[int] = Field(None, description="Target pocket ID")
     time_to_rest: float = Field(..., description="Time until ball stops")

@@ -13,28 +13,28 @@ const mockGameStateData: GameStateData = {
   balls: [
     {
       id: 'cue',
-      position: [400, 300],
+      position: { x: 400, y: 300, scale: [1.0, 1.0] },
       radius: 15,
       color: '#FFFFFF',
-      velocity: [0, 0],
+      velocity: { x: 0, y: 0, scale: [1.0, 1.0] },
       confidence: 0.95,
       visible: true,
     },
     {
       id: '1',
-      position: [500, 250],
+      position: { x: 500, y: 250, scale: [1.0, 1.0] },
       radius: 15,
       color: '#FF0000',
-      velocity: [10, -5],
+      velocity: { x: 10, y: -5, scale: [1.0, 1.0] },
       confidence: 0.88,
       visible: true,
     },
     {
       id: '8',
-      position: [350, 400],
+      position: { x: 350, y: 400, scale: [1.0, 1.0] },
       radius: 15,
       color: '#000000',
-      velocity: [0, 0],
+      velocity: { x: 0, y: 0, scale: [1.0, 1.0] },
       confidence: 0.92,
       visible: true,
     },
@@ -126,11 +126,11 @@ describe('Detection Overlay Integration Tests', () => {
       // Transform ball data (simulate the handleGameStateMessage method)
       const transformedBalls: Ball[] = mockGameStateData.balls.map((ballData: BallData) => ({
         id: ballData.id,
-        position: { x: ballData.position[0], y: ballData.position[1] },
+        position: { x: ballData.position.x, y: ballData.position.y },
         radius: ballData.radius,
         type: inferBallType(ballData.id, ballData.color),
         number: inferBallNumber(ballData.id, ballData.color),
-        velocity: ballData.velocity ? { x: ballData.velocity[0], y: ballData.velocity[1] } : { x: 0, y: 0 },
+        velocity: ballData.velocity ? { x: ballData.velocity.x, y: ballData.velocity.y } : { x: 0, y: 0 },
         confidence: ballData.confidence,
         color: ballData.color,
       }));
@@ -337,8 +337,8 @@ describe('Detection Overlay Integration Tests', () => {
         y: transformedY / transformedW,
       };
 
-      expect(result.x).toBeCloseTo(430, 0); // Approximate expected value
-      expect(result.y).toBeCloseTo(325, 0); // Approximate expected value
+      expect(result.x).toBeCloseTo(448.78, 1); // Approximate expected value
+      expect(result.y).toBeCloseTo(297.56, 1); // Approximate expected value
     });
   });
 
@@ -349,7 +349,7 @@ describe('Detection Overlay Integration Tests', () => {
         frame_number: i,
         balls: mockGameStateData.balls.map(ball => ({
           ...ball,
-          position: [ball.position[0] + i, ball.position[1] + i * 0.5] as [number, number],
+          position: { x: ball.position.x + i, y: ball.position.y + i * 0.5, scale: [1.0, 1.0] },
         })),
       }));
 

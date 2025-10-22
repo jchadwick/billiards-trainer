@@ -139,6 +139,7 @@ class YOLODetector:
         tpu_device_path: Optional[str] = None,
         enable_opencv_classification: bool = True,
         min_ball_size: int = 20,
+        camera_resolution: tuple[int, int] = (1920, 1080),
     ) -> None:
         """Initialize YOLO detector.
 
@@ -156,6 +157,8 @@ class YOLODetector:
                                          even when YOLO detects balls as generic "ball" class.
             min_ball_size: Minimum ball size in pixels (width or height) to filter out small detections
                           like markers and noise. Default 20px works well for typical camera setups.
+            camera_resolution: Camera resolution (width, height) for scaling pixel-based parameters in
+                             OpenCV classifier. Defaults to 1080p.
 
         Raises:
             FileNotFoundError: If model_path is provided but file doesn't exist
@@ -174,6 +177,7 @@ class YOLODetector:
         self.tpu_device_path = tpu_device_path
         self.enable_opencv_classification = enable_opencv_classification
         self.min_ball_size = min_ball_size
+        self.camera_resolution = camera_resolution
 
         # Auto-detect best device if not specified or if "auto"
         if device == "auto" or device is None:
@@ -207,7 +211,8 @@ class YOLODetector:
             from .balls import BallDetector
 
             self._opencv_classifier = BallDetector(
-                {"detection_method": "combined", "debug_mode": False}
+                {"detection_method": "combined", "debug_mode": False},
+                camera_resolution=camera_resolution,
             )
 
         # Class mapping

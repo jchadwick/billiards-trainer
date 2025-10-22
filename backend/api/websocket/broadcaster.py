@@ -13,8 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Union
 
 import numpy as np
-
-from backend.config import config_manager
+from config import config_manager
 
 from .handler import websocket_handler
 from .manager import StreamType, websocket_manager
@@ -148,6 +147,9 @@ class MessageBroadcaster:
         self.fps_limiter = defaultdict(lambda: 0.0)  # client_id -> last_frame_time
         self.sequence_counters = defaultdict(int)  # stream_type -> sequence_number
         self.is_streaming = False
+        self._last_game_state: Optional[dict[str, Any]] = (
+            None  # Track last state to detect changes
+        )
 
     async def start_streaming(self):
         """Start the broadcasting service."""
@@ -279,6 +281,13 @@ class MessageBroadcaster:
 
         Returns:
             None. Logs warnings and returns early if validation fails.
+
+        Note:
+            Ball positions now include mandatory scale metadata in each Vector2D.
+            The scale metadata indicates the resolution scale factor:
+                - scale=[1.0, 1.0] for 4K canonical coordinates
+                - scale=[2.0, 2.0] for 1080p source coordinates
+                - scale=[3.0, 3.0] for 720p source coordinates
         """
         # Validate balls parameter
         if not isinstance(balls, list):
@@ -289,6 +298,7 @@ class MessageBroadcaster:
             return
 
         if len(balls) == 0:
+            logger.debug("broadcast_game_state: Skipping broadcast - no balls detected")
             self.broadcast_stats.validation_failures += 1
             return
 
@@ -313,16 +323,62 @@ class MessageBroadcaster:
                 self.broadcast_stats.validation_failures += 1
                 return
 
-            # Validate position field
+            # Validate position field - must be dict with x, y, and scale
             position = ball["position"]
-            if not isinstance(position, (list, tuple)) or len(position) < 2:
+            if isinstance(position, dict):
+                if "x" not in position or "y" not in position:
+                    logger.warning(
+                        f"broadcast_game_state: ball at index {i} has invalid position dict. "
+                        f"Expected dict with 'x', 'y', and 'scale' keys, got {position}"
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
+
+                # Validate mandatory scale metadata
+                if "scale" not in position:
+                    logger.warning(
+                        f"broadcast_game_state: ball at index {i} position missing mandatory 'scale' metadata. "
+                        f"Scale is required for all Vector2D instances."
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
+
+                if (
+                    not isinstance(position["scale"], (list, tuple))
+                    or len(position["scale"]) != 2
+                ):
+                    logger.warning(
+                        f"broadcast_game_state: ball at index {i} has invalid scale format. "
+                        f"Expected 2-element list/tuple, got {type(position['scale']).__name__} with value {position['scale']}"
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
+
+                if position["scale"][0] <= 0 or position["scale"][1] <= 0:
+                    logger.warning(
+                        f"broadcast_game_state: ball at index {i} has invalid scale values. "
+                        f"Scale factors must be positive, got {position['scale']}"
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
+
+            elif isinstance(position, (list, tuple)):
+                # Legacy array format [x, y] is no longer supported
+                logger.warning(
+                    f"broadcast_game_state: ball at index {i} uses deprecated array format [x, y]. "
+                    f"Position must be a dict with 'x', 'y', and 'scale' keys."
+                )
+                self.broadcast_stats.validation_failures += 1
+                return
+            else:
                 logger.warning(
                     f"broadcast_game_state: ball at index {i} has invalid position format. "
-                    f"Expected list/tuple with at least 2 elements, got {type(position).__name__} with value {position}"
+                    f"Expected dict with 'x', 'y', and 'scale', got {type(position).__name__} with value {position}"
                 )
                 self.broadcast_stats.validation_failures += 1
                 return
 
+        # Build state data (scale metadata is now embedded in each Vector2D)
         state_data = {
             "balls": balls,
             "cue": cue,
@@ -330,7 +386,21 @@ class MessageBroadcaster:
             "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
             "sequence": self._get_next_sequence("state"),
             "ball_count": len(balls),
+            # Note: coordinate_metadata removed - scale is now mandatory in each Vector2D
         }
+
+        # Check if state has changed before logging
+        state_changed = self._has_state_changed(balls, cue, table)
+        if state_changed:
+            logger.info(
+                f"Broadcasting game state: {len(balls)} balls, cue={'present' if cue else 'absent'}"
+            )
+            # Update cached state
+            self._last_game_state = {
+                "ball_count": len(balls),
+                "cue_present": cue is not None,
+                "table_present": table is not None,
+            }
 
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.STATE, state_data)
@@ -680,21 +750,44 @@ class MessageBroadcaster:
             except Exception as e:
                 logger.error(f"Error in cleanup task: {e}")
 
+    # NOTE: _enrich_coordinate_metadata method removed
+    # Scale metadata is now mandatory in each Vector2D instance,
+    # so global coordinate_metadata is no longer needed
+
+    def _has_state_changed(
+        self,
+        balls: list[dict[str, Any]],
+        cue: Optional[dict[str, Any]],
+        table: Optional[dict[str, Any]],
+    ) -> bool:
+        """Check if game state has changed since last broadcast."""
+        if self._last_game_state is None:
+            return True
+
+        current_state = {
+            "ball_count": len(balls),
+            "cue_present": cue is not None,
+            "table_present": table is not None,
+        }
+
+        return current_state != self._last_game_state
+
     def _get_next_sequence(self, stream_type: str) -> int:
         """Get next sequence number for a stream type."""
         self.sequence_counters[stream_type] += 1
         return self.sequence_counters[stream_type]
 
-    def _compress_data(self, data: bytes, level: int = None) -> tuple[bytes, bool]:
+    def _compress_data(
+        self, data: bytes, level: Optional[int] = None
+    ) -> tuple[bytes, bool]:
         """Compress data if beneficial."""
         if len(data) < self.compression_threshold:
             return data, False
 
-        if level is None:
-            level = self.compression_level
+        compression_level = level if level is not None else self.compression_level
 
         try:
-            compressed = zlib.compress(data, level=level)
+            compressed = zlib.compress(data, level=compression_level)
             # Only use compression if it reduces size by configured threshold
             if len(compressed) < len(data) * self.compression_ratio_threshold:
                 return compressed, True

@@ -10,60 +10,64 @@ Provides comprehensive health information including:
 import asyncio
 import logging
 import os
+import sys
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
+
+# Ensure backend directory is in Python path for imports
+backend_dir = Path(__file__).parent.parent.parent.resolve()
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
 
 try:
     import psutil
 except ImportError:
     psutil = None
 
+from api.dependencies import ApplicationState, get_app_state
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-
-from ..dependencies import ApplicationState, get_app_state
 
 # Try to import health monitor with fallback
 try:
-    from ...system.health_monitor import health_monitor
+    from system.health_monitor import health_monitor
 except (ImportError, TypeError):
-    try:
-        from system.health_monitor import health_monitor
-    except (ImportError, TypeError):
-        # Fallback: create a minimal health monitor interface
-        class MockHealthMonitor:
-            """Mock health monitor for environments where the real monitor is unavailable."""
+    # Fallback: create a minimal health monitor interface
+    class MockHealthMonitor:
+        """Mock health monitor for environments where the real monitor is unavailable."""
 
-            def get_system_health(self):
-                """Return basic system health status.
+        def get_system_health(self):
+            """Return basic system health status.
 
-                Returns:
-                    Mock system health object with minimal data.
-                """
-                return type(
-                    "SystemHealth",
-                    (object,),
-                    {"components": {}, "overall_status": "healthy"},
-                )()
+            Returns:
+                Mock system health object with minimal data.
+            """
+            return type(
+                "SystemHealth",
+                (object,),
+                {"components": {}, "overall_status": "healthy"},
+            )()
 
-            def get_api_metrics(self):
-                """Return empty API metrics.
+        def get_api_metrics(self):
+            """Return empty API metrics.
 
-                Returns:
-                    Empty metrics dictionary.
-                """
-                return {}
+            Returns:
+                Empty metrics dictionary.
+            """
+            return {}
 
-            def get_websocket_connection_count(self):
-                """Return zero WebSocket connections.
+        def get_websocket_connection_count(self):
+            """Return zero WebSocket connections.
 
-                Returns:
-                    Always returns 0.
-                """
-                return 0
+            Returns:
+                Always returns 0.
+            """
+            return 0
 
-        health_monitor = MockHealthMonitor()
-from ..models.responses import (
+    health_monitor = MockHealthMonitor()
+
+from api.models.responses import (
     CapabilityInfo,
     ComponentHealth,
     HealthResponse,
@@ -72,7 +76,7 @@ from ..models.responses import (
     SystemMetrics,
     VersionResponse,
 )
-from ..shutdown import get_shutdown_progress, shutdown_coordinator
+from api.shutdown import get_shutdown_progress, shutdown_coordinator
 
 logger = logging.getLogger(__name__)
 
