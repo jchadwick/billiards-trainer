@@ -403,6 +403,25 @@ class VisionModule:
             self.color_calibrator = ColorCalibrator()
             self.geometry_calibrator = GeometricCalibrator()
 
+            # Performance profiler
+            from ..config import config
+
+            profiling_enabled = config.get("vision.performance.enable_profiling", True)
+            if profiling_enabled:
+                history_size = config.get(
+                    "vision.performance.profile_history_size", 100
+                )
+                log_interval = config.get("vision.performance.profile_log_interval", 30)
+                self.profiler = PerformanceProfiler(
+                    history_size=history_size, log_interval=log_interval
+                )
+                logger.info(
+                    f"Performance profiler enabled (history={history_size}, log_interval={log_interval})"
+                )
+            else:
+                self.profiler = None
+                logger.info("Performance profiling disabled")
+
             logger.info("All vision components initialized successfully")
 
         except Exception as e:
@@ -692,6 +711,47 @@ class VisionModule:
             ),
         }
 
+    def get_performance_stats(self) -> dict:
+        """Get detailed performance profiling statistics.
+
+        Returns:
+            Dictionary containing profiler statistics and bottleneck analysis,
+            or None if profiling is disabled
+        """
+        if not self.profiler:
+            return {"profiling_enabled": False}
+
+        stats = self.profiler.get_current_stats()
+        bottlenecks = self.profiler.get_bottlenecks(top_n=5)
+
+        return {
+            "profiling_enabled": True,
+            "fps": stats.avg_fps,
+            "target_fps": self.config.target_fps,
+            "meeting_target": stats.avg_fps >= self.config.target_fps,
+            "frame_time_ms": stats.avg_total * 1000,
+            "target_frame_time_ms": (1.0 / self.config.target_fps) * 1000,
+            "overhead_ms": max(
+                0, (stats.avg_total - (1.0 / self.config.target_fps)) * 1000
+            ),
+            "bottlenecks": [
+                {"stage": stage, "time_ms": time_ms}
+                for stage, time_ms in bottlenecks
+                if time_ms > 0
+            ],
+            "frame_count": stats.frame_count,
+            "total_frames": self.profiler.total_frames,
+            "uptime_seconds": time.time() - self.profiler.start_time,
+            "breakdown": {
+                "masking_ms": stats.avg_masking * 1000,
+                "table_detection_ms": stats.avg_table_detection * 1000,
+                "ball_detection_ms": stats.avg_ball_detection * 1000,
+                "yolo_inference_ms": stats.avg_yolo_inference * 1000,
+                "cue_detection_ms": stats.avg_cue_detection * 1000,
+                "tracking_ms": stats.avg_tracking * 1000,
+            },
+        }
+
     def subscribe_to_events(
         self, event_type: str, callback: Callable[..., Any]
     ) -> bool:
@@ -876,12 +936,20 @@ class VisionModule:
             if timestamp is None:
                 timestamp = time.time()
 
+            # Start profiling this frame
+            if self.profiler:
+                self.profiler.start_frame(frame_number)
+
             # No preprocessing - use frame as-is
             processed_frame = frame
 
             # Apply masking ONCE - marker dots and table boundaries
             # This happens BEFORE any detection so YOLO/OpenCV never see masked regions
+            if self.profiler:
+                self.profiler.start_stage("masking")
             processed_frame = self._apply_all_masks(processed_frame)
+            if self.profiler:
+                self.profiler.end_stage("masking")
 
             # Detection
             detected_table = None
@@ -896,15 +964,23 @@ class VisionModule:
                 try:
                     # Use hybrid YOLO+OpenCV detection for ball classification
                     # YOLO provides accurate position, OpenCV refines ball type
+                    if self.profiler:
+                        self.profiler.start_stage("ball_detection")
                     detected_balls = self.detector.detect_balls_with_classification(
                         processed_frame
                     )
+                    if self.profiler:
+                        self.profiler.end_stage("ball_detection")
 
                     # Update tracking if available
                     if self.tracker and self.config.enable_tracking:
+                        if self.profiler:
+                            self.profiler.start_stage("tracking")
                         detected_balls = self.tracker.update_tracking(
                             detected_balls, frame_number, timestamp
                         )
+                        if self.profiler:
+                            self.profiler.end_stage("tracking")
 
                     max_balls = _get_config_value(
                         "vision.detection.max_balls_on_table", 16
@@ -972,11 +1048,18 @@ class VisionModule:
                 statistics=statistics,
             )
 
+            # End profiling this frame
+            if self.profiler:
+                self.profiler.end_frame()
+
             return result
 
         except Exception as e:
             logger.error(f"Frame processing failed: {e}")
             self.stats.last_error = str(e)
+            # End profiling on error too
+            if self.profiler:
+                self.profiler.end_frame()
             return None
 
     def _apply_all_masks(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
