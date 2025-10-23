@@ -535,6 +535,18 @@ class MessageBroadcaster:
 
         await self._broadcast_to_stream(StreamType.CONFIG, config_update_data)
 
+    async def broadcast_performance_stats(
+        self,
+        performance_data: dict[str, Any],
+    ):
+        """Broadcast vision performance statistics to subscribers.
+
+        Args:
+            performance_data: Performance stats from the vision profiler including FPS, CPU, memory
+        """
+        # _broadcast_to_stream will wrap this in the proper message format and add sequence
+        await self._broadcast_to_stream(StreamType.PERFORMANCE, performance_data)
+
     async def send_performance_metrics(
         self, target_clients: Optional[list[str]] = None
     ):

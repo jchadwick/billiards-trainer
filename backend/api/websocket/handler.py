@@ -459,7 +459,14 @@ class WebSocketHandler:
             return
 
         connection = self.connections[client_id]
-        valid_streams = ["frame", "state", "trajectory", "alert", "config"]
+        valid_streams = [
+            "frame",
+            "state",
+            "trajectory",
+            "alert",
+            "config",
+            "performance",
+        ]
 
         # Import websocket_manager to register subscriptions properly
         from . import websocket_manager

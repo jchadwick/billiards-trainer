@@ -33,6 +33,7 @@ class StreamType(Enum):
     TRAJECTORY = "trajectory"
     ALERT = "alert"
     CONFIG = "config"
+    PERFORMANCE = "performance"
 
 
 @dataclass

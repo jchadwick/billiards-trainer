@@ -331,6 +331,39 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         await app_state.integration_service.start()
         logger.info("Integration service started - Vision→Core→Broadcast flow active")
 
+        # Start performance stats broadcasting task
+        async def broadcast_performance_stats_loop():
+            """Background task to broadcast performance stats every 500ms."""
+            logger.info("Performance stats broadcasting task started (500ms interval)")
+            while True:
+                try:
+                    await asyncio.sleep(0.5)  # 500ms interval
+
+                    # Get profiler from vision module (same as REST API does)
+                    if (
+                        app_state.vision_module
+                        and hasattr(app_state.vision_module, "profiler")
+                        and app_state.vision_module.profiler
+                    ):
+                        perf_stats = (
+                            app_state.vision_module.profiler.get_realtime_status()
+                        )
+                        await message_broadcaster.broadcast_performance_stats(
+                            perf_stats
+                        )
+                except asyncio.CancelledError:
+                    logger.info("Performance stats broadcasting task cancelled")
+                    break
+                except Exception as e:
+                    logger.error(f"Error broadcasting performance stats: {e}")
+                    # Continue loop despite errors
+                    await asyncio.sleep(0.5)
+
+        # Create and store the task
+        app_state.performance_broadcast_task = asyncio.create_task(
+            broadcast_performance_stats_loop()
+        )
+
         # Register components with health monitor
         logger.info("Registering components with health monitor...")
         health_monitor.register_components(
@@ -371,6 +404,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         # Shutdown
         logger.info("Shutting down Billiards Trainer API...")
+
+        # Stop performance stats broadcasting task
+        if hasattr(app_state, "performance_broadcast_task"):
+            logger.info("Stopping performance stats broadcasting task...")
+            app_state.performance_broadcast_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await app_state.performance_broadcast_task
 
         # Stop integration service first
         if app_state.integration_service:

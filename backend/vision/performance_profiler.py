@@ -11,6 +11,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+import psutil
+
 logger = logging.getLogger(__name__)
 
 
@@ -303,13 +305,26 @@ class PerformanceProfiler:
         """Get real-time performance status for monitoring.
 
         Returns:
-            Dictionary with current performance metrics
+            Dictionary with current performance metrics including CPU and memory
         """
         stats = self.get_current_stats()
         bottlenecks = self.get_bottlenecks(top_n=5)
 
         target_fps = 15.0
         target_frame_time = 1000.0 / target_fps  # ms
+
+        # Get CPU and memory usage
+        process = psutil.Process()
+        cpu_percent = process.cpu_percent(interval=0.0)  # Non-blocking
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / (1024 * 1024)  # Convert to MB
+
+        # Determine performance status
+        status = "good"
+        if stats.avg_fps < 10 or cpu_percent > 80 or memory_mb > 2048:
+            status = "poor"
+        elif stats.avg_fps < 15 or cpu_percent > 60 or memory_mb > 1024:
+            status = "degraded"
 
         return {
             "fps": stats.avg_fps,
@@ -318,8 +333,12 @@ class PerformanceProfiler:
             "frame_time_ms": stats.avg_total * 1000,
             "target_frame_time_ms": target_frame_time,
             "overhead_ms": max(0, stats.avg_total * 1000 - target_frame_time),
+            "cpu_percent": cpu_percent,
+            "memory_mb": memory_mb,
+            "status": status,
             "bottlenecks": [
-                {"stage": stage, "time_ms": time_ms} for stage, time_ms in bottlenecks
+                {"stage": stage, "avg_time_ms": time_ms}
+                for stage, time_ms in bottlenecks
             ],
             "frame_count": stats.frame_count,
             "total_frames": self.total_frames,
