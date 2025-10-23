@@ -13,7 +13,10 @@
       "file_logging": true,
       "console_logging": true,
       "log_modules": {
-        "vision": "INFO",
+        "vision": "DEBUG",
+        "backend.vision": "DEBUG",
+        "backend.vision.detection": "DEBUG",
+        "backend.vision.detection.balls": "DEBUG",
         "core": "INFO",
         "api": "INFO",
         "projector": "ERROR",

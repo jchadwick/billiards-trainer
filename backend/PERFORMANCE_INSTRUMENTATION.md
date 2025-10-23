@@ -68,7 +68,7 @@ Top bottlenecks:
 
 ## 🔧 Configuration
 
-Performance profiling is configured in `backend/config.json`:
+Performance profiling is configured in `config.json` (project root):
 
 ```json
 {

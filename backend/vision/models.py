@@ -23,19 +23,79 @@ from numpy.typing import NDArray
 
 
 class BallType(Enum):
-    """Ball type classification.
+    """Ball type classification for all 16 pool balls.
 
-    Simplified to three types due to unreliable stripe/solid classification:
-    - CUE: White cue ball
+    Supports full ball identification:
+    - CUE: White cue ball (no number)
+    - SOLID_1 through SOLID_7: Solid colored balls (1-7)
     - EIGHT: Black 8-ball
-    - OTHER: All other numbered balls (1-7, 9-15)
+    - STRIPE_9 through STRIPE_15: Striped balls (9-15)
     - UNKNOWN: Classification failed
     """
 
     CUE = "cue"
-    EIGHT = "eight"
-    OTHER = "other"
+    SOLID_1 = "solid_1"  # Yellow
+    SOLID_2 = "solid_2"  # Blue
+    SOLID_3 = "solid_3"  # Red
+    SOLID_4 = "solid_4"  # Purple
+    SOLID_5 = "solid_5"  # Orange
+    SOLID_6 = "solid_6"  # Green
+    SOLID_7 = "solid_7"  # Maroon
+    EIGHT = "eight"  # Black
+    STRIPE_9 = "stripe_9"  # Yellow stripe
+    STRIPE_10 = "stripe_10"  # Blue stripe
+    STRIPE_11 = "stripe_11"  # Red stripe
+    STRIPE_12 = "stripe_12"  # Purple stripe
+    STRIPE_13 = "stripe_13"  # Orange stripe
+    STRIPE_14 = "stripe_14"  # Green stripe
+    STRIPE_15 = "stripe_15"  # Maroon stripe
     UNKNOWN = "unknown"
+
+    @property
+    def number(self) -> Optional[int]:
+        """Get the ball number (1-15), or None for cue ball."""
+        if self == BallType.CUE or self == BallType.UNKNOWN:
+            return None
+        if self == BallType.EIGHT:
+            return 8
+        # Extract number from enum name (e.g., "SOLID_1" -> 1)
+        name_parts = self.name.split("_")
+        if len(name_parts) > 1:
+            return int(name_parts[1])
+        return None
+
+    @property
+    def is_solid(self) -> bool:
+        """Check if this is a solid ball (1-7)."""
+        return "SOLID" in self.name
+
+    @property
+    def is_stripe(self) -> bool:
+        """Check if this is a stripe ball (9-15)."""
+        return "STRIPE" in self.name
+
+    @property
+    def color_name(self) -> str:
+        """Get the color name of the ball."""
+        color_map = {
+            BallType.CUE: "white",
+            BallType.SOLID_1: "yellow",
+            BallType.SOLID_2: "blue",
+            BallType.SOLID_3: "red",
+            BallType.SOLID_4: "purple",
+            BallType.SOLID_5: "orange",
+            BallType.SOLID_6: "green",
+            BallType.SOLID_7: "maroon",
+            BallType.EIGHT: "black",
+            BallType.STRIPE_9: "yellow",
+            BallType.STRIPE_10: "blue",
+            BallType.STRIPE_11: "red",
+            BallType.STRIPE_12: "purple",
+            BallType.STRIPE_13: "orange",
+            BallType.STRIPE_14: "green",
+            BallType.STRIPE_15: "maroon",
+        }
+        return color_map.get(self, "unknown")
 
 
 class PocketType(Enum):
@@ -72,7 +132,7 @@ class Ball:
     position: tuple[float, float]  # (x, y) in pixel coordinates
     radius: float  # pixels
     ball_type: BallType
-    number: Optional[int] = None  # 1-15 for numbered balls, None for cue/8-ball
+    number: Optional[int] = None  # 1-15 for numbered balls, None for cue ball
     confidence: float = 0.0  # 0.0-1.0 detection confidence
     velocity: tuple[float, float] = (
         0.0,
@@ -105,6 +165,11 @@ class Ball:
     source_resolution: Optional[tuple[int, int]] = (
         None  # (width, height) of source frame
     )
+
+    def __post_init__(self):
+        """Populate the number field from ball_type if not explicitly set."""
+        if self.number is None and hasattr(self.ball_type, "number"):
+            self.number = self.ball_type.number
 
     def update_history(self, max_history: int = 10) -> None:
         """Update position history, keeping only recent positions."""

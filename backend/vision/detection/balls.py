@@ -635,6 +635,11 @@ class BallDetector:
             # Resolve ball type conflicts (multiple cue/8-balls)
             final_balls = self._resolve_ball_type_conflicts(final_balls)
 
+            # Apply confidence threshold and resolve duplicate ball numbers
+            final_balls = self._apply_confidence_threshold_and_resolve_duplicates(
+                final_balls
+            )
+
             # Update statistics
             self._update_stats(final_balls)
 
@@ -676,7 +681,17 @@ class BallDetector:
             center = (ball_region.shape[1] // 2, ball_region.shape[0] // 2)
             cv2.circle(mask, center, int(radius * ball_mask_inner_ratio), 255, -1)
 
-            # Analyze color distribution
+            # Extract HSV values within mask for additional analysis
+            h_vals = hsv_region[:, :, 0][mask > 0]
+            s_vals = hsv_region[:, :, 1][mask > 0]
+            v_vals = hsv_region[:, :, 2][mask > 0]
+
+            # Calculate median HSV values (more robust than mean for outliers)
+            median_h = np.median(h_vals) if len(h_vals) > 0 else 0
+            median_s = np.median(s_vals) if len(s_vals) > 0 else 0
+            median_v = np.median(v_vals) if len(v_vals) > 0 else 0
+
+            # Analyze color distribution using range matching
             color_scores = {}
             for color_name, color_range in self.config.ball_colors.items():
                 color_mask = cv2.inRange(
@@ -686,12 +701,73 @@ class BallDetector:
                 score = np.sum(color_mask > 0) / np.sum(mask > 0)
                 color_scores[color_name] = score
 
-            # Determine ball type based on color
+            # Determine ball type based on color with disambiguation for similar colors
             best_color = max(color_scores, key=color_scores.get)
             confidence = color_scores[best_color]
 
+            # DISAMBIGUATION: Handle similar colors that might be confused
+            # Red (H: 0-15) vs Maroon (H: 0-15, but darker V: 30-120)
+            if best_color in ["red", "maroon"]:
+                # Use value (brightness) to distinguish
+                # Maroon is darker (V < 150), Red is brighter (V > 100)
+                if median_v < 120:
+                    best_color = "maroon"
+                    confidence = color_scores.get("maroon", confidence)
+                else:
+                    best_color = "red"
+                    confidence = color_scores.get("red", confidence)
+
+            # Yellow (balls 1/9) vs Orange (balls 5/13)
+            # Yellow: H:10-35, Orange: H:8-25 (overlap!)
+            elif best_color in ["yellow", "orange"]:
+                # Use hue to distinguish: Orange is lower hue (~15), Yellow is higher (~25)
+                if median_h < 18:
+                    best_color = "orange"
+                    confidence = max(
+                        color_scores.get("orange", 0), color_scores.get("yellow", 0)
+                    )
+                else:
+                    best_color = "yellow"
+                    confidence = max(
+                        color_scores.get("yellow", 0), color_scores.get("orange", 0)
+                    )
+
+            # Cue ball: must have very high value and very low saturation
+            # This prevents striped balls from being misclassified as cue
+            elif best_color == "cue":
+                # VERY STRICT thresholds: only accept nearly pure white
+                if median_v > 220 and median_s < 15:
+                    confidence = max(confidence, 0.98)  # Excellent cue ball
+                elif median_v > 200 and median_s < 25:
+                    confidence = max(confidence, 0.90)  # Good cue ball
+                elif median_s > 32:  # Too much saturation for cue ball
+                    # Re-evaluate - likely a washed-out colored ball or striped ball
+                    # Find second-best color
+                    color_scores_sorted = sorted(
+                        color_scores.items(), key=lambda x: x[1], reverse=True
+                    )
+                    if len(color_scores_sorted) > 1:
+                        best_color = color_scores_sorted[1][0]
+                        confidence = color_scores_sorted[1][1]
+                else:
+                    # Marginal case (S=25-32) - too uncertain, reclassify
+                    color_scores_sorted = sorted(
+                        color_scores.items(), key=lambda x: x[1], reverse=True
+                    )
+                    if len(color_scores_sorted) > 1:
+                        best_color = color_scores_sorted[1][0]
+                        confidence = color_scores_sorted[1][1] * 0.8
+
             # Map color to ball type and number
             ball_type, ball_number = self._color_to_ball_type(best_color, ball_region)
+
+            # Force output with print()
+            print(
+                f"🎱 CLASSIFY: color={best_color} conf={confidence:.2f} "
+                f"type={ball_type.name} num={ball_number} "
+                f"pos=({position[0]:.0f},{position[1]:.0f}) "
+                f"hsv=({median_h:.0f},{median_s:.0f},{median_v:.0f})"
+            )
 
             return ball_type, confidence, ball_number
 
@@ -1451,52 +1527,224 @@ class BallDetector:
 
         return balls
 
+    def _apply_confidence_threshold_and_resolve_duplicates(
+        self, balls: list[Ball]
+    ) -> list[Ball]:
+        """Apply confidence threshold and resolve duplicate ball numbers.
+
+        Rules:
+        1. If confidence < 60%, convert to UNKNOWN (generic 'ball')
+        2. If same number detected at multiple locations:
+           - Keep the one with higher confidence
+           - Convert lower confidence ones to UNKNOWN so they keep trying to identify
+
+        Args:
+            balls: List of detected balls
+
+        Returns:
+            List of balls with confidence threshold applied and duplicates resolved
+        """
+        if len(balls) <= 1:
+            return balls
+
+        # First pass: Apply confidence threshold
+        # Balls below 60% confidence become UNKNOWN (generic "ball")
+        for ball in balls:
+            if ball.confidence < 0.60 and ball.ball_type != BallType.UNKNOWN:
+                print(
+                    f"⚠️ Low confidence ({ball.confidence:.2f}) at pos=({ball.position[0]:.0f},{ball.position[1]:.0f}), "
+                    f"converting {ball.ball_type.name} (#{ball.number}) to UNKNOWN"
+                )
+                ball.ball_type = BallType.UNKNOWN
+                ball.number = None
+
+        # Second pass: Resolve duplicate ball numbers
+        # Group balls by number (excluding None numbers like cue ball and UNKNOWN)
+        number_groups: dict[int, list[Ball]] = {}
+        for ball in balls:
+            if ball.number is not None:
+                if ball.number not in number_groups:
+                    number_groups[ball.number] = []
+                number_groups[ball.number].append(ball)
+
+        # Find duplicates and keep only highest confidence
+        for ball_number, ball_group in number_groups.items():
+            if len(ball_group) > 1:
+                # Sort by confidence (highest first)
+                ball_group.sort(key=lambda b: b.confidence, reverse=True)
+                best_ball = ball_group[0]
+
+                print(
+                    f"🔄 Duplicate ball #{ball_number} detected at {len(ball_group)} locations, "
+                    f"keeping highest conf={best_ball.confidence:.2f} at "
+                    f"pos=({best_ball.position[0]:.0f},{best_ball.position[1]:.0f})"
+                )
+
+                # Convert all lower confidence duplicates to UNKNOWN
+                for duplicate_ball in ball_group[1:]:
+                    print(
+                        f"   → Converting duplicate #{ball_number} at "
+                        f"pos=({duplicate_ball.position[0]:.0f},{duplicate_ball.position[1]:.0f}) "
+                        f"conf={duplicate_ball.confidence:.2f} to UNKNOWN"
+                    )
+                    duplicate_ball.ball_type = BallType.UNKNOWN
+                    duplicate_ball.number = None
+
+        return balls
+
+    def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> tuple[bool, float]:
+        """Detect if a ball has a stripe pattern.
+
+        Uses multiple techniques to detect stripe patterns:
+        1. White stripe detection via color analysis
+        2. Pattern variance analysis
+        3. Color-to-white ratio analysis
+
+        Args:
+            ball_region: Cropped image region containing the ball (ideally 2x upscaled)
+
+        Returns:
+            Tuple of (is_striped, confidence)
+        """
+        if ball_region is None or ball_region.size == 0:
+            return False, 0.0
+
+        try:
+            # Convert to HSV for color analysis
+            hsv = cv2.cvtColor(ball_region, cv2.COLOR_BGR2HSV)
+            height, width = ball_region.shape[:2]
+
+            # Create mask for center region (avoid edges which may have specular highlights)
+            # Use 75% of ball diameter to capture stripes which run horizontally across middle
+            # At 4K, balls are ~90px diameter, so 75% = ~67px diameter sample region
+            center_mask = np.zeros(ball_region.shape[:2], dtype=np.uint8)
+            center = (width // 2, height // 2)
+            radius = int(min(width, height) * 0.75) // 2  # Use 75% of ball diameter
+            cv2.circle(center_mask, center, radius, 255, -1)
+
+            # Extract HSV values within mask
+            s_values = hsv[:, :, 1][center_mask > 0]
+            v_values = hsv[:, :, 2][center_mask > 0]
+
+            # 1. Detect white/very light regions (stripes are white)
+            # White: High value (V), low saturation (S)
+            white_mask = (v_values > 180) & (s_values < 60)
+            white_ratio = np.sum(white_mask) / len(v_values) if len(v_values) > 0 else 0
+
+            # 2. Detect saturated color regions
+            # Colored: High saturation, moderate-to-high value
+            color_mask = (s_values > 70) & (v_values > 60)
+            color_ratio = np.sum(color_mask) / len(s_values) if len(s_values) > 0 else 0
+
+            # 3. Check for high saturation variance (stripes transition from color to white)
+            saturation_std = np.std(s_values) if len(s_values) > 0 else 0
+
+            # 4. Check for high value variance (brightness changes between stripe and base)
+            value_std = np.std(v_values) if len(v_values) > 0 else 0
+
+            # Decision logic:
+            # Striped balls have:
+            # - Significant white (20-50%) AND significant color (20-50%)
+            # - High saturation variance (transitions from colored to white)
+            # - Moderate value variance
+            #
+            # Solid balls have:
+            # - High color ratio (>70%), minimal white (<15%)
+            # - Low saturation variance (uniform color)
+            #
+            # Cue balls have:
+            # - Very high white ratio (>85%), minimal color (<10%)
+            # - Low saturation and value variance
+
+            confidence = 0.0
+
+            # Strong indicator: balanced white and color
+            # Striped balls have 28-60% white and 35-73% color (relaxed for motion/lighting variance)
+            if 0.28 < white_ratio < 0.60 and 0.35 < color_ratio < 0.73:
+                confidence += 0.7
+
+            # High saturation variance indicates color transitions (stripe boundary)
+            if saturation_std > 50:  # Strong indicator
+                confidence += 0.35
+            elif saturation_std > 40:  # Moderate indicator
+                confidence += 0.20
+            elif saturation_std > 32:  # Weak indicator
+                confidence += 0.10
+
+            # Moderate value variance supports stripe pattern
+            if 15 < value_std < 50:
+                confidence += 0.1
+
+            # STRONGER penalty: If almost all white, likely cue ball not stripe
+            if white_ratio > 0.70:
+                confidence -= 0.8
+
+            # STRONGER penalty: If almost all color, likely solid not stripe
+            if color_ratio > 0.78:
+                confidence -= 0.6
+
+            is_striped = confidence >= 0.55  # Balanced threshold
+
+            # Force output with print() since logging isn't working
+            print(
+                f"🔍 STRIPE: white={white_ratio:.2f} color={color_ratio:.2f} "
+                f"sat_std={saturation_std:.1f} val_std={value_std:.1f} "
+                f"conf={confidence:.2f} is_striped={is_striped}"
+            )
+
+            return is_striped, min(confidence, 1.0)
+
+        except Exception as e:
+            logger.warning(f"Stripe detection failed: {e}")
+            return False, 0.0
+
     def _color_to_ball_type(
         self, color_name: str, ball_region: NDArray[np.float64]
     ) -> tuple[BallType, Optional[int]]:
-        """Map detected color to ball type (simplified - no stripe/solid distinction).
+        """Map detected color to specific ball type and number.
 
-        Returns only three ball types: CUE, EIGHT, OTHER.
-        Ball numbers are no longer detected or returned.
-        Stripe/solid classification removed due to poor accuracy.
+        Determines both the color and whether it's solid (1-7) or stripe (9-15).
+
+        Args:
+            color_name: Detected color name (yellow, blue, red, etc.)
+            ball_region: Cropped image region for stripe detection
+
+        Returns:
+            Tuple of (ball_type, ball_number)
         """
-        # Map color to base ball type
-        color_type_map = {
-            "cue": BallType.CUE,
-            "black": BallType.EIGHT,
-            # All colored balls are classified as OTHER (no stripe/solid distinction)
-            "yellow": BallType.OTHER,
-            "blue": BallType.OTHER,
-            "red": BallType.OTHER,
-            "purple": BallType.OTHER,
-            "orange": BallType.OTHER,
-            "green": BallType.OTHER,
-            "maroon": BallType.OTHER,
+        # Special cases: cue ball and 8-ball
+        if color_name == "cue":
+            return BallType.CUE, None
+        if color_name == "black":
+            return BallType.EIGHT, 8
+
+        # Color to number mapping
+        color_to_numbers = {
+            "yellow": (1, 9),  # Solid 1, Stripe 9
+            "blue": (2, 10),  # Solid 2, Stripe 10
+            "red": (3, 11),  # Solid 3, Stripe 11
+            "purple": (4, 12),  # Solid 4, Stripe 12
+            "orange": (5, 13),  # Solid 5, Stripe 13
+            "green": (6, 14),  # Solid 6, Stripe 14
+            "maroon": (7, 15),  # Solid 7, Stripe 15
         }
 
-        if color_name not in color_type_map:
+        if color_name not in color_to_numbers:
             return BallType.UNKNOWN, None
 
-        ball_type = color_type_map[color_name]
+        solid_num, stripe_num = color_to_numbers[color_name]
 
-        return ball_type, None
+        # Detect if striped
+        is_striped, stripe_confidence = self._is_striped_ball(ball_region)
 
-    # NOTE: Stripe detection disabled - stripe/solid classification removed due to poor accuracy
-    # The method below is preserved for reference but is no longer called
-    #
-    # def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> bool:
-    #     """DEPRECATED: Stripe detection disabled due to unreliable classification.
-    #
-    #     This method previously detected if a ball had stripe pattern using multi-method
-    #     pattern recognition. However, stripe/solid classification proved too sensitive to:
-    #     - Lighting conditions
-    #     - Ball orientation
-    #     - Image quality
-    #     - Shadows and reflections
-    #
-    #     All colored balls are now classified as BallType.OTHER.
-    #     """
-    #     return False
+        if is_striped:
+            # Striped balls (9-15)
+            ball_type = getattr(BallType, f"STRIPE_{stripe_num}")
+            return ball_type, stripe_num
+        else:
+            # Solid balls (1-7)
+            ball_type = getattr(BallType, f"SOLID_{solid_num}")
+            return ball_type, solid_num
 
     def _draw_candidates(
         self, frame: NDArray[np.uint8], candidates: list[tuple[float, float, float]]

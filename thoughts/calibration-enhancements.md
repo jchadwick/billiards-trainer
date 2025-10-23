@@ -99,7 +99,7 @@ Added two new features to the calibration page at http://localhost:3000/calibrat
 
 ### Saving Configuration
 1. Click "Apply Calibration" to save both corners and marker dots
-2. Configuration is persisted to the backend config.json file
+2. Configuration is persisted to the config.json file at the project root
 3. Both corners and marker dots will be loaded automatically on next visit
 
 ## Technical Details

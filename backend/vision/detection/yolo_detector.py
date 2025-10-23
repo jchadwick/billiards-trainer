@@ -974,6 +974,8 @@ class YOLODetector:
                     # Extract ball region for classification (frame already masked upstream)
                     x, y = ball.position
                     r = ball.radius
+
+                    # Extract region with 1.2x padding
                     x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
                     x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(
                         frame.shape[0], int(y + r * 1.2)
@@ -981,7 +983,9 @@ class YOLODetector:
                     ball_region = frame[y1:y2, x1:x2]
 
                     if ball_region.size > 0:
-                        # Classify ball type using OpenCV
+                        # Classify ball type using OpenCV with native 4K region
+                        # At 4K (3840x2160), balls are ~72x72 pixels natively
+                        # No upscaling needed - native 4K quality is excellent for classification
                         ball_type, conf, ball_number = (
                             self._opencv_classifier.classify_ball_type(
                                 ball_region, ball.position, r
