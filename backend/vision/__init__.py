@@ -19,14 +19,6 @@ from numpy.typing import NDArray
 from .calibration.camera import CameraCalibrator
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
-
-# Config manager no longer used - using simple config instead
-# Table detector - optional (disabled by default for performance)
-try:
-    from .detection.table import TableDetector
-except ImportError:
-    TableDetector = None
-
 from .models import (
     Ball,
     BallType,
@@ -46,29 +38,12 @@ from .models import (
     Table,
 )
 
-# Preprocessing - optional (disabled by default for performance)
-try:
-    from .preprocessing import ImagePreprocessor
-except ImportError:
-    ImagePreprocessor = None
-
 # Performance profiling
 from .performance_profiler import PerformanceProfiler
-from .tracking.tracker import ObjectTracker
-
-# Optional camera modules
-try:
-    from .direct_camera import DirectCameraModule
-except ImportError:
-    DirectCameraModule = None
-
-try:
-    from .simple_camera import SimpleCameraModule
-except ImportError:
-    SimpleCameraModule = None
 
 # Shared memory video consumer (for IPC with Video Module)
 from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
+from .tracking.tracker import ObjectTracker
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -110,19 +85,15 @@ class VisionConfig:
     # Processing settings (from vision.processing.*)
     target_fps: int
     enable_threading: bool
-    enable_gpu: bool
     max_frame_queue_size: int
 
     # Detection settings (from vision.detection.*)
-    enable_table_detection: bool
     enable_ball_detection: bool
-    enable_cue_detection: bool
     enable_tracking: bool
 
     # Performance settings (from vision.processing.*)
     frame_skip: int
     roi_enabled: bool
-    preprocessing_enabled: bool
 
     # Background subtraction (from vision.detection.background_subtraction.*)
     background_image_path: Optional[str]
@@ -179,25 +150,14 @@ class VisionConfig:
                 "enable_threading",
                 config_mgr.get("vision.processing.enable_threading", True),
             ),
-            enable_gpu=config_dict.get(
-                "enable_gpu", config_mgr.get("vision.processing.use_gpu", False)
-            ),
             max_frame_queue_size=config_dict.get(
                 "max_frame_queue_size",
                 config_mgr.get("vision.processing.max_frame_queue_size", 5),
             ),
             # Detection settings
-            enable_table_detection=config_dict.get(
-                "enable_table_detection",
-                config_mgr.get("vision.detection.enable_table_detection", True),
-            ),
             enable_ball_detection=config_dict.get(
                 "enable_ball_detection",
                 config_mgr.get("vision.detection.enable_ball_detection", True),
-            ),
-            enable_cue_detection=config_dict.get(
-                "enable_cue_detection",
-                config_mgr.get("vision.detection.enable_cue_detection", True),
             ),
             enable_tracking=config_dict.get(
                 "enable_tracking",
@@ -209,10 +169,6 @@ class VisionConfig:
             ),
             roi_enabled=config_dict.get(
                 "roi_enabled", config_mgr.get("vision.processing.roi_enabled", False)
-            ),
-            preprocessing_enabled=config_dict.get(
-                "preprocessing_enabled",
-                config_mgr.get("vision.processing.enable_preprocessing", True),
             ),
             # Background subtraction
             background_image_path=config_dict.get(
@@ -364,20 +320,8 @@ class VisionModule:
             self._video_consumer = VideoConsumer()
             logger.info("VideoConsumer initialized (will attach on start_capture)")
 
-            # Image preprocessing - create config based on vision module settings
-            if ImagePreprocessor is not None:
-                preprocessing_config = {}
-                if hasattr(self.config, "enable_gpu"):
-                    # Note: PreprocessingConfig doesn't have a use_gpu field, so we skip it
-                    pass
-                logger.debug("Creating ImagePreprocessor")
-                self.preprocessor = ImagePreprocessor(preprocessing_config)
-            else:
-                self.preprocessor = None
-                logger.info("ImagePreprocessor not available (module missing)")
-
             # Detection components - YOLO+OpenCV hybrid only
-            if self.config.enable_ball_detection or self.config.enable_cue_detection:
+            if self.config.enable_ball_detection:
                 # Load YOLO configuration parameters - use shared config manager
                 from ..config import config as config_mgr
 
@@ -418,47 +362,6 @@ class VisionModule:
                     # Store as ball_detector for compatibility with existing code
                     self.ball_detector = self.detector
 
-                    # Initialize CueDetector with relaxed config for better detection
-                    if self.config.enable_cue_detection:
-                        try:
-                            from .detection.cue import CueDetector
-                        except ImportError:
-                            logger.warning(
-                                "CueDetector module not available, cue detection disabled"
-                            )
-                            CueDetector = None
-
-                        if CueDetector is not None:
-                            # Create relaxed cue detector configuration
-                            cue_config = {
-                                "geometry": {
-                                    "min_cue_length": 100,  # Reduced from 150
-                                    "max_cue_length": 1000,  # Increased from 800
-                                    "min_line_thickness": 2,  # Reduced from 3
-                                    "max_line_thickness": 40,  # Increased from 25
-                                },
-                                "hough": {
-                                    "threshold": 50,  # Reduced from 80
-                                    "min_line_length": 100,
-                                    "max_line_gap": 20,
-                                },
-                                "detection": {
-                                    "min_detection_confidence": 0.3,  # Reduced from 0.5
-                                },
-                            }
-                            self.cue_detector = CueDetector(
-                                cue_config,
-                                camera_resolution=self.config.camera_resolution,
-                                yolo_detector=self.detector,
-                            )
-                            logger.info(
-                                "CueDetector initialized with relaxed configuration"
-                            )
-                        else:
-                            self.cue_detector = None
-                    else:
-                        self.cue_detector = None
-
                 except Exception as e:
                     logger.error(
                         f"Failed to initialize YOLO detector: {e}. "
@@ -471,17 +374,6 @@ class VisionModule:
             else:
                 self.detector = None
                 self.ball_detector = None
-                self.cue_detector = None
-
-            # Table detection (separate from ball/cue detection)
-            if self.config.enable_table_detection and TableDetector is not None:
-                base_detection_config = {"debug_mode": self.config.debug_mode}
-                self.table_detector = TableDetector(
-                    base_detection_config,
-                    camera_resolution=self.config.camera_resolution,
-                )
-            else:
-                self.table_detector = None
 
             # Load background frame if configured
             if self.config.background_image_path:
@@ -979,17 +871,8 @@ class VisionModule:
             if self.profiler:
                 self.profiler.start_frame(frame_number)
 
-            # Preprocessing
-            if self.profiler:
-                self.profiler.start_stage("preprocessing")
-
-            if self.config.preprocessing_enabled and self.preprocessor is not None:
-                processed_frame = self.preprocessor.process(frame)
-            else:
-                processed_frame = frame
-
-            if self.profiler:
-                self.profiler.end_stage("preprocessing")
+            # No preprocessing - disabled for performance
+            processed_frame = frame
 
             # Apply masking ONCE - marker dots and table boundaries
             # This happens BEFORE any detection so YOLO/OpenCV never see masked regions
@@ -1002,47 +885,7 @@ class VisionModule:
                 self.profiler.end_stage("masking")
 
             # Detection
-            detected_table = None
             detected_balls = []
-            detected_cue = None
-
-            # Table detection
-            if self.table_detector and self.config.enable_table_detection:
-                if self.profiler:
-                    self.profiler.start_stage("table_detection")
-
-                try:
-                    table_confidence_threshold = _get_config_value(
-                        "vision.detection.table_detection_confidence_threshold", 0.5
-                    )
-                    table_result = self.table_detector.detect_complete_table(
-                        processed_frame
-                    )
-                    if (
-                        table_result
-                        and table_result.confidence > table_confidence_threshold
-                    ):
-                        # Convert to our Table model format
-                        detected_table = Table(
-                            corners=table_result.corners.to_list(),
-                            pockets=[
-                                pocket.position for pocket in table_result.pockets
-                            ],
-                            width=table_result.width,
-                            height=table_result.height,
-                            surface_color=table_result.surface_color,
-                        )
-
-                        self.stats.detection_accuracy["table"] = table_result.confidence
-                    else:
-                        self.stats.detection_accuracy["table"] = 0.0
-
-                except Exception as e:
-                    logger.warning(f"Table detection failed: {e}")
-                    self.stats.detection_accuracy["table"] = 0.0
-
-                if self.profiler:
-                    self.profiler.end_stage("table_detection")
 
             # Ball detection using YOLO+OpenCV hybrid detector
             if self.detector and self.config.enable_ball_detection:
@@ -1081,33 +924,6 @@ class VisionModule:
                 if self.profiler:
                     self.profiler.end_stage("ball_detection")
 
-            # Cue detection using CueDetector with YOLO+OpenCV hybrid
-            if self.cue_detector and self.config.enable_cue_detection:
-                if self.profiler:
-                    self.profiler.start_stage("cue_detection")
-
-                try:
-                    # Get cue ball position for improved cue detection
-                    cue_ball_pos = None
-                    for ball in detected_balls:
-                        if ball.ball_type == BallType.CUE:
-                            cue_ball_pos = ball.position
-                            break
-
-                    # Use CueDetector which leverages YOLO + OpenCV hybrid detection
-                    detected_cue = self.cue_detector.detect_cue(
-                        processed_frame, cue_ball_pos
-                    )
-
-                    self.stats.detection_accuracy["cue"] = 1.0 if detected_cue else 0.0
-
-                except Exception as e:
-                    logger.error(f"Cue detection failed: {e}")
-                    self.stats.detection_accuracy["cue"] = 0.0
-
-                if self.profiler:
-                    self.profiler.end_stage("cue_detection")
-
             # Create result
             if self.profiler:
                 self.profiler.start_stage("result_building")
@@ -1115,19 +931,18 @@ class VisionModule:
                 time.time() - start_time
             ) * 1000  # Convert to milliseconds
 
-            if detected_table is None:
-                # Create a default table if detection failed
-                h, w = frame.shape[:2]
-                default_surface_color = _get_config_value(
-                    "vision.defaults.table_surface_color_rgb", [60, 200, 100]
-                )
-                detected_table = Table(
-                    corners=[(0, 0), (w, 0), (w, h), (0, h)],
-                    pockets=[],
-                    width=w,
-                    height=h,
-                    surface_color=tuple(default_surface_color),
-                )
+            # Create a default table (no detection needed)
+            h, w = frame.shape[:2]
+            default_surface_color = _get_config_value(
+                "vision.defaults.table_surface_color_rgb", [60, 200, 100]
+            )
+            detected_table = Table(
+                corners=[(0, 0), (w, 0), (w, h), (0, h)],
+                pockets=[],
+                width=w,
+                height=h,
+                surface_color=tuple(default_surface_color),
+            )
 
             # Create frame statistics
             default_quality = _get_config_value(
@@ -1145,8 +960,8 @@ class VisionModule:
                 balls_tracked=len(
                     [b for b in detected_balls if b.track_id is not None]
                 ),
-                cue_detected=detected_cue is not None,
-                table_detected=detected_table is not None,
+                cue_detected=False,
+                table_detected=True,
                 detection_confidence=sum(self.stats.detection_accuracy.values())
                 / max(len(self.stats.detection_accuracy), 1),
                 frame_quality=(
@@ -1158,7 +973,7 @@ class VisionModule:
                 frame_number=frame_number,
                 timestamp=timestamp,
                 balls=detected_balls,
-                cue=detected_cue,
+                cue=None,  # Cue detection disabled for performance
                 table=detected_table,
                 statistics=statistics,
             )
@@ -1329,18 +1144,12 @@ class VisionModule:
                 self.detector.set_background_frame(background_frame)
                 logger.info("Background frame set for unified detector")
 
-            # Set background for fallback detectors if they exist
+            # Set background for fallback ball detector if it exists
             if self.ball_detector and self.ball_detector != getattr(
                 getattr(self.detector, "ball_detector", None), None, None
             ):
                 self.ball_detector.set_background_frame(background_frame)
                 logger.info("Background frame set for fallback ball detector")
-
-            if self.cue_detector and self.cue_detector != getattr(
-                getattr(self.detector, "cue_detector", None), None, None
-            ):
-                self.cue_detector.set_background_frame(background_frame)
-                logger.info("Background frame set for fallback cue detector")
 
         except Exception as e:
             logger.error(f"Failed to load background frame: {e}")
@@ -1368,8 +1177,6 @@ __all__ = [
     "VisionConfig",
     "VisionStatistics",
     "VisionModuleError",
-    "SimpleCameraModule",
-    "DirectCameraModule",
     # Data models
     "Ball",
     "BallType",
