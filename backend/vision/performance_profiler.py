@@ -24,9 +24,7 @@ class FrameTimings:
     total_time: float = 0.0
 
     # Stage timings
-    preprocessing_time: float = 0.0
     masking_time: float = 0.0
-    table_detection_time: float = 0.0
     ball_detection_time: float = 0.0
     cue_detection_time: float = 0.0
     tracking_time: float = 0.0
@@ -45,9 +43,7 @@ class FrameTimings:
         """Get timing breakdown as dictionary."""
         return {
             "total": self.total_time,
-            "preprocessing": self.preprocessing_time,
             "masking": self.masking_time,
-            "table_detection": self.table_detection_time,
             "ball_detection": self.ball_detection_time,
             "yolo_inference": self.yolo_inference_time,
             "yolo_preprocessing": self.yolo_preprocessing_time,
@@ -72,9 +68,7 @@ class AggregateStats:
 
     # Average timings
     avg_total: float = 0.0
-    avg_preprocessing: float = 0.0
     avg_masking: float = 0.0
-    avg_table_detection: float = 0.0
     avg_ball_detection: float = 0.0
     avg_yolo_inference: float = 0.0
     avg_cue_detection: float = 0.0
@@ -97,9 +91,7 @@ class AggregateStats:
                 self.min_total * 1000 if self.min_total != float("inf") else 0
             ),
             "max_total_ms": self.max_total * 1000,
-            "avg_preprocessing_ms": self.avg_preprocessing * 1000,
             "avg_masking_ms": self.avg_masking * 1000,
-            "avg_table_detection_ms": self.avg_table_detection * 1000,
             "avg_ball_detection_ms": self.avg_ball_detection * 1000,
             "avg_yolo_inference_ms": self.avg_yolo_inference * 1000,
             "avg_cue_detection_ms": self.avg_cue_detection * 1000,
@@ -160,9 +152,7 @@ class PerformanceProfiler:
 
         # Map stage name to attribute
         stage_attr_map = {
-            "preprocessing": "preprocessing_time",
             "masking": "masking_time",
-            "table_detection": "table_detection_time",
             "ball_detection": "ball_detection_time",
             "yolo_inference": "yolo_inference_time",
             "yolo_preprocessing": "yolo_preprocessing_time",
@@ -185,9 +175,7 @@ class PerformanceProfiler:
         # Calculate total time
         self.current_frame.total_time = sum(
             [
-                self.current_frame.preprocessing_time,
                 self.current_frame.masking_time,
-                self.current_frame.table_detection_time,
                 self.current_frame.ball_detection_time,
                 self.current_frame.cue_detection_time,
                 self.current_frame.tracking_time,
@@ -220,14 +208,8 @@ class PerformanceProfiler:
         stats.max_total = max(total_times)
         stats.avg_fps = 1.0 / stats.avg_total if stats.avg_total > 0 else 0.0
 
-        stats.avg_preprocessing = statistics.mean(
-            [t.preprocessing_time for t in self.recent_timings]
-        )
         stats.avg_masking = statistics.mean(
             [t.masking_time for t in self.recent_timings]
-        )
-        stats.avg_table_detection = statistics.mean(
-            [t.table_detection_time for t in self.recent_timings]
         )
         stats.avg_ball_detection = statistics.mean(
             [t.ball_detection_time for t in self.recent_timings]
@@ -256,9 +238,7 @@ class PerformanceProfiler:
         stats = self.get_current_stats()
 
         stage_times = [
-            ("preprocessing", stats.avg_preprocessing * 1000),
             ("masking", stats.avg_masking * 1000),
-            ("table_detection", stats.avg_table_detection * 1000),
             ("ball_detection", stats.avg_ball_detection * 1000),
             ("yolo_inference", stats.avg_yolo_inference * 1000),
             ("cue_detection", stats.avg_cue_detection * 1000),
@@ -281,9 +261,7 @@ class PerformanceProfiler:
             f"FPS: {summary['avg_fps']:.1f} (total: {summary['avg_total_ms']:.1f}ms, "
             f"min: {summary['min_total_ms']:.1f}ms, max: {summary['max_total_ms']:.1f}ms)\n"
             f"Breakdown:\n"
-            f"  Preprocessing:    {summary['avg_preprocessing_ms']:6.1f}ms\n"
             f"  Masking:          {summary['avg_masking_ms']:6.1f}ms\n"
-            f"  Table Detection:  {summary['avg_table_detection_ms']:6.1f}ms\n"
             f"  Ball Detection:   {summary['avg_ball_detection_ms']:6.1f}ms\n"
             f"    (YOLO only:     {summary['avg_yolo_inference_ms']:6.1f}ms)\n"
             f"  Cue Detection:    {summary['avg_cue_detection_ms']:6.1f}ms\n"
@@ -321,9 +299,9 @@ class PerformanceProfiler:
 
         # Determine performance status
         status = "good"
-        if stats.avg_fps < 10 or cpu_percent > 80 or memory_mb > 2048:
+        if stats.avg_fps < 10 or cpu_percent > 80 or memory_mb > 3072:
             status = "poor"
-        elif stats.avg_fps < 15 or cpu_percent > 60 or memory_mb > 1024:
+        elif stats.avg_fps < 15 or cpu_percent > 60 or memory_mb > 2048:
             status = "degraded"
 
         return {

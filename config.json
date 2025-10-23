@@ -71,7 +71,6 @@
       "yolo_device": "auto",
       "enable_ball_detection": true,
       "use_opencv_validation": true,
-      "fallback_to_opencv": true,
       "max_balls_on_table": 16,
       "marker_filtering": {
         "enabled": true,
@@ -790,7 +789,7 @@
         "metrics_retention_minutes": 60,
         "stats_window_size": 1000,
         "system_metrics_interval_seconds": 30,
-        "memory_alert_threshold_mb": 512,
+        "memory_alert_threshold_mb": 1536,
         "cpu_alert_threshold_percent": 80.0,
         "response_time_percentiles": [
           50,
