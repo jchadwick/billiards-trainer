@@ -112,15 +112,22 @@ class PerformanceProfiler:
     aggregate statistics and bottleneck analysis.
     """
 
-    def __init__(self, history_size: int = 100, log_interval: int = 30):
+    def __init__(
+        self,
+        history_size: int = 100,
+        log_interval: int = 30,
+        enable_console_logging: bool = False,
+    ):
         """Initialize profiler.
 
         Args:
             history_size: Number of recent frames to keep for statistics
             log_interval: Log summary every N frames
+            enable_console_logging: Whether to log summaries to console (default: False, use API only)
         """
         self.history_size = history_size
         self.log_interval = log_interval
+        self.enable_console_logging = enable_console_logging
 
         # Ring buffer for recent timings
         self.recent_timings: deque[FrameTimings] = deque(maxlen=history_size)
@@ -190,8 +197,8 @@ class PerformanceProfiler:
         self.recent_timings.append(self.current_frame)
         self.total_frames += 1
 
-        # Log periodically
-        if self.total_frames % self.log_interval == 0:
+        # Log periodically (only if console logging enabled)
+        if self.enable_console_logging and self.total_frames % self.log_interval == 0:
             self._log_summary()
 
         self.current_frame = None
@@ -262,11 +269,35 @@ class PerformanceProfiler:
         return stage_times[:top_n]
 
     def _log_summary(self) -> None:
-        """Log performance summary.
+        """Log performance summary."""
+        stats = self.get_current_stats()
+        summary = stats.get_summary()
 
-        Disabled to reduce console noise - use the monitoring app instead.
-        """
-        pass
+        logger.info(
+            f"\n"
+            f"=== Performance Summary (last {stats.frame_count} frames) ===\n"
+            f"FPS: {summary['avg_fps']:.1f} (total: {summary['avg_total_ms']:.1f}ms, "
+            f"min: {summary['min_total_ms']:.1f}ms, max: {summary['max_total_ms']:.1f}ms)\n"
+            f"Breakdown:\n"
+            f"  Preprocessing:    {summary['avg_preprocessing_ms']:6.1f}ms\n"
+            f"  Masking:          {summary['avg_masking_ms']:6.1f}ms\n"
+            f"  Table Detection:  {summary['avg_table_detection_ms']:6.1f}ms\n"
+            f"  Ball Detection:   {summary['avg_ball_detection_ms']:6.1f}ms\n"
+            f"    (YOLO only:     {summary['avg_yolo_inference_ms']:6.1f}ms)\n"
+            f"  Cue Detection:    {summary['avg_cue_detection_ms']:6.1f}ms\n"
+            f"  Tracking:         {summary['avg_tracking_ms']:6.1f}ms\n"
+        )
+
+        # Show top bottlenecks
+        bottlenecks = self.get_bottlenecks(top_n=3)
+        logger.info("Top bottlenecks:")
+        for i, (stage, time_ms) in enumerate(bottlenecks, 1):
+            pct = (
+                (time_ms / summary["avg_total_ms"] * 100)
+                if summary["avg_total_ms"] > 0
+                else 0
+            )
+            logger.info(f"  {i}. {stage:20s}: {time_ms:6.1f}ms ({pct:5.1f}%)")
 
     def get_realtime_status(self) -> dict[str, any]:
         """Get real-time performance status for monitoring.
@@ -301,7 +332,10 @@ _profiler: Optional[PerformanceProfiler] = None
 
 
 def get_profiler(
-    enabled: bool = True, history_size: int = 100, log_interval: int = 30
+    enabled: bool = True,
+    history_size: int = 100,
+    log_interval: int = 30,
+    enable_console_logging: bool = False,
 ) -> Optional[PerformanceProfiler]:
     """Get or create global profiler instance.
 
@@ -309,6 +343,7 @@ def get_profiler(
         enabled: Whether profiling is enabled
         history_size: Number of frames to keep in history
         log_interval: Log summary every N frames
+        enable_console_logging: Whether to log summaries to console
 
     Returns:
         Profiler instance or None if disabled
@@ -320,9 +355,14 @@ def get_profiler(
 
     if _profiler is None:
         _profiler = PerformanceProfiler(
-            history_size=history_size, log_interval=log_interval
+            history_size=history_size,
+            log_interval=log_interval,
+            enable_console_logging=enable_console_logging,
         )
-        logger.info("Performance profiler initialized")
+        if enable_console_logging:
+            logger.info("Performance profiler initialized with console logging")
+        else:
+            logger.debug("Performance profiler initialized (API-only mode)")
 
     return _profiler
 

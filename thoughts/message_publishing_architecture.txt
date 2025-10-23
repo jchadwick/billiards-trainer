@@ -1,0 +1,276 @@
+================================================================================
+BILLIARDS TRAINER - MESSAGE PUBLISHING ARCHITECTURE
+================================================================================
+
+1. MESSAGING PROTOCOL STACK
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ Application Layer: Ball Detection Events                             │
+│ - Ball positions (16 balls)                                          │
+│ - Cue stick orientation                                              │
+│ - Trajectory predictions                                             │
+│ - Game state updates                                                 │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│ Serialization: JSON (Custom NumpyEncoder)                            │
+│ - Message size: 500-800 bytes (16 balls)                             │
+│ - Compression: Zlib level 6 (if > 1024 bytes)                        │
+│ - No frame broadcasting (disabled - browser crash risk)              │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│ Transport: WebSocket (FastAPI/Starlette)                             │
+│ - Protocol: ws://localhost:8000/api/v1/ws                            │
+│ - Ping interval: 30 seconds                                          │
+│ - Connection timeout: 60 seconds                                     │
+│ - Message rate limit: 100 messages/minute/client                     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────────┐
+│ Network: HTTP/1.1 (WebSocket upgrade)                                │
+│ - Supports multiple concurrent clients                               │
+│ - Automatic reconnection handling                                    │
+│ - Graceful degradation on network errors                             │
+└─────────────────────────────────────────────────────────────────────┘
+
+
+2. PUBLISHING DATA FLOW (SYNCHRONOUS TO ASYNCHRONOUS)
+================================================================================
+
+DETECTION SIDE (Threaded):
+┌────────────────┐
+│ Vision Module  │  <- Runs in separate thread
+│ (vision proc)  │  -> Captures video frames
+│                │  -> Runs YOLO detection
+│                │  -> Outputs 30 FPS max
+└────────┬───────┘
+         │ detection.balls, detection.cue, detection.table
+         │
+SYNC BRIDGE:
+┌────────▼───────────────────────────────────────────┐
+│ Core Module (Game State)                           │
+│ - Validates detection data                         │
+│ - Updates internal game state                      │
+│ - Emits SYNC event callback: "state_updated"       │
+│   (blocking Core logic < 1ms)                      │
+└────────┬────────────────────────────────────────────┘
+         │ event_type="state_updated", event_data={...}
+         │
+ASYNC BRIDGE:
+┌────────▼────────────────────────────────────────────────────────┐
+│ Integration Service._on_state_updated() [SYNC callback]         │
+│ - Runs in thread context (not event loop)                       │
+│ - Detects running event loop: _event_loop                       │
+│ - Schedules async work safely:                                  │
+│   loop.call_soon_threadsafe(                                    │
+│       lambda: asyncio.ensure_future(                            │
+│           _on_state_updated_async(...)                          │
+│       )                                                          │
+│   )                                                              │
+│ - Returns immediately (non-blocking)                            │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+ASYNC SIDE (Event Loop):
+┌────────▼────────────────────────────────────────────────────────┐
+│ Integration Service._on_state_updated_async() [ASYNC]           │
+│ - Validates event_data structure                                │
+│ - Extracts: balls[], cue, table                                 │
+│ - Calls _broadcast_with_retry()                                 │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+┌────────▼────────────────────────────────────────────────────────┐
+│ _broadcast_with_retry() [ASYNC with retries]                    │
+│ - Checks circuit breaker (blocks if open)                        │
+│ - Attempts broadcast (up to 3 retries)                           │
+│ - Exponential backoff: 0.1s, 0.2s, 0.4s                          │
+│ - Records success/failure for circuit breaker                    │
+│ - Returns immediately on success                                │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+┌────────▼────────────────────────────────────────────────────────┐
+│ MessageBroadcaster.broadcast_game_state() [ASYNC]               │
+│ - Validates ball positions (dict with x, y, scale)               │
+│ - Serializes to JSON                                             │
+│ - Compresses if beneficial (> 1KB and > 90% reduction)           │
+│ - Delegates to WebSocketManager                                  │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+┌────────▼────────────────────────────────────────────────────────┐
+│ WebSocketManager.broadcast_to_stream(StreamType.STATE) [ASYNC]  │
+│ - Gets all STATE stream subscribers                              │
+│ - Applies subscription filters (per-client)                      │
+│ - Creates message for each filtered client                       │
+│ - Sends via asyncio.gather(*tasks) [PARALLEL]                   │
+│ - Tracks failed clients for cleanup                              │
+└────────┬────────────────────────────────────────────────────────┘
+         │ asyncio.gather() - ALL CLIENTS IN PARALLEL
+         │
+┌────────▼────────────────────────────────────────────────────────┐
+│ WebSocketHandler.send_to_client() [ASYNC x N clients]           │
+│ For each client:                                                 │
+│ - Serialize message to JSON string                               │
+│ - await websocket.send_text(message_str)                         │
+│ - Track bytes_sent and message_count                             │
+│ - Handle disconnect exceptions                                   │
+│ - Return True/False success status                               │
+└────────┬────────────────────────────────────────────────────────┘
+         │
+BROADCAST COMPLETE (All clients receive message)
+
+
+3. KEY PERFORMANCE CHARACTERISTICS
+================================================================================
+
+Message Size:
+  - Fixed header: ~100 bytes (type, timestamp, sequence)
+  - Per ball: ~50 bytes (position.x, .y, .scale, radius, velocity, flags)
+  - 16 balls: ~800 bytes + header = ~900 bytes
+  - With cue + table: ~1200-1500 bytes
+  - Compression: 30-50% reduction (Zlib level 6)
+
+Processing Latency (per message):
+  - Vision detect→Core update: <1ms
+  - Core sync callback: <1ms
+  - Event loop scheduler: <1ms
+  - Async handler validation: <1ms
+  - Message serialization: <1ms
+  - Compression (if applied): <2ms
+  - Per-client send: <5ms (network dependent)
+  - TOTAL (excluding network): ~10-15ms
+
+Throughput:
+  - Processing FPS: 30 max (configurable)
+  - Per-client FPS: 30 max (per subscription filter)
+  - Multi-client scaling: Linear with asyncio.gather()
+  - Example: 10 clients × 30 FPS = 300 async sends/second
+
+Memory:
+  - Frame buffer: 100 frames × 50KB = 5MB max
+  - Message queue: 10 frames × 50KB = 500KB max
+  - Per connection: ~1KB metadata
+  - Total: ~6MB for 10 concurrent clients
+
+
+4. ERROR HANDLING & RESILIENCE
+================================================================================
+
+Circuit Breaker Pattern:
+  ┌──────────────────────┐
+  │ CLOSED (Normal)      │ ◄─── Success recorded
+  │ - Attempts broadcast │
+  │ - Tracks failures    │
+  └──────────┬───────────┘
+             │ ≥10 consecutive failures
+             │
+  ┌──────────▼───────────┐
+  │ OPEN (Blocking)      │
+  │ - Rejects broadcasts │
+  │ - Waits timeout      │
+  └──────────┬───────────┘
+             │ 30 second timeout elapsed
+             │
+  ┌──────────▼──────────────┐
+  │ HALF-OPEN (Testing)     │
+  │ - Allows 1 attempt      │
+  │ - If succeeds → CLOSED  │
+  │ - If fails → OPEN       │
+  └─────────────────────────┘
+
+Retry Logic:
+  Attempt 1: Immediate
+     └─ If fails: 0.1s backoff
+  Attempt 2: +0.1s
+     └─ If fails: 0.2s backoff
+  Attempt 3: +0.2s
+     └─ If fails: 0.4s backoff
+  Attempt 4: +0.4s
+     └─ If fails: Circuit opens
+
+Rate Limiting:
+  - Per-connection: 100 messages/minute (checked)
+  - Per-client FPS: 30 max (enforced before send)
+  - Per-subscription: Custom via SubscriptionFilter
+
+
+5. CONFIGURATION PARAMETERS (from config.json)
+================================================================================
+
+Broadcasting:
+  api.websocket.broadcaster.frame_buffer.max_size = 100
+  api.websocket.broadcaster.frame_buffer.max_age_seconds = 5.0
+  api.websocket.broadcaster.compression.threshold_bytes = 1024
+  api.websocket.broadcaster.compression.level = 6
+  api.websocket.broadcaster.compression.ratio_threshold = 0.9
+  api.websocket.broadcaster.frame_queue.max_size = 10
+  api.websocket.broadcaster.fps.default_target_fps = 30
+  api.websocket.broadcaster.cleanup.interval_seconds = 30
+  api.websocket.broadcaster.fps.limiter_cleanup_age_seconds = 300
+
+WebSocket Handler:
+  api.websocket.handler.ping_interval = 30
+  api.websocket.handler.connection_timeout = 60
+  api.websocket.handler.max_message_rate = 100
+
+Integration Service:
+  integration.target_fps = 30
+  integration.broadcast_max_retries = 3
+  integration.broadcast_retry_base_delay_sec = 0.1
+  integration.circuit_breaker_threshold = 10
+  integration.circuit_breaker_timeout_sec = 30.0
+
+
+6. NO BLOCKING I/O VERIFICATION
+================================================================================
+
+✓ ASYNC (Non-Blocking):
+  - await websocket.send_text(message)        <- Awaitable
+  - asyncio.gather(*tasks)                    <- Awaitable
+  - asyncio.sleep(duration)                   <- Awaitable
+  - Queue.get(timeout=...)                    <- Awaitable
+
+✓ FAST SYNC (OK to block):
+  - json.dumps(message, cls=NumpyEncoder)     <- <1ms for 1KB
+  - zlib.compress(data, level=6)              <- <2ms for 1KB
+  - dict validation loops                     <- <1ms
+  - String formatting/logging                 <- <1ms
+
+✗ AVOIDED (Not used):
+  - socket.send() (raw, blocking)
+  - file I/O synchronously
+  - database queries synchronously
+  - infinite loops without sleep
+  - time.sleep() in async context
+
+
+7. CONCLUSION
+================================================================================
+
+STATUS: Message publishing is NOT a bottleneck.
+
+EVIDENCE:
+  1. Fully asynchronous architecture
+  2. Efficient message serialization (JSON)
+  3. Compression enabled (30-50% bandwidth reduction)
+  4. Parallel multi-client broadcasting (asyncio.gather)
+  5. Smart FPS limiting (30 max per client)
+  6. Circuit breaker resilience (prevents cascade failures)
+  7. Error recovery with exponential backoff
+  8. No blocking I/O operations
+
+LIKELY BOTTLENECKS (if performance issues exist):
+  1. Vision detection - YOLO processing (30-100ms per frame)
+  2. Physics calculations - Trajectory generation (10-50ms)
+  3. Core game state - Synchronous game logic
+  4. Network latency - Client network conditions
+  5. Database I/O - If any DB writes are synchronous
+
+RECOMMENDED PROFILING:
+  curl http://localhost:8000/api/v1/websocket/metrics
+
+  Check:
+  - broadcaster.average_latency (target: <5ms)
+  - broadcaster.peak_latency (target: <20ms)
+  - broadcaster.failed_sends (should be 0)
+  - connection_stats from each subscriber
