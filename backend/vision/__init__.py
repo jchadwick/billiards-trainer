@@ -899,6 +899,35 @@ class VisionModule:
                         processed_frame
                     )
 
+                    # CRITICAL: Filter out balls in invalid regions
+                    # This prevents balls detected on marker dots or outside playing area
+                    # Note: Cue stick can be on rails, so this filter is ONLY for balls
+                    frame_height, frame_width = processed_frame.shape[:2]
+                    filtered_balls = []
+                    excluded_count = 0
+
+                    for ball in detected_balls:
+                        ball_x, ball_y = ball.position
+
+                        if self._is_ball_in_invalid_region(
+                            ball_x, ball_y, frame_width, frame_height
+                        ):
+                            excluded_count += 1
+                            logger.debug(
+                                f"Excluded ball at ({ball_x:.1f}, {ball_y:.1f}) - in invalid region "
+                                f"(marker dot or outside playing area)"
+                            )
+                        else:
+                            filtered_balls.append(ball)
+
+                    if excluded_count > 0:
+                        logger.debug(
+                            f"Filtered out {excluded_count} ball(s) in invalid regions "
+                            f"({len(filtered_balls)} valid balls remaining)"
+                        )
+
+                    detected_balls = filtered_balls
+
                     # Update tracking if available
                     if self.tracker and self.config.enable_tracking:
                         if self.profiler:
@@ -997,12 +1026,87 @@ class VisionModule:
 
             return None
 
+    def _is_ball_in_invalid_region(
+        self, x: float, y: float, frame_width: int, frame_height: int
+    ) -> bool:
+        """Check if a ball detection is in an invalid region.
+
+        Invalid regions for BALLS only:
+        1. Marker dots - can't have balls on marker stickers
+        2. Outside playing area - balls can't be outside the table boundary
+
+        Note: Cue stick CAN be on rails (outside playing area), so this check
+        is ONLY for ball detections, not cue detections.
+
+        Args:
+            x, y: Ball center coordinates
+            frame_width, frame_height: Current frame dimensions
+
+        Returns:
+            True if ball is in an invalid region and should be excluded
+        """
+        try:
+            from ..config import config
+
+            # Get calibration resolution for scaling
+            calib_width = config.get("table.calibration_resolution_width")
+            calib_height = config.get("table.calibration_resolution_height")
+
+            if calib_width is None or calib_height is None:
+                return False  # Can't check without calibration
+
+            scale_x = frame_width / calib_width
+            scale_y = frame_height / calib_height
+
+            # Check 1: Marker dots (balls can't be on marker stickers)
+            marker_config = config.get("vision.detection.marker_filtering", {})
+            if marker_config.get("enabled", True):
+                marker_dots = config.get("table.marker_dots", [])
+                mask_radius = marker_config.get("mask_radius_px", 25)
+
+                for dot in marker_dots:
+                    scaled_x = dot["x"] * scale_x
+                    scaled_y = dot["y"] * scale_y
+                    distance = np.sqrt((x - scaled_x) ** 2 + (y - scaled_y) ** 2)
+
+                    if distance < mask_radius:
+                        return True  # Ball is on a marker dot
+
+            # Check 2: Outside playing area (balls can't be outside the table)
+            playing_area_corners = config.get("table.playing_area_corners", [])
+
+            if len(playing_area_corners) == 4:
+                # Scale corners
+                corners = np.array(
+                    [
+                        [int(c["x"] * scale_x), int(c["y"] * scale_y)]
+                        for c in playing_area_corners
+                    ],
+                    dtype=np.float32,
+                )
+
+                # Use OpenCV pointPolygonTest to check if point is inside polygon
+                # Returns positive if inside, negative if outside, zero if on edge
+                result = cv2.pointPolygonTest(corners, (float(x), float(y)), False)
+
+                if result < 0:
+                    return True  # Ball is outside playing area
+
+            return False  # Ball is in a valid location
+
+        except Exception as e:
+            logger.error(f"Failed to check ball region: {e}")
+            return False  # Don't filter on error
+
     def _apply_all_masks(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
-        """Apply all masking in ONE place before any detection.
+        """Apply marker dot masking before detection.
 
         Masks applied:
-        1. Marker dots - black out table markers to prevent false detections
-        2. Table boundaries - black out area outside playing area
+        1. Marker dots - painted over with dark green (post-filtering excludes ball detections)
+
+        Note: Boundary masking is DISABLED because cue stick can be on rails.
+        Post-filtering in detect_balls ensures ball detections in invalid regions
+        (marker dots or outside playing area) are excluded.
 
         IMPORTANT: Coordinates are scaled from calibration resolution to current frame resolution.
 
@@ -1010,7 +1114,7 @@ class VisionModule:
             frame: Preprocessed frame
 
         Returns:
-            Fully masked frame ready for detection
+            Frame with marker dots masked
         """
         try:
             from ..config import config
@@ -1038,59 +1142,59 @@ class VisionModule:
 
             # MASK 1: Marker dots (spots/stickers on table)
             marker_config = config.get("vision.detection.marker_filtering", {})
-            if marker_config.get("enabled", True):
+            marker_filtering_enabled = marker_config.get("enabled", True)
+
+            if marker_filtering_enabled:
                 marker_dots = config.get("table.marker_dots", [])
                 mask_radius = marker_config.get(
                     "mask_radius_px", 25
                 )  # DO NOT SCALE radius
 
-                for dot in marker_dots:
-                    # Scale coordinates from calibration resolution to frame resolution
-                    scaled_x = int(dot["x"] * scale_x)
-                    scaled_y = int(dot["y"] * scale_y)
-
-                    cv2.circle(
-                        masked_frame,
-                        (scaled_x, scaled_y),
-                        mask_radius,
-                        (0, 0, 0),  # Black
-                        -1,  # Filled
-                    )
-
                 if marker_dots:
-                    pass
+                    # Log masking config only on first application (avoid spam)
+                    if not hasattr(self, "_logged_marker_masking"):
+                        logger.info(
+                            f"Applying marker dot masking: {len(marker_dots)} dots, "
+                            f"radius={mask_radius}px, scale=({scale_x:.2f}, {scale_y:.2f}) "
+                            f"(post-filtering will exclude any detections in these regions)"
+                        )
+                        self._logged_marker_masking = True
 
-            # MASK 2: Table boundaries (outside playing area) - OPTIONAL
-            enable_boundary_mask = config.get(
-                "vision.detection.enable_boundary_masking", False
-            )
-            if enable_boundary_mask:
-                playing_area_corners = config.get("table.playing_area_corners", [])
-                if len(playing_area_corners) == 4:
-                    # Create mask - everything OUTSIDE the table is black
-                    mask = np.zeros(masked_frame.shape[:2], dtype=np.uint8)
+                    # Paint dots with any color - doesn't matter since post-filtering
+                    # will exclude detections in these regions anyway
+                    # Using (0, 128, 0) dark green as a visual indicator
+                    mask_color = (0, 128, 0)  # Dark green - easy to spot if needed
 
-                    # Scale corners from calibration resolution to frame resolution
-                    corners = np.array(
-                        [
-                            [int(c["x"] * scale_x), int(c["y"] * scale_y)]
-                            for c in playing_area_corners
-                        ],
-                        dtype=np.int32,
-                    )
+                    for dot in marker_dots:
+                        # Scale coordinates from calibration resolution to frame resolution
+                        scaled_x = int(dot["x"] * scale_x)
+                        scaled_y = int(dot["y"] * scale_y)
 
-                    # Fill the playing area with white (keep it)
-                    cv2.fillPoly(mask, [corners], 255)
-
-                    # Apply mask - zeros out everything outside playing area
-                    masked_frame = cv2.bitwise_and(
-                        masked_frame, masked_frame, mask=mask
-                    )
-
+                        # Paint over marker dots (color doesn't matter - post-filtering excludes them)
+                        cv2.circle(
+                            masked_frame,
+                            (scaled_x, scaled_y),
+                            mask_radius,
+                            mask_color,
+                            -1,  # Filled
+                        )
                 else:
-                    logger.warning(
-                        f"Boundary masking enabled but got {len(playing_area_corners)} corners (need 4)"
-                    )
+                    if not hasattr(self, "_logged_no_marker_dots"):
+                        logger.warning(
+                            "Marker filtering enabled but no marker dots configured!"
+                        )
+                        self._logged_no_marker_dots = True
+            else:
+                if not hasattr(self, "_logged_marker_disabled"):
+                    logger.info("Marker dot filtering is DISABLED")
+                    self._logged_marker_disabled = True
+
+            # MASK 2: Boundary masking DISABLED
+            # We DON'T mask the outer rail area because:
+            # - Cue stick often rests on the rails and needs to be detected
+            # - Post-filtering will reject BALLS outside playing area instead
+            # This keeps the full frame visible to YOLO while still preventing
+            # false ball detections outside the playing area
 
             return masked_frame
 

@@ -392,7 +392,7 @@ class MessageBroadcaster:
         # Check if state has changed before logging
         state_changed = self._has_state_changed(balls, cue, table)
         if state_changed:
-            logger.info(
+            logger.debug(
                 f"Broadcasting game state: {len(balls)} balls, cue={'present' if cue else 'absent'}"
             )
             # Update cached state
