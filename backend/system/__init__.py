@@ -12,7 +12,6 @@ import logging
 
 from .health_monitor import HealthMonitor
 from .monitoring import SystemMetrics
-from .utils import SystemUtils
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,6 +23,4 @@ __all__ = [
     "HealthMonitor",
     # Performance monitoring
     "SystemMetrics",
-    # Utilities
-    "SystemUtils",
 ]
