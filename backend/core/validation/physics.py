@@ -119,7 +119,7 @@ class PhysicsValidator:
                     velocity=(
                         trajectory.final_velocity
                         if i == len(trajectory.points) - 1
-                        else Vector2D(0, 0)
+                        else Vector2D(0, 0, scale=(1.0, 1.0))
                     ),
                 )
                 for i, point in enumerate(trajectory.points)
@@ -169,6 +169,7 @@ class PhysicsValidator:
                     expected_pos = Vector2D(
                         prev_point.position.x + prev_point.velocity.x * dt,
                         prev_point.position.y + prev_point.velocity.y * dt,
+                        scale=(1.0, 1.0),
                     )
                     position_error = curr_point.position.distance_to(expected_pos)
 
@@ -421,22 +422,23 @@ class PhysicsValidator:
                     )
                 )
 
-        # Validate kinetic energy
-        kinetic_energy = ball_state.kinetic_energy()
-        max_kinetic_energy = 0.5 * ball_state.mass * self.max_velocity**2
-        if kinetic_energy > max_kinetic_energy:
-            errors.append(
-                ValidationError(
-                    error_type="kinetic_energy",
-                    severity="error",
-                    message="Ball kinetic energy exceeds physical limits",
-                    details={
-                        "kinetic_energy": kinetic_energy,
-                        "max_kinetic_energy": max_kinetic_energy,
-                        "ball_id": ball_state.id,
-                    },
+        # Validate kinetic energy (only if velocity is not None)
+        if ball_state.velocity is not None:
+            kinetic_energy = ball_state.kinetic_energy()
+            max_kinetic_energy = 0.5 * ball_state.mass * self.max_velocity**2
+            if kinetic_energy > max_kinetic_energy:
+                errors.append(
+                    ValidationError(
+                        error_type="kinetic_energy",
+                        severity="error",
+                        message="Ball kinetic energy exceeds physical limits",
+                        details={
+                            "kinetic_energy": kinetic_energy,
+                            "max_kinetic_energy": max_kinetic_energy,
+                            "ball_id": ball_state.id,
+                        },
+                    )
                 )
-            )
 
         is_valid = len(errors) == 0
         confidence = max(0.0, 1.0 - (len(errors) * 0.3 + len(warnings) * 0.1))
@@ -625,8 +627,8 @@ class PhysicsValidator:
             return ValidationResult(True, [], [], 1.0)
 
         # Calculate total momentum before and after
-        momentum_before = Vector2D(0, 0)
-        momentum_after = Vector2D(0, 0)
+        momentum_before = Vector2D(0, 0, scale=(1.0, 1.0))
+        momentum_after = Vector2D(0, 0, scale=(1.0, 1.0))
 
         for ball in before_states:
             if ball.velocity is not None:
@@ -640,7 +642,9 @@ class PhysicsValidator:
 
         # Calculate momentum change
         momentum_change = Vector2D(
-            momentum_after.x - momentum_before.x, momentum_after.y - momentum_before.y
+            momentum_after.x - momentum_before.x,
+            momentum_after.y - momentum_before.y,
+            scale=(1.0, 1.0),
         )
         momentum_change_mag = momentum_change.magnitude()
 

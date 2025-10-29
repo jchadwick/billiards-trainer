@@ -98,10 +98,14 @@ class CollisionDetector:
         """
         # Calculate relative position and velocity
         rel_pos = Vector2D(
-            ball2.position.x - ball1.position.x, ball2.position.y - ball1.position.y
+            ball2.position.x - ball1.position.x,
+            ball2.position.y - ball1.position.y,
+            scale=ball1.position.scale,
         )
         rel_vel = Vector2D(
-            ball2.velocity.x - ball1.velocity.x, ball2.velocity.y - ball1.velocity.y
+            ball2.velocity.x - ball1.velocity.x,
+            ball2.velocity.y - ball1.velocity.y,
+            scale=(1.0, 1.0),
         )
 
         # Combined radius
@@ -117,11 +121,12 @@ class CollisionDetector:
                 normal = rel_pos.normalize()
             else:
                 # Balls are exactly on top of each other - use arbitrary normal
-                normal = Vector2D(1.0, 0.0)
+                normal = Vector2D(1.0, 0.0, scale=(1.0, 1.0))
 
             collision_point = Vector2D(
                 ball1.position.x + normal.x * ball1.radius,
                 ball1.position.y + normal.y * ball1.radius,
+                scale=ball1.position.scale,
             )
 
             # Calculate relative velocity magnitude
@@ -177,26 +182,31 @@ class CollisionDetector:
         collision_pos1 = Vector2D(
             ball1.position.x + ball1.velocity.x * collision_time,
             ball1.position.y + ball1.velocity.y * collision_time,
+            scale=ball1.position.scale,
         )
         collision_pos2 = Vector2D(
             ball2.position.x + ball2.velocity.x * collision_time,
             ball2.position.y + ball2.velocity.y * collision_time,
+            scale=ball2.position.scale,
         )
 
         # Normal vector points from ball1 to ball2
         rel_collision_pos = Vector2D(
-            collision_pos2.x - collision_pos1.x, collision_pos2.y - collision_pos1.y
+            collision_pos2.x - collision_pos1.x,
+            collision_pos2.y - collision_pos1.y,
+            scale=collision_pos1.scale,
         )
         normal_length = rel_collision_pos.magnitude()
 
         if normal_length > 0:
             normal = rel_collision_pos.normalize()
         else:
-            normal = Vector2D(1.0, 0.0)
+            normal = Vector2D(1.0, 0.0, scale=(1.0, 1.0))
 
         collision_point = Vector2D(
             collision_pos1.x + normal.x * ball1.radius,
             collision_pos1.y + normal.y * ball1.radius,
+            scale=collision_pos1.scale,
         )
 
         # Calculate relative velocity magnitude
@@ -261,9 +271,9 @@ class CollisionDetector:
         # Left cushion
         cushions.append(
             CushionSegment(
-                start=Vector2D(0, 0),
-                end=Vector2D(0, table.height),
-                normal=Vector2D(1, 0),
+                start=Vector2D(0, 0, scale=(1.0, 1.0)),
+                end=Vector2D(0, table.height, scale=(1.0, 1.0)),
+                normal=Vector2D(1, 0, scale=(1.0, 1.0)),
                 restitution=table.cushion_elasticity,
                 friction=table.surface_friction,
             )
@@ -272,9 +282,9 @@ class CollisionDetector:
         # Right cushion
         cushions.append(
             CushionSegment(
-                start=Vector2D(table.width, 0),
-                end=Vector2D(table.width, table.height),
-                normal=Vector2D(-1, 0),
+                start=Vector2D(table.width, 0, scale=(1.0, 1.0)),
+                end=Vector2D(table.width, table.height, scale=(1.0, 1.0)),
+                normal=Vector2D(-1, 0, scale=(1.0, 1.0)),
                 restitution=table.cushion_elasticity,
                 friction=table.surface_friction,
             )
@@ -283,9 +293,9 @@ class CollisionDetector:
         # Bottom cushion
         cushions.append(
             CushionSegment(
-                start=Vector2D(0, 0),
-                end=Vector2D(table.width, 0),
-                normal=Vector2D(0, 1),
+                start=Vector2D(0, 0, scale=(1.0, 1.0)),
+                end=Vector2D(table.width, 0, scale=(1.0, 1.0)),
+                normal=Vector2D(0, 1, scale=(1.0, 1.0)),
                 restitution=table.cushion_elasticity,
                 friction=table.surface_friction,
             )
@@ -294,9 +304,9 @@ class CollisionDetector:
         # Top cushion
         cushions.append(
             CushionSegment(
-                start=Vector2D(0, table.height),
-                end=Vector2D(table.width, table.height),
-                normal=Vector2D(0, -1),
+                start=Vector2D(0, table.height, scale=(1.0, 1.0)),
+                end=Vector2D(table.width, table.height, scale=(1.0, 1.0)),
+                normal=Vector2D(0, -1, scale=(1.0, 1.0)),
                 restitution=table.cushion_elasticity,
                 friction=table.surface_friction,
             )
@@ -319,7 +329,9 @@ class CollisionDetector:
         """
         # Line segment vector
         line_vec = Vector2D(
-            cushion.end.x - cushion.start.x, cushion.end.y - cushion.start.y
+            cushion.end.x - cushion.start.x,
+            cushion.end.y - cushion.start.y,
+            scale=cushion.start.scale,
         )
         line_length = line_vec.magnitude()
 
@@ -331,7 +343,9 @@ class CollisionDetector:
 
         # Project ball position onto line
         ball_to_start = Vector2D(
-            ball.position.x - cushion.start.x, ball.position.y - cushion.start.y
+            ball.position.x - cushion.start.x,
+            ball.position.y - cushion.start.y,
+            scale=ball.position.scale,
         )
         projection_length = ball_to_start.x * line_dir.x + ball_to_start.y * line_dir.y
 
@@ -342,11 +356,14 @@ class CollisionDetector:
         closest_point = Vector2D(
             cushion.start.x + line_dir.x * projection_length,
             cushion.start.y + line_dir.y * projection_length,
+            scale=cushion.start.scale,
         )
 
         # Distance from ball center to closest point
         dist_vec = Vector2D(
-            ball.position.x - closest_point.x, ball.position.y - closest_point.y
+            ball.position.x - closest_point.x,
+            ball.position.y - closest_point.y,
+            scale=ball.position.scale,
         )
         current_dist = dist_vec.magnitude()
 
@@ -357,6 +374,7 @@ class CollisionDetector:
             collision_point = Vector2D(
                 ball.position.x - normal.x * ball.radius,
                 ball.position.y - normal.y * ball.radius,
+                scale=ball.position.scale,
             )
 
             return CollisionResult(
@@ -392,12 +410,14 @@ class CollisionDetector:
         collision_ball_pos = Vector2D(
             ball.position.x + ball.velocity.x * collision_time,
             ball.position.y + ball.velocity.y * collision_time,
+            scale=ball.position.scale,
         )
 
         # Recalculate closest point for collision position
         ball_to_start_collision = Vector2D(
             collision_ball_pos.x - cushion.start.x,
             collision_ball_pos.y - cushion.start.y,
+            scale=collision_ball_pos.scale,
         )
         projection_length_collision = (
             ball_to_start_collision.x * line_dir.x
@@ -410,12 +430,14 @@ class CollisionDetector:
         closest_point_collision = Vector2D(
             cushion.start.x + line_dir.x * projection_length_collision,
             cushion.start.y + line_dir.y * projection_length_collision,
+            scale=cushion.start.scale,
         )
 
         # Normal at collision
         dist_vec_collision = Vector2D(
             collision_ball_pos.x - closest_point_collision.x,
             collision_ball_pos.y - closest_point_collision.y,
+            scale=collision_ball_pos.scale,
         )
         dist_collision = dist_vec_collision.magnitude()
 
@@ -427,6 +449,7 @@ class CollisionDetector:
         collision_point = Vector2D(
             collision_ball_pos.x - normal.x * ball.radius,
             collision_ball_pos.y - normal.y * ball.radius,
+            scale=collision_ball_pos.scale,
         )
 
         return CollisionResult(
@@ -547,7 +570,9 @@ class CollisionResolver:
 
         # Calculate relative velocity
         rel_vel = Vector2D(
-            ball1.velocity.x - ball2.velocity.x, ball1.velocity.y - ball2.velocity.y
+            ball1.velocity.x - ball2.velocity.x,
+            ball1.velocity.y - ball2.velocity.y,
+            scale=(1.0, 1.0),
         )
 
         # Relative velocity in collision normal direction
@@ -567,16 +592,20 @@ class CollisionResolver:
         impulse_scalar /= 1 / ball1.mass + 1 / ball2.mass
 
         # Calculate impulse vector
-        impulse = Vector2D(impulse_scalar * normal.x, impulse_scalar * normal.y)
+        impulse = Vector2D(
+            impulse_scalar * normal.x, impulse_scalar * normal.y, scale=(1.0, 1.0)
+        )
 
         # Update velocities using conservation of momentum
         new_vel1 = Vector2D(
             ball1.velocity.x + impulse.x / ball1.mass,
             ball1.velocity.y + impulse.y / ball1.mass,
+            scale=(1.0, 1.0),
         )
         new_vel2 = Vector2D(
             ball2.velocity.x - impulse.x / ball2.mass,
             ball2.velocity.y - impulse.y / ball2.mass,
+            scale=(1.0, 1.0),
         )
 
         # Calculate energy loss
@@ -684,6 +713,7 @@ class CollisionResolver:
         new_velocity = Vector2D(
             new_vel_normal * normal.x + new_vel_tangent * (-normal.y),
             new_vel_normal * normal.y + new_vel_tangent * normal.x,
+            scale=(1.0, 1.0),
         )
 
         # Calculate energy loss
@@ -897,11 +927,17 @@ class CollisionPredictor:
         predicted_collisions = []
         current_ball = BallState(
             id=ball.id,
-            position=Vector2D(ball.position.x, ball.position.y),
-            velocity=Vector2D(ball.velocity.x, ball.velocity.y),
+            position=Vector2D(
+                ball.position.x, ball.position.y, scale=ball.position.scale
+            ),
+            velocity=Vector2D(ball.velocity.x, ball.velocity.y, scale=(1.0, 1.0)),
             radius=ball.radius,
             mass=ball.mass,
-            spin=Vector2D(ball.spin.x, ball.spin.y) if ball.spin else Vector2D(0, 0),
+            spin=(
+                Vector2D(ball.spin.x, ball.spin.y, scale=(1.0, 1.0))
+                if ball.spin
+                else Vector2D(0, 0, scale=(1.0, 1.0))
+            ),
             is_cue_ball=ball.is_cue_ball,
             is_pocketed=ball.is_pocketed,
             number=ball.number,

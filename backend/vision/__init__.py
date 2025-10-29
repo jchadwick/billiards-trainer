@@ -953,6 +953,46 @@ class VisionModule:
                 if self.profiler:
                     self.profiler.end_stage("ball_detection")
 
+            # Cue detection using YOLO
+            detected_cue = None
+            if self.detector and hasattr(self.detector, "detect_cue"):
+                if self.profiler:
+                    self.profiler.start_stage("cue_detection")
+
+                try:
+                    # Get YOLO detection
+                    yolo_detection = self.detector.detect_cue(processed_frame)
+
+                    if yolo_detection:
+                        # Convert YOLO Detection to CueStick object
+                        from .detection.detector_adapter import yolo_cue_to_cue_stick
+
+                        frame_height, frame_width = processed_frame.shape[:2]
+                        detected_cue = yolo_cue_to_cue_stick(
+                            yolo_detection,
+                            image_shape=(frame_height, frame_width),
+                            min_confidence=0.3,
+                        )
+
+                        if detected_cue:
+                            logger.debug(
+                                f"Cue detected: confidence={detected_cue.confidence:.2f}, "
+                                f"angle={detected_cue.angle:.1f}°"
+                            )
+                            self.stats.detection_accuracy["cue"] = (
+                                detected_cue.confidence
+                            )
+                        else:
+                            self.stats.detection_accuracy["cue"] = 0.0
+                    else:
+                        self.stats.detection_accuracy["cue"] = 0.0
+                except Exception as e:
+                    logger.error(f"Cue detection failed: {e}")
+                    self.stats.detection_accuracy["cue"] = 0.0
+
+                if self.profiler:
+                    self.profiler.end_stage("cue_detection")
+
             # Create result
             if self.profiler:
                 self.profiler.start_stage("result_building")
@@ -989,7 +1029,7 @@ class VisionModule:
                 balls_tracked=len(
                     [b for b in detected_balls if b.track_id is not None]
                 ),
-                cue_detected=False,
+                cue_detected=detected_cue is not None,
                 table_detected=True,
                 detection_confidence=sum(self.stats.detection_accuracy.values())
                 / max(len(self.stats.detection_accuracy), 1),
@@ -1002,7 +1042,7 @@ class VisionModule:
                 frame_number=frame_number,
                 timestamp=timestamp,
                 balls=detected_balls,
-                cue=None,  # Cue detection disabled for performance
+                cue=detected_cue,
                 table=detected_table,
                 statistics=statistics,
             )

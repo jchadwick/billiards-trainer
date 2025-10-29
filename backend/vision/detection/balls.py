@@ -762,12 +762,12 @@ class BallDetector:
             ball_type, ball_number = self._color_to_ball_type(best_color, ball_region)
 
             # Force output with print()
-            print(
-                f"🎱 CLASSIFY: color={best_color} conf={confidence:.2f} "
-                f"type={ball_type.name} num={ball_number} "
-                f"pos=({position[0]:.0f},{position[1]:.0f}) "
-                f"hsv=({median_h:.0f},{median_s:.0f},{median_v:.0f})"
-            )
+            # print(
+            #     f"🎱 CLASSIFY: color={best_color} conf={confidence:.2f} "
+            #     f"type={ball_type.name} num={ball_number} "
+            #     f"pos=({position[0]:.0f},{position[1]:.0f}) "
+            #     f"hsv=({median_h:.0f},{median_s:.0f},{median_v:.0f})"
+            # )
 
             return ball_type, confidence, ball_number
 
@@ -1686,11 +1686,11 @@ class BallDetector:
             is_striped = confidence >= 0.55  # Balanced threshold
 
             # Force output with print() since logging isn't working
-            print(
-                f"🔍 STRIPE: white={white_ratio:.2f} color={color_ratio:.2f} "
-                f"sat_std={saturation_std:.1f} val_std={value_std:.1f} "
-                f"conf={confidence:.2f} is_striped={is_striped}"
-            )
+            # print(
+            #     f"🔍 STRIPE: white={white_ratio:.2f} color={color_ratio:.2f} "
+            #     f"sat_std={saturation_std:.1f} val_std={value_std:.1f} "
+            #     f"conf={confidence:.2f} is_striped={is_striped}"
+            # )
 
             return is_striped, min(confidence, 1.0)
 

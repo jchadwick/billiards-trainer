@@ -41,7 +41,7 @@ class SpinState:
 
     def to_vector2d(self) -> Vector2D:
         """Convert to Vector2D for compatibility with existing code."""
-        return Vector2D(self.side_spin, self.top_spin)
+        return Vector2D(self.side_spin, self.top_spin, scale=(1.0, 1.0))
 
     def from_vector2d(self, spin_vec: Vector2D) -> None:
         """Update from Vector2D."""
@@ -121,6 +121,7 @@ class SpinPhysics:
         cue_dir = Vector2D(
             math.cos(angle_rad) * math.cos(elevation_rad),
             math.sin(angle_rad) * math.cos(elevation_rad),
+            scale=(1.0, 1.0),
         )
 
         # Calculate contact force components
@@ -131,13 +132,16 @@ class SpinPhysics:
         # Calculate linear velocity imparted
         impulse = force_magnitude * 0.01  # Simplified contact time
         velocity_change = Vector2D(
-            impulse * cue_dir.x / self.ball_mass, impulse * cue_dir.y / self.ball_mass
+            impulse * cue_dir.x / self.ball_mass,
+            impulse * cue_dir.y / self.ball_mass,
+            scale=(1.0, 1.0),
         )
 
         # Update ball velocity
         cue_ball.velocity = Vector2D(
             cue_ball.velocity.x + velocity_change.x,
             cue_ball.velocity.y + velocity_change.y,
+            scale=(1.0, 1.0),
         )
 
         # Calculate angular impulse and resulting spin
@@ -215,9 +219,9 @@ class SpinPhysics:
             # Top/back spin affects trajectory less in 2D simulation
             # but can affect ball interaction with cloth
 
-            magnus_force = Vector2D(magnus_x, magnus_y)
+            magnus_force = Vector2D(magnus_x, magnus_y, scale=(1.0, 1.0))
         else:
-            magnus_force = Vector2D(0.0, 0.0)
+            magnus_force = Vector2D(0.0, 0.0, scale=(1.0, 1.0))
 
         # Gradually align roll with linear motion (for realistic physics)
         if is_slipping and linear_velocity > 0.01:
@@ -431,6 +435,7 @@ class SpinPhysics:
         direction = Vector2D(
             target_position.x - cue_ball.position.x,
             target_position.y - cue_ball.position.y,
+            scale=(1.0, 1.0),
         ).normalize()
 
         # For masse shots, initial velocity is reduced due to high elevation
@@ -442,6 +447,7 @@ class SpinPhysics:
         initial_velocity = Vector2D(
             direction.x * base_velocity * (1.0 - velocity_reduction),
             direction.y * base_velocity * (1.0 - velocity_reduction),
+            scale=(1.0, 1.0),
         )
 
         # Calculate masse spin (high side spin, significant back spin)

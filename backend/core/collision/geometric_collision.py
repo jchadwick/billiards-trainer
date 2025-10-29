@@ -164,10 +164,12 @@ class GeometricCollisionDetector:
                 hit_x, hit_y, distance = xi2, yi2, dist2
 
             # Verify hit point is within line segment bounds
-            if self._point_on_segment(line_start, line_end, Vector2D(hit_x, hit_y)):
+            if self._point_on_segment(
+                line_start, line_end, Vector2D(hit_x, hit_y, scale=line_start.scale)
+            ):
                 return GeometricCollision(
                     distance=distance,
-                    hit_point=Vector2D(hit_x, hit_y),
+                    hit_point=Vector2D(hit_x, hit_y, scale=line_start.scale),
                     collision_type="ball",
                 )
 
@@ -249,7 +251,7 @@ class GeometricCollisionDetector:
             hit_y = circle_center.y + dy
 
         # Check if hit point is within line segment
-        hit_point = Vector2D(hit_x, hit_y)
+        hit_point = Vector2D(hit_x, hit_y, scale=line_start.scale)
         if self._point_on_segment(line_start, line_end, hit_point):
             distance = self._point_distance(line_start.x, line_start.y, hit_x, hit_y)
             return GeometricCollision(
@@ -334,6 +336,7 @@ class GeometricCollisionDetector:
         ray_end = Vector2D(
             ray_start.x + ray_direction.x * ray_length,
             ray_start.y + ray_direction.y * ray_length,
+            scale=ray_start.scale,
         )
 
         for ball in balls:
@@ -384,7 +387,9 @@ class GeometricCollisionDetector:
             # Reflect across vertical (π - angle)
             new_angle = math.pi - angle
 
-        return Vector2D(speed * math.cos(new_angle), speed * math.sin(new_angle))
+        return Vector2D(
+            speed * math.cos(new_angle), speed * math.sin(new_angle), scale=(1.0, 1.0)
+        )
 
     def calculate_ball_collision_velocities(
         self,
@@ -415,6 +420,7 @@ class GeometricCollisionDetector:
         force_direction = Vector2D(
             target_ball.position.x - collision_point.x,
             target_ball.position.y - collision_point.y,
+            scale=(1.0, 1.0),
         )
         force_direction = force_direction.normalize()
 
@@ -432,10 +438,11 @@ class GeometricCollisionDetector:
         target_velocity = Vector2D(
             force_direction.x * transfer_speed,
             force_direction.y * transfer_speed,
+            scale=(1.0, 1.0),
         )
 
         # Moving ball retains tangential component and reduced normal component
-        tangent = Vector2D(-force_direction.y, force_direction.x)
+        tangent = Vector2D(-force_direction.y, force_direction.x, scale=(1.0, 1.0))
         tangent_component = (
             moving_ball.velocity.x * tangent.x + moving_ball.velocity.y * tangent.y
         )
@@ -446,6 +453,7 @@ class GeometricCollisionDetector:
         moving_velocity = Vector2D(
             force_direction.x * remaining_normal + tangent.x * tangent_component,
             force_direction.y * remaining_normal + tangent.y * tangent_component,
+            scale=(1.0, 1.0),
         )
 
         return moving_velocity, target_velocity
@@ -523,22 +531,30 @@ class GeometricCollisionDetector:
 
         # Extend ray for intersection testing
         ray_end = Vector2D(
-            position.x + direction.x * 10000.0, position.y + direction.y * 10000.0
+            position.x + direction.x * 10000.0,
+            position.y + direction.y * 10000.0,
+            scale=position.scale,
         )
 
         for seg_start, seg_end, cushion_name in edges:
             # Calculate inward normal
-            edge_vec = Vector2D(seg_end.x - seg_start.x, seg_end.y - seg_start.y)
-            edge_normal = Vector2D(-edge_vec.y, edge_vec.x).normalize()
+            edge_vec = Vector2D(
+                seg_end.x - seg_start.x, seg_end.y - seg_start.y, scale=(1.0, 1.0)
+            )
+            edge_normal = Vector2D(
+                -edge_vec.y, edge_vec.x, scale=(1.0, 1.0)
+            ).normalize()
 
             # Offset edge inward by ball radius
             offset_start = Vector2D(
                 seg_start.x + edge_normal.x * ball_radius,
                 seg_start.y + edge_normal.y * ball_radius,
+                scale=seg_start.scale,
             )
             offset_end = Vector2D(
                 seg_end.x + edge_normal.x * ball_radius,
                 seg_end.y + edge_normal.y * ball_radius,
+                scale=seg_end.scale,
             )
 
             # Find line-line intersection
@@ -589,10 +605,12 @@ class GeometricCollisionDetector:
                     candidates.append(
                         GeometricCollision(
                             distance=t,
-                            hit_point=Vector2D(table.width - ball_radius, y),
+                            hit_point=Vector2D(
+                                table.width - ball_radius, y, scale=(1.0, 1.0)
+                            ),
                             collision_type="cushion",
                             cushion_side="right",
-                            cushion_normal=Vector2D(-1, 0),
+                            cushion_normal=Vector2D(-1, 0, scale=(1.0, 1.0)),
                         )
                     )
 
@@ -605,10 +623,10 @@ class GeometricCollisionDetector:
                     candidates.append(
                         GeometricCollision(
                             distance=t,
-                            hit_point=Vector2D(ball_radius, y),
+                            hit_point=Vector2D(ball_radius, y, scale=(1.0, 1.0)),
                             collision_type="cushion",
                             cushion_side="left",
-                            cushion_normal=Vector2D(1, 0),
+                            cushion_normal=Vector2D(1, 0, scale=(1.0, 1.0)),
                         )
                     )
 
@@ -621,10 +639,12 @@ class GeometricCollisionDetector:
                     candidates.append(
                         GeometricCollision(
                             distance=t,
-                            hit_point=Vector2D(x, table.height - ball_radius),
+                            hit_point=Vector2D(
+                                x, table.height - ball_radius, scale=(1.0, 1.0)
+                            ),
                             collision_type="cushion",
                             cushion_side="top",
-                            cushion_normal=Vector2D(0, -1),
+                            cushion_normal=Vector2D(0, -1, scale=(1.0, 1.0)),
                         )
                     )
 
@@ -637,10 +657,10 @@ class GeometricCollisionDetector:
                     candidates.append(
                         GeometricCollision(
                             distance=t,
-                            hit_point=Vector2D(x, ball_radius),
+                            hit_point=Vector2D(x, ball_radius, scale=(1.0, 1.0)),
                             collision_type="cushion",
                             cushion_side="bottom",
-                            cushion_normal=Vector2D(0, 1),
+                            cushion_normal=Vector2D(0, 1, scale=(1.0, 1.0)),
                         )
                     )
 
@@ -668,8 +688,12 @@ class GeometricCollisionDetector:
             Tuple of (intersection_point, distance_from_line1_start) or None
         """
         # Direction vectors
-        dir1 = Vector2D(line1_end.x - line1_start.x, line1_end.y - line1_start.y)
-        dir2 = Vector2D(line2_end.x - line2_start.x, line2_end.y - line2_start.y)
+        dir1 = Vector2D(
+            line1_end.x - line1_start.x, line1_end.y - line1_start.y, scale=(1.0, 1.0)
+        )
+        dir2 = Vector2D(
+            line2_end.x - line2_start.x, line2_end.y - line2_start.y, scale=(1.0, 1.0)
+        )
 
         # Calculate cross product
         denom = dir1.x * dir2.y - dir1.y * dir2.x
@@ -679,7 +703,11 @@ class GeometricCollisionDetector:
             return None
 
         # Vector from line1 start to line2 start
-        diff = Vector2D(line2_start.x - line1_start.x, line2_start.y - line1_start.y)
+        diff = Vector2D(
+            line2_start.x - line1_start.x,
+            line2_start.y - line1_start.y,
+            scale=(1.0, 1.0),
+        )
 
         # Calculate parameters
         t = (diff.x * dir2.y - diff.y * dir2.x) / denom
@@ -688,7 +716,9 @@ class GeometricCollisionDetector:
         # Check if intersection is within both segments
         if t > 0.001 and 0 <= u <= 1:
             intersection = Vector2D(
-                line1_start.x + t * dir1.x, line1_start.y + t * dir1.y
+                line1_start.x + t * dir1.x,
+                line1_start.y + t * dir1.y,
+                scale=line1_start.scale,
             )
             distance = math.sqrt((t * dir1.x) ** 2 + (t * dir1.y) ** 2)
             return (intersection, distance)
@@ -727,7 +757,9 @@ class GeometricCollisionDetector:
 
         # Extend ray for testing
         ray_end = Vector2D(
-            position.x + direction.x * 10000.0, position.y + direction.y * 10000.0
+            position.x + direction.x * 10000.0,
+            position.y + direction.y * 10000.0,
+            scale=position.scale,
         )
 
         for i, pocket_pos in enumerate(table.pocket_positions):

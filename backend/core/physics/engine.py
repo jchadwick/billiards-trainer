@@ -115,8 +115,16 @@ class PhysicsEngine:
         trajectory = []
         current_ball = BallState(
             id=ball_state.id,
-            position=Vector2D(ball_state.position.x, ball_state.position.y),
-            velocity=Vector2D(ball_state.velocity.x, ball_state.velocity.y),
+            position=Vector2D(
+                ball_state.position.x,
+                ball_state.position.y,
+                scale=ball_state.position.scale,
+            ),
+            velocity=Vector2D(
+                ball_state.velocity.x,
+                ball_state.velocity.y,
+                scale=ball_state.velocity.scale,
+            ),
             radius=ball_state.radius,
             mass=ball_state.mass,
             spin=ball_state.spin,
@@ -137,8 +145,16 @@ class PhysicsEngine:
             trajectory.append(
                 TrajectoryPoint(
                     time=current_time,
-                    position=Vector2D(current_ball.position.x, current_ball.position.y),
-                    velocity=Vector2D(current_ball.velocity.x, current_ball.velocity.y),
+                    position=Vector2D(
+                        current_ball.position.x,
+                        current_ball.position.y,
+                        scale=current_ball.position.scale,
+                    ),
+                    velocity=Vector2D(
+                        current_ball.velocity.x,
+                        current_ball.velocity.y,
+                        scale=current_ball.velocity.scale,
+                    ),
                 )
             )
 
@@ -170,10 +186,14 @@ class PhysicsEngine:
                     TrajectoryPoint(
                         time=current_time,
                         position=Vector2D(
-                            current_ball.position.x, current_ball.position.y
+                            current_ball.position.x,
+                            current_ball.position.y,
+                            scale=current_ball.position.scale,
                         ),
                         velocity=Vector2D(
-                            current_ball.velocity.x, current_ball.velocity.y
+                            current_ball.velocity.x,
+                            current_ball.velocity.y,
+                            scale=current_ball.velocity.scale,
                         ),
                         collision_type=collision.type,
                     )
@@ -269,8 +289,16 @@ class PhysicsEngine:
             trajectory.append(
                 TrajectoryPoint(
                     time=current_time,
-                    position=Vector2D(current_ball.position.x, current_ball.position.y),
-                    velocity=Vector2D(current_ball.velocity.x, current_ball.velocity.y),
+                    position=Vector2D(
+                        current_ball.position.x,
+                        current_ball.position.y,
+                        scale=current_ball.position.scale,
+                    ),
+                    velocity=Vector2D(
+                        current_ball.velocity.x,
+                        current_ball.velocity.y,
+                        scale=current_ball.velocity.scale,
+                    ),
                 )
             )
 
@@ -288,10 +316,12 @@ class PhysicsEngine:
                     acceleration = Vector2D(
                         magnus_force.x / current_ball.mass,
                         magnus_force.y / current_ball.mass,
+                        scale=(1.0, 1.0),
                     )
                     current_ball.velocity = Vector2D(
                         current_ball.velocity.x + acceleration.x * self.time_step,
                         current_ball.velocity.y + acceleration.y * self.time_step,
+                        scale=(1.0, 1.0),
                     )
 
             # Detect collisions using advanced collision detector
@@ -347,10 +377,14 @@ class PhysicsEngine:
                     TrajectoryPoint(
                         time=current_time,
                         position=Vector2D(
-                            current_ball.position.x, current_ball.position.y
+                            current_ball.position.x,
+                            current_ball.position.y,
+                            scale=current_ball.position.scale,
                         ),
                         velocity=Vector2D(
-                            current_ball.velocity.x, current_ball.velocity.y
+                            current_ball.velocity.x,
+                            current_ball.velocity.y,
+                            scale=current_ball.velocity.scale,
                         ),
                         collision_type=(
                             first_collision.collision_type.value
@@ -391,11 +425,14 @@ class PhysicsEngine:
         # Apply Magnus force as additional acceleration
         if self.magnus_effect_enabled and magnus_force.magnitude() > 0:
             acceleration = Vector2D(
-                magnus_force.x / ball.mass, magnus_force.y / ball.mass
+                magnus_force.x / ball.mass,
+                magnus_force.y / ball.mass,
+                scale=(1.0, 1.0),
             )
             ball.velocity = Vector2D(
                 ball.velocity.x + acceleration.x * dt,
                 ball.velocity.y + acceleration.y * dt,
+                scale=(1.0, 1.0),
             )
 
         # Apply friction and update position
@@ -661,11 +698,19 @@ class PhysicsEngine:
         """Create a deep copy of a ball state for simulation."""
         return BallState(
             id=ball.id,
-            position=Vector2D(ball.position.x, ball.position.y),
-            velocity=Vector2D(ball.velocity.x, ball.velocity.y),
+            position=Vector2D(
+                ball.position.x, ball.position.y, scale=ball.position.scale
+            ),
+            velocity=Vector2D(
+                ball.velocity.x, ball.velocity.y, scale=ball.velocity.scale
+            ),
             radius=ball.radius,
             mass=ball.mass,
-            spin=Vector2D(ball.spin.x, ball.spin.y) if ball.spin else None,
+            spin=(
+                Vector2D(ball.spin.x, ball.spin.y, scale=ball.spin.scale)
+                if ball.spin
+                else None
+            ),
             is_cue_ball=ball.is_cue_ball,
             is_pocketed=ball.is_pocketed,
             number=ball.number,
@@ -814,6 +859,7 @@ class PhysicsEngine:
         return Vector2D(
             ball.position.x + ball.velocity.x * time,
             ball.position.y + ball.velocity.y * time,
+            scale=ball.position.scale,
         )
 
     def _detect_cushion_collision(
@@ -829,7 +875,15 @@ class PhysicsEngine:
             if 0 < t <= max_time:
                 y_at_collision = ball.position.y + ball.velocity.y * t
                 if 0 <= y_at_collision <= table.height:
-                    times.append((t, "left", Vector2D(ball.radius, y_at_collision)))
+                    times.append(
+                        (
+                            t,
+                            "left",
+                            Vector2D(
+                                ball.radius, y_at_collision, scale=ball.position.scale
+                            ),
+                        )
+                    )
 
         # Right cushion (x = table.width - ball.radius)
         if ball.velocity.x > 0:
@@ -841,7 +895,11 @@ class PhysicsEngine:
                         (
                             t,
                             "right",
-                            Vector2D(table.width - ball.radius, y_at_collision),
+                            Vector2D(
+                                table.width - ball.radius,
+                                y_at_collision,
+                                scale=ball.position.scale,
+                            ),
                         )
                     )
 
@@ -851,7 +909,15 @@ class PhysicsEngine:
             if 0 < t <= max_time:
                 x_at_collision = ball.position.x + ball.velocity.x * t
                 if 0 <= x_at_collision <= table.width:
-                    times.append((t, "bottom", Vector2D(x_at_collision, ball.radius)))
+                    times.append(
+                        (
+                            t,
+                            "bottom",
+                            Vector2D(
+                                x_at_collision, ball.radius, scale=ball.position.scale
+                            ),
+                        )
+                    )
 
         # Top cushion (y = table.height - ball.radius)
         if ball.velocity.y > 0:
@@ -860,7 +926,15 @@ class PhysicsEngine:
                 x_at_collision = ball.position.x + ball.velocity.x * t
                 if 0 <= x_at_collision <= table.width:
                     times.append(
-                        (t, "top", Vector2D(x_at_collision, table.height - ball.radius))
+                        (
+                            t,
+                            "top",
+                            Vector2D(
+                                x_at_collision,
+                                table.height - ball.radius,
+                                scale=ball.position.scale,
+                            ),
+                        )
                     )
 
         if not times:
@@ -910,7 +984,9 @@ class PhysicsEngine:
                 if distance_to_pocket <= table.pocket_radius - ball.radius * 0.5:
                     return Collision(
                         time=t,
-                        position=Vector2D(x_closest, y_closest),
+                        position=Vector2D(
+                            x_closest, y_closest, scale=ball.position.scale
+                        ),
                         ball1_id=ball.id,
                         ball2_id=None,
                         type="pocket",
@@ -1002,8 +1078,12 @@ class PhysicsEngine:
 
         return {
             "type": "ball_collision",
-            "ball1_velocity": Vector2D(ball1.velocity.x, ball1.velocity.y),
-            "ball2_velocity": Vector2D(ball2.velocity.x, ball2.velocity.y),
+            "ball1_velocity": Vector2D(
+                ball1.velocity.x, ball1.velocity.y, scale=ball1.velocity.scale
+            ),
+            "ball2_velocity": Vector2D(
+                ball2.velocity.x, ball2.velocity.y, scale=ball2.velocity.scale
+            ),
         }
 
     def _resolve_cushion_collision(
@@ -1028,7 +1108,9 @@ class PhysicsEngine:
 
         return {
             "type": "cushion_collision",
-            "velocity": Vector2D(ball.velocity.x, ball.velocity.y),
+            "velocity": Vector2D(
+                ball.velocity.x, ball.velocity.y, scale=ball.velocity.scale
+            ),
         }
 
     def _resolve_pocket_collision(

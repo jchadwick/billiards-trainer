@@ -617,6 +617,10 @@ def yolo_cue_to_cue_stick(
     Detections are converted from camera pixel coordinates to 4K canonical (3840×2160)
     for standardized downstream processing.
 
+    IMPORTANT: The cue stick angle is ALWAYS calculated to point from the tip position toward
+    the center of the table, since the cue always originates from the rail/edge where the
+    player stands.
+
     Args:
         detection: Detection object from YOLODetector with attributes:
             - bbox: (x1, y1, x2, y2) bounding box
@@ -634,6 +638,7 @@ def yolo_cue_to_cue_stick(
         - coordinate_space="4k_canonical"
         - source_resolution=(width, height) from image_shape
         - tip_position and length scaled to 4K canonical (3840×2160)
+        - angle pointing from tip toward table center
     """
     try:
         # Check confidence
@@ -656,8 +661,123 @@ def yolo_cue_to_cue_stick(
             tip_position_px[0], tip_position_px[1], source_resolution
         )
 
-        # Extract angle (already calculated by YOLODetector._estimate_cue_angle)
-        angle = detection.angle if hasattr(detection, "angle") else 0.0
+        # Calculate angle pointing FROM rail-end TOWARD table-end
+        # The cue originates from the rail (farther from center) and points toward the table (nearer to center)
+        try:
+            from ...config import config
+
+            # Get playing area corners in calibration resolution
+            playing_area = config.get("table.playing_area_corners", [])
+            calib_width = config.get("table.calibration_resolution_width", 640)
+            calib_height = config.get("table.calibration_resolution_height", 360)
+
+            if playing_area and len(playing_area) == 4:
+                # Calculate table center in calibration resolution
+                center_x_calib = sum(c["x"] for c in playing_area) / 4
+                center_y_calib = sum(c["y"] for c in playing_area) / 4
+
+                # Scale center to 4K canonical
+                center_x_4k, center_y_4k = ResolutionConverter.scale_to_4k(
+                    center_x_calib, center_y_calib, (calib_width, calib_height)
+                )
+
+                # Get the cue's two endpoints
+                # Use line endpoints if available from detection
+                if (
+                    hasattr(detection, "line_end1")
+                    and hasattr(detection, "line_end2")
+                    and detection.line_end1
+                    and detection.line_end2
+                ):
+                    # Convert endpoints to 4K canonical
+                    end1_x_4k, end1_y_4k = ResolutionConverter.scale_to_4k(
+                        detection.line_end1[0],
+                        detection.line_end1[1],
+                        source_resolution,
+                    )
+                    end2_x_4k, end2_y_4k = ResolutionConverter.scale_to_4k(
+                        detection.line_end2[0],
+                        detection.line_end2[1],
+                        source_resolution,
+                    )
+                else:
+                    # Calculate endpoints from bbox and detected angle
+                    detected_angle = (
+                        detection.angle if hasattr(detection, "angle") else 0.0
+                    )
+                    angle_rad = math.radians(detected_angle)
+
+                    # Length is already calculated below, but we need it here
+                    x1_px, y1_px, x2_px, y2_px = detection.bbox
+                    width_px = x2_px - x1_px
+                    height_px = y2_px - y1_px
+                    length_px = max(width_px, height_px)
+                    half_length_px = length_px / 2
+
+                    # Calculate endpoints in camera pixels
+                    end1_x_px = tip_position_px[0] - half_length_px * math.cos(
+                        angle_rad
+                    )
+                    end1_y_px = tip_position_px[1] - half_length_px * math.sin(
+                        angle_rad
+                    )
+                    end2_x_px = tip_position_px[0] + half_length_px * math.cos(
+                        angle_rad
+                    )
+                    end2_y_px = tip_position_px[1] + half_length_px * math.sin(
+                        angle_rad
+                    )
+
+                    # Convert to 4K canonical
+                    end1_x_4k, end1_y_4k = ResolutionConverter.scale_to_4k(
+                        end1_x_px, end1_y_px, source_resolution
+                    )
+                    end2_x_4k, end2_y_4k = ResolutionConverter.scale_to_4k(
+                        end2_x_px, end2_y_px, source_resolution
+                    )
+
+                # Calculate distance from each end to table center
+                dist1_sq = (end1_x_4k - center_x_4k) ** 2 + (
+                    end1_y_4k - center_y_4k
+                ) ** 2
+                dist2_sq = (end2_x_4k - center_x_4k) ** 2 + (
+                    end2_y_4k - center_y_4k
+                ) ** 2
+
+                # Determine which end is closer to center (table-end) and which is farther (rail-end)
+                if dist1_sq < dist2_sq:
+                    # end1 is closer to center (table-end), end2 is on rail
+                    # Angle points FROM end2 TO end1
+                    angle_rad = math.atan2(end1_y_4k - end2_y_4k, end1_x_4k - end2_x_4k)
+                    table_end = (end1_x_4k, end1_y_4k)
+                    rail_end = (end2_x_4k, end2_y_4k)
+                else:
+                    # end2 is closer to center (table-end), end1 is on rail
+                    # Angle points FROM end1 TO end2
+                    angle_rad = math.atan2(end2_y_4k - end1_y_4k, end2_x_4k - end1_x_4k)
+                    table_end = (end2_x_4k, end2_y_4k)
+                    rail_end = (end1_x_4k, end1_y_4k)
+
+                # Convert to degrees
+                angle = math.degrees(angle_rad)
+
+                logger.debug(
+                    f"Cue angle calculated: rail_end=({rail_end[0]:.1f}, {rail_end[1]:.1f}), "
+                    f"table_end=({table_end[0]:.1f}, {table_end[1]:.1f}), "
+                    f"center=({center_x_4k:.1f}, {center_y_4k:.1f}), angle={angle:.1f}°"
+                )
+            else:
+                # Fallback: use detection angle if available
+                angle = detection.angle if hasattr(detection, "angle") else 0.0
+                logger.warning(
+                    "Playing area not configured, using detection angle as fallback"
+                )
+        except Exception as e:
+            # Fallback: use detection angle
+            angle = detection.angle if hasattr(detection, "angle") else 0.0
+            logger.warning(
+                f"Failed to calculate angle from table center: {e}, using fallback"
+            )
 
         # Calculate length from bbox (in camera pixels)
         x1, y1, x2, y2 = detection.bbox

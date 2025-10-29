@@ -131,6 +131,7 @@ class MultiballTrajectoryResult:
                     + ratio * (point.position.x - prev_point.position.x),
                     prev_point.position.y
                     + ratio * (point.position.y - prev_point.position.y),
+                    scale=prev_point.position.scale,
                 )
 
         # Time is beyond trajectory end
@@ -154,6 +155,7 @@ class MultiballTrajectoryResult:
                     + ratio * (point.velocity.x - prev_point.velocity.x),
                     prev_point.velocity.y
                     + ratio * (point.velocity.y - prev_point.velocity.y),
+                    scale=prev_point.velocity.scale,
                 )
 
         return self.points[-1].velocity if self.points else None
@@ -238,8 +240,8 @@ class TrajectoryCalculator:
                         time=current_time,
                         position=start_pos,
                         velocity=ball_state.velocity,
-                        acceleration=Vector2D(0, 0),
-                        spin=Vector2D(0, 0),
+                        acceleration=Vector2D(0, 0, scale=(1.0, 1.0)),
+                        spin=Vector2D(0, 0, scale=(1.0, 1.0)),
                         energy=0.5
                         * ball_state.mass
                         * ball_state.velocity.magnitude() ** 2,
@@ -261,8 +263,8 @@ class TrajectoryCalculator:
                     time=current_time,
                     position=end_pos,
                     velocity=segment.get("velocity", ball_state.velocity),
-                    acceleration=Vector2D(0, 0),
-                    spin=Vector2D(0, 0),
+                    acceleration=Vector2D(0, 0, scale=(1.0, 1.0)),
+                    spin=Vector2D(0, 0, scale=(1.0, 1.0)),
                     energy=0.5
                     * ball_state.mass
                     * segment.get("velocity", ball_state.velocity).magnitude() ** 2,
@@ -308,7 +310,9 @@ class TrajectoryCalculator:
                     ball2_id=None,
                     impact_angle=0.0,
                     impact_velocity=ball_state.velocity.magnitude(),
-                    resulting_velocities={ball_state.id: Vector2D(0, 0)},
+                    resulting_velocities={
+                        ball_state.id: Vector2D(0, 0, scale=(1.0, 1.0))
+                    },
                     confidence=0.8,
                     pocket_id=segment.get("pocket_id"),
                 )
@@ -322,7 +326,7 @@ class TrajectoryCalculator:
             trajectory.final_velocity = trajectory.points[-1].velocity
         else:
             trajectory.final_position = ball_state.position
-            trajectory.final_velocity = Vector2D(0, 0)
+            trajectory.final_velocity = Vector2D(0, 0, scale=(1.0, 1.0))
 
         trajectory.time_to_rest = current_time
         trajectory.total_distance = self._calculate_total_distance(trajectory.points)
@@ -356,14 +360,24 @@ class TrajectoryCalculator:
         """Create a copy of ball state for simulation."""
         return BallState(
             id=ball_state.id,
-            position=Vector2D(ball_state.position.x, ball_state.position.y),
-            velocity=Vector2D(ball_state.velocity.x, ball_state.velocity.y),
+            position=Vector2D(
+                ball_state.position.x,
+                ball_state.position.y,
+                scale=ball_state.position.scale,
+            ),
+            velocity=Vector2D(
+                ball_state.velocity.x,
+                ball_state.velocity.y,
+                scale=ball_state.velocity.scale,
+            ),
             radius=ball_state.radius,
             mass=ball_state.mass,
             spin=(
-                Vector2D(ball_state.spin.x, ball_state.spin.y)
+                Vector2D(
+                    ball_state.spin.x, ball_state.spin.y, scale=ball_state.spin.scale
+                )
                 if ball_state.spin
-                else Vector2D(0, 0)
+                else Vector2D(0, 0, scale=(1.0, 1.0))
             ),
             is_cue_ball=ball_state.is_cue_ball,
             is_pocketed=ball_state.is_pocketed,
@@ -391,8 +405,10 @@ class TrajectoryCalculator:
         - other metadata
         """
         segments = []
-        current_pos = Vector2D(start_position.x, start_position.y)
-        current_velocity = Vector2D(velocity.x, velocity.y)
+        current_pos = Vector2D(
+            start_position.x, start_position.y, scale=start_position.scale
+        )
+        current_velocity = Vector2D(velocity.x, velocity.y, scale=velocity.scale)
 
         if current_velocity.magnitude() < 1e-6:
             # Ball is not moving
@@ -523,7 +539,9 @@ class TrajectoryCalculator:
             Tuple of (intersection_point, distance_from_ray_start) or None if no intersection
         """
         # Line segment as vector
-        seg_vec = Vector2D(seg_end.x - seg_start.x, seg_end.y - seg_start.y)
+        seg_vec = Vector2D(
+            seg_end.x - seg_start.x, seg_end.y - seg_start.y, scale=seg_start.scale
+        )
 
         # Calculate denominator for intersection equations
         denom = ray_dir.cross(seg_vec)
@@ -533,7 +551,9 @@ class TrajectoryCalculator:
             return None
 
         # Vector from ray start to segment start
-        start_diff = Vector2D(seg_start.x - ray_start.x, seg_start.y - ray_start.y)
+        start_diff = Vector2D(
+            seg_start.x - ray_start.x, seg_start.y - ray_start.y, scale=ray_start.scale
+        )
 
         # Calculate parameters
         t = start_diff.cross(seg_vec) / denom  # Parameter along ray
@@ -542,7 +562,9 @@ class TrajectoryCalculator:
         # Check if intersection is valid (ray forward, within segment)
         if t > 0.001 and 0 <= u <= 1:
             intersection = Vector2D(
-                ray_start.x + t * ray_dir.x, ray_start.y + t * ray_dir.y
+                ray_start.x + t * ray_dir.x,
+                ray_start.y + t * ray_dir.y,
+                scale=ray_start.scale,
             )
             return (intersection, t)
 
@@ -584,17 +606,23 @@ class TrajectoryCalculator:
 
         for seg_start, seg_end, cushion_name in edges:
             # Calculate edge normal (pointing inward to table)
-            edge_vec = Vector2D(seg_end.x - seg_start.x, seg_end.y - seg_start.y)
-            edge_normal = Vector2D(-edge_vec.y, edge_vec.x).normalize()
+            edge_vec = Vector2D(
+                seg_end.x - seg_start.x, seg_end.y - seg_start.y, scale=seg_start.scale
+            )
+            edge_normal = Vector2D(
+                -edge_vec.y, edge_vec.x, scale=edge_vec.scale
+            ).normalize()
 
             # Offset the edge inward by ball_radius to account for ball size
             offset_start = Vector2D(
                 seg_start.x + edge_normal.x * ball_radius,
                 seg_start.y + edge_normal.y * ball_radius,
+                scale=seg_start.scale,
             )
             offset_end = Vector2D(
                 seg_end.x + edge_normal.x * ball_radius,
                 seg_end.y + edge_normal.y * ball_radius,
+                scale=seg_end.scale,
             )
 
             # Find intersection with this edge
@@ -787,12 +815,17 @@ class TrajectoryCalculator:
 
         for factor, description in velocity_variations:
             # Create simplified trajectory branch without full calculation
-            Vector2D(base_velocity.x * factor, base_velocity.y * factor)
+            Vector2D(
+                base_velocity.x * factor,
+                base_velocity.y * factor,
+                scale=base_velocity.scale,
+            )
 
             # Estimate final position based on modified velocity (simplified)
             estimated_final = Vector2D(
                 main_trajectory.final_position.x + (factor - 1.0) * 0.1,
                 main_trajectory.final_position.y + (factor - 1.0) * 0.1,
+                scale=main_trajectory.final_position.scale,
             )
 
             # Create trajectory branch with estimated values
@@ -804,7 +837,7 @@ class TrajectoryCalculator:
                 final_state=BallState(
                     id=main_trajectory.initial_state.id,
                     position=estimated_final,
-                    velocity=Vector2D(0, 0),  # Assume comes to rest
+                    velocity=Vector2D(0, 0, scale=(1.0, 1.0)),  # Assume comes to rest
                     radius=main_trajectory.initial_state.radius,
                     mass=main_trajectory.initial_state.mass,
                 ),
@@ -831,7 +864,9 @@ class TrajectoryCalculator:
         # Calculate direction from cue angle
         angle_rad = math.radians(cue_state.angle)
         initial_velocity = Vector2D(
-            initial_speed * math.cos(angle_rad), initial_speed * math.sin(angle_rad)
+            initial_speed * math.cos(angle_rad),
+            initial_speed * math.sin(angle_rad),
+            scale=(1.0, 1.0),
         )
 
         # Create initial ball state with calculated velocity
@@ -843,11 +878,14 @@ class TrajectoryCalculator:
             center_offset = Vector2D(
                 cue_state.impact_point.x - ball_state.position.x,
                 cue_state.impact_point.y - ball_state.position.y,
+                scale=ball_state.position.scale,
             )
             # Convert offset to spin (simplified)
             spin_factor = 2.0
             shot_ball.spin = Vector2D(
-                center_offset.x * spin_factor, center_offset.y * spin_factor
+                center_offset.x * spin_factor,
+                center_offset.y * spin_factor,
+                scale=(1.0, 1.0),
             )
 
         return self.calculate_trajectory(shot_ball, table_state, other_balls, quality)
