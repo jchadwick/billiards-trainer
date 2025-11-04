@@ -92,6 +92,11 @@ class Detection:
     angle: float = 0.0  # Rotation angle (for oriented objects like cue sticks)
     mask: Optional[NDArray[np.uint8]] = None  # Segmentation mask if available
 
+    # Additional cue stick line detection fields (populated by _estimate_cue_angle)
+    line_end1: Optional[tuple[float, float]] = None  # Line endpoint 1 (x, y)
+    line_end2: Optional[tuple[float, float]] = None  # Line endpoint 2 (x, y)
+    line_center: Optional[tuple[float, float]] = None  # Line center (x, y)
+
 
 @dataclass
 class TableElements:
@@ -204,6 +209,12 @@ class YOLODetector:
 
         # Thread safety for model hot-swapping
         self._model_lock = threading.RLock()
+
+        # Frame-level detection cache to avoid running YOLO multiple times per frame
+        # This prevents running inference twice (once for balls, once for cue)
+        # Cache key is (buffer_id, content_hash) to prevent false hits from buffer reuse
+        self._detection_cache: dict[tuple[int, int], list[Detection]] = {}
+        self._cache_lock = threading.Lock()
 
         # OpenCV classifier for ball type refinement
         self._opencv_classifier: Optional[Any] = None
@@ -1008,15 +1019,22 @@ class YOLODetector:
         Returns:
             Cue stick detection or None if not detected
         """
+        import time
+
+        method_start = time.time()
+
         if not self.model_loaded:
             logger.debug("Model not loaded, returning no cue detection")
             return None
 
         try:
             # Run inference
+            inference_start = time.time()
             detections = self._run_inference(frame)
+            inference_time = (time.time() - inference_start) * 1000
 
             # Filter for cue stick class
+            filter_start = time.time()
             # Check if we have a simplified 2-class model (ball=0, cue=1) or full multi-class model
             if "cue" in self.class_names.values():
                 # Simplified model or full model with "cue" class name
@@ -1030,17 +1048,31 @@ class YOLODetector:
             else:
                 # Full model: class 16 is cue_stick
                 cue_detections = [det for det in detections if det.class_id == 16]
+            filter_time = (time.time() - filter_start) * 1000
 
             # Return highest confidence cue detection
             if cue_detections:
+                sort_start = time.time()
                 cue_detections.sort(key=lambda d: d.confidence, reverse=True)
                 cue = cue_detections[0]
+                sort_time = (time.time() - sort_start) * 1000
 
                 # Calculate accurate angle from cue region using edge detection
+                angle_start = time.time()
                 cue.angle = self._estimate_cue_angle(frame, cue)
+                angle_time = (time.time() - angle_start) * 1000
+
+                total_time = (time.time() - method_start) * 1000
+                logger.debug(
+                    f"[PERF] detect_cue timing: total={total_time:.1f}ms "
+                    f"(inference={inference_time:.1f}ms, filter={filter_time:.1f}ms, "
+                    f"sort={sort_time:.1f}ms, angle={angle_time:.1f}ms)"
+                )
 
                 return cue
 
+            total_time = (time.time() - method_start) * 1000
+            logger.debug(f"detect_cue timing: total={total_time:.1f}ms (no cue found)")
             return None
 
         except Exception as e:
@@ -1065,8 +1097,13 @@ class YOLODetector:
             - 180° = pointing left (West)
             - 270° = pointing up (North)
         """
+        import time
+
+        method_start = time.time()
+
         try:
             # Extract cue region from frame
+            extract_start = time.time()
             x1, y1, x2, y2 = cue_detection.bbox
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
@@ -1078,21 +1115,29 @@ class YOLODetector:
             y2 = min(frame.shape[0], y2 + padding)
 
             cue_region = frame[y1:y2, x1:x2]
+            extract_time = (time.time() - extract_start) * 1000
 
             if cue_region.size == 0:
                 logger.warning("Empty cue region, using fallback angle")
                 return 0.0
 
             # Convert to grayscale
+            gray_start = time.time()
             gray = cv2.cvtColor(cue_region, cv2.COLOR_BGR2GRAY)
+            gray_time = (time.time() - gray_start) * 1000
 
             # Apply Gaussian blur to reduce noise
+            blur_start = time.time()
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+            blur_time = (time.time() - blur_start) * 1000
 
             # Edge detection
+            canny_start = time.time()
             edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
+            canny_time = (time.time() - canny_start) * 1000
 
             # Hough Line Transform to find lines
+            hough_start = time.time()
             lines = cv2.HoughLinesP(
                 edges,
                 rho=1,
@@ -1101,6 +1146,7 @@ class YOLODetector:
                 minLineLength=int(min(cue_region.shape[0], cue_region.shape[1]) * 0.3),
                 maxLineGap=10,
             )
+            hough_time = (time.time() - hough_start) * 1000
 
             if lines is None or len(lines) == 0:
                 # Fallback: use bounding box aspect ratio
@@ -1110,33 +1156,74 @@ class YOLODetector:
                 else:
                     return 90.0  # Vertical
 
-            # Find the longest line (most likely the cue stick)
-            longest_line = None
-            max_length = 0
+            # Find the longest line that is NOT a rail
+            # Rails are typically perfectly horizontal or vertical, while cue sticks
+            # are almost always at an angle when aiming. Filter out near-horizontal/vertical lines.
+            RAIL_ANGLE_THRESHOLD = (
+                15.0  # degrees - lines within this of 0/90/180/270 are likely rails
+            )
+
+            valid_lines = []
+            rail_lines = []
 
             for line in lines:
                 x1_l, y1_l, x2_l, y2_l = line[0]
                 length = np.sqrt((x2_l - x1_l) ** 2 + (y2_l - y1_l) ** 2)
+
+                # Calculate angle for this line
+                line_angle_rad = np.arctan2(y2_l - y1_l, x2_l - x1_l)
+                line_angle_deg = np.degrees(line_angle_rad)
+                if line_angle_deg < 0:
+                    line_angle_deg += 360
+
+                # Check if line is close to horizontal (0°/180°) or vertical (90°/270°)
+                is_horizontal = (
+                    line_angle_deg < RAIL_ANGLE_THRESHOLD
+                    or line_angle_deg > 360 - RAIL_ANGLE_THRESHOLD
+                    or abs(line_angle_deg - 180) < RAIL_ANGLE_THRESHOLD
+                )
+                is_vertical = (
+                    abs(line_angle_deg - 90) < RAIL_ANGLE_THRESHOLD
+                    or abs(line_angle_deg - 270) < RAIL_ANGLE_THRESHOLD
+                )
+
+                if is_horizontal or is_vertical:
+                    rail_lines.append((x1_l, y1_l, x2_l, y2_l, length, line_angle_deg))
+                else:
+                    valid_lines.append((x1_l, y1_l, x2_l, y2_l, length, line_angle_deg))
+
+            # Prefer valid (non-rail) lines, but fall back to rail lines if no valid lines found
+            lines_to_search = valid_lines if valid_lines else rail_lines
+
+            if not lines_to_search:
+                logger.debug("No valid lines found after filtering")
+                return 0.0
+
+            # Find the longest line from the valid set
+            longest_line = None
+            max_length = 0
+            line_angle_deg = 0
+
+            for line_data in lines_to_search:
+                x1_l, y1_l, x2_l, y2_l, length, angle = line_data
                 if length > max_length:
                     max_length = length
                     longest_line = (x1_l, y1_l, x2_l, y2_l)
+                    line_angle_deg = angle
+
+            # Log if we filtered out rail lines
+            if rail_lines and valid_lines:
+                logger.debug(
+                    f"Filtered out {len(rail_lines)} rail lines, using {len(valid_lines)} valid cue lines"
+                )
 
             if longest_line is None:
                 logger.debug("No valid line found, using fallback")
                 return 0.0
 
-            # Calculate angle from the longest line
+            # Extract the longest line coordinates
             x1_l, y1_l, x2_l, y2_l = longest_line
-
-            # Calculate angle in radians, then convert to degrees
-            # NOTE: This angle represents the direction from (x1_l, y1_l) to (x2_l, y2_l)
-            # but Hough can return endpoints in either order, so we need to normalize later
-            angle_rad = np.arctan2(y2_l - y1_l, x2_l - x1_l)
-            angle_deg = np.degrees(angle_rad)
-
-            # Normalize to 0-360 range
-            if angle_deg < 0:
-                angle_deg += 360
+            angle_deg = line_angle_deg  # Already calculated and normalized above
 
             # Store the line endpoints in the cue_detection object for orientation correction later
             # Convert from cue_region coordinates to full frame coordinates
@@ -1152,8 +1239,13 @@ class YOLODetector:
             line_center_y = (line_end1_y + line_end2_y) / 2
             cue_detection.line_center = (line_center_x, line_center_y)
 
+            total_time = (time.time() - method_start) * 1000
             logger.debug(
-                f"Estimated cue angle: {angle_deg:.1f}° (line: {longest_line}, length: {max_length:.1f}, center: ({line_center_x:.1f}, {line_center_y:.1f}))"
+                f"[PERF] _estimate_cue_angle timing: total={total_time:.1f}ms "
+                f"(extract={extract_time:.1f}ms, gray={gray_time:.1f}ms, "
+                f"blur={blur_time:.1f}ms, canny={canny_time:.1f}ms, "
+                f"hough={hough_time:.1f}ms) | "
+                f"angle={angle_deg:.1f}°, region_size={cue_region.shape[1]}x{cue_region.shape[0]}"
             )
 
             return angle_deg
@@ -1210,6 +1302,10 @@ class YOLODetector:
     def _run_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
         """Run YOLO inference on frame and convert results to Detection objects.
 
+        Uses frame-level caching to avoid running inference multiple times per frame.
+        This prevents wasteful re-inference when detect_balls() and detect_cue() are
+        called separately on the same frame.
+
         Args:
             frame: Input image in BGR format
 
@@ -1219,11 +1315,38 @@ class YOLODetector:
         if not self.model_loaded:
             return []
 
-        # Route to appropriate inference method based on model format
+        # Generate cache key from frame content to avoid false hits from buffer reuse
+        # Sample a small region of the frame for fast content verification
+        # This prevents camera buffer reuse from returning stale detections
+        h, w = frame.shape[:2]
+        sample_region = frame[h // 2 - 10 : h // 2 + 10, w // 2 - 10 : w // 2 + 10]
+        content_hash = hash(sample_region.tobytes())
+        cache_key = (id(frame.data), content_hash)
+
+        # Check cache first
+        with self._cache_lock:
+            if cache_key in self._detection_cache:
+                logger.info(
+                    f"[PERF] Using cached YOLO detections (cache hit, key={cache_key[0]})"
+                )
+                return self._detection_cache[cache_key]
+            else:
+                logger.info(
+                    f"[PERF] Cache miss - running YOLO inference (key={cache_key[0]})"
+                )
+
+        # Cache miss - run inference
         if self.model_format == ModelFormat.EDGETPU:
-            return self._run_tpu_inference(frame)
+            detections = self._run_tpu_inference(frame)
         else:
-            return self._run_standard_inference(frame)
+            detections = self._run_standard_inference(frame)
+
+        # Store in cache (keep only last frame to avoid memory growth)
+        with self._cache_lock:
+            self._detection_cache.clear()  # Clear old cache
+            self._detection_cache[cache_key] = detections
+
+        return detections
 
     def _run_standard_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
         """Run standard YOLO inference (PyTorch, ONNX, TensorRT).
