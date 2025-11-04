@@ -1326,12 +1326,12 @@ class YOLODetector:
         # Check cache first
         with self._cache_lock:
             if cache_key in self._detection_cache:
-                logger.info(
+                logger.debug(
                     f"[PERF] Using cached YOLO detections (cache hit, key={cache_key[0]})"
                 )
                 return self._detection_cache[cache_key]
             else:
-                logger.info(
+                logger.debug(
                     f"[PERF] Cache miss - running YOLO inference (key={cache_key[0]})"
                 )
 

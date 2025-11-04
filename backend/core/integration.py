@@ -806,7 +806,6 @@ class APIInterfaceImpl(APIInterface):
         self._event_loop = event_loop  # Store event loop for cross-thread async calls
         self._lock = threading.RLock()  # Thread safety
         self.websocket_handlers = {}
-        self.message_queue = []
         self.connection_status = {
             "connected": False,
             "last_heartbeat": 0.0,
@@ -841,18 +840,14 @@ class APIInterfaceImpl(APIInterface):
                     "sequence_number": self.connection_status["message_count"],
                 }
 
-                # Add to message queue for delivery
-                self._queue_message(message)
+                # Broadcast message immediately (fire-and-forget)
+                self._broadcast_message(message)
 
                 # Update statistics
                 self.connection_status["message_count"] += 1
                 self.logger.debug(
-                    f"Queued state update (sequence: {message['sequence_number']})"
+                    f"Sent state update (sequence: {message['sequence_number']})"
                 )
-
-                # Trigger immediate delivery if connected
-                if self.connection_status["connected"]:
-                    self._flush_message_queue()
 
             except Exception as e:
                 self.logger.error(f"Error sending state update: {e}")
@@ -880,18 +875,14 @@ class APIInterfaceImpl(APIInterface):
                     "priority": self._determine_event_priority(event_data),
                 }
 
-                # Add to message queue
-                self._queue_message(message)
+                # Broadcast message immediately (fire-and-forget)
+                self._broadcast_message(message)
 
                 # Update statistics
                 self.connection_status["message_count"] += 1
-                self.logger.info(
-                    f"Queued event notification: {event_data.get('event_type', 'unknown')}"
+                self.logger.debug(
+                    f"Sent event notification: {event_data.get('event_type', 'unknown')}"
                 )
-
-                # Trigger immediate delivery if connected
-                if self.connection_status["connected"]:
-                    self._flush_message_queue()
 
             except Exception as e:
                 self.logger.error(f"Error sending event notification: {e}")
@@ -933,7 +924,6 @@ class APIInterfaceImpl(APIInterface):
         """Get current connection status."""
         return {
             **self.connection_status,
-            "queue_size": len(self.message_queue),
             "handler_count": len(self.websocket_handlers),
             "uptime": time.time()
             - self.connection_status.get("start_time", time.time()),
@@ -1000,184 +990,66 @@ class APIInterfaceImpl(APIInterface):
         rate_info["count"] += 1
         return True
 
-    def _queue_message(self, message: dict[str, Any]) -> None:
-        """Add message to delivery queue."""
-        # Prefer message_broadcaster for async WebSocket communication
-        if self.message_broadcaster:
+    def _broadcast_message(self, message: dict[str, Any]) -> None:
+        """Fire-and-forget broadcast of message to websockets."""
+        message_type = message.get("type", "")
+        data = message.get("data", {})
+
+        # Try message_broadcaster first (preferred for async WebSocket communication)
+        if self.message_broadcaster and self._event_loop:
             try:
                 import asyncio
 
-                message_type = message.get("type", "")
-                data = message.get("data", {})
-
                 # Schedule async broadcast on event loop using run_coroutine_threadsafe
-                # This properly schedules async work from sync threads
                 if message_type == "state_update":
                     balls = data.get("balls", [])
                     cue = data.get("cue")
                     table = data.get("table")
-                    # Schedule async task from sync thread
-                    if self._event_loop:
-                        try:
-                            asyncio.run_coroutine_threadsafe(
-                                self.message_broadcaster.broadcast_game_state(
-                                    balls=balls, cue=cue, table=table
-                                ),
-                                self._event_loop,
-                            )
-                            self.logger.debug(
-                                "Scheduled game state broadcast via message_broadcaster"
-                            )
-                            return
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Failed to schedule game state broadcast: {e}"
-                            )
-                            # Fall through to queueing
-                    else:
-                        self.logger.warning(
-                            "No event loop available for async broadcast"
-                        )
-                        # Fall through to queueing
+                    asyncio.run_coroutine_threadsafe(
+                        self.message_broadcaster.broadcast_game_state(
+                            balls=balls, cue=cue, table=table
+                        ),
+                        self._event_loop,
+                    )
+                    self.logger.debug("Broadcast game state via message_broadcaster")
+                    return
                 elif message_type == "event_notification":
-                    # Broadcast as alert
-                    if self._event_loop:
-                        try:
-                            asyncio.run_coroutine_threadsafe(
-                                self.message_broadcaster.broadcast_alert(
-                                    level=data.get("level", "info"),
-                                    message=data.get("message", ""),
-                                    code=data.get("code", "system_event"),
-                                    details=data.get("details"),
-                                ),
-                                self._event_loop,
-                            )
-                            self.logger.debug(
-                                "Scheduled alert broadcast via message_broadcaster"
-                            )
-                            return
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Failed to schedule alert broadcast: {e}"
-                            )
-            except Exception as bc_error:
-                self.logger.warning(
-                    f"Failed to send via message_broadcaster: {bc_error}"
-                )
-                # Fall through to queueing
+                    asyncio.run_coroutine_threadsafe(
+                        self.message_broadcaster.broadcast_alert(
+                            level=data.get("level", "info"),
+                            message=data.get("message", ""),
+                            code=data.get("code", "system_event"),
+                            details=data.get("details"),
+                        ),
+                        self._event_loop,
+                    )
+                    self.logger.debug("Broadcast alert via message_broadcaster")
+                    return
+            except Exception as e:
+                self.logger.debug(f"message_broadcaster failed, trying fallback: {e}")
 
         # Fallback: try websocket_manager if available
         if self.websocket_manager:
             try:
-                message_type = message.get("type", "")
                 if message_type == "state_update" and hasattr(
                     self.websocket_manager, "broadcast_game_state"
                 ):
-                    self.websocket_manager.broadcast_game_state(message.get("data", {}))
+                    self.websocket_manager.broadcast_game_state(data)
                 elif message_type == "event_notification" and hasattr(
                     self.websocket_manager, "broadcast_alert"
                 ):
-                    self.websocket_manager.broadcast_alert(message.get("data", {}))
+                    self.websocket_manager.broadcast_alert(data)
                 elif hasattr(self.websocket_manager, "broadcast"):
                     self.websocket_manager.broadcast(message)
-                self.logger.debug(
-                    f"Sent message directly to websocket_manager: {message_type}"
-                )
+                self.logger.debug(f"Broadcast via websocket_manager: {message_type}")
                 return
-            except Exception as ws_error:
-                self.logger.warning(f"Failed to send via websocket_manager: {ws_error}")
-                # Fall through to queueing
+            except Exception as e:
+                self.logger.debug(f"websocket_manager failed: {e}")
 
-        # Limit queue size to prevent memory issues
-        max_queue_size = 1000
-        if len(self.message_queue) >= max_queue_size:
-            # Remove oldest messages
-            self.message_queue = self.message_queue[-(max_queue_size // 2) :]
-            self.logger.warning("Message queue full, discarded old messages")
-
-        self.message_queue.append(message)
-
-    def _flush_message_queue(self) -> None:
-        """Deliver all queued messages to WebSocket via message_broadcaster."""
-        if not self.message_queue:
-            return
-
-        try:
-            # Route messages to message_broadcaster for WebSocket delivery
-            for message in self.message_queue:
-                message_type = message.get("type", "")
-                data = message.get("data", {})
-
-                # Prefer message_broadcaster for WebSocket communication
-                if self.message_broadcaster:
-                    try:
-                        import asyncio
-
-                        # Try to schedule async broadcast on event loop
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if message_type == "state_update":
-                                balls = data.get("balls", [])
-                                cue = data.get("cue")
-                                table = data.get("table")
-                                loop.create_task(
-                                    self.message_broadcaster.broadcast_game_state(
-                                        balls=balls, cue=cue, table=table
-                                    )
-                                )
-                            elif message_type == "event_notification":
-                                loop.create_task(
-                                    self.message_broadcaster.broadcast_alert(
-                                        level=data.get("level", "info"),
-                                        message=data.get("message", ""),
-                                        code=data.get("code", "system_event"),
-                                        details=data.get("details"),
-                                    )
-                                )
-                            continue
-                        except RuntimeError:
-                            # No event loop, try websocket_manager fallback
-                            pass
-                    except Exception as bc_error:
-                        self.logger.warning(
-                            f"Failed to flush via message_broadcaster: {bc_error}"
-                        )
-
-                # Fallback: try websocket_manager if available
-                if self.websocket_manager:
-                    try:
-                        if message_type == "state_update" and hasattr(
-                            self.websocket_manager, "broadcast_game_state"
-                        ):
-                            self.websocket_manager.broadcast_game_state(data)
-                        elif message_type == "event_notification" and hasattr(
-                            self.websocket_manager, "broadcast_alert"
-                        ):
-                            self.websocket_manager.broadcast_alert(data)
-                        elif hasattr(self.websocket_manager, "broadcast"):
-                            self.websocket_manager.broadcast(message)
-                        continue
-                    except Exception as ws_error:
-                        self.logger.warning(
-                            f"Failed to flush via websocket_manager: {ws_error}"
-                        )
-
-                # Last resort: notify event_manager (legacy API path)
-                try:
-                    self.event_manager.send_api_message(message)
-                except Exception as em_error:
-                    self.logger.warning(
-                        f"Failed to flush via event_manager: {em_error}"
-                    )
-
-            delivered_count = len(self.message_queue)
-            self.message_queue.clear()
-            self.logger.debug(
-                f"Flushed {delivered_count} queued messages to WebSocket delivery"
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error flushing message queue: {e}")
+        # No broadcast mechanism available - just drop the message
+        self.logger.debug(
+            f"No broadcast mechanism available, message dropped: {message_type}"
+        )
 
     def _wrap_handler(self, handler: Callable, handler_id: str) -> Callable:
         """Wrap handler with error handling and statistics."""

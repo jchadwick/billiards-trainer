@@ -7,11 +7,11 @@ Immediately after making changes, ensure that the entire system still works as e
 
 When done making changes, if functionality is missing then it's your job to add it as per the application specifications. Think hard.
 
-If tests unrelated to your work fail then it's your job to resolve these tests as part of the increment of change.
+If syntax errors arise or tests fail - even if it's unrelated to your work - then it's your job to resolve these issues as part of the change.
 
-9999999999999999999999999. DO NOT EVER HARDCODE VALUES INTO PRODUCTION LOGIC. Leverage configuration settings, and always provide default/fallback values. DO IT OR I WILL YELL AT YOU
+1.                         DO NOT EVER HARDCODE VALUES INTO PRODUCTION LOGIC. Leverage configuration settings, and always provide default/fallback values. DO IT OR I WILL YELL AT YOU
 
-9999999999999999999999999999. DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
+2.                            DO NOT IMPLEMENT PLACEHOLDER OR SIMPLE IMPLEMENTATIONS. WE WANT FULL IMPLEMENTATIONS. DO IT OR I WILL YELL AT YOU
 
 Leverage automation tools extensively, especially automated tests. Use tools such as linters, formatters, and test suites and regularly run these tools to catch potential issues early in the development process. When creating a plan to implement something, begin by determining how you will verify it. Your task is not complete unless it has been verified by these tools.
 
@@ -35,3 +35,9 @@ When creating subagents, provide them with all the context they need to complete
 
 unless explictly specified otherwise, put any "thinking" documentation in the ./thoughts folder.  This includes plans, research, and any other notes you want to keep track of.
 </agents>
+
+<cleanup>
+After completing your tasks, ensure that the codebase is clean and well-organized. Remove any temporary files, unused code, obsolete tests or redundant comments that may have been introduced during development.
+
+Refactor code where necessary to improve readability and maintainability. This includes renaming variables for clarity, breaking down large functions into smaller ones, and reorganizing code structure for better flow.
+</cleanup>
