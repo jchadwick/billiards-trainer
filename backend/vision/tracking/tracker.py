@@ -41,6 +41,12 @@ class Ball:
     is_moving: bool = False
     track_id: Optional[int] = None  # Track ID for confirmed tracks
 
+    # Coordinate space metadata - critical for preventing double-scaling bugs
+    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
+    source_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) of source frame
+    )
+
     @property
     def display_name(self) -> str:
         """Get display name for the ball."""
@@ -83,6 +89,12 @@ class Track:
     detection_count: int = 0
     miss_count: int = 0
     radius_history: deque[float] = field(default_factory=deque)
+
+    # Coordinate space metadata - preserved from detections to prevent double-scaling
+    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
+    source_resolution: Optional[tuple[int, int]] = (
+        None  # (width, height) of source frame
+    )
 
     def __post_init__(self) -> None:
         """Initialize track after creation."""
@@ -135,6 +147,12 @@ class Track:
         self.confidence_history.append(detection.confidence)
         self.position_history.append(detection.position)
         self.radius_history.append(detection.radius)
+
+        # Preserve coordinate metadata from detection to prevent double-scaling
+        if hasattr(detection, "coordinate_space"):
+            self.coordinate_space = detection.coordinate_space
+        if hasattr(detection, "source_resolution"):
+            self.source_resolution = detection.source_resolution
 
         # Update ball type if detection has more specific type information
         # Only update if detection has classified type (not UNKNOWN)
@@ -220,6 +238,8 @@ class Track:
             velocity=velocity,
             is_moving=speed > movement_speed,
             track_id=self.track_id,
+            coordinate_space=self.coordinate_space,
+            source_resolution=self.source_resolution,
         )
 
 
@@ -566,6 +586,18 @@ class ObjectTracker:
             ),
         )
 
+        # Preserve coordinate metadata from detection to prevent double-scaling
+        coordinate_space = (
+            detection.coordinate_space
+            if hasattr(detection, "coordinate_space")
+            else "4k_canonical"
+        )
+        source_resolution = (
+            detection.source_resolution
+            if hasattr(detection, "source_resolution")
+            else None
+        )
+
         track = Track(
             track_id=self.next_track_id,
             ball_type=detection.ball_type,
@@ -575,6 +607,8 @@ class ObjectTracker:
             max_age=self.max_age,
             config=self.config,
             last_frame_number=frame_number,
+            coordinate_space=coordinate_space,
+            source_resolution=source_resolution,
         )
 
         track.update_with_detection(detection, frame_number)
