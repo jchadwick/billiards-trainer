@@ -872,21 +872,7 @@ class TrajectoryCalculator:
         # Create initial ball state with calculated velocity
         shot_ball = self._copy_ball_state(ball_state)
         shot_ball.velocity = initial_velocity
-
-        # Add spin if cue impact point is off-center
-        if cue_state.impact_point:
-            center_offset = Vector2D(
-                cue_state.impact_point.x - ball_state.position.x,
-                cue_state.impact_point.y - ball_state.position.y,
-                scale=ball_state.position.scale,
-            )
-            # Convert offset to spin (simplified)
-            spin_factor = 2.0
-            shot_ball.spin = Vector2D(
-                center_offset.x * spin_factor,
-                center_offset.y * spin_factor,
-                scale=(1.0, 1.0),
-            )
+        # No spin - simplified physics
 
         return self.calculate_trajectory(shot_ball, table_state, other_balls, quality)
 
@@ -1022,7 +1008,7 @@ class TrajectoryCalculator:
         table_state: TableState,
         other_balls: list[BallState] = None,
         quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
-        max_collision_depth: int = 5,
+        max_collision_depth: int = 2,
     ) -> MultiballTrajectoryResult:
         """Predict trajectory for cue shot including all subsequent ball movements.
 

@@ -21,7 +21,7 @@ from ..constants_4k import (
 from ..coordinates import Vector2D
 from ..models import BallState, GameState, GameType, ShotType, TableState
 from ..utils.geometry import GeometryUtils
-from .prediction import OutcomePredictor
+from .prediction import TrajectoryPredictor
 from .shot import ShotAnalysis, ShotAnalyzer
 
 
@@ -126,7 +126,7 @@ class AssistanceEngine:
             cfg: Optional configuration instance. If not provided, uses singleton.
         """
         self.shot_analyzer = ShotAnalyzer()
-        self.outcome_predictor = OutcomePredictor()
+        self.trajectory_predictor = TrajectoryPredictor()
         self.geometry_utils = GeometryUtils()
 
         # Configuration

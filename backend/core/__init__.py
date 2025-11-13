@@ -15,7 +15,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Callable, Optional
 
 from .analysis.assistance import AssistanceEngine
-from .analysis.prediction import OutcomePredictor
+from .analysis.prediction import TrajectoryPredictor
 from .analysis.shot import ShotAnalysis, ShotAnalyzer
 
 # 4K coordinate system imports
@@ -155,7 +155,7 @@ class CoreModule:
             # Analysis components
             self.shot_analyzer = ShotAnalyzer()
             self.assistance_engine = AssistanceEngine()
-            self.outcome_predictor = OutcomePredictor()
+            self.trajectory_predictor = TrajectoryPredictor()
 
             # Utility components
             self.geometry_utils = GeometryUtils()

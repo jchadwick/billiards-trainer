@@ -49,28 +49,14 @@ The Core module serves as the central business logic layer, managing game state,
 - **FR-CORE-019**: Calculate rebounds off table cushions
 - **FR-CORE-020**: Determine if balls will be pocketed
 
-#### 2.2 Advanced Physics
-- **FR-CORE-021**: Model ball spin (English) effects
+#### 2.2 Collision Handling
 - **FR-CORE-022**: Calculate friction and deceleration
-- **FR-CORE-023**: Simulate masse and jump shots
-- **FR-CORE-024**: Account for table slope/imperfections
-- **FR-CORE-025**: Predict multi-ball collision chains
-
-#### 2.3 Force Estimation
-- **FR-CORE-026**: Estimate strike force from cue velocity
-- **FR-CORE-027**: Calculate impact point on cue ball
-- **FR-CORE-028**: Determine shot power requirements
-- **FR-CORE-029**: Suggest optimal force for shots
-- **FR-CORE-030**: Validate physically possible shots
+- **FR-CORE-025**: Predict multi-ball collision chains (max 2 levels: cue ball hits → those balls hit)
 
 ### 3. Game Logic
 
 #### 3.1 Shot Analysis
-- **FR-CORE-031**: Identify shot type (break, safety, bank, etc.)
-- **FR-CORE-032**: Calculate shot difficulty score
-- **FR-CORE-033**: Detect illegal shots (scratches, wrong ball) - basic implementation
-- **FR-CORE-034**: Suggest alternative shot angles
-- **FR-CORE-035**: Rank shots by success probability
+- **FR-CORE-031**: Identify shot type (break, safety, bank, etc.) - basic implementation
 
 #### 3.2 Game Rules (Training Mode - Optional)
 - **FR-CORE-036**: Track game type (8-ball, 9-ball, practice)
@@ -81,21 +67,11 @@ The Core module serves as the central business logic layer, managing game state,
 
 **Implementation Note**: This is a training system focused on shot visualization and trajectory prediction. Full game rule enforcement (turn order, fouls, scoring) is optional and not required for core training functionality. Basic game type tracking and illegal shot detection are implemented for context.
 
-### 4. Prediction Engine
+### 4. Trajectory Prediction
 
-#### 4.1 Short-term Predictions
+#### 4.1 Basic Trajectory Prediction
 - **FR-CORE-041**: Predict ball positions for next 5 seconds
-- **FR-CORE-042**: Calculate collision sequences
-- **FR-CORE-043**: Estimate final resting positions
-- **FR-CORE-044**: Predict shot success probability
-- **FR-CORE-045**: Identify potential problems/scratches
-
-#### 4.2 Assistance Features
-- **FR-CORE-046**: Suggest optimal aiming points
-- **FR-CORE-047**: Recommend shot power levels
-- **FR-CORE-048**: Identify best target balls
-- **FR-CORE-049**: Show safe zones for cue ball
-- **FR-CORE-050**: Provide difficulty-adjusted assistance
+- **FR-CORE-042**: Calculate collision sequences (max 2 levels)
 
 ### 5. Module Coordination
 
@@ -126,7 +102,6 @@ The Core module serves as the central business logic layer, managing game state,
 - **NFR-CORE-006**: Trajectory prediction within 5% of actual path
 - **NFR-CORE-007**: Collision detection accurate to 1mm
 - **NFR-CORE-008**: Angle calculations within 0.5 degrees
-- **NFR-CORE-009**: Force estimation within 10% accuracy
 - **NFR-CORE-010**: Physics simulation realistic to casual observation
 
 ### Reliability Requirements
@@ -188,7 +163,6 @@ class BallState:
     velocity: Vector2D
     radius: float
     mass: float = 0.17  # kg, standard pool ball
-    spin: Vector2D = None  # Top/back/side spin
     is_cue_ball: bool = False
     is_pocketed: bool = False
     number: Optional[int] = None  # Optional: ball number (1-15) or type
@@ -210,9 +184,6 @@ class CueState:
     """Cue stick state information"""
     tip_position: Vector2D
     angle: float  # degrees
-    elevation: float = 0.0  # degrees above horizontal
-    estimated_force: float = 0.0  # Newtons
-    impact_point: Optional[Vector2D] = None  # On cue ball
 
 @dataclass
 class Collision:
@@ -238,14 +209,8 @@ class Trajectory:
 
 @dataclass
 class ShotAnalysis:
-    """Shot analysis and recommendations"""
+    """Basic shot type identification"""
     shot_type: ShotType
-    difficulty: float  # 0.0 (easy) to 1.0 (hard)
-    success_probability: float
-    recommended_force: float  # Newtons
-    recommended_angle: float  # degrees
-    potential_problems: List[str]
-    alternative_shots: List['ShotAnalysis']
 
 @dataclass
 class GameState:
@@ -280,15 +245,11 @@ class CoreModule:
         pass
 
     def analyze_shot(self, target_ball: Optional[str] = None) -> ShotAnalysis:
-        """Analyze current shot setup"""
+        """Identify basic shot type"""
         pass
 
-    def predict_outcomes(self, time_horizon: float = 5.0) -> List[Trajectory]:
-        """Predict ball movements for time horizon"""
-        pass
-
-    def suggest_shots(self, difficulty_level: float = 0.5) -> List[ShotAnalysis]:
-        """Suggest possible shots based on difficulty"""
+    def predict_trajectory(self, time_horizon: float = 5.0) -> List[Trajectory]:
+        """Predict ball trajectories with max 2 collision levels"""
         pass
 
     def validate_state(self, state: GameState) -> Tuple[bool, List[str]]:
@@ -317,35 +278,18 @@ from typing import Optional, Dict
 class PhysicsConfig(BaseModel):
     """Physics simulation parameters"""
     gravity: float = 9.81  # m/s²
-    air_resistance: float = 0.01
     rolling_friction: float = 0.01
-    sliding_friction: float = 0.2
     cushion_coefficient: float = 0.85
-    spin_decay_rate: float = 0.95
     max_iterations: int = 1000
     time_step: float = 0.001  # seconds
+    medium_shot_speed: float = 2.0  # m/s - fixed speed for all shots
 
 class PredictionConfig(BaseModel):
     """Trajectory prediction parameters"""
     max_prediction_time: float = 10.0  # seconds
     prediction_resolution: int = 100  # points per trajectory
     collision_threshold: float = 0.001  # meters
-    enable_spin_effects: bool = True
-    enable_cushion_compression: bool = True
-    monte_carlo_samples: int = 10  # For uncertainty
-
-class AssistanceConfig(BaseModel):
-    """Assistance feature configuration"""
-    difficulty_levels: Dict[str, float] = {
-        "beginner": 0.2,
-        "intermediate": 0.5,
-        "advanced": 0.8,
-        "expert": 1.0
-    }
-    show_alternative_shots: bool = True
-    max_alternatives: int = 3
-    highlight_best_shot: bool = True
-    show_success_probability: bool = True
+    max_collision_depth: int = 2  # Maximum collision levels to calculate
 
 class ValidationConfig(BaseModel):
     """State validation parameters"""
@@ -367,7 +311,6 @@ class CoreConfig(BaseModel):
     """Core module configuration"""
     physics: PhysicsConfig
     prediction: PredictionConfig
-    assistance: AssistanceConfig
     validation: ValidationConfig
     publishing: StatePublishingConfig
     state_history_size: int = 1000
@@ -429,23 +372,8 @@ class PhysicsEngine:
 
         1. Calculate collision normal
         2. Decompose velocities (normal/tangent)
-        3. Apply conservation laws
-        4. Account for spin transfer
-        5. Return new velocities
-        """
-        pass
-
-    def apply_english(self,
-                     cue_ball: BallState,
-                     impact_point: Vector2D,
-                     force: float) -> Vector2D:
-        """
-        Calculate spin from cue impact:
-
-        1. Determine impact offset from center
-        2. Calculate induced spin vector
-        3. Apply spin-to-velocity transfer
-        4. Return spin vector
+        3. Apply conservation laws (momentum and energy)
+        4. Return new velocities
         """
         pass
 ```
@@ -516,12 +444,6 @@ class StateValidator:
    - Realistic ball behavior to human observation
    - Correct pocket predictions 90%+ of the time
 
-3. **Assistance Features**
-   - Provide shot suggestions within 1 second
-   - Suggest valid shots 100% of the time
-   - Difficulty ratings correlate with player feedback
-   - Alternative shots cover different strategies
-
 ### Performance Success Criteria
 
 1. **Processing Speed**
@@ -540,7 +462,6 @@ class StateValidator:
    - Immediate response to detection updates
    - Real-time trajectory updates during aiming
    - Smooth animation of predictions
-   - No perceptible lag in assistance features
 
 ### Reliability Success Criteria
 
@@ -597,14 +518,11 @@ core/
 │   ├── __init__.py
 │   ├── engine.py       # Main physics engine
 │   ├── collision.py    # Collision detection/response
-│   ├── trajectory.py   # Trajectory calculation
-│   ├── forces.py       # Force calculations
-│   └── spin.py         # Spin/English effects
+│   └── trajectory.py   # Trajectory calculation
 ├── analysis/
 │   ├── __init__.py
-│   ├── shot.py         # Shot analysis
-│   ├── prediction.py   # Outcome prediction
-│   └── assistance.py   # Assistance features
+│   ├── shot.py         # Basic shot type identification
+│   └── prediction.py   # Simple trajectory prediction
 ├── validation/
 │   ├── __init__.py
 │   ├── state.py        # State validation
@@ -631,10 +549,8 @@ core/
 
 ### Development Priorities
 1. Implement basic state management
-2. Add simple physics engine
-3. Implement collision detection
+2. Add simple physics engine (fixed medium speed, no spin)
+3. Implement collision detection (max 2 levels)
 4. Add trajectory calculation
 5. Implement state validation
-6. Add assistance features
-7. Optimize performance
-8. Add advanced physics
+6. Optimize performance
