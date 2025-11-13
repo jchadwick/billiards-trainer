@@ -12,10 +12,13 @@ Provides comprehensive data structures for vision processing including:
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from backend.common.models import Ball
 
 # =============================================================================
 # Detection Object Types
@@ -117,87 +120,8 @@ class CueState(Enum):
 # =============================================================================
 # Detection Objects
 # =============================================================================
-
-
-@dataclass
-class Ball:
-    """Detected ball information with tracking data.
-
-    Represents a single pool ball with position, type, movement, and tracking metadata.
-
-    All position coordinates are in 4K canonical space (3840×2160) by default,
-    with source_resolution metadata to track the original camera resolution.
-    """
-
-    position: tuple[float, float]  # (x, y) in pixel coordinates
-    radius: float  # pixels
-    ball_type: BallType
-    number: Optional[int] = None  # 1-15 for numbered balls, None for cue ball
-    confidence: float = 0.0  # 0.0-1.0 detection confidence
-    velocity: tuple[float, float] = (
-        0.0,
-        0.0,
-    )  # (vx, vy) in pixel coordinates, pixels/second
-    acceleration: tuple[float, float] = (
-        0.0,
-        0.0,
-    )  # (ax, ay) in pixel coordinates, pixels/second²
-    is_moving: bool = False
-
-    # Tracking information
-    track_id: Optional[int] = None  # Unique tracking ID
-    last_seen: float = field(default_factory=time.time)
-    age: int = 0  # Number of frames this ball has been tracked
-    hit_count: int = 0  # Number of times this ball was hit
-
-    # Physical properties
-    color_hsv: Optional[tuple[int, int, int]] = None  # Average HSV color
-    occlusion_state: float = 0.0  # 0.0 = fully visible, 1.0 = fully occluded
-
-    # Prediction and filtering
-    predicted_position: Optional[tuple[float, float]] = None  # in pixel coordinates
-    position_history: list[tuple[float, float]] = field(
-        default_factory=list
-    )  # in pixel coordinates
-
-    # Coordinate space metadata
-    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
-    source_resolution: Optional[tuple[int, int]] = (
-        None  # (width, height) of source frame
-    )
-
-    def __post_init__(self):
-        """Populate the number field from ball_type if not explicitly set."""
-        if self.number is None and hasattr(self.ball_type, "number"):
-            self.number = self.ball_type.number
-
-    def update_history(self, max_history: int = 10) -> None:
-        """Update position history, keeping only recent positions."""
-        self.position_history.append(self.position)
-        if len(self.position_history) > max_history:
-            self.position_history.pop(0)
-
-    def to_world_coordinates(
-        self, homography_matrix: Optional[NDArray[np.float64]] = None
-    ) -> Optional[tuple[float, float]]:
-        """Convert ball position to world coordinates.
-
-        Args:
-            homography_matrix: 3x3 homography matrix for perspective transformation.
-                             If None, returns None.
-
-        Returns:
-            Position in world coordinates (meters), or None if conversion unavailable.
-        """
-        if homography_matrix is None or self.coordinate_space == "world":
-            return None
-
-        # Apply homography transformation
-        point = np.array([[self.position[0], self.position[1]]], dtype=np.float32)
-        transformed = np.dot(homography_matrix, np.append(point[0], 1.0))
-        transformed = transformed / transformed[2]  # Normalize by w component
-
-        return (float(transformed[0]), float(transformed[1]))
+# NOTE: Ball class has been moved to backend.common.models
+# Import it from there: from backend.common.models import Ball
 
 
 @dataclass
@@ -497,7 +421,7 @@ class DetectionResult:
 
     frame_number: int
     timestamp: float
-    balls: list[Ball]
+    balls: list["Ball"]
     cue: Optional[CueStick]
     table: Optional[Table]
     statistics: FrameStatistics
@@ -517,20 +441,20 @@ class DetectionResult:
     shot_detected: bool = False
     balls_in_motion: int = 0
 
-    def get_balls_by_type(self, ball_type: BallType) -> list[Ball]:
+    def get_balls_by_type(self, ball_type: BallType) -> list["Ball"]:
         """Get all balls of specified type."""
         return [ball for ball in self.balls if ball.ball_type == ball_type]
 
-    def get_cue_ball(self) -> Optional[Ball]:
+    def get_cue_ball(self) -> Optional["Ball"]:
         """Get the cue ball if detected."""
         cue_balls = self.get_balls_by_type(BallType.CUE)
         return cue_balls[0] if cue_balls else None
 
-    def get_moving_balls(self) -> list[Ball]:
+    def get_moving_balls(self) -> list["Ball"]:
         """Get all balls currently in motion."""
         return [ball for ball in self.balls if ball.is_moving]
 
-    def get_stationary_balls(self) -> list[Ball]:
+    def get_stationary_balls(self) -> list["Ball"]:
         """Get all stationary balls."""
         return [ball for ball in self.balls if not ball.is_moving]
 

@@ -38,7 +38,8 @@ from core.coordinates import Vector2D
 from core.models import BallState, CueState
 from core.validation.physics import PhysicsValidator
 
-from backend.vision.models import Ball, CueStick
+from backend.common.models import Ball
+from backend.vision.models import CueStick
 
 logger = logging.getLogger(__name__)
 

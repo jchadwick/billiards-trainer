@@ -14,10 +14,10 @@ sys.path.insert(0, str(backend_path))
 import cv2
 import numpy as np
 
-from backend.vision.detection.hybrid_validator import HybridValidator, ValidationConfig
-
 # Direct imports to avoid module initialization issues
-from backend.vision.models import Ball, BallType
+from backend.common.models import Ball
+from backend.vision.detection.hybrid_validator import HybridValidator, ValidationConfig
+from backend.vision.models import BallType
 
 
 def create_test_ball_image(ball_type: BallType, radius: int = 20) -> np.ndarray:

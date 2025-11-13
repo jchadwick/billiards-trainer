@@ -15,7 +15,9 @@ from typing import Any, Optional
 import numpy as np
 from numpy.typing import NDArray
 
-from ..models import Ball, CueStick
+from backend.common.models import Ball
+
+from ..models import CueStick
 
 # Keep BallDetector import for reference/testing only
 # It is no longer used in production paths

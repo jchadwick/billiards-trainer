@@ -27,7 +27,9 @@ from core.constants_4k import BALL_RADIUS_4K
 from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
-from ..models import Ball, BallType
+from backend.common.models import Ball
+
+from ..models import BallType
 
 logger = logging.getLogger(__name__)
 

@@ -952,7 +952,8 @@ class YOLODetector:
             Prefer this method over detect_balls() when you need ball type/number information.
             The hybrid approach provides better accuracy than YOLO-only or OpenCV-only detection.
         """
-        from ..models import Ball
+        from backend.common.models import Ball
+
         from .detector_adapter import yolo_detections_to_balls
 
         # Get YOLO detections (masking already applied upstream in VisionModule)

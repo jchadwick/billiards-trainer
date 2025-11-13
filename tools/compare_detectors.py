@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 from vision.detection.balls import BallDetector
 from vision.detection.yolo_detector import YOLODetector
-from vision.models import Ball
+from common.models import Ball
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

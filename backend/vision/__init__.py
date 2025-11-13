@@ -20,7 +20,6 @@ from .calibration.camera import CameraCalibrator
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
 from .models import (
-    Ball,
     BallType,
     CalibrationData,
     CameraCalibration,
@@ -43,6 +42,10 @@ from .performance_profiler import PerformanceProfiler
 
 # Shared memory video consumer (for IPC with Video Module)
 from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
+
+# Ball is now in backend.common.models - import from there instead
+# Not imported here to avoid circular dependency
+
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -1322,7 +1325,7 @@ __all__ = [
     "VisionStatistics",
     "VisionModuleError",
     # Data models
-    "Ball",
+    # Note: Ball has been moved to backend.common.models
     "BallType",
     "CameraFrame",
     "CueStick",

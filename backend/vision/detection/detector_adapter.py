@@ -34,7 +34,9 @@ import numpy as np
 from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
-from ..models import Ball, BallType, CueState, CueStick
+from backend.common.models import Ball
+
+from ..models import BallType, CueState, CueStick
 
 logger = logging.getLogger(__name__)
 

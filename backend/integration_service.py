@@ -28,8 +28,9 @@ from core.validation.physics import PhysicsValidator
 from core.validation.table_state import TableStateValidator
 from integration_service_conversion_helpers import StateConversionHelpers
 
+from backend.common.models import Ball
 from backend.vision import VisionModule
-from backend.vision.models import Ball, CueStick, DetectionResult
+from backend.vision.models import CueStick, DetectionResult
 
 logger = logging.getLogger(__name__)
 
@@ -742,7 +743,7 @@ class IntegrationService:
                 table_state=table_state,
                 other_balls=other_ball_states,
                 quality=TrajectoryQuality.LOW,  # Use low quality for real-time performance
-                max_collision_depth=5,  # Calculate up to 5 collision levels deep
+                max_collision_depth=2,  # Simplified: max 2 collision levels
             )
 
             # Log trajectory calculation results
@@ -1158,7 +1159,6 @@ class IntegrationService:
                             "start": [start_point.position.x, start_point.position.y],
                             "end": [end_point.position.x, end_point.position.y],
                             "type": line_type,
-                            "confidence": trajectory.success_probability,
                             "ball_id": ball_id,
                         }
                     )

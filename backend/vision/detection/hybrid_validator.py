@@ -22,7 +22,9 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from ..models import Ball, BallType
+from backend.common.models import Ball
+
+from ..models import BallType
 
 logger = logging.getLogger(__name__)
 
