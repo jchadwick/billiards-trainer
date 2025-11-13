@@ -4,8 +4,6 @@ import math
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-
-# Define local Ball and BallType to avoid import issues
 from enum import Enum
 from typing import Any, Optional
 
@@ -13,51 +11,10 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
+from backend.common.models import Ball
+from backend.vision.models import BallType
+
 from .kalman import KalmanFilter
-
-
-class BallType(Enum):
-    """Ball type classification.
-
-    Simplified to three types due to unreliable stripe/solid classification.
-    """
-
-    CUE = "cue"
-    EIGHT = "eight"
-    OTHER = "other"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class Ball:
-    """Ball detection data."""
-
-    position: tuple[float, float]
-    radius: float
-    ball_type: BallType
-    number: Optional[int] = None
-    confidence: float = 0.0
-    velocity: tuple[float, float] = (0.0, 0.0)
-    is_moving: bool = False
-    track_id: Optional[int] = None  # Track ID for confirmed tracks
-
-    # Coordinate space metadata - critical for preventing double-scaling bugs
-    coordinate_space: str = "4k_canonical"  # "4k_canonical", "pixel", or "world"
-    source_resolution: Optional[tuple[int, int]] = (
-        None  # (width, height) of source frame
-    )
-
-    @property
-    def display_name(self) -> str:
-        """Get display name for the ball."""
-        if self.number is not None:
-            return str(self.number)
-        elif self.ball_type == BallType.CUE:
-            return "Cue Ball"
-        elif self.ball_type == BallType.EIGHT:
-            return "8"
-        else:
-            return self.ball_type.value.capitalize()
 
 
 class TrackState(Enum):

@@ -43,7 +43,6 @@ from .performance_profiler import PerformanceProfiler
 
 # Shared memory video consumer (for IPC with Video Module)
 from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
-from .tracking.tracker import ObjectTracker
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -383,6 +382,7 @@ class VisionModule:
             if self.config.enable_tracking:
                 # Import here to avoid circular dependencies
                 from ..config import config
+                from .tracking.tracker import ObjectTracker
 
                 tracking_config = config.get("vision.tracking", {})
                 self.tracker = ObjectTracker(tracking_config)
