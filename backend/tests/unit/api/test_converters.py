@@ -4,7 +4,7 @@ This test suite provides comprehensive coverage of all conversion functions in
 api.models.converters, including:
 
 1. Core to API conversions
-   - vector2d_to_dict, vector2d_to_coordinate2d, vector2d_to_list
+   - vector2d_to_dict, vector2d_to_coordinate2d
    - ball_state_to_ball_info, ball_state_to_websocket_data
    - cue_state_to_cue_info, cue_state_to_websocket_data
    - table_state_to_table_info, table_state_to_websocket_data
@@ -13,7 +13,7 @@ api.models.converters, including:
    - shot_analysis_to_response, game_event_to_api_event
 
 2. API to Core conversions
-   - coordinate2d_to_vector2d, list_to_vector2d
+   - coordinate2d_to_vector2d
    - ball_info_to_ball_state, websocket_ball_data_to_ball_state
    - cue_info_to_cue_state, websocket_cue_data_to_cue_state
    - table_info_to_table_state, websocket_table_data_to_table_state
@@ -29,11 +29,6 @@ api.models.converters, including:
    - convert_api/websocket_balls_to_core
    - convert_trajectories_to_api/websocket
 
-5. Utility functions
-   - create_conversion_summary
-   - estimate_conversion_time
-   - get_conversion_capabilities
-
 Test Coverage:
 - Scale metadata handling and validation
 - Round-trip conversions (Core -> API -> Core)
@@ -46,21 +41,16 @@ Total Tests: 60+
 """
 
 import math
-import sys
 from datetime import datetime
-from pathlib import Path
 
 import pytest
-
-# Add backend to path to allow direct imports
-backend_path = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(backend_path))
+from pydantic import ValidationError
 
 # Import API models
-from api.models.common import Coordinate2D, PositionWithScale, ValidationResult
+from backend.api.models.common import Coordinate2D, PositionWithScale, ValidationResult
 
 # Import converter functions
-from api.models.converters import (  # Core to API; API to Core; Batch conversions; Validation; Utilities
+from backend.api.models.converters import (  # Core to API; API to Core; Batch conversions; Validation
     api_game_event_to_game_event,
     ball_info_to_ball_state,
     ball_state_to_ball_info,
@@ -73,16 +63,12 @@ from api.models.converters import (  # Core to API; API to Core; Batch conversio
     convert_trajectories_to_websocket,
     convert_websocket_balls_to_core,
     coordinate2d_to_vector2d,
-    create_conversion_summary,
     cue_info_to_cue_state,
     cue_state_to_cue_info,
     cue_state_to_websocket_data,
-    estimate_conversion_time,
     game_event_to_api_event,
     game_state_to_response,
     game_state_to_websocket_data,
-    get_conversion_capabilities,
-    list_to_vector2d,
     safe_convert_game_state,
     shot_analysis_to_response,
     table_info_to_table_state,
@@ -94,22 +80,21 @@ from api.models.converters import (  # Core to API; API to Core; Batch conversio
     validate_coordinate_conversion,
     vector2d_to_coordinate2d,
     vector2d_to_dict,
-    vector2d_to_list,
     websocket_ball_data_to_ball_state,
     websocket_cue_data_to_cue_state,
     websocket_table_data_to_table_state,
 )
-from api.models.responses import BallInfo, CueInfo
-from api.models.responses import GameEvent as APIGameEvent
-from api.models.responses import (
+from backend.api.models.responses import BallInfo, CueInfo
+from backend.api.models.responses import GameEvent as APIGameEvent
+from backend.api.models.responses import (
     GameStateResponse,
     ShotAnalysisResponse,
     TableInfo,
     TrajectoryInfo,
 )
-from api.models.websocket import BallStateData
-from api.models.websocket import CollisionInfo as WSCollisionInfo
-from api.models.websocket import (
+from backend.api.models.websocket import BallStateData
+from backend.api.models.websocket import CollisionInfo as WSCollisionInfo
+from backend.api.models.websocket import (
     CueStateData,
     GameStateData,
     TableStateData,
@@ -117,8 +102,8 @@ from api.models.websocket import (
 )
 
 # Import core models
-from core.coordinates import Vector2D
-from core.models import (
+from backend.core.coordinates import Vector2D
+from backend.core.models import (
     BallState,
     Collision,
     CueState,
@@ -136,19 +121,19 @@ from core.models import (
 # =============================================================================
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_vector_4k():
     """Create a sample Vector2D in 4K canonical coordinates."""
     return Vector2D.from_4k(1920.0, 1080.0)
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_vector_1080p():
     """Create a sample Vector2D in 1080p coordinates."""
     return Vector2D.from_resolution(960.0, 540.0, (1920, 1080))
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_ball_state():
     """Create a sample BallState with proper scale metadata."""
     return BallState(
@@ -165,7 +150,7 @@ def sample_ball_state():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_cue_ball():
     """Create a sample cue ball."""
     return BallState(
@@ -181,7 +166,7 @@ def sample_cue_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_cue_state():
     """Create a sample CueState with proper scale metadata."""
     return CueState(
@@ -194,7 +179,7 @@ def sample_cue_state():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_table_state():
     """Create a sample TableState with pocket positions."""
     width = 3200.0
@@ -214,10 +199,12 @@ def sample_table_state():
         pocket_radius=72.0,
         cushion_elasticity=0.85,
         surface_friction=0.2,
+        real_width_meters=2.54,
+        real_height_meters=1.27,
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_game_state(
     sample_ball_state, sample_cue_ball, sample_cue_state, sample_table_state
 ):
@@ -235,7 +222,7 @@ def sample_game_state(
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def sample_trajectory(sample_ball_state):
     """Create a sample Trajectory."""
     points = [
@@ -342,47 +329,30 @@ class TestVector2DConversions:
             vector2d_to_dict(vector)
 
     def test_vector2d_to_coordinate2d(self, sample_vector_4k):
-        """Test converting Vector2D to Coordinate2D."""
+        """Converting to Coordinate2D retains explicit scale metadata."""
         result = vector2d_to_coordinate2d(sample_vector_4k)
 
         assert isinstance(result, Coordinate2D)
         assert result.x == 1920.0
         assert result.y == 1080.0
-
-    def test_vector2d_to_list_deprecated(self, sample_vector_4k):
-        """Test deprecated vector2d_to_list function."""
-        result = vector2d_to_list(sample_vector_4k)
-
-        assert result == [1920.0, 1080.0]
-        assert isinstance(result, list)
+        assert result.scale == [1.0, 1.0]
 
     def test_coordinate2d_to_vector2d(self):
-        """Test converting Coordinate2D to Vector2D."""
-        coord = Coordinate2D(x=500.0, y=300.0)
-        # Note: coordinate2d_to_vector2d doesn't provide scale, so it will fail
-        # This test documents the current broken behavior
-        with pytest.raises(
-            TypeError, match="missing 1 required positional argument: 'scale'"
-        ):
-            coordinate2d_to_vector2d(coord)
+        """API coordinates retain their declared source scale."""
+        coord = Coordinate2D(x=500.0, y=300.0, scale=[2.0, 3.0])
 
-    def test_list_to_vector2d_valid(self):
-        """Test converting list to Vector2D."""
-        coords = [123.45, 678.90]
-        # Note: list_to_vector2d doesn't provide scale, so it will fail
-        # This test documents the current broken behavior
-        with pytest.raises(
-            TypeError, match="missing 1 required positional argument: 'scale'"
-        ):
-            list_to_vector2d(coords)
+        result = coordinate2d_to_vector2d(coord)
 
-    def test_list_to_vector2d_invalid_length(self):
-        """Test that list with wrong length raises ValueError."""
-        with pytest.raises(ValueError, match="must have exactly 2 elements"):
-            list_to_vector2d([1.0])
+        assert result.x == 500.0
+        assert result.y == 300.0
+        assert result.scale == (2.0, 3.0)
 
-        with pytest.raises(ValueError, match="must have exactly 2 elements"):
-            list_to_vector2d([1.0, 2.0, 3.0])
+    def test_coordinate2d_round_trip_preserves_noncanonical_scale(self):
+        vector = Vector2D(x=500.0, y=300.0, scale=(2.0, 3.0))
+
+        result = coordinate2d_to_vector2d(vector2d_to_coordinate2d(vector))
+
+        assert result == vector
 
 
 # =============================================================================
@@ -431,6 +401,8 @@ class TestBallStateConversions:
         assert result.id == "ball_1"
         assert result.number == 1
         assert result.radius == 36.0
+        assert result.radius_scale == [1.0, 1.0]
+        assert result.radius_unit == "canonical_pixels"
         assert result.is_cue_ball is False
         assert result.is_pocketed is False
         assert result.confidence == 0.95
@@ -439,6 +411,52 @@ class TestBallStateConversions:
         assert result.position.x == 1000.0
         assert result.position.y == 800.0
         assert result.position.scale == [1.0, 1.0]
+
+    def test_api_and_websocket_ball_fields_stay_equivalent(
+        self, sample_ball_state, sample_cue_ball
+    ):
+        """Transport models share core ball facts while retaining their own fields."""
+        sample_cue_ball.is_pocketed = True
+        for ball in (sample_ball_state, sample_cue_ball):
+            api_data = ball_state_to_ball_info(ball).model_dump(mode="json")
+            websocket_data = ball_state_to_websocket_data(ball).model_dump(mode="json")
+
+            for field in (
+                "id",
+                "number",
+                "position",
+                "velocity",
+                "is_cue_ball",
+                "is_pocketed",
+                "is_observed",
+                "confidence",
+            ):
+                assert api_data[field] == websocket_data[field]
+
+        assert set(BallInfo.model_fields) == {
+            "id",
+            "number",
+            "position",
+            "velocity",
+            "is_cue_ball",
+            "is_pocketed",
+            "is_observed",
+            "confidence",
+            "last_update",
+        }
+        assert set(BallStateData.model_fields) == {
+            "id",
+            "number",
+            "position",
+            "velocity",
+            "radius",
+            "radius_scale",
+            "radius_unit",
+            "is_cue_ball",
+            "is_pocketed",
+            "is_observed",
+            "confidence",
+        }
 
     def test_ball_info_to_ball_state_roundtrip(self, sample_ball_state):
         """Test round-trip conversion BallState -> BallInfo -> BallState."""
@@ -469,6 +487,18 @@ class TestBallStateConversions:
         assert result.velocity.x == sample_ball_state.velocity.x
         assert result.velocity.y == sample_ball_state.velocity.y
         assert result.is_cue_ball == sample_ball_state.is_cue_ball
+
+    def test_websocket_ball_pixel_metadata_matches_core_serialization(
+        self, sample_ball_state
+    ):
+        core_payload = sample_ball_state.to_dict()
+        api_payload = ball_state_to_websocket_data(sample_ball_state).model_dump(
+            mode="json"
+        )
+
+        assert api_payload["radius"] == core_payload["radius"]
+        assert api_payload["radius_scale"] == core_payload["radius_scale"]
+        assert api_payload["radius_unit"] == core_payload["radius_unit"]
 
 
 # =============================================================================
@@ -551,6 +581,15 @@ class TestTableStateConversions:
         assert result.width == 3200.0
         assert result.height == 1600.0
         assert result.pocket_radius == 72.0
+        assert result.dimensions_scale == [1.0, 1.0]
+        assert result.dimensions_unit == "canonical_pixels"
+        assert result.pocket_radius_scale == [1.0, 1.0]
+        assert result.pocket_radius_unit == "canonical_pixels"
+        assert result.real_world_dimensions.model_dump() == {
+            "width": 2.54,
+            "height": 1.27,
+            "unit": "meters",
+        }
         assert result.surface_friction == 0.2
         assert len(result.pocket_positions) == 6
 
@@ -567,7 +606,105 @@ class TestTableStateConversions:
         assert result.width == 3200.0
         assert result.height == 1600.0
         assert result.pocket_radius == 72.0
+        assert result.dimensions_scale == [1.0, 1.0]
+        assert result.dimensions_unit == "canonical_pixels"
+        assert result.pocket_radius_scale == [1.0, 1.0]
+        assert result.pocket_radius_unit == "canonical_pixels"
+        assert result.real_world_dimensions.model_dump() == {
+            "width": 2.54,
+            "height": 1.27,
+            "unit": "meters",
+        }
         assert len(result.pocket_positions) == 6
+
+    @pytest.mark.parametrize("source_scale", [1.0, 2.0])
+    def test_playing_area_corners_roundtrip_as_canonical_scaled_points(
+        self, sample_table_state, source_scale
+    ):
+        """Both API boundaries retain corners after Core canonicalizes pixels."""
+        canonical_points = [
+            (100.0, 80.0),
+            (3100.0, 80.0),
+            (3100.0, 1520.0),
+            (100.0, 1520.0),
+        ]
+        table = TableState(
+            width=sample_table_state.width,
+            height=sample_table_state.height,
+            pocket_positions=sample_table_state.pocket_positions,
+            pocket_radius=sample_table_state.pocket_radius,
+            real_width_meters=sample_table_state.real_width_meters,
+            real_height_meters=sample_table_state.real_height_meters,
+            playing_area_corners=[
+                Vector2D(
+                    x / source_scale,
+                    y / source_scale,
+                    scale=(source_scale, source_scale),
+                )
+                for x, y in canonical_points
+            ],
+        )
+
+        # TableState consumes source scale once; converter outputs are canonical.
+        assert table.playing_area_corners is not None
+        for point, (expected_x, expected_y) in zip(
+            table.playing_area_corners, canonical_points, strict=True
+        ):
+            assert (point.x, point.y, point.scale) == (
+                expected_x,
+                expected_y,
+                (1.0, 1.0),
+            )
+
+        api = table_state_to_table_info(table)
+        websocket = table_state_to_websocket_data(table)
+        expected_payload = [
+            {"x": x, "y": y, "scale": [1.0, 1.0]} for x, y in canonical_points
+        ]
+        assert [point.model_dump() for point in api.playing_area_corners] == (
+            expected_payload
+        )
+        assert [point.model_dump() for point in websocket.playing_area_corners] == (
+            expected_payload
+        )
+
+        for restored in (
+            table_info_to_table_state(api),
+            websocket_table_data_to_table_state(websocket),
+        ):
+            assert restored.playing_area_corners is not None
+            assert [
+                (point.x, point.y, point.scale)
+                for point in restored.playing_area_corners
+            ] == [(x, y, (1.0, 1.0)) for x, y in canonical_points]
+
+    def test_playing_area_absence_is_preserved(self, sample_table_state):
+        """Uncalibrated tables stay uncalibrated through both API formats."""
+        assert sample_table_state.playing_area_corners is None
+
+        api = table_state_to_table_info(sample_table_state)
+        websocket = table_state_to_websocket_data(sample_table_state)
+        assert api.playing_area_corners is None
+        assert websocket.playing_area_corners is None
+        assert api.model_dump()["playing_area_corners"] is None
+        assert websocket.model_dump()["playing_area_corners"] is None
+        assert table_info_to_table_state(api).playing_area_corners is None
+        assert (
+            websocket_table_data_to_table_state(websocket).playing_area_corners is None
+        )
+
+        invalid_corners = [{"x": 100.0, "y": 80.0, "scale": [1.0, 1.0]}] * 3
+        with pytest.raises(ValidationError, match="exactly four corners"):
+            TableInfo.model_validate(
+                {**api.model_dump(), "playing_area_corners": invalid_corners}
+            )
+        with pytest.raises(ValidationError, match="exactly four corners"):
+            TableStateData.model_validate(
+                {
+                    **websocket.model_dump(),
+                    "playing_area_corners": invalid_corners,
+                }
+            )
 
     def test_table_info_to_table_state_roundtrip(self, sample_table_state):
         """Test round-trip conversion TableState -> TableInfo -> TableState."""
@@ -577,6 +714,8 @@ class TestTableStateConversions:
         assert result.width == sample_table_state.width
         assert result.height == sample_table_state.height
         assert result.pocket_radius == sample_table_state.pocket_radius
+        assert result.real_width_meters == sample_table_state.real_width_meters
+        assert result.real_height_meters == sample_table_state.real_height_meters
         assert result.surface_friction == sample_table_state.surface_friction
         assert len(result.pocket_positions) == len(sample_table_state.pocket_positions)
 
@@ -595,7 +734,30 @@ class TestTableStateConversions:
         assert result.width == sample_table_state.width
         assert result.height == sample_table_state.height
         assert result.pocket_radius == sample_table_state.pocket_radius
+        assert result.real_width_meters == sample_table_state.real_width_meters
+        assert result.real_height_meters == sample_table_state.real_height_meters
         assert len(result.pocket_positions) == len(sample_table_state.pocket_positions)
+
+    def test_table_pixel_and_physical_metadata_match_core_serialization(
+        self, sample_table_state
+    ):
+        core_payload = sample_table_state.to_dict()
+        for api_payload in (
+            table_state_to_table_info(sample_table_state).model_dump(mode="json"),
+            table_state_to_websocket_data(sample_table_state).model_dump(mode="json"),
+        ):
+            for field in (
+                "width",
+                "height",
+                "dimensions_scale",
+                "dimensions_unit",
+                "pocket_radius",
+                "pocket_radius_scale",
+                "pocket_radius_unit",
+                "real_world_dimensions",
+                "playing_area_corners",
+            ):
+                assert api_payload[field] == core_payload[field]
 
 
 # =============================================================================
@@ -837,43 +999,139 @@ class TestValidationFunctions:
     """Test validation and error handling functions."""
 
     def test_validate_coordinate_conversion_valid(self):
-        """Test validation with valid coordinates."""
-        coords = [100.0, 200.0]
-        # Should not raise
+        """Scale-aware coordinates validate without restricting canonical bounds."""
+        coords = {"x": 100.0, "y": 200.0, "scale": [2.0, 3.0]}
         validate_coordinate_conversion(coords)
 
-    def test_validate_coordinate_conversion_wrong_length(self):
-        """Test validation with wrong coordinate length."""
-        with pytest.raises(ValueError, match="must have exactly 2 values"):
-            validate_coordinate_conversion([100.0])
-
-        with pytest.raises(ValueError, match="must have exactly 2 values"):
-            validate_coordinate_conversion([100.0, 200.0, 300.0])
+    @pytest.mark.parametrize("coords", [[100.0], [100.0, 200.0], [100.0, 200.0, 300.0]])
+    def test_validate_coordinate_conversion_rejects_unscaled_lists(self, coords):
+        """A coordinate pair without scale cannot identify its source pixel space."""
+        with pytest.raises(ValueError, match="must include x, y, and scale"):
+            validate_coordinate_conversion(coords)
 
     def test_validate_coordinate_conversion_non_numeric(self):
-        """Test validation with non-numeric values."""
-        with pytest.raises(ValueError, match="must contain numeric values"):
-            validate_coordinate_conversion([100.0, "invalid"])
+        """Scale metadata does not allow non-numeric coordinate components."""
+        with pytest.raises(ValueError, match="finite numeric x and y values"):
+            validate_coordinate_conversion(
+                {"x": 100.0, "y": "invalid", "scale": [1.0, 1.0]}
+            )
 
-    def test_validate_coordinate_conversion_out_of_bounds(self):
-        """Test validation with out-of-bounds values."""
-        with pytest.raises(ValueError, match="out of reasonable bounds"):
-            validate_coordinate_conversion([2000.0, 200.0])
+    @pytest.mark.parametrize(
+        "coords",
+        [
+            {"x": 2000.0, "y": 200.0, "scale": [1.0, 1.0]},
+            {"x": 100.0, "y": -2000.0, "scale": [1.0, 1.0]},
+            {"x": 3840.0, "y": 2160.0, "scale": [1.0, 1.0]},
+        ],
+    )
+    def test_validate_coordinate_conversion_canonical_coordinates(self, coords):
+        """Finite scaled coordinates remain unrestricted by arbitrary world bounds."""
+        assert validate_coordinate_conversion(coords) is None
 
-        with pytest.raises(ValueError, match="out of reasonable bounds"):
-            validate_coordinate_conversion([100.0, -2000.0])
+    @pytest.mark.parametrize(
+        "coords",
+        [
+            {"x": 3840.0, "y": 2160.0, "scale": [1.0, 1.0]},
+            {"x": 960.0, "y": 540.0, "scale": (2.0, 2.0)},
+            PositionWithScale(x=960.0, y=540.0, scale=[2.0, 2.0]),
+        ],
+    )
+    def test_validate_coordinate_conversion_transport_coordinates(self, coords):
+        """Both serialized transport points and parsed models retain metadata."""
+        assert validate_coordinate_conversion(coords) is None
+
+    @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+    @pytest.mark.parametrize("axis", [0, 1])
+    def test_validate_coordinate_conversion_non_finite_component(self, value, axis):
+        """Neither component may contain a non-finite number."""
+        coords = {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]}
+        coords["xy"[axis]] = value
+        with pytest.raises(ValueError, match="finite numeric x and y values"):
+            validate_coordinate_conversion(coords)
+
+    @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+    @pytest.mark.parametrize("axis", ["x", "y"])
+    def test_validate_coordinate_conversion_non_finite_transport(self, value, axis):
+        """Scale metadata cannot make a non-finite transport component valid."""
+        coords = {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]}
+        coords[axis] = value
+        with pytest.raises(ValueError, match="finite numeric x and y values"):
+            validate_coordinate_conversion(coords)
+
+    @pytest.mark.parametrize(
+        "scale",
+        [
+            [math.nan, 1.0],
+            [1.0, math.inf],
+            [-math.inf, 1.0],
+            [0.0, 1.0],
+            [1.0, -1.0],
+            [True, 1.0],
+            [1.0, "2.0"],
+        ],
+    )
+    def test_validate_coordinate_conversion_invalid_scale_values(self, scale):
+        """Scale values must be finite positive numbers, excluding booleans."""
+        coords = {"x": 100.0, "y": 200.0, "scale": scale}
+        with pytest.raises(
+            ValueError, match="scale values must be finite and positive"
+        ):
+            validate_coordinate_conversion(coords)
+
+    @pytest.mark.parametrize("scale", [None, 1.0, [], [1.0], [1.0, 1.0, 1.0]])
+    def test_validate_coordinate_conversion_invalid_scale_shape(self, scale):
+        """Malformed scale metadata reports a structural validation error."""
+        coords = {"x": 100.0, "y": 200.0, "scale": scale}
+        with pytest.raises(ValueError, match="scale must have exactly 2 values"):
+            validate_coordinate_conversion(coords)
+
+    @pytest.mark.parametrize(
+        "coords",
+        [
+            {"x": 100.0, "y": 200.0},
+            {"x": 100.0, "scale": [1.0, 1.0]},
+            {"y": 200.0, "scale": [1.0, 1.0]},
+        ],
+    )
+    def test_validate_coordinate_conversion_missing_transport_metadata(self, coords):
+        """Transport objects always require both coordinates and declared scale."""
+        with pytest.raises(ValueError, match="position must include x, y, and scale"):
+            validate_coordinate_conversion(coords, field_name="position")
+
+    @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+    @pytest.mark.parametrize("field", ["x", "y", "scale_x", "scale_y"])
+    def test_position_with_scale_rejects_non_finite_numbers(self, value, field):
+        """Direct model construction enforces the same numeric boundary."""
+        values = {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]}
+        if field.startswith("scale_"):
+            values["scale"][0 if field == "scale_x" else 1] = value
+            expected_location = ("scale",)
+            expected_type = "value_error"
+        else:
+            values[field] = value
+            expected_location = (field,)
+            expected_type = "finite_number"
+
+        with pytest.raises(ValidationError) as error:
+            PositionWithScale.model_validate(values)
+
+        failures = error.value.errors()
+        assert len(failures) == 1
+        assert failures[0]["loc"] == expected_location
+        assert failures[0]["type"] == expected_type
+        assert "finite" in failures[0]["msg"]
 
     def test_validate_coordinate_conversion_custom_field_name(self):
-        """Test validation with custom field name in error message."""
-        with pytest.raises(ValueError, match="velocity must have exactly 2 values"):
+        """Error messages identify fields that lack their coordinate scale."""
+        with pytest.raises(ValueError, match="velocity must include x, y, and scale"):
             validate_coordinate_conversion([100.0], field_name="velocity")
 
     def test_validate_ball_state_conversion_valid(self):
         """Test ball state validation with valid data."""
         ball_data = {
             "id": "ball_1",
-            "position": [100.0, 200.0],
-            "velocity": [50.0, 25.0],
+            "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
+            "velocity": {"x": 50.0, "y": 25.0, "scale": [1.0, 1.0]},
             "confidence": 0.95,
             "radius": 36.0,
         }
@@ -882,43 +1140,68 @@ class TestValidationFunctions:
         assert result.is_valid is True
         assert len(result.errors) == 0
 
+    def test_validate_ball_state_conversion_rejects_unscaled_coordinates(self):
+        """Ball payloads cannot omit scale metadata on positions or velocities."""
+        result = validate_ball_state_conversion(
+            {
+                "id": "ball_1",
+                "position": [100.0, 200.0],
+                "velocity": [50.0, 25.0],
+            }
+        )
+
+        assert result.is_valid is False
+        assert set(result.field_errors) == {"position", "velocity"}
+        assert all(
+            "must include x, y, and scale" in errors[0]
+            for errors in result.field_errors.values()
+        )
+
     def test_validate_ball_state_conversion_missing_field(self):
         """Test ball state validation with missing required field."""
         ball_data = {
             "id": "ball_1",
-            "position": [100.0, 200.0],
+            "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
             # Missing velocity
         }
-        # Note: The current implementation has a bug - it calls add_error() which doesn't exist
-        # This test verifies the current behavior (raises AttributeError)
-        with pytest.raises(AttributeError, match="add_error"):
-            validate_ball_state_conversion(ball_data)
+        result = validate_ball_state_conversion(ball_data)
+
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == ["Missing required field: velocity"]
+        assert result.field_errors == {"velocity": ["Missing required field: velocity"]}
 
     def test_validate_ball_state_conversion_invalid_confidence(self):
         """Test ball state validation with invalid confidence."""
         ball_data = {
             "id": "ball_1",
-            "position": [100.0, 200.0],
-            "velocity": [50.0, 25.0],
+            "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
+            "velocity": {"x": 50.0, "y": 25.0, "scale": [1.0, 1.0]},
             "confidence": 1.5,  # Out of range
         }
-        # Note: The current implementation has a bug - it calls add_error() which doesn't exist
-        # This test verifies the current behavior (raises AttributeError)
-        with pytest.raises(AttributeError, match="add_error"):
-            validate_ball_state_conversion(ball_data)
+        result = validate_ball_state_conversion(ball_data)
+
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == ["Confidence must be a number between 0 and 1"]
+        assert result.field_errors == {
+            "confidence": ["Confidence must be a number between 0 and 1"]
+        }
 
     def test_validate_ball_state_conversion_invalid_radius(self):
         """Test ball state validation with invalid radius."""
         ball_data = {
             "id": "ball_1",
-            "position": [100.0, 200.0],
-            "velocity": [50.0, 25.0],
+            "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
+            "velocity": {"x": 50.0, "y": 25.0, "scale": [1.0, 1.0]},
             "radius": -10.0,  # Negative
         }
-        # Note: The current implementation has a bug - it calls add_error() which doesn't exist
-        # This test verifies the current behavior (raises AttributeError)
-        with pytest.raises(AttributeError, match="add_error"):
-            validate_ball_state_conversion(ball_data)
+        result = validate_ball_state_conversion(ball_data)
+
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == ["Radius must be a positive number"]
+        assert result.field_errors == {"radius": ["Radius must be a positive number"]}
 
     def test_safe_convert_game_state_valid(self, sample_game_state):
         """Test safe game state conversion with valid data."""
@@ -941,6 +1224,8 @@ class TestValidationFunctions:
                         "scale": list(ball.velocity.scale),
                     },
                     "radius": ball.radius,
+                    "radius_scale": list(ball.radius_scale),
+                    "radius_unit": "canonical_pixels",
                     "is_cue_ball": ball.is_cue_ball,
                     "is_pocketed": ball.is_pocketed,
                     "confidence": ball.confidence,
@@ -950,11 +1235,22 @@ class TestValidationFunctions:
             "table": {
                 "width": sample_game_state.table.width,
                 "height": sample_game_state.table.height,
+                "dimensions_scale": list(sample_game_state.table.dimensions_scale),
+                "dimensions_unit": "canonical_pixels",
                 "pocket_positions": [
                     {"x": pos.x, "y": pos.y, "scale": list(pos.scale)}
                     for pos in sample_game_state.table.pocket_positions
                 ],
                 "pocket_radius": sample_game_state.table.pocket_radius,
+                "pocket_radius_scale": list(
+                    sample_game_state.table.pocket_radius_scale
+                ),
+                "pocket_radius_unit": "canonical_pixels",
+                "real_world_dimensions": {
+                    "width": sample_game_state.table.real_width_meters,
+                    "height": sample_game_state.table.real_height_meters,
+                    "unit": "meters",
+                },
             },
             "cue": {
                 "tip_position": {
@@ -973,10 +1269,28 @@ class TestValidationFunctions:
             "confidence": sample_game_state.state_confidence,
         }
 
-        # Note: The current implementation has a bug - it calls add_error() which doesn't exist
-        # This test verifies the current behavior (raises AttributeError due to validation)
-        with pytest.raises(AttributeError, match="add_error"):
-            safe_convert_game_state(state_data, validate=True)
+        result = safe_convert_game_state(state_data, validate=True)
+
+        assert isinstance(result, GameState), result
+        assert result.timestamp == sample_game_state.timestamp
+        assert result.frame_number == sample_game_state.frame_number
+        assert result.game_type == sample_game_state.game_type
+        assert result.state_confidence == sample_game_state.state_confidence
+        assert result.is_valid is True
+        assert [ball.id for ball in result.balls] == ["cue", "ball_1"]
+        for actual, expected in zip(result.balls, sample_game_state.balls):
+            assert actual.position == expected.position
+            assert actual.velocity == expected.velocity
+            assert actual.number == expected.number
+            assert actual.radius == expected.radius
+            assert actual.confidence == expected.confidence
+            assert actual.is_cue_ball == expected.is_cue_ball
+            assert actual.is_pocketed == expected.is_pocketed
+        assert result.table.width == sample_game_state.table.width
+        assert result.table.height == sample_game_state.table.height
+        assert result.table.pocket_positions == sample_game_state.table.pocket_positions
+        assert result.cue.tip_position == sample_game_state.cue.tip_position
+        assert result.cue.angle == sample_game_state.cue.angle
 
     def test_safe_convert_game_state_missing_field(self):
         """Test safe game state conversion with missing required field."""
@@ -986,10 +1300,60 @@ class TestValidationFunctions:
             # Missing balls and table
         }
 
-        # Note: The current implementation has a bug - it calls add_error() which doesn't exist
-        # This test verifies the current behavior (raises AttributeError)
-        with pytest.raises(AttributeError, match="add_error"):
-            safe_convert_game_state(state_data, validate=True)
+        result = safe_convert_game_state(state_data, validate=True)
+
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == [
+            "Missing required field: balls",
+            "Missing required field: table",
+        ]
+
+    @pytest.mark.parametrize(
+        ("balls", "expected_message", "expected_field"),
+        [
+            (None, "Balls must be a list", "balls"),
+            ([None], "Ball 0 must be an object", "balls[0]"),
+        ],
+    )
+    def test_safe_convert_game_state_malformed_balls(
+        self, sample_table_state, balls, expected_message, expected_field
+    ):
+        """Malformed ball collections return structured errors without raising."""
+        state_data = {
+            "timestamp": 123456.0,
+            "frame_number": 100,
+            "balls": balls,
+            "table": table_state_to_websocket_data(sample_table_state).model_dump(),
+        }
+
+        result = safe_convert_game_state(state_data, validate=True)
+
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == [expected_message]
+        assert result.field_errors == {expected_field: [expected_message]}
+
+    def test_safe_convert_game_state_rejects_non_finite_table_pocket(
+        self, sample_table_state
+    ):
+        """A non-finite calibrated pocket cannot enter the physical table state."""
+        table_data = table_state_to_websocket_data(sample_table_state).model_dump()
+        table_data["pocket_positions"][0]["x"] = math.nan
+        state_data = {
+            "timestamp": 123456.0,
+            "frame_number": 100,
+            "balls": [],
+            "table": table_data,
+        }
+
+        result = safe_convert_game_state(state_data, validate=True)
+
+        message = "table.pocket_positions[0] must contain finite numeric x and y values"
+        assert isinstance(result, ValidationResult)
+        assert result.is_valid is False
+        assert result.errors == [message]
+        assert result.field_errors == {"table.pocket_positions[0]": [message]}
 
     def test_safe_convert_game_state_no_validation(self, sample_game_state):
         """Test safe game state conversion without validation."""
@@ -1011,6 +1375,8 @@ class TestValidationFunctions:
                         "scale": list(ball.velocity.scale),
                     },
                     "radius": ball.radius,
+                    "radius_scale": list(ball.radius_scale),
+                    "radius_unit": "canonical_pixels",
                     "is_cue_ball": ball.is_cue_ball,
                     "is_pocketed": ball.is_pocketed,
                     "confidence": ball.confidence,
@@ -1020,95 +1386,34 @@ class TestValidationFunctions:
             "table": {
                 "width": sample_game_state.table.width,
                 "height": sample_game_state.table.height,
+                "dimensions_scale": list(sample_game_state.table.dimensions_scale),
+                "dimensions_unit": "canonical_pixels",
                 "pocket_positions": [
                     {"x": pos.x, "y": pos.y, "scale": list(pos.scale)}
                     for pos in sample_game_state.table.pocket_positions
                 ],
                 "pocket_radius": sample_game_state.table.pocket_radius,
+                "pocket_radius_scale": list(
+                    sample_game_state.table.pocket_radius_scale
+                ),
+                "pocket_radius_unit": "canonical_pixels",
+                "real_world_dimensions": {
+                    "width": sample_game_state.table.real_width_meters,
+                    "height": sample_game_state.table.real_height_meters,
+                    "unit": "meters",
+                },
             },
         }
 
         result = safe_convert_game_state(state_data, validate=False)
 
-        assert isinstance(result, GameState)
-
-
-# =============================================================================
-# Utility Function Tests
-# =============================================================================
-
-
-class TestUtilityFunctions:
-    """Test utility functions."""
-
-    def test_create_conversion_summary_all_success(self):
-        """Test conversion summary with all successful conversions."""
-        result = create_conversion_summary(
-            original_count=10, converted_count=10, errors=[]
-        )
-
-        assert result["original_count"] == 10
-        assert result["converted_count"] == 10
-        assert result["success_rate"] == 1.0
-        assert result["error_count"] == 0
-        assert len(result["errors"]) == 0
-        assert "timestamp" in result
-
-    def test_create_conversion_summary_partial_success(self):
-        """Test conversion summary with partial success."""
-        errors = ["Error 1", "Error 2"]
-        result = create_conversion_summary(
-            original_count=10, converted_count=8, errors=errors
-        )
-
-        assert result["original_count"] == 10
-        assert result["converted_count"] == 8
-        assert result["success_rate"] == 0.8
-        assert result["error_count"] == 2
-        assert result["errors"] == errors
-
-    def test_create_conversion_summary_zero_items(self):
-        """Test conversion summary with zero items."""
-        result = create_conversion_summary(
-            original_count=0, converted_count=0, errors=[]
-        )
-
-        assert result["success_rate"] == 0
-
-    def test_estimate_conversion_time_default(self):
-        """Test conversion time estimation with default base time."""
-        result = estimate_conversion_time(100)
-
-        assert result == 10.0  # 100 * 0.1
-
-    def test_estimate_conversion_time_custom_base(self):
-        """Test conversion time estimation with custom base time."""
-        result = estimate_conversion_time(50, base_time_ms=0.2)
-
-        assert result == 10.0  # 50 * 0.2
-
-    def test_estimate_conversion_time_zero_items(self):
-        """Test conversion time estimation with zero items."""
-        result = estimate_conversion_time(0)
-
-        assert result == 0.0
-
-    def test_get_conversion_capabilities(self):
-        """Test getting conversion capabilities information."""
-        result = get_conversion_capabilities()
-
-        assert "core_to_api" in result
-        assert "core_to_websocket" in result
-        assert "api_to_core" in result
-        assert "websocket_to_core" in result
-        assert "utility_functions" in result
-
-        # Check some expected conversions
-        assert any("BallState -> BallInfo" in cap for cap in result["core_to_api"])
-        assert any(
-            "GameState -> GameStateData" in cap for cap in result["core_to_websocket"]
-        )
-        assert any("BallInfo -> BallState" in cap for cap in result["api_to_core"])
+        assert isinstance(result, GameState), result
+        assert result.timestamp == sample_game_state.timestamp
+        assert result.frame_number == sample_game_state.frame_number
+        assert result.balls[0].position == sample_game_state.balls[0].position
+        assert result.balls[1].velocity == sample_game_state.balls[1].velocity
+        assert result.table.pocket_positions == sample_game_state.table.pocket_positions
+        assert result.cue is None
 
 
 # =============================================================================
@@ -1182,21 +1487,17 @@ class TestEdgeCases:
         assert recovered.position.scale == sample_ball_state.position.scale
         assert recovered.velocity.scale == sample_ball_state.velocity.scale
 
-    def test_validation_result_manual_error_handling(self):
-        """Test ValidationResult manual error handling."""
-        # ValidationResult is a Pydantic model, so we work with it directly
-        result = ValidationResult(is_valid=True, errors=[])
+    def test_validation_result_add_error(self):
+        """Errors update validity and preserve optional field-level messages."""
+        result = ValidationResult(is_valid=True)
 
-        # Manually add errors (since add_error() doesn't exist)
-        errors = list(result.errors)
-        errors.append("Error 1")
-        result = ValidationResult(is_valid=False, errors=errors)
+        result.add_error("Error 1", field="position")
+        result.add_error("Error 2")
 
         assert result.is_valid is False
-        assert len(result.errors) == 1
-        assert result.errors[0] == "Error 1"
-
-        # Add second error
-        errors.append("Error 2")
-        result = ValidationResult(is_valid=False, errors=errors)
-        assert len(result.errors) == 2
+        assert result.errors == ["Error 1", "Error 2"]
+        assert result.field_errors == {"position": ["Error 1"]}
+        assert result.warnings == []
+        independent = ValidationResult(is_valid=True)
+        assert independent.errors == []
+        assert independent.field_errors == {}

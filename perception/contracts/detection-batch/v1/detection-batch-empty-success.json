@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "engine_instance_id": "engine-rust-stage2-a",
+  "batch_sequence": 2,
+  "source": {
+    "session_id": "replay-session-01",
+    "frame_id": "frame-1043",
+    "timestamp": null,
+    "width_px": 3840,
+    "height_px": 2160
+  },
+  "image_space": "raw",
+  "model": {
+    "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "source_checkpoint_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "classes": [
+      { "class_id": 0, "class_name": "cue" },
+      { "class_id": 1, "class_name": "ball" }
+    ]
+  },
+  "settings": {
+    "input_width_px": 1280,
+    "input_height_px": 1280,
+    "confidence_threshold": 0.4,
+    "iou_threshold": 0.45,
+    "max_detections": 300
+  },
+  "inference_started_at": {
+    "ticks": "912368000000",
+    "unit": "nanoseconds",
+    "clock": "monotonic",
+    "domain_id": "engine-clock-a",
+    "stage": "inference_started"
+  },
+  "inference_completed_at": {
+    "ticks": "912389000000",
+    "unit": "nanoseconds",
+    "clock": "monotonic",
+    "domain_id": "engine-clock-a",
+    "stage": "inference_complete"
+  },
+  "published_at": {
+    "ticks": "912389100000",
+    "unit": "nanoseconds",
+    "clock": "monotonic",
+    "domain_id": "engine-clock-a",
+    "stage": "batch_publication"
+  },
+  "outcome": "success",
+  "reason": null,
+  "detections": []
+}

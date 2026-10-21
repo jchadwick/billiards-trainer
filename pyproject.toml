@@ -55,16 +55,22 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
-    "black>=23.0.0",
+    "pytest-timeout>=2.4.0",
+    "black==25.9.0",
     "isort>=5.12.0",
-    "mypy>=1.5.0",
-    "ruff>=0.0.285",
+    "mypy==1.18.2",
+    "ruff==0.17.1",
     "pre-commit>=3.3.0",
+    "types-psutil>=7.2.2.20260130",
+]
+rate-limiting = [
+    "redis>=5.0",
 ]
 test = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
+    "pytest-timeout>=2.4.0",
     "pytest-mock>=3.11.0",
 ]
 docs = [
@@ -131,6 +137,8 @@ sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 [tool.ruff]
 target-version = "py39"
 line-length = 88
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -193,14 +201,14 @@ ignore = [
     "UP035", # Deprecated typing imports (Dict, List, etc.) - grandfathered in existing code
 ]
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 12
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.11"
 check_untyped_defs = true
 disallow_any_generics = true
 disallow_incomplete_defs = true
@@ -245,10 +253,9 @@ addopts = [
     "--cov=backend",
     "--cov-branch",
     "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
+    "--cov-fail-under=80",
 ]
-testpaths = ["tests"]
+testpaths = ["backend/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
@@ -260,12 +267,19 @@ markers = [
     "api: marks tests as API tests",
     "projector: marks tests as projector tests",
     "hardware: marks tests that require hardware (camera/projector)",
+    "performance: marks tests as performance tests",
+    "system: marks tests as end-to-end system tests",
+    "network: marks tests that require network access",
+    "model_assets: replay requiring an explicitly configured installed detector model",
 ]
+asyncio_mode = "auto"
+timeout = 30
 filterwarnings = [
-    "error",
-    "ignore::UserWarning",
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning",
+    "ignore::UserWarning:pygame",
+    "ignore::UserWarning:moderngl",
 ]
 
 [tool.coverage.run]

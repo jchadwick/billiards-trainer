@@ -5,7 +5,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -35,11 +35,13 @@ class Track:
     ball_number: Optional[int]
     kalman_filter: KalmanFilter
     min_hits: int
-    max_age: int
     config: dict[str, Any]  # Configuration for thresholds and history sizes
     state: TrackState = TrackState.TENTATIVE
-    creation_time: float = field(default_factory=time.time)
-    last_update_time: float = field(default_factory=time.time)
+    creation_time: float = field(default_factory=time.monotonic)
+    last_update_time: float = field(default_factory=time.monotonic)
+    # Wall-clock timestamp of the most recent detector match. This is kept
+    # separate from last_update_time, which is monotonic and drives tracking.
+    last_observed_wall_time: float = field(default_factory=time.time)
     last_frame_number: int = 0
     confidence_history: deque[float] = field(default_factory=deque)
     position_history: deque[tuple[float, float]] = field(default_factory=deque)
@@ -89,20 +91,29 @@ class Track:
         """Get average radius over history."""
         if not self.radius_history:
             thresholds = self.config.get("thresholds", {})
-            return thresholds.get("default_ball_radius", 15.0)
+            return float(thresholds.get("default_ball_radius", 15.0))
         return float(sum(self.radius_history) / len(self.radius_history))
 
-    def update_with_detection(self, detection: Ball, frame_number: int) -> None:
+    def update_with_detection(
+        self,
+        detection: Ball,
+        frame_number: int,
+        timestamp: Optional[float] = None,
+    ) -> None:
         """Update track with new detection."""
+        if timestamp is None:
+            timestamp = time.monotonic()
         self.kalman_filter.update(detection.position)
-        self.last_update_time = time.time()
+        self.last_update_time = timestamp
+        self.last_observed_wall_time = detection.last_seen
         self.last_frame_number = frame_number
         self.detection_count += 1
         self.miss_count = 0
 
         # Update history
         self.confidence_history.append(detection.confidence)
-        self.position_history.append(detection.position)
+        if self.detection_count > 1:
+            self.position_history.append(detection.position)
         self.radius_history.append(detection.radius)
 
         # Preserve coordinate metadata from detection to prevent double-scaling
@@ -132,49 +143,49 @@ class Track:
 
     def predict(self, dt: float) -> tuple[float, float]:
         """Predict track position."""
+        # Keep position_history observation-only. Predicted samples are useful for
+        # association, but displaying them as a trajectory would imply continuity
+        # across intervals in which the camera provided no ball observation.
         predicted_pos = self.kalman_filter.predict(dt)
-        self.position_history.append(predicted_pos)
         return (float(predicted_pos[0]), float(predicted_pos[1]))
 
-    def mark_missed(self) -> None:
-        """Mark track as missed in current frame."""
+    def mark_missed(self, timestamp: Optional[float] = None) -> None:
+        """Mark a track unobserved, transitioning by elapsed time rather than calls."""
+        if timestamp is None:
+            timestamp = time.monotonic()
         self.miss_count += 1
 
-        thresholds = self.config.get("thresholds", {})
-        lost_state_ratio = thresholds.get("lost_state_ratio", 0.333)
+        max_age_seconds = self.config["max_age_seconds"]
+        lost_after_seconds = self.config["lost_after_seconds"]
+        tentative_max_age_seconds = self.config["tentative_max_age_seconds"]
+        elapsed = max(0.0, timestamp - self.last_update_time)
 
-        # Update track state based on miss count
-        if self.state == TrackState.CONFIRMED and self.miss_count > int(
-            self.max_age * lost_state_ratio
-        ):
+        if self.state == TrackState.CONFIRMED and elapsed >= float(lost_after_seconds):
             self.state = TrackState.LOST
         elif (
             self.state == TrackState.TENTATIVE
-            and self.miss_count > self.min_hits
-            or self.state == TrackState.LOST
-            and self.miss_count > self.max_age
-        ):
+            and elapsed >= float(tentative_max_age_seconds)
+        ) or (self.state == TrackState.LOST and elapsed >= float(max_age_seconds)):
             self.state = TrackState.DELETED
 
     def is_valid(self) -> bool:
         """Check if track is valid (not deleted)."""
         return self.state != TrackState.DELETED
 
-    def should_be_deleted(self) -> bool:
-        """Check if track should be deleted."""
-        thresholds = self.config.get("thresholds", {})
-        tentative_deletion_misses = thresholds.get("tentative_deletion_misses", 5)
-        lost_deletion_misses = thresholds.get("lost_deletion_misses", 50)
-
+    def should_be_deleted(self, timestamp: Optional[float] = None) -> bool:
+        """Check expiry against elapsed observation time."""
+        if timestamp is None:
+            timestamp = time.monotonic()
+        max_age_seconds = self.config["max_age_seconds"]
+        tentative_max_age_seconds = self.config["tentative_max_age_seconds"]
+        elapsed = max(0.0, timestamp - self.last_update_time)
         return (
             self.state == TrackState.DELETED
             or (
                 self.state == TrackState.TENTATIVE
-                and self.miss_count > tentative_deletion_misses
+                and elapsed >= float(tentative_max_age_seconds)
             )
-            or (
-                self.state == TrackState.LOST and self.miss_count > lost_deletion_misses
-            )
+            or (self.state == TrackState.LOST and elapsed >= float(max_age_seconds))
         )
 
     def get_current_ball(self) -> Ball:
@@ -192,9 +203,11 @@ class Track:
             ball_type=self.ball_type,
             number=self.ball_number,
             confidence=self.kalman_filter.confidence,
+            is_observed=self.miss_count == 0,
             velocity=velocity,
             is_moving=speed > movement_speed,
             track_id=self.track_id,
+            last_seen=self.last_observed_wall_time,
             coordinate_space=self.coordinate_space,
             source_resolution=self.source_resolution,
         )
@@ -213,7 +226,12 @@ class ObjectTracker:
     - Ghost ball filtering to prevent false detections during high motion events
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any],
+        *,
+        clock: Optional[Callable[[], float]] = None,
+    ) -> None:
         """Initialize tracker with configuration.
 
         These default values have been tuned through empirical testing with video_debugger
@@ -228,9 +246,12 @@ class ObjectTracker:
             config: Configuration dictionary with tracking parameters
 
         Key Parameters:
-            max_age (default: 30): How many frames to keep a track alive without updates.
-                At 30fps, this is 1 second - enough to handle brief occlusions but not
-                so long that we track balls that have been pocketed.
+            max_age_seconds (default: 1.0): Maximum lifetime after the last real
+                observation. Track expiry is based on elapsed time, not frame rate.
+            max_observation_gap_seconds: Gap beyond which a track is expired and a
+                detection must reacquire with a new track ID.
+            max_prediction_horizon_seconds: Upper bound for public extrapolation and
+                filter prediction between observations.
 
             min_hits (default: 10): Number of consecutive detections required before a
                 track is confirmed. This is CRITICAL for ghost ball filtering. Higher
@@ -262,11 +283,44 @@ class ObjectTracker:
                 that have met min_hits threshold. Essential for ghost ball filtering -
                 tentative tracks are never returned to prevent false positives.
         """
-        # Store config for use in Track objects
-        self.config = config
+        # All tracker timing uses a monotonic clock. Callers may inject a clock for
+        # deterministic tests; production integration should pass the observation's
+        # monotonic timestamp to update_tracking when one is available.
+        self.clock = clock or time.monotonic
+
+        self.max_age_seconds = self._positive_seconds(
+            config.get("max_age_seconds"), 1.0
+        )
+        self.max_observation_gap_seconds = self._positive_seconds(
+            config.get("max_observation_gap_seconds"), self.max_age_seconds
+        )
+        self.max_prediction_horizon_seconds = self._positive_seconds(
+            config.get("max_prediction_horizon_seconds"),
+            self.max_observation_gap_seconds,
+        )
+        lost_state_ratio = config.get("thresholds", {}).get("lost_state_ratio", 0.333)
+        self.lost_after_seconds = self._positive_seconds(
+            config.get("lost_after_seconds"),
+            self.max_age_seconds * float(lost_state_ratio),
+        )
+        self.tentative_max_age_seconds = self._positive_seconds(
+            config.get("tentative_max_age_seconds"), self.max_age_seconds
+        )
+
+        # Track instances share the resolved settings but the caller's dictionary
+        # is left untouched.
+        self.config = dict(config)
+        self.config.update(
+            {
+                "max_age_seconds": self.max_age_seconds,
+                "max_observation_gap_seconds": self.max_observation_gap_seconds,
+                "max_prediction_horizon_seconds": self.max_prediction_horizon_seconds,
+                "lost_after_seconds": self.lost_after_seconds,
+                "tentative_max_age_seconds": self.tentative_max_age_seconds,
+            }
+        )
 
         # Tracking parameters with tuned defaults from video_debugger testing
-        self.max_age = config.get("max_age", 30)
         self.min_hits = config.get(
             "min_hits", 3
         )  # Reduced from 10 to 3 for faster ball confirmation (100ms @ 30fps)
@@ -292,7 +346,9 @@ class ObjectTracker:
         self.tracks: list[Track] = []
         self.next_track_id = 1
         self.frame_number = 0
-        self.last_frame_time = time.time()
+        self.last_frame_time: Optional[float] = None
+        self._last_observed_frame_number: Optional[int] = None
+        self._last_observation_timestamp: Optional[float] = None
         self.collision_detected = False
 
         # Performance metrics
@@ -303,11 +359,22 @@ class ObjectTracker:
             "average_track_length": 0.0,
             "ghost_balls_filtered": 0,
             "collision_frames": 0,
+            "stale_observations_rejected": 0,
+            "tracks_expired_after_gap": 0,
         }
 
         # Track history for analysis
         self.track_history: dict[int, list[tuple[float, float]]] = defaultdict(list)
         self.ball_type_tracks: dict[BallType, list[int]] = defaultdict(list)
+
+    @staticmethod
+    def _positive_seconds(value: Any, fallback: float) -> float:
+        """Return a finite positive duration, falling back for invalid config."""
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            return float(fallback)
+        return seconds if math.isfinite(seconds) and seconds > 0.0 else float(fallback)
 
     def update_tracking(
         self,
@@ -326,15 +393,48 @@ class ObjectTracker:
             List of tracked balls with IDs and predictions
         """
         if timestamp is None:
-            timestamp = time.time()
+            timestamp = self.clock()
+        try:
+            timestamp = float(timestamp)
+        except (TypeError, ValueError):
+            self.track_statistics["stale_observations_rejected"] += 1
+            return self._get_tracked_balls()
 
-        # Calculate time delta
-        dt = timestamp - self.last_frame_time
+        # Duplicate/out-of-order work must not mutate filter state or count as a
+        # miss. Frame IDs complement timestamps so a restarted or replayed source
+        # cannot silently splice observations into an existing track.
+        if (
+            not math.isfinite(timestamp)
+            or (
+                self._last_observation_timestamp is not None
+                and timestamp <= self._last_observation_timestamp
+            )
+            or (
+                self._last_observed_frame_number is not None
+                and frame_number <= self._last_observed_frame_number
+            )
+        ):
+            self.track_statistics["stale_observations_rejected"] += 1
+            return self._get_tracked_balls()
+
+        # Never extrapolate or associate a track after its observation has gone
+        # stale. Expired tracks are archived with measured points only; detections
+        # in this frame receive new IDs and form a visible discontinuity.
+        self._expire_stale_tracks(timestamp)
+
+        # Calculate time delta from observations, not processing call counts.
+        dt = (
+            0.0
+            if self.last_frame_time is None
+            else max(0.0, timestamp - self.last_frame_time)
+        )
         self.last_frame_time = timestamp
         self.frame_number = frame_number
+        self._last_observation_timestamp = timestamp
+        self._last_observed_frame_number = frame_number
 
         # Step 1: Predict all existing tracks
-        self._predict_tracks(dt)
+        self._predict_tracks(min(dt, self.max_prediction_horizon_seconds))
 
         # Step 1.5: Detect collisions or high-motion events
         self.collision_detected = self._detect_collision_or_high_motion()
@@ -351,20 +451,20 @@ class ObjectTracker:
         # Step 3: Update matched tracks
         for track_idx, detection_idx in matched_tracks:
             self.tracks[track_idx].update_with_detection(
-                detections[detection_idx], frame_number
+                detections[detection_idx], frame_number, timestamp
             )
 
         # Step 4: Mark unmatched tracks as missed
         for track_idx in unmatched_tracks:
-            self.tracks[track_idx].mark_missed()
+            self.tracks[track_idx].mark_missed(timestamp)
 
         # Step 5: Create new tracks for unmatched detections
         # During collision, be more conservative about creating new tracks
         for detection_idx in unmatched_detections:
-            self._create_new_track(detections[detection_idx], frame_number)
+            self._create_new_track(detections[detection_idx], frame_number, timestamp)
 
         # Step 6: Delete old tracks
-        self._delete_old_tracks()
+        self._delete_old_tracks(timestamp)
 
         # Step 7: Update statistics
         self._update_statistics()
@@ -532,7 +632,9 @@ class ObjectTracker:
         size_ratio = detection.radius / track.average_radius
         return not (size_ratio < min_ratio or size_ratio > max_ratio)
 
-    def _create_new_track(self, detection: Ball, frame_number: int) -> None:
+    def _create_new_track(
+        self, detection: Ball, frame_number: int, timestamp: float
+    ) -> None:
         """Create new track from detection."""
         kalman_filter = KalmanFilter(
             initial_position=detection.position,
@@ -561,14 +663,15 @@ class ObjectTracker:
             ball_number=detection.number,
             kalman_filter=kalman_filter,
             min_hits=self.min_hits,
-            max_age=self.max_age,
             config=self.config,
+            creation_time=timestamp,
+            last_update_time=timestamp,
             last_frame_number=frame_number,
             coordinate_space=coordinate_space,
             source_resolution=source_resolution,
         )
 
-        track.update_with_detection(detection, frame_number)
+        track.update_with_detection(detection, frame_number, timestamp)
         self.tracks.append(track)
 
         # Update tracking data
@@ -577,17 +680,31 @@ class ObjectTracker:
 
         self.next_track_id += 1
 
-    def _delete_old_tracks(self) -> None:
+    def _expire_stale_tracks(self, timestamp: float) -> None:
+        """Archive tracks that cannot safely bridge the elapsed observation gap."""
+        retained_tracks: list[Track] = []
+        for track in self.tracks:
+            observation_gap = timestamp - track.last_update_time
+            if observation_gap > self.max_observation_gap_seconds:
+                track.state = TrackState.DELETED
+                self._archive_track(track)
+                self.track_statistics["tracks_expired_after_gap"] += 1
+            else:
+                retained_tracks.append(track)
+        self.tracks = retained_tracks
+
+    def _archive_track(self, track: Track) -> None:
+        """Store a track's observed history before removing it."""
+        self.track_statistics["total_tracks_deleted"] += 1
+        self.track_history[track.track_id] = list(track.position_history)
+
+    def _delete_old_tracks(self, timestamp: float) -> None:
         """Delete tracks that should be removed."""
         tracks_to_keep = []
 
         for track in self.tracks:
-            if track.should_be_deleted():
-                # Update statistics
-                self.track_statistics["total_tracks_deleted"] += 1
-
-                # Store final track history
-                self.track_history[track.track_id] = list(track.position_history)
+            if track.should_be_deleted(timestamp):
+                self._archive_track(track)
             else:
                 tracks_to_keep.append(track)
 
@@ -694,6 +811,13 @@ class ObjectTracker:
         Returns:
             Dictionary mapping track IDs to predicted positions
         """
+        if (
+            not math.isfinite(time_delta)
+            or time_delta < 0.0
+            or time_delta > self.max_prediction_horizon_seconds
+        ):
+            return {}
+
         predictions = {}
 
         for track in self.tracks:
@@ -787,9 +911,18 @@ class ObjectTracker:
         Returns:
             List of predicted positions
         """
+        if not math.isfinite(dt) or dt <= 0.0 or time_steps <= 0:
+            return []
+        bounded_steps = min(
+            int(time_steps),
+            int(self.max_prediction_horizon_seconds / dt),
+        )
+        if bounded_steps <= 0:
+            return []
+
         for track in self.tracks:
             if track.track_id == track_id and track.is_valid():
-                trajectory = track.kalman_filter.predict_trajectory(time_steps, dt)
+                trajectory = track.kalman_filter.predict_trajectory(bounded_steps, dt)
                 return list(trajectory)
 
         return []
@@ -835,6 +968,9 @@ class ObjectTracker:
         self.tracks.clear()
         self.next_track_id = 1
         self.frame_number = 0
+        self.last_frame_time = None
+        self._last_observed_frame_number = None
+        self._last_observation_timestamp = None
         self.track_history.clear()
         self.ball_type_tracks.clear()
         self.track_statistics = {
@@ -842,8 +978,8 @@ class ObjectTracker:
             "total_tracks_deleted": 0,
             "current_active_tracks": 0,
             "average_track_length": 0.0,
+            "ghost_balls_filtered": 0,
+            "collision_frames": 0,
+            "stale_observations_rejected": 0,
+            "tracks_expired_after_gap": 0,
         }
-
-
-# Backward compatibility alias
-BallTracker = ObjectTracker

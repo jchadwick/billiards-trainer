@@ -23,7 +23,7 @@ local WebSocket = require("modules.network.websocket")
 
 -- Create WebSocket client
 local ws = WebSocket.new({
-    url = "ws://localhost:8080/api",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     onopen = function()
         print("Connected!")
@@ -54,9 +54,14 @@ end
 
 -- Send message (will be JSON encoded automatically)
 ws:send({
-    type = "state_update",
+    type = "state",
     data = {
-        position = {x = 100, y = 200}
+        coordinate_space = "4k_canonical",
+        balls = {{
+            id = "cue",
+            position = {x = 100, y = 200, scale = {1, 1}},
+            velocity = {x = 0, y = 0, scale = {1, 1}}
+        }}
     }
 })
 
@@ -79,12 +84,12 @@ print("Uptime:", stats.uptime, "seconds")
 ```lua
 local ws = WebSocket.new({
     -- Option 1: Use URL format
-    url = "ws://localhost:8080/api",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     -- Option 2: Use host/port/path
     host = "localhost",
-    port = 8080,
-    path = "/api",
+    port = 8000,
+    path = "/api/v1/websocket/ws",
 
     -- Callbacks
     onopen = function() end,
@@ -170,10 +175,26 @@ Sends a message through the WebSocket. Message is automatically JSON encoded.
 **Example:**
 ```lua
 ws:send({
-    type = "trajectory_update",
+    type = "trajectory",
     data = {
-        ball_id = 1,
-        path = {{x=0, y=0}, {x=100, y=100}}
+        coordinate_space = "4k_canonical",
+        line_count = 2,
+        collision_count = 0,
+        lines = {
+            {
+                start = {x = 0, y = 0, scale = {1, 1}},
+                ["end"] = {x = 100, y = 100, scale = {1, 1}},
+                type = "primary",
+                ball_id = "cue"
+            },
+            {
+                start = {x = 100, y = 100, scale = {1, 1}},
+                ["end"] = {x = 200, y = 160, scale = {1, 1}},
+                type = "primary",
+                ball_id = "cue"
+            }
+        },
+        collisions = {}
     }
 })
 ```
@@ -211,7 +232,7 @@ Gets the current connection state.
 Gets the WebSocket URL.
 
 **Returns:**
-- `string`: The WebSocket URL (e.g., "ws://localhost:8080/api")
+- `string`: The WebSocket URL (e.g., "ws://localhost:8000/api/v1/websocket/ws")
 
 #### `getStats()`
 
@@ -264,7 +285,7 @@ All callbacks are wrapped in `pcall` to prevent crashes:
 
 ```lua
 local ws = WebSocket.new({
-    url = "ws://localhost:8080",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     onerror = function(err)
         -- Handle errors gracefully
@@ -322,7 +343,7 @@ end
 
 ### Manual Testing
 
-1. **Start a WebSocket server** on `ws://localhost:8080`
+1. **Connect to the backend** at `ws://localhost:8000/api/v1/websocket/ws`
 2. **Run the visualizer**: `love /path/to/visualizer`
 3. **Check console output** for connection messages
 4. **Monitor HUD** for connection status (F1 to toggle)
@@ -331,7 +352,7 @@ end
 
 ```javascript
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+const wss = new WebSocket.Server({ port: 8081 });
 
 wss.on('connection', (ws) => {
     console.log('Client connected');

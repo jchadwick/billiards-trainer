@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
 from ..coordinates import Vector2D
 from ..models import BallState, CueState, GameState, TableState
 
@@ -332,13 +331,6 @@ class StateValidator:
         if ball.radius <= 0:
             result.add_error(f"Ball {ball.id} has invalid radius: {ball.radius}")
 
-        # Check ball radius matches 4K standard (with tolerance)
-        # Keep the validation but don't add warning - accept different ball sizes
-        radius_tolerance = 5.0  # Increased tolerance for calibrated systems
-        if abs(ball.radius - BALL_RADIUS_4K) > radius_tolerance:
-            # Ball radius can vary based on camera positioning and calibration
-            pass
-
         if ball.mass <= 0:
             result.add_error(f"Ball {ball.id} has invalid mass: {ball.mass}")
 
@@ -347,18 +339,21 @@ class StateValidator:
                 f"Ball {ball.id} has invalid confidence: {ball.confidence}"
             )
 
-        # Validate velocity - check for None first
-        if ball.velocity is None:
+        # BallState guarantees a Vector2D statically, but mutable runtime input
+        # can still violate that invariant at runtime. Read the raw field so
+        # this boundary validator can diagnose malformed state safely.
+        velocity = ball.__dict__.get("velocity")
+        if not isinstance(velocity, Vector2D):
             result.add_error(f"Ball {ball.id} has None velocity")
             if self.enable_auto_correction:
                 # Auto-correct to zero velocity
                 result.add_correction(f"ball_{ball.id}_velocity", Vector2D.zero())
         else:
-            velocity_magnitude = ball.velocity.magnitude()
+            velocity_magnitude = velocity.magnitude()
             if velocity_magnitude > self.max_velocity:
                 if self.enable_auto_correction:
                     # Clamp velocity to maximum
-                    corrected_velocity = ball.velocity.normalize() * self.max_velocity
+                    corrected_velocity = velocity.normalize() * self.max_velocity
                     result.add_correction(
                         f"ball_{ball.id}_velocity", corrected_velocity
                     )

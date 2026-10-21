@@ -39,6 +39,7 @@ pip-delete-this-directory.txt
 
 # Unit test / coverage reports
 htmlcov/
+coverage-html/
 .tox/
 .nox/
 .coverage
@@ -46,6 +47,8 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
+junit*.xml
+test-report.html
 *.cover
 *.py.cover
 .hypothesis/
@@ -287,5 +290,6 @@ training_images/
 debug_output/
 
 config/backups/
+*.backup
 
 .thinking/

@@ -416,7 +416,7 @@ class DiagnosticsInfo(BaseModel):
 
 
 @validator("cpu_usage_percent", "memory_usage_percent", "disk_usage_percent")
-def validate_percentage(cls, v):
+def validate_percentage(cls: type[Any], v: Optional[float]) -> Optional[float]:
     """Validate percentage values."""
     if v is not None and not (0 <= v <= 100):
         raise ValueError("Percentage must be between 0 and 100")
@@ -424,7 +424,7 @@ def validate_percentage(cls, v):
 
 
 @validator("error_rate", "cache_hit_rate")
-def validate_rate(cls, v):
+def validate_rate(cls: type[Any], v: float) -> float:
     """Validate rate values (0-1)."""
     if not (0 <= v <= 1):
         raise ValueError("Rate must be between 0 and 1")
@@ -432,7 +432,7 @@ def validate_rate(cls, v):
 
 
 @validator("response_time")
-def validate_response_time(cls, v):
+def validate_response_time(cls: type[Any], v: Optional[float]) -> Optional[float]:
     """Validate response time values."""
     if v is not None and v < 0:
         raise ValueError("Response time cannot be negative")

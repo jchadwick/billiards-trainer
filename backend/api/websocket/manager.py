@@ -5,13 +5,25 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Optional, Union
+from typing import Any, Awaitable, Callable, Optional, Union
 
-from config import config_manager
+from backend.api.websocket.schemas import StreamType
+from backend.config import config
 
 from .handler import websocket_handler
 
 logger = logging.getLogger(__name__)
+
+EventHandler = Callable[[dict[str, Any]], Any]
+
+__all__ = [
+    "ClientSession",
+    "ConnectionState",
+    "StreamType",
+    "SubscriptionFilter",
+    "WebSocketManager",
+    "websocket_manager",
+]
 
 
 class ConnectionState(Enum):
@@ -23,17 +35,6 @@ class ConnectionState(Enum):
     DISCONNECTING = "disconnecting"
     DISCONNECTED = "disconnected"
     ERROR = "error"
-
-
-class StreamType(Enum):
-    """Available data stream types."""
-
-    FRAME = "frame"
-    STATE = "state"
-    TRAJECTORY = "trajectory"
-    ALERT = "alert"
-    CONFIG = "config"
-    PERFORMANCE = "performance"
 
 
 @dataclass
@@ -54,23 +55,19 @@ class ClientSession:
     """Extended client session information."""
 
     client_id: str
-    user_id: Optional[str]
     connection_state: ConnectionState
     reconnect_attempts: int = 0
     max_reconnect_attempts: int = field(
-        default_factory=lambda: config_manager.get(
+        default_factory=lambda: config.get(
             "api.websocket.manager.max_reconnect_attempts", 5
         )
     )
     reconnect_delay: float = field(
-        default_factory=lambda: config_manager.get(
-            "api.websocket.manager.reconnect_delay", 1.0
-        )
+        default_factory=lambda: config.get("api.websocket.manager.reconnect_delay", 1.0)
     )
     subscription_filters: dict[StreamType, SubscriptionFilter] = field(
         default_factory=dict
     )
-    permissions: set[str] = field(default_factory=set)
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -79,51 +76,40 @@ class ClientSession:
 class WebSocketManager:
     """Advanced WebSocket client manager with lifecycle management and smart subscriptions."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sessions: dict[str, ClientSession] = {}
-        self.user_sessions: dict[str, list[str]] = {}  # user_id -> [client_ids]
         self.stream_subscribers: dict[StreamType, set[str]] = {
             stream_type: set() for stream_type in StreamType
         }
-        self.event_handlers: dict[str, list[Callable]] = {}
-        self.auto_reconnect_enabled = config_manager.get(
+        self.event_handlers: dict[str, list[EventHandler]] = {}
+        self.auto_reconnect_enabled = config.get(
             "api.websocket.manager.auto_reconnect_enabled", True
         )
-        self.reconnect_tasks: dict[str, asyncio.Task] = {}
+        self.reconnect_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def register_client(
         self,
         client_id: str,
-        user_id: Optional[str] = None,
-        permissions: Optional[set[str]] = None,
         metadata: Optional[dict[str, Any]] = None,
     ) -> ClientSession:
-        """Register a new client session."""
+        """Register an anonymous client connection session."""
         session = ClientSession(
             client_id=client_id,
-            user_id=user_id,
             connection_state=ConnectionState.CONNECTED,
-            permissions=permissions or set(),
             metadata=metadata or {},
         )
 
         self.sessions[client_id] = session
 
-        # Track user sessions
-        if user_id:
-            if user_id not in self.user_sessions:
-                self.user_sessions[user_id] = []
-            self.user_sessions[user_id].append(client_id)
-
-        logger.info(f"Client session registered: {client_id} (user: {user_id})")
+        logger.info("Client session registered: %s", client_id)
         await self._emit_event(
             "client_registered",
-            {"client_id": client_id, "user_id": user_id, "session": session},
+            {"client_id": client_id, "session": session},
         )
 
         return session
 
-    async def unregister_client(self, client_id: str):
+    async def unregister_client(self, client_id: str) -> None:
         """Unregister a client session."""
         if client_id not in self.sessions:
             return
@@ -134,14 +120,6 @@ class WebSocketManager:
         # Remove from stream subscriptions
         for stream_type in StreamType:
             self.stream_subscribers[stream_type].discard(client_id)
-
-        # Remove from user sessions
-        if session.user_id and session.user_id in self.user_sessions:
-            user_client_ids = self.user_sessions[session.user_id]
-            if client_id in user_client_ids:
-                user_client_ids.remove(client_id)
-            if not user_client_ids:
-                del self.user_sessions[session.user_id]
 
         # Cancel any reconnect tasks
         if client_id in self.reconnect_tasks:
@@ -176,15 +154,6 @@ class WebSocketManager:
                 return False
 
         session = self.sessions[client_id]
-
-        # Check permissions
-        required_permission = f"stream:{stream_type.value}"
-        if (
-            required_permission not in session.permissions
-            and "stream:*" not in session.permissions
-        ):
-            logger.warning(f"Client {client_id} lacks permission for {stream_type}")
-            return False
 
         # Add to subscribers
         self.stream_subscribers[stream_type].add(client_id)
@@ -252,7 +221,7 @@ class WebSocketManager:
         stream_type: Union[StreamType, str],
         data: dict[str, Any],
         apply_filters: bool = True,
-    ):
+    ) -> None:
         """Broadcast data to all subscribers of a stream with optional filtering."""
         if isinstance(stream_type, str):
             try:
@@ -274,15 +243,15 @@ class WebSocketManager:
         )
 
         # Create base message
-        message = {
+        message: dict[str, Any] = {
             "type": stream_type.value,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "data": data,
         }
 
         # Send to subscribers, applying filters if requested
-        tasks = []
-        task_client_mapping = []  # Track which task corresponds to which client
+        tasks: list[Awaitable[bool]] = []
+        task_client_mapping: list[str] = []
 
         for client_id in subscribers:
             if client_id not in self.sessions:
@@ -294,13 +263,13 @@ class WebSocketManager:
             session.last_activity = datetime.now(timezone.utc)
 
             # Apply filters if configured and requested
-            filtered_message = message
+            filtered_message: Optional[dict[str, Any]] = message
             if apply_filters and stream_type in session.subscription_filters:
                 filtered_message = await self._apply_message_filter(
                     message, session.subscription_filters[stream_type]
                 )
-                if filtered_message is None:
-                    continue  # Message filtered out
+            if filtered_message is None:
+                continue  # Message filtered out
 
             # Send message
             task = websocket_handler.send_to_client(client_id, filtered_message)
@@ -327,28 +296,6 @@ class WebSocketManager:
                     f"Cleaned up {len(failed_clients)}/{len(tasks)} failed subscribers for {stream_type.value}"
                 )
 
-    async def send_to_user(self, user_id: str, message: dict[str, Any]) -> int:
-        """Send message to all sessions of a specific user."""
-        if user_id not in self.user_sessions:
-            return 0
-
-        client_ids = self.user_sessions[user_id].copy()
-        tasks = [
-            websocket_handler.send_to_client(client_id, message)
-            for client_id in client_ids
-            if client_id in self.sessions
-        ]
-
-        if not tasks:
-            return 0
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        success_count = sum(
-            1 for result in results if result and not isinstance(result, Exception)
-        )
-
-        return success_count
-
     async def send_alert(
         self,
         level: str,
@@ -356,9 +303,8 @@ class WebSocketManager:
         code: str,
         details: Optional[dict[str, Any]] = None,
         target_clients: Optional[list[str]] = None,
-        target_users: Optional[list[str]] = None,
-    ):
-        """Send alert message to specified clients/users or all subscribers."""
+    ) -> None:
+        """Send an alert to selected clients or all alert subscribers."""
         alert_data = {
             "level": level,
             "message": message,
@@ -377,10 +323,6 @@ class WebSocketManager:
                 if client_id in self.sessions
             ]
             await asyncio.gather(*tasks, return_exceptions=True)
-        elif target_users:
-            # Send to specific users
-            for user_id in target_users:
-                await self.send_to_user(user_id, alert_message)
         else:
             # Broadcast to all alert subscribers
             await self.broadcast_to_stream(
@@ -403,11 +345,9 @@ class WebSocketManager:
 
         return {
             "client_id": session.client_id,
-            "user_id": session.user_id,
             "connection_state": session.connection_state.value,
             "reconnect_attempts": session.reconnect_attempts,
             "subscriptions": [s.value for s in session.subscription_filters],
-            "permissions": list(session.permissions),
             "metadata": session.metadata,
             "created_at": session.created_at.isoformat(),
             "last_activity": session.last_activity.isoformat(),
@@ -425,7 +365,6 @@ class WebSocketManager:
 
         return {
             "total_sessions": len(self.sessions),
-            "total_users": len(self.user_sessions),
             "stream_subscribers": {
                 stream_type.value: len(subscribers)
                 for stream_type, subscribers in self.stream_subscribers.items()
@@ -459,7 +398,7 @@ class WebSocketManager:
 
         return cleanup_counts
 
-    async def handle_connection_lost(self, client_id: str):
+    async def handle_connection_lost(self, client_id: str) -> None:
         """Handle unexpected connection loss."""
         if client_id not in self.sessions:
             return
@@ -483,13 +422,13 @@ class WebSocketManager:
             "connection_lost", {"client_id": client_id, "session": session}
         )
 
-    def add_event_handler(self, event_type: str, handler: Callable):
+    def add_event_handler(self, event_type: str, handler: EventHandler) -> None:
         """Add event handler for WebSocket events."""
         if event_type not in self.event_handlers:
             self.event_handlers[event_type] = []
         self.event_handlers[event_type].append(handler)
 
-    def remove_event_handler(self, event_type: str, handler: Callable):
+    def remove_event_handler(self, event_type: str, handler: EventHandler) -> None:
         """Remove event handler."""
         if (
             event_type in self.event_handlers
@@ -497,7 +436,7 @@ class WebSocketManager:
         ):
             self.event_handlers[event_type].remove(handler)
 
-    async def _emit_event(self, event_type: str, data: dict[str, Any]):
+    async def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Emit event to all registered handlers."""
         if event_type in self.event_handlers:
             for handler in self.event_handlers[event_type]:
@@ -555,7 +494,7 @@ class WebSocketManager:
 
         return frame_data
 
-    async def _schedule_reconnect(self, client_id: str):
+    async def _schedule_reconnect(self, client_id: str) -> None:
         """Schedule automatic reconnection attempt."""
         if client_id not in self.sessions:
             return
@@ -566,16 +505,14 @@ class WebSocketManager:
 
         # Calculate exponential backoff delay
         delay = session.reconnect_delay * (2 ** (session.reconnect_attempts - 1))
-        max_delay = config_manager.get(
-            "api.websocket.manager.max_reconnect_delay", 30.0
-        )
+        max_delay = config.get("api.websocket.manager.max_reconnect_delay", 30.0)
         delay = min(delay, max_delay)
 
         logger.info(
             f"Scheduling reconnect for {client_id} in {delay:.1f}s (attempt {session.reconnect_attempts})"
         )
 
-        async def reconnect_task():
+        async def reconnect_task() -> None:
             try:
                 await asyncio.sleep(delay)
 

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:billiards-trainer:perception:table-calibration:v1",
+  "title": "Billiards table calibration v1",
+  "description": "Immutable pixel-to-table homography bound to one camera profile, image space, resolution, and rectification revision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "calibration_revision",
+    "camera_profile_id",
+    "rectification_revision",
+    "image_space",
+    "source_width_px",
+    "source_height_px",
+    "coordinate_frame",
+    "table_width_mm",
+    "table_height_mm",
+    "pixel_to_table_mm"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "calibration_revision": { "$ref": "#/$defs/safeCounter" },
+    "camera_profile_id": { "$ref": "#/$defs/identifier" },
+    "rectification_revision": { "$ref": "#/$defs/safeCounter" },
+    "image_space": { "enum": ["raw", "rectified"] },
+    "source_width_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "source_height_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "coordinate_frame": {
+      "const": "center_origin_x_corner0_to1_y_corner0_to3"
+    },
+    "table_width_mm": { "type": "number", "exclusiveMinimum": 0 },
+    "table_height_mm": { "type": "number", "exclusiveMinimum": 0 },
+    "pixel_to_table_mm": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": { "type": "number" }
+      }
+    }
+  },
+  "$defs": {
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]+$"
+    }
+  }
+}

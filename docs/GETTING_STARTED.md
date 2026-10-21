@@ -52,17 +52,17 @@ make run
 API available at:
 - Main API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- WebSocket: ws://localhost:8001
+- WebSocket: ws://localhost:8000/api/v1/websocket/ws
 
 ### Option 2: Docker (Production)
 ```bash
 docker-compose up -d
 ```
 
-Services:
-- Frontend: http://localhost:80
-- Backend: http://localhost:8000
-- Redis: localhost:6379
+The Compose file starts one backend process for one table. It serves the API
+and WebSocket on port 8000. A compatible detector model must be available in
+`./models` (or set `MODEL_DIRECTORY` to its directory); configure the model
+path in `config.json` before starting the container.
 
 ## Configuration
 
@@ -70,8 +70,6 @@ Edit `.env` file for your setup:
 
 ```bash
 # Required: Generate secure keys
-JWT_SECRET_KEY=your-secret-here
-DEFAULT_API_KEY=your-api-key-here
 
 # Generate with:
 openssl rand -hex 32
@@ -173,5 +171,4 @@ billiards-trainer/
 
 - API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
-- WebSocket: ws://localhost:8001
-- Frontend (Docker): http://localhost:80
+- WebSocket: ws://localhost:8000/api/v1/websocket/ws

@@ -8,6 +8,7 @@ import type { Alert } from '../../types/monitoring';
 
 export interface AlertPanelProps {
   alerts: Alert[];
+  title?: string;
   onDismiss?: (alertId: string) => void;
   maxAlerts?: number;
   showTimestamp?: boolean;
@@ -47,6 +48,7 @@ const alertConfig = {
 
 export const AlertPanel: React.FC<AlertPanelProps> = ({
   alerts,
+  title,
   onDismiss,
   maxAlerts = 10,
   showTimestamp = true,
@@ -87,6 +89,7 @@ export const AlertPanel: React.FC<AlertPanelProps> = ({
 
   return (
     <div className={`space-y-3 ${className}`}>
+      {title && <h3 className="text-lg font-semibold">{title}</h3>}
       {visibleAlerts.map((alert) => {
         const config = alertConfig[alert.level];
 

@@ -1,6 +1,8 @@
 -- Trajectory Visualization Module
 -- Renders ball trajectories, collisions, and aiming guides
 
+local CoordinateContract = require "core.coordinate_contract"
+
 local Trajectory = {
     name = "trajectory",
     priority = 100,  -- Draw order (lower = earlier)
@@ -49,7 +51,10 @@ end
 
 -- Update trajectory data
 function Trajectory:updateTrajectory(data)
-    if not data then return end
+    local valid, validationError = CoordinateContract.validateTrajectory(data)
+    if not valid then
+        return false, validationError
+    end
 
     -- Store new trajectory
     self.paths = {}
@@ -82,11 +87,15 @@ function Trajectory:updateTrajectory(data)
     if data.ghostBalls then
         self.ghostBalls = data.ghostBalls
     end
+    return true
 end
 
 -- Add a collision marker
 function Trajectory:addCollision(data)
-    if not data or not data.x or not data.y then return end
+    local valid, validationError = CoordinateContract.validateCollision(data)
+    if not valid then
+        return false, validationError
+    end
 
     table.insert(self.collisions, {
         x = data.x,
@@ -94,6 +103,7 @@ function Trajectory:addCollision(data)
         type = data.type or "ball",
         timestamp = love.timer.getTime()
     })
+    return true
 end
 
 -- Update aim line
@@ -103,6 +113,11 @@ function Trajectory:updateAimLine(data)
         return
     end
 
+    local valid, validationError = CoordinateContract.validateAim(data)
+    if not valid then
+        return false, validationError
+    end
+
     self.aimLine = {
         x1 = data.x1,
         y1 = data.y1,
@@ -110,6 +125,7 @@ function Trajectory:updateAimLine(data)
         y2 = data.y2,
         timestamp = love.timer.getTime()
     }
+    return true
 end
 
 -- Clear all trajectories

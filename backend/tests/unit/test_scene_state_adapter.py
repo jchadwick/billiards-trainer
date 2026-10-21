@@ -1,0 +1,438 @@
+"""Compatibility and freshness tests for Rust scene publication."""
+
+from __future__ import annotations
+
+import asyncio
+import copy
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, cast
+from unittest.mock import AsyncMock
+
+import pytest
+
+from backend.api.websocket.broadcaster import MessageBroadcaster
+from backend.core.constants_4k import BALL_RADIUS_4K
+from backend.perception.scene_state_adapter import (
+    SceneSnapshotStateAdapter,
+    SceneSnapshotStatePublisher,
+    SceneStateCompatibilityError,
+)
+
+SCENE_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "perception/contracts/v1/scene-rust-tracked-success.json"
+)
+
+
+def _scene() -> dict[str, Any]:
+    value = json.loads(SCENE_FIXTURE.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    return value
+
+
+def test_adapter_preserves_observation_identity_and_units() -> None:
+    scene = _scene()
+    scene["revisions"].update(calibration=12, calibration_state="valid")
+    scene["balls"][0]["measurement"]["table_center_mm"] = {
+        "x": 18.25,
+        "y": -42.5,
+    }
+
+    payload = SceneSnapshotStateAdapter().adapt(
+        scene,
+        table={"calibrated": True},
+        game_type="eight_ball",
+    )
+
+    assert payload is not None
+    assert payload.game_type == "eight_ball"
+    assert payload.table == {"calibrated": True}
+    assert len(payload.balls) == 1
+    ball = payload.balls[0]
+    assert ball["id"] == "track-1"
+    assert ball["position"] == {
+        "x": 1882.4,
+        "y": 1024.7,
+        "scale": [1.0, 1.0],
+    }
+    assert ball["table_position"] == {
+        "x": 18.25,
+        "y": -42.5,
+        "unit": "millimeters",
+        "origin": "playing_surface_center",
+    }
+    assert ball["number"] is None
+    assert ball["type"] == "unknown"
+    assert ball["identity_status"] == "unknown"
+    assert ball["identity_confidence"] is None
+    assert ball["identity_evidence"] == []
+    assert ball["is_observed"] is True
+    assert ball["confidence_kind"] == "detector_observation"
+    assert ball["source_observation"]["engine_instance_id"] == "engine-rust-stage2-a"
+    assert ball["radius"] == BALL_RADIUS_4K
+    assert ball["radius_source"] == "legacy_standard_pool_ball_assumption"
+    assert payload.observation_status["source_timestamp"] == "1000000000"
+    assert (
+        payload.observation_status["source_timestamp_kind"]
+        == "monotonic:host-clock-a:shared_memory_publication"
+    )
+    assert payload.observation_status["ball_observation_source_timestamp_unit"] == (
+        "nanoseconds"
+    )
+    assert payload.observation_status["source_timestamp_is_exposure"] is False
+    assert payload.observation_status["calibration_revision"] == 12
+    assert payload.observation_status["observation_identity"] == {
+        "engine_instance_id": "engine-rust-stage2-a",
+        "session_id": "replay-session-01",
+        "frame_id": "frame-0001",
+        "snapshot_revision": 1,
+    }
+
+
+def test_adapter_maps_source_resolution_to_canonical_pixels_once() -> None:
+    scene = _scene()
+    scene["source"].update(width_px=1920, height_px=1080)
+    measurement = scene["balls"][0]["measurement"]
+    measurement.update(image_width_px=1920, image_height_px=1080)
+    measurement["image_center_px"] = {"x": 941.2, "y": 512.35}
+    scene["cue"].update(image_width_px=1920, image_height_px=1080)
+
+    payload = SceneSnapshotStateAdapter().adapt(scene)
+
+    assert payload is not None
+    assert payload.balls[0]["position"] == {
+        "x": 1882.4,
+        "y": 1024.7,
+        "scale": [1.0, 1.0],
+    }
+
+
+def test_adapter_preserves_estimates_without_calling_them_observed() -> None:
+    scene = _scene()
+    ball = scene["balls"][0]
+    ball["status"] = "occluded"
+    ball["estimate"] = {
+        "kind": "extrapolated",
+        "as_of": copy.deepcopy(scene["published_at"]),
+        "image_center_px": {"x": 1888.0, "y": 1022.0},
+        "image_space": "raw",
+        "image_width_px": 3840,
+        "image_height_px": 2160,
+        "table_center_mm": None,
+        "table_position_uncertainty": {
+            "status": "unavailable",
+            "sigma_x_mm": None,
+            "sigma_y_mm": None,
+        },
+    }
+
+    payload = SceneSnapshotStateAdapter().adapt(scene)
+
+    assert payload is not None
+    ball_payload = payload.balls[0]
+    assert ball_payload["position"] == {
+        "x": 1888.0,
+        "y": 1022.0,
+        "scale": [1.0, 1.0],
+    }
+    assert ball_payload["position_kind"] == "extrapolated"
+    assert ball_payload["is_observed"] is False
+    assert ball_payload["confidence"] == 0.0
+    assert ball_payload["confidence_kind"] == "unavailable"
+    assert ball_payload["last_observation_confidence"] == 0.97
+    assert payload.observation_status["ball_positions_status"] == "cached"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("update_kind", "annotation"),
+        ("update_kind", "health"),
+        ("outcome", "failed"),
+        ("outcome", "degraded"),
+        ("outcome", "skipped"),
+    ],
+)
+def test_non_observation_or_non_success_does_not_publish_new_locations(
+    field: str, value: str
+) -> None:
+    scene = _scene()
+    scene[field] = value
+
+    assert SceneSnapshotStateAdapter().adapt(scene) is None
+
+
+def test_rectified_geometry_is_rejected_for_the_raw_preview_contract() -> None:
+    scene = _scene()
+    scene["balls"][0]["measurement"]["image_space"] = "rectified"
+
+    with pytest.raises(SceneStateCompatibilityError, match="raw coordinates"):
+        SceneSnapshotStateAdapter().adapt(scene)
+
+
+def test_geometry_from_a_different_resolution_is_rejected() -> None:
+    scene = _scene()
+    scene["source"].update(width_px=1920, height_px=1080)
+
+    with pytest.raises(SceneStateCompatibilityError, match="dimensions differ"):
+        SceneSnapshotStateAdapter().adapt(scene)
+
+
+def test_ball_without_any_image_position_is_omitted_and_reported() -> None:
+    scene = _scene()
+    ball = scene["balls"][0]
+    ball["status"] = "lost"
+    ball["measurement"] = None
+    ball["estimate"] = None
+
+    payload = SceneSnapshotStateAdapter().adapt(scene)
+
+    assert payload is not None
+    assert payload.balls == []
+    assert payload.observation_status["omitted_track_ids_without_image_position"] == [
+        "track-1"
+    ]
+    assert payload.observation_status["ball_positions_status"] == "unavailable"
+
+
+def test_publisher_sends_only_successful_observations_without_core_round_trip() -> None:
+    class Broadcaster:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def broadcast_game_state(
+            self,
+            balls: object,
+            cue: dict[str, Any] | None = None,
+            table: dict[str, Any] | None = None,
+            timestamp: Any = None,
+            observation_status: dict[str, Any] | None = None,
+            game_type: str | None = None,
+        ) -> None:
+            self.calls.append(
+                {
+                    "balls": balls,
+                    "cue": cue,
+                    "table": table,
+                    "timestamp": timestamp,
+                    "observation_status": observation_status,
+                    "game_type": game_type,
+                }
+            )
+
+    async def run() -> tuple[bool, bool, list[dict[str, Any]]]:
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+        rejected_scene = _scene()
+        rejected_scene["outcome"] = "failed"
+        published = await publisher.publish(_scene(), game_type="eight_ball")
+        skipped = await publisher.publish(rejected_scene)
+        return published, skipped, broadcaster.calls
+
+    published, skipped, calls = asyncio.run(run())
+
+    assert published is True
+    assert skipped is False
+    assert len(calls) == 1
+    assert calls[0]["cue"] is None
+    assert calls[0]["game_type"] == "eight_ball"
+    assert calls[0]["balls"][0]["id"] == "track-1"
+    assert calls[0]["observation_status"]["source_frame_id"] == "frame-0001"
+
+
+def test_publisher_payload_passes_existing_broadcaster_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def run() -> dict[str, Any]:
+        broadcaster = MessageBroadcaster()
+        broadcast_stream = AsyncMock()
+        monkeypatch.setattr(broadcaster, "_broadcast_to_stream", broadcast_stream)
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+
+        assert await publisher.publish(_scene()) is True
+        call = broadcast_stream.await_args
+        assert call is not None
+        return cast("dict[str, Any]", call.args[1])
+
+    state_data = asyncio.run(run())
+
+    assert state_data["balls"][0]["position"]["scale"] == [1.0, 1.0]
+    assert "table_position" not in state_data["balls"][0]
+    assert state_data["observation_status"]["source_frame_id"] == "frame-0001"
+
+
+def test_health_failure_publishes_cached_ball_as_stale_without_advancing_its_time() -> (
+    None
+):
+    class Broadcaster:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def broadcast_game_state(
+            self,
+            balls: object,
+            cue: dict[str, Any] | None = None,
+            table: dict[str, Any] | None = None,
+            timestamp: Any = None,
+            observation_status: dict[str, Any] | None = None,
+            game_type: str | None = None,
+        ) -> None:
+            self.calls.append(
+                {
+                    "balls": balls,
+                    "observation_status": observation_status,
+                    "table": table,
+                    "game_type": game_type,
+                }
+            )
+
+    async def run() -> list[dict[str, Any]]:
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+        assert await publisher.publish(_scene(), game_type="eight_ball")
+        health = json.loads(
+            (
+                Path(__file__).resolve().parents[3]
+                / "perception/contracts/v1/scene-failure.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert isinstance(health, dict)
+        health["engine_instance_id"] = "engine-rust-stage2-a"
+        health["source"]["session_id"] = "replay-session-01"
+        assert await publisher.publish_health(health)
+        return broadcaster.calls
+
+    states = asyncio.run(run())
+
+    assert len(states) == 2
+    stale_ball = states[1]["balls"][0]
+    assert stale_ball["is_observed"] is False
+    assert stale_ball["confidence"] == 0.0
+    assert stale_ball["confidence_kind"] == "unavailable"
+    assert stale_ball["last_observation_confidence"] == 0.97
+    assert stale_ball["source_observation"]["timestamp"]["ticks"] == "1000000000"
+    assert states[1]["observation_status"]["phase"] == "rust_scene_health"
+    assert states[1]["observation_status"]["ball_positions_status"] == "cached"
+    assert states[1]["observation_status"]["ball_detection_status"] == "failed"
+    assert states[1]["observation_status"]["health_reason"] == "inference_timeout"
+
+
+def test_read_model_is_a_defensive_copy_and_health_keeps_localization_receipt() -> None:
+    class Broadcaster:
+        async def broadcast_game_state(self, **kwargs: Any) -> None:
+            return None
+
+    async def run() -> tuple[Any, Any, Any]:
+        publisher = SceneSnapshotStatePublisher(Broadcaster())
+        ingress_receipt = datetime(2026, 10, 20, 14, 30, tzinfo=timezone.utc)
+        assert await publisher.publish(_scene(), received_at=ingress_receipt)
+        initial = publisher.read_model
+        assert initial is not None
+        assert initial.localization_received_at == ingress_receipt
+        initial_ball_receipt = initial.ball_localization_received_at["track-1"]
+        assert initial_ball_receipt == ingress_receipt
+        initial.payload.balls[0]["position"]["x"] = -999
+        assert publisher.read_model is not None
+        assert publisher.read_model.payload.balls[0]["position"]["x"] == 1882.4
+
+        newer_scene = _scene()
+        newer_scene["source"]["frame_id"] = "frame-0002"
+        newer_scene["source"]["timestamp"]["ticks"] = "2000000000"
+        newer_scene["transport_sequence"] = 2
+        newer_scene["published_at"]["ticks"] = "2000000001"
+        newer_scene["balls"][0]["status"] = "occluded"
+        newer_scene["balls"][0]["estimate"] = {
+            "kind": "extrapolated",
+            "as_of": copy.deepcopy(newer_scene["published_at"]),
+            "image_center_px": {"x": 1888.0, "y": 1022.0},
+            "image_space": "raw",
+            "image_width_px": 3840,
+            "image_height_px": 2160,
+            "table_center_mm": None,
+            "table_position_uncertainty": {
+                "status": "unavailable",
+                "sigma_x_mm": None,
+                "sigma_y_mm": None,
+            },
+        }
+        assert await publisher.publish(newer_scene)
+        observed = publisher.read_model
+        assert observed is not None
+        assert observed.localization_received_at > initial.localization_received_at
+        assert observed.ball_localization_received_at["track-1"] == initial_ball_receipt
+
+        health = json.loads(
+            (
+                Path(__file__).resolve().parents[3]
+                / "perception/contracts/v1/scene-failure.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert isinstance(health, dict)
+        health["engine_instance_id"] = "engine-rust-stage2-a"
+        health["source"]["session_id"] = "replay-session-01"
+        assert await publisher.publish_health(health)
+        stale = publisher.read_model
+        assert stale is not None
+        return observed, stale, publisher
+
+    observed, stale, _publisher = asyncio.run(run())
+
+    assert stale.updated_at >= observed.updated_at
+    assert stale.localization_received_at == observed.localization_received_at
+    assert (
+        stale.ball_localization_received_at["track-1"]
+        == observed.ball_localization_received_at["track-1"]
+    )
+    assert stale.payload.balls[0]["source_observation"]["timestamp"]["ticks"] == (
+        "1000000000"
+    )
+    assert stale.payload.balls[0]["is_observed"] is False
+    assert stale.payload.observation_status["phase"] == "rust_scene_health"
+
+
+def test_health_failure_from_new_session_does_not_republish_old_session_positions() -> (
+    None
+):
+    class Broadcaster:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def broadcast_game_state(
+            self,
+            balls: object,
+            cue: dict[str, Any] | None = None,
+            table: dict[str, Any] | None = None,
+            timestamp: Any = None,
+            observation_status: dict[str, Any] | None = None,
+            game_type: str | None = None,
+        ) -> None:
+            self.calls.append(
+                {"balls": balls, "observation_status": observation_status}
+            )
+
+    async def run() -> tuple[list[dict[str, Any]], Any]:
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+        assert await publisher.publish(_scene())
+        health = json.loads(
+            (
+                Path(__file__).resolve().parents[3]
+                / "perception/contracts/v1/scene-failure.json"
+            ).read_text(encoding="utf-8")
+        )
+        assert isinstance(health, dict)
+        health["engine_instance_id"] = "engine-restarted"
+        health["source"]["session_id"] = "new-session"
+        assert await publisher.publish_health(health)
+        return broadcaster.calls, publisher.read_model
+
+    states, read_model = asyncio.run(run())
+
+    assert len(states) == 2
+    assert states[1]["balls"] == []
+    assert states[1]["observation_status"]["ball_positions_status"] == "unavailable"
+    assert read_model is not None
+    assert read_model.localization_received_at is None
+    assert read_model.ball_localization_received_at == {}

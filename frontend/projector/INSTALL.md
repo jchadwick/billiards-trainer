@@ -1,32 +1,54 @@
-# LÖVE2D Installation Instructions
+# Local Projector Installation
 
-## On Target System (Ubuntu/Debian)
+The native projector and its test sender run on the same Mac or Linux machine.
+The repository does not provide a remote installer or deployment service.
 
-Run the following commands on the target system to install LÖVE2D:
+## Prerequisites
+
+- LÖVE 11.4 or newer (the project is configured for 11.5)
+- Python 3 for the local UDP test sender
+- Node.js and npm only when building the browser package
+
+Install LÖVE through the operating system's package manager or application
+installer. For example, on macOS with Homebrew:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y love
+brew install --cask love
 ```
 
-## Verify Installation
+On Linux, install the `love` package from the distribution's configured package
+repository. Package installation may require the local machine's administrator
+rights; the application itself has no user accounts or credential settings.
+
+Verify the installation:
 
 ```bash
 love --version
 ```
 
-Should output something like: `LÖVE 11.5 (Mysterious Mysteries)`
+## Run locally
 
-## Then Run the Projector
+From the repository root:
 
 ```bash
-cd /opt/billiards-trainer/frontend/projector
+cd frontend/projector
 love .
 ```
 
-Or use the deployment script from your local machine:
+To open a windowed development instance:
 
 ```bash
-./deploy.sh install  # Installs LÖVE2D (requires sudo password)
-./deploy.sh run      # Runs the projector
+love . conf_windowed.lua
 ```
+
+The existing helper script accepts local run, test, and web-build commands:
+
+```bash
+./deploy.sh run
+./deploy.sh test 30 0.5
+./deploy.sh web
+```
+
+Despite its retained filename, `deploy.sh` only operates on the current
+machine. It does not install packages, connect to another host, or publish
+files.

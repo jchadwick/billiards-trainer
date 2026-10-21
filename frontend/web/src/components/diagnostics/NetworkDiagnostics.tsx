@@ -26,7 +26,7 @@ interface NetworkEndpoint {
   name: string;
   url: string;
   method: "GET" | "POST" | "PUT" | "DELETE";
-  type: "api" | "websocket" | "health" | "auth";
+  type: "api" | "websocket" | "health";
   status: "testing" | "online" | "offline" | "degraded";
   lastCheck: Date;
   responseTime: number;
@@ -87,18 +87,6 @@ export const NetworkDiagnostics: React.FC<NetworkDiagnosticsProps> = observer(
           errorCount: 0,
         },
         {
-          id: "api-auth",
-          name: "Authentication Service",
-          url: "/api/auth/status",
-          method: "GET",
-          type: "auth",
-          status: "offline",
-          lastCheck: new Date(),
-          responseTime: 0,
-          uptime: 0,
-          errorCount: 0,
-        },
-        {
           id: "api-config",
           name: "Configuration API",
           url: "/api/config/system",
@@ -113,7 +101,7 @@ export const NetworkDiagnostics: React.FC<NetworkDiagnosticsProps> = observer(
         {
           id: "api-game",
           name: "Game State API",
-          url: "/api/game/state",
+          url: "/api/v1/game/state",
           method: "GET",
           type: "api",
           status: "offline",
@@ -125,7 +113,7 @@ export const NetworkDiagnostics: React.FC<NetworkDiagnosticsProps> = observer(
         {
           id: "websocket",
           name: "WebSocket Connection",
-          url: "/ws",
+          url: "/api/v1/websocket/ws",
           method: "GET",
           type: "websocket",
           status: "offline",
@@ -224,14 +212,10 @@ export const NetworkDiagnostics: React.FC<NetworkDiagnosticsProps> = observer(
             // Map endpoint URLs to apiClient methods
             if (endpoint.url === '/api/health') {
               response = await apiClient.healthCheck();
-            } else if (endpoint.url === '/api/auth/status') {
-              // Use a generic GET request for auth status
-              response = await apiClient.getHealth();
             } else if (endpoint.url === '/api/config/system') {
               response = await apiClient.getConfiguration('system');
-            } else if (endpoint.url === '/api/game/state') {
-              // Use a generic GET request for game state
-              response = await apiClient.getHealth();
+            } else if (endpoint.url === '/api/v1/game/state') {
+              response = await apiClient.getCurrentGameState();
             } else {
               // Fallback to healthCheck for unknown endpoints
               response = await apiClient.healthCheck();

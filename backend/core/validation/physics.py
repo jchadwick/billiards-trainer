@@ -11,7 +11,7 @@ Accelerations are in pixels/second².
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
 from ..coordinates import Vector2D
@@ -23,6 +23,8 @@ from ..physics.engine import PhysicsConstants, TrajectoryPoint
 # This default is based on a standard 9ft table (2.54m) filling ~3200 pixels.
 # Use table.calculate_pixels_per_meter() for accurate values.
 DEFAULT_PIXELS_PER_METER = 3200 / 2.54  # ~1259.84 pixels/meter (9ft table reference)
+CANONICAL_PIXEL_UNIT = "canonical_pixels"
+CANONICAL_PIXEL_SCALE = (1.0, 1.0)
 
 
 @dataclass
@@ -106,8 +108,8 @@ class PhysicsValidator:
         Returns:
             ValidationResult with detailed validation information
         """
-        errors = []
-        warnings = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationError] = []
 
         # Handle both Trajectory objects and list of TrajectoryPoint
         if isinstance(trajectory, Trajectory):
@@ -127,7 +129,9 @@ class PhysicsValidator:
             ball_id = trajectory.ball_id
         else:
             points = trajectory
-            ball_id = points[0].position if points else "unknown"
+            # A trajectory-point list carries no ball identity; do not expose
+            # its position object as the ball_id field in empty-list errors.
+            ball_id = "unknown"
 
         if not points:
             errors.append(
@@ -183,6 +187,9 @@ class PhysicsValidator:
                                     "expected_position": expected_pos.to_dict(),
                                     "actual_position": curr_point.position.to_dict(),
                                     "error_distance": position_error,
+                                    "position_unit": CANONICAL_PIXEL_UNIT,
+                                    "distance_unit": CANONICAL_PIXEL_UNIT,
+                                    "distance_scale": list(CANONICAL_PIXEL_SCALE),
                                     "point_index": i,
                                 },
                             )
@@ -225,8 +232,8 @@ class PhysicsValidator:
         Returns:
             ValidationResult with detailed validation information
         """
-        errors = []
-        warnings = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationError] = []
 
         # Validate collision type consistency
         if collision.type == "ball" and ball2 is None:
@@ -267,16 +274,19 @@ class PhysicsValidator:
                             "distance_to_ball1": distance_to_ball1,
                             "expected_distance": expected_distance,
                             "tolerance": self.position_tolerance,
+                            "distance_unit": CANONICAL_PIXEL_UNIT,
+                            "distance_scale": list(CANONICAL_PIXEL_SCALE),
                         },
                     )
                 )
 
         # Validate resulting velocities if provided
-        if (
-            hasattr(collision, "resulting_velocities")
-            and collision.resulting_velocities
-        ):
-            for ball_id, velocity in collision.resulting_velocities.items():
+        resulting_velocities = cast(
+            "Optional[dict[str, Optional[Vector2D]]]",
+            collision.resulting_velocities,
+        )
+        if resulting_velocities:
+            for ball_id, velocity in resulting_velocities.items():
                 if velocity is None:
                     errors.append(
                         ValidationError(
@@ -343,7 +353,11 @@ class PhysicsValidator:
                     error_type="invalid_radius",
                     severity="error",
                     message="Ball radius must be positive",
-                    details={"radius": ball_state.radius},
+                    details={
+                        "radius": ball_state.radius,
+                        "radius_scale": list(ball_state.radius_scale),
+                        "radius_unit": CANONICAL_PIXEL_UNIT,
+                    },
                     suggested_fix=f"Set radius to standard ball radius ({BALL_RADIUS_4K} pixels)",
                 )
             )
@@ -360,7 +374,8 @@ class PhysicsValidator:
             )
 
         # Validate velocity
-        if ball_state.velocity is None:
+        velocity: Optional[Vector2D] = getattr(ball_state, "velocity", None)
+        if velocity is None:
             errors.append(
                 ValidationError(
                     error_type="null_velocity",
@@ -371,7 +386,7 @@ class PhysicsValidator:
                 )
             )
         else:
-            velocity_mag = ball_state.velocity.magnitude()
+            velocity_mag = velocity.magnitude()
             if velocity_mag > self.max_velocity:
                 errors.append(
                     ValidationError(
@@ -414,8 +429,14 @@ class PhysicsValidator:
                         message="Ball position is outside table bounds",
                         details={
                             "position": ball_state.position.to_dict(),
+                            "position_unit": CANONICAL_PIXEL_UNIT,
+                            "ball_radius": ball_state.radius,
+                            "ball_radius_scale": list(ball_state.radius_scale),
+                            "ball_radius_unit": CANONICAL_PIXEL_UNIT,
                             "table_width": table.width,
                             "table_height": table.height,
+                            "table_dimensions_scale": list(table.dimensions_scale),
+                            "table_dimensions_unit": CANONICAL_PIXEL_UNIT,
                             "ball_id": ball_state.id,
                         },
                         suggested_fix="Move ball to valid position within table bounds",
@@ -445,7 +466,9 @@ class PhysicsValidator:
 
         return ValidationResult(is_valid, errors, warnings, confidence)
 
-    def validate_forces(self, forces: Vector2D, mass: float) -> ValidationResult:
+    def validate_forces(
+        self, forces: Optional[Vector2D], mass: float
+    ) -> ValidationResult:
         """Verify force calculations are reasonable and within limits.
 
         Args:
@@ -455,8 +478,8 @@ class PhysicsValidator:
         Returns:
             ValidationResult with detailed validation information
         """
-        errors = []
-        warnings = []
+        errors: list[ValidationError] = []
+        warnings: list[ValidationError] = []
 
         # Validate forces is not None
         if forces is None:
@@ -730,6 +753,8 @@ class PhysicsValidator:
                                 "distance": distance,
                                 "min_distance": min_distance,
                                 "overlap": min_distance - distance,
+                                "distance_unit": CANONICAL_PIXEL_UNIT,
+                                "distance_scale": list(CANONICAL_PIXEL_SCALE),
                             },
                             suggested_fix="Separate overlapping balls",
                         )
@@ -787,8 +812,8 @@ class PhysicsValidator:
             total_warnings.extend(result.warnings)
 
         # Count errors by type
-        error_types = {}
-        warning_types = {}
+        error_types: dict[str, int] = {}
+        warning_types: dict[str, int] = {}
 
         for error in total_errors:
             error_types[error.error_type] = error_types.get(error.error_type, 0) + 1

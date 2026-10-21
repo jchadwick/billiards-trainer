@@ -20,6 +20,13 @@ import math
 from dataclasses import dataclass
 from typing import Any, Tuple
 
+PIXEL_COORDINATE_SPACES = frozenset(
+    {
+        "4k_canonical",
+        "pixel",
+    }
+)
+
 
 @dataclass
 class Vector2D:
@@ -67,12 +74,30 @@ class Vector2D:
         """Validate vector after initialization."""
         if self.scale is None:
             raise ValueError("Scale metadata is MANDATORY for all Vector2D instances")
-        if len(self.scale) != 2:
+        if not isinstance(self.scale, (tuple, list)) or len(self.scale) != 2:
             raise ValueError(
                 f"Scale must be a tuple of (scale_x, scale_y), got {self.scale}"
             )
-        if self.scale[0] <= 0 or self.scale[1] <= 0:
+        try:
+            x, y = float(self.x), float(self.y)
+            scale_x, scale_y = float(self.scale[0]), float(self.scale[1])
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError(
+                "Coordinates and scale factors must be finite numbers"
+            ) from error
+        if not all(math.isfinite(value) for value in (x, y, scale_x, scale_y)):
+            raise ValueError("Coordinates and scale factors must be finite numbers")
+        if scale_x <= 0 or scale_y <= 0:
             raise ValueError(f"Scale factors must be positive, got {self.scale}")
+        if not math.isfinite(x * scale_x) or not math.isfinite(y * scale_y):
+            raise ValueError("Canonical coordinates must be finite")
+        self.x = x
+        self.y = y
+        self.scale = (scale_x, scale_y)
+
+    def _canonical_xy(self) -> tuple[float, float]:
+        """Return the physical vector represented in canonical 4K pixels."""
+        return self.x * self.scale[0], self.y * self.scale[1]
 
     # =========================================================================
     # Geometric Operations
@@ -89,7 +114,8 @@ class Vector2D:
             >>> v.magnitude()
             5.0
         """
-        return math.sqrt(self.x**2 + self.y**2)
+        x, y = self._canonical_xy()
+        return math.hypot(x, y)
 
     def magnitude_squared(self) -> float:
         """Calculate the squared magnitude (avoids sqrt for performance).
@@ -104,7 +130,8 @@ class Vector2D:
             >>> v.magnitude_squared()
             25.0
         """
-        return self.x**2 + self.y**2
+        x, y = self._canonical_xy()
+        return x**2 + y**2
 
     def normalize(self) -> "Vector2D":
         """Return a normalized (unit) vector in the same direction.
@@ -121,18 +148,12 @@ class Vector2D:
             >>> u.magnitude()
             1.0
         """
-        mag = self.magnitude()
+        canonical_x, canonical_y = self._canonical_xy()
+        mag = math.hypot(canonical_x, canonical_y)
         if mag == 0:
-            return Vector2D(
-                0.0,
-                0.0,
-                scale=self.scale,
-            )
-        return Vector2D(
-            self.x / mag,
-            self.y / mag,
-            scale=self.scale,
-        )
+            return Vector2D.zero(scale=self.scale)
+        normalized = Vector2D.from_4k(canonical_x / mag, canonical_y / mag)
+        return normalized.to_scale(self.scale)
 
     def dot(self, other: "Vector2D") -> float:
         """Calculate the dot product with another vector.
@@ -153,7 +174,9 @@ class Vector2D:
             >>> v1.dot(v2)
             0.0
         """
-        return self.x * other.x + self.y * other.y
+        self_x, self_y = self._canonical_xy()
+        other_x, other_y = other._canonical_xy()
+        return self_x * other_x + self_y * other_y
 
     def cross(self, other: "Vector2D") -> float:
         """Calculate the 2D cross product (returns scalar z-component).
@@ -170,7 +193,9 @@ class Vector2D:
             >>> v1.cross(v2)
             1.0
         """
-        return self.x * other.y - self.y * other.x
+        self_x, self_y = self._canonical_xy()
+        other_x, other_y = other._canonical_xy()
+        return self_x * other_y - self_y * other_x
 
     def distance_to(self, other: "Vector2D") -> float:
         """Calculate the Euclidean distance to another point.
@@ -191,7 +216,9 @@ class Vector2D:
             >>> p1.distance_to(p2)
             5.0
         """
-        return math.sqrt((self.x - other.x) ** 2 + (self.y - other.y) ** 2)
+        self_x, self_y = self._canonical_xy()
+        other_x, other_y = other._canonical_xy()
+        return math.hypot(self_x - other_x, self_y - other_y)
 
     def angle_to(self, other: "Vector2D") -> float:
         """Calculate the angle to another vector in radians.
@@ -209,7 +236,9 @@ class Vector2D:
             >>> origin.angle_to(right)
             0.0
         """
-        return math.atan2(other.y - self.y, other.x - self.x)
+        self_x, self_y = self._canonical_xy()
+        other_x, other_y = other._canonical_xy()
+        return math.atan2(other_y - self_y, other_x - self_x)
 
     def rotate(self, angle: float) -> "Vector2D":
         """Rotate the vector by the given angle in radians.
@@ -230,13 +259,15 @@ class Vector2D:
             >>> abs(v_rotated.y - 1.0) < 1e-10  # Close to 1.0
             True
         """
+        if not math.isfinite(angle):
+            raise ValueError("Rotation angle must be finite")
+        x, y = self._canonical_xy()
         cos_a = math.cos(angle)
         sin_a = math.sin(angle)
-        return Vector2D(
-            self.x * cos_a - self.y * sin_a,
-            self.x * sin_a + self.y * cos_a,
-            scale=self.scale,
-        )
+        return Vector2D.from_4k(
+            x * cos_a - y * sin_a,
+            x * sin_a + y * cos_a,
+        ).to_scale(self.scale)
 
     def scale_by(self, factor: float) -> "Vector2D":
         """Scale the vector by a scalar factor.
@@ -385,8 +416,8 @@ class Vector2D:
     def __eq__(self, other: object) -> bool:
         """Check equality with another vector.
 
-        Vectors are equal if their x, y coordinates match exactly.
-        Coordinate space metadata is NOT considered for equality.
+        Vectors compare by their exact canonical pixel coordinates, allowing
+        equivalent image points represented at different source resolutions.
 
         Args:
             other: Object to compare with
@@ -396,17 +427,17 @@ class Vector2D:
         """
         if not isinstance(other, Vector2D):
             return False
-        return self.x == other.x and self.y == other.y
+        return self._canonical_xy() == other._canonical_xy()
 
     def __hash__(self) -> int:
         """Calculate hash for use in sets and dicts.
 
-        Only based on x, y coordinates (not metadata).
+        Hashes canonical pixel coordinates so equality and hashing agree.
 
         Returns:
             Hash value
         """
-        return hash((self.x, self.y))
+        return hash(self._canonical_xy())
 
     # =========================================================================
     # Conversion Methods
@@ -473,6 +504,11 @@ class Vector2D:
         Returns:
             New Vector2D with target scale
         """
+        if not isinstance(target_scale, (tuple, list)) or len(target_scale) != 2:
+            raise ValueError("Target scale must contain two positive factors")
+        target_scale = (float(target_scale[0]), float(target_scale[1]))
+        if not all(math.isfinite(value) and value > 0 for value in target_scale):
+            raise ValueError("Target scale must contain two positive finite factors")
         if self.scale == target_scale:
             return self
 
@@ -528,9 +564,35 @@ class Vector2D:
             >>> v.scale
             (2.0, 2.0)
         """
+        coordinate_space = data.get("coordinate_space")
+        if (
+            coordinate_space is not None
+            and coordinate_space not in PIXEL_COORDINATE_SPACES
+        ):
+            raise ValueError(
+                f"Unsupported pixel coordinate space: {coordinate_space!r}"
+            )
+
         scale = data.get("scale")
         if scale is None:
-            raise ValueError("Scale is required in dictionary data")
+            source_resolution = data.get("source_resolution")
+            if source_resolution is not None:
+                if coordinate_space == "4k_canonical":
+                    raise ValueError(
+                        "Canonical coordinates cannot also declare a source resolution"
+                    )
+                if not isinstance(source_resolution, (tuple, list)):
+                    raise ValueError(
+                        "Source resolution must contain positive width and height"
+                    )
+                return cls.from_resolution(
+                    data["x"],
+                    data["y"],
+                    (source_resolution[0], source_resolution[1]),
+                )
+            raise ValueError(
+                "Scale is required unless source resolution or canonical space is provided"
+            )
 
         return cls(
             x=data["x"],
@@ -584,6 +646,8 @@ class Vector2D:
             >>> v_4k.x, v_4k.y
             (1920.0, 1080.0)
         """
+        if len(resolution) != 2 or any(value <= 0 for value in resolution):
+            raise ValueError("Resolution must contain positive width and height")
         from .resolution_converter import ResolutionConverter
 
         scale = ResolutionConverter.calculate_scale_to_4k(resolution)

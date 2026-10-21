@@ -29,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_tpu_detection():
+def test_tpu_detection() -> bool:
     """Test TPU device detection."""
     logger.info("=" * 60)
     logger.info("Test 1: TPU Detection")
@@ -45,13 +45,18 @@ def test_tpu_detection():
 
     if detector.tpu_available:
         logger.info("✓ TPU detected successfully")
-    else:
-        logger.info("✗ TPU not available (expected if no TPU hardware)")
+        return True
 
-    return detector.tpu_available
+    # A development machine without Coral hardware passes when detection falls
+    # back to CPU as configured; missing hardware is an expected environment.
+    using_tpu = detector.stats.get("using_tpu", False)
+    fell_back_to_cpu = detector.device == "cpu" and not using_tpu
+    if fell_back_to_cpu:
+        logger.info("✓ TPU unavailable; detector correctly selected CPU fallback")
+    return fell_back_to_cpu
 
 
-def test_fallback_to_cpu():
+def test_fallback_to_cpu() -> bool:
     """Test fallback to CPU when TPU unavailable."""
     logger.info("\n" + "=" * 60)
     logger.info("Test 2: Fallback to CPU")
@@ -75,7 +80,7 @@ def test_fallback_to_cpu():
         return False
 
 
-def test_cpu_detector():
+def test_cpu_detector() -> bool:
     """Test standard CPU detector."""
     logger.info("\n" + "=" * 60)
     logger.info("Test 3: CPU Detector (no model)")
@@ -101,7 +106,7 @@ def test_cpu_detector():
         return False
 
 
-def test_model_info():
+def test_model_info() -> bool:
     """Test model info reporting."""
     logger.info("\n" + "=" * 60)
     logger.info("Test 4: Model Info")
@@ -144,13 +149,13 @@ def test_model_info():
         return False
 
 
-def test_create_detector_helper():
+def test_create_detector_helper() -> bool:
     """Test create_detector helper function."""
     logger.info("\n" + "=" * 60)
     logger.info("Test 5: create_detector Helper")
     logger.info("=" * 60)
 
-    from vision.detection.yolo_detector import create_detector
+    from backend.vision.detection.yolo_detector import create_detector
 
     # Test with config dictionary
     config = {
@@ -180,7 +185,7 @@ def test_create_detector_helper():
         return False
 
 
-def test_statistics():
+def test_statistics() -> bool:
     """Test statistics tracking."""
     logger.info("\n" + "=" * 60)
     logger.info("Test 6: Statistics Tracking")
@@ -212,7 +217,7 @@ def test_statistics():
         return False
 
 
-def main():
+def main() -> int:
     """Run all tests."""
     logger.info("Starting TPU Detector Tests")
     logger.info("=" * 60)

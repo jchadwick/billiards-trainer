@@ -11,6 +11,7 @@ local CONFIG_SCHEMA = {
     display = {
         width = "number",
         height = "number",
+        background_color = "table",
         fullscreen = "boolean",
         vsync = "boolean"
     },

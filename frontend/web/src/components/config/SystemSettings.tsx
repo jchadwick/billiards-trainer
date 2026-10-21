@@ -16,11 +16,6 @@ export const SystemSettings = observer(() => {
   const [enableRetries, setEnableRetries] = useState(true)
   const [maxRetries, setMaxRetries] = useState(3)
 
-  // Authentication Settings
-  const [tokenExpiration, setTokenExpiration] = useState(3600)
-  const [enableRefreshToken, setEnableRefreshToken] = useState(true)
-  const [sessionTimeout, setSessionTimeout] = useState(1800)
-
   // Logging Settings
   const [logLevel, setLogLevel] = useState<string>('info')
   const [enableFileLogging, setEnableFileLogging] = useState(true)
@@ -63,14 +58,6 @@ export const SystemSettings = observer(() => {
         newErrors.maxRetries = 'Max retries must be between 0 and 10'
       }
 
-      if (tokenExpiration < 300 || tokenExpiration > 86400) {
-        newErrors.tokenExpiration = 'Token expiration must be between 5 minutes and 24 hours'
-      }
-
-      if (sessionTimeout < 300 || sessionTimeout > 14400) {
-        newErrors.sessionTimeout = 'Session timeout must be between 5 minutes and 4 hours'
-      }
-
       if (maxLogSize < 1 || maxLogSize > 1000) {
         newErrors.maxLogSize = 'Max log size must be between 1MB and 1000MB'
       }
@@ -95,11 +82,6 @@ export const SystemSettings = observer(() => {
           timeout: apiTimeout,
           enableRetries,
           maxRetries
-        },
-        auth: {
-          tokenExpiration,
-          enableRefreshToken,
-          sessionTimeout
         },
         logging: {
           level: logLevel,
@@ -134,9 +116,6 @@ export const SystemSettings = observer(() => {
     setApiTimeout(10000)
     setEnableRetries(true)
     setMaxRetries(3)
-    setTokenExpiration(3600)
-    setEnableRefreshToken(true)
-    setSessionTimeout(1800)
     setLogLevel('info')
     setEnableFileLogging(true)
     setLogRotation(true)
@@ -209,49 +188,6 @@ export const SystemSettings = observer(() => {
               max={10}
               fullWidth
             />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Authentication Settings */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Authentication Settings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Token Expiration (seconds)"
-              type="number"
-              value={tokenExpiration}
-              onChange={(e) => setTokenExpiration(Number(e.target.value))}
-              error={errors.tokenExpiration}
-              min={300}
-              max={86400}
-              hint="300 seconds (5 minutes) to 86400 seconds (24 hours)"
-              fullWidth
-            />
-
-            <Input
-              label="Session Timeout (seconds)"
-              type="number"
-              value={sessionTimeout}
-              onChange={(e) => setSessionTimeout(Number(e.target.value))}
-              error={errors.sessionTimeout}
-              min={300}
-              max={14400}
-              hint="300 seconds (5 minutes) to 14400 seconds (4 hours)"
-              fullWidth
-            />
-
-            <div className="md:col-span-2">
-              <Checkbox
-                label="Enable Refresh Tokens"
-                checked={enableRefreshToken}
-                onChange={(e) => setEnableRefreshToken(e.target.checked)}
-                hint="Allow automatic token renewal without re-authentication"
-              />
-            </div>
           </div>
         </CardContent>
       </Card>

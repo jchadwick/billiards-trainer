@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://billiards-trainer.local/schemas/temporal-localization-annotations-v1.schema.json",
+  "title": "Billiards temporal localization annotations",
+  "description": "Engine-neutral, presentation-time labels for a recorded video sequence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sequence", "frames"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "annotation_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_annotation_format",
+        "source_annotation_sha256",
+        "reviewed_frames_sha256",
+        "epoch_events_sha256",
+        "frame_index_offset",
+        "source_video_stream_index",
+        "presentation_time_source",
+        "presentation_time_origin_seconds",
+        "ball_radius_method",
+        "cue_polyline_point_order",
+        "tool_version"
+      ],
+      "properties": {
+        "source_annotation_format": {"const": "cvat_video_1.1"},
+        "source_annotation_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "reviewed_frames_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "epoch_events_sha256": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+            {"type": "null"}
+          ]
+        },
+        "frame_index_offset": {"type": "integer"},
+        "source_video_stream_index": {"type": "integer", "minimum": 0},
+        "presentation_time_source": {"const": "ffprobe_best_effort_timestamp_time"},
+        "presentation_time_origin_seconds": {"type": "number"},
+        "ball_radius_method": {"const": "mean_box_half_extent"},
+        "cue_polyline_point_order": {"const": "first_tip_second_butt"},
+        "tool_version": {"const": 1}
+      }
+    },
+    "sequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video_sha256", "width", "height", "coordinate_space"],
+      "properties": {
+        "video_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "coordinate_space": {"const": "source_pixels"}
+      }
+    },
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/frame"}
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "number"},
+        "y": {"type": "number"}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_frame_index",
+        "presentation_time_seconds",
+        "expected_calibration_revision",
+        "expected_source_session_epoch",
+        "balls",
+        "cue"
+      ],
+      "properties": {
+        "source_frame_index": {"type": "integer", "minimum": 0},
+        "presentation_time_seconds": {"type": "number", "minimum": 0},
+        "expected_calibration_revision": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expected_source_session_epoch": {"type": ["string", "null"]},
+        "balls": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ball"}
+        },
+        "cue": {"$ref": "#/$defs/cue"}
+      }
+    },
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ball_id", "status"],
+      "properties": {
+        "ball_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["visible", "occluded", "removed"]},
+        "center": {"$ref": "#/$defs/point"},
+        "radius_px": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "visible"}}, "required": ["status"]},
+          "then": {"required": ["center", "radius_px"]},
+          "else": {"not": {"anyOf": [{"required": ["center"]}, {"required": ["radius_px"]}]}}
+        }
+      ]
+    },
+    "cue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["visible", "occluded", "absent"]},
+        "tip": {"$ref": "#/$defs/point"},
+        "butt": {"$ref": "#/$defs/point"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "visible"}}, "required": ["status"]},
+          "then": {"required": ["tip", "butt"]},
+          "else": {"not": {"anyOf": [{"required": ["tip"]}, {"required": ["butt"]}]}}
+        }
+      ]
+    }
+  }
+}

@@ -1,3 +1,8 @@
+> Historical architecture proposal: this separate multi-consumer streaming
+> service is not wired into the current application lifecycle. The supported
+> camera and HTTP video paths are documented in the current backend API and
+> [deployment guide](../../docs/DOCKER.md).
+
 # Streaming Service Specification
 
 ## Module Purpose

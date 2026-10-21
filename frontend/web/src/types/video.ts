@@ -3,6 +3,7 @@
  */
 
 export interface Point2D {
+  /** Internal image coordinates use canonical 4K pixel space. */
   x: number;
   y: number;
 }
@@ -43,18 +44,38 @@ export interface VideoStreamStatus {
   latency: number;
   errors: number;
   lastFrameTime: number;
+  /** Number of source frames discarded before processing or streaming. */
+  droppedFrames?: number;
 }
 
 // Detection data types
 export interface Ball {
   id: string;
   position: Point2D;
+  /** Canonical-pixel ellipse radii; `radius` is retained for older overlays. */
   radius: number;
-  type: 'cue' | 'solid' | 'stripe' | 'eight';
+  radiusX?: number;
+  radiusY?: number;
+  type: 'cue' | 'solid' | 'stripe' | 'eight' | 'unknown';
   number?: number;
+  identityStatus?: 'identified' | 'unknown';
+  identityConfidence?: number | null;
+  identityEvidence?: Array<Record<string, unknown>>;
   velocity: Vector2D;
   confidence: number;
+  confidenceKind?: 'detector_observation' | 'unavailable';
+  lastObservationConfidence?: number | null;
   color?: string;
+  isObserved?: boolean;
+  trackingStatus?: 'observed' | 'tracked' | 'occluded' | 'lost';
+  positionKind?: 'measured' | 'filtered' | 'extrapolated' | 'last_observed';
+  tablePositionMm?: { x: number; y: number };
+  sourceObservation?: {
+    engine_instance_id?: string;
+    session_id?: string;
+    frame_id?: string;
+    timestamp?: Record<string, unknown>;
+  };
 }
 
 export interface CueStick {
@@ -70,8 +91,15 @@ export interface CueStick {
 export interface Table {
   corners: Point2D[];
   pockets: Point2D[];
-  bounds: BoundingBox;
+  /** Missing when the transport provides extents or pockets but no boundary points. */
+  bounds?: BoundingBox;
   rails: Point2D[][];
+  pocketRadii?: Array<{ x: number; y: number }>;
+  /** Canonical image-plane extents, independent of physical meter dimensions. */
+  width?: number;
+  height?: number;
+  /** Physical measurements are deliberately kept separate from pixel bounds. */
+  dimensions?: { width: number; height: number; unit: 'meters' };
   detected: boolean;
   confidence: number;
 }
@@ -83,6 +111,29 @@ export interface Trajectory {
   type: 'primary' | 'reflection' | 'collision';
   probability: number;
   color: string;
+  /** Retained predictions are comparisons against observed movement, not live aim guidance. */
+  predictionStatus?: 'live' | 'frozen_reference';
+  predictionId?: string;
+  sourceFrameNumber?: number;
+  sourceTimestamp?: number | string;
+  sourceMapRevision?: string | number;
+  calibrationRevision?: string | number;
+  sourceObservations?: Array<Record<string, unknown>>;
+  spatialValid?: boolean;
+}
+
+/** A measured ball position; no interpolated or tracker-predicted points belong here. */
+export interface ObservedBallTrailPoint extends Point2D {
+  timestamp: number;
+  timestampKind: string;
+  sourceFrameNumber?: number;
+  /** A discontinuity marker means observations were skipped, missing, or too far apart. */
+  gapBefore: boolean;
+}
+
+export interface ObservedBallTrail {
+  ballId: string;
+  points: ObservedBallTrailPoint[];
 }
 
 export interface CollisionPoint {
@@ -218,6 +269,8 @@ export interface CanvasContext {
 export interface CoordinateTransform {
   videoToCanvas: (point: Point2D) => Point2D;
   canvasToVideo: (point: Point2D) => Point2D;
+  videoExtentToCanvasX: (extent: number) => number;
+  videoExtentToCanvasY: (extent: number) => number;
   screenToCanvas: (point: Point2D) => Point2D;
   canvasToScreen: (point: Point2D) => Point2D;
 }
@@ -226,7 +279,7 @@ export interface CoordinateTransform {
 export interface CalibrationPoint {
   id: string;
   screenPosition: Point2D;
-  worldPosition: Point2D;
+  worldPosition?: { x: number; y: number; unit: 'meters' };
   timestamp: number;
   confidence?: number;
 }
@@ -241,5 +294,6 @@ export interface CalibrationData {
   dimensions?: {
     width: number;
     height: number;
+    unit?: 'meters';
   };
 }

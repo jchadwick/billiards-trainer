@@ -32,7 +32,10 @@ export function renderTrajectoryOverlay({ trajectories, transform, config, ctx }
       collision: '#FF8000',
     };
 
-    const trajectoryColor = trajectory.color || typeColors[trajectory.type] || '#00FF00';
+    const isReference = trajectory.predictionStatus === 'frozen_reference';
+    const trajectoryColor = isReference
+      ? '#F4B942'
+      : (trajectory.color || typeColors[trajectory.type] || '#00FF00');
 
     // Draw trajectory line with gradient (fading based on time/distance)
     ctx.strokeStyle = trajectoryColor;
@@ -57,6 +60,7 @@ export function renderTrajectoryOverlay({ trajectories, transform, config, ctx }
     }
 
     // Draw main trajectory line
+    ctx.setLineDash(isReference ? [8, 6] : []);
     ctx.beginPath();
     const startPoint = transform.videoToCanvas(points[0]);
     ctx.moveTo(startPoint.x, startPoint.y);
@@ -79,6 +83,15 @@ export function renderTrajectoryOverlay({ trajectories, transform, config, ctx }
     }
 
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (isReference) {
+      ctx.fillStyle = '#F4B942';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText('Previous prediction', startPoint.x + 5, startPoint.y - 5);
+    }
 
     // Draw trajectory direction arrows
     if (points.length >= 3) {
@@ -179,14 +192,17 @@ export function renderTrajectoryOverlay({ trajectories, transform, config, ctx }
     if (points.length > 0) {
       const startPoint = transform.videoToCanvas(points[0]);
 
-      // Draw trajectory type indicator
-      ctx.fillStyle = '#000000';
-      ctx.font = '10px Arial';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'bottom';
+      // Reference trajectories already carry an explicit "Previous prediction"
+      // label near the line start, so don't stack the normal live type label there.
+      if (!isReference) {
+        ctx.fillStyle = '#000000';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
 
-      const typeLabel = trajectory.type.charAt(0).toUpperCase() + trajectory.type.slice(1);
-      ctx.fillText(typeLabel, startPoint.x + 5, startPoint.y - 5);
+        const typeLabel = trajectory.type.charAt(0).toUpperCase() + trajectory.type.slice(1);
+        ctx.fillText(typeLabel, startPoint.x + 5, startPoint.y - 5);
+      }
 
       // Draw probability if enabled
       if (config.showProbability) {

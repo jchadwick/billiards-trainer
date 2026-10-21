@@ -5,15 +5,29 @@ Comprehensive Pydantic models for the Billiards Trainer API including:
 - Response models with proper error handling
 - WebSocket message schemas for real-time communication
 - Model conversion utilities for backend integration
-- Factory functions for testing and development
-- JSON schema generation for documentation
-- Example data for API documentation
 
 All models provide type safety, validation, and OpenAPI schema support.
 """
 
-# Import all model categories
-from .common import *
+# Import common models that are not superseded by the response-layer contract.
+# The similarly named response enums and helpers below remain the package-level
+# versions, matching the historical wildcard import order.
+from .common import (
+    ApiMetrics,
+    BoundingBox,
+    ColorProfile,
+    Coordinate2D,
+    NetworkStats,
+    Operation,
+    OperationStatus,
+    PaginationRequest,
+    PaginationResponse,
+    PositionWithScale,
+    ProcessingStats,
+    SystemResources,
+    TimeRange,
+    WorldPoint2DModel,
+)
 
 # Import utilities
 from .converters import (
@@ -24,30 +38,8 @@ from .converters import (
     validate_ball_state_conversion,
     vector2d_to_coordinate2d,
 )
-
-# TODO: These modules don't exist yet - commenting out for now
-# from .examples import (
-#     EXAMPLES,
-#     get_all_examples_for_model,
-#     get_example_by_path,
-#     list_available_examples,
-# )
-# from .factories import (
-#     create_config_update_request,
-#     create_frame_message,
-#     create_game_state_response,
-#     create_login_request,
-#     create_test_dataset,
-# )
 from .requests import *
 from .responses import *
-
-# from .schema_generator import (
-#     export_schemas_to_files,
-#     generate_all_api_schemas,
-#     generate_model_schema,
-#     generate_openapi_schema,
-# )
 from .websocket import *
 
 # Export comprehensive list of all models and utilities
@@ -55,19 +47,17 @@ __all__ = [
     # Request Models
     "BaseRequest",
     "TimestampedRequest",
-    "LoginRequest",
-    "TokenRefreshRequest",
-    "ChangePasswordRequest",
-    "CreateUserRequest",
     "ConfigUpdateRequest",
     "ConfigImportRequest",
     "ConfigExportRequest",
     "CalibrationStartRequest",
     "CalibrationPointRequest",
+    "CalibrationTestPoint",
     "CalibrationApplyRequest",
     "CalibrationValidateRequest",
     "GameStateResetRequest",
     "BallPositionUpdateRequest",
+    "BallPositionUpdate",
     "GameEventRequest",
     "SystemControlRequest",
     "CameraControlRequest",
@@ -97,9 +87,6 @@ __all__ = [
     "BallInfo",
     "CueInfo",
     "TableInfo",
-    "LoginResponse",
-    "TokenRefreshResponse",
-    "UserCreateResponse",
     "CameraControlResponse",
     "ProjectorControlResponse",
     "TrajectoryInfo",
@@ -138,8 +125,9 @@ __all__ = [
     "ResponseData",
     "ErrorData",
     # Common Models
-    "BaseAPIModel",
     "Coordinate2D",
+    "PositionWithScale",
+    "WorldPoint2DModel",
     "BoundingBox",
     "ColorProfile",
     "PaginationRequest",
@@ -151,7 +139,6 @@ __all__ = [
     "ApiMetrics",
     "Operation",
     "ValidationResult",
-    "FieldError",
     # Enums
     "HealthStatus",
     "ApiVersion",
@@ -170,30 +157,10 @@ __all__ = [
     "convert_ball_states_to_api",
     "validate_ball_state_conversion",
     "safe_convert_game_state",
-    # Factory Functions (TODO: Not implemented yet)
-    # "create_login_request",
-    # "create_config_update_request",
-    # "create_game_state_response",
-    # "create_frame_message",
-    # "create_test_dataset",
-    # Schema Generation (TODO: Not implemented yet)
-    # "generate_model_schema",
-    # "generate_all_api_schemas",
-    # "generate_openapi_schema",
-    # "export_schemas_to_files",
-    # Examples (TODO: Not implemented yet)
-    # "EXAMPLES",
-    # "get_example_by_path",
-    # "get_all_examples_for_model",
-    # "list_available_examples",
     # Utility Functions
     "create_success_response",
     "validate_coordinate_bounds",
     "validate_confidence",
     "validate_websocket_message",
     "serialize_websocket_message",
-    # TODO: These are from factories module which doesn't exist yet
-    # "create_frame_message",
-    # "create_alert_message",
-    # "create_error_message",
 ]

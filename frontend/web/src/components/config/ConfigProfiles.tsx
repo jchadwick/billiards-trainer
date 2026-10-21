@@ -339,7 +339,7 @@ export const ConfigProfiles = observer(() => {
         title="Delete Profile"
         message={`Are you sure you want to delete the "${selectedProfileForDelete}" profile? This action cannot be undone.`}
         confirmText="Delete"
-        confirmVariant="danger"
+        type="danger"
         loading={loading}
       />
     </div>

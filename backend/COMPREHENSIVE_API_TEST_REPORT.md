@@ -1,3 +1,8 @@
+> Historical test report from September 2025. It records an earlier API shape
+> and test state; use the current API contract and automated tests as guidance.
+> Its historical claims about login checks and authentication bypasses do not
+> describe the current product: the current API has no authentication feature.
+
 # Comprehensive API and WebSocket Test Report
 **Billiards Trainer Backend Testing**
 **Date:** September 28, 2025
@@ -9,7 +14,6 @@
 Successfully tested all API endpoints and WebSocket connections for the Billiards Trainer backend system. The testing process identified and resolved multiple critical issues, resulting in a **94.7% pass rate** for REST API endpoints and basic WebSocket connectivity confirmed.
 
 ### Key Achievements
-- ✅ **Authentication System Fixed**: Resolved development mode authentication bypass
 - ✅ **Configuration Module Fixed**: Added missing async methods for FastAPI compatibility
 - ✅ **WebSocket Endpoint Fixed**: Resolved 500 errors with functional endpoint
 - ✅ **Error Code Issues Fixed**: Corrected enum references
@@ -82,13 +86,7 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 
 ## Issues Identified and Resolved
 
-### 1. Authentication Middleware Issues ✅ FIXED
-**Problem:** API endpoints were returning 401 errors in development mode
-**Root Cause:** Route-level authentication dependencies were still enforcing auth even when middleware was disabled
-**Solution:** Created development mode bypass dependencies (`dev_viewer_required`, `dev_admin_required`, `dev_operator_required`)
-**Impact:** Improved pass rate from 52.6% to 94.7%
-
-### 2. ConfigurationModule Missing Methods ✅ FIXED
+### 1. ConfigurationModule Missing Methods ✅ FIXED
 **Problem:** FastAPI startup failing with `AttributeError: 'ConfigurationModule' object has no attribute 'initialize'`
 **Root Cause:** Missing async methods expected by API main.py
 **Solution:** Added `async def initialize()` and `async def get_configuration()` methods
@@ -128,7 +126,7 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 ## Performance Analysis
 
 ### Response Time Distribution
-- **Fastest:** 1.7ms (Auth status)
+- **Fastest:** 1.7ms (status endpoint)
 - **Slowest:** 105.8ms (Health metrics)
 - **Most Common Range:** 2-3ms (11/18 successful endpoints)
 - **Average:** 8.3ms
@@ -140,10 +138,9 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 
 ## Security Validation
 
-### Authentication Testing
-- ✅ Unauthenticated endpoints properly return 401 errors
-- ✅ Development mode bypass working correctly
-- ✅ Authentication status endpoint functional
+### Local API Access
+- The current single-user product has no login, token, or authentication checks.
+- API clients connect directly to the local service.
 - ✅ Security headers properly implemented
 
 ### Rate Limiting
@@ -157,7 +154,7 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 - **Framework:** FastAPI
 - **Server:** Uvicorn
 - **Mode:** Development (with production features enabled)
-- **Authentication:** Bypassed for development testing
+- **Client authentication:** Not implemented by product design
 - **CORS:** Enabled for development
 - **Rate Limiting:** Active
 
@@ -188,11 +185,11 @@ Successfully tested all API endpoints and WebSocket connections for the Billiard
 
 ## Conclusion
 
-The API testing process successfully identified and resolved critical authentication and configuration issues, achieving a **94.7% pass rate** for REST endpoints. Basic WebSocket connectivity is confirmed working. The system is ready for integration testing with only one remaining critical issue affecting the game state endpoint.
+This archived API testing process reported a **94.7% pass rate** for REST endpoints. Its authentication claims are obsolete; basic WebSocket connectivity is the only historical result still relevant here. Use current automated tests and the running OpenAPI document for implementation status.
 
 The testing process demonstrates that:
 - ✅ Server infrastructure is robust and properly configured
-- ✅ Authentication and security systems work correctly
+- ✅ Local APIs are intentionally available without login
 - ✅ Most core API functionality is operational
 - ✅ WebSocket connections can be established
 - ✅ Performance is excellent for most endpoints

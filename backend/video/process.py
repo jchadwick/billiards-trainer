@@ -20,18 +20,27 @@ Performance Targets:
 import logging
 import os
 import signal
-import sys
 import threading
 import time
 from pathlib import Path
+from types import FrameType
 from typing import Optional
 
 import numpy as np
-from config import config
 
+from backend.config import Config
+from backend.perception.camera_source import (
+    is_http_camera_source,
+    resolve_configured_camera_source,
+)
+from backend.performance_audit import (
+    AsyncAuditRecorder,
+    AuditResourceSampler,
+    audit_domains_from_config,
+)
 from backend.video.ipc.shared_memory import FrameFormat, SharedMemoryFrameWriter
-from backend.vision.calibration.camera import CameraCalibrator
-from backend.vision.capture import CameraCapture
+from backend.vision.calibration.camera import CameraCalibrator, CameraParameters
+from backend.vision.capture import CameraCapture, FrameInfo
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -51,7 +60,7 @@ class VideoProcess:
         exit_code = process.start()  # Blocking call
     """
 
-    def __init__(self, config_instance):
+    def __init__(self, config_instance: Config) -> None:
         """Initialize VideoProcess.
 
         Args:
@@ -61,6 +70,56 @@ class VideoProcess:
         self.camera: Optional[CameraCapture] = None
         self.ipc_writer: Optional[SharedMemoryFrameWriter] = None
         self.shutdown_event = threading.Event()
+        audit_domains = audit_domains_from_config(
+            bool(self.config.get("performance_audit.enabled", False)),
+            os.environ.get("BT_PERFORMANCE_AUDIT"),
+            state_enabled=bool(
+                self.config.get("performance_audit.state_enabled", True)
+            ),
+            trajectory_enabled=bool(
+                self.config.get("performance_audit.trajectory_enabled", False)
+            ),
+            viewers_enabled=bool(
+                self.config.get("performance_audit.viewers_enabled", False)
+            ),
+        )
+        self.audit_domains = audit_domains
+        self.capture_source_clock = (
+            audit_domains["state"]
+            or audit_domains["trajectory"]
+            or os.environ.get("BT_PERFORMANCE_AUDIT_CLOCKS", "").lower()
+            in {"1", "true", "yes", "on"}
+        )
+        self.audit_recorder: AsyncAuditRecorder | None = None
+        self.resource_sampler: AuditResourceSampler | None = None
+        self.audit_domain = next(
+            (
+                domain
+                for domain in ("state", "trajectory", "viewers")
+                if audit_domains[domain]
+            ),
+            None,
+        )
+        if any(audit_domains.values()):
+            output_directory = self.config.get(
+                "performance_audit.output_directory", "thoughts/performance-audits"
+            )
+            self.audit_recorder = AsyncAuditRecorder(
+                Path(output_directory) / "video-process",
+                queue_capacity=self.config.get(
+                    "performance_audit.event_queue_capacity", 2048
+                ),
+                sample_rate=self.config.get("performance_audit.sample_rate", 1.0),
+                max_exported_events=self.config.get(
+                    "performance_audit.event_export_limit", 200000
+                ),
+            )
+            self.resource_sampler = AuditResourceSampler(
+                self.audit_recorder,
+                self.config.get(
+                    "performance_audit.resource_sample_interval_seconds", 1.0
+                ),
+            )
 
         # Load configuration
         self._shm_name = self.config.get("video.shared_memory_name", "billiards_video")
@@ -117,10 +176,21 @@ class VideoProcess:
                 f"Loading camera calibration from: {self._calibration_file_path}"
             )
             self.calibrator = CameraCalibrator()
+            calibrator = self.calibrator
 
-            if not self.calibrator.load_calibration(str(calibration_path)):
+            if not calibrator.load_calibration(str(calibration_path)):
                 logger.warning(
                     f"Failed to load calibration from {self._calibration_file_path}. "
+                    "Continuing with raw frames (no distortion correction)."
+                )
+                self._enable_distortion_correction = False
+                self.calibrator = None
+                return True
+
+            camera_params = calibrator.camera_params
+            if camera_params is None:
+                logger.warning(
+                    "Calibration load returned no camera parameters. "
                     "Continuing with raw frames (no distortion correction)."
                 )
                 self._enable_distortion_correction = False
@@ -130,8 +200,8 @@ class VideoProcess:
             # Calibration loaded successfully
             logger.info(
                 f"Camera calibration loaded successfully. "
-                f"Resolution: {self.calibrator.camera_params.resolution}, "
-                f"Error: {self.calibrator.camera_params.calibration_error:.4f}"
+                f"Resolution: {camera_params.resolution}, "
+                f"Error: {camera_params.calibration_error:.4f}"
             )
             return True
 
@@ -167,8 +237,16 @@ class VideoProcess:
             logger.info(f"Initializing undistortion maps for {width}x{height}...")
 
             # Get camera parameters
-            camera_matrix = self.calibrator.camera_params.camera_matrix
-            dist_coeffs = self.calibrator.camera_params.distortion_coefficients
+            camera_params: Optional[CameraParameters] = self.calibrator.camera_params
+            if camera_params is None:
+                logger.warning(
+                    "Camera parameters are unavailable; disabling distortion correction."
+                )
+                self._enable_distortion_correction = False
+                return True
+
+            camera_matrix = camera_params.camera_matrix
+            dist_coeffs = camera_params.distortion_coefficients
 
             # Get optimal new camera matrix
             new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
@@ -241,18 +319,18 @@ class VideoProcess:
         try:
             logger.info("Initializing camera...")
 
-            # Determine device_id: video_file_path takes precedence over device_id
-            # This aligns with the logic in vision/config_manager.py
+            # An explicit network URI is the live detector source and takes
+            # precedence. Otherwise preserve the legacy recorded-video override
+            # and fall back to the configured local device index.
             video_file_path = self.config.get("vision.camera.video_file_path")
-
-            if video_file_path:
-                # Use video file path as device_id
-                device_id = video_file_path
+            configured_device_id = self.config.get("vision.camera.device_id", 0)
+            device_id = resolve_configured_camera_source(
+                configured_device_id, video_file_path
+            )
+            if video_file_path and not is_http_camera_source(configured_device_id):
                 logger.info(f"Using video file: {video_file_path}")
             else:
-                # Use device_id setting (can be int for camera, or string for stream/file)
-                device_id = self.config.get("vision.camera.device_id", 0)
-                logger.info(f"Using camera device: {device_id}")
+                logger.info(f"Using configured camera source: {device_id}")
 
             # Get camera configuration from config
             camera_config = {
@@ -260,6 +338,9 @@ class VideoProcess:
                 "backend": self.config.get("vision.camera.backend", "auto"),
                 "resolution": self.config.get("vision.camera.resolution", [1920, 1080]),
                 "fps": self.config.get("vision.camera.fps", 30),
+                "control_policy": self.config.get(
+                    "vision.camera.control_policy", "source_defaults"
+                ),
                 "exposure_mode": self.config.get("vision.camera.exposure_mode", "auto"),
                 "exposure_value": self.config.get("vision.camera.exposure_value"),
                 "gain": self.config.get("vision.camera.gain", 1.0),
@@ -271,7 +352,6 @@ class VideoProcess:
                 "max_reconnect_attempts": self.config.get(
                     "vision.camera.max_reconnect_attempts", 5
                 ),
-                "read_timeout": self.config.get("vision.camera.read_timeout", 5.0),
                 "stop_timeout": self.config.get("vision.camera.stop_timeout", 5.0),
                 "frame_log_interval": self.config.get(
                     "vision.camera.frame_log_interval", 30
@@ -287,6 +367,7 @@ class VideoProcess:
                     "vision.camera.video_start_frame", 0
                 ),
                 "video_end_frame": self.config.get("vision.camera.video_end_frame"),
+                "performance_audit_enabled": self.audit_recorder is not None,
             }
 
             # Create camera capture instance
@@ -324,6 +405,7 @@ class VideoProcess:
                 width=width,
                 height=height,
                 frame_format=FrameFormat.BGR24,
+                capture_publication_clock=self.capture_source_clock,
             )
 
             # Initialize the shared memory segment
@@ -353,10 +435,20 @@ class VideoProcess:
         self._start_time = time.time()
         self._last_stats_time = self._start_time
 
+        camera = self.camera
+        writer = self.ipc_writer
+        if camera is None or writer is None:
+            raise RuntimeError(
+                "Video capture loop requires an initialized camera and shared-memory writer"
+            )
+
         while not self.shutdown_event.is_set():
             try:
                 # Get latest frame from camera
-                frame_data = self.camera.get_latest_frame()
+                audit_enabled = self.audit_recorder is not None
+                camera_read_started_ns = time.perf_counter_ns() if audit_enabled else 0
+                frame_data = camera.get_latest_frame()
+                camera_read_finished_ns = time.perf_counter_ns() if audit_enabled else 0
 
                 if frame_data is None:
                     # No frame available yet - sleep and continue
@@ -367,11 +459,55 @@ class VideoProcess:
                 self._frames_captured += 1
 
                 # Apply distortion correction if enabled
+                undistortion_started_ns = time.perf_counter_ns() if audit_enabled else 0
                 processed_frame = self._undistort_frame(frame)
+                undistortion_finished_ns = (
+                    time.perf_counter_ns() if audit_enabled else 0
+                )
 
                 # Write frame to shared memory
-                self.ipc_writer.write_frame(processed_frame, frame_info.frame_number)
+                publication_started_ns = time.perf_counter_ns() if audit_enabled else 0
+                writer.write_frame(processed_frame, frame_info.frame_number)
+                publication_finished_ns = time.perf_counter_ns() if audit_enabled else 0
                 self._frames_written += 1
+                if self.audit_recorder is not None:
+                    self.audit_recorder.record(
+                        {
+                            "event_type": "video_frame_published",
+                            "domain": self.audit_domain,
+                            "source_frame_number": frame_info.frame_number,
+                            "source_timestamp": frame_info.timestamp,
+                            "source_timestamp_kind": "camera_capture_thread_wall_time",
+                            "timestamp_semantics": (
+                                "software frame retrieval time; not sensor exposure time"
+                            ),
+                            "frame_dimensions": [
+                                int(processed_frame.shape[1]),
+                                int(processed_frame.shape[0]),
+                            ],
+                            "camera_frame_queue_retrieval_seconds": max(
+                                0, camera_read_finished_ns - camera_read_started_ns
+                            )
+                            / 1e9,
+                            "camera_read_seconds": frame_info.camera_read_seconds,
+                            "camera_capture_queue_frames_skipped": (
+                                frame_info.capture_queue_frames_skipped
+                            ),
+                            "camera_capture_queue_depth_after_drain": (
+                                frame_info.capture_queue_depth_after_drain
+                            ),
+                            "camera_total_dropped_frames": camera.get_health().frames_dropped,
+                            "undistortion_seconds": max(
+                                0, undistortion_finished_ns - undistortion_started_ns
+                            )
+                            / 1e9,
+                            "shared_memory_publication_seconds": max(
+                                0,
+                                publication_finished_ns - publication_started_ns,
+                            )
+                            / 1e9,
+                        }
+                    )
 
                 # Log statistics periodically
                 current_time = time.time()
@@ -400,7 +536,13 @@ class VideoProcess:
         fps = self._frames_written / uptime if uptime > 0 else 0
 
         # Get camera health info
-        camera_health = self.camera.get_health()
+        camera = self.camera
+        if camera is None:
+            logger.warning(
+                "Skipping video statistics because the camera is unavailable"
+            )
+            return
+        camera_health = camera.get_health()
 
         # Get writer stats
         writer_stats = self.ipc_writer.get_stats() if self.ipc_writer else {}
@@ -462,9 +604,15 @@ class VideoProcess:
             finally:
                 self.ipc_writer = None
 
-        logger.info("Cleanup complete")
+        if self.resource_sampler is not None:
+            self.resource_sampler.close()
+            self.resource_sampler = None
 
-    def _signal_handler(self, signum, frame) -> None:
+        logger.info("Cleanup complete")
+        if self.audit_recorder is not None:
+            self.audit_recorder.close()
+
+    def _signal_handler(self, signum: int, frame: Optional[FrameType]) -> None:
         """Handle shutdown signals (SIGTERM, SIGINT).
 
         Args:
@@ -509,14 +657,21 @@ class VideoProcess:
                 logger.error("Camera initialization failed")
                 return 1
 
+            camera = self.camera
+            if camera is None:
+                logger.error(
+                    "Camera initialization completed without a camera instance"
+                )
+                return 1
+
             # Wait for first frame to get actual dimensions
             logger.info("Waiting for first frame to determine dimensions...")
             max_wait_time = 10.0  # 10 seconds timeout
             wait_start = time.time()
-            first_frame_data = None
+            first_frame_data: Optional[tuple[np.ndarray, FrameInfo]] = None
 
             while (time.time() - wait_start) < max_wait_time:
-                first_frame_data = self.camera.get_latest_frame()
+                first_frame_data = camera.get_latest_frame()
                 if first_frame_data is not None:
                     break
                 time.sleep(0.1)

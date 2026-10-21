@@ -11,13 +11,15 @@ All models include comprehensive validation, documentation, and serialization su
 """
 
 import base64
+import math
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import PositionWithScale
+from ...core.constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
+from .common import PositionWithScale, RealWorldDimensions, validate_positive_scale_pair
 
 # =============================================================================
 # Base WebSocket Message Models
@@ -168,17 +170,47 @@ class BallStateData(BaseModel):
     id: str = Field(..., description="Ball identifier")
     number: Optional[int] = Field(None, description="Ball number (1-15)")
     position: PositionWithScale = Field(
-        ..., description="Ball position with scale metadata (meters)"
+        ..., description="Ball position in pixel coordinates with scale metadata"
     )
     velocity: PositionWithScale = Field(
-        ..., description="Ball velocity with scale metadata (m/s)"
+        ..., description="Ball velocity in pixel units per second with scale metadata"
     )
-    radius: float = Field(default=0.028575, gt=0.0, description="Ball radius in meters")
+    radius: float = Field(
+        default=BALL_RADIUS_4K,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Ball radius in canonical 4K pixels",
+    )
+    radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Radius scale into canonical pixels",
+    )
+    radius_unit: Literal["canonical_pixels"] = Field(
+        ..., description="Unit of the ball radius value"
+    )
     is_cue_ball: bool = Field(default=False, description="Whether this is the cue ball")
     is_pocketed: bool = Field(default=False, description="Whether ball is pocketed")
+    is_observed: bool = Field(
+        default=True,
+        description="Whether this position has a detector match in the latest frame",
+    )
     confidence: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Detection confidence"
     )
+
+    @field_validator("radius_scale", mode="before")
+    @classmethod
+    def validate_radius_scale(cls, value: Any) -> list[float]:
+        return validate_positive_scale_pair(value, "Radius scale")
+
+    @field_validator("radius_scale")
+    @classmethod
+    def validate_circular_radius_scale(cls, value: list[float]) -> list[float]:
+        if not math.isclose(value[0], value[1], rel_tol=1e-6):
+            raise ValueError("Circular ball radius cannot use anisotropic scaling")
+        return value
 
 
 class CueStateData(BaseModel):
@@ -189,7 +221,11 @@ class CueStateData(BaseModel):
     """
 
     tip_position: PositionWithScale = Field(
-        ..., description="Cue tip position with scale metadata (meters)"
+        ..., description="Cue tip position in pixel coordinates with scale metadata"
+    )
+    butt_position: Optional[PositionWithScale] = Field(
+        default=None,
+        description="Measured cue butt position in pixel coordinates with scale metadata",
     )
     angle: float = Field(..., ge=-180.0, le=180.0, description="Cue angle in degrees")
     elevation: float = Field(
@@ -211,14 +247,77 @@ class TableStateData(BaseModel):
     Each position has format: {"x": float, "y": float, "scale": [sx, sy]}
     """
 
-    width: float = Field(..., gt=0.0, description="Table width in meters")
-    height: float = Field(..., gt=0.0, description="Table height in meters")
+    width: float = Field(
+        ...,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Table width in canonical 4K pixels",
+    )
+    height: float = Field(
+        ...,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Table height in canonical 4K pixels",
+    )
+    dimensions_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Table extent scale into canonical pixels",
+    )
+    dimensions_unit: Literal["canonical_pixels"] = Field(
+        ..., description="Unit of the table width and height values"
+    )
     pocket_positions: list[PositionWithScale] = Field(
         ..., description="Pocket positions with scale metadata"
     )
-    pocket_radius: float = Field(
-        default=0.0635, gt=0.0, description="Pocket radius in meters"
+    playing_area_corners: Optional[list[PositionWithScale]] = Field(
+        default=None,
+        description=(
+            "Optional calibrated playing-area corners in canonical pixel space, "
+            "with scale metadata on each point"
+        ),
     )
+    pocket_radius: float = Field(
+        default=POCKET_RADIUS_4K,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Pocket radius in canonical 4K pixels",
+    )
+    pocket_radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Pocket radius scale into canonical pixels",
+    )
+    pocket_radius_unit: Literal["canonical_pixels"] = Field(
+        ..., description="Unit of the pocket radius value"
+    )
+    real_world_dimensions: Optional[RealWorldDimensions] = Field(
+        default=None,
+        description="Optional physical table dimensions, separate from image geometry",
+    )
+
+    @field_validator("dimensions_scale", "pocket_radius_scale", mode="before")
+    @classmethod
+    def validate_table_scales(cls, value: Any) -> list[float]:
+        return validate_positive_scale_pair(value, "Table geometry scale")
+
+    @field_validator("pocket_radius_scale")
+    @classmethod
+    def validate_circular_pocket_radius_scale(cls, value: list[float]) -> list[float]:
+        if not math.isclose(value[0], value[1], rel_tol=1e-6):
+            raise ValueError("Circular pocket radius cannot use anisotropic scaling")
+        return value
+
+    @field_validator("playing_area_corners")
+    @classmethod
+    def validate_playing_area_corner_count(
+        cls, value: Optional[list[PositionWithScale]]
+    ) -> Optional[list[PositionWithScale]]:
+        if value is not None and len(value) != 4:
+            raise ValueError("Playing area must contain exactly four corners")
+        return value
 
 
 class GameStateData(BaseModel):
@@ -262,12 +361,12 @@ class TrajectoryPoint(BaseModel):
     """
 
     position: PositionWithScale = Field(
-        ..., description="Point position with scale metadata (meters)"
+        ..., description="Point position in pixel coordinates with scale metadata"
     )
     time: float = Field(..., ge=0.0, description="Time offset in seconds")
     velocity: Optional[PositionWithScale] = Field(
         default=None,
-        description="Velocity at this point with scale metadata (m/s)",
+        description="Velocity in pixel units per second with scale metadata",
     )
 
 
@@ -280,7 +379,7 @@ class CollisionInfo(BaseModel):
 
     position: PositionWithScale = Field(
         ...,
-        description="Collision position with scale metadata (meters)",
+        description="Collision position in pixel coordinates with scale metadata",
     )
     time: float = Field(..., ge=0.0, description="Time until collision in seconds")
     type: str = Field(
@@ -645,7 +744,7 @@ def validate_websocket_message(message_dict: dict[str, Any]) -> BaseWebSocketMes
         raise ValueError("Message must have a 'type' field")
 
     # Message type mapping
-    message_classes = {
+    message_classes: dict[MessageType, type[BaseWebSocketMessage]] = {
         MessageType.FRAME: FrameMessage,
         MessageType.STATE: StateMessage,
         MessageType.TRAJECTORY: TrajectoryMessage,

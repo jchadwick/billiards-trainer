@@ -34,7 +34,7 @@ from backend.core.physics.trajectory import (
 # =============================================================================
 
 
-@pytest.fixture()
+@pytest.fixture
 def table_state():
     """Create a standard table state for testing.
 
@@ -72,7 +72,7 @@ def table_state():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def cue_ball():
     """Create a standard cue ball in 4K canonical coordinates."""
     return BallState.from_4k(
@@ -84,7 +84,7 @@ def cue_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def target_ball():
     """Create a target ball for collision testing."""
     return BallState.from_4k(
@@ -95,13 +95,13 @@ def target_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def calculator():
     """Create a trajectory calculator instance."""
     return TrajectoryCalculator()
 
 
-@pytest.fixture()
+@pytest.fixture
 def cue_state():
     """Create a standard cue state for shot prediction."""
     return CueState(
@@ -118,7 +118,7 @@ def cue_state():
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestVector2DScaleValidation:
     """Test that all Vector2D instances have proper scale parameters."""
 
@@ -180,7 +180,7 @@ class TestVector2DScaleValidation:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBasicTrajectoryCalculation:
     """Test basic trajectory calculation functionality."""
 
@@ -286,7 +286,7 @@ class TestBasicTrajectoryCalculation:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCollisionDetection:
     """Test collision detection in trajectories."""
 
@@ -371,7 +371,7 @@ class TestCollisionDetection:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCueShotPrediction:
     """Test cue shot prediction functionality."""
 
@@ -477,7 +477,7 @@ class TestCueShotPrediction:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestMultiballTrajectory:
     """Test multiball trajectory prediction."""
 
@@ -527,6 +527,69 @@ class TestMultiballTrajectory:
                 assert point.velocity.scale == (1.0, 1.0)
                 assert point.acceleration.scale == (1.0, 1.0)
                 assert point.spin.scale == (1.0, 1.0)
+
+    @pytest.mark.parametrize("offset_fraction", [0.0, 0.5], ids=["head_on", "oblique"])
+    def test_secondary_trajectory_starts_at_target_center(
+        self, calculator, cue_state, cue_ball, target_ball, table_state, offset_fraction
+    ):
+        """Keep target-center origins distinct from incoming-center contacts."""
+        cue_state.angle = 0.0
+        cue_state.estimated_force = 100.0
+        contact_distance = cue_ball.radius + target_ball.radius
+        target_ball.position = Vector2D.from_4k(
+            target_ball.position.x,
+            cue_ball.position.y + contact_distance * offset_fraction,
+        )
+        cue_position = (cue_ball.position.x, cue_ball.position.y)
+        target_position = (target_ball.position.x, target_ball.position.y)
+        cue_tip = (cue_state.tip_position.x, cue_state.tip_position.y)
+        cue_impact = (cue_state.impact_point.x, cue_state.impact_point.y)
+
+        result = calculator.predict_multiball_cue_shot(
+            cue_state,
+            cue_ball,
+            table_state,
+            other_balls=[target_ball],
+            quality=TrajectoryQuality.LOW,
+            max_collision_depth=1,
+        )
+
+        target_trajectory = result.trajectories[target_ball.id]
+        initial_position = target_trajectory.initial_state.position
+        first_position = target_trajectory.points[0].position
+        # Both output representations must retain the measured target center.
+        # The incoming ball center is a different point at collision, including
+        # for an oblique impact with a nonzero normal component in each axis.
+        assert (initial_position.x, initial_position.y) == pytest.approx(
+            target_position, abs=1e-7
+        )
+        assert (first_position.x, first_position.y) == pytest.approx(
+            target_position, abs=1e-7
+        )
+        assert initial_position.scale == target_ball.position.scale
+        assert first_position.scale == target_ball.position.scale
+        incoming_collisions = [
+            collision
+            for collision in result.trajectories[cue_ball.id].collisions
+            if collision.type == CollisionType.BALL_BALL
+            and collision.ball2_id == target_ball.id
+        ]
+        assert incoming_collisions
+        contact = incoming_collisions[0].position
+        assert math.hypot(
+            contact.x - target_position[0], contact.y - target_position[1]
+        ) == pytest.approx(contact_distance, abs=1e-7)
+        assert contact.y == pytest.approx(cue_position[1], abs=1e-7)
+        assert contact.x < target_position[0]
+        if offset_fraction:
+            assert contact.y != target_position[1]
+
+        # Calculations must own their working state, including detached target
+        # branches; no collision may rewrite the caller's observed geometry.
+        assert (cue_ball.position.x, cue_ball.position.y) == cue_position
+        assert (target_ball.position.x, target_ball.position.y) == target_position
+        assert (cue_state.tip_position.x, cue_state.tip_position.y) == cue_tip
+        assert (cue_state.impact_point.x, cue_state.impact_point.y) == cue_impact
 
     def test_multiball_collision_sequence(
         self, calculator, cue_state, cue_ball, target_ball, table_state
@@ -579,7 +642,7 @@ class TestMultiballTrajectory:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
@@ -664,7 +727,7 @@ class TestEdgeCases:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCaching:
     """Test trajectory caching functionality."""
 
@@ -717,7 +780,7 @@ class TestCaching:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestTrajectoryExport:
     """Test trajectory data export for visualization."""
 
@@ -736,23 +799,18 @@ class TestTrajectoryExport:
 
         # Should have required fields
         assert "ball_id" in export_data
-        assert "points" in export_data
         assert "lines" in export_data
         assert "collisions" in export_data
+        assert "points" not in export_data
 
-        # Points should be serializable
-        for point in export_data["points"]:
-            assert "x" in point
-            assert "y" in point
-            assert "vx" in point
-            assert "vy" in point
-
-        # Lines should connect consecutive points
+        # Lines are the sole exported trajectory geometry and connect
+        # consecutive internal physics points with explicitly scaled vectors.
         for line in export_data["lines"]:
             assert "start" in line
             assert "end" in line
-            assert len(line["start"]) == 2
-            assert len(line["end"]) == 2
+            assert line["start"]["scale"] == [1.0, 1.0]
+            assert line["end"]["scale"] == [1.0, 1.0]
+            assert line["coordinate_unit"] == "canonical_pixels"
 
     def test_export_with_collisions(
         self, calculator, cue_state, cue_ball, target_ball, table_state
@@ -772,7 +830,12 @@ class TestTrajectoryExport:
         for collision in export_data["collisions"]:
             assert "position" in collision
             assert "type" in collision
-            assert len(collision["position"]) == 2  # [x, y] array format
+            assert collision["position"]["scale"] == [1.0, 1.0]
+            assert "x" not in collision
+            assert "y" not in collision
+            assert "scale" not in collision
+            assert "ball_id" not in collision
+            assert {"ball1_id", "ball2_id"}.issubset(collision)
 
 
 # =============================================================================
@@ -780,7 +843,7 @@ class TestTrajectoryExport:
 # =============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestIntegration:
     """Integration tests combining multiple features."""
 

@@ -1,13 +1,16 @@
 """Event handlers for system events and module coordination."""
 
+from __future__ import annotations
+
 import logging
 import time
-from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Callable
 
-from .manager import EventType
+from ..coordinates import Vector2D
+from .manager import EventCallback, EventManager, EventType
 
 if TYPE_CHECKING:
+    from ..game_state import GameStateManager
     from ..models import BallState, CueState, GameState
 
 logger = logging.getLogger(__name__)
@@ -16,7 +19,11 @@ logger = logging.getLogger(__name__)
 class CoreEventHandlers:
     """Core system event handlers implementing FR-CORE-056 to FR-CORE-060."""
 
-    def __init__(self, event_manager, game_state_manager=None):
+    def __init__(
+        self,
+        event_manager: EventManager,
+        game_state_manager: GameStateManager | None = None,
+    ) -> None:
         """Initialize core event handlers.
 
         Args:
@@ -28,7 +35,7 @@ class CoreEventHandlers:
         self.logger = logging.getLogger(__name__)
 
         # Handler registry
-        self.handlers: dict[str, list[Callable]] = {
+        self.handlers: dict[str, list[EventCallback]] = {
             EventType.STATE_UPDATED.value: [self.handle_state_change],
             EventType.VISION_DATA_RECEIVED.value: [self.handle_vision_data],
             EventType.BALL_MOVED.value: [self.handle_ball_movement],
@@ -53,7 +60,7 @@ class CoreEventHandlers:
         # Register handlers with event manager
         self._register_handlers()
 
-    def _register_handlers(self):
+    def _register_handlers(self) -> None:
         """Register all handlers with the event manager."""
         for event_type, handlers in self.handlers.items():
             for handler in handlers:
@@ -61,10 +68,10 @@ class CoreEventHandlers:
                     event_type, self._create_handler_wrapper(handler)
                 )
 
-    def _create_handler_wrapper(self, handler: Callable):
+    def _create_handler_wrapper(self, handler: EventCallback) -> EventCallback:
         """Create a wrapper for handlers to add error handling and statistics."""
 
-        def wrapper(event_type: str, data: dict[str, Any]):
+        def wrapper(event_type: str, data: dict[str, Any]) -> None:
             try:
                 self.handler_stats["events_handled"] += 1
                 self.handler_stats["last_activity"] = time.time()
@@ -85,7 +92,7 @@ class CoreEventHandlers:
 
         return wrapper
 
-    def handle_state_change(self, event_type: str, data: dict[str, Any]):
+    def handle_state_change(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle game state change events."""
         frame_number = data.get("frame_number")
         timestamp = data.get("timestamp")
@@ -130,7 +137,7 @@ class CoreEventHandlers:
                         }
                     )
 
-    def handle_vision_data(self, event_type: str, data: dict[str, Any]):
+    def handle_vision_data(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle vision detection data (FR-CORE-051)."""
         detection_data = data.get("detection_data", {})
 
@@ -157,7 +164,7 @@ class CoreEventHandlers:
                     },
                 )
 
-    def handle_ball_movement(self, event_type: str, data: dict[str, Any]):
+    def handle_ball_movement(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle ball movement events."""
         ball_id = data.get("ball_id")
         distance = data.get("distance", 0)
@@ -175,7 +182,7 @@ class CoreEventHandlers:
                 },
             )
 
-    def handle_collision_event(self, event_type: str, data: dict[str, Any]):
+    def handle_collision_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle collision detection events."""
         ball1_id = data.get("ball1_id")
         ball2_id = data.get("ball2_id")
@@ -186,19 +193,35 @@ class CoreEventHandlers:
         )
 
         # Log collision for analysis
+        position = data.get("position")
+        position_unit = data.get("position_unit")
+        if position is not None:
+            if isinstance(position, Vector2D):
+                position = position.to_dict()
+            elif isinstance(position, dict):
+                # Validate that incoming collision points carry a scale, source
+                # resolution, or canonical coordinate-space declaration.
+                position = Vector2D.from_dict(position).to_dict()
+            else:
+                raise ValueError(
+                    "Collision position must be a scale-aware coordinate mapping"
+                )
+            position_unit = position_unit or "canonical_pixels"
+
         collision_data = {
             "ball1_id": ball1_id,
             "ball2_id": ball2_id,
             "type": collision_type,
             "timestamp": time.time(),
-            "position": data.get("position"),
+            "position": position,
+            "position_unit": position_unit,
         }
 
         # Store collision for physics validation
         if hasattr(self, "collision_history"):
             self.collision_history.append(collision_data)
 
-    def handle_shot_event(self, event_type: str, data: dict[str, Any]):
+    def handle_shot_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle shot detection events."""
         initiating_ball = data.get("initiating_ball")
         timestamp = data.get("timestamp")
@@ -223,7 +246,7 @@ class CoreEventHandlers:
                     },
                 )
 
-    def handle_ball_pocketed(self, event_type: str, data: dict[str, Any]):
+    def handle_ball_pocketed(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle ball pocketed events."""
         ball_id = data.get("ball_id")
         ball_number = data.get("ball_number")
@@ -237,7 +260,7 @@ class CoreEventHandlers:
         else:
             self.logger.info(f"Ball {ball_number or ball_id} pocketed")
 
-    def handle_game_reset(self, event_type: str, data: dict[str, Any]):
+    def handle_game_reset(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle game reset events."""
         game_type = data.get("game_type")
         timestamp = data.get("timestamp")
@@ -253,7 +276,9 @@ class CoreEventHandlers:
             "system_reset", {"game_type": game_type, "timestamp": timestamp}
         )
 
-    def handle_module_initialization(self, event_type: str, data: dict[str, Any]):
+    def handle_module_initialization(
+        self, event_type: str, data: dict[str, Any]
+    ) -> None:
         """Handle module initialization events (FR-CORE-055)."""
         module_name = data.get("module_name")
         capabilities = data.get("capabilities", [])
@@ -268,17 +293,19 @@ class CoreEventHandlers:
                 module_name, self._get_module_config(module_name)
             )
 
-    def handle_module_shutdown(self, event_type: str, data: dict[str, Any]):
+    def handle_module_shutdown(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle module shutdown events (FR-CORE-055)."""
         module_name = data.get("module_name")
 
         self.logger.info(f"Module {module_name} shutting down")
 
         # Clean up any module-specific resources
-        if hasattr(self.event_manager.coordinator, "module_states"):
+        if isinstance(module_name, str) and hasattr(
+            self.event_manager.coordinator, "module_states"
+        ):
             self.event_manager.coordinator.module_states.pop(module_name, None)
 
-    def handle_config_change(self, event_type: str, data: dict[str, Any]):
+    def handle_config_change(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle configuration change events (FR-CORE-054)."""
         module_name = data.get("module_name")
         config = data.get("config")
@@ -289,7 +316,7 @@ class CoreEventHandlers:
         if module_name == "core" and config:
             self._apply_core_config(config)
 
-    def handle_error(self, event_type: str, data: dict[str, Any]):
+    def handle_error(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle error events."""
         source = data.get("source", "unknown")
         error = data.get("error")
@@ -300,7 +327,7 @@ class CoreEventHandlers:
         # Could implement error recovery logic here
         # For now, just log and track
 
-    def handle_calibration_update(self, event_type: str, data: dict[str, Any]):
+    def handle_calibration_update(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle calibration update events."""
         calibration_type = data.get("type")
         parameters = data.get("parameters")
@@ -321,7 +348,7 @@ class CoreEventHandlers:
                 ["projector"],
             )
 
-    def _analyze_state_for_events(self, state: "GameState"):
+    def _analyze_state_for_events(self, state: GameState) -> None:
         """Analyze game state for significant events."""
         # Check for collisions based on ball proximity and velocities
         active_balls = [ball for ball in state.balls if not ball.is_pocketed]
@@ -335,62 +362,46 @@ class CoreEventHandlers:
                             "ball1_id": ball1.id,
                             "ball2_id": ball2.id,
                             "type": "ball",
-                            "position": {
-                                "x": (ball1.position.x + ball2.position.x) / 2,
-                                "y": (ball1.position.y + ball2.position.y) / 2,
-                            },
+                            "position": (
+                                (ball1.position + ball2.position) / 2
+                            ).to_dict(),
+                            "position_unit": "canonical_pixels",
                             "timestamp": time.time(),
                         },
                     )
 
-    def _serialize_state(self, state: "GameState") -> dict[str, Any]:
+    def _serialize_state(self, state: GameState) -> dict[str, Any]:
         """Serialize game state for transmission."""
         return {
             "timestamp": state.timestamp,
             "frame_number": state.frame_number,
             "balls": [self._serialize_ball(ball) for ball in state.balls],
-            "table": (
-                state.table.to_dict()
-                if hasattr(state.table, "to_dict")
-                else asdict(state.table)
-            ),
+            "table": state.table.to_dict(),
             "cue": self._serialize_cue(state.cue) if state.cue else None,
             "game_type": state.game_type.value,
             "is_break": state.is_break,
             "scores": state.scores,
         }
 
-    def _serialize_ball(self, ball: "BallState") -> dict[str, Any]:
+    def _serialize_ball(self, ball: BallState) -> dict[str, Any]:
         """Serialize ball state for transmission."""
         return {
-            "id": ball.id,
-            "position": {"x": ball.position.x, "y": ball.position.y},
-            "velocity": {"x": ball.velocity.x, "y": ball.velocity.y},
-            "radius": ball.radius,
-            "is_cue_ball": ball.is_cue_ball,
-            "is_pocketed": ball.is_pocketed,
-            "number": ball.number,
-            "confidence": ball.confidence,
+            **ball.to_dict(),
+            "position_unit": "canonical_pixels",
+            "velocity_unit": "canonical_pixels_per_second",
         }
 
-    def _serialize_cue(self, cue: "CueState") -> dict[str, Any]:
+    def _serialize_cue(self, cue: CueState) -> dict[str, Any]:
         """Serialize cue state for transmission."""
         return {
-            "tip_position": {"x": cue.tip_position.x, "y": cue.tip_position.y},
-            "angle": cue.angle,
-            "elevation": cue.elevation,
-            "estimated_force": cue.estimated_force,
-            "impact_point": (
-                {"x": cue.impact_point.x, "y": cue.impact_point.y}
-                if cue.impact_point
-                else None
-            ),
-            "confidence": cue.confidence,
+            **cue.to_dict(),
+            "tip_position_unit": "canonical_pixels",
+            "impact_point_unit": "canonical_pixels",
         }
 
     def _get_module_config(self, module_name: str) -> dict[str, Any]:
         """Get configuration for a specific module."""
-        configs = {
+        configs: dict[str, dict[str, Any]] = {
             "api": {
                 "update_frequency": 60,  # Hz
                 "enable_websocket": True,
@@ -410,7 +421,7 @@ class CoreEventHandlers:
         }
         return configs.get(module_name, {})
 
-    def _apply_core_config(self, config: dict[str, Any]):
+    def _apply_core_config(self, config: dict[str, Any]) -> None:
         """Apply configuration changes to core module."""
         # Example configuration application
         if "validation_enabled" in config and self.game_state_manager:
@@ -432,7 +443,7 @@ class CoreEventHandlers:
             "total_event_types": len(self.handlers),
         }
 
-    def add_custom_handler(self, event_type: str, handler: Callable):
+    def add_custom_handler(self, event_type: str, handler: EventCallback) -> None:
         """Add a custom event handler (FR-CORE-060)."""
         if event_type not in self.handlers:
             self.handlers[event_type] = []
@@ -446,16 +457,10 @@ class CoreEventHandlers:
 
         self.logger.info(f"Custom handler added for event type: {event_type}")
 
-    def remove_custom_handler(self, event_type: str, handler: Callable) -> bool:
+    def remove_custom_handler(self, event_type: str, handler: EventCallback) -> bool:
         """Remove a custom event handler."""
         if event_type in self.handlers and handler in self.handlers[event_type]:
             self.handlers[event_type].remove(handler)
             self.logger.info(f"Custom handler removed for event type: {event_type}")
             return True
         return False
-
-
-class EventHandlers(CoreEventHandlers):
-    """Legacy alias for backward compatibility."""
-
-    pass

@@ -8,7 +8,7 @@ The frontend stores have been updated to replace mock data implementations with 
 
 - Real-time system health monitoring
 - Configuration persistence to backend
-- Live video streaming from cameras
+- Live video streaming from cameras, with optional direct MJPEG delivery
 - WebSocket connections for real-time updates
 - Proper error handling and fallback mechanisms
 
@@ -35,7 +35,6 @@ const status = await apiClient.getStreamStatus();
 
 **Features:**
 - Automatic error handling with proper response types
-- Support for authentication tokens
 - WebSocket connection creation
 - Video streaming URL generation
 
@@ -53,7 +52,7 @@ const status = await apiClient.getStreamStatus();
 - **Note**: Profile management is handled client-side in browser localStorage (not synced to backend)
 
 #### VideoStore
-- **Real Streaming**: Connects to `/api/v1/stream/video` endpoint
+- **Real Streaming**: Existing consumers can connect to `/api/v1/stream/video`
 - **Camera Control**: Start/stop video capture through backend
 - **Stream Status**: Live monitoring of camera and streaming health
 - **Quality Control**: Dynamic quality and FPS adjustment
@@ -111,7 +110,7 @@ import IntegrationTestPanel from './components/debug/IntegrationTestPanel';
 | `POST /api/v1/stream/video/start` | Start capture | VideoStore |
 | `POST /api/v1/stream/video/stop` | Stop capture | VideoStore |
 | `GET /api/v1/stream/video/frame` | Single frame | VideoStore |
-| `WS /api/v1/ws` | WebSocket connection | SystemStore |
+| `WS /api/v1/websocket/ws` | WebSocket connection | SystemStore |
 
 ## Error Handling
 
@@ -124,31 +123,33 @@ All API calls include proper error handling:
 
 ## Configuration
 
-The API client defaults to `http://localhost:8080` but can be configured:
+Set the required `VITE_API_BASE_URL` environment variable to
+`http://localhost:8000` for local development. The WebSocket base URL is
+derived from this value, and clients connect at `/api/v1/websocket/ws`.
+Set the optional runtime `api.stream.viewer_url` to an HTTP(S) MJPEG URL
+reachable by viewer browsers. Live View loads that image feed directly; scene
+and detection state continue over the API/WebSocket path. The URL must not
+contain credentials. This can differ from the detector's `vision.camera.device_id`
+URI, which may use loopback from the backend host. For example, set the detector
+source to `http://127.0.0.1:8080/stream` and the viewer URL to the target's
+LAN-reachable address, such as `http://<target-host>:8080/stream`. The detector
+URI takes precedence over the legacy recorded-video path; clear that path when
+using a numeric device index for live capture.
 
 ```typescript
 // Custom base URL (if needed)
-const customClient = new ApiClient('http://your-backend:8080', 'ws://your-backend:8080');
+const customClient = new ApiClient(
+  'http://your-backend:8000',
+  'ws://your-backend:8000'
+);
 ```
 
 ## Development Testing
 
-1. **Start the backend server** on `localhost:8080`
+1. **Start the backend server** on `localhost:8000`
 2. **Run the frontend** with `npm run dev`
 3. **Open the diagnostics page** to see the IntegrationTestPanel
 4. **Click "Run Tests"** to verify all connections work
-
-## Authentication Integration
-
-The integration supports JWT authentication:
-
-```typescript
-// Set auth token
-apiClient.setAuthToken(token);
-
-// WebSocket connections will automatically include the token
-const ws = apiClient.createWebSocket(token);
-```
 
 ## Monitoring and Debugging
 
@@ -197,7 +198,6 @@ integrationTester.printResults();
 1. **Backend Not Running**: Stores will show "disconnected" status and use fallback data
 2. **CORS Issues**: Ensure backend has proper CORS configuration for `localhost:3000`
 3. **WebSocket Failures**: Check firewall and proxy settings
-4. **Auth Errors**: Verify JWT token format and expiration
 
 ### Debug Steps
 
@@ -211,4 +211,3 @@ integrationTester.printResults();
 - **Offline Mode**: Cache data for offline operation
 - **Real-time Sync**: Conflict resolution for concurrent edits
 - **Performance Optimization**: Request batching and caching
-- **Advanced Auth**: Role-based permissions and refresh tokens

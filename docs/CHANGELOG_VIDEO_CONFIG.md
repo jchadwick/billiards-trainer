@@ -1,3 +1,9 @@
+> Historical implementation report: this describes a removed configuration
+> manager and its legacy video-schema support. Follow the current
+> [configuration guide](CONFIG.md) and
+> [configuration defaults](../backend/config_schema_defaults.json) for the
+> supported schema.
+
 # Changelog - Video Configuration Helper Methods
 
 ## Added

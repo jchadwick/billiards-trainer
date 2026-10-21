@@ -12,43 +12,37 @@ Key features:
 - Error handling and logging
 """
 
-from datetime import datetime
-from typing import Any, Union
+import math
+from datetime import datetime, timezone
+from typing import Any, Literal, Optional, Sequence, Union
 
-# Import core models with fallback for different import contexts
-try:
-    from ...core.coordinates import Vector2D
-    from ...core.models import (
-        BallState,
-        Collision,
-        CueState,
-        GameEvent,
-        GameState,
-        GameType,
-        ShotAnalysis,
-        TableState,
-        Trajectory,
-    )
-except ImportError:
-    # If running from the backend directory directly
-    from core.coordinates import Vector2D
-    from core.models import (
-        BallState,
-        Collision,
-        CueState,
-        GameEvent,
-        GameState,
-        GameType,
-        ShotAnalysis,
-        TableState,
-        Trajectory,
-    )
-
-from .common import Coordinate2D, ValidationResult
+from ...core.coordinates import Vector2D
+from ...core.models import (
+    BallState,
+    Collision,
+    CueState,
+    GameEvent,
+    GameState,
+    GameType,
+    ShotAnalysis,
+    TableState,
+    Trajectory,
+)
+from ...perception.scene_state_adapter import SceneStateReadModel
+from .common import (
+    CANONICAL_PIXEL_UNIT,
+    METERS_UNIT,
+    Coordinate2D,
+    PositionWithScale,
+    RealWorldDimensions,
+    ValidationResult,
+)
 from .responses import BallInfo, CueInfo
 from .responses import GameEvent as APIGameEvent
 from .responses import (
     GameStateResponse,
+    SceneBallInfo,
+    SceneGameStateResponse,
     ShotAnalysisResponse,
     TableInfo,
     TrajectoryInfo,
@@ -62,9 +56,25 @@ from .websocket import CueStateData, GameStateData, TableStateData, TrajectoryDa
 # =============================================================================
 
 
+def _is_finite_number(value: Any) -> bool:
+    """Check numeric input without accepting booleans or non-finite values."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def vector2d_to_coordinate2d(vector: Vector2D) -> Coordinate2D:
-    """Convert core Vector2D to API Coordinate2D."""
-    return Coordinate2D(x=vector.x, y=vector.y)
+    """Convert a core vector without discarding its coordinate scale."""
+    if not _is_finite_number(vector.x) or not _is_finite_number(vector.y):
+        raise ValueError("Vector coordinates must be finite numbers")
+    return Coordinate2D(
+        x=vector.x,
+        y=vector.y,
+        scale=list(_scale_pair(vector.scale)),
+    )
 
 
 def vector2d_to_dict(vector: Vector2D) -> dict[str, Any]:
@@ -81,15 +91,18 @@ def vector2d_to_dict(vector: Vector2D) -> dict[str, Any]:
     Raises:
         ValueError: If vector does not have scale metadata
     """
-    # Validate scale metadata is present
-    if not hasattr(vector, "scale") or vector.scale is None:
-        raise ValueError("Vector2D must have scale metadata")
-    if not isinstance(vector.scale, (tuple, list)) or len(vector.scale) != 2:
+    if not _is_finite_number(vector.x) or not _is_finite_number(vector.y):
+        raise ValueError("Vector coordinates must be finite numbers")
+    if vector.scale is None:
+        raise ValueError("Vector must have scale metadata")
+    if not isinstance(vector.scale, (tuple, list)):
         raise ValueError(
-            f"Scale must be a 2-element tuple or list, got {type(vector.scale).__name__} with length {len(vector.scale) if isinstance(vector.scale, (tuple, list)) else 'N/A'}"
+            "Scale must be a 2-element tuple or list, "
+            f"got {type(vector.scale).__name__}"
         )
-    if vector.scale[0] <= 0 or vector.scale[1] <= 0:
-        raise ValueError(f"Scale factors must be positive, got {vector.scale}")
+    if len(vector.scale) != 2:
+        raise ValueError("Scale must be a 2-element tuple or list")
+    _scale_pair(vector.scale)
 
     return {
         "x": vector.x,
@@ -98,13 +111,63 @@ def vector2d_to_dict(vector: Vector2D) -> dict[str, Any]:
     }
 
 
-def vector2d_to_list(vector: Vector2D) -> list[float]:
-    """Convert core Vector2D to list format [x, y].
+def _scale_pair(scale: Sequence[float]) -> tuple[float, float]:
+    """Return validated fixed-size scale metadata for the core coordinate type."""
+    if len(scale) != 2:
+        raise ValueError("Scale must have exactly 2 values [scale_x, scale_y]")
+    if not all(_is_finite_number(value) and value > 0 for value in scale):
+        raise ValueError("Scale factors must be positive and finite")
+    return scale[0], scale[1]
 
-    DEPRECATED: Use vector2d_to_dict() instead to include mandatory scale metadata.
-    This function is kept for backward compatibility only.
+
+def _position_with_scale(vector: Vector2D) -> PositionWithScale:
+    """Convert a core vector into the API's validated coordinate model."""
+    return PositionWithScale(x=vector.x, y=vector.y, scale=list(vector.scale))
+
+
+def _position_to_vector(position: PositionWithScale) -> Vector2D:
+    """Validate a scale-aware transport point before constructing a core vector."""
+    validate_coordinate_conversion(position)
+    return Vector2D(
+        x=position.x,
+        y=position.y,
+        scale=_scale_pair(position.scale),
+    )
+
+
+def _table_real_world_dimensions(table: TableState) -> Optional[RealWorldDimensions]:
+    """Convert optional Core SI dimensions without conflating them with pixels."""
+    if table.real_width_meters is None and table.real_height_meters is None:
+        return None
+    if table.real_width_meters is None or table.real_height_meters is None:
+        raise ValueError("Core table must provide both physical dimensions together")
+    return RealWorldDimensions(
+        width=table.real_width_meters,
+        height=table.real_height_meters,
+        unit=METERS_UNIT,
+    )
+
+
+def _ball_transport_fields(ball: BallState) -> dict[str, Any]:
+    """Return ball properties shared by the HTTP and WebSocket contracts.
+
+    The API and WebSocket schemas intentionally remain separate because they
+    carry different transport-specific fields (for example, ``last_update``
+    versus ``radius``). Keeping the common mapping here prevents identity,
+    confidence, pocket state, or coordinate metadata from drifting between them.
     """
-    return [vector.x, vector.y]
+    return {
+        # Detection IDs are often numeric at runtime, while both transport
+        # schemas define IDs as strings. Normalize once for HTTP and WebSocket.
+        "id": str(ball.id),
+        "number": ball.number,
+        "position": vector2d_to_dict(ball.position),
+        "velocity": vector2d_to_dict(ball.velocity),
+        "is_cue_ball": ball.is_cue_ball,
+        "is_pocketed": ball.is_pocketed,
+        "is_observed": ball.is_observed,
+        "confidence": ball.confidence,
+    }
 
 
 def ball_state_to_ball_info(ball: BallState) -> BallInfo:
@@ -113,13 +176,7 @@ def ball_state_to_ball_info(ball: BallState) -> BallInfo:
     Note: This now returns position and velocity as dicts with mandatory scale metadata.
     """
     return BallInfo(
-        id=ball.id,
-        number=ball.number,
-        position=vector2d_to_dict(ball.position),
-        velocity=vector2d_to_dict(ball.velocity),
-        is_cue_ball=ball.is_cue_ball,
-        is_pocketed=ball.is_pocketed,
-        confidence=ball.confidence,
+        **_ball_transport_fields(ball),
         last_update=datetime.fromtimestamp(ball.last_update),
     )
 
@@ -130,14 +187,10 @@ def ball_state_to_websocket_data(ball: BallState) -> BallStateData:
     Note: This now returns position and velocity as dicts with mandatory scale metadata.
     """
     return BallStateData(
-        id=ball.id,
-        number=ball.number,
-        position=vector2d_to_dict(ball.position),
-        velocity=vector2d_to_dict(ball.velocity),
+        **_ball_transport_fields(ball),
         radius=ball.radius,
-        is_cue_ball=ball.is_cue_ball,
-        is_pocketed=ball.is_pocketed,
-        confidence=ball.confidence,
+        radius_scale=list(_scale_pair(ball.radius_scale)),
+        radius_unit=CANONICAL_PIXEL_UNIT,
     )
 
 
@@ -147,7 +200,12 @@ def cue_state_to_cue_info(cue: CueState) -> CueInfo:
     Note: This now returns tip_position as dict with mandatory scale metadata.
     """
     return CueInfo(
-        tip_position=vector2d_to_dict(cue.tip_position),
+        tip_position=_position_with_scale(cue.tip_position),
+        butt_position=(
+            _position_with_scale(cue.butt_position)
+            if cue.butt_position is not None
+            else None
+        ),
         angle=cue.angle,
         elevation=cue.elevation,
         estimated_force=cue.estimated_force,
@@ -162,7 +220,12 @@ def cue_state_to_websocket_data(cue: CueState) -> CueStateData:
     Note: This now returns tip_position as dict with mandatory scale metadata.
     """
     return CueStateData(
-        tip_position=vector2d_to_dict(cue.tip_position),
+        tip_position=_position_with_scale(cue.tip_position),
+        butt_position=(
+            _position_with_scale(cue.butt_position)
+            if cue.butt_position is not None
+            else None
+        ),
         angle=cue.angle,
         elevation=cue.elevation,
         estimated_force=cue.estimated_force,
@@ -179,8 +242,18 @@ def table_state_to_table_info(table: TableState) -> TableInfo:
     return TableInfo(
         width=table.width,
         height=table.height,
-        pocket_positions=[vector2d_to_dict(pos) for pos in table.pocket_positions],
+        dimensions_scale=list(_scale_pair(table.dimensions_scale)),
+        dimensions_unit=CANONICAL_PIXEL_UNIT,
+        pocket_positions=[_position_with_scale(pos) for pos in table.pocket_positions],
+        playing_area_corners=(
+            [_position_with_scale(point) for point in table.playing_area_corners]
+            if table.playing_area_corners is not None
+            else None
+        ),
         pocket_radius=table.pocket_radius,
+        pocket_radius_scale=list(_scale_pair(table.pocket_radius_scale)),
+        pocket_radius_unit=CANONICAL_PIXEL_UNIT,
+        real_world_dimensions=_table_real_world_dimensions(table),
         surface_friction=table.surface_friction,
     )
 
@@ -193,8 +266,18 @@ def table_state_to_websocket_data(table: TableState) -> TableStateData:
     return TableStateData(
         width=table.width,
         height=table.height,
-        pocket_positions=[vector2d_to_dict(pos) for pos in table.pocket_positions],
+        dimensions_scale=list(_scale_pair(table.dimensions_scale)),
+        dimensions_unit=CANONICAL_PIXEL_UNIT,
+        pocket_positions=[_position_with_scale(pos) for pos in table.pocket_positions],
+        playing_area_corners=(
+            [_position_with_scale(point) for point in table.playing_area_corners]
+            if table.playing_area_corners is not None
+            else None
+        ),
         pocket_radius=table.pocket_radius,
+        pocket_radius_scale=list(_scale_pair(table.pocket_radius_scale)),
+        pocket_radius_unit=CANONICAL_PIXEL_UNIT,
+        real_world_dimensions=_table_real_world_dimensions(table),
     )
 
 
@@ -223,6 +306,134 @@ def game_state_to_response(state: GameState) -> GameStateResponse:
     )
 
 
+def scene_state_to_response(
+    read_model: SceneStateReadModel,
+    core_state: GameState | None,
+    *,
+    include_events: bool = True,
+) -> SceneGameStateResponse:
+    """Project fresh scene locations independently of optional Core metadata.
+
+    The scene read model owns location and provenance. Core may contribute game
+    type and events, but its table is exposed only when both systems provide an
+    equal calibration revision. Unknown alignment leaves table geometry absent.
+    Core ball positions, cue state and prediction values never overwrite the
+    localization read model.
+    """
+    payload = read_model.payload
+    balls = [
+        SceneBallInfo(
+            id=ball["id"],
+            number=ball.get("number"),
+            position=ball["position"],
+            velocity=None,
+            is_cue_ball=None,
+            is_pocketed=None,
+            is_observed=bool(ball["is_observed"]),
+            confidence=float(ball["confidence"]),
+            last_update=read_model.ball_localization_received_at[ball["id"]],
+            velocity_status="unavailable",
+            cue_ball_status="unavailable",
+            pocket_status="unavailable",
+            confidence_kind=ball["confidence_kind"],
+            last_observation_confidence=ball.get("last_observation_confidence"),
+            identity_status=ball["identity_status"],
+            identity_confidence=ball.get("identity_confidence"),
+            identity_evidence=ball["identity_evidence"],
+            ball_type=ball["type"],
+            tracking_status=ball["tracking_status"],
+            position_kind=ball["position_kind"],
+            table_position=ball.get("table_position"),
+            source_observation=ball["source_observation"],
+            radius=ball["radius"],
+            radius_unit=ball["radius_unit"],
+            radius_source=ball["radius_source"],
+        )
+        for ball in payload.balls
+    ]
+    status = payload.observation_status
+    transport_sequence = status.get("transport_sequence")
+    if transport_sequence is None and status.get("phase") == "rust_scene_health":
+        frame_number = None
+    elif isinstance(transport_sequence, bool) or not isinstance(
+        transport_sequence, int
+    ):
+        raise ValueError("scene transport_sequence must be an integer")
+    else:
+        frame_number = transport_sequence
+
+    confidence_values = [
+        ball.confidence
+        for ball in balls
+        if ball.confidence_kind == "detector_observation"
+    ]
+    scene_revision = _optional_revision(status.get("calibration_revision"))
+    core_table = getattr(core_state, "table", None)
+    table_revision = (
+        _optional_revision(getattr(core_table, "calibration_revision", None))
+        if core_table is not None
+        else None
+    )
+    table_metadata_status: Literal["matched", "unverified", "mismatch", "unavailable"]
+    if core_table is None:
+        table_metadata_status = "unavailable"
+        table = None
+    elif scene_revision is None or table_revision is None:
+        table_metadata_status = "unverified"
+        table = None
+    elif scene_revision != table_revision:
+        table_metadata_status = "mismatch"
+        table = None
+    else:
+        table_metadata_status = "matched"
+        table = table_state_to_table_info(core_table)
+
+    return SceneGameStateResponse(
+        timestamp=read_model.updated_at,
+        frame_number=frame_number,
+        balls=balls,
+        cue=None,
+        table=table,
+        game_type=core_state.game_type.value if core_state is not None else None,
+        is_valid=(
+            status.get("phase") == "rust_scene_observation"
+            and status.get("ball_detection_status") == "observed"
+            and status.get("ball_positions_status") == "observed"
+        ),
+        confidence=(
+            sum(confidence_values) / len(confidence_values)
+            if confidence_values
+            else None
+        ),
+        confidence_status=(
+            "mean_detector_confidence" if confidence_values else "unavailable"
+        ),
+        events=(
+            [game_event_to_api_event(event) for event in core_state.events]
+            if core_state is not None and include_events
+            else []
+        ),
+        core_metadata_status=("available" if core_state is not None else "unavailable"),
+        core_metadata_timestamp=(
+            datetime.fromtimestamp(core_state.timestamp, tz=timezone.utc)
+            if core_state is not None
+            else None
+        ),
+        table_metadata_status=table_metadata_status,
+        scene_calibration_revision=scene_revision,
+        table_calibration_revision=table_revision,
+        observation_status=status,
+        perception_source="rust_scene",
+    )
+
+
+def _optional_revision(value: Any) -> int | None:
+    """Accept only the integer calibration counters defined by scene v1."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return int(value)
+
+
 def game_state_to_websocket_data(state: GameState) -> GameStateData:
     """Convert core GameState to WebSocket GameStateData."""
     return GameStateData(
@@ -242,7 +453,7 @@ def collision_to_websocket_collision(collision: Collision) -> WSCollisionInfo:
     Note: This now returns position as dict with mandatory scale metadata.
     """
     return WSCollisionInfo(
-        position=vector2d_to_dict(collision.position),
+        position=_position_with_scale(collision.position),
         time=collision.time,
         type=collision.type,
         ball1_id=collision.ball1_id,
@@ -267,7 +478,7 @@ def trajectory_to_websocket_data(trajectory: Trajectory) -> TrajectoryData:
     for i, point in enumerate(trajectory.points):
         points.append(
             TrajectoryPoint(
-                position=vector2d_to_dict(point),
+                position=_position_with_scale(point),
                 time=i * time_per_point,
                 velocity=None,  # Would need to calculate from trajectory
             )
@@ -292,7 +503,7 @@ def trajectory_to_api_info(trajectory: Trajectory) -> TrajectoryInfo:
     """
     return TrajectoryInfo(
         ball_id=trajectory.ball_id,
-        points=[vector2d_to_dict(point) for point in trajectory.points],
+        points=[_position_with_scale(point) for point in trajectory.points],
         will_be_pocketed=trajectory.will_be_pocketed,
         pocket_id=trajectory.pocket_id,
         time_to_rest=trajectory.time_to_rest,
@@ -323,15 +534,14 @@ def shot_analysis_to_response(analysis: ShotAnalysis) -> ShotAnalysisResponse:
 
 
 def coordinate2d_to_vector2d(coord: Coordinate2D) -> Vector2D:
-    """Convert API Coordinate2D to core Vector2D."""
-    return Vector2D(x=coord.x, y=coord.y)
-
-
-def list_to_vector2d(coords: list[float]) -> Vector2D:
-    """Convert list format [x, y] to core Vector2D."""
-    if len(coords) != 2:
-        raise ValueError("Coordinate list must have exactly 2 elements")
-    return Vector2D(x=coords[0], y=coords[1])
+    """Convert a scale-aware API coordinate into a core vector."""
+    if not _is_finite_number(coord.x) or not _is_finite_number(coord.y):
+        raise ValueError("Coordinate values must be finite numbers")
+    return Vector2D(
+        x=coord.x,
+        y=coord.y,
+        scale=_scale_pair(coord.scale),
+    )
 
 
 def ball_info_to_ball_state(ball_info: BallInfo) -> BallState:
@@ -341,18 +551,11 @@ def ball_info_to_ball_state(ball_info: BallInfo) -> BallState:
     """
     return BallState(
         id=ball_info.id,
-        position=Vector2D(
-            x=ball_info.position.x,
-            y=ball_info.position.y,
-            scale=tuple(ball_info.position.scale),
-        ),
-        velocity=Vector2D(
-            x=ball_info.velocity.x,
-            y=ball_info.velocity.y,
-            scale=tuple(ball_info.velocity.scale),
-        ),
+        position=_position_to_vector(ball_info.position),
+        velocity=_position_to_vector(ball_info.velocity),
         is_cue_ball=ball_info.is_cue_ball,
         is_pocketed=ball_info.is_pocketed,
+        is_observed=ball_info.is_observed,
         number=ball_info.number,
         confidence=ball_info.confidence,
         last_update=ball_info.last_update.timestamp(),
@@ -366,19 +569,13 @@ def websocket_ball_data_to_ball_state(ball_data: BallStateData) -> BallState:
     """
     return BallState(
         id=ball_data.id,
-        position=Vector2D(
-            x=ball_data.position.x,
-            y=ball_data.position.y,
-            scale=tuple(ball_data.position.scale),
-        ),
-        velocity=Vector2D(
-            x=ball_data.velocity.x,
-            y=ball_data.velocity.y,
-            scale=tuple(ball_data.velocity.scale),
-        ),
+        position=_position_to_vector(ball_data.position),
+        velocity=_position_to_vector(ball_data.velocity),
         radius=ball_data.radius,
+        radius_scale=_scale_pair(ball_data.radius_scale),
         is_cue_ball=ball_data.is_cue_ball,
         is_pocketed=ball_data.is_pocketed,
+        is_observed=ball_data.is_observed,
         number=ball_data.number,
         confidence=ball_data.confidence,
         last_update=datetime.now().timestamp(),
@@ -391,10 +588,11 @@ def cue_info_to_cue_state(cue_info: CueInfo) -> CueState:
     Note: CueInfo.tip_position is now a PositionWithScale object.
     """
     return CueState(
-        tip_position=Vector2D(
-            x=cue_info.tip_position.x,
-            y=cue_info.tip_position.y,
-            scale=tuple(cue_info.tip_position.scale),
+        tip_position=_position_to_vector(cue_info.tip_position),
+        butt_position=(
+            _position_to_vector(cue_info.butt_position)
+            if cue_info.butt_position is not None
+            else None
         ),
         angle=cue_info.angle,
         elevation=cue_info.elevation,
@@ -411,10 +609,11 @@ def websocket_cue_data_to_cue_state(cue_data: CueStateData) -> CueState:
     Note: CueStateData.tip_position is now a PositionWithScale object.
     """
     return CueState(
-        tip_position=Vector2D(
-            x=cue_data.tip_position.x,
-            y=cue_data.tip_position.y,
-            scale=tuple(cue_data.tip_position.scale),
+        tip_position=_position_to_vector(cue_data.tip_position),
+        butt_position=(
+            _position_to_vector(cue_data.butt_position)
+            if cue_data.butt_position is not None
+            else None
         ),
         angle=cue_data.angle,
         elevation=cue_data.elevation,
@@ -433,11 +632,27 @@ def table_info_to_table_state(table_info: TableInfo) -> TableState:
     return TableState(
         width=table_info.width,
         height=table_info.height,
+        dimensions_scale=_scale_pair(table_info.dimensions_scale),
         pocket_positions=[
-            Vector2D(x=pos.x, y=pos.y, scale=tuple(pos.scale))
-            for pos in table_info.pocket_positions
+            _position_to_vector(pos) for pos in table_info.pocket_positions
         ],
+        playing_area_corners=(
+            [_position_to_vector(point) for point in table_info.playing_area_corners]
+            if table_info.playing_area_corners is not None
+            else None
+        ),
         pocket_radius=table_info.pocket_radius,
+        pocket_radius_scale=_scale_pair(table_info.pocket_radius_scale),
+        real_width_meters=(
+            table_info.real_world_dimensions.width
+            if table_info.real_world_dimensions is not None
+            else None
+        ),
+        real_height_meters=(
+            table_info.real_world_dimensions.height
+            if table_info.real_world_dimensions is not None
+            else None
+        ),
         surface_friction=table_info.surface_friction,
     )
 
@@ -450,11 +665,27 @@ def websocket_table_data_to_table_state(table_data: TableStateData) -> TableStat
     return TableState(
         width=table_data.width,
         height=table_data.height,
+        dimensions_scale=_scale_pair(table_data.dimensions_scale),
         pocket_positions=[
-            Vector2D(x=pos.x, y=pos.y, scale=tuple(pos.scale))
-            for pos in table_data.pocket_positions
+            _position_to_vector(pos) for pos in table_data.pocket_positions
         ],
+        playing_area_corners=(
+            [_position_to_vector(point) for point in table_data.playing_area_corners]
+            if table_data.playing_area_corners is not None
+            else None
+        ),
         pocket_radius=table_data.pocket_radius,
+        pocket_radius_scale=_scale_pair(table_data.pocket_radius_scale),
+        real_width_meters=(
+            table_data.real_world_dimensions.width
+            if table_data.real_world_dimensions is not None
+            else None
+        ),
+        real_height_meters=(
+            table_data.real_world_dimensions.height
+            if table_data.real_world_dimensions is not None
+            else None
+        ),
     )
 
 
@@ -516,18 +747,36 @@ def convert_trajectories_to_websocket(
 
 
 def validate_coordinate_conversion(
-    coords: list[float], field_name: str = "coordinates"
+    coords: Any, field_name: str = "coordinates"
 ) -> None:
-    """Validate coordinates before conversion."""
-    if len(coords) != 2:
-        raise ValueError(f"{field_name} must have exactly 2 values [x, y]")
+    """Validate a scale-aware transport point without inferring its coordinate space.
 
-    if not all(isinstance(c, (int, float)) for c in coords):
-        raise ValueError(f"{field_name} must contain numeric values")
+    A bare ``[x, y]`` pair is ambiguous: it does not identify the source coordinate
+    system or how its values map to canonical pixels. All API transport points must
+    therefore include explicit positive scale metadata.
+    """
+    if isinstance(coords, PositionWithScale):
+        point: dict[str, Any] = {
+            "x": coords.x,
+            "y": coords.y,
+            "scale": coords.scale,
+        }
+    elif isinstance(coords, dict):
+        point = coords
+    else:
+        raise ValueError(f"{field_name} must include x, y, and scale")
 
-    # Check for reasonable bounds (adjust as needed)
-    if not all(-1000 <= c <= 1000 for c in coords):
-        raise ValueError(f"{field_name} values out of reasonable bounds")
+    if not all(key in point for key in ("x", "y", "scale")):
+        raise ValueError(f"{field_name} must include x, y, and scale")
+    values = (point["x"], point["y"])
+    if not all(_is_finite_number(value) for value in values):
+        raise ValueError(f"{field_name} must contain finite numeric x and y values")
+
+    scale = point["scale"]
+    if not isinstance(scale, (list, tuple)) or len(scale) != 2:
+        raise ValueError(f"{field_name}.scale must have exactly 2 values")
+    if not all(_is_finite_number(value) and value > 0 for value in scale):
+        raise ValueError(f"{field_name}.scale values must be finite and positive")
 
 
 def validate_ball_state_conversion(ball_data: dict[str, Any]) -> ValidationResult:
@@ -538,7 +787,7 @@ def validate_ball_state_conversion(ball_data: dict[str, Any]) -> ValidationResul
     required_fields = ["id", "position", "velocity"]
     for field in required_fields:
         if field not in ball_data:
-            result.add_error(f"Missing required field: {field}")
+            result.add_error(f"Missing required field: {field}", field)
 
     # Validate position and velocity
     for field in ["position", "velocity"]:
@@ -546,19 +795,21 @@ def validate_ball_state_conversion(ball_data: dict[str, Any]) -> ValidationResul
             try:
                 validate_coordinate_conversion(ball_data[field], field)
             except ValueError as e:
-                result.add_error(str(e))
+                result.add_error(str(e), field)
 
     # Validate confidence
     if "confidence" in ball_data:
         confidence = ball_data["confidence"]
-        if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
-            result.add_error("Confidence must be a number between 0 and 1")
+        if not _is_finite_number(confidence) or not 0 <= confidence <= 1:
+            result.add_error(
+                "Confidence must be a number between 0 and 1", "confidence"
+            )
 
     # Validate radius
     if "radius" in ball_data:
         radius = ball_data["radius"]
-        if not isinstance(radius, (int, float)) or radius <= 0:
-            result.add_error("Radius must be a positive number")
+        if not _is_finite_number(radius) or radius <= 0:
+            result.add_error("Radius must be a positive number", "radius")
 
     return result
 
@@ -575,15 +826,48 @@ def safe_convert_game_state(
         required_fields = ["timestamp", "frame_number", "balls", "table"]
         for field in required_fields:
             if field not in state_data:
-                validation_result.add_error(f"Missing required field: {field}")
+                validation_result.add_error(f"Missing required field: {field}", field)
 
         # Validate balls
         if "balls" in state_data:
-            for i, ball_data in enumerate(state_data["balls"]):
-                ball_validation = validate_ball_state_conversion(ball_data)
-                if not ball_validation.is_valid:
-                    for error in ball_validation.errors:
-                        validation_result.add_error(f"Ball {i}: {error}")
+            balls_data = state_data["balls"]
+            if not isinstance(balls_data, list):
+                validation_result.add_error("Balls must be a list", "balls")
+            else:
+                for i, ball_data in enumerate(balls_data):
+                    if not isinstance(ball_data, dict):
+                        validation_result.add_error(
+                            f"Ball {i} must be an object", f"balls[{i}]"
+                        )
+                        continue
+
+                    ball_validation = validate_ball_state_conversion(ball_data)
+                    for field, errors in ball_validation.field_errors.items():
+                        for error in errors:
+                            validation_result.add_error(
+                                f"Ball {i}: {error}", f"balls[{i}].{field}"
+                            )
+
+        if "table" in state_data:
+            table_data = state_data["table"]
+            if not isinstance(table_data, dict):
+                validation_result.add_error("Table must be an object", "table")
+            elif "pocket_positions" not in table_data:
+                validation_result.add_error(
+                    "Missing required field: pocket_positions",
+                    "table.pocket_positions",
+                )
+            elif not isinstance(table_data["pocket_positions"], list):
+                validation_result.add_error(
+                    "Table pocket_positions must be a list", "table.pocket_positions"
+                )
+            else:
+                for index, pocket_position in enumerate(table_data["pocket_positions"]):
+                    field_path = f"table.pocket_positions[{index}]"
+                    try:
+                        validate_coordinate_conversion(pocket_position, field_path)
+                    except ValueError as error:
+                        validation_result.add_error(str(error), field_path)
 
         if not validation_result.is_valid:
             return validation_result
@@ -622,65 +906,3 @@ def safe_convert_game_state(
         validation_result = ValidationResult(is_valid=False)
         validation_result.add_error(f"Conversion error: {str(e)}")
         return validation_result
-
-
-# =============================================================================
-# Utility Functions
-# =============================================================================
-
-
-def create_conversion_summary(
-    original_count: int, converted_count: int, errors: list[str]
-) -> dict[str, Any]:
-    """Create a summary of conversion results."""
-    return {
-        "original_count": original_count,
-        "converted_count": converted_count,
-        "success_rate": converted_count / original_count if original_count > 0 else 0,
-        "error_count": len(errors),
-        "errors": errors,
-        "timestamp": datetime.now().isoformat(),
-    }
-
-
-def estimate_conversion_time(item_count: int, base_time_ms: float = 0.1) -> float:
-    """Estimate conversion time for a given number of items."""
-    return item_count * base_time_ms
-
-
-def get_conversion_capabilities() -> dict[str, list[str]]:
-    """Get information about available conversion capabilities."""
-    return {
-        "core_to_api": [
-            "BallState -> BallInfo",
-            "CueState -> CueInfo",
-            "TableState -> TableInfo",
-            "GameState -> GameStateResponse",
-            "Trajectory -> TrajectoryInfo",
-            "ShotAnalysis -> ShotAnalysisResponse",
-        ],
-        "core_to_websocket": [
-            "BallState -> BallStateData",
-            "CueState -> CueStateData",
-            "TableState -> TableStateData",
-            "GameState -> GameStateData",
-            "Trajectory -> TrajectoryData",
-        ],
-        "api_to_core": [
-            "BallInfo -> BallState",
-            "CueInfo -> CueState",
-            "TableInfo -> TableState",
-        ],
-        "websocket_to_core": [
-            "BallStateData -> BallState",
-            "CueStateData -> CueState",
-            "TableStateData -> TableState",
-        ],
-        "utility_functions": [
-            "Vector2D <-> Coordinate2D",
-            "Vector2D <-> List[float]",
-            "Batch conversions",
-            "Validation functions",
-            "Safe conversion with error handling",
-        ],
-    }

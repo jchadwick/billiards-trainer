@@ -515,13 +515,6 @@ function Connection:configure(config)
         self.onReconnectingCallback = config.onReconnecting
     end
 
-    -- Legacy compatibility
-    if config.reconnectInterval then
-        self.reconnectInitialDelay = config.reconnectInterval
-    end
-    if config.connectionTimeout then
-        self.heartbeatTimeout = config.connectionTimeout
-    end
 end
 
 --- Enable auto-reconnect

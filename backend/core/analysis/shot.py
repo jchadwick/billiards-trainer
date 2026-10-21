@@ -9,12 +9,13 @@ Simplified to basic shot type identification only:
 - No alternative shot suggestions
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-from config import Config, config
+from backend.config import Config, config
 
+from ..coordinates import Vector2D
 from ..models import BallState, GameState, ShotType
 from ..utils.geometry import GeometryUtils
 
@@ -38,11 +39,7 @@ class ShotAnalysis:
     shot_type: ShotType
     target_ball_id: Optional[str] = None
     is_legal: bool = True
-    illegal_reasons: list[IllegalShotReason] = None
-
-    def __post_init__(self):
-        if self.illegal_reasons is None:
-            self.illegal_reasons = []
+    illegal_reasons: list[IllegalShotReason] = field(default_factory=list)
 
 
 class ShotAnalyzer:
@@ -176,8 +173,10 @@ class ShotAnalyzer:
         ball_center = (ball.position.x, ball.position.y)
 
         # Calculate perpendicular distance from ball center to line
-        distance = self.geometry_utils.perpendicular_distance_point_to_line_segment(
-            ball_center, line_start, line_end
+        distance = self.geometry_utils.point_line_distance(
+            Vector2D.from_4k(*ball_center),
+            Vector2D.from_4k(*line_start),
+            Vector2D.from_4k(*line_end),
         )
 
         # Ball intersects if distance is less than ball radius

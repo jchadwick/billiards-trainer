@@ -2,11 +2,12 @@
   "display": {
     "width": 1440,
     "height": 810,
+    "background_color": [0.1, 0.1, 0.1],
     "fullscreen": false,
     "vsync": true
   },
   "network": {
-    "websocket_url": "ws://127.0.0.1:8000/api/v1/ws",
+    "websocket_url": "ws://127.0.0.1:8000/api/v1/websocket/ws",
     "auto_connect": true,
     "reconnect_enabled": true,
     "reconnect_delay": 1000,

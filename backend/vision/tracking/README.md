@@ -79,7 +79,7 @@ from backend.vision.tracking import ObjectTracker, Ball, BallType
 
 # Configure tracker
 config = {
-    'max_age': 30,          # Max frames to keep lost tracks
+    'max_age_seconds': 1.0, # Maximum time to keep lost tracks
     'min_hits': 3,          # Min detections to confirm track
     'max_distance': 50.0,   # Max association distance
     'process_noise': 1.0,
@@ -133,7 +133,7 @@ performance = result.performance_metrics
 ```python
 config = {
     # Core tracking parameters
-    'max_age': 30,                    # Frames to keep lost tracks
+    'max_age_seconds': 1.0,           # Seconds to keep lost tracks
     'min_hits': 3,                    # Detections needed to confirm
     'max_distance': 50.0,             # Max association distance (pixels)
     'process_noise': 1.0,             # Kalman process noise
@@ -156,7 +156,7 @@ config = {
 ### Adaptive Parameters
 The system automatically adapts parameters based on performance:
 
-- **Low FPS**: Reduces computational load by decreasing `max_distance` and `max_age`
+- **Low FPS**: Reduces association work by decreasing `max_distance`; track expiry is time-based.
 - **High FPS, Low Accuracy**: Increases precision by adjusting noise parameters
 - **Large Problem Size**: Switches to efficient algorithms automatically
 
@@ -326,7 +326,7 @@ for track_id, positions in trajectories.items():
 **Poor performance**:
 - Enable optimization: `enable_optimization=True`
 - Use parallel processing: `parallel_processing=True`
-- Reduce `max_age` to limit track count
+- Reduce `max_age_seconds` to expire lost tracks sooner
 
 **Track fragmentation**:
 - Decrease `min_hits` for faster confirmation
@@ -334,7 +334,7 @@ for track_id, positions in trajectories.items():
 - Enable missing detection prediction
 
 **Memory usage**:
-- Reduce `max_age` to limit track history
+- Reduce `max_age_seconds` to expire lost tracks sooner
 - Disable trajectory smoothing for simple tracking
 - Lower `memory_limit_mb` for automatic cleanup
 

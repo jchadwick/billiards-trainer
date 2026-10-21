@@ -5,12 +5,13 @@ import logging
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel, Field
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import StreamingResponse
+from starlette.types import ASGIApp
 
 
 class LoggingConfig(BaseModel):
@@ -90,7 +91,7 @@ class RequestLogger:
         self.config = config
         self.logger = logging.getLogger("api.requests")
         self.performance_logger = logging.getLogger("api.performance")
-        self.metrics_storage = []  # Store recent metrics for monitoring
+        self.metrics_storage: list[RequestMetrics] = []
 
     def should_log_path(self, path: str) -> bool:
         """Check if path should be logged."""
@@ -137,7 +138,7 @@ class RequestLogger:
         """
         try:
             # Check if body is already cached
-            if hasattr(request, '_body'):
+            if hasattr(request, "_body"):
                 return request._body
 
             # Read the body stream
@@ -153,7 +154,7 @@ class RequestLogger:
             return b""
 
     def log_request(
-        self, request: Request, request_id: str, body: bytes = None
+        self, request: Request, request_id: str, body: Optional[bytes] = None
     ) -> None:
         """Log incoming request."""
         if not self.config.enable_request_logging:
@@ -162,7 +163,7 @@ class RequestLogger:
         if not self.should_log_path(request.url.path):
             return
 
-        log_data = {
+        log_data: dict[str, Any] = {
             "request_id": request_id,
             "type": "request",
             "method": request.method,
@@ -191,7 +192,7 @@ class RequestLogger:
         response: Response,
         request_id: str,
         duration_ms: float,
-        response_body: bytes = None,
+        response_body: Optional[bytes] = None,
     ) -> None:
         """Log outgoing response."""
         if not self.config.enable_response_logging:
@@ -200,7 +201,7 @@ class RequestLogger:
         if not self.should_log_path(request.url.path):
             return
 
-        log_data = {
+        log_data: dict[str, Any] = {
             "request_id": request_id,
             "type": "response",
             "method": request.method,
@@ -269,7 +270,7 @@ class RequestLogger:
             sum(m.duration_ms for m in recent_metrics if m.duration_ms) / total_requests
         )
 
-        status_codes = {}
+        status_codes: dict[int, int] = {}
         for metric in recent_metrics:
             if metric.status_code:
                 status_codes[metric.status_code] = (
@@ -300,13 +301,15 @@ class RequestLogger:
 class LoggingMiddleware(BaseHTTPMiddleware):
     """Middleware for logging requests and responses."""
 
-    def __init__(self, app, config: Optional[LoggingConfig] = None):
+    def __init__(self, app: ASGIApp, config: Optional[LoggingConfig] = None) -> None:
         """Initialize logging middleware."""
         super().__init__(app)
         self.config = config or LoggingConfig()
         self.request_logger = RequestLogger(self.config)
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Process request and response with logging.
 
         NOTE: Due to a known issue with BaseHTTPMiddleware, we cannot reliably
@@ -419,22 +422,15 @@ def setup_logging_middleware(
     logger.info("Request/response logging middleware enabled")
 
 
-def get_logging_metrics() -> dict[str, Any]:
-    """Get current logging metrics."""
-    # This would be accessible from the middleware instance
-    # For now, return a placeholder
-    return {"message": "Metrics not available - middleware not initialized"}
-
-
 # Utility function to configure structured logging
-def configure_structured_logging():
+def configure_structured_logging() -> None:
     """Configure structured JSON logging for production."""
     import sys
 
     class JSONFormatter(logging.Formatter):
         """JSON formatter for structured logging."""
 
-        def format(self, record):
+        def format(self, record: logging.LogRecord) -> str:
             log_entry = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "level": record.levelname,

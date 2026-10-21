@@ -48,6 +48,11 @@ Requirements Implemented:
     FR-VIS-047: Save and load calibration profiles
 """
 
+from typing import Optional
+
+import numpy as np
+from numpy.typing import NDArray
+
 from .camera import CameraCalibrator, CameraParameters, TableTransform
 from .color import ColorCalibrator, ColorProfile, ColorThresholds
 from .geometry import (
@@ -56,25 +61,7 @@ from .geometry import (
     GeometricCalibrator,
     PerspectiveCorrection,
 )
-
-# Optional interactive GUI (may not be available in all environments)
-try:
-    from .interactive import InteractiveCalibrationGUI, run_calibration_gui
-
-    _HAS_INTERACTIVE = True
-except ImportError:
-    _HAS_INTERACTIVE = False
-    InteractiveCalibrationGUI = None
-    run_calibration_gui = None
-
 from .manager import CalibrationManager, CalibrationSession
-
-# Test functions (optional)
-try:
-    from .test_calibration import run_calibration_tests
-except ImportError:
-    run_calibration_tests = None
-
 from .validation import CalibrationReport, CalibrationValidator, ValidationResult
 
 __all__ = [
@@ -96,11 +83,6 @@ __all__ = [
     "CoordinateMapping",
     "ValidationResult",
     "CalibrationReport",
-    # Interactive tools
-    "InteractiveCalibrationGUI",
-    "run_calibration_gui",
-    # Testing
-    "run_calibration_tests",
 ]
 
 # Version info
@@ -109,7 +91,7 @@ __author__ = "Billiards Trainer Development Team"
 
 
 # Quick access functions for common operations
-def quick_setup(base_dir: str = None) -> CalibrationManager:
+def quick_setup(base_dir: Optional[str] = None) -> CalibrationManager:
     """Quick setup for calibration system.
 
     Args:
@@ -124,7 +106,7 @@ def quick_setup(base_dir: str = None) -> CalibrationManager:
 
 
 def auto_calibrate_from_frame(
-    frame, manager: CalibrationManager = None
+    frame: NDArray[np.uint8], manager: Optional[CalibrationManager] = None
 ) -> CalibrationManager:
     """Automatic calibration from single frame (for testing/demo).
 

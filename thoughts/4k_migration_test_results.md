@@ -1,3 +1,7 @@
+> Historical migration report. The one-off `backend/test_4k_functionality.py`
+> script has been removed; use the current coordinate, boundary, and serializer
+> tests documented in [the project-wide audit](project-wide-coordinate-audit.md).
+
 # 4K Coordinate System Migration - Test Results
 
 **Date:** 2025-10-21

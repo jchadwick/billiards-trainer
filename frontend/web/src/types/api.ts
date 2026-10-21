@@ -10,12 +10,10 @@
 /**
  * Position with scale metadata for coordinate system tracking.
  *
- * The scale metadata indicates the coordinate space this position is in:
- * - [1920, 1080] = Original 1080p coordinate space
- * - [3840, 2160] = Native 4K coordinate space
- *
- * This allows the frontend to properly interpret and transform coordinates
- * based on the display resolution and rendering context.
+ * `x` and `y` are in the source image's pixel units. `scale` contains the
+ * independent x/y multipliers that map those values into canonical 4K pixels.
+ * A canonical point therefore has scale `[1, 1]`; the tuple is not a frame
+ * resolution.
  */
 export interface PositionWithScale {
   x: number;
@@ -26,6 +24,7 @@ export interface PositionWithScale {
 export type HealthStatus = 'healthy' | 'degraded' | 'unhealthy';
 export type StatusCode = 'success' | 'partial_success' | 'failure' | 'pending' | 'timeout' | 'cancelled';
 export type LogLevel = 'CRITICAL' | 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG';
+export type GameType = 'practice' | '8ball' | '9ball' | 'straight';
 
 export interface BaseResponse {
   [key: string]: any;
@@ -93,29 +92,114 @@ export interface FrameData {
 // Ball and Game State Data
 export interface BallData {
   id: string;
+  /** Null means the source explicitly reports unknown identity. */
+  number?: number | null;
+  identity_status?: 'identified' | 'unknown';
+  identity_confidence?: number | null;
+  identity_evidence?: Array<Record<string, unknown>>;
+  is_cue_ball?: boolean;
+  type?: 'cue' | 'solid' | 'stripe' | 'eight' | 'unknown';
+  /** False when the tracker is extrapolating from a missed observation. */
+  is_observed?: boolean;
+  is_pocketed?: boolean;
   position: PositionWithScale;
+  /** Radius in the source pixel units described by radius_scale. */
   radius: number;
-  color: string;
+  radius_scale?: [number, number];
+  radius_unit?: 'canonical_pixels';
+  radius_extent?: PositionWithScale;
+  color?: string;
   velocity?: PositionWithScale;
   confidence: number;
-  visible: boolean;
+  confidence_kind?: 'detector_observation' | 'unavailable';
+  last_observation_confidence?: number | null;
+  visible?: boolean;
+  /** Canonical rendering radius may be an assumption rather than a measurement. */
+  radius_source?: string;
+  tracking_status?: 'observed' | 'tracked' | 'occluded' | 'lost';
+  position_kind?: 'measured' | 'filtered' | 'extrapolated' | 'last_observed';
+  table_position?: {
+    x: number;
+    y: number;
+    unit: 'millimeters';
+    origin: 'playing_surface_center';
+  };
+  source_observation?: {
+    engine_instance_id?: string;
+    session_id?: string;
+    frame_id?: string;
+    timestamp?: Record<string, unknown>;
+  };
+  /** This public state stream is rendered over raw camera frames. */
+  image_space?: 'raw';
+  image_width_px?: number;
+  image_height_px?: number;
 }
 
 export interface CueData {
+  /** Angle in degrees in canonical image coordinates. */
   angle: number;
-  position: PositionWithScale;
-  detected: boolean;
+  /** Preferred cue endpoint. Older payloads may send only `position`. */
+  position?: PositionWithScale;
+  detected?: boolean;
+  is_visible?: boolean;
   confidence: number;
   length?: number;
+  length_scale?: [number, number];
   tip_position?: PositionWithScale;
+  butt_position?: PositionWithScale;
+}
+
+export interface PhysicalTableDimensions {
+  width: number;
+  height: number;
+  unit: 'meters';
+}
+
+export interface TablePocketData {
+  position: PositionWithScale;
+  radius?: number;
+  radius_scale?: [number, number];
+  radius_unit?: 'canonical_pixels';
+  radius_extent?: PositionWithScale;
 }
 
 export interface TableData {
-  corners: PositionWithScale[];
-  pockets: PositionWithScale[];
-  rails?: Record<string, any>[];
-  calibrated: boolean;
-  dimensions?: Record<string, number>;
+  /** Vision payload boundaries; API TableStateData may provide pocket_positions instead. */
+  corners?: PositionWithScale[];
+  playing_area_corners?: PositionWithScale[];
+  pockets?: Array<PositionWithScale | TablePocketData>;
+  /** Core/API table shape, whose geometry is positioned by pocket centers. */
+  pocket_positions?: PositionWithScale[];
+  pocket_radius?: number;
+  pocket_radius_scale?: [number, number];
+  pocket_radius_unit?: 'canonical_pixels';
+  rails?: Array<Record<string, unknown> | PositionWithScale[]>;
+  calibrated?: boolean;
+  /** Image-space extents are pixels and carry their own scale. */
+  width?: number;
+  width_scale?: [number, number];
+  height?: number;
+  height_scale?: [number, number];
+  /** Shared x/y scale for width and height in the API/Core table payload. */
+  dimensions_scale?: [number, number];
+  dimensions_unit?: 'canonical_pixels';
+  /** Real table measurements retain their physical units. */
+  dimensions?: PhysicalTableDimensions;
+  real_world_dimensions?: PhysicalTableDimensions;
+}
+
+/** Unit-bearing API/Core table payload used by HTTP and WebSocket state models. */
+export interface TableStateData extends TableData {
+  width: number;
+  height: number;
+  dimensions_scale: [number, number];
+  dimensions_unit: 'canonical_pixels';
+  pocket_positions: PositionWithScale[];
+  pocket_radius: number;
+  pocket_radius_scale: [number, number];
+  pocket_radius_unit: 'canonical_pixels';
+  real_world_dimensions?: PhysicalTableDimensions;
 }
 
 export interface GameStateData {
@@ -123,11 +207,67 @@ export interface GameStateData {
   cue?: CueData;
   table?: TableData;
   ball_count: number;
+  /** Current game mode selected in the core state. */
+  game_type?: GameType;
   frame_number?: number;
+  /** Vision scheduler metadata; optional for older servers. */
+  phase?: string;
+  calibration_revision?: string | number;
+  map_revision?: string | number;
+  map_trusted?: boolean;
+  aim_calculation_eligible?: boolean;
+  moving_ball_count?: number;
+  observation_status?: {
+    phase?: string;
+    calibration_revision?: string | number;
+    map_revision?: string | number;
+    map_trusted?: boolean;
+    aim_calculation_eligible?: boolean;
+    moving_ball_count?: number;
+    source_frame_number?: number;
+    source_timestamp?: number | string;
+    source_timestamp_kind?: string;
+    source_timestamp_unit?: 'nanoseconds' | 'milliseconds' | 'seconds';
+    source_timestamp_clock?: 'monotonic' | 'unix_epoch' | 'sensor';
+    source_timestamp_domain_id?: string;
+    source_timestamp_is_exposure?: boolean;
+    source_session_id?: string;
+    source_frame_id?: string;
+    source_image_space?: 'raw' | 'rectified';
+    source_width_px?: number;
+    source_height_px?: number;
+    engine_instance_id?: string;
+    snapshot_revision?: number;
+    transport_sequence?: number;
+    configuration_revision?: number;
+    rectification_revision?: number;
+    calibration_state?: 'valid' | 'invalid' | 'unavailable';
+    ball_observation_source_timestamp?: number | string;
+    ball_observation_source_timestamp_unit?: 'nanoseconds' | 'milliseconds' | 'seconds';
+    ball_observation_source_timestamp_kind?: string;
+    frame_publication_age_seconds?: number;
+    ball_positions_status?: 'observed' | 'cached' | 'unavailable';
+    ball_detection_status?: 'observed' | 'degraded' | 'skipped' | 'failed';
+    health_reason?: string | null;
+    freshness_status?: 'source_silent';
+    observation_identity?: {
+      engine_instance_id?: string;
+      session_id?: string;
+      frame_id?: string;
+      snapshot_revision?: number;
+    };
+    ball_observation_source_frame_number?: number;
+    ball_observation_timestamp?: number;
+    maximum_ball_observation_gap_seconds?: number;
+    actual_path_history_max_points?: number;
+    [key: string]: unknown;
+  };
 }
 
 // Trajectory Data
 export interface TrajectoryLine {
+  /** Ball whose path this segment represents, when provided by the producer. */
+  ball_id?: string;
   start: PositionWithScale;
   end: PositionWithScale;
   type: 'primary' | 'reflection' | 'collision';
@@ -136,7 +276,6 @@ export interface TrajectoryLine {
 
 export interface CollisionData {
   position: PositionWithScale;
-  ball_id?: string;  // Target ball ID (for backwards compatibility)
   ball1_id?: string;  // Moving ball ID (e.g., cue ball)
   ball2_id?: string;  // Target ball ID (ball being hit, None for cushion/pocket)
   type?: string;  // Collision type (ball_ball, ball_cushion, ball_pocket)
@@ -147,13 +286,23 @@ export interface CollisionData {
 }
 
 export interface TrajectoryData {
-  ball_id?: string;  // ID of the moving ball (typically cue ball)
   lines: TrajectoryLine[];
   collisions: CollisionData[];
   confidence: number;
   calculation_time_ms: number;
   line_count: number;
   collision_count: number;
+  /** `live` is current aiming guidance; `frozen_reference` is a retained prior prediction. */
+  prediction_status: 'live' | 'frozen_reference';
+  prediction_id?: string;
+  source_frame_number?: number;
+  source_timestamp?: number | string;
+  map_revision?: string | number;
+  calibration_revision?: string | number;
+  source_observations?: Array<Record<string, unknown>>;
+  /** False means the prediction must not be drawn in the current calibrated view. */
+  spatial_valid?: boolean;
+  phase?: string;
 }
 
 // Alert Data
@@ -180,7 +329,6 @@ export interface ConnectionData {
 
 export interface StatusData {
   client_id: string;
-  user_id?: string;
   connected_at: string;
   uptime: number;
   subscriptions: string[];
@@ -263,34 +411,6 @@ export interface ConfigUpdateResponse extends BaseResponse {
   restart_required: boolean;
 }
 
-// Authentication
-export interface LoginResponse extends BaseResponse {
-  success: boolean;
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  user_id?: string;
-  role?: string;
-  permissions: string[];
-  timestamp: string;
-}
-
-export interface TokenRefreshResponse extends BaseResponse {
-  success: boolean;
-  access_token?: string;
-  expires_in?: number;
-  timestamp: string;
-}
-
-export interface UserCreateResponse extends BaseResponse {
-  success: boolean;
-  user_id: string;
-  username: string;
-  role: string;
-  created_at: string;
-  validation_errors: string[];
-}
-
 // Game State
 export interface BallInfo extends BaseResponse {
   id: string;
@@ -299,6 +419,7 @@ export interface BallInfo extends BaseResponse {
   velocity: PositionWithScale;
   is_cue_ball: boolean;
   is_pocketed: boolean;
+  is_observed?: boolean;
   confidence: number;
   last_update: string;
 }
@@ -312,11 +433,7 @@ export interface CueInfo extends BaseResponse {
   confidence: number;
 }
 
-export interface TableInfo extends BaseResponse {
-  width: number;
-  height: number;
-  pocket_positions: PositionWithScale[];
-  pocket_radius: number;
+export interface TableInfo extends BaseResponse, TableStateData {
   surface_friction: number;
 }
 
@@ -338,6 +455,64 @@ export interface GameStateResponse extends BaseResponse {
   confidence: number;
   events: GameEvent[];
 }
+
+/** Rust localization response; unknown kinematics and metadata stay explicit. */
+export interface SceneBallInfo extends Omit<BallInfo, 'velocity' | 'is_cue_ball' | 'is_pocketed'> {
+  velocity: PositionWithScale | null;
+  is_cue_ball: boolean | null;
+  is_pocketed: boolean | null;
+  is_observed: boolean;
+  velocity_status: 'unavailable';
+  cue_ball_status: 'unavailable';
+  pocket_status: 'unavailable';
+  confidence_kind: 'detector_observation' | 'unavailable';
+  last_observation_confidence?: number | null;
+  identity_status: 'identified' | 'unknown';
+  identity_confidence?: number | null;
+  identity_evidence: Array<Record<string, unknown>>;
+  ball_type: 'solid' | 'stripe' | 'eight' | 'unknown';
+  tracking_status: 'observed' | 'tracked' | 'occluded' | 'lost';
+  position_kind: 'measured' | 'filtered' | 'extrapolated' | 'last_observed';
+  table_position?: {
+    x: number;
+    y: number;
+    unit: 'millimeters';
+    origin: 'playing_surface_center';
+  } | null;
+  source_observation: {
+    engine_instance_id: string;
+    session_id: string;
+    frame_id: string;
+    timestamp: Record<string, unknown>;
+  };
+  radius: number;
+  radius_unit: 'canonical_pixels';
+  radius_source: 'legacy_standard_pool_ball_assumption';
+}
+
+/** Scene-localized variant of GET /api/v1/game/state. */
+export interface SceneGameStateResponse extends BaseResponse {
+  timestamp: string;
+  frame_number: number | null;
+  balls: SceneBallInfo[];
+  cue: CueInfo | null;
+  table: TableInfo | null;
+  game_type: string | null;
+  is_valid: boolean;
+  confidence: number | null;
+  confidence_status: 'mean_detector_confidence' | 'unavailable';
+  core_metadata_status: 'available' | 'unavailable';
+  core_metadata_timestamp: string | null;
+  table_metadata_status: 'matched' | 'unverified' | 'mismatch' | 'unavailable';
+  scene_calibration_revision: number | null;
+  table_calibration_revision: number | null;
+  events: GameEvent[];
+  observation_status: Record<string, unknown>;
+  perception_source: 'rust_scene';
+}
+
+/** HTTP state endpoint can return either retained Core or scene localization. */
+export type ApiGameStateResponse = GameStateResponse | SceneGameStateResponse;
 
 // Calibration
 export interface CalibrationSession extends BaseResponse {
@@ -399,11 +574,6 @@ export interface WebSocketSubscriptionResponse extends BaseResponse {
 // =============================================================================
 // Request Types for API Calls
 // =============================================================================
-
-export interface LoginRequest {
-  username: string;
-  password: string;
-}
 
 export interface ConfigUpdateRequest {
   section?: string;
@@ -492,7 +662,10 @@ export function isGameStateMessage(message: WebSocketMessage): message is WebSoc
 
 export function isTrajectoryMessage(message: WebSocketMessage): message is WebSocketMessage & { data: TrajectoryData } {
   return message.type === 'trajectory' &&
-         Array.isArray(message.data.lines);
+         Array.isArray(message.data.lines) &&
+         Array.isArray(message.data.collisions) &&
+         (message.data.prediction_status === 'live' ||
+          message.data.prediction_status === 'frozen_reference');
 }
 
 export function isAlertMessage(message: WebSocketMessage): message is WebSocketMessage & { data: AlertData } {

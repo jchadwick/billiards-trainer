@@ -1,137 +1,84 @@
-# Quick Start - Backend Equivalence Test
+# Quick start: model-output comparison
 
-## 1. Run Your First Test
+This utility compares two YOLO model providers on identical image frames. It
+does not compare the full backend or measure real-time performance. Optional
+CVAT scoring reports image-space accuracy on labeled stills; it does not
+qualify a model. Read [the full guide](README_EQUIVALENCE_TEST.md) before using
+results to qualify a model.
 
-```bash
-# Using the convenience script (recommended)
-./tools/run_equivalence_test.sh --video demo.mkv --frames 100
+## Compare a checkpoint with an export
 
-# Or directly with Python
-python tools/test_backend_equivalence.py demo.mkv --frames 100
-```
-
-## 2. Check the Results
-
-The test will display a summary like this:
-
-```
-================================================================================
-EQUIVALENCE TEST RESULTS
-================================================================================
-
-Video: demo.mkv
-Total Frames: 100
-Frames with Differences: 2
-Equivalence: 98.00%
-
-Ball Position Error (avg): 0.87px
-Ball Position Error (max): 2.14px
-Ball Count Mismatches: 0
-Cue Detection Mismatches: 1
-Trajectory Mismatches: 1
-
-================================================================================
-✓ SYSTEMS ARE EQUIVALENT
-```
-
-## 3. Review Detailed Reports
-
-Reports are saved in `./equivalence-test-results/`:
+Export a selected checkpoint to a temporary or dedicated directory:
 
 ```bash
-# View the summary
-cat equivalence-test-results/equivalence_summary_*.txt
-
-# View detailed JSON (use jq for pretty formatting)
-jq . equivalence-test-results/equivalence_report_*.json | less
+python tools/export_high_res_model.py \
+  --model models/billiards-yolov8n.pt \
+  --output-dir /tmp/billiards-model-export \
+  --format onnx \
+  --imgsz 1280
 ```
 
-## 4. Understanding the Results
-
-### Equivalence Levels
-
-- **99-100%**: Perfect equivalence ✓
-- **95-99%**: Mostly equivalent (minor differences) ⚠
-- **<95%**: Significant differences - investigate ✗
-
-### Key Metrics
-
-1. **Ball Position Error (avg)**: Should be < 2px
-2. **Ball Count Mismatches**: Should be 0 or very low
-3. **Cue Detection Mismatches**: A few are OK (timing differences)
-4. **Trajectory Mismatches**: Should be < 10%
-
-## 5. Common Use Cases
-
-### Test Specific Number of Frames
-```bash
-./tools/run_equivalence_test.sh --video demo.mkv --frames 200
-```
-
-### Increase Position Tolerance
-```bash
-./tools/run_equivalence_test.sh --video demo.mkv --tolerance 5.0
-```
-
-### Debug Mode (verbose logging)
-```bash
-python tools/test_backend_equivalence.py demo.mkv --log-level DEBUG
-```
-
-### Test Entire Video
-```bash
-python tools/test_backend_equivalence.py demo.mkv
-```
-
-## 6. Troubleshooting
-
-### "Video file not found"
-- Check the file path is correct
-- Use absolute or relative path from project root
-
-### "Failed to start video_debugger"
-- Ensure YOLO model exists: `models/yolov8n-pool-1280.onnx`
-- Check video file is valid and readable
-
-### High Error Rates
-- Try increasing tolerance: `--tolerance 5.0`
-- Check that both systems use same config
-- Verify video file quality
-
-## 7. Example Session
+Then compare both providers on the same video, image, or image directory:
 
 ```bash
-# 1. Run test
-./tools/run_equivalence_test.sh --video demo.mkv --frames 100
-
-# 2. Check results
-cat equivalence-test-results/equivalence_summary_*.txt
-
-# 3. If all good, test full video
-python tools/test_backend_equivalence.py demo.mkv
-
-# 4. Review detailed differences if needed
-jq '.differences_summary' equivalence-test-results/equivalence_report_*.json
+tools/run_equivalence_test.sh \
+  --video backend/vision/test_data/multiple_balls.png \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-model /tmp/billiards-model-export/billiards-yolov8n.onnx \
+  --frames 100
 ```
 
-## 8. What to Expect
+For a single still image, the input path itself is sufficient. The shell option
+remains named `--video` for compatibility, but accepts a video, image, or
+directory. The Python command accepts the input as its positional argument.
 
-### First Run (with calibration)
-- May take 1-2 minutes for 100 frames
-- Systems load models and initialize
+To score a saved Rust recorded-image result with the retained Python reference,
+use the direct Python command and the same image corpus used for Rust inference:
 
-### Subsequent Runs
-- Faster due to cached models
-- Consistent results expected
+```bash
+python tools/test_backend_equivalence.py backend/vision/test_data \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-result thoughts/performance-audits/rust-inference-prototype-20261020/evidence/decoder-parity-followup-cpu.json \
+  --frames 10 --imgsz 1280 --confidence 0.4 --iou 0.45 \
+  --output-dir thoughts/performance-audits/rust-inference-prototype-20261020/tool-run
+```
 
-### Typical Results
-- Equivalence: 98-100%
-- Ball position error: 0.5-1.5px
-- Minor cue/trajectory differences due to timing
+This mode accepts saved PNG/JPEG still-image results only, validates source
+hashes and inference settings. It does not measure timing; accuracy is scored
+only when the optional CVAT annotation arguments are supplied. The shell
+wrapper currently handles model-to-model comparisons; see the [full
+guide](README_EQUIVALENCE_TEST.md) for the saved-result contract and limits.
 
-## Need More Help?
+To score image-space accuracy against the existing CVAT boxes, pass the
+annotation XML and choose an association radius. The radius controls one-to-one
+center matching; it is an audit setting, not a production acceptance target.
 
-See the full documentation:
-- `tools/README_EQUIVALENCE_TEST.md` - Complete guide
-- `tools/test_backend_equivalence.py --help` - Command-line options
-- `tools/run_equivalence_test.sh --help` - Wrapper script options
+```bash
+python tools/test_backend_equivalence.py thoughts/performance-audits/rust-cvat-ground-truth-20261020/input \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-result thoughts/performance-audits/rust-cvat-ground-truth-20261020/rust-result.json \
+  --ground-truth-cvat backend/vision/test_data/annotations.xml \
+  --ground-truth-radius-px 20 \
+  --frames 9 --imgsz 1280 --confidence 0.4 --iou 0.45 \
+  --output-dir thoughts/performance-audits/equivalence-tests
+```
+
+CVAT images must map unambiguously to all processed stills and use the model's
+class names. The report separates per-class and overall detections and includes
+matched center-error statistics. These labels do not cover temporal behavior,
+calibrated table coordinates, or numbered-ball identity.
+
+## Read the reports
+
+The command prints a short summary and writes a JSON evidence record plus a
+Markdown summary under `thoughts/performance-audits/equivalence-tests/` by
+default. Specify `--output-dir` to use another location. Review unmatched
+detections and the center/confidence differences in JSON. A successful exit
+only means the comparison completed and reports were saved; it is not a model
+acceptance verdict.
+
+Use `--help` on either command for supported options. The Python comparison
+requires an explicit reference checkpoint and exactly one candidate model or
+saved Rust result. Model mode fails if either model cannot load or class maps
+differ. Its default 2-pixel tolerance only associates corresponding detections
+and does not define acceptable localization error.

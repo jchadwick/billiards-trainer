@@ -1,7 +1,6 @@
 """API Request Models.
 
-This module defines all Pydantic models for API request validation, including:
-- Authentication requests
+This module defines Pydantic models for API request validation, including:
 - Configuration update requests
 - Calibration operation requests
 - Game state manipulation requests
@@ -12,15 +11,9 @@ All models include comprehensive validation, documentation, and OpenAPI schema s
 from datetime import datetime
 from typing import Any, Optional, Union
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    EmailStr,
-    Field,
-    SecretStr,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+from .common import PositionWithScale, WorldPoint2DModel
 
 # =============================================================================
 # Base Request Models
@@ -45,86 +38,6 @@ class TimestampedRequest(BaseRequest):
         description="Client-side timestamp for request synchronization",
         examples=["2024-01-15T10:30:00Z"],
     )
-
-
-# =============================================================================
-# Authentication Request Models
-# =============================================================================
-
-
-class LoginRequest(BaseRequest):
-    """User login request."""
-
-    username: str = Field(
-        ...,
-        min_length=3,
-        max_length=50,
-        pattern=r"^[a-zA-Z0-9_-]+$",
-        description="Username for authentication",
-        examples=["admin"],
-    )
-    password: SecretStr = Field(
-        ..., min_length=8, description="User password", examples=["secure_password123"]
-    )
-    remember_me: bool = Field(
-        default=False, description="Whether to extend session duration"
-    )
-
-
-class TokenRefreshRequest(BaseRequest):
-    """Token refresh request."""
-
-    refresh_token: str = Field(
-        ...,
-        description="Refresh token for generating new access token",
-        examples=["eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."],
-    )
-
-
-class ChangePasswordRequest(BaseRequest):
-    """Password change request."""
-
-    current_password: SecretStr = Field(
-        ..., description="Current password for verification"
-    )
-    new_password: SecretStr = Field(..., min_length=8, description="New password")
-    confirm_password: SecretStr = Field(..., description="Confirmation of new password")
-
-    @model_validator(mode="after")
-    def validate_password_match(self):
-        """Validate that new password and confirmation match."""
-        if (
-            self.new_password.get_secret_value()
-            != self.confirm_password.get_secret_value()
-        ):
-            raise ValueError("New password and confirmation do not match")
-        return self
-
-
-class CreateUserRequest(BaseRequest):
-    """User creation request."""
-
-    username: str = Field(
-        ...,
-        min_length=3,
-        max_length=50,
-        pattern=r"^[a-zA-Z0-9_-]+$",
-        description="Unique username",
-        examples=["operator1"],
-    )
-    email: Optional[EmailStr] = Field(
-        default=None,
-        description="User email address",
-        examples=["operator@example.com"],
-    )
-    password: SecretStr = Field(..., min_length=8, description="Initial password")
-    role: str = Field(
-        default="viewer",
-        pattern=r"^(admin|operator|viewer)$",
-        description="User role",
-        examples=["operator"],
-    )
-    enabled: bool = Field(default=True, description="Whether user account is enabled")
 
 
 # =============================================================================
@@ -169,7 +82,7 @@ class ConfigUpdateRequest(TimestampedRequest):
 
     @field_validator("config_data")
     @classmethod
-    def validate_config_data_not_empty(cls, v):
+    def validate_config_data_not_empty(cls, v: dict[str, Any]) -> dict[str, Any]:
         if not v:
             raise ValueError("Configuration data cannot be empty")
         return v
@@ -199,7 +112,9 @@ class ConfigImportRequest(BaseRequest):
 
     @field_validator("config_data")
     @classmethod
-    def validate_config_data_not_empty(cls, v):
+    def validate_config_data_not_empty(
+        cls, v: Union[dict[str, Any], str]
+    ) -> Union[dict[str, Any], str]:
         if not v:
             raise ValueError("Configuration data cannot be empty")
         return v
@@ -262,19 +177,15 @@ class CalibrationPointRequest(TimestampedRequest):
     point_id: str = Field(
         ..., description="Calibration point identifier", examples=["corner_1"]
     )
-    screen_position: list[float] = Field(
+    screen_position: PositionWithScale = Field(
         ...,
-        min_length=2,
-        max_length=2,
-        description="Screen coordinates [x, y]",
-        examples=[[100.0, 200.0]],
+        description="Screen pixel coordinates with scale to canonical 4K",
+        examples=[{"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]}],
     )
-    world_position: list[float] = Field(
+    world_position: WorldPoint2DModel = Field(
         ...,
-        min_length=2,
-        max_length=2,
-        description="Real-world coordinates [x, y] in meters",
-        examples=[[0.1, 0.2]],
+        description="Real-world table-plane coordinates in meters",
+        examples=[{"x": 0.1, "y": 0.2, "unit": "meters"}],
     )
     confidence: float = Field(
         default=1.0,
@@ -283,13 +194,6 @@ class CalibrationPointRequest(TimestampedRequest):
         description="Point detection confidence",
         examples=[0.95],
     )
-
-    @field_validator("screen_position", "world_position")
-    @classmethod
-    def validate_coordinates(cls, v):
-        if len(v) != 2:
-            raise ValueError("Coordinates must have exactly 2 values [x, y]")
-        return v
 
 
 class CalibrationApplyRequest(BaseRequest):
@@ -306,6 +210,17 @@ class CalibrationApplyRequest(BaseRequest):
     )
 
 
+class CalibrationTestPoint(BaseRequest):
+    """Image/world correspondence with explicit units on both coordinate spaces."""
+
+    screen: PositionWithScale = Field(
+        ..., description="Screen pixel coordinates with scale to canonical 4K"
+    )
+    world: WorldPoint2DModel = Field(
+        ..., description="Table-plane coordinates in meters"
+    )
+
+
 class CalibrationValidateRequest(BaseRequest):
     """Calibration validation request."""
 
@@ -314,10 +229,17 @@ class CalibrationValidateRequest(BaseRequest):
         description="Calibration session ID to validate",
         examples=["cal_session_123"],
     )
-    test_points: Optional[list[dict[str, list[float]]]] = Field(
+    test_points: Optional[list[CalibrationTestPoint]] = Field(
         default=None,
-        description="Additional test points for validation",
-        examples=[[{"screen": [150.0, 250.0], "world": [0.15, 0.25]}]],
+        description="Additional scaled image/world correspondences for validation",
+        examples=[
+            [
+                {
+                    "screen": {"x": 150.0, "y": 250.0, "scale": [1.0, 1.0]},
+                    "world": {"x": 0.15, "y": 0.25, "unit": "meters"},
+                }
+            ]
+        ],
     )
     accuracy_threshold: float = Field(
         default=0.95,
@@ -350,18 +272,31 @@ class GameStateResetRequest(TimestampedRequest):
     )
 
 
+class BallPositionUpdate(BaseRequest):
+    """Manual ball state with explicit pixel scale for position and velocity."""
+
+    id: str = Field(..., description="Ball identifier")
+    position: PositionWithScale = Field(
+        ..., description="Ball position in scaled pixels"
+    )
+    velocity: PositionWithScale = Field(
+        ..., description="Velocity in scaled pixels per second"
+    )
+    is_pocketed: bool = Field(False, description="Whether the ball is pocketed")
+
+
 class BallPositionUpdateRequest(TimestampedRequest):
     """Manual ball position update request."""
 
-    ball_updates: list[dict[str, Any]] = Field(
+    ball_updates: list[BallPositionUpdate] = Field(
         ...,
-        description="List of ball position updates",
+        description="Ball updates with scale metadata on all image-space vectors",
         examples=[
             [
                 {
                     "id": "cue",
-                    "position": [0.5, 0.6],
-                    "velocity": [0.0, 0.0],
+                    "position": {"x": 0.5, "y": 0.6, "scale": [1.0, 1.0]},
+                    "velocity": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
                     "is_pocketed": False,
                 }
             ]
@@ -428,7 +363,9 @@ class GameHistoryRequest(BaseModel):
 
     @field_validator("end_time")
     @classmethod
-    def validate_time_range(cls, v, info):
+    def validate_time_range(
+        cls, v: Optional[datetime], info: ValidationInfo
+    ) -> Optional[datetime]:
         if v and info.data.get("start_time") and v <= info.data["start_time"]:
             raise ValueError("End time must be after start time")
         return v
@@ -470,7 +407,7 @@ class ConfigResetRequest(BaseModel):
 
     @field_validator("confirm")
     @classmethod
-    def validate_confirmation(cls, v):
+    def validate_confirmation(cls, v: bool) -> bool:
         if not v:
             raise ValueError("Configuration reset must be explicitly confirmed")
         return v
@@ -686,22 +623,6 @@ class SessionDataExportRequest(BaseRequest):
 # =============================================================================
 # Request Validation Utilities
 # =============================================================================
-
-
-def validate_coordinate_list(
-    coords: list[float], expected_length: int = 2
-) -> list[float]:
-    """Validate coordinate list format and values."""
-    if len(coords) != expected_length:
-        raise ValueError(f"Expected {expected_length} coordinates, got {len(coords)}")
-
-    for i, coord in enumerate(coords):
-        if not isinstance(coord, (int, float)):
-            raise ValueError(f"Coordinate {i} must be numeric")
-        if not -1000 <= coord <= 1000:  # Reasonable bounds
-            raise ValueError(f"Coordinate {i} out of reasonable bounds")
-
-    return coords
 
 
 def validate_session_id(session_id: str) -> str:

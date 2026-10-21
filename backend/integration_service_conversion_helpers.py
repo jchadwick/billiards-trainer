@@ -6,7 +6,7 @@ This module contains improved conversion methods that:
 3. Provide helper methods for common conversions
 4. Ensure consistency between state conversion and trajectory calculation
 5. Track and convert coordinate spaces (camera pixels -> 4K canonical)
-6. Use resolution-based scaling with Vector2D.from_resolution()
+6. Require explicit source-space and resolution metadata for pixel geometry
 
 COORDINATE SYSTEM UPDATE (2025-10-21):
 --------------------------------------
@@ -20,7 +20,7 @@ OLD APPROACH (DEPRECATED):
 NEW APPROACH (CURRENT):
 - Vision detections in pixels → 4K canonical pixels using resolution scale
 - Automatic scale calculation: scale = 4K_resolution / source_resolution
-- Simple Vector2D.from_resolution() → to_4k_canonical() conversion
+- One shared source-resolution mapping into canonical 4K pixels
 - No calibration required - pure pixel-based coordinates throughout
 
 All positions, velocities, and sizes are now in 4K canonical pixel space (3840×2160).
@@ -28,27 +28,360 @@ The scale metadata is preserved in Vector2D for future coordinate transformation
 """
 
 import logging
+import math
 import time
-from typing import Optional, Sequence, Tuple
-
-# Resolution type for camera/source resolution metadata
-Resolution = tuple[int, int]  # (width, height)
-
-from core.coordinates import Vector2D
-from core.models import BallState, CueState
-from core.validation.physics import PhysicsValidator
+from typing import Any, Optional, Sequence
 
 from backend.common.models import Ball
+from backend.core.constants_4k import BALL_MASS_KG, CANONICAL_HEIGHT, CANONICAL_WIDTH
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, CueState
+from backend.core.validation.physics import PhysicsValidator
 from backend.vision.models import CueStick
 
 logger = logging.getLogger(__name__)
+
+
+class CoordinateConversionError(ValueError):
+    """Raised when detection geometry cannot be mapped safely into canonical pixels."""
+
+
+def _validated_resolution(
+    resolution: Optional[tuple[int, int]], context: str
+) -> tuple[int, int]:
+    """Return a usable (width, height), rejecting absent or invalid frame metadata."""
+    try:
+        valid = (
+            resolution is not None
+            and len(resolution) == 2
+            and all(
+                not isinstance(value, bool)
+                and math.isfinite(float(value))
+                and float(value).is_integer()
+                and value > 0
+                for value in resolution
+            )
+        )
+    except (TypeError, ValueError, OverflowError):
+        valid = False
+    if not valid or resolution is None:
+        raise CoordinateConversionError(
+            f"{context} uses pixel coordinates but has no valid source resolution"
+        )
+    return int(resolution[0]), int(resolution[1])
+
+
+def _coordinate_scale(
+    coordinate_space: Any,
+    source_resolution: Optional[tuple[int, int]],
+    frame_resolution: Optional[tuple[int, int]],
+    context: str,
+) -> tuple[float, float]:
+    """Resolve the declared coordinate space into scale factors to canonical 4K."""
+    if not isinstance(coordinate_space, str) or not coordinate_space.strip():
+        raise CoordinateConversionError(
+            f"{context} is missing or has invalid coordinate space metadata"
+        )
+    space = coordinate_space.strip().lower()
+    if space == "4k_canonical":
+        return (1.0, 1.0)
+    if space != "pixel":
+        raise CoordinateConversionError(
+            f"{context} uses unsupported coordinate space {coordinate_space!r}; "
+            "only pixel and 4k_canonical geometry can enter Core state"
+        )
+
+    resolution = _validated_resolution(
+        source_resolution if source_resolution is not None else frame_resolution,
+        context,
+    )
+    return (CANONICAL_WIDTH / resolution[0], CANONICAL_HEIGHT / resolution[1])
+
+
+def _scaled_xy(
+    point: Sequence[float], scale: tuple[float, float], context: str
+) -> dict[str, Any]:
+    """Map a point and its pixel extents into explicit canonical coordinates."""
+    if (
+        not isinstance(point, Sequence)
+        or isinstance(point, (str, bytes))
+        or len(point) != 2
+    ):
+        raise CoordinateConversionError(f"{context} must contain exactly two values")
+    try:
+        x, y = float(point[0]), float(point[1])
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CoordinateConversionError(
+            f"{context} must contain numeric coordinates"
+        ) from error
+    if not math.isfinite(x) or not math.isfinite(y):
+        raise CoordinateConversionError(f"{context} contains non-finite coordinates")
+    scaled_x, scaled_y = x * scale[0], y * scale[1]
+    if not math.isfinite(scaled_x) or not math.isfinite(scaled_y):
+        raise CoordinateConversionError(f"{context} overflows canonical coordinates")
+    return {"x": scaled_x, "y": scaled_y, "scale": [1.0, 1.0]}
+
+
+def _scaled_extent(
+    extent: float, factor: float, context: str
+) -> tuple[float, list[float]]:
+    """Map a one-dimensional pixel extent to canonical pixels with metadata."""
+    try:
+        value = float(extent)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CoordinateConversionError(
+            f"{context} must be a finite pixel extent"
+        ) from error
+    if not math.isfinite(value) or value < 0:
+        raise CoordinateConversionError(
+            f"{context} must be a finite, non-negative pixel extent"
+        )
+    canonical = value * factor
+    if not math.isfinite(canonical):
+        raise CoordinateConversionError(f"{context} overflows canonical pixels")
+    return canonical, [1.0, 1.0]
+
+
+def _coordinate_space_metadata(scale: tuple[float, float]) -> dict[str, Any]:
+    """Describe the source-to-canonical mapping for a converted object."""
+    return {
+        "coordinate_space": "4k_canonical",
+        "source_to_canonical_scale": [scale[0], scale[1]],
+        "scale": [1.0, 1.0],
+    }
+
+
+def _object_coordinate_scale(
+    value: Any, frame_resolution: Optional[tuple[int, int]], context: str
+) -> tuple[float, float]:
+    """Resolve object-local metadata, using the detection frame only as pixel context."""
+    return _coordinate_scale(
+        getattr(value, "coordinate_space", None),
+        getattr(value, "source_resolution", None),
+        frame_resolution,
+        context,
+    )
+
+
+def _canonical_geometry_point(
+    value: Sequence[float], scale: tuple[float, float], context: str
+) -> dict[str, Any]:
+    """Return the boundary point as canonical 4K x/y plus mandatory scale metadata."""
+    return _scaled_xy(value, scale, context)
+
+
+def serialize_vision_ball(
+    ball: Ball, frame_resolution: Optional[tuple[int, int]]
+) -> dict[str, Any]:
+    """Serialize one Vision ball to canonical Core payload geometry."""
+    context = "ball detection"
+    try:
+        observation_timestamp = float(ball.last_seen)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CoordinateConversionError(
+            "ball observation timestamp must be a finite wall-clock value"
+        ) from error
+    if not math.isfinite(observation_timestamp):
+        raise CoordinateConversionError(
+            "ball observation timestamp must be a finite wall-clock value"
+        )
+    scale = _object_coordinate_scale(ball, frame_resolution, context)
+    position = _canonical_geometry_point(ball.position, scale, f"{context} position")
+    ball_id = ball.track_id
+    if ball_id is None:
+        ball_id = (
+            hash(
+                (
+                    round(position["x"]),
+                    round(position["y"]),
+                    ball.ball_type.value if ball.ball_type else "unknown",
+                )
+            )
+            % 10000
+        )
+        context = f"ball {ball_id}"
+    radius, radius_scale = _scaled_extent(ball.radius, scale[0], f"{context} radius")
+    radius_extent = _canonical_geometry_point(
+        (ball.radius, ball.radius), scale, f"{context} radius extent"
+    )
+    data: dict[str, Any] = {
+        "id": ball_id,
+        "position": position,
+        "velocity": _canonical_geometry_point(
+            ball.velocity, scale, f"{context} velocity"
+        ),
+        "acceleration": _canonical_geometry_point(
+            ball.acceleration, scale, f"{context} acceleration"
+        ),
+        "radius": radius,
+        "radius_scale": radius_scale,
+        "radius_extent": radius_extent,
+        "is_moving": ball.is_moving,
+        "is_observed": ball.is_observed,
+        "number": ball.number,
+        "type": ball.ball_type.value if ball.ball_type else "unknown",
+        "is_cue_ball": bool(ball.ball_type and ball.ball_type.value == "cue"),
+        "confidence": ball.confidence,
+        # Core's last_update field is wall-clock seconds. Tracker intervals use
+        # a separate monotonic clock and must never be serialized here.
+        "timestamp": observation_timestamp,
+        **_coordinate_space_metadata(scale),
+    }
+    if ball.predicted_position is not None:
+        data["predicted_position"] = _canonical_geometry_point(
+            ball.predicted_position, scale, f"{context} predicted position"
+        )
+    data["position_history"] = [
+        _canonical_geometry_point(point, scale, f"{context} history point")
+        for point in ball.position_history
+    ]
+    return data
+
+
+def serialize_vision_cue(
+    cue: CueStick, frame_resolution: Optional[tuple[int, int]]
+) -> dict[str, Any]:
+    """Serialize cue geometry and motion to canonical 4K pixels."""
+    scale = _object_coordinate_scale(cue, frame_resolution, "cue geometry")
+    if not math.isfinite(cue.angle):
+        raise CoordinateConversionError("cue angle must be finite")
+    angle = math.radians(cue.angle)
+    dx = math.cos(angle) * scale[0]
+    dy = math.sin(angle) * scale[1]
+    canonical_angle = math.degrees(math.atan2(dy, dx)) % 360
+    length_factor = math.hypot(dx, dy)
+    length, length_scale = _scaled_extent(cue.length * length_factor, 1.0, "cue length")
+    perpendicular_factor = math.hypot(
+        math.sin(angle) * scale[0], math.cos(angle) * scale[1]
+    )
+    width, width_scale = _scaled_extent(
+        cue.width * perpendicular_factor, 1.0, "cue width"
+    )
+
+    data: dict[str, Any] = {
+        "tip_position": _canonical_geometry_point(
+            cue.tip_position, scale, "cue tip position"
+        ),
+        "angle": canonical_angle,
+        "length": length,
+        "length_scale": length_scale,
+        "width": width,
+        "width_scale": width_scale,
+        "tip_velocity": _canonical_geometry_point(
+            cue.tip_velocity, scale, "cue tip velocity"
+        ),
+        "angular_velocity": cue.angular_velocity,
+        "shaft_points": [
+            _canonical_geometry_point(point, scale, "cue shaft point")
+            for point in cue.shaft_points
+        ],
+        "aiming_line": [
+            _canonical_geometry_point(point, scale, "cue aiming line point")
+            for point in (cue.aiming_line or [])
+        ],
+        "state": cue.state.value if cue.state else "unknown",
+        "confidence": cue.confidence,
+        "target_ball_id": cue.target_ball_id,
+        **_coordinate_space_metadata(scale),
+    }
+    # CueStick historically defaults an unavailable butt endpoint to (0, 0).
+    # Keep that legacy default optional at this boundary so older cue detectors
+    # do not publish a false measured endpoint. The YOLO endpoint converter
+    # supplies a concrete butt point whenever it detects the shaft line.
+    cue_butt_position = getattr(cue, "butt_position", None)
+    if cue_butt_position is not None and tuple(cue_butt_position) != (0.0, 0.0):
+        data["butt_position"] = _canonical_geometry_point(
+            cue_butt_position, scale, "cue butt position"
+        )
+    if cue.predicted_contact_point is not None:
+        data["predicted_contact_point"] = _canonical_geometry_point(
+            cue.predicted_contact_point, scale, "cue predicted contact point"
+        )
+    return data
+
+
+def serialize_vision_table(
+    table: Any, frame_resolution: Optional[tuple[int, int]]
+) -> dict[str, Any]:
+    """Serialize table boundaries, pocket geometry, and pixel extents canonically."""
+    scale = _object_coordinate_scale(table, frame_resolution, "table geometry")
+    width, width_scale = _scaled_extent(table.width, scale[0], "table width")
+    height, height_scale = _scaled_extent(table.height, scale[1], "table height")
+    pockets = []
+    for index, pocket in enumerate(table.pockets or []):
+        pocket_context = f"pocket {index}"
+        radius, radius_scale = _scaled_extent(
+            pocket.radius, scale[0], f"{pocket_context} radius"
+        )
+        radius_extent = _canonical_geometry_point(
+            (pocket.radius, pocket.radius), scale, f"{pocket_context} radius extent"
+        )
+        pockets.append(
+            {
+                "position": _canonical_geometry_point(
+                    pocket.position, scale, f"{pocket_context} position"
+                ),
+                "corners": [
+                    _canonical_geometry_point(point, scale, f"{pocket_context} corner")
+                    for point in pocket.corners
+                ],
+                "radius": radius,
+                "radius_scale": radius_scale,
+                "radius_extent": radius_extent,
+                "type": (pocket.pocket_type.value if pocket.pocket_type else "unknown"),
+                **_coordinate_space_metadata(scale),
+            }
+        )
+
+    data: dict[str, Any] = {
+        "corners": [
+            _canonical_geometry_point(point, scale, "table corner")
+            for point in table.corners
+        ],
+        "rails": [
+            [
+                _canonical_geometry_point(point, scale, "table rail point")
+                for point in rail
+            ]
+            for rail in table.rails
+        ],
+        "playing_area": [
+            _canonical_geometry_point(point, scale, "table playing-area point")
+            for point in table.playing_area
+        ],
+        "playing_area_corners": [
+            _canonical_geometry_point(point, scale, "table playing-area corner")
+            for point in table.playing_area
+        ],
+        "width": width,
+        "width_scale": width_scale,
+        "height": height,
+        "height_scale": height_scale,
+        "pockets": pockets,
+        "surface_color": table.surface_color,
+        "real_world_dimensions": table.real_world_dimensions,
+        "real_world_dimensions_unit": "meters",
+        "pixels_per_meter": (
+            table.pixels_per_meter * math.sqrt(scale[0] * scale[1])
+            if table.pixels_per_meter is not None
+            else None
+        ),
+        **_coordinate_space_metadata(scale),
+    }
+    if pockets:
+        data["pocket_radius"] = pockets[0]["radius"]
+        data["pocket_radius_scale"] = [1.0, 1.0]
+    source_resolution = getattr(table, "source_resolution", None) or frame_resolution
+    if source_resolution is not None:
+        data["source_resolution"] = list(source_resolution)
+    return data
 
 
 class StateConversionHelpers:
     """Helper class for converting Vision detections to Core states with validation."""
 
     def __init__(
-        self, config=None, physics_validator: Optional[PhysicsValidator] = None
+        self, config: Any = None, physics_validator: Optional[PhysicsValidator] = None
     ):
         """Initialize state conversion helpers.
 
@@ -71,8 +404,6 @@ class StateConversionHelpers:
             )
             # Position bounds: 4K frame is 3840×2160
             # These are frame bounds for validation, not table bounds
-            from core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
-
             self.max_position_x_4k = config.get(
                 "integration.max_position_x_4k", CANONICAL_WIDTH
             )
@@ -83,24 +414,13 @@ class StateConversionHelpers:
                 "integration.min_ball_confidence", 0.1
             )
             self.min_cue_confidence = config.get("integration.min_cue_confidence", 0.05)
-            camera_width = config.get("camera.resolution.width", 1920)
-            camera_height = config.get("camera.resolution.height", 1080)
         else:
             # Default values in 4K pixels
-            from core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
-
             self.max_ball_velocity_4k = 12600.0  # ~10 m/s in 4K pixels/second
             self.max_position_x_4k = CANONICAL_WIDTH  # 4K frame width
             self.max_position_y_4k = CANONICAL_HEIGHT  # 4K frame height
             self.min_ball_confidence = 0.1
             self.min_cue_confidence = 0.05  # Lowered to minimize intermittent cue drops
-            camera_width = 1920
-            camera_height = 1080
-
-        # Store camera resolution for coordinate conversions
-        # Camera resolution is the source resolution for vision detections
-        self.camera_resolution: Resolution = (camera_width, camera_height)
-
         # Conversion counters for periodic logging
         self._ball_conversion_count = 0
         self._cue_conversion_count = 0
@@ -139,65 +459,31 @@ class StateConversionHelpers:
         # Generate ball ID - use track_id if available, otherwise create from position/type
         ball_id = self._generate_ball_id(ball, is_target)
 
-        # Track coordinate space information for logging/debugging
-        source_space = (
-            ball.coordinate_space if hasattr(ball, "coordinate_space") else "pixel"
+        source_space = getattr(ball, "coordinate_space", None)
+        source_resolution = getattr(ball, "source_resolution", None)
+        scale = _coordinate_scale(
+            source_space, source_resolution, None, f"ball {ball_id}"
         )
+        position = _scaled_xy(ball.position, scale, f"ball {ball_id} position")
+        velocity = _scaled_xy(ball.velocity, scale, f"ball {ball_id} velocity")
+        position_4k = Vector2D.from_4k(position["x"], position["y"])
+        velocity_4k = Vector2D.from_4k(velocity["x"], velocity["y"])
+        radius_4k, _ = _scaled_extent(ball.radius, scale[0], f"ball {ball_id} radius")
 
-        # Convert coordinates from camera pixels to 4K canonical using scale
-        # Vision Ball positions are in pixel coordinates with source_resolution metadata
-        # Core BallState expects positions in 4K canonical format
         if source_space == "pixel":
-            # Get source resolution from ball metadata
-            # Ball detections include source_resolution=(width, height) from camera
-            source_resolution = (
-                ball.source_resolution
-                if hasattr(ball, "source_resolution") and ball.source_resolution
-                else self.camera_resolution
-            )
-
-            # Use Vector2D.from_resolution() to create position with automatic scale
-            # This calculates scale = 4K / source_resolution and stores it in the vector
-            position_with_scale = Vector2D.from_resolution(
-                ball.position[0], ball.position[1], source_resolution
-            )
-
-            # Convert to 4K canonical (scale=[1.0, 1.0])
-            position_4k = position_with_scale.to_4k_canonical()
-
-            # Convert velocity using the same scale
-            # Velocity is a displacement vector, so apply the same scaling
-            velocity_with_scale = Vector2D.from_resolution(
-                ball.velocity[0], ball.velocity[1], source_resolution
-            )
-            velocity_4k = velocity_with_scale.to_4k_canonical()
-
-            # Convert radius using the scale factor
-            scale_x = 3840 / source_resolution[0]
-            radius_4k = (
-                ball.radius * scale_x if ball.radius > 0 else 36.0
-            )  # Default ball radius in 4K pixels
-
             self._coordinate_conversions += 1
-
-            # Log coordinate conversion periodically
             if self._coordinate_conversions % 100 == 0:
                 logger.debug(
-                    f"Coordinate conversion #{self._coordinate_conversions}: "
-                    f"source_res={source_resolution}, "
-                    f"scale=[{scale_x:.2f},{3840/source_resolution[0]:.2f}], "
-                    f"pixel({ball.position[0]:.1f},{ball.position[1]:.1f}) -> "
-                    f"4K({position_4k.x:.1f},{position_4k.y:.1f})"
+                    "Coordinate conversion #%s: source_res=%s, scale=%s, "
+                    "pixel(%s,%s) -> 4K(%s,%s)",
+                    self._coordinate_conversions,
+                    source_resolution,
+                    scale,
+                    ball.position[0],
+                    ball.position[1],
+                    position_4k.x,
+                    position_4k.y,
                 )
-        else:
-            # Already in 4K canonical or other coordinate space
-            position_4k = Vector2D(ball.position[0], ball.position[1], scale=(1.0, 1.0))
-            velocity_4k = Vector2D(ball.velocity[0], ball.velocity[1], scale=(1.0, 1.0))
-            radius_4k = ball.radius if ball.radius > 0 else 36.0
-            logger.debug(
-                f"Ball conversion #{self._ball_conversion_count}: "
-                f"Ball already in target coordinate space, no conversion needed"
-            )
 
         # Validate position is reasonable (in 4K pixels)
         # 4K frame bounds: (0, 0) to (3840, 2160)
@@ -223,7 +509,7 @@ class StateConversionHelpers:
         # Validate velocity is reasonable (in 4K pixels/second)
         # Max reasonable velocity: ~10 m/s * 1260 px/m ≈ 12600 px/s
         velocity_mag = (velocity_4k.x**2 + velocity_4k.y**2) ** 0.5
-        max_velocity_px = 12600.0  # Roughly 10 m/s in 4K pixels/second
+        max_velocity_px = self.max_ball_velocity_4k
         if velocity_mag > max_velocity_px:
             logger.warning(
                 f"Ball conversion #{self._ball_conversion_count}: "
@@ -244,11 +530,12 @@ class StateConversionHelpers:
             y=position_4k.y,
             velocity=velocity_4k,
             radius=radius_4k,
-            mass=0.17,  # Standard pool ball mass in kg
+            mass=BALL_MASS_KG,
             is_cue_ball=(ball.ball_type.value == "cue" if ball.ball_type else False),
             is_pocketed=False,  # Vision detections are only for balls on table
             number=ball.number,
             confidence=ball.confidence,
+            is_observed=ball.is_observed,
             last_update=timestamp if timestamp is not None else time.time(),
         )
 
@@ -320,14 +607,9 @@ class StateConversionHelpers:
             )
             self._validation_warnings += 1
 
-        # Validate cue angle is reasonable (0-360 degrees)
-        if detected_cue.angle < 0 or detected_cue.angle > 360:
-            logger.warning(
-                f"Cue conversion #{self._cue_conversion_count}: "
-                f"Angle {detected_cue.angle:.2f}deg out of range [0, 360], normalizing"
-            )
-            # Normalize angle to 0-360
-            detected_cue.angle = detected_cue.angle % 360
+        # Keep the source detection immutable; normalize the local value only.
+        source_angle = detected_cue.angle % 360
+        if source_angle != detected_cue.angle:
             self._validation_warnings += 1
 
         # Get estimated force from config or use default
@@ -344,68 +626,27 @@ class StateConversionHelpers:
             estimated_force = max(0.0, min(50.0, estimated_force))
             self._validation_warnings += 1
 
-        # Track coordinate space information for logging/debugging
-        source_space = (
-            detected_cue.coordinate_space
-            if hasattr(detected_cue, "coordinate_space")
-            else "pixel"
-        )
-
-        # Convert coordinates from camera pixels to 4K canonical using scale
-        # Vision CueStick positions are in pixel coordinates with source_resolution metadata
-        # Core CueState expects positions in 4K canonical format
+        source_space = getattr(detected_cue, "coordinate_space", None)
+        source_resolution = getattr(detected_cue, "source_resolution", None)
+        scale = _coordinate_scale(source_space, source_resolution, None, "cue geometry")
+        tip = _scaled_xy(detected_cue.tip_position, scale, "cue tip position")
+        tip_position_4k = Vector2D.from_4k(tip["x"], tip["y"])
+        butt_position_4k = None
+        cue_butt_position = getattr(detected_cue, "butt_position", None)
+        if cue_butt_position is not None and tuple(cue_butt_position) != (0.0, 0.0):
+            butt = _scaled_xy(cue_butt_position, scale, "cue butt position")
+            butt_position_4k = Vector2D.from_4k(butt["x"], butt["y"])
+        angle_radians = math.radians(source_angle)
+        direction_x = math.cos(angle_radians) * scale[0]
+        direction_y = math.sin(angle_radians) * scale[1]
+        transformed_angle = math.degrees(math.atan2(direction_y, direction_x)) % 360
+        length_4k = float(detected_cue.length) * math.hypot(direction_x, direction_y)
+        if not math.isfinite(length_4k) or length_4k < 0:
+            raise CoordinateConversionError(
+                "cue length must be finite and non-negative"
+            )
         if source_space == "pixel":
-            # Get source resolution from cue metadata
-            source_resolution = (
-                detected_cue.source_resolution
-                if hasattr(detected_cue, "source_resolution")
-                and detected_cue.source_resolution
-                else self.camera_resolution
-            )
-
-            # Use Vector2D.from_resolution() to create tip position with automatic scale
-            tip_position_with_scale = Vector2D.from_resolution(
-                detected_cue.tip_position[0],
-                detected_cue.tip_position[1],
-                source_resolution,
-            )
-
-            # Convert to 4K canonical
-            tip_position_4k = tip_position_with_scale.to_4k_canonical()
-
-            # Convert length using the same scale
-            scale_x = 3840 / source_resolution[0]
-            length_4k = (
-                detected_cue.length * scale_x
-                if hasattr(detected_cue, "length") and detected_cue.length > 0
-                else 1851.0
-            )  # Default cue length in 4K pixels (~1.47m * 1260px/m)
-
             self._coordinate_conversions += 1
-
-            # Log coordinate conversion periodically
-            if self._coordinate_conversions % 100 == 0:
-                logger.debug(
-                    f"Cue coordinate conversion #{self._coordinate_conversions}: "
-                    f"source_res={source_resolution}, "
-                    f"scale=[{scale_x:.2f}], "
-                    f"pixel_tip({detected_cue.tip_position[0]:.1f},{detected_cue.tip_position[1]:.1f}) -> "
-                    f"4K_tip({tip_position_4k.x:.1f},{tip_position_4k.y:.1f})"
-                )
-        else:
-            # Already in 4K canonical or other coordinate space
-            tip_position_4k = Vector2D(
-                detected_cue.tip_position[0],
-                detected_cue.tip_position[1],
-                scale=(1.0, 1.0),
-            )
-            length_4k = (
-                detected_cue.length if hasattr(detected_cue, "length") else 1851.0
-            )
-            logger.debug(
-                f"Cue conversion #{self._cue_conversion_count}: "
-                f"Cue already in target coordinate space, no conversion needed"
-            )
 
         # Validate tip position is reasonable (in 4K pixels)
         # 4K frame bounds: (0, 0) to (3840, 2160)
@@ -431,10 +672,11 @@ class StateConversionHelpers:
         # Create cue state using from_4k() factory method
         # This ensures the position has proper 4K canonical scale metadata
         cue_state = CueState.from_4k(
-            angle=detected_cue.angle,
+            angle=transformed_angle,
             estimated_force=estimated_force,
             tip_x=tip_position_4k.x,
             tip_y=tip_position_4k.y,
+            butt_position=butt_position_4k,
             elevation=0.0,  # Vision doesn't currently detect elevation
             length=length_4k,
             is_visible=True,
@@ -478,13 +720,20 @@ class StateConversionHelpers:
         if ball.track_id is not None:
             return str(ball.track_id)
 
-        # Fallback: Generate ID from position and type
-        # This is less ideal as ball positions change, but provides some stability
+        # Fallback IDs must be stable across source resolutions. Hash canonical
+        # coordinates so the same observed ball does not change identity when
+        # the camera capture resolution changes.
+        coordinate_scale = _coordinate_scale(
+            getattr(ball, "coordinate_space", None),
+            getattr(ball, "source_resolution", None),
+            None,
+            "ball ID position",
+        )
+        position = _scaled_xy(ball.position, coordinate_scale, "ball ID position")
         position_hash = hash(
             (
-                round(ball.position[0] / 10)
-                * 10,  # Round to nearest 10 pixels for stability
-                round(ball.position[1] / 10) * 10,
+                round(position["x"] / 10) * 10,
+                round(position["y"] / 10) * 10,
                 ball.ball_type.value if ball.ball_type else "unknown",
             )
         )
@@ -538,7 +787,7 @@ class StateConversionHelpers:
 
         return True
 
-    def get_conversion_stats(self) -> dict:
+    def get_conversion_stats(self) -> dict[str, Any]:
         """Get conversion statistics.
 
         Returns:

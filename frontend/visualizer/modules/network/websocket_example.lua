@@ -7,7 +7,7 @@ local WebSocket = require("modules.network.websocket")
 print("=== Example 1: Basic Usage ===")
 
 local ws1 = WebSocket.new({
-    url = "ws://localhost:8080/api",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     onopen = function()
         print("[ws1] Connected!")
@@ -39,7 +39,7 @@ print("=== Example 2: Host/Port/Path Configuration ===")
 local ws2 = WebSocket.new({
     host = "127.0.0.1",
     port = 9000,
-    path = "/websocket",
+    path = "/api/v1/websocket/ws",
 
     onopen = function()
         print("[ws2] Connected to", ws2:getURL())
@@ -56,7 +56,7 @@ print()
 print("=== Example 3: Custom Reconnection Settings ===")
 
 local ws3 = WebSocket.new({
-    url = "ws://localhost:8080",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     -- Start with 2 second delay
     reconnect_delay = 2000,
@@ -83,7 +83,7 @@ print()
 print("=== Example 4: Disabling Auto-Reconnect ===")
 
 local ws4 = WebSocket.new({
-    url = "ws://localhost:8080",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
     reconnect_enabled = false,
 
     onclose = function(code, reason)
@@ -96,33 +96,101 @@ print()
 -- Example 5: Sending Messages
 print("=== Example 5: Sending Messages ===")
 
-local ws5 = WebSocket.new({
-    url = "ws://localhost:8080",
+local ws5
+ws5 = WebSocket.new({
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     onopen = function()
         print("[ws5] Connected, sending messages...")
 
-        -- Send a state update
+        -- Image points below are 1080p camera pixels. Each per-axis scale maps
+        -- them to canonical 4K pixels; the space tag names the source domain.
         ws5:send({
             type = "state",
             data = {
+                coordinate_space = "pixel",
                 balls = {
-                    {id = 1, position = {x = 100, y = 200}},
-                    {id = 2, position = {x = 300, y = 400}},
+                    {
+                        id = 1,
+                        position = {x = 480, y = 270, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        velocity = {x = 0, y = 0, scale = {2, 2},
+                            coordinate_space = "pixel"}
+                    },
+                    {
+                        id = 2,
+                        position = {x = 1440, y = 540, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        velocity = {x = 0, y = 0, scale = {2, 2},
+                            coordinate_space = "pixel"}
+                    }
+                },
+                table = {
+                    coordinate_space = "pixel",
+                    width = 3072,
+                    height = 1536,
+                    dimensions_unit = "canonical_pixels",
+                    dimensions_scale = {1, 1},
+                    playing_area_corners = {
+                        {x = 192, y = 156, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        {x = 1728, y = 156, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        {x = 1728, y = 924, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        {x = 192, y = 924, scale = {2, 2},
+                            coordinate_space = "pixel"}
+                    },
+                    bounds = {
+                        x = 192, y = 156, width = 1536, height = 768,
+                        scale = {2, 2}, coordinate_space = "pixel"
+                    },
+                    pocket_positions = {
+                        {x = 192, y = 156, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        {x = 1728, y = 924, scale = {2, 2},
+                            coordinate_space = "pixel"}
+                    },
+                    real_world_dimensions = {
+                        width = 2.1, height = 1.05, unit = "meters"
+                    }
                 }
             }
         })
 
-        -- Send a trajectory update
+        -- Send a trajectory update with the same declared source image space.
         ws5:send({
             type = "trajectory",
             data = {
-                ball_id = 1,
-                path = {
-                    {x = 100, y = 200},
-                    {x = 150, y = 250},
-                    {x = 200, y = 300},
-                }
+                coordinate_space = "pixel",
+                line_count = 2,
+                collision_count = 1,
+                lines = {
+                    {
+                        start = {x = 480, y = 270, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        ["end"] = {x = 960, y = 540, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        type = "primary",
+                        ball_id = "1"
+                    },
+                    {
+                        start = {x = 960, y = 540, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        ["end"] = {x = 1440, y = 270, scale = {2, 2},
+                            coordinate_space = "pixel"},
+                        type = "primary",
+                        ball_id = "1"
+                    }
+                },
+                collisions = {{
+                    position = {x = 960, y = 540, scale = {2, 2},
+                        coordinate_space = "pixel"},
+                    ball1_id = "1",
+                    ball2_id = "2",
+                    type = "ball",
+                    angle = 0
+                }}
             }
         })
 
@@ -135,14 +203,16 @@ local ws5 = WebSocket.new({
         })
     end,
 })
+ws5:connect()
 
 print()
 
 -- Example 6: Statistics Tracking
 print("=== Example 6: Statistics Tracking ===")
 
-local ws6 = WebSocket.new({
-    url = "ws://localhost:8080",
+local ws6
+ws6 = WebSocket.new({
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 
     onopen = function()
         -- Send some test messages
@@ -167,6 +237,7 @@ local ws6 = WebSocket.new({
         print("[ws6] Received message #" .. stats.messages_received)
     end,
 })
+ws6:connect()
 
 print()
 
@@ -174,7 +245,7 @@ print()
 print("=== Example 7: State Management ===")
 
 local ws7 = WebSocket.new({
-    url = "ws://localhost:8080",
+    url = "ws://localhost:8000/api/v1/websocket/ws",
 })
 
 -- Check state before connection
@@ -201,7 +272,7 @@ local NetworkModule = {
 
 function NetworkModule:init()
     self.websocket = WebSocket.new({
-        url = "ws://localhost:8080/api",
+        url = "ws://localhost:8000/api/v1/websocket/ws",
 
         onopen = function()
             self:onConnect()
@@ -307,4 +378,4 @@ print()
 print("=== Examples Complete ===")
 print()
 print("Note: Most examples require a WebSocket server running.")
-print("Start a server on ws://localhost:8080 to test connections.")
+print("Connect to ws://localhost:8000/api/v1/websocket/ws to test connections.")

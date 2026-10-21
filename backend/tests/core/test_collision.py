@@ -40,43 +40,43 @@ from backend.core.physics.spin import SpinCalculator
 # ============================================================================
 
 
-@pytest.fixture()
+@pytest.fixture
 def detector():
     """Create a CollisionDetector instance."""
     return CollisionDetector()
 
 
-@pytest.fixture()
+@pytest.fixture
 def resolver():
     """Create a CollisionResolver instance."""
     return CollisionResolver()
 
 
-@pytest.fixture()
+@pytest.fixture
 def spin_calculator():
     """Create a SpinCalculator instance."""
     return SpinCalculator()
 
 
-@pytest.fixture()
+@pytest.fixture
 def resolver_with_spin(spin_calculator):
     """Create a CollisionResolver instance with spin calculator."""
     return CollisionResolver(spin_calculator=spin_calculator)
 
 
-@pytest.fixture()
+@pytest.fixture
 def predictor(detector, resolver):
     """Create a CollisionPredictor instance."""
     return CollisionPredictor(detector, resolver)
 
 
-@pytest.fixture()
+@pytest.fixture
 def optimizer():
     """Create a CollisionOptimizer instance."""
     return CollisionOptimizer()
 
 
-@pytest.fixture()
+@pytest.fixture
 def table_state():
     """Create a standard table state for testing."""
     # Create standard 6-pocket positions for testing
@@ -98,7 +98,7 @@ def table_state():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def ball1():
     """Create a test ball (cue ball)."""
     return BallState(
@@ -113,7 +113,7 @@ def ball1():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def ball2():
     """Create a second test ball (stationary)."""
     return BallState(
@@ -127,7 +127,7 @@ def ball2():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def ball3():
     """Create a third test ball."""
     return BallState(
@@ -146,7 +146,7 @@ def ball3():
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCollisionDetector:
     """Tests for CollisionDetector class."""
 
@@ -452,7 +452,7 @@ class TestCollisionDetector:
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCollisionResolver:
     """Tests for CollisionResolver class."""
 
@@ -709,7 +709,7 @@ class TestCollisionResolver:
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCollisionPredictor:
     """Tests for CollisionPredictor class."""
 
@@ -854,7 +854,7 @@ class TestCollisionPredictor:
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCollisionOptimizer:
     """Tests for CollisionOptimizer class."""
 
@@ -948,7 +948,7 @@ class TestCollisionOptimizer:
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestVector2DScaleParameters:
     """Tests specifically for Vector2D scale parameter handling in collision code."""
 
@@ -1057,7 +1057,7 @@ class TestVector2DScaleParameters:
 # ============================================================================
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
 

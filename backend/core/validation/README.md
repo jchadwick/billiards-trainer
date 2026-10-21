@@ -1,273 +1,109 @@
 # Physics Validation System
 
-This module provides comprehensive physics validation to ensure system reliability and catch invalid physics states in the billiards trainer system.
+`PhysicsValidator` checks ball states, trajectories, collisions, forces, conservation laws, and system state. Its coordinate units follow the core physics model: spatial positions and table geometry are canonical 3840 × 2160 pixels, velocities are pixels per second, accelerations are pixels per second squared, and time remains seconds. Mass and force remain SI quantities. This is separate from physical table-plane positions in meters.
 
-## Overview
-
-The physics validation system validates physics calculations, conservation laws, and system constraints to ensure reliable physics simulation and catch invalid states. It provides detailed error reporting with suggested fixes and confidence metrics.
-
-## Core Components
-
-### PhysicsValidator
-
-The main validation class that provides comprehensive physics validation functionality.
-
-**Features:**
-- Ball state validation (position, velocity, mass, radius constraints)
-- Trajectory validation (continuity, time sequences, physical limits)
-- Collision validation (type consistency, position accuracy, force limits)
-- Force validation (magnitude limits, acceleration constraints, NaN/infinity checks)
-- Conservation law validation (energy and momentum conservation)
-- System state validation (ball overlaps, cue ball count, total energy)
-- Performance-conscious validation (configurable tolerances)
-
-### ValidationError
-
-Detailed error information with:
-- Error type classification
-- Severity levels (warning, error, critical)
-- Human-readable messages
-- Detailed error data
-- Suggested fixes
-
-### ValidationResult
-
-Comprehensive validation results containing:
-- Validity status
-- List of errors and warnings
-- Confidence score (0.0 to 1.0)
+Read [`docs/COORDINATE_SYSTEMS.md`](../../../docs/COORDINATE_SYSTEMS.md) for the repository-wide rules on scale, bounds, radii, extents, and calibration.
 
 ## Configuration
 
-The validator accepts configuration parameters:
+`position_tolerance` is in canonical pixels and `velocity_tolerance` is in pixels per second. Explicit `max_velocity` and `max_acceleration` values use those corresponding pixel units. The validator's defaults convert reference physical limits using a documented pixels-per-meter value; use calibrated dimensions when physical-to-image conversion is needed.
 
 ```python
-config = {
-    "energy_tolerance": 0.05,      # 5% energy conservation tolerance
-    "momentum_tolerance": 0.01,    # 1% momentum conservation tolerance
-    "velocity_tolerance": 0.001,   # m/s velocity precision
-    "position_tolerance": 0.001,   # m position precision
-    "max_velocity": 20.0,          # m/s maximum allowed velocity
-    "max_acceleration": 100.0,     # m/s² maximum acceleration
-    "max_spin": 100.0,             # rad/s maximum spin rate
-    "max_force": 50.0,             # N maximum force magnitude
-    "detailed_validation": True,    # Enable detailed checks
-    "conservation_checks": True,    # Enable conservation law validation
-}
+from backend.core.validation.physics import PhysicsValidator
 
-validator = PhysicsValidator(config)
+validator = PhysicsValidator(
+    {
+        "position_tolerance": 1.0,  # canonical pixels
+        "velocity_tolerance": 1.0,  # canonical pixels / second
+        "energy_tolerance": 0.05,  # relative fraction
+        "momentum_tolerance": 0.01,  # relative fraction
+        "max_spin": 100.0,  # radians / second
+        "max_force": 50.0,  # newtons
+        "detailed_validation": True,
+        "conservation_checks": True,
+    }
+)
 ```
 
-## Usage Examples
-
-### Ball State Validation
+## Validate ball and table state
 
 ```python
-from core.validation.physics import PhysicsValidator
-from core.models import BallState, Vector2D, TableState
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, TableState
+from backend.core.validation.physics import PhysicsValidator
 
-validator = PhysicsValidator()
-table = TableState.standard_9ft_table()
-
+# Calibration corners are pixels in the declared 4K source frame.
+table = TableState.from_calibration(
+    table_corners_pixel=[(320, 280), (3520, 280), (3520, 1880), (320, 1880)],
+    camera_resolution=(3840, 2160),
+    table_dimensions_real=(2.54, 1.27),  # meters, stored separately
+)
 ball = BallState(
-    id="cue_ball",
-    position=Vector2D(1.0, 1.0),
-    velocity=Vector2D(2.0, 0.0),
-    is_cue_ball=True
+    id="cue",
+    position=Vector2D.from_4k(1920, 1080),
+    velocity=Vector2D.from_4k(0, 0),  # pixel-space velocity
+    is_cue_ball=True,
 )
 
-result = validator.validate_ball_state(ball, table)
+result = PhysicsValidator().validate_ball_state(ball, table)
 if not result.is_valid:
     for error in result.errors:
-        print(f"Error: {error.message}")
-        if error.suggested_fix:
-            print(f"Fix: {error.suggested_fix}")
+        print(error.error_type, error.message)
 ```
 
-### Trajectory Validation
+`TableState.from_calibration` scales the supplied image corners into canonical pixels and stores optional real dimensions as meters. Ball coordinates and table pixel geometry must be in the same canonical image plane before validation.
+
+## Validate a trajectory
 
 ```python
-from core.physics.engine import TrajectoryPoint
+from backend.core.coordinates import Vector2D
+from backend.core.physics.engine import TrajectoryPoint
+from backend.core.validation.physics import PhysicsValidator
 
 trajectory = [
-    TrajectoryPoint(time=0.0, position=Vector2D(1.0, 1.0), velocity=Vector2D(2.0, 0.0)),
-    TrajectoryPoint(time=0.1, position=Vector2D(1.2, 1.0), velocity=Vector2D(1.8, 0.0)),
-    TrajectoryPoint(time=0.2, position=Vector2D(1.4, 1.0), velocity=Vector2D(1.6, 0.0)),
+    TrajectoryPoint(0.0, Vector2D.from_4k(1000, 900), Vector2D.from_4k(10, 0)),
+    TrajectoryPoint(0.1, Vector2D.from_4k(1001, 900), Vector2D.from_4k(10, 0)),
+    TrajectoryPoint(0.2, Vector2D.from_4k(1002, 900), Vector2D.from_4k(10, 0)),
 ]
-
-result = validator.validate_trajectory(trajectory)
-print(f"Trajectory valid: {result.is_valid}")
-print(f"Confidence: {result.confidence:.2f}")
+result = PhysicsValidator().validate_trajectory(trajectory)
+print(result.is_valid, result.confidence)
 ```
 
-### Conservation Law Validation
+## Validate conservation across a collision
 
 ```python
-# Before collision
-ball1_before = BallState(id="1", position=Vector2D(1,1), velocity=Vector2D(2,0))
-ball2_before = BallState(id="2", position=Vector2D(2,1), velocity=Vector2D(0,0))
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState
+from backend.core.validation.physics import PhysicsValidator
 
-# After collision
-ball1_after = BallState(id="1", position=Vector2D(1,1), velocity=Vector2D(0,0))
-ball2_after = BallState(id="2", position=Vector2D(2,1), velocity=Vector2D(1.9,0))
-
-# Validate energy conservation
-energy_result = validator.validate_energy_conservation(
-    [ball1_before, ball2_before],
-    [ball1_after, ball2_after]
-)
-
-# Validate momentum conservation
-momentum_result = validator.validate_momentum_conservation(
-    [ball1_before, ball2_before],
-    [ball1_after, ball2_after]
-)
+before = [
+    BallState("cue", Vector2D.from_4k(1000, 900), Vector2D.from_4k(100, 0), is_cue_ball=True),
+    BallState("object", Vector2D.from_4k(1100, 900), Vector2D.from_4k(0, 0)),
+]
+after = [
+    BallState("cue", Vector2D.from_4k(1000, 900), Vector2D.from_4k(0, 0), is_cue_ball=True),
+    BallState("object", Vector2D.from_4k(1100, 900), Vector2D.from_4k(95, 0)),
+]
+validator = PhysicsValidator()
+energy = validator.validate_energy_conservation(before, after)
+momentum = validator.validate_momentum_conservation(before, after)
 ```
 
-### System State Validation
+## Validate all balls on a table
 
 ```python
-balls = [ball1, ball2, ball3]  # List of all balls
-table = TableState.standard_9ft_table()
-
-result = validator.validate_system_state(balls, table)
+result = PhysicsValidator().validate_system_state([ball], table)
 if not result.is_valid:
-    print("System validation failed:")
     for error in result.errors:
-        print(f"  - {error.error_type}: {error.message}")
+        print(f"{error.error_type}: {error.message}")
 ```
 
-## Integration with Core Module
+## Core module integration
 
-The physics validator is automatically integrated into the Core Module when physics validation is enabled:
+`CoreModule` accepts `CoreModuleConfig(physics_validation_enabled=True)`. Its `validate_state`, `validate_trajectory`, and `validate_collision` methods are asynchronous and operate on the current state. Use `Vector2D.from_4k` for canonical pixel velocities passed to `validate_trajectory`.
 
-```python
-from core import CoreModule, CoreModuleConfig
+## Result types and errors
 
-config = CoreModuleConfig(
-    physics_validation_enabled=True,
-    detailed_validation=True,
-    conservation_checks=True,
-    energy_tolerance=0.05,
-    momentum_tolerance=0.01
-)
+`ValidationResult` contains `is_valid`, `errors`, `warnings`, and a confidence score. Each `ValidationError` contains an error type, severity, message, details, and an optional suggested fix. Detected conditions include invalid ball dimensions or motion, trajectory discontinuities, collision inconsistencies, force limits, conservation violations, overlaps, and invalid cue-ball counts.
 
-core = CoreModule(config)
-
-# Validation is now automatically performed on state updates
-# and can be explicitly triggered:
-
-# Validate current state
-validation_result = await core.validate_state()
-
-# Validate trajectory
-trajectory_result = await core.validate_trajectory("cue_ball", Vector2D(2,0))
-
-# Validate collision
-collision_result = await core.validate_collision(collision, "ball1", "ball2")
-
-# Get validation system status
-summary = core.get_validation_summary()
-```
-
-## Error Types
-
-The validation system identifies various types of physics violations:
-
-### Ball State Errors
-- `invalid_radius`: Ball radius is negative or zero
-- `invalid_mass`: Ball mass is negative or zero
-- `velocity_limit`: Ball velocity exceeds physical limits
-- `spin_limit`: Ball spin rate is unreasonably high
-- `position_out_of_bounds`: Ball position is outside table bounds
-- `kinetic_energy`: Ball kinetic energy exceeds limits
-
-### Trajectory Errors
-- `empty_trajectory`: Trajectory contains no points
-- `time_sequence`: Time values are not monotonically increasing
-- `position_discontinuity`: Large jumps in position between points
-- `velocity_limit`: Velocity exceeds limits at trajectory points
-
-### Collision Errors
-- `collision_type_mismatch`: Collision type doesn't match involved objects
-- `collision_position`: Collision position inconsistent with object positions
-- `post_collision_velocity`: Resulting velocities exceed limits
-- `negative_collision_time`: Collision time is negative (past event)
-- `impact_force`: Impact force is unusually high
-
-### Force Errors
-- `force_magnitude`: Force magnitude is unusually high
-- `acceleration_limit`: Resulting acceleration exceeds physical limits
-- `invalid_mass`: Mass value is invalid for force calculations
-- `invalid_force_values`: Force contains NaN or infinite values
-
-### Conservation Errors
-- `energy_conservation`: Energy conservation violation detected
-- `energy_increase`: Energy increased without external input
-- `momentum_conservation`: Momentum conservation violation detected
-- `momentum_creation`: Momentum created from zero initial momentum
-- `zero_initial_energy`: Cannot validate with zero initial energy
-
-### System Errors
-- `ball_overlap`: Balls are overlapping
-- `cue_ball_count`: Wrong number of cue balls (should be exactly 1)
-- `system_energy`: Total system energy is unreasonably high
-
-## Performance
-
-The validation system is designed for real-time use:
-
-- **Ball state validation**: ~0.01ms per ball
-- **Trajectory validation**: ~0.1ms for typical trajectory
-- **System validation**: ~0.5ms for 15 balls
-- **Conservation checks**: ~0.05ms per check
-
-Performance can be tuned by:
-- Disabling detailed validation for production
-- Adjusting tolerances for specific use cases
-- Disabling conservation checks for non-critical scenarios
-
-## Testing
-
-Comprehensive test suite validates all aspects of the physics validation system:
-
-```bash
-cd backend
-python core/validation/test_physics_validator.py
-```
-
-The test suite covers:
-- Valid and invalid ball states
-- Trajectory continuity and constraints
-- Collision validation scenarios
-- Force limit checking
-- Conservation law validation
-- System state validation
-- Performance benchmarks
-- Error reporting accuracy
-
-## Error Handling
-
-The validation system provides multiple levels of error handling:
-
-1. **Critical Errors**: System cannot continue (NaN values, infinite forces)
-2. **Errors**: Physics violations that should be corrected (overlapping balls, conservation violations)
-3. **Warnings**: Suspicious but potentially valid states (high forces, negative collision times)
-
-Each error includes:
-- Clear description of the problem
-- Detailed data about the violation
-- Suggested fix when applicable
-- Confidence metric for the validation
-
-## Integration Points
-
-The physics validator integrates with:
-
-- **PhysicsEngine**: Validates trajectories and collision calculations
-- **GameStateManager**: Validates state updates and transitions
-- **CoreModule**: Provides validation API for external clients
-- **CollisionDetector/Resolver**: Validates collision physics
-- **ForceCalculator**: Validates force calculations
-
-This ensures comprehensive validation coverage across the entire physics simulation pipeline.
+Performance varies with the host, state size, and enabled checks. Use measured benchmarks for performance decisions; this guide does not promise fixed per-call latency.

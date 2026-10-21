@@ -22,7 +22,7 @@ local STATE = {
 -- @param url string The WebSocket URL
 -- @return table|nil Parsed components (host, port, path) or nil on error
 local function parseURL(url)
-    if not url then return nil end
+    if type(url) ~= "string" or url == "" then return nil end
 
     -- Match ws://host:port/path
     local protocol, host, port, path = url:match("^(ws)://([^:]+):(%d+)(.*)$")
@@ -46,6 +46,8 @@ local function parseURL(url)
 
     return nil
 end
+
+WebSocket.parseURL = parseURL
 
 --- Create a new WebSocket client
 -- @param config table Configuration options
@@ -78,8 +80,8 @@ function WebSocket.new(config)
     else
         parsed = {
             host = config.host or "localhost",
-            port = config.port or 8080,
-            path = config.path or "/",
+            port = config.port or 8000,
+            path = config.path or "/api/v1/websocket/ws",
         }
     end
 

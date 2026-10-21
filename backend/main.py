@@ -1,18 +1,33 @@
 """Main entry point for the billiards trainer application."""
 
 import argparse
-import asyncio
 import logging
 import os
-import signal
-import sys
-from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from backend.api.main import app, lifespan
 from backend.config import Config
 
 logger = logging.getLogger(__name__)
+
+
+def build_uvicorn_options(
+    host: str, port: int, log_level: str, reload: bool
+) -> dict[str, Any]:
+    """Build server options without Uvicorn's implicit proxy-header rewriting.
+
+    Client IP forwarding is evaluated by the WebSocket limiter against its
+    configured trusted proxy networks. Uvicorn must leave the transport peer
+    untouched so an untrusted forwarded header cannot influence that check.
+    """
+    return {
+        "host": host,
+        "port": port,
+        "log_level": log_level,
+        "reload": reload,
+        "proxy_headers": False,
+        "forwarded_allow_ips": "",
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +45,11 @@ def parse_args() -> argparse.Namespace:
         default="config.json",
         help="Path to configuration file (default: ./config.json)",
     )
+    parser.add_argument(
+        "--performance-audit",
+        action="store_true",
+        help="Enable opt-in performance audit instrumentation for this process",
+    )
     return parser.parse_args()
 
 
@@ -40,19 +60,13 @@ def main() -> NoReturn:
 
     # Set the config file path before any imports that might use config
     Config.set_config_file(args.config)
+    if getattr(args, "performance_audit", False):
+        # Uvicorn imports the application in its serving process. Keep this
+        # override process-local and avoid persisting a diagnostic setting.
+        os.environ["BT_PERFORMANCE_AUDIT"] = "1"
 
     # Get the config instance for convenience
     config = Config()
-
-    # Configure VAAPI for GPU hardware acceleration BEFORE any video operations
-    # This must be done early before OpenCV initializes
-    try:
-        from backend.vision.gpu_utils import configure_vaapi_env
-
-        configure_vaapi_env()
-        logger.info("VAAPI GPU acceleration configured")
-    except Exception as e:
-        logger.warning(f"Could not configure VAAPI: {e}")
 
     # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
     # which is called during the FastAPI lifespan startup
@@ -74,10 +88,12 @@ def main() -> NoReturn:
 
     uvicorn.run(
         "backend.api.main:app",
-        host=api_host,
-        port=api_port,
-        log_level=log_level,
-        reload=reload,
+        **build_uvicorn_options(
+            host=api_host,
+            port=api_port,
+            log_level=log_level,
+            reload=reload,
+        ),
     )
 
     # This line should never be reached, but satisfies type checker

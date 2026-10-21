@@ -16,7 +16,7 @@ import {
   Legend,
 } from 'chart.js';
 import type { ChartOptions, ChartData } from 'chart.js';
-import { Line, Bar } from 'react-chartjs-2';
+import { Chart } from 'react-chartjs-2';
 import type { MetricPoint } from '../../types/monitoring';
 
 ChartJS.register(
@@ -160,12 +160,12 @@ export const MetricsChart: React.FC<MetricsChartProps> = ({
     }
   }, [data, realTime]);
 
-  const ChartComponent = type === 'line' ? Line : Bar;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
       <div style={{ height: `${height}px` }}>
-        <ChartComponent
+        <Chart
+          type={type}
           ref={chartRef}
           data={chartData}
           options={options}

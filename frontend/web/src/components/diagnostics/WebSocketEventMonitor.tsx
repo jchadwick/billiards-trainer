@@ -37,7 +37,7 @@ export const WebSocketEventMonitor: React.FC = observer(() => {
   useEffect(() => {
     // Determine WebSocket URL from current location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8000/api/v1/ws`;
+    const wsUrl = `${protocol}//${window.location.hostname}:8000/api/v1/websocket/ws`;
 
     const client = createWebSocketClient({
       url: wsUrl,

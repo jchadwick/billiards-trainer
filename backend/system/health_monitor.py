@@ -11,18 +11,59 @@ Provides comprehensive health monitoring for:
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
+from importlib import import_module
 from threading import Lock
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Protocol, cast
 
-from backend.config import config_manager
+from backend.config import config
 
+
+class _VirtualMemoryStats(Protocol):
+    """Fields used from psutil's virtual-memory result."""
+
+    percent: float
+    available: int
+
+
+class _DiskUsageStats(Protocol):
+    """Fields used from psutil's disk-usage result."""
+
+    used: int
+    total: int
+
+
+class _NetworkIOStats(Protocol):
+    """Fields used from psutil's network counters."""
+
+    bytes_sent: int
+    bytes_recv: int
+
+
+class _PsutilModule(Protocol):
+    """Small typed surface for the optional psutil dependency."""
+
+    def cpu_percent(self, interval: Optional[float] = None) -> float: ...
+
+    def virtual_memory(self) -> _VirtualMemoryStats: ...
+
+    def disk_usage(self, path: str) -> _DiskUsageStats: ...
+
+    def net_io_counters(self) -> _NetworkIOStats: ...
+
+
+psutil: Optional[_PsutilModule]
 try:
-    import psutil
+    psutil = cast("_PsutilModule", import_module("psutil"))
 except ImportError:
     psutil = None
+
+
+HealthCallback = Callable[["SystemHealth"], Optional[Awaitable[None]]]
+AlertCallback = Callable[[str, str, dict[str, Any]], Optional[Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -68,39 +109,41 @@ class SystemHealth:
 class HealthMonitor:
     """Real-time health monitoring for all system components."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize health monitoring system."""
         self._lock = Lock()
         self._is_running = False
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._monitor_task: Optional[asyncio.Task[None]] = None
 
         # Load configuration values
-        self._check_interval = config_manager.get(
-            "api.health_monitor.check_interval", 5.0
-        )
+        self._check_interval = config.get("api.health_monitor.check_interval", 5.0)
 
         # Component references
-        self._core_module = None
-        self._vision_module = None
-        self._config_module = None
-        self._websocket_manager = None
+        # Components are intentionally dynamically typed at this boundary:
+        # the monitor probes optional capabilities so partial implementations
+        # remain usable without requiring one concrete application class.
+        self._core_module: Any = None
+        self._vision_module: Any = None
+        self._config_module: Any = None
+        self._websocket_manager: Any = None
+        self._integration_service: Any = None
         self._startup_time = time.time()
 
         # Health data
         self._system_health = SystemHealth(overall_status="healthy")
         self._component_health: dict[str, ComponentHealth] = {}
         self._health_history: list[SystemHealth] = []
-        self._max_history = config_manager.get("api.health_monitor.max_history", 100)
+        self._max_history = config.get("api.health_monitor.max_history", 100)
 
         # Monitoring callbacks
-        self._health_callbacks: list[Callable[[SystemHealth], None]] = []
-        self._alert_callbacks: list[Callable[[str, str, dict[str, Any]], None]] = []
+        self._health_callbacks: list[HealthCallback] = []
+        self._alert_callbacks: list[AlertCallback] = []
 
         # Performance tracking
         self._api_request_count = 0
         self._api_request_times: list[float] = []
         self._api_error_count = 0
-        self._max_request_times = config_manager.get(
+        self._max_request_times = config.get(
             "api.health_monitor.max_request_times", 1000
         )
 
@@ -108,18 +151,18 @@ class HealthMonitor:
 
     def register_components(
         self,
-        core_module=None,
-        vision_module=None,
-        config_module=None,
-        websocket_manager=None,
-        integration_service=None,
-    ):
+        core_module: Any = None,
+        vision_module: Any = None,
+        config_module: Any = None,
+        websocket_manager: Any = None,
+        integration_service: Any = None,
+    ) -> None:
         """Register system components for monitoring.
 
         Args:
             core_module: CoreModule instance
             vision_module: VisionModule instance
-            config_module: ConfigurationModule instance
+            config_module: Shared Config instance
             websocket_manager: WebSocketManager instance
             integration_service: IntegrationService instance
         """
@@ -134,7 +177,7 @@ class HealthMonitor:
 
             if config_module:
                 self._config_module = config_module
-                logger.info("Configuration module registered for health monitoring")
+                logger.info("Configuration store registered for health monitoring")
 
             if websocket_manager:
                 self._websocket_manager = websocket_manager
@@ -144,7 +187,7 @@ class HealthMonitor:
                 self._integration_service = integration_service
                 logger.info("Integration service registered for health monitoring")
 
-    async def start_monitoring(self, check_interval: float = 5.0):
+    async def start_monitoring(self, check_interval: float = 5.0) -> None:
         """Start continuous health monitoring.
 
         Args:
@@ -162,7 +205,7 @@ class HealthMonitor:
 
         logger.info(f"Health monitoring started with {check_interval}s interval")
 
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> None:
         """Stop health monitoring."""
         if not self._is_running:
             return
@@ -176,7 +219,7 @@ class HealthMonitor:
 
         logger.info("Health monitoring stopped")
 
-    async def _monitoring_loop(self):
+    async def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
         while self._is_running:
             try:
@@ -208,12 +251,12 @@ class HealthMonitor:
                 break
             except Exception as e:
                 logger.error(f"Error in health monitoring loop: {e}")
-                error_retry_delay = config_manager.get(
+                error_retry_delay = config.get(
                     "api.health_monitor.error_retry_delay", 1.0
                 )
                 await asyncio.sleep(error_retry_delay)
 
-    async def _check_all_components(self):
+    async def _check_all_components(self) -> None:
         """Check health of all registered components."""
         # Check core module
         if self._core_module:
@@ -234,7 +277,7 @@ class HealthMonitor:
         # Check system resources
         await self._check_system_resources()
 
-    async def _check_core_module(self):
+    async def _check_core_module(self) -> None:
         """Check core module health."""
         try:
             component = "core"
@@ -257,7 +300,7 @@ class HealthMonitor:
                         healthy=True,
                     )
 
-                    avg_update_time_threshold = config_manager.get(
+                    avg_update_time_threshold = config.get(
                         "api.health_monitor.core_module.avg_update_time_threshold_ms",
                         100.0,
                     )
@@ -269,7 +312,7 @@ class HealthMonitor:
                         < avg_update_time_threshold,
                     )
 
-                    avg_physics_time_threshold = config_manager.get(
+                    avg_physics_time_threshold = config.get(
                         "api.health_monitor.core_module.avg_physics_time_threshold_ms",
                         50.0,
                     )
@@ -281,7 +324,7 @@ class HealthMonitor:
                         < avg_physics_time_threshold,
                     )
 
-                    avg_analysis_time_threshold = config_manager.get(
+                    avg_analysis_time_threshold = config.get(
                         "api.health_monitor.core_module.avg_analysis_time_threshold_ms",
                         100.0,
                     )
@@ -301,7 +344,7 @@ class HealthMonitor:
                     )
 
                     # Update component status based on metrics
-                    max_error_count = config_manager.get(
+                    max_error_count = config.get(
                         "api.health_monitor.core_module.max_error_count", 10
                     )
                     if metrics.errors_count > max_error_count:
@@ -349,9 +392,7 @@ class HealthMonitor:
                     if not validation_result.get("valid", False):
                         health.status = "degraded"
                         issues = validation_result.get("issues", [])
-                        max_warnings = config_manager.get(
-                            "api.health_monitor.max_warnings", 3
-                        )
+                        max_warnings = config.get("api.health_monitor.max_warnings", 3)
                         health.warnings.extend(issues[:max_warnings])
 
                 except Exception as e:
@@ -370,7 +411,7 @@ class HealthMonitor:
                 last_check=time.time(),
             )
 
-    async def _check_vision_module(self):
+    async def _check_vision_module(self) -> None:
         """Check vision module health."""
         try:
             component = "vision"
@@ -393,7 +434,7 @@ class HealthMonitor:
                         healthy=True,
                     )
 
-                    max_frames_dropped = config_manager.get(
+                    max_frames_dropped = config.get(
                         "api.health_monitor.vision_module.max_frames_dropped", 100
                     )
                     health.metrics["frames_dropped"] = HealthMetric(
@@ -403,7 +444,7 @@ class HealthMonitor:
                         healthy=stats.get("frames_dropped", 0) < max_frames_dropped,
                     )
 
-                    max_processing_time = config_manager.get(
+                    max_processing_time = config.get(
                         "api.health_monitor.vision_module.max_processing_time_ms", 50.0
                     )
                     health.metrics["avg_processing_time"] = HealthMetric(
@@ -414,7 +455,7 @@ class HealthMonitor:
                         < max_processing_time,
                     )
 
-                    min_fps = config_manager.get(
+                    min_fps = config.get(
                         "api.health_monitor.vision_module.min_fps", 15.0
                     )
                     health.metrics["avg_fps"] = HealthMetric(
@@ -437,7 +478,7 @@ class HealthMonitor:
                     )
 
                     # Detection accuracy metrics
-                    min_detection_accuracy = config_manager.get(
+                    min_detection_accuracy = config.get(
                         "api.health_monitor.vision_module.min_detection_accuracy", 0.7
                     )
                     detection_accuracy = stats.get("detection_accuracy", {})
@@ -499,7 +540,7 @@ class HealthMonitor:
                 last_check=time.time(),
             )
 
-    async def _check_config_module(self):
+    async def _check_config_module(self) -> None:
         """Check configuration module health."""
         try:
             component = "config"
@@ -539,9 +580,7 @@ class HealthMonitor:
 
                     if not is_valid:
                         health.status = "degraded"
-                        max_warnings = config_manager.get(
-                            "api.health_monitor.max_warnings", 3
-                        )
+                        max_warnings = config.get("api.health_monitor.max_warnings", 3)
                         health.warnings.extend(errors[:max_warnings])
 
                 except Exception as e:
@@ -600,7 +639,7 @@ class HealthMonitor:
                 last_check=time.time(),
             )
 
-    async def _check_websocket_manager(self):
+    async def _check_websocket_manager(self) -> None:
         """Check WebSocket manager health."""
         try:
             component = "websocket"
@@ -702,7 +741,7 @@ class HealthMonitor:
                 last_check=time.time(),
             )
 
-    async def _check_system_resources(self):
+    async def _check_system_resources(self) -> None:
         """Check system resource utilization."""
         try:
             if not psutil:
@@ -716,11 +755,11 @@ class HealthMonitor:
             )
 
             # CPU usage
-            cpu_check_interval = config_manager.get(
+            cpu_check_interval = config.get(
                 "api.health_monitor.system_resources.cpu_check_interval", 0.1
             )
             cpu_percent = psutil.cpu_percent(interval=cpu_check_interval)
-            cpu_warning_threshold = config_manager.get(
+            cpu_warning_threshold = config.get(
                 "api.health_monitor.system_resources.cpu_percent_warning", 80.0
             )
             health.metrics["cpu_usage"] = HealthMetric(
@@ -732,7 +771,7 @@ class HealthMonitor:
 
             # Memory usage
             memory = psutil.virtual_memory()
-            memory_warning_threshold = config_manager.get(
+            memory_warning_threshold = config.get(
                 "api.health_monitor.system_resources.memory_percent_warning", 85.0
             )
             health.metrics["memory_usage"] = HealthMetric(
@@ -742,7 +781,7 @@ class HealthMonitor:
                 healthy=memory.percent < memory_warning_threshold,
             )
 
-            min_memory_gb = config_manager.get(
+            min_memory_gb = config.get(
                 "api.health_monitor.system_resources.min_memory_available_gb", 1.0
             )
             health.metrics["memory_available"] = HealthMetric(
@@ -755,7 +794,7 @@ class HealthMonitor:
             # Disk usage
             disk = psutil.disk_usage("/")
             disk_percent = (disk.used / disk.total) * 100
-            disk_warning_threshold = config_manager.get(
+            disk_warning_threshold = config.get(
                 "api.health_monitor.system_resources.disk_percent_warning", 90.0
             )
             health.metrics["disk_usage"] = HealthMetric(
@@ -782,13 +821,13 @@ class HealthMonitor:
             )
 
             # Update status based on resource usage
-            cpu_critical_threshold = config_manager.get(
+            cpu_critical_threshold = config.get(
                 "api.health_monitor.system_resources.cpu_percent_critical", 90.0
             )
-            memory_critical_threshold = config_manager.get(
+            memory_critical_threshold = config.get(
                 "api.health_monitor.system_resources.memory_percent_critical", 95.0
             )
-            disk_critical_threshold = config_manager.get(
+            disk_critical_threshold = config.get(
                 "api.health_monitor.system_resources.disk_percent_critical", 95.0
             )
 
@@ -820,7 +859,7 @@ class HealthMonitor:
                 last_check=time.time(),
             )
 
-    def _update_system_health(self):
+    def _update_system_health(self) -> None:
         """Update overall system health based on component health."""
         with self._lock:
             components = dict(self._component_health)
@@ -853,7 +892,7 @@ class HealthMonitor:
                 active_alerts=active_alerts,
             )
 
-    def _add_to_history(self):
+    def _add_to_history(self) -> None:
         """Add current health to history."""
         with self._lock:
             self._health_history.append(self._system_health)
@@ -862,28 +901,29 @@ class HealthMonitor:
             if len(self._health_history) > self._max_history:
                 self._health_history.pop(0)
 
-    async def _notify_health_callbacks(self):
+    async def _notify_health_callbacks(self) -> None:
         """Notify registered health callbacks."""
         for callback in self._health_callbacks:
             try:
-                if asyncio.iscoroutinefunction(callback):
-                    await callback(self._system_health)
-                else:
-                    callback(self._system_health)
+                result = callback(self._system_health)
+                if inspect.isawaitable(result):
+                    await result
             except Exception as e:
                 logger.warning(f"Error in health callback: {e}")
 
-    async def _check_alerts(self):
+    async def _check_alerts(self) -> None:
         """Check for and emit health alerts."""
         for component_name, health in self._component_health.items():
             if health.status == "unhealthy":
                 for callback in self._alert_callbacks:
                     try:
-                        await callback(
+                        result = callback(
                             "error",
                             f"Component {component_name} is unhealthy",
                             {"component": component_name, "warnings": health.warnings},
                         )
+                        if inspect.isawaitable(result):
+                            await result
                     except Exception as e:
                         logger.warning(f"Error in alert callback: {e}")
 
@@ -901,15 +941,15 @@ class HealthMonitor:
         with self._lock:
             return self._health_history[-count:]
 
-    def add_health_callback(self, callback: Callable[[SystemHealth], None]):
+    def add_health_callback(self, callback: HealthCallback) -> None:
         """Add callback for health updates."""
         self._health_callbacks.append(callback)
 
-    def add_alert_callback(self, callback: Callable[[str, str, dict[str, Any]], None]):
+    def add_alert_callback(self, callback: AlertCallback) -> None:
         """Add callback for health alerts."""
         self._alert_callbacks.append(callback)
 
-    def record_api_request(self, response_time: float, success: bool = True):
+    def record_api_request(self, response_time: float, success: bool = True) -> None:
         """Record API request metrics."""
         with self._lock:
             self._api_request_count += 1
@@ -937,12 +977,10 @@ class HealthMonitor:
             uptime = time.time() - self._startup_time
             requests_per_second = self._api_request_count / max(1, uptime)
 
-            max_response_time_ms = config_manager.get(
+            max_response_time_ms = config.get(
                 "api.health_monitor.api.max_response_time_ms", 500.0
             )
-            max_error_rate = config_manager.get(
-                "api.health_monitor.api.max_error_rate", 0.05
-            )
+            max_error_rate = config.get("api.health_monitor.api.max_error_rate", 0.05)
 
             return {
                 "api_requests_total": HealthMetric(

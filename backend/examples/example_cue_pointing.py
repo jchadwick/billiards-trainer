@@ -4,58 +4,72 @@
 This example demonstrates how to use the find_ball_cue_is_pointing_at function
 with different data types from both the backend core models and vision models.
 
-All examples use 4K coordinate system (3840×2160 pixels).
+The geometry helper consumes canonical 4K coordinates (3840×2160 pixels).
+Examples that begin with 1080p camera values convert them before calling it.
 """
 
-from backend.core.constants_4k import BALL_RADIUS_4K, CANONICAL_HEIGHT, CANONICAL_WIDTH
 from backend.core.coordinates import Vector2D
 from backend.core.models import BallState, CueState
+from backend.core.resolution_converter import ResolutionConverter
 from backend.core.utils.geometry import find_ball_cue_is_pointing_at
 
+CAMERA_RESOLUTION = (1920, 1080)
 
-def example_with_backend_models():
+
+def example_with_backend_models() -> None:
     """Example using backend CueState and BallState models (4K coordinates)."""
     print("=" * 60)
     print("Example 1: Using backend CueState and BallState models (4K)")
     print("=" * 60)
 
-    # Create a cue state pointing at 45 degrees (4K coordinates)
+    # The detector points below are in a 1080p camera frame. The model factories
+    # attach that source scale and normalize positions to canonical 4K pixels.
     cue = CueState(
-        tip_position=Vector2D(200, 400),  # 4K: doubled from 1080p (100, 200)
+        tip_position=Vector2D.from_resolution(100, 200, CAMERA_RESOLUTION),
         angle=45.0,  # degrees
         elevation=0.0,
         estimated_force=5.0,
         confidence=0.95,
     )
 
-    # Create some balls (4K coordinates)
+    # BallState normalizes these source-frame positions and pixel radii.
     balls = [
         BallState(
             id="ball_1",
-            position=Vector2D(300, 500),  # Close to cue line (4K: doubled)
+            position=Vector2D.from_resolution(150, 250, CAMERA_RESOLUTION),
+            radius=18.0,
+            radius_scale=ResolutionConverter.calculate_scale_to_4k(CAMERA_RESOLUTION),
             is_cue_ball=False,
         ),
         BallState(
             id="ball_2",
-            position=Vector2D(400, 600),  # Further along cue line (4K: doubled)
+            position=Vector2D.from_resolution(200, 300, CAMERA_RESOLUTION),
+            radius=18.0,
+            radius_scale=ResolutionConverter.calculate_scale_to_4k(CAMERA_RESOLUTION),
             is_cue_ball=False,
         ),
         BallState(
             id="ball_3",
-            position=Vector2D(600, 200),  # Off to the side (4K: doubled)
+            position=Vector2D.from_resolution(300, 100, CAMERA_RESOLUTION),
+            radius=18.0,
+            radius_scale=ResolutionConverter.calculate_scale_to_4k(CAMERA_RESOLUTION),
             is_cue_ball=False,
         ),
     ]
 
     # Extract positions for the function
-    ball_positions = [ball.position for ball in balls]
+    ball_positions: list[Vector2D | tuple[float, float]] = [
+        ball.position for ball in balls
+    ]
 
-    # Find which ball the cue is pointing at (4K tolerance: 40 * 2 = 80 pixels)
+    # The helper expects a canonical-pixel tolerance, so scale the 1080p value.
     target_idx = find_ball_cue_is_pointing_at(
         cue_tip=cue.tip_position,
         cue_angle=cue.angle,
         balls=ball_positions,
-        max_perpendicular_distance=80.0,  # 4K: doubled from 1080p (40.0)
+        max_perpendicular_distance=ResolutionConverter.scale_distance_to_4k(
+            40.0, CAMERA_RESOLUTION
+        ),
     )
 
     if target_idx is not None:
@@ -66,18 +80,24 @@ def example_with_backend_models():
         print("Cue is not pointing at any ball")
 
 
-def example_with_cue_direction_vector():
+def example_with_cue_direction_vector() -> None:
     """Example using cue direction vector instead of angle (4K coordinates)."""
     print("\n" + "=" * 60)
     print("Example 2: Using cue direction vector (4K)")
     print("=" * 60)
 
     # Create a cue with direction vector (4K coordinates)
-    cue_tip = Vector2D(200, 400)  # 4K: doubled
-    cue_direction = Vector2D(1, 1).normalize()  # Pointing up-right
+    cue_tip = Vector2D.from_resolution(100, 200, CAMERA_RESOLUTION).to_4k_canonical()
+    cue_direction = Vector2D.from_4k(1, 1).normalize()  # Dimensionless direction
 
-    # Create some balls (as tuples for variety, 4K coordinates)
-    balls = [(300, 500), (400, 600), (600, 200)]  # 4K: doubled
+    # Model positions carry their source resolution and are normalized by BallState.
+    balls: list[Vector2D | tuple[float, float]] = [
+        BallState(
+            id=f"ball_{index}",
+            position=Vector2D.from_resolution(x, y, CAMERA_RESOLUTION),
+        ).position
+        for index, (x, y) in enumerate(((150, 250), (200, 300), (300, 100)), 1)
+    ]
 
     # Find which ball the cue is pointing at
     target_idx = find_ball_cue_is_pointing_at(
@@ -93,90 +113,96 @@ def example_with_cue_direction_vector():
         print("Cue is not pointing at any ball")
 
 
-def example_with_custom_tolerance():
+def example_with_custom_tolerance() -> None:
     """Example demonstrating custom tolerance values (4K coordinates)."""
     print("\n" + "=" * 60)
     print("Example 3: Custom perpendicular distance tolerance (4K)")
     print("=" * 60)
 
-    cue_tip = (200, 400)  # 4K: doubled
+    # This low-level API accepts bare tuples only in canonical 4K pixels. Convert
+    # the 1080p sample point and its distance threshold before passing them in.
+    cue_tip = ResolutionConverter.scale_to_4k(100, 200, CAMERA_RESOLUTION)
     cue_angle = 0.0  # Pointing right
 
-    # Ball is 100 pixels above the cue line (4K: 50 * 2)
-    balls = [(400, 500)]  # 4K: doubled
+    # This ball is 50 pixels above the line in 1080p, or 100 canonical pixels.
+    balls: list[Vector2D | tuple[float, float]] = [
+        ResolutionConverter.scale_to_4k(200, 250, CAMERA_RESOLUTION)
+    ]
+    base_tolerance_4k = ResolutionConverter.scale_distance_to_4k(
+        40.0, CAMERA_RESOLUTION
+    )
 
-    # Try with default tolerance (80 pixels, 4K: 40 * 2)
+    # Try with a 40px-at-1080p tolerance, represented canonically.
     target_idx = find_ball_cue_is_pointing_at(
         cue_tip=cue_tip,
         cue_angle=cue_angle,
         balls=balls,
-        max_perpendicular_distance=80.0,  # 4K: doubled
+        max_perpendicular_distance=base_tolerance_4k,
     )
     print(f"With 80px tolerance: {target_idx} (ball is 100px off-axis)")
 
-    # Try with larger tolerance (120 pixels, 4K: 60 * 2)
+    # Try with a 60px-at-1080p tolerance, represented canonically.
     target_idx = find_ball_cue_is_pointing_at(
         cue_tip=cue_tip,
         cue_angle=cue_angle,
         balls=balls,
-        max_perpendicular_distance=120.0,  # 4K: doubled
+        max_perpendicular_distance=ResolutionConverter.scale_distance_to_4k(
+            60.0, CAMERA_RESOLUTION
+        ),
     )
     print(f"With 120px tolerance: {target_idx} (ball is 100px off-axis)")
 
 
-def example_with_vision_models():
+def example_with_vision_models() -> None:
     """Example showing how to use with vision detection models (4K coordinates)."""
     print("\n" + "=" * 60)
     print("Example 4: Using with vision detection results (4K)")
     print("=" * 60)
 
-    # Simulate vision detection results (would come from VisionModule)
-    # In real usage, these would be from backend.vision.models
-    # All coordinates in 4K
-    detected_cue = {
-        "tip_position": (200, 400),  # 4K: doubled
-        "angle": 45.0,
-        "butt_position": (100, 300),  # 4K: doubled
-    }
-
-    detected_balls = [
-        {"position": (300, 500), "track_id": 1},  # 4K: doubled
-        {"position": (400, 600), "track_id": 2},  # 4K: doubled
-        {"position": (600, 200), "track_id": 3},  # 4K: doubled
+    # VisionModule exposes canonical image-space positions. Keep the scale on
+    # each point, even though the low-level helper can also accept canonical tuples.
+    detected_cue_tip = Vector2D.from_4k(200, 400)
+    detected_cue_angle = 45.0
+    detected_balls: list[tuple[int, Vector2D]] = [
+        (1, Vector2D.from_4k(300, 500)),
+        (2, Vector2D.from_4k(400, 600)),
+        (3, Vector2D.from_4k(600, 200)),
     ]
 
-    # Extract just the positions
-    ball_positions = [ball["position"] for ball in detected_balls]
+    # Keep the model vectors (and their scale metadata) through geometry calls.
+    ball_positions: list[Vector2D | tuple[float, float]] = [
+        position for _, position in detected_balls
+    ]
 
     # Find target
     target_idx = find_ball_cue_is_pointing_at(
-        cue_tip=detected_cue["tip_position"],
-        cue_angle=detected_cue["angle"],
+        cue_tip=detected_cue_tip,
+        cue_angle=detected_cue_angle,
         balls=ball_positions,
     )
 
     if target_idx is not None:
-        target_ball = detected_balls[target_idx]
-        print(f"Cue is pointing at ball with track_id: {target_ball['track_id']}")
-        print(f"  Position: {target_ball['position']}")
+        track_id, position = detected_balls[target_idx]
+        print(f"Cue is pointing at ball with track_id: {track_id}")
+        print(f"  Position: {position}")
     else:
         print("Cue is not pointing at any ball")
 
 
-def example_multiple_balls_in_line():
+def example_multiple_balls_in_line() -> None:
     """Example showing behavior when multiple balls are in line (4K coordinates)."""
     print("\n" + "=" * 60)
     print("Example 5: Multiple balls in line (picks closest) - 4K")
     print("=" * 60)
 
-    cue_tip = Vector2D(200, 400)  # 4K: doubled
+    cue_tip = Vector2D.from_resolution(100, 200, CAMERA_RESOLUTION).to_4k_canonical()
     cue_angle = 0.0  # Pointing right
 
     # Three balls in a line, all within tolerance (4K coordinates)
-    balls = [
-        Vector2D(400, 400),  # Closest (4K: doubled)
-        Vector2D(600, 400),  # Middle (4K: doubled)
-        Vector2D(800, 400),  # Farthest (4K: doubled)
+    balls: list[Vector2D | tuple[float, float]] = [
+        Vector2D.from_resolution(200, 200, CAMERA_RESOLUTION).to_4k_canonical(),
+        Vector2D.from_resolution(300, 200, CAMERA_RESOLUTION).to_4k_canonical(),
+        Vector2D.from_resolution(400, 200, CAMERA_RESOLUTION).to_4k_canonical(),
     ]
 
     target_idx = find_ball_cue_is_pointing_at(
@@ -185,7 +211,11 @@ def example_multiple_balls_in_line():
 
     if target_idx is not None:
         print(f"Selected ball #{target_idx + 1} (closest along cue direction)")
-        print(f"  Position: ({balls[target_idx].x}, {balls[target_idx].y})")
+        target_ball = balls[target_idx]
+        if isinstance(target_ball, Vector2D):
+            print(f"  Position: ({target_ball.x}, {target_ball.y})")
+        else:
+            print(f"  Position: ({target_ball[0]}, {target_ball[1]})")
 
 
 if __name__ == "__main__":

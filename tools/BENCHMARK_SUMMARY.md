@@ -145,19 +145,31 @@ python tools/benchmark_detectors.py \
 
 ## Ground Truth Format
 
-JSON file with frame-indexed ball annotations:
+JSON file with explicit source-coordinate metadata and frame-indexed ball
+annotations. Annotation centers, radii, and optional bounds are scaled to each
+decoded video frame before comparison. Frame-only legacy files are rejected.
 
 ```json
 {
-  "0": [
-    {"x": 320.5, "y": 240.2, "radius": 20.1, "type": "cue"},
-    {"x": 450.3, "y": 280.7, "radius": 19.8, "type": "solid"}
-  ],
-  "1": [
-    {"x": 321.1, "y": 241.5, "radius": 20.0, "type": "cue"}
-  ]
+  "coordinate_space": "pixel",
+  "source_resolution": [640, 360],
+  "coordinate_scale": [6.0, 6.0],
+  "frames": {
+    "0": [
+      {"x": 320.5, "y": 240.2, "radius": 20.1, "type": "cue"},
+      {"x": 450.3, "y": 280.7, "radius": 19.8, "type": "solid"}
+    ],
+    "1": [
+      {"x": 321.1, "y": 241.5, "radius": 20.0, "type": "cue"}
+    ]
+  }
 }
 ```
+
+The OpenCV sample config also declares its source resolution and scale. Its
+pixel-sized radius thresholds use the detector's nested `size_constraints`
+schema and are rescaled to the actual first video frame. Use
+`--opencv-config` to provide equivalent metadata for custom settings.
 
 ## Output Example
 

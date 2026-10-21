@@ -1,16 +1,28 @@
 """Logging configuration utilities for the billiards trainer backend."""
 
+from __future__ import annotations
+
 import logging
 import logging.config
 import logging.handlers
 import os
+from importlib import import_module
 from pathlib import Path
-from typing import Optional
-
-import yaml
+from typing import IO, Any, Protocol, TypeVar, cast
 
 
-def _get_config_value(key: str, default: any = None) -> any:
+class _YamlModule(Protocol):
+    """The small PyYAML surface used by this module."""
+
+    def safe_load(self, stream: IO[str]) -> object:
+        """Parse one YAML document without assuming its shape."""
+
+
+yaml = cast("_YamlModule", import_module("yaml"))
+_ConfigValue = TypeVar("_ConfigValue")
+
+
+def _get_config_value(key: str, default: _ConfigValue) -> _ConfigValue:
     """Get configuration value from config manager or environment.
 
     Args:
@@ -23,18 +35,18 @@ def _get_config_value(key: str, default: any = None) -> any:
     try:
         from backend.config import config
 
-        return config.get(key, default)
+        return cast("_ConfigValue", config.get(key, default))
     except (ImportError, Exception):
         # Fallback to default if config not available
         return default
 
 
 def setup_logging(
-    config_path: Optional[str] = None,
+    config_path: str | None = None,
     default_level: int = logging.INFO,
-    env_key: Optional[str] = None,
-    environment: Optional[str] = None,
-    log_dir: Optional[Path] = None,
+    env_key: str | None = None,
+    environment: str | None = None,
+    log_dir: Path | None = None,
 ) -> None:
     """Setup logging configuration.
 
@@ -65,15 +77,21 @@ def setup_logging(
     if config_path is None:
         config_path = os.getenv(env_key, default_config_path)
 
-    config_path = Path(config_path)
+    config_file_path = Path(config_path)
 
-    if config_path.exists():
+    if config_file_path.exists():
         try:
             config_encoding = _get_config_value(
                 "system.logging.config_file_encoding", "utf-8"
             )
-            with open(config_path, encoding=config_encoding) as config_file:
-                config = yaml.safe_load(config_file)
+            with open(config_file_path, encoding=config_encoding) as config_file:
+                loaded_config = yaml.safe_load(config_file)
+
+            if not isinstance(loaded_config, dict):
+                raise ValueError("Logging configuration must be a YAML mapping")
+            # YAML is a dynamic configuration boundary. Check its container shape
+            # here, then let dictConfig perform its detailed schema validation.
+            config = cast("dict[str, Any]", loaded_config)
 
             # Apply environment-specific overrides
             if environment and environment in config:
@@ -94,12 +112,12 @@ def setup_logging(
             logging.config.dictConfig(config)
 
         except Exception as e:
-            print(f"Error loading logging configuration from {config_path}: {e}")
+            print(f"Error loading logging configuration from {config_file_path}: {e}")
             print("Using default logging configuration")
             _setup_default_logging(default_level, logs_dir)
     else:
         print(
-            f"Logging config file {config_path} not found. Using default configuration."
+            f"Logging config file {config_file_path} not found. Using default configuration."
         )
         _setup_default_logging(default_level, logs_dir)
 

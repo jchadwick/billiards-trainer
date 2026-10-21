@@ -20,32 +20,26 @@ Test Coverage:
 """
 
 import math
-import sys
-from pathlib import Path
 
 import pytest
 
-# Add backend to path for direct imports
-backend_path = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
-from core.constants_4k import BALL_RADIUS_4K, CANONICAL_HEIGHT, CANONICAL_WIDTH
-from core.coordinates import Vector2D
-from core.models import BallState, CueState, GameState, TableState
-from core.validation.state import StateValidator, ValidationResult
+from backend.core.constants_4k import BALL_RADIUS_4K, CANONICAL_HEIGHT, CANONICAL_WIDTH
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, CueState, GameState, TableState
+from backend.core.validation.state import StateValidator, ValidationResult
 
 # ============================================================================
 # FIXTURES
 # ============================================================================
 
 
-@pytest.fixture()
+@pytest.fixture
 def validator():
     """Create a standard validator with default settings."""
     return StateValidator()
 
 
-@pytest.fixture()
+@pytest.fixture
 def strict_validator():
     """Create a validator with strict settings (no auto-correction)."""
     return StateValidator(
@@ -55,7 +49,7 @@ def strict_validator():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def lenient_validator():
     """Create a validator with lenient settings."""
     return StateValidator(
@@ -65,7 +59,7 @@ def lenient_validator():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_table():
     """Create a simple test table with proper 4K dimensions."""
     width = 3200.0  # pixels
@@ -90,7 +84,7 @@ def simple_table():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def cue_ball():
     """Create a cue ball at table center."""
     return BallState(
@@ -104,7 +98,7 @@ def cue_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def object_ball():
     """Create a standard object ball."""
     return BallState(
@@ -118,7 +112,7 @@ def object_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_cue():
     """Create a simple cue state."""
     return CueState(
@@ -130,7 +124,7 @@ def simple_cue():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_game_state(simple_table, cue_ball, object_ball):
     """Create a simple valid game state."""
     return GameState(
@@ -150,7 +144,7 @@ def simple_game_state(simple_table, cue_ball, object_ball):
 class TestValidationResult:
     """Test ValidationResult class."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_default_validation_result(self):
         """Test default ValidationResult is valid."""
         result = ValidationResult()
@@ -160,7 +154,7 @@ class TestValidationResult:
         assert len(result.corrected_values) == 0
         assert result.confidence == 1.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_add_error(self):
         """Test adding error invalidates result."""
         result = ValidationResult()
@@ -170,7 +164,7 @@ class TestValidationResult:
         assert "Test error" in result.errors
         assert len(result.errors) == 1
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_add_warning(self):
         """Test adding warning keeps result valid."""
         result = ValidationResult()
@@ -180,7 +174,7 @@ class TestValidationResult:
         assert "Test warning" in result.warnings
         assert len(result.warnings) == 1
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_add_correction(self):
         """Test adding correction."""
         result = ValidationResult()
@@ -189,7 +183,7 @@ class TestValidationResult:
         assert result.is_valid is True
         assert result.corrected_values["test_field"] == 42
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_merge_results(self):
         """Test merging two validation results."""
         result1 = ValidationResult()
@@ -218,7 +212,7 @@ class TestValidationResult:
 class TestStateValidatorInitialization:
     """Test StateValidator initialization."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_default_initialization(self):
         """Test validator initializes with default settings."""
         validator = StateValidator()
@@ -229,7 +223,7 @@ class TestStateValidatorInitialization:
         assert validator.position_tolerance > 0
         assert validator.enable_auto_correction is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_custom_initialization(self):
         """Test validator with custom parameters."""
         validator = StateValidator(
@@ -246,7 +240,7 @@ class TestStateValidatorInitialization:
         assert validator.position_tolerance == 0.5
         assert validator.enable_auto_correction is False
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_get_validation_statistics(self, validator):
         """Test getting validation statistics."""
         stats = validator.get_validation_statistics()
@@ -266,13 +260,13 @@ class TestStateValidatorInitialization:
 class TestBallValidation:
     """Test individual ball validation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_valid_ball(self, validator, cue_ball):
         """Test validation of a valid ball."""
         result = validator._validate_individual_ball(cue_ball)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_ball_radius(self, validator):
         """Test ball with invalid radius."""
         # Ball creation should fail in __post_init__
@@ -285,7 +279,7 @@ class TestBallValidation:
                 mass=0.17,
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_ball_mass(self, validator):
         """Test ball with invalid mass."""
         # Ball creation should fail in __post_init__
@@ -298,7 +292,7 @@ class TestBallValidation:
                 mass=-0.1,  # Invalid negative mass
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_ball_confidence(self, validator):
         """Test ball with invalid confidence."""
         # Ball creation should fail in __post_init__
@@ -312,7 +306,7 @@ class TestBallValidation:
                 confidence=1.5,  # Invalid (> 1.0)
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_ball_excessive_velocity_no_correction(self, strict_validator):
         """Test ball with excessive velocity without auto-correction."""
         ball = BallState(
@@ -327,7 +321,7 @@ class TestBallValidation:
         assert result.is_valid is False
         assert any("velocity" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_ball_excessive_velocity_with_correction(self, lenient_validator):
         """Test ball with excessive velocity with auto-correction."""
         ball = BallState(
@@ -342,7 +336,7 @@ class TestBallValidation:
         # Should have correction
         assert any("velocity" in key for key in result.corrected_values)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_ball_none_velocity(self, validator):
         """Test ball with None velocity."""
         ball = BallState(
@@ -366,7 +360,7 @@ class TestBallValidation:
 class TestBallOverlaps:
     """Test ball overlap detection."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_no_overlaps(self, validator):
         """Test balls with no overlaps."""
         balls = [
@@ -389,7 +383,7 @@ class TestBallOverlaps:
         result = validator._check_ball_overlaps(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_overlapping_balls_no_correction(self, strict_validator):
         """Test overlapping balls without auto-correction."""
         balls = [
@@ -413,7 +407,7 @@ class TestBallOverlaps:
         assert result.is_valid is False
         assert any("overlap" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_overlapping_balls_with_correction(self, validator):
         """Test overlapping balls with auto-correction."""
         balls = [
@@ -437,7 +431,7 @@ class TestBallOverlaps:
         # Should have position corrections
         assert len(result.corrected_values) > 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_touching_balls_within_tolerance(self, validator):
         """Test balls touching but within tolerance."""
         balls = [
@@ -460,7 +454,7 @@ class TestBallOverlaps:
         result = validator._check_ball_overlaps(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_multiple_overlapping_balls(self, validator):
         """Test detection of multiple overlapping balls."""
         balls = [
@@ -500,19 +494,19 @@ class TestBallOverlaps:
 class TestBallPositionsValidation:
     """Test validate_ball_positions method."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_empty_ball_list(self, validator):
         """Test validation of empty ball list."""
         result = validator.validate_ball_positions([])
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_valid_ball_positions(self, validator, cue_ball, object_ball):
         """Test validation of valid ball positions."""
         result = validator.validate_ball_positions([cue_ball, object_ball])
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_duplicate_ball_ids(self, validator):
         """Test detection of duplicate ball IDs."""
         balls = [
@@ -536,7 +530,7 @@ class TestBallPositionsValidation:
         assert result.is_valid is False
         assert any("duplicate" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_no_cue_ball(self, validator, object_ball):
         """Test detection of missing cue ball."""
         balls = [object_ball]  # No cue ball
@@ -545,7 +539,7 @@ class TestBallPositionsValidation:
         assert result.is_valid is False
         assert any("cue ball" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_multiple_cue_balls(self, validator):
         """Test detection of multiple cue balls."""
         balls = [
@@ -573,7 +567,7 @@ class TestBallPositionsValidation:
             "multiple" in e.lower() and "cue ball" in e.lower() for e in result.errors
         )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_pocketed_balls_ignored_for_cue_ball_check(self, validator):
         """Test that pocketed cue balls don't count."""
         balls = [
@@ -610,13 +604,13 @@ class TestBallPositionsValidation:
 class TestTableValidation:
     """Test table state validation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_valid_table(self, validator, simple_table):
         """Test validation of valid table."""
         result = validator.validate_table_state(simple_table)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_table_width(self, validator):
         """Test table with invalid width."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -628,7 +622,7 @@ class TestTableValidation:
                 pocket_positions=pockets,
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_table_height(self, validator):
         """Test table with invalid height."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -640,7 +634,7 @@ class TestTableValidation:
                 pocket_positions=pockets,
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_table_exceeds_4k_bounds(self, validator):
         """Test table dimensions exceeding 4K bounds."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -653,7 +647,7 @@ class TestTableValidation:
         result = validator.validate_table_state(table)
         assert result.is_valid is False
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_unusual_aspect_ratio(self, validator):
         """Test table with unusual aspect ratio."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -667,7 +661,7 @@ class TestTableValidation:
         # Should have warning about aspect ratio
         assert len(result.warnings) > 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_wrong_number_of_pockets(self, validator):
         """Test table with wrong number of pockets."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(4)]  # Only 4 pockets
@@ -679,7 +673,7 @@ class TestTableValidation:
                 pocket_positions=pockets,
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_cushion_elasticity(self, validator):
         """Test table with invalid cushion elasticity."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -692,7 +686,7 @@ class TestTableValidation:
                 cushion_elasticity=1.5,  # Invalid (> 1.0)
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_negative_surface_friction(self, validator):
         """Test table with negative surface friction."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -705,7 +699,7 @@ class TestTableValidation:
                 surface_friction=-0.1,  # Invalid negative
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_pocket_radius(self, validator):
         """Test table with invalid pocket radius."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -727,13 +721,13 @@ class TestTableValidation:
 class TestCueValidation:
     """Test cue state validation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_valid_cue(self, validator, simple_cue, simple_table):
         """Test validation of valid cue."""
         result = validator.validate_cue_state(simple_cue, simple_table)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_cue_length(self, validator, simple_table):
         """Test cue with invalid length."""
         # Cue creation should fail in __post_init__
@@ -745,7 +739,7 @@ class TestCueValidation:
                 tip_radius=0.006,
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_cue_tip_radius(self, validator, simple_table):
         """Test cue with invalid tip radius."""
         # Cue creation should fail in __post_init__
@@ -757,7 +751,7 @@ class TestCueValidation:
                 tip_radius=0.0,  # Invalid zero radius
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_cue_confidence(self, validator, simple_table):
         """Test cue with invalid confidence."""
         # Cue creation should fail in __post_init__
@@ -770,7 +764,7 @@ class TestCueValidation:
                 confidence=1.5,  # Invalid (> 1.0)
             )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_negative_cue_force(self, validator, simple_table):
         """Test cue with negative force."""
         cue = CueState(
@@ -794,13 +788,13 @@ class TestCueValidation:
 class TestGameStateValidation:
     """Test complete game state validation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_valid_game_state(self, validator, simple_game_state):
         """Test validation of valid game state."""
         result = validator.validate_game_state(simple_game_state)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_frame_number(self, validator, simple_game_state):
         """Test game state with invalid frame number."""
         simple_game_state.frame_number = -1
@@ -809,7 +803,7 @@ class TestGameStateValidation:
         assert result.is_valid is False
         assert any("frame" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_timestamp(self, validator, simple_game_state):
         """Test game state with invalid timestamp."""
         simple_game_state.timestamp = -1.0
@@ -818,7 +812,7 @@ class TestGameStateValidation:
         assert result.is_valid is False
         assert any("timestamp" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_invalid_state_confidence(self, validator, simple_game_state):
         """Test game state with invalid confidence."""
         simple_game_state.state_confidence = 1.5
@@ -827,7 +821,7 @@ class TestGameStateValidation:
         assert result.is_valid is False
         assert any("confidence" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_game_state_with_cue(self, validator, simple_game_state, simple_cue):
         """Test game state validation with cue."""
         simple_game_state.cue = simple_cue
@@ -835,7 +829,7 @@ class TestGameStateValidation:
         result = validator.validate_game_state(simple_game_state)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_game_state_ball_outside_table(self, validator, simple_game_state):
         """Test game state with ball outside table bounds."""
         # Move ball outside table
@@ -847,7 +841,7 @@ class TestGameStateValidation:
             "outside" in e.lower() or "bounds" in e.lower() for e in result.errors
         )
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_game_state_with_negative_score(self, validator, simple_game_state):
         """Test game state with negative score."""
         simple_game_state.scores = {1: -5}
@@ -856,7 +850,7 @@ class TestGameStateValidation:
         assert result.is_valid is False
         assert any("score" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_game_state_with_invalid_player(self, validator, simple_game_state):
         """Test game state with invalid current player."""
         simple_game_state.current_player = 5  # Invalid player number
@@ -874,13 +868,13 @@ class TestGameStateValidation:
 class TestPhysicsValidation:
     """Test physics consistency validation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_validation_no_previous_state(self, validator, simple_game_state):
         """Test physics validation with no previous state."""
         result = validator.validate_physics(simple_game_state, None)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_validation_invalid_dt(self, validator, simple_game_state):
         """Test physics validation with invalid time delta."""
         previous_state = simple_game_state.copy()
@@ -889,7 +883,7 @@ class TestPhysicsValidation:
         assert result.is_valid is False
         assert any("time" in e.lower() or "delta" in e.lower() for e in result.errors)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_validation_with_previous_state(self, validator, simple_game_state):
         """Test physics validation with previous state."""
         previous_state = simple_game_state.copy()
@@ -901,7 +895,7 @@ class TestPhysicsValidation:
         result = validator.validate_physics(current_state, previous_state, dt=0.033)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_validation_new_ball(self, validator, simple_game_state):
         """Test physics validation with new ball added."""
         previous_state = simple_game_state.copy()
@@ -931,7 +925,7 @@ class TestPhysicsValidation:
 class TestObjectConsistency:
     """Test consistency between objects."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_ball_in_pocket_auto_correction(self, validator, simple_table):
         """Test auto-correction for ball in pocket."""
         balls = [
@@ -958,7 +952,7 @@ class TestObjectConsistency:
         if validator.enable_auto_correction:
             assert len(result.corrected_values) > 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_cue_ball_interaction(self, validator, simple_table, simple_cue):
         """Test cue-ball interaction validation."""
         balls = [
@@ -984,7 +978,7 @@ class TestObjectConsistency:
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_single_ball(self, validator):
         """Test validation with single ball."""
         balls = [
@@ -1001,7 +995,7 @@ class TestEdgeCases:
         result = validator.validate_ball_positions(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_many_balls(self, validator):
         """Test validation with many balls."""
         balls = [
@@ -1030,7 +1024,7 @@ class TestEdgeCases:
         result = validator.validate_ball_positions(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_ball_at_table_edge(self, validator, simple_table):
         """Test ball at table edge."""
         balls = [
@@ -1055,7 +1049,7 @@ class TestEdgeCases:
         # Ball at edge should be valid
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_zero_velocity_balls(self, validator):
         """Test balls with zero velocity."""
         balls = [
@@ -1079,7 +1073,7 @@ class TestEdgeCases:
         result = validator.validate_ball_positions(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_all_balls_pocketed_except_cue(self, validator):
         """Test with all balls pocketed except cue ball."""
         balls = [
@@ -1110,7 +1104,7 @@ class TestEdgeCases:
         result = validator.validate_ball_positions(balls)
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_minimum_table_size(self, validator):
         """Test with minimum valid table size."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -1124,7 +1118,7 @@ class TestEdgeCases:
         # Should be valid even if small
         assert result.is_valid is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_maximum_table_size(self, validator):
         """Test with maximum valid table size (4K bounds)."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]
@@ -1146,7 +1140,7 @@ class TestEdgeCases:
 class TestAutoCorrection:
     """Test auto-correction functionality."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_velocity_clamping(self, validator):
         """Test velocity clamping with auto-correction."""
         ball = BallState(
@@ -1161,7 +1155,7 @@ class TestAutoCorrection:
         # Should have velocity correction
         assert any("velocity" in key for key in result.corrected_values)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_none_velocity_correction(self, validator):
         """Test None velocity correction."""
         ball = BallState(
@@ -1176,7 +1170,7 @@ class TestAutoCorrection:
         if validator.enable_auto_correction:
             assert any("velocity" in key for key in result.corrected_values)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_overlap_separation(self, validator):
         """Test overlap separation with auto-correction."""
         balls = [
@@ -1210,7 +1204,7 @@ class TestAutoCorrection:
 class TestIntegration:
     """Test integration of multiple validation components."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_full_game_state_validation_flow(self, validator, simple_game_state):
         """Test complete validation flow through game state."""
         result = validator.validate_game_state(simple_game_state)
@@ -1220,7 +1214,7 @@ class TestIntegration:
         # No errors
         assert len(result.errors) == 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_multiple_validation_errors(self, validator):
         """Test game state with multiple validation errors."""
         # Create invalid game state - some validation happens in __post_init__
@@ -1260,7 +1254,7 @@ class TestIntegration:
         assert result.is_valid is False
         assert len(result.errors) >= 2
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_validation_with_warnings_only(self, validator):
         """Test validation that passes but has warnings."""
         pockets = [Vector2D.from_4k(0, 0) for _ in range(6)]

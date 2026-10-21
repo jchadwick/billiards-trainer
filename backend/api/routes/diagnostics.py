@@ -8,30 +8,72 @@ Provides specialized diagnostic tools including:
 - Troubleshooting utilities
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Optional
+from importlib import import_module
+from typing import Any, Optional, Protocol, cast
 
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
+psutil: _PsutilModule | None
 try:
-    import psutil
+    psutil = cast("_PsutilModule", import_module("psutil"))
 except ImportError:
     psutil = None
 
-from api.dependencies import ApplicationState, get_app_state
-from api.models.responses import SystemMetrics
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
+from backend.api.dependencies import ApplicationState, get_app_state
+from backend.api.models.responses import SystemMetrics
+
 logger = logging.getLogger(__name__)
+
+
+class _CpuFrequency(Protocol):
+    current: float
+
+
+class _VirtualMemory(Protocol):
+    total: int
+    available: int
+    used: int
+    percent: float
+
+
+class _DiskUsage(Protocol):
+    total: int
+    used: int
+    free: int
+
+
+class _AddressFamily(Protocol):
+    name: str
+
+
+class _NetworkAddress(Protocol):
+    address: str
+    family: _AddressFamily
+
+
+class _PsutilModule(Protocol):
+    """Only the psutil telemetry surface used by the diagnostics routes."""
+
+    def cpu_freq(self) -> _CpuFrequency | None: ...
+
+    def cpu_count(self, logical: bool = ...) -> int | None: ...
+
+    def cpu_percent(self, interval: float | None = ...) -> float: ...
+
+    def virtual_memory(self) -> _VirtualMemory: ...
+
+    def disk_usage(self, path: str) -> _DiskUsage: ...
+
+    def net_if_addrs(self) -> dict[str, list[_NetworkAddress]]: ...
+
 
 router = APIRouter(prefix="/diagnostics", tags=["Diagnostics"])
 
@@ -55,8 +97,8 @@ class NetworkEndpoint(BaseModel):
     method: str
     status: str
     response_time: float
-    status_code: Optional[int] = None
-    error: Optional[str] = None
+    status_code: int | None = None
+    error: str | None = None
 
 
 class BandwidthTestResult(BaseModel):
@@ -256,13 +298,13 @@ async def test_network_endpoints() -> list[NetworkEndpoint]:
         {
             "id": "local_api",
             "name": "Local API",
-            "url": "http://localhost:8000/health",
+            "url": "http://localhost:8000/api/v1/health",
             "method": "GET",
         },
         {
             "id": "local_ws",
             "name": "WebSocket",
-            "url": "ws://localhost:8000/ws",
+            "url": "ws://localhost:8000/api/v1/websocket/ws",
             "method": "GET",
         },
         {
@@ -391,7 +433,7 @@ async def run_performance_benchmark() -> list[PerformanceBenchmark]:
                 score=cpu_score,
                 metrics={
                     "cpu_usage": cpu_usage if psutil else 50,
-                    "cores": psutil.cpu_count() if psutil else 4,
+                    "cores": float(psutil.cpu_count() or 4) if psutil else 4.0,
                 },
                 duration=cpu_duration,
                 passed=cpu_score >= 70,
@@ -584,9 +626,9 @@ class VisionDiagnosticResult(BaseModel):
 
 def _run_camera_diagnostic_sync() -> dict[str, Any]:
     """Run camera diagnostic synchronously (to be called in thread)."""
-    issues = []
-    recommendations = []
-    details = {}
+    issues: list[str] = []
+    recommendations: list[str] = []
+    details: dict[str, Any] = {}
     score = 0.0
 
     try:
@@ -714,9 +756,9 @@ async def diagnose_camera() -> VisionDiagnosticResult:
 
 def _run_fisheye_diagnostic_sync() -> dict[str, Any]:
     """Run fisheye diagnostic synchronously (to be called in thread)."""
-    issues = []
-    recommendations = []
-    details = {}
+    issues: list[str] = []
+    recommendations: list[str] = []
+    details: dict[str, Any] = {}
     score = 0.0
 
     try:
@@ -741,10 +783,12 @@ def _run_fisheye_diagnostic_sync() -> dict[str, Any]:
                     details["calibration_loaded"] = True
                     score += 25.0
 
-                    # Check if we have valid calibration data
+                    # Check the canonical calibration result object rather than
+                    # relying on deprecated attributes copied onto the calibrator.
+                    camera_params = calibrator.camera_params
                     if (
-                        hasattr(calibrator, "camera_matrix")
-                        and calibrator.camera_matrix is not None
+                        camera_params is not None
+                        and camera_params.camera_matrix is not None
                     ):
                         details["has_camera_matrix"] = True
                         score += 25.0
@@ -753,8 +797,8 @@ def _run_fisheye_diagnostic_sync() -> dict[str, Any]:
                         recommendations.append("Re-run camera calibration process")
 
                     if (
-                        hasattr(calibrator, "dist_coeffs")
-                        and calibrator.dist_coeffs is not None
+                        camera_params is not None
+                        and camera_params.distortion_coefficients is not None
                     ):
                         details["has_distortion_coeffs"] = True
                         score += 25.0
@@ -850,9 +894,9 @@ async def diagnose_fisheye_correction() -> VisionDiagnosticResult:
 
 def _run_detection_diagnostic_sync() -> dict[str, Any]:
     """Run detection diagnostic synchronously (to be called in thread)."""
-    issues = []
-    recommendations = []
-    details = {}
+    issues: list[str] = []
+    recommendations: list[str] = []
+    details: dict[str, Any] = {}
     score = 0.0
 
     try:
@@ -860,7 +904,7 @@ def _run_detection_diagnostic_sync() -> dict[str, Any]:
         from backend.vision.detection.balls import BallDetector
 
         # Initialize detector
-        detector = BallDetector()
+        detector = BallDetector({})
         details["detector_initialized"] = True
         score += 25.0
 
@@ -885,7 +929,7 @@ def _run_detection_diagnostic_sync() -> dict[str, Any]:
 
                 # Run detection
                 detection_start = time.time()
-                detected_balls = detector.detect(frame)
+                detected_balls = detector.detect_balls(frame)
                 detection_time = time.time() - detection_start
 
                 details["balls_detected"] = len(detected_balls)
@@ -1025,7 +1069,7 @@ async def diagnose_vision_system() -> list[VisionDiagnosticResult]:
     return results
 
 
-def _generate_fisheye_test_image() -> Optional[bytes]:
+def _generate_fisheye_test_image() -> bytes | None:
     """Generate a before/after fisheye correction test image.
 
     Note: This function may hang if camera initialization blocks.
@@ -1168,14 +1212,12 @@ def _generate_fisheye_test_image() -> Optional[bytes]:
 
 
 @router.get("/vision/fisheye/test-image")
-async def get_fisheye_test_image():
+async def get_fisheye_test_image() -> Response:
     """Generate a before/after comparison image showing fisheye correction.
 
     Returns:
         JPEG image showing original and corrected frames side-by-side
     """
-    from fastapi.responses import Response
-
     logger.info("Fisheye test image endpoint called")
 
     try:
@@ -1219,7 +1261,7 @@ async def get_diagnostic_summary() -> DiagnosticSummary:
 
         overall_score = (passed_tests / total_tests) * 100
 
-        system_info = {
+        system_info: dict[str, Any] = {
             "version": "1.0.0",
             "uptime": "2h 15m",
             "platform": "Linux x86_64" if psutil else "Unknown",
@@ -1289,7 +1331,9 @@ async def test_upload_endpoint() -> dict[str, Any]:
 
 
 @router.get("/vision/raw-frame")
-async def get_raw_camera_frame(app_state: ApplicationState = Depends(get_app_state)):
+async def get_raw_camera_frame(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> Response:
     """Get a raw frame from the camera module without any processing.
 
     This endpoint gets the raw unprocessed frame from the EnhancedCameraModule
@@ -1301,7 +1345,6 @@ async def get_raw_camera_frame(app_state: ApplicationState = Depends(get_app_sta
     """
     import cv2
     import numpy as np
-    from fastapi.responses import Response
 
     logger.info("Raw frame diagnostic endpoint called")
 

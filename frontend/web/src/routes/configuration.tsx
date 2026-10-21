@@ -21,7 +21,7 @@ function RouteComponent() {
       label: 'System Settings',
       icon: ConfigIcons.System,
       component: SystemSettings,
-      description: 'Core system configuration including API, authentication, and logging settings'
+      description: 'Core system configuration including API and logging settings'
     },
     {
       id: 'camera',

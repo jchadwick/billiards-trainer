@@ -1,0 +1,3811 @@
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs::{self, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::net::{SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{bail, ensure, Context, Result};
+use image::{ImageReader, RgbImage};
+use openvino::{Core, DeviceType, ElementType, InferRequest, RwPropertyKey, Tensor};
+use ort::environment::Environment;
+use ort::ep::{ExecutionProvider, CPU};
+use ort::session::{
+    builder::{AutoDevicePolicy, SessionBuilder},
+    Session,
+};
+use ort::value::{TensorElementType, TensorRef, ValueType};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+
+use crate::detection_batch::{
+    encode_detection_batch_v1, BatchOutcome, BatchTimestamp, BoundingBox, ClockKind,
+    Detection as BatchDetection, DetectionBatchV1, ImageSpace, InferenceSettings, ModelClass,
+    ModelIdentity, Point, SourceFrame as BatchSourceFrame, TimeUnit, TimestampStage,
+    MAX_IDENTIFIER_CHARACTERS,
+};
+use crate::framing::write_framed_message;
+use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext, GeometryError};
+use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
+use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
+use crate::{
+    calibration::{TableCalibrationV1, ValidatedTableCalibrationV1},
+    encode_scene_snapshot_v1, ImageSpace as CalibrationImageSpace, SceneSnapshotV1,
+};
+
+use super::{
+    decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, LetterboxGeometry,
+    PreparedInput,
+};
+
+const INPUT_NAME: &str = "images";
+const OUTPUT_NAME: &str = "output0";
+const EXPECTED_CLASS_COUNT: usize = 2;
+const SUPPORTED_IMAGE_EXTENSIONS: [&str; 2] = ["jpg", "png"];
+const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+
+/// Model and post-processing settings for reusable per-frame inference.
+///
+/// This type intentionally contains no file-replay, camera, tracker, or
+/// transport settings. A source adapter owns frame identity and timing, then
+/// passes one immutable RGB image to the inference engine.
+#[derive(Debug, Clone)]
+pub struct FrameInferenceOptions {
+    pub onnx_path: PathBuf,
+    pub source_checkpoint_path: PathBuf,
+    pub provider: ProviderSelection,
+    pub image_size: u32,
+    pub confidence: f32,
+    pub iou: f32,
+    pub max_detections: usize,
+    pub intra_op_threads: Option<usize>,
+}
+
+/// Per-frame inference measurements. These durations exclude camera capture,
+/// encoded-image decoding, queue wait, tracking, and publication.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct FrameInferenceTimings {
+    pub preprocess_ms: f64,
+    pub inference_ms: f64,
+    pub decode_and_nms_ms: f64,
+    pub engine_total_ms: f64,
+}
+
+/// One complete inference result for an owned or immutably borrowed RGB frame.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FrameInferenceOutput {
+    pub source_width_px: u32,
+    pub source_height_px: u32,
+    pub detections: Vec<Detection>,
+    pub timings: FrameInferenceTimings,
+}
+
+/// Reusable ONNX session for single-frame RGB inference.
+///
+/// The mutable session is deliberately not shared: a live runtime should keep
+/// this value on its inference worker and hand it only one frame at a time.
+/// The environment field is declared after the session so the session is
+/// dropped before its ONNX Runtime environment.
+pub struct FrameInferenceEngine {
+    session: InferenceSession,
+    _environment: Environment,
+    input_shape: Vec<i64>,
+    expected_output_shape: Vec<i64>,
+    class_names: Vec<String>,
+    image_size: usize,
+    confidence: f32,
+    iou: f32,
+    max_detections: usize,
+    model_identity: ModelIdentity,
+    inference_settings: InferenceSettings,
+    requested_provider: ProviderSelection,
+}
+
+impl FrameInferenceEngine {
+    /// Load a hash-verified model session using an environment owned by the
+    /// application. One environment may be shared by multiple sessions.
+    pub fn new(environment: Environment, options: FrameInferenceOptions) -> Result<Self> {
+        validate_frame_inference_options(&options)?;
+        let model_contract =
+            load_and_verify_manifest(&options.onnx_path, &options.source_checkpoint_path)?;
+        Self::from_verified_model(environment, options, model_contract).map(|(engine, _)| engine)
+    }
+
+    /// Build from a model contract already verified by the caller and report
+    /// only session construction and signature validation time. Audit setup
+    /// verifies provenance before this interval so it stays comparable with
+    /// the provider-probe session metric.
+    fn from_verified_model(
+        environment: Environment,
+        options: FrameInferenceOptions,
+        model_contract: LoadedModelContract,
+    ) -> Result<(Self, f64)> {
+        validate_frame_inference_options(&options)?;
+        let expected_output_shape = vec![
+            1_i64,
+            (4 + model_contract.class_names.len()) as i64,
+            expected_anchor_count(options.image_size)? as i64,
+        ];
+        let session_start = Instant::now();
+        let session = create_session_for_model(
+            &environment,
+            &options.onnx_path,
+            options.provider,
+            options.intra_op_threads,
+            None,
+        )?;
+        let (input_shape, actual_output_shape) =
+            validate_session(&session, options.image_size, &model_contract.class_names)?;
+        ensure!(
+            actual_output_shape == expected_output_shape,
+            "ONNX output signature does not match the requested inference profile: {actual_output_shape:?}"
+        );
+        let session_init_ms = elapsed_ms(session_start);
+
+        let model_identity = ModelIdentity {
+            artifact_sha256: model_contract.artifact_sha256.clone(),
+            source_checkpoint_sha256: Some(model_contract.source_checkpoint_sha256),
+            classes: model_contract
+                .class_names
+                .iter()
+                .enumerate()
+                .map(|(class_id, class_name)| ModelClass {
+                    class_id: class_id as u32,
+                    class_name: class_name.clone(),
+                })
+                .collect(),
+        };
+        let inference_settings = InferenceSettings {
+            input_width_px: options.image_size,
+            input_height_px: options.image_size,
+            confidence_threshold: options.confidence as f64,
+            iou_threshold: options.iou as f64,
+            max_detections: options.max_detections as u32,
+        };
+
+        Ok((
+            Self {
+                session,
+                _environment: environment,
+                input_shape,
+                expected_output_shape,
+                class_names: model_contract.class_names,
+                image_size: options.image_size as usize,
+                confidence: options.confidence,
+                iou: options.iou,
+                max_detections: options.max_detections,
+                model_identity,
+                inference_settings,
+                requested_provider: options.provider,
+            },
+            session_init_ms,
+        ))
+    }
+
+    /// Run preprocessing, ONNX inference, and YOLO decoding on one RGB frame.
+    pub fn infer_rgb(&mut self, image: &RgbImage) -> Result<FrameInferenceOutput> {
+        self.infer_rgb8(image.width(), image.height(), image.as_raw())
+    }
+
+    /// Run inference directly from packed, borrowed RGB8 bytes. This avoids
+    /// materializing an `RgbImage` between capture and model preprocessing.
+    pub fn infer_rgb8(
+        &mut self,
+        source_width: u32,
+        source_height: u32,
+        pixels: &[u8],
+    ) -> Result<FrameInferenceOutput> {
+        let engine_start = Instant::now();
+        let preprocess_start = Instant::now();
+        let prepared = prepare_rgb8(source_width, source_height, pixels, self.image_size as u32)
+            .context("failed to preprocess RGB frame")?;
+        let preprocess_ms = elapsed_ms(preprocess_start);
+
+        let mut output = self.infer_prepared(&prepared)?;
+        output.timings.preprocess_ms = preprocess_ms;
+        output.timings.engine_total_ms = elapsed_ms(engine_start);
+        Ok(output)
+    }
+
+    fn infer_prepared(&mut self, prepared: &PreparedInput) -> Result<FrameInferenceOutput> {
+        let engine_start = Instant::now();
+
+        let inference_start = Instant::now();
+        let (output_shape, output_values) =
+            run_session(&mut self.session, &prepared.values, self.image_size)
+                .context("ONNX inference failed for RGB frame")?;
+        let inference_ms = elapsed_ms(inference_start);
+        ensure!(
+            output_shape == self.expected_output_shape,
+            "ONNX output tensor shape changed at runtime: {output_shape:?}"
+        );
+
+        let decode_start = Instant::now();
+        let detections = decode_yolo_v8_output(
+            &output_shape
+                .iter()
+                .map(|dimension| *dimension as usize)
+                .collect::<Vec<_>>(),
+            &output_values,
+            &self.class_names,
+            prepared.geometry,
+            self.confidence,
+            self.iou,
+            self.max_detections,
+        )
+        .context("failed to decode ONNX output for RGB frame")?;
+        let decode_and_nms_ms = elapsed_ms(decode_start);
+
+        Ok(FrameInferenceOutput {
+            source_width_px: prepared.geometry.source_width,
+            source_height_px: prepared.geometry.source_height,
+            detections,
+            timings: FrameInferenceTimings {
+                preprocess_ms: 0.0,
+                inference_ms,
+                decode_and_nms_ms,
+                engine_total_ms: elapsed_ms(engine_start),
+            },
+        })
+    }
+
+    pub fn model_identity(&self) -> &ModelIdentity {
+        &self.model_identity
+    }
+
+    pub fn inference_settings(&self) -> &InferenceSettings {
+        &self.inference_settings
+    }
+
+    /// The policy requested by configuration; this does not assert the
+    /// provider or device that executed each model node.
+    pub fn requested_provider(&self) -> ProviderSelection {
+        self.requested_provider
+    }
+
+    fn input_shape(&self) -> &[i64] {
+        &self.input_shape
+    }
+
+    fn output_shape(&self) -> &[i64] {
+        &self.expected_output_shape
+    }
+}
+
+/// All runtime-affecting inference options are explicit in the audit result.
+#[derive(Debug, Clone)]
+pub struct AuditOptions {
+    pub onnx_path: PathBuf,
+    pub source_checkpoint_path: PathBuf,
+    pub input_path: PathBuf,
+    pub provider: ProviderSelection,
+    pub image_size: u32,
+    pub confidence: f32,
+    pub iou: f32,
+    pub max_detections: usize,
+    pub intra_op_threads: Option<usize>,
+    pub warmup_runs: usize,
+    pub retained_provider_profile: Option<PathBuf>,
+    pub dump_preprocessed_directory: Option<PathBuf>,
+    /// Source image coordinate space. This describes the input image bytes;
+    /// letterbox resizing is later reversed before detector positions publish.
+    pub source_image_space: ImageSpace,
+    /// Optional file or loopback TCP sink; synchronous delivery time is reported separately.
+    pub detection_batch_output: Option<BatchOutputOptions>,
+    /// Optional diagnostic geometry pass. It requires detection-batch output
+    /// so the calibrated measurements are reproducible from retained input.
+    pub calibration: Option<CalibrationAuditOptions>,
+    /// Optional paced scene-snapshot replay. It requires detection-batch
+    /// output so tracks can always be reconstructed from raw observations.
+    pub scene_snapshot_output: Option<SceneSnapshotOutputOptions>,
+    /// Optional source presentation rate. When set, replay uses a one-frame
+    /// latest-work mailbox so inference overload replaces stale pending input.
+    pub replay_rate_fps: Option<f64>,
+}
+
+/// Explicit scene output and already validated tracking policy for replay.
+#[derive(Debug, Clone)]
+pub struct SceneSnapshotOutputOptions {
+    pub destination: SceneSnapshotOutputDestination,
+    pub tracking: TrackingConfigV1,
+}
+
+/// Recorded-replay scene output. TCP export uses a bounded latest-only worker
+/// so socket delays do not run on the inference thread.
+#[derive(Debug, Clone)]
+pub enum SceneSnapshotOutputDestination {
+    JsonlFile {
+        path: PathBuf,
+    },
+    LoopbackTcp {
+        address: SocketAddr,
+        maximum_message_bytes: usize,
+        connect_timeout: Duration,
+        write_timeout: Duration,
+        reconnect_initial_delay: Duration,
+        reconnect_maximum_delay: Duration,
+    },
+}
+
+/// Explicit identities and destination for per-frame contract output.
+#[derive(Debug, Clone)]
+pub struct BatchOutputOptions {
+    pub destination: BatchOutputDestination,
+    pub engine_instance_id: String,
+    pub source_session_id: String,
+}
+
+/// Explicit calibration and applied-runtime identity for an audit replay.
+#[derive(Debug, Clone)]
+pub struct CalibrationAuditOptions {
+    bundle_path: PathBuf,
+    bundle_sha256: String,
+    calibration: ValidatedTableCalibrationV1,
+    applied_camera_profile_id: String,
+    applied_calibration_revision: u64,
+    applied_rectification_revision: u64,
+}
+
+impl CalibrationAuditOptions {
+    /// Load a versioned calibration bundle and bind its hash to the validated
+    /// calibration used by this replay. Callers cannot independently replace
+    /// the geometry or provenance after construction.
+    pub fn load(
+        bundle_path: impl Into<PathBuf>,
+        applied_camera_profile_id: impl Into<String>,
+        applied_calibration_revision: u64,
+        applied_rectification_revision: u64,
+    ) -> Result<Self> {
+        let bundle_path = bundle_path.into();
+        let bundle_bytes = fs::read(&bundle_path).with_context(|| {
+            format!(
+                "failed to read calibration bundle {}",
+                bundle_path.display()
+            )
+        })?;
+        let calibration = serde_json::from_slice::<TableCalibrationV1>(&bundle_bytes)
+            .context("calibration bundle does not match the table-calibration v1 structure")?
+            .into_validated()
+            .context("calibration bundle failed structural or numerical validation")?;
+        let applied_camera_profile_id = applied_camera_profile_id.into();
+        validate_batch_identifier(&applied_camera_profile_id, "applied camera profile ID")?;
+        ensure!(
+            applied_calibration_revision <= MAX_SAFE_JSON_INTEGER
+                && applied_rectification_revision <= MAX_SAFE_JSON_INTEGER,
+            "applied calibration revisions must be safe JSON integers"
+        );
+
+        Ok(Self {
+            bundle_path,
+            bundle_sha256: format!("{:x}", Sha256::digest(&bundle_bytes)),
+            calibration,
+            applied_camera_profile_id,
+            applied_calibration_revision,
+            applied_rectification_revision,
+        })
+    }
+
+    pub fn bundle_sha256(&self) -> &str {
+        &self.bundle_sha256
+    }
+
+    pub fn calibration_revision(&self) -> u64 {
+        self.calibration.calibration_revision()
+    }
+
+    pub fn applied_camera_profile_id(&self) -> &str {
+        &self.applied_camera_profile_id
+    }
+
+    pub fn applied_rectification_revision(&self) -> u64 {
+        self.applied_rectification_revision
+    }
+}
+
+/// A replay-only sink. TCP uses a synchronous connection to a loopback receiver;
+/// it is not the live pipeline's bounded asynchronous transport.
+#[derive(Debug, Clone)]
+pub enum BatchOutputDestination {
+    JsonlFile {
+        path: PathBuf,
+    },
+    LoopbackTcp {
+        address: SocketAddr,
+        maximum_message_bytes: usize,
+        connect_timeout: Duration,
+        write_timeout: Duration,
+    },
+}
+
+/// Explicit inference backend policy for this recorded-image audit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderSelection {
+    /// Disable automatic accelerators and register the portable CPU provider.
+    Cpu,
+    /// Let ONNX Runtime choose its max-efficiency device policy.
+    Auto,
+    /// Explicitly request the native OpenVINO Runtime CPU backend.
+    #[serde(rename = "openvino")]
+    Openvino,
+}
+
+impl ProviderSelection {
+    fn requested_provider_name(self) -> &'static str {
+        match self {
+            Self::Cpu => CPU::NAME,
+            Self::Auto => "AutoDevicePolicy::MaxEfficiency",
+            Self::Openvino => "OpenVINO CPU (native)",
+        }
+    }
+
+    fn binding(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Openvino => (
+                "openvino-rs",
+                "0.11.1",
+                "Native OpenVINO CPU backend selected and invoked; this API does not expose per-node fallback assignment, so node counts are unavailable",
+            ),
+            Self::Cpu | Self::Auto => (
+                "ort",
+                "2.0.0-rc.15",
+                "ONNX Runtime per-node profile from a separate identically configured session; empty observations mean unavailable",
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuditReport {
+    pub schema_version: u32,
+    pub workload: &'static str,
+    pub parity_scope: &'static str,
+    pub model: ModelReport,
+    pub runtime: RuntimeReport,
+    pub preprocessing: PreprocessingReport,
+    pub settings: SettingsReport,
+    pub timings: RunTimings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detection_batch_output: Option<BatchOutputReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<CalibrationAuditReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_snapshot_output: Option<SceneSnapshotOutputReport>,
+    pub results: Vec<ImageResult>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SceneSnapshotOutputReport {
+    pub destination: String,
+    pub format: &'static str,
+    pub mode: &'static str,
+    pub snapshot_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum_message_bytes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_timeout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_timeout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<SceneTransportStats>,
+    pub ball_class_id: u32,
+    pub cue_class_id: Option<u32>,
+    pub camera_profile_id: String,
+    pub association_gate_px: f64,
+    pub association_prediction_horizon_ms: f64,
+    pub lost_after_ms: f64,
+    pub maximum_track_age_ms: f64,
+    pub maximum_active_tracks: usize,
+    pub recent_observation_capacity: usize,
+    pub configuration_revision: u64,
+    pub rectification_revision: u64,
+    pub mean_tracking_ms: f64,
+    pub mean_encode_enqueue_ms: f64,
+    pub source_time: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CalibrationAuditReport {
+    pub bundle_path: String,
+    pub bundle_sha256: String,
+    pub bundle_calibration_revision: u64,
+    pub bundle_camera_profile_id: String,
+    pub bundle_rectification_revision: u64,
+    pub bundle_image_space: CalibrationImageSpace,
+    pub bundle_source_width_px: u32,
+    pub bundle_source_height_px: u32,
+    pub applied_calibration_revision: u64,
+    pub applied_camera_profile_id: String,
+    pub applied_rectification_revision: u64,
+    pub applied_image_space: ImageSpace,
+    pub frame_count: usize,
+    pub calibrated_frame_count: usize,
+    pub unavailable_frame_count: usize,
+    pub calibrated_detection_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FrameCalibrationReport {
+    pub status: CalibrationStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Null means the frame could not be projected; an empty array means a
+    /// successful complete observation contained no detections.
+    pub measurements: Option<Vec<CalibratedMeasurement>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CalibrationStatus {
+    Valid,
+    Unavailable,
+}
+
+#[derive(Debug, PartialEq, Serialize)]
+pub struct CalibratedMeasurement {
+    pub detection_index: u64,
+    pub center_image_px: Point,
+    pub center_table_mm: crate::calibration::TablePointMm,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchOutputReport {
+    pub destination: String,
+    pub format: &'static str,
+    pub mode: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum_message_bytes: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connect_timeout_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_timeout_ms: Option<f64>,
+    pub engine_instance_id: String,
+    pub source_session_id: String,
+    pub batch_count: usize,
+    pub source_time: &'static str,
+}
+
+enum DetectionBatchSink {
+    Jsonl(BufWriter<fs::File>),
+    LoopbackTcp {
+        stream: TcpStream,
+        maximum_message_bytes: usize,
+    },
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModelReport {
+    pub onnx_path: String,
+    pub onnx_sha256: String,
+    pub source_checkpoint_path: String,
+    pub source_checkpoint_sha256: String,
+    pub manifest_path: String,
+    pub input_name: String,
+    pub input_shape: Vec<i64>,
+    pub output_name: String,
+    pub output_shape: Vec<i64>,
+    pub class_names: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RuntimeReport {
+    pub binding: &'static str,
+    pub binding_version: &'static str,
+    pub requested_execution_provider: &'static str,
+    pub observed_execution_providers: Vec<String>,
+    pub provider_evidence: &'static str,
+    pub provider_event_count: usize,
+    pub provider_node_counts: BTreeMap<String, usize>,
+    pub retained_profile_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PreprocessingReport {
+    pub color_order: &'static str,
+    pub layout: &'static str,
+    pub dtype: &'static str,
+    pub normalization: &'static str,
+    pub resize: &'static str,
+    pub padding: &'static str,
+    pub parity_note: &'static str,
+    pub optional_tensor_dump_format: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SettingsReport {
+    pub provider: ProviderSelection,
+    pub source_image_space: ImageSpace,
+    pub image_size: u32,
+    pub confidence: f32,
+    pub iou: f32,
+    pub max_detections: usize,
+    pub intra_op_threads: Option<usize>,
+    pub warmup_runs: usize,
+    pub replay_rate_fps: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunTimings {
+    pub image_count: usize,
+    pub provider_probe_session_init_ms: f64,
+    pub provider_probe_inference_ms: f64,
+    pub measurement_session_init_ms: f64,
+    pub warmup_total_ms: f64,
+    pub total_recorded_image_ms: f64,
+    pub summed_image_pipeline_ms: f64,
+    pub mean_image_decode_ms: f64,
+    pub mean_preprocess_ms: f64,
+    pub mean_inference_ms: f64,
+    pub mean_decode_and_nms_ms: f64,
+    pub mean_end_to_end_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mean_scene_tracking_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mean_scene_encode_enqueue_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mean_calibration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_to_calibration_complete_ms: Option<LatencyPercentiles>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_export_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paced_replay: Option<PacedReplayReport>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImageResult {
+    pub path: String,
+    /// Zero-based position in the input corpus. Gaps expose latest-frame drops.
+    pub source_frame_index: usize,
+    pub encoded_image_sha256: String,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub letterbox: LetterboxGeometry,
+    pub timings: ImageTimings,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_schedule_lateness_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_to_inference_start_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_to_inference_complete_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_to_calibration_complete_ms: Option<f64>,
+    pub preprocessed_tensor_path: Option<String>,
+    pub detections: Vec<Detection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<FrameCalibrationReport>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PacedReplayReport {
+    pub requested_source_fps: f64,
+    pub scheduled_frame_count: usize,
+    pub decoded_frame_count: usize,
+    pub processed_frame_count: usize,
+    pub replaced_pending_frame_count: usize,
+    pub source_schedule_deadline_misses: usize,
+    pub mean_source_schedule_lateness_ms: f64,
+    pub maximum_source_schedule_lateness_ms: f64,
+    pub observed_source_fps: Option<f64>,
+    pub processed_frame_fps: f64,
+    pub source_to_inference_start_ms: LatencyPercentiles,
+    pub source_to_inference_complete_ms: LatencyPercentiles,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LatencyPercentiles {
+    pub sample_count: usize,
+    pub p50_ms: Option<f64>,
+    pub p95_ms: Option<f64>,
+    pub p99_ms: Option<f64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImageTimings {
+    pub image_decode_ms: f64,
+    pub preprocess_ms: f64,
+    pub inference_ms: f64,
+    pub decode_and_nms_ms: f64,
+    pub end_to_end_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_tracking_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_encode_enqueue_ms: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExportManifest {
+    source_model: SourceModelManifest,
+    exported_model: ExportedModelManifest,
+    model: ModelManifest,
+}
+
+#[derive(Debug, Deserialize)]
+struct SourceModelManifest {
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExportedModelManifest {
+    path: String,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ModelManifest {
+    class_count: usize,
+    class_names: Vec<ClassManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClassManifest {
+    id: usize,
+    name: String,
+}
+
+#[derive(Debug, Clone)]
+struct LoadedModelContract {
+    manifest_path: PathBuf,
+    artifact_sha256: String,
+    source_checkpoint_sha256: String,
+    class_names: Vec<String>,
+}
+
+struct ProviderEvidence {
+    observed_providers: Vec<String>,
+    event_count: usize,
+    node_counts: BTreeMap<String, usize>,
+    retained_profile_path: Option<PathBuf>,
+}
+
+struct TimedInput {
+    image: RgbImage,
+    prepared: PreparedInput,
+    decode_ms: f64,
+    preprocess_ms: f64,
+}
+
+struct DecodedReplayFrame {
+    source_index: usize,
+    path: PathBuf,
+    encoded_image_sha256: String,
+    image: RgbImage,
+    decode_ms: f64,
+    scheduled_at: Instant,
+    source_arrived_at: Instant,
+}
+
+#[derive(Default)]
+struct PacedMailboxState {
+    latest: Option<DecodedReplayFrame>,
+    closed: bool,
+    cancelled: bool,
+    producer_error: Option<String>,
+    decoded_frame_count: usize,
+    replaced_pending_frame_count: usize,
+    source_schedule_deadline_misses: usize,
+    total_source_schedule_lateness_ms: f64,
+    maximum_source_schedule_lateness_ms: f64,
+    first_source_arrival: Option<Instant>,
+    last_source_arrival: Option<Instant>,
+}
+
+#[derive(Clone, Default)]
+struct PacedReplayMailbox {
+    shared: Arc<(Mutex<PacedMailboxState>, Condvar)>,
+}
+
+struct FrameToProcess {
+    source_index: usize,
+    path: PathBuf,
+    encoded_image_sha256: String,
+    timed_input: TimedInput,
+    scheduled_at: Option<Instant>,
+    source_arrived_at: Option<Instant>,
+}
+
+struct FrameProcessContext<'a> {
+    inference_engine: &'a mut FrameInferenceEngine,
+    class_names: &'a [String],
+    options: &'a AuditOptions,
+    onnx_sha256: &'a str,
+    source_checkpoint_sha256: &'a str,
+    batch_sink: &'a mut Option<DetectionBatchSink>,
+    scene_output: &'a mut Option<SceneSnapshotOutputRuntime>,
+    batch_clock_origin: Instant,
+    preprocessed_directory: Option<&'a Path>,
+}
+
+struct SceneSnapshotOutputRuntime {
+    destination: String,
+    format: &'static str,
+    connect_ms: Option<f64>,
+    maximum_message_bytes: Option<usize>,
+    connect_timeout_ms: Option<f64>,
+    write_timeout_ms: Option<f64>,
+    tracker: SceneTrackerV1,
+    sink: SceneSnapshotSink,
+    snapshot_count: usize,
+    total_tracking_ms: f64,
+    total_encode_enqueue_ms: f64,
+    transport_stats: Option<SceneTransportStats>,
+}
+
+enum SceneSnapshotSink {
+    Jsonl(BufWriter<fs::File>),
+    LoopbackTcp {
+        writer: LatestSceneWriter,
+        maximum_message_bytes: usize,
+    },
+}
+
+impl SceneSnapshotOutputRuntime {
+    fn finish(&mut self) {
+        if let SceneSnapshotSink::LoopbackTcp { writer, .. } = &mut self.sink {
+            self.transport_stats = Some(writer.shutdown());
+        }
+    }
+}
+
+/// Run unpaced inference over one image or a directory of PNG/JPEG images.
+///
+/// A short profiling session first records actual ONNX Runtime node-provider
+/// events. Timed results then come from a second, non-profiled session so that
+/// ORT trace collection does not contaminate the reported per-image timings.
+pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
+    validate_options(options)?;
+    let image_paths = collect_images(&options.input_path)?;
+    let manifest = load_and_verify_manifest(&options.onnx_path, &options.source_checkpoint_path)?;
+    if let Some(scene_output) = &options.scene_snapshot_output {
+        ensure!(
+            (scene_output.tracking.ball_class_id() as usize) < manifest.class_names.len(),
+            "scene tracking ball class ID is absent from the model manifest"
+        );
+        if let Some(cue_class_id) = scene_output.tracking.cue_class_id() {
+            ensure!(
+                (cue_class_id as usize) < manifest.class_names.len(),
+                "scene tracking cue class ID is absent from the model manifest"
+            );
+        }
+    }
+    let onnx_sha256 = manifest.artifact_sha256.clone();
+    let expected_output_shape = vec![
+        1_i64,
+        (4 + manifest.class_names.len()) as i64,
+        expected_anchor_count(options.image_size)? as i64,
+    ];
+
+    let environment = ort::init()
+        .with_name("billiards-perception-recorded-image-audit")
+        .with_telemetry(false)
+        .build()
+        .context("failed to initialize ONNX Runtime")?;
+
+    let (profile_evidence, provider_probe_session_init_ms, provider_probe_inference_ms, first) =
+        profile_provider(
+            &environment,
+            options,
+            &manifest.class_names,
+            &expected_output_shape,
+            &image_paths[0],
+        )?;
+
+    let (mut inference_engine, measurement_session_init_ms) =
+        FrameInferenceEngine::from_verified_model(
+            environment.clone(),
+            FrameInferenceOptions {
+                onnx_path: options.onnx_path.clone(),
+                source_checkpoint_path: options.source_checkpoint_path.clone(),
+                provider: options.provider,
+                image_size: options.image_size,
+                confidence: options.confidence,
+                iou: options.iou,
+                max_detections: options.max_detections,
+                intra_op_threads: options.intra_op_threads,
+            },
+            manifest.clone(),
+        )?;
+    ensure!(
+        inference_engine.output_shape() == expected_output_shape,
+        "measurement output signature changed after provider probe: {:?}",
+        inference_engine.output_shape()
+    );
+    let input_shape = inference_engine.input_shape().to_vec();
+    let output_shape = inference_engine.output_shape().to_vec();
+    let warmup_start = Instant::now();
+    for _ in 0..options.warmup_runs {
+        let _ = inference_engine.infer_prepared(&first)?;
+    }
+    let warmup_total_ms = elapsed_ms(warmup_start);
+
+    if let Some(directory) = &options.dump_preprocessed_directory {
+        fs::create_dir_all(directory).with_context(|| {
+            format!(
+                "failed to create preprocessed tensor directory {}",
+                directory.display()
+            )
+        })?;
+    }
+    // Hashes are provenance, not a measured inference stage. Calculate them
+    // before the recorded-image timing window.
+    let image_hashes = image_paths
+        .iter()
+        .map(|path| sha256_file(path))
+        .collect::<Result<Vec<_>>>()?;
+
+    let (mut batch_sink, batch_connect_ms) = match options.detection_batch_output.as_ref() {
+        Some(batch_options) => {
+            let (sink, connect_ms) = open_detection_batch_sink(batch_options)?;
+            (Some(sink), connect_ms)
+        }
+        None => (None, None),
+    };
+    let mut scene_output = options
+        .scene_snapshot_output
+        .as_ref()
+        .map(open_scene_snapshot_output)
+        .transpose()?;
+    let measured_start = Instant::now();
+    let mut context = FrameProcessContext {
+        inference_engine: &mut inference_engine,
+        class_names: &manifest.class_names,
+        options,
+        onnx_sha256: &onnx_sha256,
+        source_checkpoint_sha256: &manifest.source_checkpoint_sha256,
+        batch_sink: &mut batch_sink,
+        scene_output: &mut scene_output,
+        batch_clock_origin: measured_start,
+        preprocessed_directory: options.dump_preprocessed_directory.as_deref(),
+    };
+    let (results, batch_export_ms, paced_replay, total_recorded_image_ms) =
+        if let Some(requested_fps) = options.replay_rate_fps {
+            run_paced_replay(
+                &image_paths,
+                &image_hashes,
+                requested_fps,
+                measured_start,
+                &mut context,
+            )?
+        } else {
+            let mut results = Vec::with_capacity(image_paths.len());
+            let mut batch_export_ms = 0.0;
+            for (index, (path, image_hash)) in image_paths.iter().zip(image_hashes).enumerate() {
+                let timed_input = load_and_prepare(path, options.image_size)?;
+                let (result, export_ms) = process_frame(
+                    &mut context,
+                    FrameToProcess {
+                        source_index: index,
+                        path: path.clone(),
+                        encoded_image_sha256: image_hash,
+                        timed_input,
+                        scheduled_at: None,
+                        source_arrived_at: None,
+                    },
+                    index + 1,
+                )?;
+                results.push(result);
+                batch_export_ms += export_ms;
+            }
+            (results, batch_export_ms, None, elapsed_ms(measured_start))
+        };
+
+    if let Some(scene_runtime) = scene_output.as_mut() {
+        scene_runtime.finish();
+    }
+    let run_timings = summarize_timings(
+        &results,
+        provider_probe_session_init_ms,
+        provider_probe_inference_ms,
+        measurement_session_init_ms,
+        warmup_total_ms,
+        total_recorded_image_ms,
+        batch_sink.is_some().then_some(batch_export_ms),
+        paced_replay,
+    );
+
+    let detection_batch_output = options
+        .detection_batch_output
+        .as_ref()
+        .map(|batch_options| BatchOutputReport {
+            destination: batch_destination_label(&batch_options.destination),
+            format: batch_output_format(&batch_options.destination),
+            mode: batch_output_mode(
+                &batch_options.destination,
+                options.replay_rate_fps.is_some(),
+            ),
+            connect_ms: batch_connect_ms,
+            maximum_message_bytes: batch_maximum_message_bytes(&batch_options.destination),
+            connect_timeout_ms: batch_connect_timeout_ms(&batch_options.destination),
+            write_timeout_ms: batch_write_timeout_ms(&batch_options.destination),
+            engine_instance_id: batch_options.engine_instance_id.clone(),
+            source_session_id: batch_options.source_session_id.clone(),
+            batch_count: results.len(),
+            source_time: if options.replay_rate_fps.is_some() {
+                "synthetic_monotonic_frame_arrival"
+            } else {
+                "unavailable_for_still_image_replay"
+            },
+        });
+    let calibration = options.calibration.as_ref().map(|calibration_options| {
+        summarize_calibration(calibration_options, options.source_image_space, &results)
+    });
+    let scene_snapshot_output = options
+        .scene_snapshot_output
+        .as_ref()
+        .zip(scene_output.as_ref())
+        .map(|(output_options, runtime)| summarize_scene_snapshot_output(output_options, runtime));
+
+    Ok(AuditReport {
+        schema_version: 1,
+        workload: if options.replay_rate_fps.is_some() {
+            "recorded_images_paced_latest_frame"
+        } else {
+            "recorded_static_images_unpaced"
+        },
+        parity_scope: "1280-square Ultralytics equivalence harness; the configured CoreML package declares a fixed 1280-square input, but package lineage and CoreML-versus-ONNX parity remain unverified",
+        model: ModelReport {
+            onnx_path: options.onnx_path.display().to_string(),
+            onnx_sha256,
+            source_checkpoint_path: options.source_checkpoint_path.display().to_string(),
+            source_checkpoint_sha256: manifest.source_checkpoint_sha256,
+            manifest_path: manifest.manifest_path.display().to_string(),
+            input_name: INPUT_NAME.to_owned(),
+            input_shape,
+            output_name: OUTPUT_NAME.to_owned(),
+            output_shape,
+            class_names: manifest.class_names,
+        },
+        runtime: RuntimeReport {
+            binding: options.provider.binding().0,
+            binding_version: options.provider.binding().1,
+            requested_execution_provider: options.provider.requested_provider_name(),
+            observed_execution_providers: profile_evidence.observed_providers,
+            provider_evidence: options.provider.binding().2,
+            provider_event_count: profile_evidence.event_count,
+            provider_node_counts: profile_evidence.node_counts,
+            retained_profile_path: profile_evidence.retained_profile_path.map(|path| path.display().to_string()),
+        },
+        preprocessing: PreprocessingReport {
+            color_order: "RGB",
+            layout: "NCHW",
+            dtype: "float32",
+            normalization: "[0, 1]",
+            resize: "aspect-preserving OpenCV INTER_LINEAR half-pixel sampling approximation",
+            padding: "centered RGB=(114,114,114), fixed square, no stride auto-padding",
+            parity_note: "PNG/JPEG are decoded by image-rs; this path is an OpenCV-compatible approximation until tensor comparison against the repository still-image fixtures is recorded, and JPEG decoder differences may remain",
+            optional_tensor_dump_format: "raw little-endian float32 NCHW [1,3,image_size,image_size]",
+        },
+        settings: SettingsReport {
+            provider: options.provider,
+            source_image_space: options.source_image_space,
+            image_size: options.image_size,
+            confidence: options.confidence,
+            iou: options.iou,
+            max_detections: options.max_detections,
+            intra_op_threads: options.intra_op_threads,
+            warmup_runs: options.warmup_runs,
+            replay_rate_fps: options.replay_rate_fps,
+        },
+        timings: run_timings,
+        detection_batch_output,
+        calibration,
+        scene_snapshot_output,
+        results,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn process_frame(
+    context: &mut FrameProcessContext<'_>,
+    frame: FrameToProcess,
+    batch_sequence: usize,
+) -> Result<(ImageResult, f64)> {
+    let inference_start = Instant::now();
+    let inference_output = context
+        .inference_engine
+        .infer_prepared(&frame.timed_input.prepared)
+        .with_context(|| format!("failed to infer {}", frame.path.display()))?;
+    let inference_ms = inference_output.timings.inference_ms;
+    let decode_and_nms_ms = inference_output.timings.decode_and_nms_ms;
+    let detections = inference_output.detections;
+    let inference_completed = Instant::now();
+    let end_to_end_ms = frame.timed_input.decode_ms
+        + frame.timed_input.preprocess_ms
+        + inference_ms
+        + decode_and_nms_ms;
+    let source_schedule_lateness_ms = frame.scheduled_at.map(|scheduled_at| {
+        frame
+            .source_arrived_at
+            .unwrap_or(scheduled_at)
+            .saturating_duration_since(scheduled_at)
+            .as_secs_f64()
+            * 1000.0
+    });
+    let source_to_inference_start_ms = frame.source_arrived_at.map(|source_arrived_at| {
+        inference_start
+            .saturating_duration_since(source_arrived_at)
+            .as_secs_f64()
+            * 1000.0
+    });
+    let source_to_inference_complete_ms = frame.source_arrived_at.map(|source_arrived_at| {
+        inference_completed
+            .saturating_duration_since(source_arrived_at)
+            .as_secs_f64()
+            * 1000.0
+    });
+    let mut source_to_calibration_complete_ms = None;
+
+    let mut batch_export_ms = 0.0;
+    let mut calibration_ms = None;
+    let mut calibration_report = None;
+    let mut scene_tracking_ms = None;
+    let mut scene_encode_enqueue_ms = None;
+    let mut calibrated_for_scene = None;
+    if let (Some(sink), Some(output_options)) = (
+        context.batch_sink.as_mut(),
+        context.options.detection_batch_output.as_ref(),
+    ) {
+        let export_start = Instant::now();
+        let batch = build_detection_batch(
+            frame.source_index,
+            batch_sequence,
+            frame.timed_input.image.width(),
+            frame.timed_input.image.height(),
+            &detections,
+            context.class_names,
+            context.onnx_sha256,
+            context.source_checkpoint_sha256,
+            context.options,
+            output_options,
+            context.batch_clock_origin,
+            inference_start,
+            inference_completed,
+            frame.source_arrived_at,
+        )?;
+        write_detection_batch(sink, &batch)?;
+        batch_export_ms = elapsed_ms(export_start);
+
+        if let Some(calibration_options) = &context.options.calibration {
+            let calibration_start = Instant::now();
+            let applied_context = AppliedCalibrationContext {
+                calibration_revision: calibration_options.applied_calibration_revision,
+                camera_profile_id: &calibration_options.applied_camera_profile_id,
+                rectification_revision: calibration_options.applied_rectification_revision,
+            };
+            let geometry_result = calibrate_detection_batch(
+                &batch,
+                &calibration_options.calibration,
+                applied_context,
+            );
+            calibration_report = Some(calibration_report_from_geometry_result(&geometry_result)?);
+            if context.scene_output.is_some() {
+                calibrated_for_scene = Some((
+                    calibration_options.applied_calibration_revision,
+                    geometry_result,
+                ));
+            }
+            calibration_ms = Some(elapsed_ms(calibration_start));
+            source_to_calibration_complete_ms = frame.source_arrived_at.map(|source_arrived_at| {
+                Instant::now()
+                    .saturating_duration_since(source_arrived_at)
+                    .as_secs_f64()
+                    * 1000.0
+            });
+        }
+
+        if let Some(scene_runtime) = context.scene_output.as_mut() {
+            let published_at = scene_publication_timestamp(
+                context.batch_clock_origin,
+                &output_options.engine_instance_id,
+            )?;
+            let tracking_start = Instant::now();
+            let mut snapshot = scene_runtime
+                .tracker
+                .process_with_precalibrated_batch(&batch, published_at, calibrated_for_scene)
+                .context("failed to produce tracked scene snapshot")?;
+            scene_tracking_ms = Some(elapsed_ms(tracking_start));
+
+            // Tracking requires a valid timestamp to build its transactional
+            // snapshot. Replace that provisional value with the publisher's
+            // actual monotonic time immediately before serialization.
+            snapshot.published_at = scene_publication_timestamp(
+                context.batch_clock_origin,
+                &output_options.engine_instance_id,
+            )?;
+            let export_start = Instant::now();
+            write_scene_snapshot(&mut scene_runtime.sink, &snapshot)?;
+            scene_encode_enqueue_ms = Some(elapsed_ms(export_start));
+            scene_runtime.snapshot_count += 1;
+            scene_runtime.total_tracking_ms += scene_tracking_ms.unwrap_or_default();
+            scene_runtime.total_encode_enqueue_ms += scene_encode_enqueue_ms.unwrap_or_default();
+        }
+    }
+
+    let preprocessed_tensor_path = context
+        .preprocessed_directory
+        .map(|directory| directory.join(format!("input-{:05}.f32le", frame.source_index)));
+    if let Some(tensor_path) = &preprocessed_tensor_path {
+        write_nchw_float32(tensor_path, &frame.timed_input.prepared.values)?;
+    }
+
+    Ok((
+        ImageResult {
+            path: frame.path.display().to_string(),
+            source_frame_index: frame.source_index,
+            encoded_image_sha256: frame.encoded_image_sha256,
+            source_width: frame.timed_input.image.width(),
+            source_height: frame.timed_input.image.height(),
+            letterbox: frame.timed_input.prepared.geometry,
+            timings: ImageTimings {
+                image_decode_ms: frame.timed_input.decode_ms,
+                preprocess_ms: frame.timed_input.preprocess_ms,
+                inference_ms,
+                decode_and_nms_ms,
+                end_to_end_ms,
+                calibration_ms,
+                scene_tracking_ms,
+                scene_encode_enqueue_ms,
+            },
+            source_schedule_lateness_ms,
+            source_to_inference_start_ms,
+            source_to_inference_complete_ms,
+            source_to_calibration_complete_ms,
+            preprocessed_tensor_path: preprocessed_tensor_path
+                .map(|path| path.display().to_string()),
+            detections,
+            calibration: calibration_report,
+        },
+        batch_export_ms,
+    ))
+}
+
+#[cfg(test)]
+fn calibration_report_for_batch(
+    batch: &DetectionBatchV1,
+    options: &CalibrationAuditOptions,
+) -> Result<FrameCalibrationReport> {
+    let applied_context = AppliedCalibrationContext {
+        calibration_revision: options.applied_calibration_revision,
+        camera_profile_id: &options.applied_camera_profile_id,
+        rectification_revision: options.applied_rectification_revision,
+    };
+    let result = calibrate_detection_batch(batch, &options.calibration, applied_context);
+    calibration_report_from_geometry_result(&result)
+}
+
+fn calibration_report_from_geometry_result(
+    result: &std::result::Result<crate::geometry::CalibratedDetectionBatch, GeometryError>,
+) -> Result<FrameCalibrationReport> {
+    match result {
+        Ok(calibrated) => Ok(FrameCalibrationReport {
+            status: CalibrationStatus::Valid,
+            reason: None,
+            measurements: Some(
+                calibrated
+                    .detections
+                    .iter()
+                    .map(|detection| CalibratedMeasurement {
+                        detection_index: detection.detection_index,
+                        center_image_px: detection.center_image_px,
+                        center_table_mm: detection.center_table_mm,
+                    })
+                    .collect(),
+            ),
+        }),
+        Err(error @ GeometryError::IncompatibleFrameCalibration(_))
+        | Err(error @ GeometryError::DetectionProjection { .. }) => Ok(FrameCalibrationReport {
+            status: CalibrationStatus::Unavailable,
+            reason: Some(error.to_string()),
+            measurements: None,
+        }),
+        Err(error) => {
+            bail!("audit-created detection batch violated geometry input contract: {error}")
+        }
+    }
+}
+
+fn run_paced_replay(
+    image_paths: &[PathBuf],
+    image_hashes: &[String],
+    requested_fps: f64,
+    replay_started: Instant,
+    context: &mut FrameProcessContext<'_>,
+) -> Result<(Vec<ImageResult>, f64, Option<PacedReplayReport>, f64)> {
+    ensure!(
+        image_paths.len() == image_hashes.len(),
+        "paced replay image/hash counts differ"
+    );
+    let frame_period = replay_frame_period(requested_fps)?;
+
+    let mailbox = PacedReplayMailbox::default();
+    let producer_mailbox = mailbox.clone();
+    let producer_paths = image_paths.to_vec();
+    let producer_hashes = image_hashes.to_vec();
+    let producer = thread::Builder::new()
+        .name("paced-image-replay-source".to_owned())
+        .spawn(move || {
+            let result = produce_paced_frames(
+                &producer_mailbox,
+                &producer_paths,
+                &producer_hashes,
+                replay_started,
+                frame_period,
+            );
+            producer_mailbox.finish(result.as_ref().err().map(|error| format!("{error:#}")));
+            result.map_err(|error| format!("{error:#}"))
+        })
+        .context("failed to start paced replay source thread")?;
+
+    let mut results = Vec::with_capacity(image_paths.len());
+    let mut batch_export_ms = 0.0;
+    let mut source_to_inference_start_samples_ms = Vec::with_capacity(image_paths.len());
+    let mut source_to_inference_complete_samples_ms = Vec::with_capacity(image_paths.len());
+    let processing_result = (|| -> Result<()> {
+        loop {
+            let Some(frame) = mailbox.take_latest()? else {
+                break;
+            };
+            let source_index = frame.source_index;
+            let timed_input =
+                prepare_decoded_image(frame.image, frame.decode_ms, context.options.image_size)?;
+            let (result, export_ms) = process_frame(
+                context,
+                FrameToProcess {
+                    source_index,
+                    path: frame.path,
+                    encoded_image_sha256: frame.encoded_image_sha256,
+                    timed_input,
+                    scheduled_at: Some(frame.scheduled_at),
+                    source_arrived_at: Some(frame.source_arrived_at),
+                },
+                results.len() + 1,
+            )?;
+            if let Some(latency) = result.source_to_inference_start_ms {
+                source_to_inference_start_samples_ms.push(latency);
+            }
+            if let Some(latency) = result.source_to_inference_complete_ms {
+                source_to_inference_complete_samples_ms.push(latency);
+            }
+            results.push(result);
+            batch_export_ms += export_ms;
+        }
+        Ok(())
+    })();
+    if processing_result.is_err() {
+        mailbox.cancel();
+    }
+    let producer_result = producer
+        .join()
+        .map_err(|_| anyhow::anyhow!("paced replay source thread panicked"))?;
+    processing_result?;
+    producer_result.map_err(anyhow::Error::msg)?;
+
+    let total_recorded_image_ms = elapsed_ms(replay_started);
+    let state = mailbox.snapshot()?;
+    let observed_source_fps = match (state.first_source_arrival, state.last_source_arrival) {
+        (Some(first), Some(last)) if state.decoded_frame_count > 1 && last > first => {
+            Some((state.decoded_frame_count - 1) as f64 / last.duration_since(first).as_secs_f64())
+        }
+        _ => None,
+    };
+    let processed_frame_fps = if total_recorded_image_ms > 0.0 {
+        results.len() as f64 / (total_recorded_image_ms / 1000.0)
+    } else {
+        0.0
+    };
+    let report = PacedReplayReport {
+        requested_source_fps: requested_fps,
+        scheduled_frame_count: image_paths.len(),
+        decoded_frame_count: state.decoded_frame_count,
+        processed_frame_count: results.len(),
+        replaced_pending_frame_count: state.replaced_pending_frame_count,
+        source_schedule_deadline_misses: state.source_schedule_deadline_misses,
+        mean_source_schedule_lateness_ms: if state.decoded_frame_count > 0 {
+            state.total_source_schedule_lateness_ms / state.decoded_frame_count as f64
+        } else {
+            0.0
+        },
+        maximum_source_schedule_lateness_ms: state.maximum_source_schedule_lateness_ms,
+        observed_source_fps,
+        processed_frame_fps,
+        source_to_inference_start_ms: percentile_summary(source_to_inference_start_samples_ms),
+        source_to_inference_complete_ms: percentile_summary(
+            source_to_inference_complete_samples_ms,
+        ),
+    };
+    Ok((
+        results,
+        batch_export_ms,
+        Some(report),
+        total_recorded_image_ms,
+    ))
+}
+
+fn produce_paced_frames(
+    mailbox: &PacedReplayMailbox,
+    image_paths: &[PathBuf],
+    image_hashes: &[String],
+    replay_started: Instant,
+    frame_period: Duration,
+) -> Result<()> {
+    for (source_index, (path, image_hash)) in image_paths.iter().zip(image_hashes).enumerate() {
+        let frame_index = u32::try_from(source_index)
+            .context("paced replay supports at most u32::MAX input frame indexes")?;
+        let schedule_offset = frame_period
+            .checked_mul(frame_index)
+            .context("paced replay schedule exceeds the monotonic clock range")?;
+        let scheduled_at = replay_started
+            .checked_add(schedule_offset)
+            .context("paced replay schedule exceeds the monotonic clock range")?;
+        if !mailbox.wait_until(scheduled_at)? {
+            break;
+        }
+        let (image, decode_ms) = load_rgb_image(path)?;
+        let source_arrived_at = Instant::now();
+        mailbox.offer(
+            DecodedReplayFrame {
+                source_index,
+                path: path.clone(),
+                encoded_image_sha256: image_hash.clone(),
+                image,
+                decode_ms,
+                scheduled_at,
+                source_arrived_at,
+            },
+            frame_period,
+        )?;
+    }
+    Ok(())
+}
+
+impl PacedReplayMailbox {
+    fn wait_until(&self, target: Instant) -> Result<bool> {
+        let (lock, changed) = &*self.shared;
+        let mut state = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+        loop {
+            if state.cancelled {
+                return Ok(false);
+            }
+            let remaining = target.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(true);
+            }
+            let (new_state, _) = changed
+                .wait_timeout(state, remaining)
+                .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+            state = new_state;
+        }
+    }
+
+    fn offer(&self, frame: DecodedReplayFrame, frame_period: Duration) -> Result<()> {
+        let (lock, changed) = &*self.shared;
+        let mut state = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+        if state.cancelled {
+            return Ok(());
+        }
+        let lateness = frame
+            .source_arrived_at
+            .saturating_duration_since(frame.scheduled_at);
+        let lateness_ms = lateness.as_secs_f64() * 1000.0;
+        state.decoded_frame_count += 1;
+        state.total_source_schedule_lateness_ms += lateness_ms;
+        state.maximum_source_schedule_lateness_ms =
+            state.maximum_source_schedule_lateness_ms.max(lateness_ms);
+        if lateness > frame_period {
+            state.source_schedule_deadline_misses += 1;
+        }
+        state
+            .first_source_arrival
+            .get_or_insert(frame.source_arrived_at);
+        state.last_source_arrival = Some(frame.source_arrived_at);
+        if state.latest.replace(frame).is_some() {
+            state.replaced_pending_frame_count += 1;
+        }
+        changed.notify_one();
+        Ok(())
+    }
+
+    fn take_latest(&self) -> Result<Option<DecodedReplayFrame>> {
+        let (lock, changed) = &*self.shared;
+        let mut state = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+        loop {
+            if let Some(frame) = state.latest.take() {
+                return Ok(Some(frame));
+            }
+            if state.closed {
+                if let Some(error) = &state.producer_error {
+                    bail!("paced replay source failed: {error}");
+                }
+                return Ok(None);
+            }
+            state = changed
+                .wait(state)
+                .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+        }
+    }
+
+    fn finish(&self, producer_error: Option<String>) {
+        let (lock, changed) = &*self.shared;
+        if let Ok(mut state) = lock.lock() {
+            state.producer_error = producer_error;
+            state.closed = true;
+            changed.notify_all();
+        }
+    }
+
+    fn cancel(&self) {
+        let (lock, changed) = &*self.shared;
+        if let Ok(mut state) = lock.lock() {
+            state.cancelled = true;
+            changed.notify_all();
+        }
+    }
+
+    fn snapshot(&self) -> Result<PacedMailboxStateSnapshot> {
+        let (lock, _) = &*self.shared;
+        let state = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
+        Ok(PacedMailboxStateSnapshot {
+            decoded_frame_count: state.decoded_frame_count,
+            replaced_pending_frame_count: state.replaced_pending_frame_count,
+            source_schedule_deadline_misses: state.source_schedule_deadline_misses,
+            total_source_schedule_lateness_ms: state.total_source_schedule_lateness_ms,
+            maximum_source_schedule_lateness_ms: state.maximum_source_schedule_lateness_ms,
+            first_source_arrival: state.first_source_arrival,
+            last_source_arrival: state.last_source_arrival,
+        })
+    }
+}
+
+struct PacedMailboxStateSnapshot {
+    decoded_frame_count: usize,
+    replaced_pending_frame_count: usize,
+    source_schedule_deadline_misses: usize,
+    total_source_schedule_lateness_ms: f64,
+    maximum_source_schedule_lateness_ms: f64,
+    first_source_arrival: Option<Instant>,
+    last_source_arrival: Option<Instant>,
+}
+
+fn percentile_summary(mut samples_ms: Vec<f64>) -> LatencyPercentiles {
+    samples_ms.sort_by(f64::total_cmp);
+    let percentile = |fraction: f64| {
+        if samples_ms.is_empty() {
+            None
+        } else {
+            let rank = (fraction * samples_ms.len() as f64).ceil() as usize;
+            Some(samples_ms[rank.saturating_sub(1).min(samples_ms.len() - 1)])
+        }
+    };
+    LatencyPercentiles {
+        sample_count: samples_ms.len(),
+        p50_ms: percentile(0.50),
+        p95_ms: percentile(0.95),
+        p99_ms: percentile(0.99),
+    }
+}
+
+fn replay_frame_period(requested_fps: f64) -> Result<Duration> {
+    ensure!(
+        requested_fps.is_finite() && requested_fps > 0.0,
+        "paced replay rate must be finite and positive"
+    );
+    let period = Duration::try_from_secs_f64(1.0 / requested_fps)
+        .context("paced replay rate cannot be represented as a frame period")?;
+    ensure!(
+        !period.is_zero(),
+        "paced replay rate exceeds monotonic clock resolution"
+    );
+    Ok(period)
+}
+
+fn validate_options(options: &AuditOptions) -> Result<()> {
+    ensure!(
+        options.onnx_path.is_file(),
+        "ONNX model does not exist: {}",
+        options.onnx_path.display()
+    );
+    ensure!(
+        options.source_checkpoint_path.is_file(),
+        "source checkpoint does not exist: {}",
+        options.source_checkpoint_path.display()
+    );
+    validate_inference_parameters(
+        options.image_size,
+        options.confidence,
+        options.iou,
+        options.max_detections,
+        options.intra_op_threads,
+    )?;
+    if let Some(replay_rate_fps) = options.replay_rate_fps {
+        replay_frame_period(replay_rate_fps)?;
+    }
+    if let Some(batch_output) = &options.detection_batch_output {
+        validate_batch_identifier(&batch_output.engine_instance_id, "engine instance ID")?;
+        validate_batch_identifier(&batch_output.source_session_id, "source session ID")?;
+        ensure!(
+            options.max_detections <= u32::MAX as usize,
+            "maximum detections exceeds the batch contract limit"
+        );
+        match &batch_output.destination {
+            BatchOutputDestination::JsonlFile { path } => ensure!(
+                !path.exists(),
+                "detection batch output already exists: {}",
+                path.display()
+            ),
+            BatchOutputDestination::LoopbackTcp {
+                address,
+                maximum_message_bytes,
+                connect_timeout,
+                write_timeout,
+            } => {
+                ensure!(
+                    address.ip().is_loopback(),
+                    "batch TCP address must be loopback"
+                );
+                ensure!(
+                    *maximum_message_bytes > 0 && *maximum_message_bytes <= u32::MAX as usize,
+                    "maximum framed message size must fit a non-zero u32"
+                );
+                ensure!(
+                    !connect_timeout.is_zero() && !write_timeout.is_zero(),
+                    "batch TCP connect and write timeouts must be positive"
+                );
+            }
+        }
+    }
+    if let Some(calibration) = &options.calibration {
+        ensure!(
+            options.detection_batch_output.is_some(),
+            "calibration audit requires detection-batch output so raw results are reproducible"
+        );
+        ensure!(
+            calibration.bundle_path.is_file(),
+            "calibration bundle does not exist: {}",
+            calibration.bundle_path.display()
+        );
+        validate_batch_identifier(
+            &calibration.applied_camera_profile_id,
+            "applied camera profile ID",
+        )?;
+        ensure!(
+            calibration.applied_calibration_revision <= MAX_SAFE_JSON_INTEGER
+                && calibration.applied_rectification_revision <= MAX_SAFE_JSON_INTEGER,
+            "applied calibration revisions must be safe JSON integers"
+        );
+        ensure!(
+            calibration.bundle_sha256.len() == 64
+                && calibration
+                    .bundle_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit()),
+            "calibration bundle SHA-256 must be 64 hexadecimal characters"
+        );
+    }
+    if let Some(scene_output) = &options.scene_snapshot_output {
+        ensure!(
+            options.detection_batch_output.is_some(),
+            "scene snapshot output requires detection-batch output to preserve raw observations"
+        );
+        ensure!(
+            options.replay_rate_fps.is_some(),
+            "scene snapshot output requires paced replay so source timestamps are available"
+        );
+        match &scene_output.destination {
+            SceneSnapshotOutputDestination::JsonlFile { path } => {
+                ensure!(
+                    !path.exists(),
+                    "scene snapshot output already exists: {}",
+                    path.display()
+                );
+                if let Some(BatchOutputOptions {
+                    destination: BatchOutputDestination::JsonlFile { path: batch_path },
+                    ..
+                }) = &options.detection_batch_output
+                {
+                    ensure!(
+                        batch_path != path,
+                        "detection batch and scene snapshot output must use different paths"
+                    );
+                }
+            }
+            SceneSnapshotOutputDestination::LoopbackTcp {
+                address,
+                maximum_message_bytes,
+                connect_timeout,
+                write_timeout,
+                reconnect_initial_delay,
+                reconnect_maximum_delay,
+            } => {
+                ensure!(
+                    address.ip().is_loopback(),
+                    "scene TCP address must be loopback"
+                );
+                ensure!(
+                    *maximum_message_bytes > 0 && *maximum_message_bytes <= u32::MAX as usize,
+                    "scene maximum framed message size must fit a non-zero u32"
+                );
+                ensure!(
+                    !connect_timeout.is_zero() && !write_timeout.is_zero(),
+                    "scene TCP connect and write timeouts must be positive"
+                );
+                ensure!(
+                    !reconnect_initial_delay.is_zero()
+                        && reconnect_initial_delay <= reconnect_maximum_delay,
+                    "scene TCP reconnect delays must be positive and initial cannot exceed maximum"
+                );
+            }
+        }
+        if let Some(calibration) = &options.calibration {
+            validate_scene_calibration_context(&scene_output.tracking, calibration)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_frame_inference_options(options: &FrameInferenceOptions) -> Result<()> {
+    ensure!(
+        options.onnx_path.is_file(),
+        "ONNX model does not exist: {}",
+        options.onnx_path.display()
+    );
+    ensure!(
+        options.source_checkpoint_path.is_file(),
+        "source checkpoint does not exist: {}",
+        options.source_checkpoint_path.display()
+    );
+    validate_inference_parameters(
+        options.image_size,
+        options.confidence,
+        options.iou,
+        options.max_detections,
+        options.intra_op_threads,
+    )
+}
+
+fn validate_inference_parameters(
+    image_size: u32,
+    confidence: f32,
+    iou: f32,
+    max_detections: usize,
+    intra_op_threads: Option<usize>,
+) -> Result<()> {
+    ensure!(
+        image_size > 0 && image_size.is_multiple_of(32),
+        "image size must be a positive multiple of 32"
+    );
+    ensure!(
+        confidence.is_finite() && (0.0..=1.0).contains(&confidence),
+        "confidence must be finite and between 0 and 1"
+    );
+    ensure!(
+        iou.is_finite() && (0.0..=1.0).contains(&iou),
+        "IoU must be finite and between 0 and 1"
+    );
+    ensure!(max_detections > 0, "max detections must be positive");
+    ensure!(
+        max_detections <= u32::MAX as usize,
+        "maximum detections exceeds the detection-batch contract limit"
+    );
+    if let Some(threads) = intra_op_threads {
+        ensure!(threads > 0, "intra-op thread count must be positive");
+    }
+    Ok(())
+}
+
+fn validate_scene_calibration_context(
+    tracking: &TrackingConfigV1,
+    calibration: &CalibrationAuditOptions,
+) -> Result<()> {
+    ensure!(
+        tracking.camera_profile_id() == calibration.applied_camera_profile_id(),
+        "scene tracking camera profile must match the applied calibration profile"
+    );
+    ensure!(
+        tracking.rectification_revision() == calibration.applied_rectification_revision(),
+        "scene tracking rectification revision must match the applied rectification revision"
+    );
+    Ok(())
+}
+
+fn validate_batch_identifier(value: &str, label: &str) -> Result<()> {
+    ensure!(!value.is_empty(), "{label} must not be empty");
+    ensure!(
+        value.chars().count() <= MAX_IDENTIFIER_CHARACTERS
+            && !value.chars().any(char::is_control),
+        "{label} must be at most {MAX_IDENTIFIER_CHARACTERS} characters and contain no control characters"
+    );
+    Ok(())
+}
+
+fn open_detection_batch_sink(
+    options: &BatchOutputOptions,
+) -> Result<(DetectionBatchSink, Option<f64>)> {
+    match &options.destination {
+        BatchOutputDestination::JsonlFile { path } => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!(
+                            "failed to create detection batch directory {}",
+                            parent.display()
+                        )
+                    })?;
+                }
+            }
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .with_context(|| {
+                    format!(
+                        "failed to create detection batch output {} without overwriting",
+                        path.display()
+                    )
+                })?;
+            Ok((DetectionBatchSink::Jsonl(BufWriter::new(file)), None))
+        }
+        BatchOutputDestination::LoopbackTcp {
+            address,
+            maximum_message_bytes,
+            connect_timeout,
+            write_timeout,
+        } => {
+            ensure!(
+                address.ip().is_loopback(),
+                "batch TCP address must be loopback"
+            );
+            let connect_start = Instant::now();
+            let stream = TcpStream::connect_timeout(address, *connect_timeout)
+                .with_context(|| format!("failed to connect to batch receiver at {address}"))?;
+            stream
+                .set_write_timeout(Some(*write_timeout))
+                .context("failed to configure batch receiver write timeout")?;
+            stream
+                .set_nodelay(true)
+                .context("failed to enable low-latency batch TCP writes")?;
+            Ok((
+                DetectionBatchSink::LoopbackTcp {
+                    stream,
+                    maximum_message_bytes: *maximum_message_bytes,
+                },
+                Some(elapsed_ms(connect_start)),
+            ))
+        }
+    }
+}
+
+fn open_scene_snapshot_output(
+    options: &SceneSnapshotOutputOptions,
+) -> Result<SceneSnapshotOutputRuntime> {
+    let (
+        destination,
+        format,
+        sink,
+        connect_ms,
+        maximum_message_bytes,
+        connect_timeout_ms,
+        write_timeout_ms,
+    ) = match &options.destination {
+        SceneSnapshotOutputDestination::JsonlFile { path } => {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!(
+                            "failed to create scene snapshot directory {}",
+                            parent.display()
+                        )
+                    })?;
+                }
+            }
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .with_context(|| {
+                    format!(
+                        "failed to create scene snapshot output {} without overwriting",
+                        path.display()
+                    )
+                })?;
+            (
+                path.display().to_string(),
+                "newline_delimited_scene_snapshot_v1",
+                SceneSnapshotSink::Jsonl(BufWriter::new(file)),
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+        SceneSnapshotOutputDestination::LoopbackTcp {
+            address,
+            maximum_message_bytes,
+            connect_timeout,
+            write_timeout,
+            reconnect_initial_delay,
+            reconnect_maximum_delay,
+        } => {
+            ensure!(
+                address.ip().is_loopback(),
+                "scene TCP address must be loopback"
+            );
+            let writer = LatestSceneWriter::start(SceneTransportConfig {
+                address: *address,
+                maximum_message_bytes: *maximum_message_bytes,
+                connect_timeout: *connect_timeout,
+                write_timeout: *write_timeout,
+                reconnect_initial_delay: *reconnect_initial_delay,
+                reconnect_maximum_delay: *reconnect_maximum_delay,
+            })?;
+            (
+                format!("tcp://{address}"),
+                "length_framed_json_scene_snapshot_v1",
+                SceneSnapshotSink::LoopbackTcp {
+                    writer,
+                    maximum_message_bytes: *maximum_message_bytes,
+                },
+                None,
+                Some(*maximum_message_bytes),
+                Some(connect_timeout.as_secs_f64() * 1000.0),
+                Some(write_timeout.as_secs_f64() * 1000.0),
+            )
+        }
+    };
+    Ok(SceneSnapshotOutputRuntime {
+        destination,
+        format,
+        connect_ms,
+        maximum_message_bytes,
+        connect_timeout_ms,
+        write_timeout_ms,
+        tracker: SceneTrackerV1::new(options.tracking.clone()),
+        sink,
+        snapshot_count: 0,
+        total_tracking_ms: 0.0,
+        total_encode_enqueue_ms: 0.0,
+        transport_stats: None,
+    })
+}
+
+#[cfg(test)]
+fn write_scene_snapshot_line<W: Write>(writer: &mut W, snapshot: &SceneSnapshotV1) -> Result<()> {
+    let json = encode_scene_snapshot_v1(snapshot).context("scene snapshot failed validation")?;
+    write_scene_snapshot_jsonl(writer, &json)
+}
+
+fn write_scene_snapshot_jsonl<W: Write>(writer: &mut W, json: &[u8]) -> Result<()> {
+    writer
+        .write_all(json)
+        .context("failed to write scene snapshot")?;
+    writer
+        .write_all(b"\n")
+        .context("failed to write scene snapshot delimiter")?;
+    writer.flush().context("failed to flush scene snapshot")?;
+    Ok(())
+}
+
+fn write_scene_snapshot(sink: &mut SceneSnapshotSink, snapshot: &SceneSnapshotV1) -> Result<()> {
+    let json = encode_scene_snapshot_v1(snapshot).context("scene snapshot failed validation")?;
+    match sink {
+        SceneSnapshotSink::Jsonl(writer) => write_scene_snapshot_jsonl(writer, &json),
+        SceneSnapshotSink::LoopbackTcp {
+            writer,
+            maximum_message_bytes,
+        } => {
+            ensure!(
+                json.len() <= *maximum_message_bytes,
+                "scene snapshot exceeds configured maximum message size"
+            );
+            writer.submit(
+                snapshot.transport_sequence,
+                &snapshot.engine_instance_id,
+                &snapshot.source.session_id,
+                json,
+            )
+        }
+    }
+}
+
+fn summarize_scene_snapshot_output(
+    options: &SceneSnapshotOutputOptions,
+    runtime: &SceneSnapshotOutputRuntime,
+) -> SceneSnapshotOutputReport {
+    let config = &options.tracking;
+    let sample_count = runtime.snapshot_count.max(1) as f64;
+    SceneSnapshotOutputReport {
+        destination: runtime.destination.clone(),
+        format: runtime.format,
+        mode: if runtime.maximum_message_bytes.is_some() {
+            "bounded_latest_only_asynchronous_loopback_export_during_paced_replay"
+        } else {
+            "synchronous_file_export_during_paced_replay"
+        },
+        snapshot_count: runtime.snapshot_count,
+        connect_ms: runtime.connect_ms,
+        maximum_message_bytes: runtime.maximum_message_bytes,
+        connect_timeout_ms: runtime.connect_timeout_ms,
+        write_timeout_ms: runtime.write_timeout_ms,
+        transport: runtime.transport_stats.clone(),
+        ball_class_id: config.ball_class_id(),
+        cue_class_id: config.cue_class_id(),
+        camera_profile_id: config.camera_profile_id().to_owned(),
+        association_gate_px: config.association_gate_px(),
+        association_prediction_horizon_ms: config.association_prediction_horizon().as_secs_f64()
+            * 1000.0,
+        lost_after_ms: config.lost_after().as_secs_f64() * 1000.0,
+        maximum_track_age_ms: config.maximum_track_age().as_secs_f64() * 1000.0,
+        maximum_active_tracks: config.maximum_active_tracks(),
+        recent_observation_capacity: config.recent_observation_capacity(),
+        configuration_revision: config.configuration_revision(),
+        rectification_revision: config.rectification_revision(),
+        mean_tracking_ms: runtime.total_tracking_ms / sample_count,
+        mean_encode_enqueue_ms: runtime.total_encode_enqueue_ms / sample_count,
+        source_time: "synthetic_monotonic_frame_arrival",
+    }
+}
+
+fn batch_destination_label(destination: &BatchOutputDestination) -> String {
+    match destination {
+        BatchOutputDestination::JsonlFile { path } => path.display().to_string(),
+        BatchOutputDestination::LoopbackTcp { address, .. } => format!("tcp://{address}"),
+    }
+}
+
+fn batch_output_format(destination: &BatchOutputDestination) -> &'static str {
+    match destination {
+        BatchOutputDestination::JsonlFile { .. } => "newline_delimited_json",
+        BatchOutputDestination::LoopbackTcp { .. } => "length_framed_json",
+    }
+}
+
+fn batch_output_mode(destination: &BatchOutputDestination, is_paced: bool) -> &'static str {
+    match (destination, is_paced) {
+        (BatchOutputDestination::JsonlFile { .. }, false) => {
+            "synchronous_export_during_unpaced_static_replay"
+        }
+        (BatchOutputDestination::LoopbackTcp { .. }, false) => {
+            "synchronous_loopback_delivery_during_unpaced_static_replay"
+        }
+        (BatchOutputDestination::JsonlFile { .. }, true) => {
+            "synchronous_export_during_paced_latest_frame_replay"
+        }
+        (BatchOutputDestination::LoopbackTcp { .. }, true) => {
+            "synchronous_loopback_delivery_during_paced_latest_frame_replay"
+        }
+    }
+}
+
+fn batch_maximum_message_bytes(destination: &BatchOutputDestination) -> Option<usize> {
+    match destination {
+        BatchOutputDestination::JsonlFile { .. } => None,
+        BatchOutputDestination::LoopbackTcp {
+            maximum_message_bytes,
+            ..
+        } => Some(*maximum_message_bytes),
+    }
+}
+
+fn batch_connect_timeout_ms(destination: &BatchOutputDestination) -> Option<f64> {
+    match destination {
+        BatchOutputDestination::JsonlFile { .. } => None,
+        BatchOutputDestination::LoopbackTcp {
+            connect_timeout, ..
+        } => Some(connect_timeout.as_secs_f64() * 1000.0),
+    }
+}
+
+fn batch_write_timeout_ms(destination: &BatchOutputDestination) -> Option<f64> {
+    match destination {
+        BatchOutputDestination::JsonlFile { .. } => None,
+        BatchOutputDestination::LoopbackTcp { write_timeout, .. } => {
+            Some(write_timeout.as_secs_f64() * 1000.0)
+        }
+    }
+}
+
+fn write_detection_batch(sink: &mut DetectionBatchSink, batch: &DetectionBatchV1) -> Result<()> {
+    match sink {
+        DetectionBatchSink::Jsonl(writer) => write_detection_batch_line(writer, batch),
+        DetectionBatchSink::LoopbackTcp {
+            stream,
+            maximum_message_bytes,
+        } => {
+            let json =
+                encode_detection_batch_v1(batch).context("detection batch failed validation")?;
+            write_framed_message(stream, &json, *maximum_message_bytes)
+                .context("failed to send length-framed detection batch")?;
+            Ok(())
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_detection_batch(
+    frame_index: usize,
+    batch_sequence: usize,
+    source_width_px: u32,
+    source_height_px: u32,
+    detections: &[Detection],
+    class_names: &[String],
+    artifact_sha256: &str,
+    source_checkpoint_sha256: &str,
+    options: &AuditOptions,
+    batch_options: &BatchOutputOptions,
+    clock_origin: Instant,
+    inference_started: Instant,
+    inference_completed: Instant,
+    source_arrived_at: Option<Instant>,
+) -> Result<DetectionBatchV1> {
+    let one_based_frame_index = frame_index
+        .checked_add(1)
+        .context("source frame index overflowed the platform index range")?;
+    let source_frame_id = format!("frame-{one_based_frame_index:06}");
+    let batch_sequence = u64::try_from(batch_sequence)
+        .context("batch sequence exceeds the supported integer range")?;
+    let classes = class_names
+        .iter()
+        .enumerate()
+        .map(|(class_id, class_name)| {
+            Ok(ModelClass {
+                class_id: u32::try_from(class_id)
+                    .context("model class ID exceeds the batch contract range")?,
+                class_name: class_name.clone(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let batch_detections = detections
+        .iter()
+        .enumerate()
+        .map(|(detection_index, detection)| {
+            let [left, top, right, bottom] = detection.bbox_xyxy_px;
+            // The contract serializes pixel geometry as f64 and requires the
+            // center to be its exact midpoint within a small tolerance. The
+            // detector's f32 midpoint can round differently at 4K scale, so
+            // derive the published center from the same serialized box.
+            let bbox_image_px = BoundingBox {
+                left: left as f64,
+                top: top as f64,
+                right: right as f64,
+                bottom: bottom as f64,
+            };
+            Ok(BatchDetection {
+                detection_index: u64::try_from(detection_index)
+                    .context("detection index exceeds the batch contract range")?,
+                class_id: u32::try_from(detection.class_id)
+                    .context("detection class ID exceeds the batch contract range")?,
+                class_name: detection.class_name.clone(),
+                confidence: detection.confidence as f64,
+                bbox_image_px,
+                center_image_px: Point {
+                    x: (bbox_image_px.left + bbox_image_px.right) / 2.0,
+                    y: (bbox_image_px.top + bbox_image_px.bottom) / 2.0,
+                },
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let timestamp = |instant, stage| {
+        batch_timestamp(
+            clock_origin,
+            instant,
+            &batch_options.engine_instance_id,
+            stage,
+        )
+    };
+
+    let batch = DetectionBatchV1 {
+        schema_version: 1,
+        engine_instance_id: batch_options.engine_instance_id.clone(),
+        batch_sequence,
+        source: BatchSourceFrame {
+            session_id: batch_options.source_session_id.clone(),
+            frame_id: source_frame_id,
+            // A paced replay's timestamp identifies when a decoded input was
+            // made available to the inference worker. It is synthetic frame
+            // arrival time, never a camera exposure timestamp.
+            timestamp: source_arrived_at
+                .map(|at| timestamp(at, TimestampStage::FrameArrival))
+                .transpose()?,
+            width_px: source_width_px,
+            height_px: source_height_px,
+        },
+        image_space: options.source_image_space,
+        model: ModelIdentity {
+            artifact_sha256: artifact_sha256.to_owned(),
+            source_checkpoint_sha256: Some(source_checkpoint_sha256.to_owned()),
+            classes,
+        },
+        settings: InferenceSettings {
+            input_width_px: options.image_size,
+            input_height_px: options.image_size,
+            confidence_threshold: options.confidence as f64,
+            iou_threshold: options.iou as f64,
+            max_detections: u32::try_from(options.max_detections)
+                .context("maximum detections exceeds the batch contract range")?,
+        },
+        inference_started_at: timestamp(inference_started, TimestampStage::InferenceStarted)?,
+        inference_completed_at: timestamp(inference_completed, TimestampStage::InferenceComplete)?,
+        outcome: BatchOutcome::Success,
+        reason: None,
+        detections: batch_detections,
+        // Capture after all batch fields have been assembled and immediately
+        // before the caller encodes and writes this publication attempt.
+        published_at: timestamp(Instant::now(), TimestampStage::BatchPublication)?,
+    };
+    Ok(batch)
+}
+
+fn batch_timestamp(
+    origin: Instant,
+    at: Instant,
+    domain_id: &str,
+    stage: TimestampStage,
+) -> Result<BatchTimestamp> {
+    let elapsed = at
+        .checked_duration_since(origin)
+        .context("batch timestamp precedes the replay clock origin")?;
+    let ticks = u64::try_from(elapsed.as_nanos())
+        .context("process-local nanosecond clock exceeded the batch contract range")?;
+    Ok(BatchTimestamp {
+        ticks: ticks.to_string(),
+        unit: TimeUnit::Nanoseconds,
+        clock: ClockKind::Monotonic,
+        domain_id: domain_id.to_owned(),
+        stage,
+    })
+}
+
+fn scene_publication_timestamp(
+    origin: Instant,
+    engine_instance_id: &str,
+) -> Result<crate::Timestamp> {
+    let elapsed = Instant::now()
+        .checked_duration_since(origin)
+        .context("scene publication clock preceded the replay clock origin")?;
+    let ticks = u64::try_from(elapsed.as_nanos())
+        .context("process-local nanosecond clock exceeded the scene contract range")?;
+    Ok(crate::Timestamp {
+        ticks: ticks.to_string(),
+        unit: crate::TimeUnit::Nanoseconds,
+        clock: crate::ClockKind::Monotonic,
+        domain_id: engine_instance_id.to_owned(),
+        stage: crate::TimestampStage::SnapshotPublication,
+    })
+}
+
+fn write_detection_batch_line<W: Write>(writer: &mut W, batch: &DetectionBatchV1) -> Result<()> {
+    let json = encode_detection_batch_v1(batch).context("detection batch failed validation")?;
+    writer
+        .write_all(&json)
+        .context("failed to write detection batch")?;
+    writer
+        .write_all(b"\n")
+        .context("failed to write detection batch delimiter")?;
+    writer.flush().context("failed to flush detection batch")?;
+    Ok(())
+}
+
+fn collect_images(path: &Path) -> Result<Vec<PathBuf>> {
+    ensure!(
+        path.exists(),
+        "input path does not exist: {}",
+        path.display()
+    );
+    let mut images = Vec::new();
+    if path.is_file() {
+        ensure!(
+            is_supported_image(path),
+            "input file must be a .png, .jpg, or .jpeg image: {}",
+            path.display()
+        );
+        images.push(path.to_path_buf());
+    } else {
+        collect_directory_images(path, &mut images)?;
+        images.sort();
+    }
+    ensure!(
+        !images.is_empty(),
+        "no PNG/JPEG images found under {}",
+        path.display()
+    );
+    Ok(images)
+}
+
+fn collect_directory_images(directory: &Path, images: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(directory)
+        .with_context(|| format!("failed to read {}", directory.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_directory_images(&path, images)?;
+        } else if is_supported_image(&path) {
+            images.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn is_supported_image(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            SUPPORTED_IMAGE_EXTENSIONS
+                .iter()
+                .any(|supported| extension.eq_ignore_ascii_case(supported))
+                || extension.eq_ignore_ascii_case("jpeg")
+        })
+        .unwrap_or(false)
+}
+
+fn load_and_verify_manifest(
+    model_path: &Path,
+    source_checkpoint_path: &Path,
+) -> Result<LoadedModelContract> {
+    let manifest_path = PathBuf::from(format!("{}.manifest.json", model_path.display()));
+    ensure!(
+        manifest_path.is_file(),
+        "export manifest is required to verify checkpoint lineage and class names: {}",
+        manifest_path.display()
+    );
+    let manifest: ExportManifest = serde_json::from_slice(&fs::read(&manifest_path)?)
+        .with_context(|| format!("invalid export manifest: {}", manifest_path.display()))?;
+    let actual_model_hash = sha256_file(model_path)?;
+    ensure!(
+        manifest.exported_model.sha256 == actual_model_hash,
+        "exported ONNX hash does not match its manifest"
+    );
+    let actual_source_hash = sha256_file(source_checkpoint_path)?;
+    ensure!(
+        manifest.source_model.sha256 == actual_source_hash,
+        "source checkpoint hash does not match the export manifest"
+    );
+    ensure!(
+        Path::new(&manifest.exported_model.path).file_name() == model_path.file_name(),
+        "manifest artifact filename does not match the ONNX file"
+    );
+    ensure!(
+        manifest.model.class_count == EXPECTED_CLASS_COUNT,
+        "this prototype only supports the current two-class checkpoint"
+    );
+    ensure!(
+        manifest.model.class_names.len() == EXPECTED_CLASS_COUNT,
+        "manifest class map must contain exactly two entries"
+    );
+    let mut class_entries = manifest.model.class_names;
+    class_entries.sort_by_key(|entry| entry.id);
+    ensure!(
+        class_entries
+            .iter()
+            .enumerate()
+            .all(|(expected, entry)| entry.id == expected),
+        "manifest class IDs must be contiguous from zero"
+    );
+    let class_names: Vec<String> = class_entries.into_iter().map(|entry| entry.name).collect();
+    ensure!(
+        class_names.iter().all(|name| !name.trim().is_empty()),
+        "manifest class names cannot be empty"
+    );
+
+    Ok(LoadedModelContract {
+        manifest_path,
+        artifact_sha256: actual_model_hash,
+        source_checkpoint_sha256: manifest.source_model.sha256,
+        class_names,
+    })
+}
+
+fn create_session(
+    environment: &ort::environment::Environment,
+    options: &AuditOptions,
+    profiling_path: Option<&Path>,
+) -> Result<InferenceSession> {
+    create_session_for_model(
+        environment,
+        &options.onnx_path,
+        options.provider,
+        options.intra_op_threads,
+        profiling_path,
+    )
+}
+
+fn create_session_for_model(
+    environment: &Environment,
+    onnx_path: &Path,
+    provider: ProviderSelection,
+    intra_op_threads: Option<usize>,
+    profiling_path: Option<&Path>,
+) -> Result<InferenceSession> {
+    if provider == ProviderSelection::Openvino {
+        ensure!(
+            profiling_path.is_none(),
+            "ONNX Runtime profiling cannot be requested for the native OpenVINO backend"
+        );
+        return OpenVinoSession::new(onnx_path, intra_op_threads).map(InferenceSession::Openvino);
+    }
+
+    let builder = SessionBuilder::new(environment)?;
+    let mut builder = match provider {
+        ProviderSelection::Cpu => {
+            // `ort` defaults to automatic device selection. On macOS that can
+            // register CoreML even when CPU is the only manually requested EP,
+            // which makes a purported CPU baseline a mixed-provider run.
+            builder
+                .with_auto_device(AutoDevicePolicy::PreferCPU)
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
+                .with_execution_providers([CPU::default().build()])
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
+        }
+        ProviderSelection::Auto => builder
+            .with_auto_device(AutoDevicePolicy::MaxEfficiency)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?,
+        ProviderSelection::Openvino => unreachable!("native OpenVINO returned above"),
+    };
+    if let Some(threads) = intra_op_threads {
+        builder = builder
+            .with_intra_threads(threads)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    }
+    if let Some(path) = profiling_path {
+        builder = builder
+            .with_profiling(path)
+            .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+    }
+    builder
+        .commit_from_file(onnx_path)
+        .with_context(|| format!("failed to open ONNX model {}", onnx_path.display()))
+        .map(InferenceSession::Ort)
+}
+
+/// A single-thread-owned inference backend. OpenVINO is called directly through
+/// its C API bindings; it is not registered as an ONNX Runtime execution provider.
+enum InferenceSession {
+    Ort(Session),
+    Openvino(OpenVinoSession),
+}
+
+/// Reuses an OpenVINO infer request and its input tensor across frames. The
+/// binding's safe tensor API copies prepared input into owned storage, avoiding
+/// unsound borrowed buffers across the native boundary.
+struct OpenVinoSession {
+    request: InferRequest,
+    input_tensor: Tensor,
+    input_name: String,
+    output_name: String,
+    input_shape: Vec<i64>,
+    output_shape: Vec<i64>,
+    _compiled_model: openvino::CompiledModel,
+    // Keep Core alive until after the compiled model and infer request are dropped.
+    _core: Core,
+}
+
+impl OpenVinoSession {
+    fn new(onnx_path: &Path, intra_op_threads: Option<usize>) -> Result<Self> {
+        let onnx_path = onnx_path
+            .to_str()
+            .context("OpenVINO requires a UTF-8 ONNX model path")?;
+        let mut core = Core::new().context(
+            "failed to load OpenVINO Runtime; install the matching OpenVINO runtime and set its platform library path",
+        )?;
+        if let Some(threads) = intra_op_threads {
+            let thread_count = threads.to_string();
+            core.set_property(
+                &DeviceType::CPU,
+                &RwPropertyKey::InferenceNumThreads,
+                &thread_count,
+            )
+            .context("failed to configure OpenVINO CPU inference thread count")?;
+        }
+        let model = core
+            .read_model_from_file(onnx_path, "")
+            .with_context(|| format!("OpenVINO could not read ONNX model {onnx_path}"))?;
+        let mut compiled_model = core
+            .compile_model(&model, DeviceType::CPU)
+            .context("OpenVINO could not compile the ONNX model for CPU")?;
+        ensure!(
+            compiled_model.get_input_size()? == 1,
+            "OpenVINO model must have one input"
+        );
+        ensure!(
+            compiled_model.get_output_size()? == 1,
+            "OpenVINO model must have one output"
+        );
+        let input = compiled_model.get_input()?;
+        let output = compiled_model.get_output()?;
+        ensure!(
+            input.get_element_type()? == ElementType::F32,
+            "OpenVINO ONNX input must be float32"
+        );
+        ensure!(
+            output.get_element_type()? == ElementType::F32,
+            "OpenVINO ONNX output must be float32"
+        );
+        let input_name = input.get_name()?;
+        let output_name = output.get_name()?;
+        let input_shape = input.get_shape()?.get_dimensions().to_vec();
+        let output_shape = output.get_shape()?.get_dimensions().to_vec();
+        let request = compiled_model
+            .create_infer_request()
+            .context("failed to create OpenVINO inference request")?;
+        let input_tensor = request
+            .get_input_tensor()
+            .context("failed to create OpenVINO input tensor")?;
+        Ok(Self {
+            request,
+            input_tensor,
+            input_name,
+            output_name,
+            input_shape,
+            output_shape,
+            _compiled_model: compiled_model,
+            _core: core,
+        })
+    }
+}
+
+fn validate_session(
+    session: &InferenceSession,
+    image_size: u32,
+    class_names: &[String],
+) -> Result<(Vec<i64>, Vec<i64>)> {
+    let (input_name, input_shape, output_name, output_shape) = match session {
+        InferenceSession::Ort(session) => {
+            ensure!(
+                session.inputs().len() == 1,
+                "expected one ONNX input, found {}",
+                session.inputs().len()
+            );
+            ensure!(
+                session.outputs().len() == 1,
+                "expected one ONNX output, found {}",
+                session.outputs().len()
+            );
+            let input = &session.inputs()[0];
+            let output = &session.outputs()[0];
+            (
+                input.name().to_owned(),
+                tensor_shape(input.dtype(), "input")?,
+                output.name().to_owned(),
+                tensor_shape(output.dtype(), "output")?,
+            )
+        }
+        InferenceSession::Openvino(session) => (
+            session.input_name.clone(),
+            session.input_shape.clone(),
+            session.output_name.clone(),
+            session.output_shape.clone(),
+        ),
+    };
+    ensure!(
+        input_name == INPUT_NAME,
+        "unexpected ONNX input name: {input_name}"
+    );
+    ensure!(
+        output_name == OUTPUT_NAME,
+        "unexpected ONNX output name: {output_name}"
+    );
+
+    let expected_input = vec![1_i64, 3, image_size as i64, image_size as i64];
+    ensure!(
+        input_shape == expected_input,
+        "unexpected ONNX input shape {input_shape:?}; expected {expected_input:?}"
+    );
+    let expected_channels = (4 + class_names.len()) as i64;
+    let expected_output = vec![
+        1_i64,
+        expected_channels,
+        expected_anchor_count(image_size)? as i64,
+    ];
+    ensure!(
+        output_shape == expected_output,
+        "unexpected ONNX output shape {output_shape:?}; expected {expected_output:?}"
+    );
+    Ok((input_shape, output_shape))
+}
+
+fn tensor_shape(value_type: &ValueType, role: &str) -> Result<Vec<i64>> {
+    match value_type {
+        ValueType::Tensor {
+            ty: TensorElementType::Float32,
+            shape,
+            ..
+        } => Ok(shape.iter().copied().collect()),
+        ValueType::Tensor { ty, .. } => bail!("ONNX {role} tensor must be float32, found {ty:?}"),
+        other => bail!("ONNX {role} must be a tensor, found {other:?}"),
+    }
+}
+
+fn expected_anchor_count(image_size: u32) -> Result<usize> {
+    ensure!(
+        image_size > 0 && image_size.is_multiple_of(32),
+        "image size must be a positive multiple of 32"
+    );
+    let size = image_size as usize;
+    let stride_8 = (size / 8).checked_mul(size / 8);
+    let stride_16 = (size / 16).checked_mul(size / 16);
+    let stride_32 = (size / 32).checked_mul(size / 32);
+    stride_8
+        .and_then(|first| stride_16.and_then(|second| first.checked_add(second)))
+        .and_then(|sum| stride_32.and_then(|third| sum.checked_add(third)))
+        .context("image size overflows YOLO anchor count")
+}
+
+fn profile_provider(
+    environment: &ort::environment::Environment,
+    options: &AuditOptions,
+    class_names: &[String],
+    expected_output_shape: &[i64],
+    sample_path: &Path,
+) -> Result<(ProviderEvidence, f64, f64, PreparedInput)> {
+    if options.provider == ProviderSelection::Openvino {
+        ensure!(
+            options.retained_provider_profile.is_none(),
+            "retained ONNX Runtime provider profiles are unavailable for the native OpenVINO backend"
+        );
+        let init_start = Instant::now();
+        let mut session = create_session(environment, options, None)?;
+        let (_, output_shape) = validate_session(&session, options.image_size, class_names)?;
+        ensure!(
+            output_shape == expected_output_shape,
+            "OpenVINO output signature is unexpected: {output_shape:?}"
+        );
+        let session_init_ms = elapsed_ms(init_start);
+        let sample = load_and_prepare(sample_path, options.image_size)?;
+        let inference_start = Instant::now();
+        let (actual_output_shape, _) = run_session(
+            &mut session,
+            &sample.prepared.values,
+            options.image_size as usize,
+        )?;
+        let inference_ms = elapsed_ms(inference_start);
+        ensure!(
+            actual_output_shape == expected_output_shape,
+            "OpenVINO produced unexpected output shape: {actual_output_shape:?}"
+        );
+        return Ok((
+            ProviderEvidence {
+                observed_providers: vec!["OpenVINO CPU (native)".to_owned()],
+                event_count: 0,
+                node_counts: BTreeMap::new(),
+                retained_profile_path: None,
+            },
+            session_init_ms,
+            inference_ms,
+            sample.prepared,
+        ));
+    }
+
+    let temporary_directory =
+        tempfile::tempdir().context("failed to create ORT profile scratch directory")?;
+    let scratch_profile = temporary_directory.path().join("provider-profile.json");
+    let profile_path = options
+        .retained_provider_profile
+        .as_deref()
+        .unwrap_or(&scratch_profile);
+    if let Some(parent) = options
+        .retained_provider_profile
+        .as_ref()
+        .and_then(|path| path.parent())
+    {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create provider trace directory {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let init_start = Instant::now();
+    let mut session = create_session(environment, options, Some(profile_path))?;
+    let (_, output_shape) = validate_session(&session, options.image_size, class_names)?;
+    ensure!(
+        output_shape == expected_output_shape,
+        "provider probe output signature is unexpected: {output_shape:?}"
+    );
+    let session_init_ms = elapsed_ms(init_start);
+
+    // Validate the fixed ONNX input dimensions before allocating the square
+    // image tensor, so a mismatched size fails cheaply.
+    let sample = load_and_prepare(sample_path, options.image_size)?;
+    let inference_start = Instant::now();
+    let (output_shape, _) = run_session(
+        &mut session,
+        &sample.prepared.values,
+        options.image_size as usize,
+    )?;
+    let inference_ms = elapsed_ms(inference_start);
+    ensure!(
+        output_shape == expected_output_shape,
+        "provider probe produced unexpected output shape: {output_shape:?}"
+    );
+    let InferenceSession::Ort(mut session) = session else {
+        unreachable!("native OpenVINO profiling returned above")
+    };
+    let profile_path = session
+        .end_profiling()
+        .context("failed to finalize ONNX Runtime profile")?;
+    let profile_path = PathBuf::from(profile_path);
+    let profile = fs::read(&profile_path).with_context(|| {
+        format!(
+            "failed to read ONNX Runtime profile {}",
+            profile_path.display()
+        )
+    })?;
+    let (observed_providers, event_count, node_counts) = parse_provider_profile(&profile)?;
+
+    let retained_profile_path = if options.retained_provider_profile.is_some() {
+        Some(profile_path)
+    } else {
+        None
+    };
+    Ok((
+        ProviderEvidence {
+            observed_providers,
+            event_count,
+            node_counts,
+            retained_profile_path,
+        },
+        session_init_ms,
+        inference_ms,
+        sample.prepared,
+    ))
+}
+
+fn parse_provider_profile(profile: &[u8]) -> Result<(Vec<String>, usize, BTreeMap<String, usize>)> {
+    let document: Value =
+        serde_json::from_slice(profile).context("ONNX Runtime profile is not valid JSON")?;
+    let events = document
+        .as_array()
+        .context("ONNX Runtime profile must be a JSON event array")?;
+    let mut providers = BTreeSet::new();
+    let mut nodes_by_provider: BTreeMap<String, HashSet<String>> = BTreeMap::new();
+    let mut event_count = 0;
+    for event in events {
+        let Some(args) = event.get("args").and_then(Value::as_object) else {
+            continue;
+        };
+        let Some(provider) = args.get("provider").and_then(Value::as_str) else {
+            continue;
+        };
+        providers.insert(provider.to_owned());
+        event_count += 1;
+        if let Some(node) = event.get("name").and_then(Value::as_str) {
+            nodes_by_provider
+                .entry(provider.to_owned())
+                .or_default()
+                .insert(node.to_owned());
+        }
+    }
+    let node_counts = nodes_by_provider
+        .into_iter()
+        .map(|(provider, nodes)| (provider, nodes.len()))
+        .collect();
+    Ok((providers.into_iter().collect(), event_count, node_counts))
+}
+
+fn run_session(
+    session: &mut InferenceSession,
+    values: &[f32],
+    image_size: usize,
+) -> Result<(Vec<i64>, Vec<f32>)> {
+    match session {
+        InferenceSession::Ort(session) => {
+            let tensor =
+                TensorRef::<f32>::from_array_view(([1_usize, 3, image_size, image_size], values))
+                    .context("failed to create ONNX input tensor view")?;
+            let outputs = session
+                .run(ort::inputs! { INPUT_NAME => tensor })
+                .context("ONNX Runtime session execution failed")?;
+            ensure!(
+                outputs.len() == 1,
+                "ONNX Runtime returned {} outputs; expected one",
+                outputs.len()
+            );
+            let output = outputs
+                .get(OUTPUT_NAME)
+                .context("ONNX Runtime did not return the named output")?;
+            let (shape, data) = output
+                .try_extract_tensor::<f32>()
+                .context("ONNX output dtype is not float32")?;
+            let shape: Vec<i64> = shape.iter().copied().collect();
+            Ok((shape, data.to_vec()))
+        }
+        InferenceSession::Openvino(session) => {
+            let input = session
+                .input_tensor
+                .get_data_mut::<f32>()
+                .context("failed to access OpenVINO input tensor")?;
+            ensure!(
+                input.len() == values.len(),
+                "prepared OpenVINO input has {} values, expected {}",
+                values.len(),
+                input.len()
+            );
+            input.copy_from_slice(values);
+            session
+                .request
+                .set_input_tensor(&session.input_tensor)
+                .context("failed to bind OpenVINO input tensor")?;
+            session
+                .request
+                .infer()
+                .context("OpenVINO CPU inference failed")?;
+            let output = session
+                .request
+                .get_output_tensor()
+                .context("failed to retrieve OpenVINO output tensor")?;
+            ensure!(
+                output.get_element_type()? == ElementType::F32,
+                "OpenVINO output tensor dtype changed from float32"
+            );
+            let shape = output.get_shape()?.get_dimensions().to_vec();
+            let values = output
+                .get_data::<f32>()
+                .context("failed to read OpenVINO output tensor")?
+                .to_vec();
+            Ok((shape, values))
+        }
+    }
+}
+
+fn load_and_prepare(path: &Path, image_size: u32) -> Result<TimedInput> {
+    let (image, decode_ms) = load_rgb_image(path)?;
+    prepare_decoded_image(image, decode_ms, image_size)
+}
+
+fn load_rgb_image(path: &Path) -> Result<(RgbImage, f64)> {
+    let decode_start = Instant::now();
+    let image = ImageReader::open(path)
+        .with_context(|| format!("failed to open input image {}", path.display()))?
+        .with_guessed_format()
+        .context("failed to identify input image format")?
+        .decode()
+        .with_context(|| format!("failed to decode input image {}", path.display()))?
+        .to_rgb8();
+    Ok((image, elapsed_ms(decode_start)))
+}
+
+fn prepare_decoded_image(image: RgbImage, decode_ms: f64, image_size: u32) -> Result<TimedInput> {
+    let preprocess_start = Instant::now();
+    let prepared = prepare_rgb_image(&image, image_size)?;
+    let preprocess_ms = elapsed_ms(preprocess_start);
+    Ok(TimedInput {
+        image,
+        prepared,
+        decode_ms,
+        preprocess_ms,
+    })
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = fs::File::open(path)
+        .with_context(|| format!("failed to open {} for hashing", path.display()))?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)
+        .with_context(|| format!("failed to hash {}", path.display()))?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn summarize_calibration(
+    options: &CalibrationAuditOptions,
+    applied_image_space: ImageSpace,
+    results: &[ImageResult],
+) -> CalibrationAuditReport {
+    let calibrated_frame_count = results
+        .iter()
+        .filter(|result| {
+            result
+                .calibration
+                .as_ref()
+                .is_some_and(|frame| matches!(frame.status, CalibrationStatus::Valid))
+        })
+        .count();
+    let calibrated_detection_count = results
+        .iter()
+        .filter_map(|result| result.calibration.as_ref())
+        .filter_map(|frame| frame.measurements.as_ref())
+        .map(Vec::len)
+        .sum();
+
+    let (bundle_source_width_px, bundle_source_height_px) =
+        options.calibration.source_dimensions_px();
+    CalibrationAuditReport {
+        bundle_path: options.bundle_path.display().to_string(),
+        bundle_sha256: options.bundle_sha256.clone(),
+        bundle_calibration_revision: options.calibration.calibration_revision(),
+        bundle_camera_profile_id: options.calibration.camera_profile_id().to_owned(),
+        bundle_rectification_revision: options.calibration.rectification_revision(),
+        bundle_image_space: options.calibration.image_space(),
+        bundle_source_width_px,
+        bundle_source_height_px,
+        applied_calibration_revision: options.applied_calibration_revision,
+        applied_camera_profile_id: options.applied_camera_profile_id.clone(),
+        applied_rectification_revision: options.applied_rectification_revision,
+        applied_image_space,
+        frame_count: results.len(),
+        calibrated_frame_count,
+        unavailable_frame_count: results.len() - calibrated_frame_count,
+        calibrated_detection_count,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn summarize_timings(
+    results: &[ImageResult],
+    provider_probe_session_init_ms: f64,
+    provider_probe_inference_ms: f64,
+    measurement_session_init_ms: f64,
+    warmup_total_ms: f64,
+    total_recorded_image_ms: f64,
+    batch_export_ms: Option<f64>,
+    paced_replay: Option<PacedReplayReport>,
+) -> RunTimings {
+    let count = results.len().max(1) as f64;
+    let mean = |select: fn(&ImageTimings) -> f64| {
+        results
+            .iter()
+            .map(|result| select(&result.timings))
+            .sum::<f64>()
+            / count
+    };
+    let optional_mean = |select: fn(&ImageTimings) -> Option<f64>| {
+        let samples = results
+            .iter()
+            .filter_map(|result| select(&result.timings))
+            .collect::<Vec<_>>();
+        (!samples.is_empty()).then(|| samples.iter().sum::<f64>() / samples.len() as f64)
+    };
+    RunTimings {
+        image_count: results.len(),
+        provider_probe_session_init_ms,
+        provider_probe_inference_ms,
+        measurement_session_init_ms,
+        warmup_total_ms,
+        total_recorded_image_ms,
+        summed_image_pipeline_ms: results
+            .iter()
+            .map(|result| result.timings.end_to_end_ms)
+            .sum(),
+        mean_image_decode_ms: mean(|timing| timing.image_decode_ms),
+        mean_preprocess_ms: mean(|timing| timing.preprocess_ms),
+        mean_inference_ms: mean(|timing| timing.inference_ms),
+        mean_decode_and_nms_ms: mean(|timing| timing.decode_and_nms_ms),
+        mean_end_to_end_ms: mean(|timing| timing.end_to_end_ms),
+        mean_scene_tracking_ms: optional_mean(|timing| timing.scene_tracking_ms),
+        mean_scene_encode_enqueue_ms: optional_mean(|timing| timing.scene_encode_enqueue_ms),
+        mean_calibration_ms: results
+            .iter()
+            .filter_map(|result| result.timings.calibration_ms)
+            .reduce(|total, sample| total + sample)
+            .map(|total| {
+                let sample_count = results
+                    .iter()
+                    .filter(|result| result.timings.calibration_ms.is_some())
+                    .count();
+                total / sample_count as f64
+            }),
+        source_to_calibration_complete_ms: results
+            .iter()
+            .any(|result| result.calibration.is_some())
+            .then(|| {
+                percentile_summary(
+                    results
+                        .iter()
+                        .filter_map(|result| result.source_to_calibration_complete_ms)
+                        .collect(),
+                )
+            }),
+        batch_export_ms,
+        paced_replay,
+    }
+}
+
+fn write_nchw_float32(path: &Path, values: &[f32]) -> Result<()> {
+    use std::io::{BufWriter, Write};
+
+    let mut file = fs::File::create(path)
+        .with_context(|| format!("failed to create preprocessed tensor {}", path.display()))?;
+    let mut writer = BufWriter::new(&mut file);
+    let mut bytes = Vec::with_capacity(1024 * std::mem::size_of::<f32>());
+    for chunk in values.chunks(1024) {
+        bytes.clear();
+        for value in chunk {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        writer
+            .write_all(&bytes)
+            .with_context(|| format!("failed to write preprocessed tensor {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn elapsed_ms(start: Instant) -> f64 {
+    start.elapsed().as_secs_f64() * 1000.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_detection_batch, calibration_report_for_batch, expected_anchor_count,
+        load_and_verify_manifest, open_detection_batch_sink, open_scene_snapshot_output,
+        parse_provider_profile, percentile_summary, replay_frame_period, sha256_file,
+        validate_batch_identifier, validate_frame_inference_options, validate_inference_parameters,
+        validate_scene_calibration_context, write_detection_batch_line, write_nchw_float32,
+        write_scene_snapshot_line, AuditOptions, BatchOutputDestination, BatchOutputOptions,
+        CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame, FrameInferenceEngine,
+        FrameInferenceOptions, PacedReplayMailbox, ProviderSelection,
+        SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
+    };
+    use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
+    use crate::inference::Detection;
+    use crate::tracking::TrackingConfigV1;
+    use image::{Rgb, RgbImage};
+    use serde_json::{json, Value};
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::net::{SocketAddr, TcpListener};
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    const SUCCESS_BATCH_FIXTURE: &str =
+        include_str!("../../contracts/detection-batch/v1/detection-batch-success.json");
+    const EMPTY_BATCH_FIXTURE: &str =
+        include_str!("../../contracts/detection-batch/v1/detection-batch-empty-success.json");
+    const TRACKED_SCENE_FIXTURE: &str =
+        include_str!("../../contracts/v1/scene-rust-tracked-success.json");
+
+    fn batch_options() -> (AuditOptions, BatchOutputOptions) {
+        (
+            AuditOptions {
+                onnx_path: PathBuf::from("model.onnx"),
+                source_checkpoint_path: PathBuf::from("source.pt"),
+                input_path: PathBuf::from("frames"),
+                provider: ProviderSelection::Cpu,
+                image_size: 1280,
+                confidence: 0.25,
+                iou: 0.45,
+                max_detections: 300,
+                intra_op_threads: None,
+                warmup_runs: 1,
+                retained_provider_profile: None,
+                dump_preprocessed_directory: None,
+                source_image_space: ImageSpace::Raw,
+                detection_batch_output: None,
+                calibration: None,
+                scene_snapshot_output: None,
+                replay_rate_fps: None,
+            },
+            BatchOutputOptions {
+                destination: super::BatchOutputDestination::JsonlFile {
+                    path: PathBuf::from("batches.jsonl"),
+                },
+                engine_instance_id: "engine-test-01".to_owned(),
+                source_session_id: "recording-test-01".to_owned(),
+            },
+        )
+    }
+
+    fn calibration_options(calibration_revision: u64) -> CalibrationAuditOptions {
+        let bundle_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("contracts/calibration/v1/table-calibration-center-origin.json");
+        CalibrationAuditOptions::load(bundle_path, "test-camera-profile", calibration_revision, 2)
+            .unwrap()
+    }
+
+    fn calibrated_batch(source: &str) -> DetectionBatchV1 {
+        let mut value: Value = serde_json::from_str(source).unwrap();
+        value["source"]["width_px"] = json!(1000);
+        value["source"]["height_px"] = json!(500);
+        value["image_space"] = json!("rectified");
+        if let Some(detection) = value["detections"]
+            .as_array_mut()
+            .and_then(|items| items.first_mut())
+        {
+            detection["bbox_image_px"] = json!({
+                "left": 400.0,
+                "top": 200.0,
+                "right": 600.0,
+                "bottom": 300.0
+            });
+            detection["center_image_px"] = json!({"x": 500.0, "y": 250.0});
+        }
+        decode_detection_batch_v1(&serde_json::to_vec(&value).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn calibration_report_distinguishes_valid_mismatch_and_successful_empty_frames() {
+        let populated_batch = calibrated_batch(SUCCESS_BATCH_FIXTURE);
+        let valid =
+            calibration_report_for_batch(&populated_batch, &calibration_options(3)).unwrap();
+        assert!(matches!(valid.status, CalibrationStatus::Valid));
+        assert_eq!(valid.measurements.as_ref().unwrap().len(), 1);
+        assert_eq!(
+            valid.measurements.as_ref().unwrap()[0].center_table_mm.x_mm,
+            0.0
+        );
+        assert_eq!(
+            valid.measurements.as_ref().unwrap()[0].center_table_mm.y_mm,
+            0.0
+        );
+
+        let unavailable =
+            calibration_report_for_batch(&populated_batch, &calibration_options(4)).unwrap();
+        assert!(matches!(unavailable.status, CalibrationStatus::Unavailable));
+        assert!(unavailable
+            .reason
+            .as_deref()
+            .unwrap()
+            .contains("CalibrationRevisionMismatch"));
+        assert!(unavailable.measurements.is_none());
+
+        let empty_batch = calibrated_batch(EMPTY_BATCH_FIXTURE);
+        let empty = calibration_report_for_batch(&empty_batch, &calibration_options(3)).unwrap();
+        assert!(matches!(empty.status, CalibrationStatus::Valid));
+        assert_eq!(empty.measurements, Some(Vec::new()));
+    }
+
+    #[test]
+    fn calibration_audit_options_reject_unsafe_applied_context() {
+        let bundle_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("contracts/calibration/v1/table-calibration-center-origin.json");
+        assert!(CalibrationAuditOptions::load(bundle_path.clone(), "", 3, 2).is_err());
+        assert!(CalibrationAuditOptions::load(
+            bundle_path,
+            "test-camera-profile",
+            super::MAX_SAFE_JSON_INTEGER + 1,
+            2
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn scene_tracking_and_applied_calibration_must_share_camera_geometry_identity() {
+        let calibration = calibration_options(3);
+        let matching = TrackingConfigV1::new(
+            1,
+            Some(0),
+            "test-camera-profile",
+            12.0,
+            Duration::from_millis(50),
+            Duration::from_millis(200),
+            Duration::from_millis(1000),
+            24,
+            32,
+            1,
+            2,
+        )
+        .unwrap();
+        assert!(validate_scene_calibration_context(&matching, &calibration).is_ok());
+
+        let wrong_profile = TrackingConfigV1::new(
+            1,
+            Some(0),
+            "other-camera-profile",
+            12.0,
+            Duration::from_millis(50),
+            Duration::from_millis(200),
+            Duration::from_millis(1000),
+            24,
+            32,
+            1,
+            2,
+        )
+        .unwrap();
+        assert!(validate_scene_calibration_context(&wrong_profile, &calibration).is_err());
+
+        let wrong_rectification = TrackingConfigV1::new(
+            1,
+            Some(0),
+            "test-camera-profile",
+            12.0,
+            Duration::from_millis(50),
+            Duration::from_millis(200),
+            Duration::from_millis(1000),
+            24,
+            32,
+            1,
+            3,
+        )
+        .unwrap();
+        assert!(validate_scene_calibration_context(&wrong_rectification, &calibration).is_err());
+    }
+
+    #[test]
+    fn output_anchor_count_matches_yolov8_stride_heads() {
+        assert_eq!(expected_anchor_count(1280).unwrap(), 33_600);
+        assert_eq!(expected_anchor_count(64).unwrap(), 84);
+        assert!(expected_anchor_count(65).is_err());
+    }
+
+    #[test]
+    fn paced_replay_period_rejects_invalid_or_unrepresentable_rates() {
+        assert_eq!(
+            replay_frame_period(25.0).unwrap(),
+            Duration::from_millis(40)
+        );
+        assert!(replay_frame_period(0.0).is_err());
+        assert!(replay_frame_period(f64::INFINITY).is_err());
+        assert!(replay_frame_period(1.0e12).is_err());
+    }
+
+    #[test]
+    fn latest_frame_mailbox_replaces_stale_pending_input_and_counts_misses() {
+        let mailbox = PacedReplayMailbox::default();
+        let base = Instant::now();
+        let period = Duration::from_millis(33);
+        for (source_index, lateness) in [Duration::from_millis(35), Duration::from_millis(2)]
+            .into_iter()
+            .enumerate()
+        {
+            mailbox
+                .offer(
+                    DecodedReplayFrame {
+                        source_index,
+                        path: PathBuf::from(format!("frame-{source_index}.png")),
+                        encoded_image_sha256: format!("hash-{source_index}"),
+                        image: image::RgbImage::new(1, 1),
+                        decode_ms: 0.0,
+                        scheduled_at: base,
+                        source_arrived_at: base + lateness,
+                    },
+                    period,
+                )
+                .unwrap();
+        }
+        let latest = mailbox.take_latest().unwrap().unwrap();
+        assert_eq!(latest.source_index, 1);
+        assert_eq!(latest.path, PathBuf::from("frame-1.png"));
+        mailbox.finish(None);
+        assert!(mailbox.take_latest().unwrap().is_none());
+
+        let stats = mailbox.snapshot().unwrap();
+        assert_eq!(stats.decoded_frame_count, 2);
+        assert_eq!(stats.replaced_pending_frame_count, 1);
+        assert_eq!(stats.source_schedule_deadline_misses, 1);
+        assert_eq!(stats.maximum_source_schedule_lateness_ms, 35.0);
+    }
+
+    #[test]
+    fn percentile_summary_uses_nearest_rank_and_reports_empty_samples() {
+        let result = percentile_summary(vec![4.0, 1.0, 3.0, 2.0]);
+        assert_eq!(result.sample_count, 4);
+        assert_eq!(result.p50_ms, Some(2.0));
+        assert_eq!(result.p95_ms, Some(4.0));
+        assert_eq!(result.p99_ms, Some(4.0));
+
+        let empty = percentile_summary(Vec::new());
+        assert_eq!(empty.sample_count, 0);
+        assert_eq!(empty.p50_ms, None);
+    }
+
+    #[test]
+    fn provider_name_is_observed_only_from_ort_node_profile_events() {
+        let trace = br#"[
+          {"name":"Conv_kernel_time","cat":"Node","args":{"provider":"CPUExecutionProvider"}},
+          {"name":"Conv_kernel_time","cat":"Node","args":{"provider":"CPUExecutionProvider"}},
+          {"name":"Graph","cat":"Session","args":{}}
+        ]"#;
+        let (providers, events, counts) = parse_provider_profile(trace).unwrap();
+        assert_eq!(providers, ["CPUExecutionProvider"]);
+        assert_eq!(events, 2);
+        assert_eq!(
+            counts,
+            BTreeMap::from([("CPUExecutionProvider".to_owned(), 1)])
+        );
+    }
+
+    #[test]
+    fn provider_is_unavailable_when_trace_has_no_execution_nodes() {
+        let (providers, events, counts) = parse_provider_profile(br#"[{"args":{}}]"#).unwrap();
+        assert!(providers.is_empty());
+        assert_eq!(events, 0);
+        assert!(counts.is_empty());
+    }
+
+    #[test]
+    fn optional_tensor_export_is_little_endian_float32() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("input.f32le");
+        write_nchw_float32(&path, &[1.0, -2.5]).unwrap();
+        assert_eq!(
+            std::fs::read(path).unwrap(),
+            [1.0_f32.to_le_bytes(), (-2.5_f32).to_le_bytes()].concat()
+        );
+    }
+
+    #[test]
+    fn manifest_requires_matching_source_and_export_hashes() {
+        let directory = tempfile::tempdir().unwrap();
+        let onnx_path = directory.path().join("model.onnx");
+        let source_path = directory.path().join("source.pt");
+        fs::write(&onnx_path, b"onnx test bytes").unwrap();
+        fs::write(&source_path, b"source checkpoint test bytes").unwrap();
+        let manifest = serde_json::json!({
+            "source_model": { "sha256": super::sha256_file(&source_path).unwrap() },
+            "exported_model": {
+                "path": "model.onnx",
+                "sha256": super::sha256_file(&onnx_path).unwrap()
+            },
+            "model": {
+                "class_count": 2,
+                "class_names": [
+                    { "id": 0, "name": "cue" },
+                    { "id": 1, "name": "ball" }
+                ]
+            }
+        });
+        let manifest_path = PathBuf::from(format!("{}.manifest.json", onnx_path.display()));
+        fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+
+        let loaded = load_and_verify_manifest(&onnx_path, &source_path).unwrap();
+        assert_eq!(loaded.class_names, ["cue", "ball"]);
+
+        fs::write(&source_path, b"different source checkpoint").unwrap();
+        let error = load_and_verify_manifest(&onnx_path, &source_path).unwrap_err();
+        assert!(error.to_string().contains("source checkpoint hash"));
+
+        fs::write(&source_path, b"source checkpoint test bytes").unwrap();
+        fs::write(&onnx_path, b"different ONNX artifact").unwrap();
+        let error = load_and_verify_manifest(&onnx_path, &source_path).unwrap_err();
+        assert!(error.to_string().contains("exported ONNX hash"));
+    }
+
+    #[test]
+    fn provider_policy_report_names_the_selected_policy() {
+        assert_eq!(
+            ProviderSelection::Cpu.requested_provider_name(),
+            "CPUExecutionProvider"
+        );
+        assert_eq!(
+            ProviderSelection::Auto.requested_provider_name(),
+            "AutoDevicePolicy::MaxEfficiency"
+        );
+        assert_eq!(
+            ProviderSelection::Openvino.requested_provider_name(),
+            "OpenVINO CPU (native)"
+        );
+        assert_eq!(
+            ProviderSelection::Openvino.binding(),
+            (
+                "openvino-rs",
+                "0.11.1",
+                "Native OpenVINO CPU backend selected and invoked; this API does not expose per-node fallback assignment, so node counts are unavailable"
+            )
+        );
+        assert_eq!(
+            ProviderSelection::Cpu.binding().0,
+            "ort",
+            "portable CPU inference remains on ONNX Runtime"
+        );
+    }
+
+    #[test]
+    fn batch_builder_preserves_frame_model_settings_and_detection_geometry() {
+        let (mut options, output) = batch_options();
+        options.source_image_space = ImageSpace::Rectified;
+        let origin = Instant::now();
+        let detection = Detection {
+            class_id: 1,
+            class_name: "ball".to_owned(),
+            confidence: 0.875,
+            bbox_xyxy_px: [10.0, 20.0, 30.0, 40.0],
+            center_xy_px: [20.0, 30.0],
+        };
+
+        let batch = build_detection_batch(
+            2,
+            3,
+            1920,
+            1080,
+            &[detection],
+            &["cue".to_owned(), "ball".to_owned()],
+            &"a".repeat(64),
+            &"b".repeat(64),
+            &options,
+            &output,
+            origin,
+            origin + Duration::from_nanos(10),
+            origin + Duration::from_nanos(20),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(batch.batch_sequence, 3);
+        assert_eq!(batch.source.frame_id, "frame-000003");
+        assert_eq!(
+            (batch.source.width_px, batch.source.height_px),
+            (1920, 1080)
+        );
+        assert!(batch.source.timestamp.is_none());
+        assert_eq!(batch.model.classes[1].class_name, "ball");
+        assert_eq!(batch.settings.input_width_px, 1280);
+        assert_eq!(batch.image_space, ImageSpace::Rectified);
+        assert_eq!(batch.detections.len(), 1);
+        assert_eq!(batch.detections[0].detection_index, 0);
+        assert_eq!(batch.detections[0].bbox_image_px.left, 10.0);
+        assert_eq!(batch.detections[0].center_image_px.y, 30.0);
+        assert!(batch.published_at.ticks.parse::<u64>().unwrap() >= 20);
+        batch.validate().unwrap();
+    }
+
+    #[test]
+    fn paced_batch_keeps_source_frame_identity_separate_from_publication_sequence() {
+        let (options, output) = batch_options();
+        let origin = Instant::now();
+        let batch = build_detection_batch(
+            7,
+            2,
+            640,
+            480,
+            &[],
+            &["cue".to_owned(), "ball".to_owned()],
+            &"a".repeat(64),
+            &"b".repeat(64),
+            &options,
+            &output,
+            origin,
+            origin + Duration::from_nanos(10),
+            origin + Duration::from_nanos(20),
+            Some(origin + Duration::from_nanos(5)),
+        )
+        .unwrap();
+
+        assert_eq!(batch.batch_sequence, 2);
+        assert_eq!(batch.source.frame_id, "frame-000008");
+        let source_timestamp = batch.source.timestamp.as_ref().unwrap();
+        assert_eq!(
+            source_timestamp.stage,
+            crate::detection_batch::TimestampStage::FrameArrival
+        );
+        assert_eq!(source_timestamp.ticks, "5");
+        batch.validate().unwrap();
+    }
+
+    #[test]
+    fn batch_builder_represents_no_detections_as_successful_complete_observation() {
+        let (options, output) = batch_options();
+        let origin = Instant::now();
+        let batch = build_detection_batch(
+            0,
+            1,
+            640,
+            480,
+            &[],
+            &["cue".to_owned(), "ball".to_owned()],
+            &"a".repeat(64),
+            &"b".repeat(64),
+            &options,
+            &output,
+            origin,
+            origin,
+            origin,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(batch.outcome, crate::detection_batch::BatchOutcome::Success);
+        assert!(batch.reason.is_none());
+        assert!(batch.detections.is_empty());
+        batch.validate().unwrap();
+    }
+
+    #[test]
+    fn jsonl_writer_emits_complete_ordered_contract_records() {
+        let (options, output) = batch_options();
+        let origin = Instant::now();
+        let make_batch = |index| {
+            build_detection_batch(
+                index,
+                index + 1,
+                640,
+                480,
+                &[],
+                &["cue".to_owned(), "ball".to_owned()],
+                &"a".repeat(64),
+                &"b".repeat(64),
+                &options,
+                &output,
+                origin,
+                origin + Duration::from_nanos(index as u64 + 1),
+                origin + Duration::from_nanos(index as u64 + 2),
+                None,
+            )
+            .unwrap()
+        };
+        let mut writer = std::io::BufWriter::new(Vec::new());
+        write_detection_batch_line(&mut writer, &make_batch(0)).unwrap();
+        write_detection_batch_line(&mut writer, &make_batch(1)).unwrap();
+        let output = writer.into_inner().unwrap();
+
+        let lines: Vec<_> = output.split(|byte| *byte == b'\n').collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[2].is_empty());
+        let first = decode_detection_batch_v1(lines[0]).unwrap();
+        let second = decode_detection_batch_v1(lines[1]).unwrap();
+        assert_eq!(first.batch_sequence, 1);
+        assert_eq!(second.batch_sequence, 2);
+        assert_eq!(first.engine_instance_id, second.engine_instance_id);
+        assert_eq!(first.source.session_id, second.source.session_id);
+    }
+
+    #[test]
+    fn scene_jsonl_writer_emits_a_complete_validated_snapshot_line() {
+        let snapshot = crate::decode_scene_snapshot_v1(TRACKED_SCENE_FIXTURE.as_bytes()).unwrap();
+        let mut bytes = Vec::new();
+        write_scene_snapshot_line(&mut bytes, &snapshot).unwrap();
+        assert_eq!(bytes.last(), Some(&b'\n'));
+        let decoded = crate::decode_scene_snapshot_v1(&bytes[..bytes.len() - 1]).unwrap();
+        assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn scene_output_creation_never_overwrites_an_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let options = SceneSnapshotOutputOptions {
+            destination: SceneSnapshotOutputDestination::JsonlFile {
+                path: directory.path().join("scene.jsonl"),
+            },
+            tracking: TrackingConfigV1::new(
+                1,
+                None,
+                "camera-test",
+                12.0,
+                Duration::from_millis(50),
+                Duration::from_millis(200),
+                Duration::from_millis(1000),
+                24,
+                32,
+                1,
+                1,
+            )
+            .unwrap(),
+        };
+        let output = open_scene_snapshot_output(&options).unwrap();
+        drop(output);
+        assert!(open_scene_snapshot_output(&options).is_err());
+    }
+
+    #[test]
+    fn batch_identity_validation_rejects_empty_long_and_control_identifiers() {
+        assert!(validate_batch_identifier("", "engine instance ID").is_err());
+        assert!(validate_batch_identifier(&"a".repeat(129), "source session ID").is_err());
+        assert!(validate_batch_identifier("recording\n1", "source session ID").is_err());
+        assert!(validate_batch_identifier("recording-1", "source session ID").is_ok());
+    }
+
+    #[test]
+    fn batch_output_creation_never_overwrites_an_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("existing.jsonl");
+        fs::write(&path, b"preserve this data").unwrap();
+        let options = BatchOutputOptions {
+            destination: super::BatchOutputDestination::JsonlFile { path: path.clone() },
+            engine_instance_id: "engine-test".to_owned(),
+            source_session_id: "session-test".to_owned(),
+        };
+
+        assert!(open_detection_batch_sink(&options).is_err());
+        assert_eq!(fs::read(path).unwrap(), b"preserve this data");
+    }
+
+    #[test]
+    fn loopback_sink_sends_a_complete_length_framed_batch() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let bytes = crate::framing::read_framed_message(&mut stream, 64 * 1024).unwrap();
+            decode_detection_batch_v1(&bytes).unwrap()
+        });
+
+        let (audit, _) = batch_options();
+        let destination = BatchOutputDestination::LoopbackTcp {
+            address,
+            maximum_message_bytes: 64 * 1024,
+            connect_timeout: Duration::from_secs(1),
+            write_timeout: Duration::from_secs(1),
+        };
+        let output = BatchOutputOptions {
+            destination,
+            engine_instance_id: "engine-test-01".to_owned(),
+            source_session_id: "recording-test-01".to_owned(),
+        };
+        let origin = Instant::now();
+        let batch = build_detection_batch(
+            0,
+            1,
+            640,
+            480,
+            &[],
+            &["cue".to_owned(), "ball".to_owned()],
+            &"a".repeat(64),
+            &"b".repeat(64),
+            &audit,
+            &output,
+            origin,
+            origin,
+            origin,
+            None,
+        )
+        .unwrap();
+        let (mut sink, connect_ms) = open_detection_batch_sink(&output).unwrap();
+        assert!(connect_ms.is_some());
+        super::write_detection_batch(&mut sink, &batch).unwrap();
+        drop(sink);
+
+        let received = receiver.join().unwrap();
+        assert_eq!(received.batch_sequence, 1);
+        assert_eq!(received.source.session_id, "recording-test-01");
+    }
+
+    #[test]
+    fn loopback_sink_rejects_non_loopback_destinations_before_connecting() {
+        let options = BatchOutputOptions {
+            destination: BatchOutputDestination::LoopbackTcp {
+                address: "192.0.2.1:1234".parse::<SocketAddr>().unwrap(),
+                maximum_message_bytes: 64 * 1024,
+                connect_timeout: Duration::from_secs(1),
+                write_timeout: Duration::from_secs(1),
+            },
+            engine_instance_id: "engine-test-01".to_owned(),
+            source_session_id: "recording-test-01".to_owned(),
+        };
+        assert!(open_detection_batch_sink(&options).is_err());
+    }
+
+    #[test]
+    fn batch_writer_propagates_sink_failures() {
+        struct FailingWriter;
+
+        impl std::io::Write for FailingWriter {
+            fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("injected sink failure"))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let (options, output) = batch_options();
+        let origin = Instant::now();
+        let batch = build_detection_batch(
+            0,
+            1,
+            640,
+            480,
+            &[],
+            &["cue".to_owned(), "ball".to_owned()],
+            &"a".repeat(64),
+            &"b".repeat(64),
+            &options,
+            &output,
+            origin,
+            origin,
+            origin,
+            None,
+        )
+        .unwrap();
+
+        assert!(write_detection_batch_line(&mut FailingWriter, &batch).is_err());
+    }
+
+    #[test]
+    fn frame_engine_runs_one_rgb_observation_through_the_verified_model_session() {
+        let scratch = tempfile::tempdir().unwrap();
+        let model_path = scratch.path().join("tiny-two-class.onnx");
+        fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/tiny_two_class_detector.onnx"
+            ),
+            &model_path,
+        )
+        .unwrap();
+        let checkpoint_path = scratch.path().join("source.pt");
+        fs::write(&checkpoint_path, b"test checkpoint lineage").unwrap();
+        let manifest_path = PathBuf::from(format!("{}.manifest.json", model_path.display()));
+        fs::write(
+            manifest_path,
+            serde_json::to_vec(&json!({
+                "source_model": { "sha256": sha256_file(&checkpoint_path).unwrap() },
+                "exported_model": {
+                    "path": "tiny-two-class.onnx",
+                    "sha256": sha256_file(&model_path).unwrap()
+                },
+                "model": {
+                    "class_count": 2,
+                    "class_names": [
+                        { "id": 0, "name": "cue" },
+                        { "id": 1, "name": "ball" }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let environment = ort::init()
+            .with_name("billiards-frame-engine-test")
+            .with_telemetry(false)
+            .build()
+            .unwrap();
+        let mut engine = FrameInferenceEngine::new(
+            environment,
+            FrameInferenceOptions {
+                onnx_path: model_path.clone(),
+                source_checkpoint_path: checkpoint_path,
+                provider: ProviderSelection::Cpu,
+                image_size: 32,
+                confidence: 0.4,
+                iou: 0.45,
+                max_detections: 300,
+                intra_op_threads: Some(1),
+            },
+        )
+        .unwrap();
+
+        let image = RgbImage::from_pixel(32, 32, Rgb([12, 34, 56]));
+        let output = engine.infer_rgb(&image).unwrap();
+        let borrowed_output = engine
+            .infer_rgb8(image.width(), image.height(), image.as_raw())
+            .unwrap();
+        assert_eq!(borrowed_output.source_width_px, output.source_width_px);
+        assert_eq!(borrowed_output.source_height_px, output.source_height_px);
+        assert_eq!(borrowed_output.detections, output.detections);
+        assert!(engine.infer_rgb8(32, 32, &[0; 11]).is_err());
+        assert_eq!((output.source_width_px, output.source_height_px), (32, 32));
+        assert_eq!(output.detections.len(), 1);
+        assert_eq!(output.detections[0].class_name, "ball");
+        assert_eq!(output.detections[0].center_xy_px, [16.0, 16.0]);
+        assert_eq!(
+            engine.model_identity().artifact_sha256,
+            sha256_file(&model_path).unwrap()
+        );
+        assert_eq!(engine.model_identity().classes[1].class_name, "ball");
+        assert_eq!(engine.inference_settings().input_width_px, 32);
+        assert_eq!(engine.requested_provider(), ProviderSelection::Cpu);
+        assert!(output.timings.preprocess_ms.is_finite());
+        assert!(output.timings.inference_ms.is_finite());
+        assert!(output.timings.decode_and_nms_ms.is_finite());
+        assert!(output.timings.engine_total_ms >= output.timings.preprocess_ms);
+    }
+
+    #[test]
+    fn live_frame_options_share_the_audit_inference_parameter_validation() {
+        assert!(validate_inference_parameters(32, 0.4, 0.45, 1, Some(1)).is_ok());
+        assert!(validate_inference_parameters(31, 0.4, 0.45, 1, Some(1)).is_err());
+        assert!(validate_inference_parameters(32, f32::NAN, 0.45, 1, Some(1)).is_err());
+        assert!(validate_inference_parameters(32, 0.4, 0.45, 0, Some(1)).is_err());
+        assert!(validate_inference_parameters(32, 0.4, 0.45, 1, Some(0)).is_err());
+
+        let scratch = tempfile::tempdir().unwrap();
+        let options = FrameInferenceOptions {
+            onnx_path: scratch.path().join("missing.onnx"),
+            source_checkpoint_path: scratch.path().join("missing.pt"),
+            provider: ProviderSelection::Cpu,
+            image_size: 32,
+            confidence: 0.4,
+            iou: 0.45,
+            max_detections: 1,
+            intra_op_threads: None,
+        };
+        assert!(validate_frame_inference_options(&options).is_err());
+    }
+}

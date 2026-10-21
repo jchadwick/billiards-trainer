@@ -1,36 +1,42 @@
 """Dependency injection functions for FastAPI routes."""
 
-# Import modules - ensure backend dir is in path
-import sys
-from pathlib import Path
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, HTTPException
 
-backend_dir = Path(__file__).parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from backend.config import Config, config
 
-from config import Config, config
-from core import CoreModule
+from .websocket.manager import WebSocketManager, websocket_manager
 
-from .websocket.manager import websocket_manager
+if TYPE_CHECKING:
+    import asyncio
+
+    from backend.core import CoreModule
 
 
 class ApplicationState:
     """Application state container."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize application state with default values."""
-        self.core_module: Optional[CoreModule] = None
-        self.config_module: Optional[Config] = config  # Use singleton config
+        self.core_module: CoreModule | None = None
+        self.config_module: Config | None = config  # Use singleton config
         self.websocket_manager = websocket_manager
-        self.websocket_handler = None
-        self.message_broadcaster: Optional[Any] = None  # MessageBroadcaster instance
-        self.integration_service: Optional[Any] = None  # IntegrationService instance
-        self.startup_time: Optional[float] = None
+        self.websocket_handler: Any | None = None
+        self.message_broadcaster: Any | None = None  # MessageBroadcaster instance
+        self.integration_service: Any | None = None  # IntegrationService instance
+        # Optional Rust scene publisher. When present, HTTP bootstrap reads the
+        # same defensive scene snapshot that the publisher sends to WebSocket.
+        # Keeping this optional preserves the Python-only response path.
+        self.scene_state_publisher: Any | None = None
+        self.perception_provider: str | None = None
+        self.perception_runtime: Any | None = None
+        self.performance_broadcast_task: asyncio.Task[None] | None = None
+        self.startup_time: float | None = None
         self.is_healthy: bool = False
-        self.vision_module: Optional[Any] = None  # Will be VisionModule when imported
+        self.vision_module: Any | None = None  # Will be VisionModule when imported
 
 
 # Global application state
@@ -53,7 +59,7 @@ def get_config_module() -> Config:
     return app_state.config_module
 
 
-def get_websocket_manager():
+def get_websocket_manager() -> WebSocketManager:
     """Get the WebSocket manager instance."""
     if not app_state.websocket_manager:
         raise HTTPException(status_code=503, detail="WebSocket manager not available")
@@ -63,3 +69,10 @@ def get_websocket_manager():
 def get_app_state() -> ApplicationState:
     """Get the application state."""
     return app_state
+
+
+def get_optional_core_module(
+    application: ApplicationState = Depends(get_app_state),
+) -> CoreModule | None:
+    """Return Core when available without coupling scene localization to Core."""
+    return getattr(application, "core_module", None)

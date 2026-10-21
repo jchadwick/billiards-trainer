@@ -392,12 +392,21 @@ class TestBallStateSerialization:
         assert "last_update" in data
 
     def test_from_dict_basic(self):
-        """Test basic from_dict deserialization."""
+        """Load a complete canonical ball record with explicit units and scale."""
         data = {
             "id": "test",
             "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
             "velocity": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
             "spin": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
+            "radius": 36.0,
+            "radius_scale": [1.0, 1.0],
+            "radius_unit": "canonical_pixels",
+            "mass": 0.17,
+            "mass_unit": "kg",
+            "is_cue_ball": False,
+            "is_pocketed": False,
+            "confidence": 1.0,
+            "last_update": 123.0,
         }
 
         ball = BallState.from_dict(data)
@@ -405,23 +414,6 @@ class TestBallStateSerialization:
         assert ball.id == "test"
         assert ball.position.x == 100.0
         assert ball.position.y == 200.0
-
-    def test_from_dict_with_defaults(self):
-        """Test from_dict uses proper defaults for missing fields."""
-        data = {
-            "id": "test",
-            "position": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
-            "velocity": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
-            "spin": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
-        }
-
-        ball = BallState.from_dict(data)
-
-        assert ball.radius == 36.0  # Default 4K radius
-        assert ball.mass == 0.17  # Default mass
-        assert ball.confidence == 1.0  # Default confidence
-        assert ball.is_cue_ball is False
-        assert ball.is_pocketed is False
 
     def test_serialization_round_trip(self):
         """Test that to_dict -> from_dict preserves data."""
@@ -479,13 +471,13 @@ class TestBallStateFactoryMethods:
         assert ball.confidence == 0.9
 
     def test_from_resolution_basic(self):
-        """Test from_resolution factory method."""
+        """Factory-created physics state is normalized before storage."""
         ball = BallState.from_resolution("test", 960.0, 540.0, (1920, 1080), number=1)
 
         assert ball.id == "test"
-        assert ball.position.x == 960.0
-        assert ball.position.y == 540.0
-        assert ball.position.scale == (2.0, 2.0)
+        assert ball.position.x == 1920.0
+        assert ball.position.y == 1080.0
+        assert ball.position.scale == (1.0, 1.0)
         assert ball.number == 1
 
     def test_from_resolution_converts_to_4k(self):
@@ -599,7 +591,7 @@ class TestTableStateInitialization:
 class TestTableStatePocketDetection:
     """Tests for TableState pocket detection."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table(self):
         """Create a standard table for testing."""
         pockets = [
@@ -654,7 +646,7 @@ class TestTableStatePocketDetection:
 class TestTableStatePointOnTable:
     """Tests for TableState point on table detection."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table(self):
         """Create a standard table for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -685,7 +677,7 @@ class TestTableStatePointOnTable:
 class TestTableStatePlayingArea:
     """Tests for TableState playing area detection."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table_with_playing_area(self):
         """Create a table with playing area corners."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -727,7 +719,7 @@ class TestTableStatePlayingArea:
 class TestTableStateSerialization:
     """Tests for TableState serialization."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table(self):
         """Create a standard table for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -742,15 +734,22 @@ class TestTableStateSerialization:
         assert len(data["pocket_positions"]) == 6
 
     def test_from_dict_basic(self):
-        """Test basic from_dict deserialization."""
+        """Load canonical table geometry with explicit dimensional metadata."""
         data = {
             "width": 3200.0,
             "height": 1600.0,
+            "dimensions_scale": [1.0, 1.0],
+            "dimensions_unit": "canonical_pixels",
             "pocket_positions": [
                 {"x": float(x), "y": float(y), "scale": [1.0, 1.0]}
                 for x in [0, 1600, 3200]
                 for y in [0, 1600]
             ],
+            "pocket_radius": 72.0,
+            "pocket_radius_scale": [1.0, 1.0],
+            "pocket_radius_unit": "canonical_pixels",
+            "cushion_height": 0.025,
+            "cushion_height_unit": "meters",
         }
 
         table = TableState.from_dict(data)
@@ -813,13 +812,13 @@ class TestTableStateFromCalibration:
 class TestGameStateInitialization:
     """Tests for GameState initialization and validation."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table(self):
         """Create a standard table for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
         return TableState(width=3200.0, height=1600.0, pocket_positions=pockets)
 
-    @pytest.fixture()
+    @pytest.fixture
     def balls(self):
         """Create a set of test balls."""
         cue_ball = BallState(
@@ -898,7 +897,7 @@ class TestGameStateInitialization:
 class TestGameStateBallRetrieval:
     """Tests for GameState ball retrieval methods."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def game_state(self):
         """Create a game state for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -972,7 +971,7 @@ class TestGameStateBallRetrieval:
 class TestGameStateMovingBalls:
     """Tests for GameState moving ball detection."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def game_state_with_moving_balls(self):
         """Create a game state with some moving balls."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -1130,7 +1129,7 @@ class TestGameStateCountBallsByPlayer:
 class TestGameStateValidateConsistency:
     """Tests for GameState.validate_consistency method."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def table(self):
         """Create a standard table for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -1320,7 +1319,7 @@ class TestGameStateCreateInitialState:
 class TestGameStateSerialization:
     """Tests for GameState serialization."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def game_state(self):
         """Create a game state for testing."""
         pockets = [Vector2D.from_4k(x, y) for x in [0, 1600, 3200] for y in [0, 1600]]
@@ -1353,7 +1352,7 @@ class TestGameStateSerialization:
         assert "game_type" in data
 
     def test_from_dict_basic(self):
-        """Test basic from_dict deserialization."""
+        """Load the nested, fully scaled canonical game-state payload."""
         data = {
             "timestamp": datetime.now().timestamp(),
             "frame_number": 1,
@@ -1363,17 +1362,54 @@ class TestGameStateSerialization:
                     "position": {"x": 800.0, "y": 800.0, "scale": [1.0, 1.0]},
                     "velocity": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
                     "spin": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
+                    "radius": 36.0,
+                    "radius_scale": [1.0, 1.0],
+                    "radius_unit": "canonical_pixels",
+                    "mass": 0.17,
+                    "mass_unit": "kg",
                     "is_cue_ball": True,
+                    "is_pocketed": False,
+                    "confidence": 1.0,
+                    "last_update": 123.0,
                 }
             ],
             "table": {
                 "width": 3200.0,
                 "height": 1600.0,
+                "dimensions_scale": [1.0, 1.0],
+                "dimensions_unit": "canonical_pixels",
                 "pocket_positions": [
                     {"x": float(x), "y": float(y), "scale": [1.0, 1.0]}
                     for x in [0, 1600, 3200]
                     for y in [0, 1600]
                 ],
+                "pocket_radius": 72.0,
+                "pocket_radius_scale": [1.0, 1.0],
+                "pocket_radius_unit": "canonical_pixels",
+                "cushion_height": 0.025,
+                "cushion_height_unit": "meters",
+            },
+            "cue": {
+                "tip_position": {"x": 700.0, "y": 800.0, "scale": [1.0, 1.0]},
+                "angle": 0.0,
+                "elevation": 0.0,
+                "estimated_force": 0.0,
+                "impact_point": None,
+                "length": 1.47,
+                "length_unit": "meters",
+                "tip_radius": 0.006,
+                "tip_radius_unit": "meters",
+                "is_visible": True,
+                "confidence": 1.0,
+                "last_update": 123.0,
+            },
+            "coordinate_metadata": {
+                "camera_resolution": [3840, 2160],
+                "table_bounds": [0.0, 0.0, 3200.0, 1600.0],
+                "table_bounds_scale": [1.0, 1.0],
+                "table_bounds_unit": "canonical_pixels",
+                "coordinate_space": "4k_canonical",
+                "pixels_per_meter": None,
             },
         }
 
@@ -1381,6 +1417,12 @@ class TestGameStateSerialization:
 
         assert game_state.frame_number == 1
         assert len(game_state.balls) == 1
+        assert game_state.balls[0].radius == 36.0
+        assert game_state.table.dimensions_scale == (1.0, 1.0)
+        assert game_state.cue is not None
+        assert game_state.cue.tip_position.x == 700.0
+        assert game_state.coordinate_metadata is not None
+        assert game_state.coordinate_metadata.table_bounds == (0.0, 0.0, 3200.0, 1600.0)
 
     def test_serialization_round_trip(self, game_state):
         """Test that to_dict -> from_dict preserves data."""
@@ -1646,12 +1688,14 @@ class TestCoordinateMetadata:
         metadata = CoordinateMetadata(
             camera_resolution=(1920, 1080),
             table_bounds=(100.0, 100.0, 1820.0, 980.0),
-            coordinate_space="camera_pixels",
+            coordinate_space="pixel",
             pixels_per_meter=100.0,
         )
 
         assert metadata.camera_resolution == (1920, 1080)
-        assert metadata.coordinate_space == "camera_pixels"
+        assert metadata.coordinate_space == "pixel"
+        assert metadata.table_bounds == (200.0, 200.0, 3640.0, 1960.0)
+        assert metadata.table_bounds_scale == (1.0, 1.0)
         assert metadata.pixels_per_meter == 100.0
 
     def test_coordinate_metadata_serialization(self):

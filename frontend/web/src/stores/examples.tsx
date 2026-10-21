@@ -16,12 +16,7 @@ import {
   useResponsive
 } from './context';
 
-// 1. Authentication Example - REMOVED (Auth not implemented per specs)
-// export const LoginExample = observer(() => {
-//   ... component code removed ...
-// });
-
-// 2. Game State Example
+// 1. Game State Example
 export const GameStateExample = observer(() => {
   const {
     gameState,
@@ -40,8 +35,8 @@ export const GameStateExample = observer(() => {
 
   const handleStartGame = async () => {
     const result = await startNewGame('eightball', [
-      { name: 'Player 1' },
-      { name: 'Player 2' }
+      { name: 'Player 1', ballGroup: null, score: 0, isActive: true },
+      { name: 'Player 2', ballGroup: null, score: 0, isActive: false }
     ]);
 
     if (result.success) {
@@ -565,7 +560,7 @@ export const SystemStatusExample = observer(() => {
   const { showInfo, showError } = useNotifications();
 
   const handleConnect = async () => {
-    const result = await connect('ws://localhost:8080/ws');
+    const result = await connect('ws://localhost:8000/api/v1/websocket/ws');
     if (result.success) {
       showInfo('Connected', 'Successfully connected to backend system');
     } else {

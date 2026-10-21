@@ -6,7 +6,7 @@ representations across vision, tracking, and core modules.
 
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,8 +31,9 @@ class Ball:
     - Physical properties (color, occlusion)
     - Coordinate space metadata (prevents double-scaling bugs)
 
-    All position coordinates use tuple[float, float] format (not Vector2D)
-    to maintain compatibility with existing vision and tracking code.
+    Detection and tracking consumers use tuple[float, float] positions; the
+    coordinate metadata on this model makes conversions between their frame
+    space and canonical physics space explicit.
 
     Coordinate Space Management:
         The coordinate_space and source_resolution fields prevent double-scaling
@@ -89,6 +90,9 @@ class Ball:
     # Ball identification
     number: Optional[int] = None  # 1-15 for numbered balls, None for cue ball
     confidence: float = 0.0  # 0.0-1.0 detection confidence
+    # False when this position came from a tracker prediction without a current
+    # detector match. Defaults to True for existing direct Ball construction.
+    is_observed: bool = True
 
     # Motion data
     velocity: tuple[float, float] = (0.0, 0.0)  # (vx, vy) pixels/second
@@ -207,6 +211,7 @@ class Ball:
                 ball_type=self.ball_type,
                 number=self.number,
                 confidence=self.confidence,
+                is_observed=self.is_observed,
                 velocity=self.velocity,
                 acceleration=self.acceleration,
                 is_moving=self.is_moving,
@@ -274,6 +279,7 @@ class Ball:
                 ball_type=self.ball_type,
                 number=self.number,
                 confidence=self.confidence,
+                is_observed=self.is_observed,
                 velocity=new_velocity,
                 acceleration=new_acceleration,
                 is_moving=self.is_moving,
@@ -403,6 +409,7 @@ class Ball:
             is_pocketed=False,
             number=self.number,
             confidence=self.confidence,
+            is_observed=self.is_observed,
             last_update=self.last_seen,
         )
 
@@ -440,4 +447,6 @@ class Ball:
         elif self.ball_type == BallType.EIGHT:
             return "8"
         else:
-            return self.ball_type.value.capitalize()
+            # Enum.value is typed as Any by the stdlib even though every
+            # BallType value is declared as a string.
+            return cast("str", self.ball_type.value).capitalize()

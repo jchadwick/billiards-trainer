@@ -1,41 +1,34 @@
 """FastAPI application setup and configuration."""
 
 import asyncio
+import copy
 import logging
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional, Protocol, cast
 
-from fastapi import FastAPI, Request, Response, WebSocket
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-# WebSocketDisconnect moved between FastAPI versions
-try:
-    from fastapi.websockets import WebSocketDisconnect
-except ImportError:
-    try:
-        from starlette.websockets import WebSocketDisconnect  # type: ignore
-    except ImportError:
-        from fastapi.exceptions import WebSocketDisconnect  # type: ignore
-
-# Internal imports
-# Import config module - when running from backend dir, config.py is at same level as api/
-import sys
-from pathlib import Path
-
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
-from config import config
+from backend.config import config
 
 # Import core module
-from core import CoreModule, CoreModuleConfig
-from integration_service import IntegrationService
+from backend.core import CoreModule, CoreModuleConfig
+from backend.integration_service import IntegrationService
+from backend.perception.provider import (
+    PerceptionProvider,
+    PerceptionProviderError,
+    require_api_provider,
+)
+from backend.perception.rust_replay_supervisor import (
+    RustReplaySettings,
+    RustReplaySupervisor,
+)
+from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
+from backend.system.health_monitor import health_monitor
 
 from .dependencies import ApplicationState, app_state
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
@@ -51,7 +44,6 @@ from .routes import (
     game,
     health,
     logs,
-    modules,
     stream,
     vision,
     vision_performance,
@@ -65,37 +57,42 @@ from .websocket import (
     websocket_manager,
 )
 from .websocket.endpoints import websocket_router
-
-# Import health monitor with fallback
-try:
-    from ..system.health_monitor import health_monitor
-except ImportError:
-    try:
-        from system.health_monitor import health_monitor  # type: ignore
-    except ImportError:
-        # Fallback: create a minimal health monitor interface
-        from typing import Any as _Any
-
-        class MockHealthMonitor:
-            """Mock health monitor for when system.health_monitor is not available."""
-
-            def register_components(self, **kwargs: _Any) -> None:
-                """Register components for monitoring."""
-                pass
-
-            async def start_monitoring(self, check_interval: float = 5.0) -> None:
-                """Start monitoring."""
-                pass
-
-            async def stop_monitoring(self) -> None:
-                """Stop monitoring."""
-                pass
-
-        health_monitor = MockHealthMonitor()  # type: ignore[assignment]
+from .websocket.rate_limit import RateLimitUnavailable, rate_limiter
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class _HealthMonitorLifecycle(Protocol):
+    """Typed surface for health-monitor operations used by the API lifecycle."""
+
+    def register_components(
+        self,
+        core_module: Any,
+        config_module: Any,
+        websocket_manager: Any,
+        vision_module: Any,
+        integration_service: Any,
+    ) -> None: ...
+
+    async def stop_monitoring(self) -> None: ...
+
+
+class _RuntimeConfiguration:
+    """Read lifecycle settings from app overrides, then the saved config."""
+
+    def __init__(self, base: Any, overrides: dict[str, Any]) -> None:
+        self._base = base
+        self._overrides = overrides
+
+    def get(self, key: str, default: Any = None) -> Any:
+        value: Any = self._overrides
+        for component in key.split("."):
+            if not isinstance(value, dict) or component not in value:
+                return self._base.get(key, default)
+            value = value[component]
+        return copy.deepcopy(value)
 
 
 def get_middleware_config(
@@ -280,11 +277,34 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     logger.info("Starting up Billiards Trainer API...")
     app_state.startup_time = time.time()
+    app_state.is_healthy = False
+    app_state.config_module = config
+    app_state.vision_module = None
+    app_state.integration_service = None
+    app_state.scene_state_publisher = None
+    app_state.perception_runtime = None
+    app_state.performance_broadcast_task = None
+    audit_runtime_task: asyncio.Task[None] | None = None
+    runtime_config = getattr(_app.state, "runtime_config", config)
+
+    try:
+        selected_provider = require_api_provider(runtime_config)
+    except PerceptionProviderError as error:
+        logger.error("Perception provider preflight failed: %s", error)
+        raise
+    app_state.perception_provider = selected_provider.value
+    logger.info("Selected perception provider: %s", selected_provider.value)
 
     try:
         # Configuration is now available as a simple singleton
         logger.info("Configuration system initialized")
-        app_state.config_module = config
+
+        # Keep the API available for diagnostics when Redis is down, but report
+        # unready and reject every new WebSocket admission until enforcement works.
+        if not await rate_limiter.initialize():
+            logger.error(
+                "Rate-limit dependency is unavailable; WebSocket admission is closed"
+            )
 
         # Initialize core module
         logger.info("Initializing core module...")
@@ -293,7 +313,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             prediction_enabled=True,
             assistance_enabled=True,
             async_processing=True,
-            debug_mode=config.get("system.debug", False),
+            debug_mode=runtime_config.get("system.debug", False),
         )
         app_state.core_module = CoreModule(core_config)
 
@@ -311,62 +331,109 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Start WebSocket system services
         await initialize_websocket_system()
 
-        # Initialize vision module (needed for integration service)
-        logger.info("Initializing vision module for integration...")
-        from backend.vision import VisionModule
+        if selected_provider is PerceptionProvider.PYTHON:
+            logger.info("Initializing Python vision module for live integration...")
+            from backend.vision import VisionModule
 
-        app_state.vision_module = VisionModule()
-        # Note: Vision module initialization is lightweight - camera opens on first use
+            app_state.vision_module = VisionModule()
+            audit_recorder = app_state.vision_module.audit_recorder
+            websocket_handler.configure_performance_audit(
+                recorder=audit_recorder,
+                domains=app_state.vision_module.audit_domains,
+            )
+            if audit_recorder is not None:
+                resource_interval = float(
+                    runtime_config.get(
+                        "performance_audit.resource_sample_interval_seconds", 1.0
+                    )
+                )
+                audit_domain = next(
+                    (
+                        domain
+                        for domain in ("state", "trajectory", "viewers")
+                        if app_state.vision_module.audit_domains.get(domain, False)
+                    ),
+                    "state",
+                )
 
-        # Initialize and start integration service
-        logger.info("Initializing integration service...")
-        app_state.integration_service = IntegrationService(
-            vision_module=app_state.vision_module,
-            core_module=app_state.core_module,
-            message_broadcaster=app_state.message_broadcaster,
-            config_module=app_state.config_module,
-        )
-
-        # Start integration service to begin Vision→Core→Broadcast flow
-        await app_state.integration_service.start()
-        logger.info("Integration service started - Vision→Core→Broadcast flow active")
-
-        # Start performance stats broadcasting task
-        async def broadcast_performance_stats_loop():
-            """Background task to broadcast performance stats every 500ms."""
-            logger.info("Performance stats broadcasting task started (500ms interval)")
-            while True:
-                try:
-                    await asyncio.sleep(0.5)  # 500ms interval
-
-                    # Get profiler from vision module (same as REST API does)
-                    if (
-                        app_state.vision_module
-                        and hasattr(app_state.vision_module, "profiler")
-                        and app_state.vision_module.profiler
-                    ):
-                        perf_stats = (
-                            app_state.vision_module.profiler.get_realtime_status()
+                async def sample_event_loop_health() -> None:
+                    """Record event-loop delay and task pressure only during audits."""
+                    loop = asyncio.get_running_loop()
+                    while True:
+                        expected = loop.time() + resource_interval
+                        await asyncio.sleep(resource_interval)
+                        actual = loop.time()
+                        audit_recorder.record(
+                            {
+                                "event_type": "api_event_loop_sample",
+                                "domain": audit_domain,
+                                "event_loop_lag_seconds": max(0.0, actual - expected),
+                                "outstanding_tasks": sum(
+                                    not task.done() for task in asyncio.all_tasks()
+                                ),
+                            }
                         )
-                        await message_broadcaster.broadcast_performance_stats(
-                            perf_stats
-                        )
-                except asyncio.CancelledError:
-                    logger.info("Performance stats broadcasting task cancelled")
-                    break
-                except Exception as e:
-                    logger.error(f"Error broadcasting performance stats: {e}")
-                    # Continue loop despite errors
-                    await asyncio.sleep(0.5)
 
-        # Create and store the task
-        app_state.performance_broadcast_task = asyncio.create_task(
-            broadcast_performance_stats_loop()
-        )
+                audit_runtime_task = asyncio.create_task(
+                    sample_event_loop_health(), name="performance-audit-event-loop"
+                )
+
+            logger.info("Initializing Python integration service...")
+            app_state.integration_service = IntegrationService(
+                vision_module=app_state.vision_module,
+                core_module=app_state.core_module,
+                message_broadcaster=app_state.message_broadcaster,
+                config_module=app_state.config_module,
+            )
+            await app_state.integration_service.start()
+            logger.info("Python Vision→Core→Broadcast flow active")
+
+            async def broadcast_performance_stats_loop() -> None:
+                """Background task to broadcast vision profiler samples."""
+                while True:
+                    try:
+                        await asyncio.sleep(0.5)
+                        if app_state.vision_module and getattr(
+                            app_state.vision_module, "profiler", None
+                        ):
+                            perf_stats = (
+                                app_state.vision_module.profiler.get_realtime_status()
+                            )
+                            await message_broadcaster.broadcast_performance_stats(
+                                perf_stats
+                            )
+                    except asyncio.CancelledError:
+                        break
+                    except Exception:
+                        logger.exception("Error broadcasting performance stats")
+                        await asyncio.sleep(0.5)
+
+            app_state.performance_broadcast_task = asyncio.create_task(
+                broadcast_performance_stats_loop()
+            )
+        else:
+            # Rust replay is the only publisher in this branch. Starting the
+            # Python vision or integration services would create a competing
+            # perception pipeline and a conflicting state stream.
+            websocket_handler.configure_performance_audit()
+            publisher = SceneSnapshotStatePublisher(message_broadcaster)
+            app_state.scene_state_publisher = publisher
+            settings = RustReplaySettings.from_configuration(runtime_config)
+            supervisor = RustReplaySupervisor(settings, publisher)
+            app_state.perception_runtime = supervisor
+            replay_status = await supervisor.start()
+            logger.info(
+                "Rust recorded replay published its first localization; "
+                "live camera, preview and predictions remain unavailable"
+            )
+            if not replay_status.first_observation_received:
+                raise RuntimeError(
+                    "Rust replay startup completed without a usable observation"
+                )
 
         # Register components with health monitor
         logger.info("Registering components with health monitor...")
-        health_monitor.register_components(
+        cast("_HealthMonitorLifecycle", health_monitor).register_components(
             core_module=app_state.core_module,
             config_module=app_state.config_module,
             websocket_manager=app_state.websocket_manager,
@@ -375,7 +442,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
         # Get health monitor configuration
-        check_interval = config.get("api.health_monitor.check_interval", 5.0)
+        check_interval = runtime_config.get("api.health_monitor.check_interval", 5.0)
 
         # Start health monitoring
         await health_monitor.start_monitoring(check_interval=check_interval)
@@ -405,12 +472,27 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Shutdown
         logger.info("Shutting down Billiards Trainer API...")
 
+        if audit_runtime_task is not None:
+            audit_runtime_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await audit_runtime_task
+
         # Stop performance stats broadcasting task
-        if hasattr(app_state, "performance_broadcast_task"):
+        if app_state.performance_broadcast_task is not None:
             logger.info("Stopping performance stats broadcasting task...")
             app_state.performance_broadcast_task.cancel()
             with suppress(asyncio.CancelledError):
                 await app_state.performance_broadcast_task
+            app_state.performance_broadcast_task = None
+
+        if app_state.perception_runtime is not None:
+            logger.info("Stopping supervised Rust replay...")
+            try:
+                await app_state.perception_runtime.close()
+            except Exception:
+                logger.exception("Error stopping Rust replay provider")
+            app_state.perception_runtime = None
+            app_state.scene_state_publisher = None
 
         # Stop integration service first
         if app_state.integration_service:
@@ -418,25 +500,24 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             await app_state.integration_service.stop()
 
         # Stop health monitoring
-        await health_monitor.stop_monitoring()
+        await cast("_HealthMonitorLifecycle", health_monitor).stop_monitoring()
 
         # Shutdown WebSocket system
         await shutdown_websocket_system()
 
+        # Close the optional shared rate-limit client after WebSocket cleanup.
+        try:
+            await rate_limiter.close()
+        except Exception:
+            logger.exception("Error closing WebSocket rate-limit store")
+
         if app_state.vision_module:
             # Vision module cleanup
             try:
-                app_state.vision_module.stop_capture()
+                app_state.vision_module.close()
             except Exception as e:
                 logger.error(f"Error stopping vision module: {e}")
-
-        if app_state.core_module:
-            # Core module doesn't have explicit shutdown, but we can clean up
-            pass
-
-        if app_state.config_module:
-            # Configuration module cleanup if needed
-            pass
+        websocket_handler.configure_performance_audit()
 
         app_state.is_healthy = False
         logger.info("Billiards Trainer API shutdown complete")
@@ -454,10 +535,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         redoc_url="/redoc",
         openapi_url="/openapi.json",
     )
-
-    # Apply configuration overrides if provided
-    if config_override:
-        app.extra = {"config_override": config_override}
+    app.state.runtime_config = _RuntimeConfiguration(config, config_override or {})
 
     # Determine if running in development mode
     import os
@@ -478,7 +556,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -487,13 +565,8 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     # This ensures proper execution order for request/response processing
 
     # 1. Health metrics tracking (last - measures everything)
-    # TEMPORARILY DISABLED FOR DEBUG
-    # metrics_config = (
-    #     MetricsConfig(**middleware_config["metrics"])
-    #     if middleware_config.get("metrics")
-    #     else MetricsConfig()
-    # )
-    # app.add_middleware(MetricsMiddleware, config=metrics_config)
+    metrics_config = MetricsConfig(**middleware_config["metrics"])
+    app.add_middleware(MetricsMiddleware, config=metrics_config)
 
     # 2. Performance monitoring (last - measures everything)
     setup_performance_monitoring(app, middleware_config["performance"])
@@ -517,90 +590,12 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
     app.include_router(vision_performance.router, prefix="/api/v1")
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
-    app.include_router(modules.router, prefix="/api/v1")
     app.include_router(diagnostics.router, prefix="/api/v1")
     app.include_router(logs.router, prefix="/api/v1")
     app.include_router(debug.router, prefix="/api/v1")
 
     # Include WebSocket management endpoints
     app.include_router(websocket_router, prefix="/api/v1/websocket")
-
-    # Include the actual WebSocket endpoint at root level (no prefix)
-    async def websocket_endpoint(websocket: WebSocket) -> None:
-        """Main WebSocket endpoint with full handler integration.
-
-        Handles:
-        - Connection lifecycle (connect, message handling, disconnect)
-        - Message subscriptions (frame, state, trajectory, alert, config)
-        - Connection monitoring and health checks
-        - Rate limiting and quality tracking
-        """
-        client_id: Optional[str] = None
-
-        try:
-            # Connect via WebSocketHandler - this accepts the connection and returns client_id
-            logger.info(f"New WebSocket connection from {websocket.client}")
-            client_id = await websocket_handler.connect(websocket)
-            logger.info(f"WebSocket connected successfully: {client_id}")
-
-            # Register client in manager with full permissions
-            permissions = {"stream:*", "control:*", "config:*"}
-            await websocket_manager.register_client(
-                client_id=client_id,
-                user_id=None,
-                permissions=permissions,
-            )
-            logger.info(f"Client registered in manager: {client_id}")
-
-            # Message loop - handle incoming messages
-            while True:
-                try:
-                    # Wait for client message
-                    message = await websocket.receive_text()
-
-                    # Handle the message via WebSocketHandler
-                    await websocket_handler.handle_message(client_id, message)
-
-                except WebSocketDisconnect:
-                    # Client disconnected normally - exit loop
-                    logger.info(f"WebSocket client disconnected: {client_id}")
-                    break
-                except Exception as msg_error:
-                    # Check if this is a disconnect-related error
-                    error_msg = str(msg_error)
-                    if (
-                        "disconnect" in error_msg.lower()
-                        or "receive" in error_msg.lower()
-                    ):
-                        logger.info(
-                            f"WebSocket disconnected (via exception): {client_id}"
-                        )
-                        break
-
-                    logger.error(
-                        f"Error processing message from {client_id}: {msg_error}"
-                    )
-                    # Continue processing - don't disconnect on single message error
-
-        except Exception as e:
-            # Log connection error
-            if client_id:
-                logger.error(f"WebSocket error for {client_id}: {e}")
-            else:
-                logger.error(f"WebSocket connection error: {e}")
-
-        finally:
-            # Always disconnect and cleanup
-            if client_id:
-                logger.info(f"WebSocket disconnecting: {client_id}")
-                await websocket_manager.unregister_client(client_id)
-                await websocket_handler.disconnect(client_id)
-
-            # Ensure WebSocket is closed
-            with suppress(Exception):
-                await websocket.close()
-
-    app.add_websocket_route("/api/v1/ws", websocket_endpoint)
 
     # API root endpoint
     @app.get("/api")
@@ -640,32 +635,32 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         # SPA fallback - serve index.html for non-API frontend routes
         # Register specific frontend routes instead of catch-all
         @app.get("/")
-        async def spa_root():
+        async def spa_root() -> FileResponse:
             """Serve index.html for root/dashboard route."""
             return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/live")
-        async def spa_live():
+        async def spa_live() -> FileResponse:
             """Serve index.html for live view route."""
             return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/calibration")
-        async def spa_calibration():
+        async def spa_calibration() -> FileResponse:
             """Serve index.html for calibration route."""
             return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/configuration")
-        async def spa_configuration():
+        async def spa_configuration() -> FileResponse:
             """Serve index.html for configuration route."""
             return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/system-management")
-        async def spa_system_management():
+        async def spa_system_management() -> FileResponse:
             """Serve index.html for system management route."""
             return FileResponse(str(static_dir / "index.html"))
 
         @app.get("/diagnostics")
-        async def spa_diagnostics():
+        async def spa_diagnostics() -> FileResponse:
             """Serve index.html for diagnostics route."""
             return FileResponse(str(static_dir / "index.html"))
 

@@ -2,25 +2,14 @@
 
 import logging
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 from fastapi import Request, Response
 from pydantic import BaseModel, Field
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
-# Import health monitor with fallback
-try:
-    from ...system.health_monitor import health_monitor
-except ImportError:
-    try:
-        from system.health_monitor import health_monitor
-    except ImportError:
-        # Fallback: create a minimal health monitor interface
-        class MockHealthMonitor:
-            def record_api_request(self, response_time: float, success: bool = True):
-                pass
-
-        health_monitor = MockHealthMonitor()
+from backend.system.health_monitor import health_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +35,7 @@ class MetricsConfig(BaseModel):
 class MetricsMiddleware(BaseHTTPMiddleware):
     """Middleware to track API request metrics for health monitoring."""
 
-    def __init__(self, app, config: Optional[MetricsConfig] = None):
+    def __init__(self, app: ASGIApp, config: Optional[MetricsConfig] = None) -> None:
         """Initialize metrics middleware.
 
         Args:
@@ -56,7 +45,9 @@ class MetricsMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.config = config or MetricsConfig()
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Process request and track metrics.
 
         Args:

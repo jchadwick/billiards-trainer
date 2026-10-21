@@ -173,26 +173,18 @@ function love.draw()
         love.graphics.print("UDP: Disconnected", 10, 70)
     end
 
-    if status.websocket then
-        love.graphics.setColor(TEXT_COLOR_SUCCESS)
-        love.graphics.print("WebSocket: Connected", 10, 90)
-    else
-        love.graphics.setColor(TEXT_COLOR)
-        love.graphics.print("WebSocket: Disconnected", 10, 90)
-    end
-
     -- Module status
     love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(string.format("Modules: %d loaded", ModuleManager:getModuleCount()), 10, 110)
+    love.graphics.print(string.format("Modules: %d loaded", ModuleManager:getModuleCount()), 10, 90)
 
     -- Message stats
     love.graphics.setColor(TEXT_COLOR)
-    love.graphics.print(string.format("Messages received: %d", status.messagesReceived or 0), 10, 130)
+    love.graphics.print(string.format("Messages received: %d", status.messagesReceived or 0), 10, 110)
 
     if status.lastMessage then
         love.graphics.setColor(TEXT_COLOR)
         local timeSince = love.timer.getTime() - status.lastMessage
-        love.graphics.print(string.format("Last message: %.1fs ago", timeSince), 10, 150)
+        love.graphics.print(string.format("Last message: %.1fs ago", timeSince), 10, 130)
     end
 
     -- Debug: Show trajectory data
@@ -206,7 +198,7 @@ function love.draw()
             pathCount,
             trajectoryModule.aimLine and "yes" or "no",
             collisionCount,
-            ghostCount), 10, 170)
+            ghostCount), 10, 150)
     end
 
     -- Debug: Test calibration transform
@@ -217,15 +209,15 @@ function love.draw()
             if success2 then
                 love.graphics.setColor(TEXT_COLOR)
                 love.graphics.print(string.format("Transform: (0.2,0.3)->(%d,%d) (0.8,0.7)->(%d,%d)",
-                    math.floor(x1 or 0), math.floor(y1 or 0), math.floor(x2 or 0), math.floor(y2 or 0)), 10, 190)
+                    math.floor(x1 or 0), math.floor(y1 or 0), math.floor(x2 or 0), math.floor(y2 or 0)), 10, 170)
             end
         else
             love.graphics.setColor(TEXT_COLOR_ERROR)
-            love.graphics.print("Transform error: " .. tostring(x1), 10, 190)
+            love.graphics.print("Transform error: " .. tostring(x1), 10, 170)
         end
     else
         love.graphics.setColor(TEXT_COLOR_ERROR)
-        love.graphics.print("Calibration not available", 10, 190)
+        love.graphics.print("Calibration not available", 10, 170)
     end
 
     love.graphics.pop()

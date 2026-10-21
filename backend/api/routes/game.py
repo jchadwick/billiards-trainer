@@ -10,130 +10,121 @@ Provides comprehensive game state management including:
 import asyncio
 import json
 import logging
-import sys
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 
-from api.dependencies import get_core_module
-from api.models.converters import vector2d_to_dict
-from api.models.responses import (
+from backend.api.dependencies import (
+    get_app_state,
+    get_core_module,
+    get_optional_core_module,
+)
+from backend.api.models.converters import (
+    ball_state_to_ball_info,
+    cue_state_to_cue_info,
+    game_state_to_response,
+    scene_state_to_response,
+    table_state_to_table_info,
+)
+from backend.api.models.responses import (
     BallInfo,
     CueInfo,
-    GameEvent,
     GameHistoryResponse,
     GameResetResponse,
     GameStateResponse,
+    SceneGameStateResponse,
     SessionExportResponse,
     TableInfo,
 )
-from core import CoreModule
-from core.models import BallState, CueState, GameState, GameType, TableState
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from backend.core import CoreModule
+from backend.core.models import BallState, CueState, GameState, GameType, TableState
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/game", tags=["Game State Management"])
 
 
-def convert_ball_state_to_info(ball: BallState) -> BallInfo:
-    """Convert core BallState to API BallInfo.
+def _live_trajectory_is_eligible(
+    observation_status: Optional[dict[str, Any]], scheduler_enabled: bool
+) -> bool:
+    """Apply the vision scheduler gate to API-requested live predictions.
 
-    Uses vector2d_to_dict() to preserve scale metadata in position and velocity.
+    When the scheduler is opt-in and disabled, preserve the legacy endpoint
+    behavior. Once enabled, unknown or stale phase state fails closed so a
+    request cannot trigger new aim calculations during motion or recovery.
     """
-    return BallInfo(
-        id=ball.id,
-        number=ball.number,
-        position=vector2d_to_dict(ball.position),  # Preserves scale metadata
-        velocity=vector2d_to_dict(ball.velocity),  # Preserves scale metadata
-        is_cue_ball=ball.is_cue_ball,
-        is_pocketed=ball.is_pocketed,
-        confidence=ball.confidence,
-        last_update=datetime.fromtimestamp(ball.last_update, timezone.utc),
+    phase = str((observation_status or {}).get("phase", "")).lower().replace("-", "_")
+    if phase in {
+        "strike",
+        "limited_motion",
+        "many_balls_moving",
+        "many_moving",
+        "recovery",
+        "recovering",
+        "uncertain",
+    }:
+        return False
+    if not scheduler_enabled and not (observation_status or {}).get("phase_aware"):
+        status = observation_status or {}
+        return not bool(
+            status.get("shot_detected", False)
+            or status.get("balls_in_motion", 0)
+            or str(status.get("game_state", "")).lower()
+            in {"moving", "shooting", "strike"}
+        )
+    if not observation_status:
+        return False
+    return (
+        observation_status.get("aim_calculation_eligible") is True
+        and observation_status.get("map_trusted") is True
     )
+
+
+def convert_ball_state_to_info(ball: BallState) -> BallInfo:
+    """Convert a core ball through the shared transport-field mapper."""
+    return ball_state_to_ball_info(ball)
 
 
 def convert_cue_state_to_info(cue: CueState) -> CueInfo:
-    """Convert core CueState to API CueInfo.
-
-    Uses vector2d_to_dict() to preserve scale metadata in tip_position.
-    """
-    return CueInfo(
-        tip_position=vector2d_to_dict(cue.tip_position),  # Preserves scale metadata
-        angle=cue.angle,
-        elevation=cue.elevation,
-        estimated_force=cue.estimated_force,
-        is_visible=cue.is_visible,
-        confidence=cue.confidence,
-    )
+    """Convert a core cue through the shared transport-field mapper."""
+    return cue_state_to_cue_info(cue)
 
 
 def convert_table_state_to_info(table: TableState) -> TableInfo:
-    """Convert core TableState to API TableInfo.
-
-    Uses vector2d_to_dict() to preserve scale metadata in pocket_positions.
-    """
-    return TableInfo(
-        width=table.width,
-        height=table.height,
-        pocket_positions=[
-            vector2d_to_dict(p) for p in table.pocket_positions
-        ],  # Preserves scale metadata
-        pocket_radius=table.pocket_radius,
-        surface_friction=table.surface_friction,
-    )
+    """Convert a core table through the shared coordinate mapper."""
+    return table_state_to_table_info(table)
 
 
 def convert_game_state_to_response(game_state: GameState) -> GameStateResponse:
     """Convert core GameState to API GameStateResponse."""
-    # Convert balls
-    balls = [convert_ball_state_to_info(ball) for ball in game_state.balls]
-
-    # Convert cue if present
-    cue = convert_cue_state_to_info(game_state.cue) if game_state.cue else None
-
-    # Convert table
-    table = convert_table_state_to_info(game_state.table)
-
-    # Convert events
-    events = [
-        GameEvent(
-            timestamp=datetime.fromtimestamp(event.timestamp, timezone.utc),
-            event_type=event.event_type,
-            description=event.description,
-            data=event.data,
-        )
-        for event in game_state.events
-    ]
-
-    return GameStateResponse(
-        timestamp=datetime.fromtimestamp(game_state.timestamp, timezone.utc),
-        frame_number=game_state.frame_number,
-        balls=balls,
-        cue=cue,
-        table=table,
-        game_type=game_state.game_type.value,
-        is_valid=game_state.is_valid,
-        confidence=game_state.state_confidence,
-        events=events,
-    )
+    return game_state_to_response(game_state)
 
 
-@router.get("/state", response_model=GameStateResponse)
+def _get_current_core_state(core_module: CoreModule | None) -> GameState | None:
+    """Read the retained Core state when Core is available and initialized."""
+    if core_module is None:
+        return None
+    game_state = core_module.get_current_state()
+    if game_state is None:
+        state_manager = getattr(core_module, "state_manager", None)
+        if state_manager is not None:
+            game_state = state_manager.get_current_state()
+    return game_state
+
+
+@router.get("/state", response_model=SceneGameStateResponse | GameStateResponse)
 async def get_current_game_state(
     include_events: bool = Query(True, description="Include recent game events"),
     include_trajectories: bool = Query(
         False, description="Include trajectory predictions"
     ),
-    core_module: CoreModule = Depends(get_core_module),
-) -> GameStateResponse:
+    core_module: Optional[CoreModule] = Depends(get_optional_core_module),
+    app_state: Any = Depends(get_app_state),
+) -> GameStateResponse | SceneGameStateResponse:
     """Retrieve current game state snapshot (FR-API-013).
 
     Returns the complete current state of the billiards game including
@@ -141,38 +132,38 @@ async def get_current_game_state(
     trajectory predictions.
     """
     try:
-        # Get current game state from core module
-        if hasattr(core_module, "get_current_state"):
-            game_state = core_module.get_current_state()
-        else:
-            # Fallback: create a basic game state
-            from ...core.models import GameState, GameType, TableState
+        # Scene localization is the primary read path and remains available
+        # while optional game logic is starting, stopped, or uninitialized.
+        scene_publisher = getattr(app_state, "scene_state_publisher", None)
+        scene_read_model = (
+            getattr(scene_publisher, "read_model", None)
+            if scene_publisher is not None
+            else None
+        )
+        response: GameStateResponse | SceneGameStateResponse
+        if scene_read_model is not None:
+            game_state = _get_current_core_state(core_module)
+            response = scene_state_to_response(
+                scene_read_model,
+                game_state,
+                include_events=include_events,
+            )
+            logger.info("Current scene state retrieved")
+            return response
 
-            game_state = GameState.create_initial_state(GameType.PRACTICE)
-
+        # The Python-only fallback still requires its original initialized
+        # Core state. Do not change its established 503 behavior.
+        if core_module is None:
+            raise HTTPException(status_code=503, detail="Core module not available")
+        game_state = _get_current_core_state(core_module)
         if not game_state:
-            # Return empty state if no game is active
-            # TODO: Get table from calibration config instead of using factory method
-            # For now, use standard_9ft_table() as fallback for backward compatibility
-            # In production, table should be initialized from camera calibration via
-            # TableState.from_calibration() during system startup
-            from ...core.models import TableState
-
-            empty_table = TableState.standard_9ft_table()
-
-            return GameStateResponse(
-                timestamp=datetime.now(timezone.utc),
-                frame_number=0,
-                balls=[],
-                cue=None,
-                table=convert_table_state_to_info(empty_table),
-                game_type="practice",
-                is_valid=True,
-                confidence=1.0,
-                events=[],
+            raise HTTPException(
+                status_code=503,
+                detail="Game state is unavailable until the table is calibrated",
             )
 
-        # Convert to response format
+        # Keep the Python Core response path unchanged when no scene publisher
+        # has been attached by application lifecycle management.
         response = convert_game_state_to_response(game_state)
 
         # Filter events if not requested
@@ -180,7 +171,18 @@ async def get_current_game_state(
             response.events = []
 
         # Add trajectory predictions if requested
-        if include_trajectories and hasattr(core_module, "predict_trajectories"):
+        integration = getattr(app_state, "integration_service", None)
+        observation_status = getattr(integration, "latest_observation_status", None)
+        config_module = getattr(app_state, "config_module", None)
+        scheduler_enabled = bool(
+            config_module
+            and config_module.get("vision.processing.phase_scheduler.enabled", False)
+        )
+        if (
+            include_trajectories
+            and _live_trajectory_is_eligible(observation_status, scheduler_enabled)
+            and hasattr(core_module, "predict_trajectories")
+        ):
             try:
                 # This would be implemented in the core module
                 core_module.predict_trajectories(game_state)
@@ -191,6 +193,8 @@ async def get_current_game_state(
         logger.info("Current game state retrieved")
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to retrieve current game state: {e}")
         raise HTTPException(
@@ -337,21 +341,45 @@ async def reset_game_state(
                 detail=f"Game type '{game_type}' is not supported",
             )
 
-        # Reset game state
+        # A reset needs a real calibrated table. Preserve the current table by
+        # default; when preservation is disabled, use the state manager's
+        # configured calibration table if one exists.
         try:
-            if hasattr(core_module, "reset_game_state"):
-                new_game_state = core_module.reset_game_state(
-                    game_type=game_type_enum, preserve_table=preserve_table
+            current_state = core_module.get_current_state()
+            if current_state is None:
+                current_state = core_module.state_manager.get_current_state()
+            configured_table = getattr(
+                core_module.state_manager, "_default_table", None
+            )
+            table = (
+                current_state.table
+                if preserve_table and current_state is not None
+                else configured_table
+            )
+            if table is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A calibrated table is required before resetting the game",
                 )
-            else:
-                # Fallback: create new initial state
-                new_game_state = GameState.create_initial_state(game_type_enum)
 
+            await core_module.reset_game(game_type_enum)
+            # CoreModule.reset_game clears its live snapshot and resets the
+            # manager using its configured table. Supplying the resolved table
+            # here preserves the API's explicit preserve-table behavior even
+            # when a runtime table came from frame detections rather than the
+            # manager's startup configuration.
+            core_module.state_manager.reset_game(game_type_enum, table_config=table)
+            new_game_state = core_module.state_manager.get_current_state()
+            if new_game_state is None:
+                raise RuntimeError("Game state manager did not create a reset state")
+
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to reset game state: {str(e)}",
-            )
+                detail="Failed to reset game state",
+            ) from e
 
         # Convert new state to response format
         new_state_response = convert_game_state_to_response(new_game_state)
@@ -405,7 +433,7 @@ async def export_session_data(
         export_id = f"export_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
 
         # Collect data to export
-        export_data = {
+        export_data: dict[str, Any] = {
             "metadata": {
                 "export_id": export_id,
                 "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -465,8 +493,8 @@ async def export_session_data(
             filename = f"session_export_{timestamp}.json"
             file_path = f"/tmp/{filename}"
 
-            with open(file_path, "w") as f:
-                json.dump(export_data, f, indent=2, default=str)
+            with open(file_path, "w") as text_file:
+                json.dump(export_data, text_file, indent=2, default=str)
 
             file_size = Path(file_path).stat().st_size
 
@@ -492,8 +520,8 @@ async def export_session_data(
         # Calculate checksum
         import hashlib
 
-        with open(file_path, "rb") as f:
-            checksum = hashlib.sha256(f.read()).hexdigest()
+        with open(file_path, "rb") as binary_file:
+            checksum = hashlib.sha256(binary_file.read()).hexdigest()
 
         # Set expiration time (24 hours from now)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
@@ -501,7 +529,7 @@ async def export_session_data(
         logger.info(f"Session data exported: {filename}")
 
         # Schedule cleanup of export file
-        async def cleanup_export_file():
+        async def cleanup_export_file() -> None:
             await asyncio.sleep(24 * 3600)  # 24 hours
             try:
                 Path(file_path).unlink(missing_ok=True)

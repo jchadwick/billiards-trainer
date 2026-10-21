@@ -1,233 +1,115 @@
-# GitHub Actions workflow for testing the billiards trainer backend
+# Backend import, formatting, and hardware-free regression checks.
 name: Backend Tests
 
 on:
   push:
-    branches: [ main, develop ]
-    paths: [ 'backend/**', '.github/workflows/**' ]
+    branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
+      - "pyproject.toml"
+      - "requirements.txt"
   pull_request:
-    branches: [ main, develop ]
-    paths: [ 'backend/**', '.github/workflows/**' ]
+    branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/**"
+      - ".pre-commit-config.yaml"
+      - "pyproject.toml"
+      - "requirements.txt"
 
 env:
-  PYTHON_VERSION: '3.11'
+  PYTHON_VERSION: "3.11"
+
+permissions: {}
 
 jobs:
-  lint:
+  code-quality:
     name: Code Quality
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Fetch public source without credentials
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          fi
+          git checkout --quiet --detach FETCH_HEAD
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install black isort mypy
+      - name: Install quality tools and backend dependencies
+        run: |
+          python -m pip install -r backend/requirements.txt
+          python -m pip install black==25.9.0 isort==5.12.0 ruff==0.17.1 mypy==1.18.2 types-psutil==7.2.2.20260906
 
-    - name: Run black
-      run: |
-        cd backend
-        black --check --diff .
+      - name: Check Ruff rules
+        run: python -m ruff check backend
 
-    - name: Run isort
-      run: |
-        cd backend
-        isort --check-only --diff .
+      - name: Check strict backend types
+        if: ${{ !cancelled() }}
+        run: python -m mypy --strict --python-version 3.11 backend
 
-    - name: Run mypy
-      run: |
-        cd backend
-        mypy . || true  # Don't fail on type errors for now
+      - name: Check Black formatting
+        if: ${{ !cancelled() }}
+        run: python -m black --check --diff backend
 
-  unit-tests:
-    name: Unit Tests
+      - name: Check import sorting
+        if: ${{ !cancelled() }}
+        run: python -m isort --check-only --diff backend
+
+  tests:
+    name: Backend Tests and Coverage
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Fetch public source without credentials
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          fi
+          git checkout --quiet --detach FETCH_HEAD
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio pytest-cov pytest-xdist
+      - name: Install backend and test dependencies
+        run: python -m pip install -r backend/requirements.txt
 
-    - name: Create test directories
-      run: |
-        mkdir -p backend/tests/logs
-        mkdir -p backend/tests/data
-        mkdir -p backend/tests/coverage
+      - name: Collect all backend tests
+        run: python -m pytest --collect-only --no-cov backend/tests
 
-    - name: Run unit tests
-      run: |
-        cd backend
-        python -m pytest tests/unit/ \
-          -m unit \
-          --cov=backend \
-          --cov-report=xml:coverage.xml \
-          --cov-report=term-missing \
-          --junit-xml=junit.xml \
-          -v
+      - name: Run focused integration contracts
+        run: python -m pytest backend/tests/integration -m integration --no-cov
 
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./backend/coverage.xml
-        flags: unit-tests
-        name: unit-tests
-        fail_ci_if_error: false
+      - name: Run focused system contracts
+        run: python -m pytest backend/tests/system -m "system and not hardware" --no-cov
 
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: unit-test-results
-        path: backend/junit.xml
-
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio pytest-cov
-
-    - name: Run integration tests
-      run: |
-        cd backend
-        python -m pytest tests/integration/ \
-          -m integration \
-          --cov=backend \
-          --cov-report=xml:coverage-integration.xml \
-          --junit-xml=junit-integration.xml \
-          -v
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./backend/coverage-integration.xml
-        flags: integration-tests
-        name: integration-tests
-        fail_ci_if_error: false
-
-  system-tests:
-    name: System Tests
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-
-    - name: Install Python dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio requests
-
-    - name: Run system tests
-      run: |
-        cd backend
-        python -m pytest tests/system/ \
-          -m "system and not hardware" \
-          --junit-xml=junit-system.xml \
-          -v \
-          --tb=short
-
-  coverage-report:
-    name: Coverage Report
-    runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests]
-
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-        cache: 'pip'
-
-    - name: Install dependencies
-      run: |
-        cd backend
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pytest pytest-asyncio pytest-cov pytest-html
-
-    - name: Run all tests with coverage
-      run: |
-        cd backend
-        python -m pytest tests/ \
-          -m "not slow and not hardware" \
-          --cov=backend \
-          --cov-report=html:coverage-html \
-          --cov-report=xml:coverage.xml \
-          --cov-report=term-missing \
-          --cov-fail-under=80 \
-          --html=test-report.html \
-          --self-contained-html
-
-    - name: Upload coverage report
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-report
-        path: |
-          backend/coverage-html/
-          backend/test-report.html
-          backend/coverage.xml
-
-    - name: Upload to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./backend/coverage.xml
-        flags: all-tests
-        name: all-tests
+      - name: Run hardware-free tests with coverage
+        run: >-
+          python -m pytest backend/tests
+          -m "not slow and not hardware and not model_assets"
+          --cov-report=xml:backend/coverage.xml
+          --cov-report=html:backend/coverage-html
+          --junitxml=backend/junit.xml

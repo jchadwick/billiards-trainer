@@ -74,7 +74,7 @@ interface PerformanceTest {
   duration: number; // seconds
   result?: {
     score: number; // 0-100
-    metrics: Record<string, number>;
+    metrics: Record<string, number | boolean>;
     passed: boolean;
     issues: string[];
     recommendations: string[];

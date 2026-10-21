@@ -128,7 +128,10 @@ class CueState(Enum):
 class Pocket:
     """Pool table pocket information.
 
-    All position coordinates are in pixel space unless otherwise specified.
+    Position, corners, and radius use the containing Table's coordinate space
+    and source-resolution metadata. This avoids duplicating scale metadata on
+    each pocket while ensuring pockets follow the exact same conversion as the
+    table boundary that contains them.
     """
 
     position: tuple[float, float]  # Center position in pixel coordinates
@@ -143,43 +146,42 @@ class CueStick:
 
     Represents the cue stick with position, orientation, state, and motion data.
 
-    All position coordinates are in 4K canonical space (3840×2160) by default,
-    with source_resolution metadata to track the original camera resolution.
+    Position vectors and pixel extents use ``coordinate_space``. Pixel-space
+    cues carry the actual source frame resolution; canonical cues retain that
+    resolution as provenance. The vision normalization path transforms tip,
+    butt, shaft, aiming geometry, motion vectors, length, and width together.
     """
 
-    tip_position: tuple[float, float]  # Tip position in pixel coordinates
+    tip_position: tuple[float, float]  # Tip position in coordinate_space
     angle: float  # degrees from horizontal
-    length: float  # visible length in pixels
+    length: float  # visible length in coordinate_space units
     confidence: float = 0.0  # 0.0-1.0 detection confidence
 
     # State information
     state: CueState = CueState.HIDDEN
-    is_aiming: bool = False  # Backward compatibility
 
     # Motion tracking
     tip_velocity: tuple[float, float] = (
         0.0,
         0.0,
-    )  # in pixel coordinates, pixels/second
+    )  # in coordinate_space units/second
     angular_velocity: float = 0.0  # degrees/second
 
     # Geometry
     butt_position: tuple[float, float] = (
         0.0,
         0.0,
-    )  # Butt (back end) position in pixel coordinates
+    )  # Butt (back end) position in coordinate_space
     shaft_points: list[tuple[float, float]] = field(
         default_factory=list
-    )  # Points along the shaft in pixel coordinates
-    width: float = 0.0  # Estimated cue width in pixels
+    )  # Points along the shaft in coordinate_space
+    width: float = 0.0  # Estimated cue width in coordinate_space units
 
     # Interaction
     target_ball_id: Optional[int] = None  # ID of ball being aimed at
-    predicted_contact_point: Optional[tuple[float, float]] = (
-        None  # in pixel coordinates
-    )
+    predicted_contact_point: Optional[tuple[float, float]] = None  # in coordinate_space
     aiming_line: Optional[list[tuple[float, float]]] = (
-        None  # Line from cue to target in pixel coordinates
+        None  # Line from cue to target in coordinate_space
     )
 
     # Coordinate space metadata
@@ -230,25 +232,25 @@ class Table:
 
     Represents the pool table with boundaries, pockets, and surface properties.
 
-    All position coordinates are in 4K canonical space (3840×2160) by default,
-    with source_resolution metadata to track the original camera resolution.
+    Corners, rails, playing area, pixel dimensions, and nested pocket geometry
+    share ``coordinate_space`` and ``source_resolution``. For pixel tables the
+    source resolution identifies the exact frame in which every boundary and
+    pixel extent is expressed; canonical tables carry it as provenance.
     """
 
-    corners: list[
-        tuple[float, float]
-    ]  # 4 corners in clockwise order, pixel coordinates
+    corners: list[tuple[float, float]]  # 4 corners in clockwise order, coordinate_space
     pockets: list[Pocket]  # All 6 pockets
-    width: float  # pixels
-    height: float  # pixels
+    width: float  # width extent in coordinate_space units
+    height: float  # height extent in coordinate_space units
     surface_color: tuple[int, int, int]  # Average HSV color
 
     # Geometric properties
     rails: list[list[tuple[float, float]]] = field(
         default_factory=list
-    )  # Rail segments in pixel coordinates
+    )  # Rail segments in coordinate_space
     playing_area: list[tuple[float, float]] = field(
         default_factory=list
-    )  # Inner boundary in pixel coordinates
+    )  # Inner boundary in coordinate_space
 
     # Calibration data
     perspective_transform: Optional[NDArray[np.float64]] = None  # 3x3 transform matrix
@@ -432,14 +434,67 @@ class DetectionResult:
     processed_frame: Optional[NDArray[np.uint8]] = None  # Frame with overlays
 
     # Processing flags
-    is_complete: bool = True  # All detection components completed successfully
-    has_errors: bool = False  # Processing errors occurred
+    # Processing failures or unavailable model components make the result
+    # incomplete. Intentional scheduler skips may still yield a complete result.
+    is_complete: bool = True
+    # True only for components that failed; unavailable components are
+    # incomplete but are not represented as runtime errors.
+    has_errors: bool = False
+    # Safe component/status/category codes only; never exception text.
     error_messages: list[str] = field(default_factory=list)
 
     # Game state inference
     game_state: str = "unknown"  # "break", "aiming", "shooting", "moving", "stopped"
     shot_detected: bool = False
     balls_in_motion: int = 0
+
+    # Source-frame metadata. ``source_timestamp`` is the shared-memory
+    # publication time when available; camera exposure time is not currently
+    # supplied by the capture contract.
+    source_frame_number: Optional[int] = None
+    source_timestamp: Optional[float] = None
+    source_timestamp_kind: Optional[str] = None
+    source_process_id: Optional[int] = None
+    source_publication_monotonic_ns: Optional[int] = None
+    # Wall-clock age since the known publication/arrival time, not camera
+    # exposure time or a moving-ball observation gap.
+    frame_publication_age_seconds: Optional[float] = None
+
+    # Opt-in phase scheduler contract. ``None`` eligibility means no
+    # phase-aware eligibility decision was made for this observation.
+    phase_aware: bool = False
+    phase: Optional[str] = None
+    vision_phase: Optional[str] = None
+    phase_reason: Optional[str] = None
+    map_revision: Optional[int] = None
+    map_trusted: Optional[bool] = None
+    moving_ball_count: Optional[int] = None
+    aim_calculation_eligible: Optional[bool] = None
+    calibration_revision: Optional[str] = None
+
+    # Per-component observation times use the monotonic scheduler clock.
+    # Ball and cue status is "observed", "skipped", "failed", or
+    # "unavailable". Motion monitoring may additionally report "stale".
+    ball_detection_status: Optional[str] = None
+    # Bounded detector stage category only (inference, decoding,
+    # classification, or unknown); never backend exception text.
+    ball_detection_failure_stage: Optional[str] = None
+    cue_detection_status: Optional[str] = None
+    motion_monitor_status: Optional[str] = None
+    # The positions carried in ``balls`` may be retained from an earlier
+    # successful inference while the current ball job is skipped or fails.
+    # Consumers should append movement traces only when this is "observed".
+    ball_positions_status: Optional[str] = None
+    ball_observation_source_timestamp: Optional[float] = None
+    ball_observation_source_frame_number: Optional[int] = None
+    ball_observation_source_timestamp_kind: Optional[str] = None
+    ball_observation_timestamp: Optional[float] = None
+    maximum_ball_observation_gap_seconds: Optional[float] = None
+    actual_path_history_max_points: Optional[int] = None
+    ball_detection_view: Optional[str] = None
+    cue_observation_timestamp: Optional[float] = None
+    motion_observation_timestamp: Optional[float] = None
+    component_observation_status: dict[str, str] = field(default_factory=dict)
 
     def get_balls_by_type(self, ball_type: BallType) -> list["Ball"]:
         """Get all balls of specified type."""

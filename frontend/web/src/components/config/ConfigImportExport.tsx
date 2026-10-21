@@ -3,12 +3,18 @@ import { observer } from 'mobx-react-lite'
 import { useStores } from '../../stores/context'
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select } from '../ui'
 import type { SelectOption } from '../ui'
+import {
+  parseConfigurationFile,
+  serializeConfigurationFile,
+  type ConfigurationFileFormat,
+} from '../../utils/config-file-formats'
+import type { AppConfig } from '../../stores/types'
 
 export const ConfigImportExport = observer(() => {
   const { configStore } = useStores()
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [exportFormat, setExportFormat] = useState('json')
+  const [exportFormat, setExportFormat] = useState<ConfigurationFileFormat>('json')
   const [importStatus, setImportStatus] = useState<string>('')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -16,7 +22,6 @@ export const ConfigImportExport = observer(() => {
   const formatOptions: SelectOption[] = [
     { value: 'json', label: 'JSON Format' },
     { value: 'yaml', label: 'YAML Format' },
-    { value: 'toml', label: 'TOML Format' }
   ]
 
   const handleExport = async () => {
@@ -26,29 +31,11 @@ export const ConfigImportExport = observer(() => {
     try {
       const config = configStore.exportConfig()
       const timestamp = new Date().toISOString().split('T')[0]
-      const filename = `billiards-config-${timestamp}.${exportFormat}`
-
-      let content: string
-      let mimeType: string
-
-      switch (exportFormat) {
-        case 'yaml':
-          // Convert to YAML format (simplified)
-          content = convertToYAML(config)
-          mimeType = 'text/yaml'
-          break
-        case 'toml':
-          // Convert to TOML format (simplified)
-          content = convertToTOML(config)
-          mimeType = 'text/plain'
-          break
-        default:
-          content = JSON.stringify(config, null, 2)
-          mimeType = 'application/json'
-      }
+      const serialized = serializeConfigurationFile(config, exportFormat)
+      const filename = `billiards-config-${timestamp}.${serialized.extension}`
 
       // Create and download file
-      const blob = new Blob([content], { type: mimeType })
+      const blob = new Blob([serialized.content], { type: serialized.mimeType })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -82,30 +69,7 @@ export const ConfigImportExport = observer(() => {
 
     try {
       const text = await file.text()
-      let config: any
-
-      // Parse based on file extension
-      const extension = file.name.split('.').pop()?.toLowerCase()
-
-      switch (extension) {
-        case 'json':
-          config = JSON.parse(text)
-          break
-        case 'yaml':
-        case 'yml':
-          config = parseYAML(text)
-          break
-        case 'toml':
-          config = parseTOML(text)
-          break
-        default:
-          // Try JSON first, then YAML
-          try {
-            config = JSON.parse(text)
-          } catch {
-            config = parseYAML(text)
-          }
-      }
+      const config = parseConfigurationFile(file.name, text)
 
       // Validate configuration structure
       if (!isValidConfig(config)) {
@@ -155,65 +119,17 @@ export const ConfigImportExport = observer(() => {
     }
   }
 
-  // Helper functions for format conversion (simplified implementations)
-  const convertToYAML = (obj: any, indent = 0): string => {
-    const spaces = '  '.repeat(indent)
-    let yaml = ''
-
-    for (const [key, value] of Object.entries(obj)) {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        yaml += `${spaces}${key}:\n${convertToYAML(value, indent + 1)}`
-      } else if (Array.isArray(value)) {
-        yaml += `${spaces}${key}:\n`
-        value.forEach(item => {
-          yaml += `${spaces}  - ${item}\n`
-        })
-      } else {
-        yaml += `${spaces}${key}: ${value}\n`
-      }
-    }
-
-    return yaml
-  }
-
-  const convertToTOML = (obj: any): string => {
-    let toml = ''
-
-    // Simple TOML conversion (this would need a proper TOML library in production)
-    for (const [section, values] of Object.entries(obj)) {
-      toml += `[${section}]\n`
-      if (typeof values === 'object' && values !== null) {
-        for (const [key, value] of Object.entries(values)) {
-          toml += `${key} = ${JSON.stringify(value)}\n`
-        }
-      }
-      toml += '\n'
-    }
-
-    return toml
-  }
-
-  const parseYAML = (text: string): any => {
-    // Simplified YAML parser (would use proper YAML library in production)
-    try {
-      return JSON.parse(text) // Fallback to JSON
-    } catch {
-      throw new Error('YAML parsing not implemented - please use JSON format')
-    }
-  }
-
-  const parseTOML = (text: string): any => {
-    // Simplified TOML parser (would use proper TOML library in production)
-    throw new Error('TOML parsing not implemented - please use JSON format')
-  }
-
-  const isValidConfig = (config: any): boolean => {
+  const isValidConfig = (config: unknown): config is Partial<AppConfig> => {
     // Basic validation - check if it has expected config sections
-    if (typeof config !== 'object' || config === null) return false
+    if (typeof config !== 'object' || config === null || Array.isArray(config)) return false
 
+    const values = config as Record<string, unknown>
     const expectedSections = ['camera', 'detection', 'game', 'ui']
     const hasValidSections = expectedSections.some(section =>
-      config.hasOwnProperty(section) && typeof config[section] === 'object'
+      Object.hasOwn(values, section) &&
+      typeof values[section] === 'object' &&
+      values[section] !== null &&
+      !Array.isArray(values[section])
     )
 
     return hasValidSections
@@ -267,7 +183,10 @@ export const ConfigImportExport = observer(() => {
             <Select
               label="Export Format"
               value={exportFormat}
-              onChange={(e) => setExportFormat(e.target.value)}
+              onChange={(e) => {
+                const value = e.target.value
+                if (value === 'json' || value === 'yaml') setExportFormat(value)
+              }}
               options={formatOptions}
               fullWidth
             />
@@ -302,15 +221,14 @@ export const ConfigImportExport = observer(() => {
               </p>
               <ul className="text-sm text-gray-600 dark:text-gray-400 list-disc list-inside">
                 <li>JSON (.json)</li>
-                <li>YAML (.yaml, .yml) - Basic support</li>
-                <li>TOML (.toml) - Basic support</li>
+                <li>YAML (.yaml, .yml)</li>
               </ul>
             </div>
 
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.yaml,.yml,.toml"
+              accept=".json,.yaml,.yml"
               onChange={handleFileSelect}
               className="hidden"
             />

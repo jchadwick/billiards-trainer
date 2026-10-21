@@ -163,7 +163,7 @@ class ErrorCorrector:
 
         # Setup logging
         if self.enable_logging:
-            self.logger = logging.getLogger(__name__)
+            self.logger: logging.Logger | None = logging.getLogger(__name__)
         else:
             self.logger = None
 
@@ -338,17 +338,18 @@ class ErrorCorrector:
 
         for ball in balls:
             corrected_ball = ball.copy()
-            original_velocity = corrected_ball.velocity
+            original_velocity = corrected_ball.__dict__.get("velocity")
 
             # Check for invalid velocities
             needs_correction = False
             correction_reason = ""
 
             # Handle None velocity
-            if original_velocity is None:
+            if not isinstance(original_velocity, Vector2D):
                 corrected_ball.velocity = Vector2D.zero()
                 needs_correction = True
                 correction_reason = "None velocity"
+                velocity_magnitude = 0.0
             else:
                 velocity_magnitude = original_velocity.magnitude()
 
@@ -373,7 +374,11 @@ class ErrorCorrector:
                     correction_type=CorrectionType.INVALID_VELOCITY,
                     ball_id=ball.id,
                     description=f"Corrected {correction_reason} for ball {ball.id}",
-                    original_value=f"({original_velocity.x:.3f}, {original_velocity.y:.3f})",
+                    original_value=(
+                        f"({original_velocity.x:.3f}, {original_velocity.y:.3f})"
+                        if isinstance(original_velocity, Vector2D)
+                        else "None"
+                    ),
                     corrected_value=f"({corrected_ball.velocity.x:.3f}, {corrected_ball.velocity.y:.3f})",
                     confidence=ball.confidence,
                     severity=(
@@ -498,28 +503,23 @@ class ErrorCorrector:
             # Only apply if we have sufficient confidence (implementation specific)
             return True
 
-        return True
-
     def _separate_balls(self, ball1: BallState, ball2: BallState) -> None:
         """Separate two overlapping balls."""
         # Calculate the direction vector from ball1 to ball2
         direction = ball2.position - ball1.position
 
-        if direction is None:
-            # Cannot separate if direction cannot be calculated
-            return
-
         distance = direction.magnitude()
 
         if distance == 0:
             # Balls are at exactly the same position, use arbitrary direction
-            direction = Vector2D(1.0, 0.0)
+            direction = Vector2D.from_4k(1.0, 0.0)
             distance = 0.0
         else:
             direction = direction.normalize()
 
-        # Calculate minimum separation distance (in pixels)
-        min_distance = ball1.radius + ball2.radius + 1.0  # Small buffer (1 pixel)
+        # BallState normalizes radii and positions into canonical pixels, so
+        # separation remains in the same coordinate space as the centers.
+        min_distance = ball1.radius + ball2.radius
 
         # Calculate how much to move each ball
         overlap = min_distance - distance
@@ -534,16 +534,160 @@ class ErrorCorrector:
     ) -> Vector2D:
         """Move a ball position to be within table bounds.
 
-        Table bounds are in 4K pixels.
+        Input positions may carry source-resolution metadata; this method
+        canonicalizes them before comparing against the table. ``radius`` is
+        the BallState canonical-pixel radius. The returned point is explicitly
+        canonical, including when the playing area is calibrated and rotated.
         """
-        # Clamp position to table bounds with ball radius consideration
-        # Use actual table dimensions instead of hardcoded bounds
-        margin = radius + 1.0  # Small buffer (1 pixel)
+        canonical_position = position.to_4k_canonical()
+        radius = float(radius)
+        if not math.isfinite(radius) or radius < 0:
+            raise ValueError(
+                "Ball radius must be a finite non-negative canonical value"
+            )
+        if table.is_point_on_table(canonical_position, radius):
+            return canonical_position
 
-        x = max(margin, min(table.width - margin, position.x))
-        y = max(margin, min(table.height - margin, position.y))
+        if table.playing_area_corners and len(table.playing_area_corners) == 4:
+            polygon = [
+                (corner.to_4k_canonical().x, corner.to_4k_canonical().y)
+                for corner in table.playing_area_corners
+            ]
+        else:
+            polygon = [
+                (0.0, 0.0),
+                (table.width, 0.0),
+                (table.width, table.height),
+                (0.0, table.height),
+            ]
 
-        return Vector2D(x, y)
+        inset_polygon = self._inset_convex_polygon(polygon, radius)
+        target = (canonical_position.x, canonical_position.y)
+        if self._point_in_convex_polygon(target, inset_polygon):
+            return canonical_position
+
+        closest_point = min(
+            (
+                self._closest_point_on_segment(
+                    target,
+                    inset_polygon[index],
+                    inset_polygon[(index + 1) % len(inset_polygon)],
+                )
+                for index in range(len(inset_polygon))
+            ),
+            key=lambda candidate: (candidate[0] - target[0]) ** 2
+            + (candidate[1] - target[1]) ** 2,
+        )
+        return Vector2D.from_4k(*closest_point)
+
+    @staticmethod
+    def _inset_convex_polygon(
+        polygon: list[tuple[float, float]], margin: float
+    ) -> list[tuple[float, float]]:
+        """Clip a convex polygon against inward-offset edges by a pixel margin."""
+        if len(polygon) < 3:
+            raise ValueError("A table boundary must contain at least three points")
+        signed_area_twice = sum(
+            polygon[index][0] * polygon[(index + 1) % len(polygon)][1]
+            - polygon[(index + 1) % len(polygon)][0] * polygon[index][1]
+            for index in range(len(polygon))
+        )
+        if signed_area_twice == 0:
+            raise ValueError("Cannot clamp a ball to a degenerate table boundary")
+        orientation = 1.0 if signed_area_twice > 0 else -1.0
+        inset = polygon
+
+        for index, start in enumerate(polygon):
+            end = polygon[(index + 1) % len(polygon)]
+            edge_x = end[0] - start[0]
+            edge_y = end[1] - start[1]
+            edge_length = math.hypot(edge_x, edge_y)
+            if edge_length == 0:
+                raise ValueError(
+                    "Cannot clamp a ball to a boundary with zero-length edges"
+                )
+
+            def signed_clearance(
+                point: tuple[float, float],
+                *,
+                start: tuple[float, float] = start,
+                edge_x: float = edge_x,
+                edge_y: float = edge_y,
+                edge_length: float = edge_length,
+            ) -> float:
+                cross = edge_x * (point[1] - start[1]) - edge_y * (point[0] - start[0])
+                return orientation * cross - margin * edge_length
+
+            clipped: list[tuple[float, float]] = []
+            previous = inset[-1]
+            previous_clearance = signed_clearance(previous)
+            for current in inset:
+                current_clearance = signed_clearance(current)
+                previous_inside = previous_clearance >= 0
+                current_inside = current_clearance >= 0
+                if previous_inside != current_inside:
+                    denominator = previous_clearance - current_clearance
+                    fraction = previous_clearance / denominator
+                    clipped.append(
+                        (
+                            previous[0] + fraction * (current[0] - previous[0]),
+                            previous[1] + fraction * (current[1] - previous[1]),
+                        )
+                    )
+                if current_inside:
+                    clipped.append(current)
+                previous = current
+                previous_clearance = current_clearance
+            inset = clipped
+            if len(inset) < 3:
+                raise ValueError("Ball radius is too large for the table boundary")
+
+        return inset
+
+    @staticmethod
+    def _point_in_convex_polygon(
+        point: tuple[float, float], polygon: list[tuple[float, float]]
+    ) -> bool:
+        """Return whether a point is inside a convex polygon, including edges."""
+        signed_area_twice = sum(
+            polygon[index][0] * polygon[(index + 1) % len(polygon)][1]
+            - polygon[(index + 1) % len(polygon)][0] * polygon[index][1]
+            for index in range(len(polygon))
+        )
+        orientation = 1.0 if signed_area_twice > 0 else -1.0
+        for index, start in enumerate(polygon):
+            end = polygon[(index + 1) % len(polygon)]
+            cross = orientation * (
+                (end[0] - start[0]) * (point[1] - start[1])
+                - (end[1] - start[1]) * (point[0] - start[0])
+            )
+            if cross < 0:
+                return False
+        return True
+
+    @staticmethod
+    def _closest_point_on_segment(
+        point: tuple[float, float],
+        start: tuple[float, float],
+        end: tuple[float, float],
+    ) -> tuple[float, float]:
+        """Project a point to a finite segment in canonical pixel space."""
+        edge_x = end[0] - start[0]
+        edge_y = end[1] - start[1]
+        edge_length_squared = edge_x**2 + edge_y**2
+        fraction = (
+            0.0
+            if edge_length_squared == 0
+            else max(
+                0.0,
+                min(
+                    1.0,
+                    ((point[0] - start[0]) * edge_x + (point[1] - start[1]) * edge_y)
+                    / edge_length_squared,
+                ),
+            )
+        )
+        return start[0] + fraction * edge_x, start[1] + fraction * edge_y
 
     def _correct_overlapping_balls_from_error(
         self, state: GameState, error: str

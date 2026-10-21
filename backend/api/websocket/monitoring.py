@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import statistics
 import time
@@ -9,13 +10,15 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-from config import config_manager
+from backend.config import config
 
 from .handler import websocket_handler
 
 logger = logging.getLogger(__name__)
+
+AlertHandler = Callable[[dict[str, Any]], Any]
 
 
 class HealthStatus(Enum):
@@ -36,7 +39,6 @@ class ConnectionIssue(Enum):
     BANDWIDTH_LIMIT = "bandwidth_limit"
     FREQUENT_DISCONNECTS = "frequent_disconnects"
     RATE_LIMITING = "rate_limiting"
-    AUTHENTICATION_ISSUES = "authentication_issues"
     PROTOCOL_ERRORS = "protocol_errors"
 
 
@@ -58,9 +60,9 @@ class QualityMetrics:
     measurement_window: timedelta = field(default_factory=lambda: timedelta(minutes=5))
 
     # Latency metrics
-    latency_measurements: deque = field(
+    latency_measurements: deque[LatencyMeasurement] = field(
         default_factory=lambda: deque(
-            maxlen=config_manager.get(
+            maxlen=config.get(
                 "api.websocket.monitoring.measurements.max_latency_measurements", 1000
             )
         )
@@ -129,34 +131,36 @@ class SystemHealthMetrics:
 class ConnectionMonitor:
     """Advanced connection health monitoring and quality assessment."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.client_metrics: dict[str, QualityMetrics] = {}
         self.system_metrics = SystemHealthMetrics()
         self.monitoring_active = False
-        self.monitoring_task: Optional[asyncio.Task] = None
-        self.alert_handlers: list[callable] = []
+        self.monitoring_task: Optional[asyncio.Task[None]] = None
+        self.alert_handlers: list[AlertHandler] = []
 
         # Configuration
-        self.update_interval = config_manager.get(
+        self.update_interval = config.get(
             "api.websocket.monitoring.intervals.update_interval_seconds", 10.0
         )
-        self.latency_threshold_ms = config_manager.get(
+        self.latency_threshold_ms = config.get(
             "api.websocket.monitoring.thresholds.latency_ms", 100.0
         )
-        self.packet_loss_threshold = config_manager.get(
+        self.packet_loss_threshold = config.get(
             "api.websocket.monitoring.thresholds.packet_loss_rate", 0.05
         )
-        self.bandwidth_threshold_mbps = config_manager.get(
+        self.bandwidth_threshold_mbps = config.get(
             "api.websocket.monitoring.thresholds.bandwidth_mbps", 10.0
         )
 
         # Performance tracking
-        performance_history_max = config_manager.get(
+        performance_history_max = config.get(
             "api.websocket.monitoring.intervals.performance_history_max_count", 288
         )
-        self.performance_history = deque(maxlen=performance_history_max)
+        self.performance_history: deque[dict[str, Any]] = deque(
+            maxlen=performance_history_max
+        )
 
-    async def start_monitoring(self):
+    async def start_monitoring(self) -> None:
         """Start connection monitoring."""
         if self.monitoring_active:
             return
@@ -165,7 +169,7 @@ class ConnectionMonitor:
         self.monitoring_task = asyncio.create_task(self._monitoring_loop())
         logger.info("Connection monitoring started")
 
-    async def stop_monitoring(self):
+    async def stop_monitoring(self) -> None:
         """Stop connection monitoring."""
         if not self.monitoring_active:
             return
@@ -187,7 +191,7 @@ class ConnectionMonitor:
         latency_ms: float,
         message_type: str = "ping",
         success: bool = True,
-    ):
+    ) -> None:
         """Record a latency measurement for a client."""
         if client_id not in self.client_metrics:
             self.client_metrics[client_id] = QualityMetrics(client_id=client_id)
@@ -203,7 +207,7 @@ class ConnectionMonitor:
         metrics.latency_measurements.append(measurement)
         self._update_latency_metrics(metrics)
 
-    def record_message_sent(self, client_id: str, message_size: int):
+    def record_message_sent(self, client_id: str, message_size: int) -> None:
         """Record a message sent to a client."""
         if client_id not in self.client_metrics:
             self.client_metrics[client_id] = QualityMetrics(client_id=client_id)
@@ -212,7 +216,7 @@ class ConnectionMonitor:
         metrics.messages_sent += 1
         metrics.bytes_sent += message_size
 
-    def record_message_received(self, client_id: str, message_size: int):
+    def record_message_received(self, client_id: str, message_size: int) -> None:
         """Record a message received from a client."""
         if client_id not in self.client_metrics:
             self.client_metrics[client_id] = QualityMetrics(client_id=client_id)
@@ -221,7 +225,7 @@ class ConnectionMonitor:
         metrics.messages_received += 1
         metrics.bytes_received += message_size
 
-    def record_error(self, client_id: str, error_type: str):
+    def record_error(self, client_id: str, error_type: str) -> None:
         """Record an error for a client."""
         if client_id not in self.client_metrics:
             self.client_metrics[client_id] = QualityMetrics(client_id=client_id)
@@ -339,16 +343,16 @@ class ConnectionMonitor:
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-    def add_alert_handler(self, handler: callable):
+    def add_alert_handler(self, handler: AlertHandler) -> None:
         """Add a handler for health alerts."""
         self.alert_handlers.append(handler)
 
-    def remove_alert_handler(self, handler: callable):
+    def remove_alert_handler(self, handler: AlertHandler) -> None:
         """Remove an alert handler."""
         if handler in self.alert_handlers:
             self.alert_handlers.remove(handler)
 
-    async def _monitoring_loop(self):
+    async def _monitoring_loop(self) -> None:
         """Main monitoring loop."""
         while self.monitoring_active:
             try:
@@ -377,7 +381,7 @@ class ConnectionMonitor:
             except Exception as e:
                 logger.error(f"Error in monitoring loop: {e}")
 
-    async def _update_client_metrics(self, client_id: str):
+    async def _update_client_metrics(self, client_id: str) -> None:
         """Update metrics for a specific client."""
         if client_id not in self.client_metrics:
             return
@@ -401,7 +405,7 @@ class ConnectionMonitor:
         if client_id in websocket_handler.connections:
             await self._send_health_ping(client_id)
 
-    def _update_latency_metrics(self, metrics: QualityMetrics):
+    def _update_latency_metrics(self, metrics: QualityMetrics) -> None:
         """Update latency-related metrics."""
         if not metrics.latency_measurements:
             return
@@ -430,28 +434,28 @@ class ConnectionMonitor:
 
     def _assess_client_health(self, metrics: QualityMetrics) -> HealthStatus:
         """Assess overall health status for a client."""
-        poor_latency = config_manager.get(
+        poor_latency = config.get(
             "api.websocket.monitoring.health_status.poor_max_latency_ms", 200.0
         )
-        poor_packet_loss = config_manager.get(
+        poor_packet_loss = config.get(
             "api.websocket.monitoring.health_status.poor_max_packet_loss", 0.1
         )
-        fair_latency = config_manager.get(
+        fair_latency = config.get(
             "api.websocket.monitoring.health_status.fair_max_latency_ms", 100.0
         )
-        fair_packet_loss = config_manager.get(
+        fair_packet_loss = config.get(
             "api.websocket.monitoring.health_status.fair_max_packet_loss", 0.05
         )
-        good_latency = config_manager.get(
+        good_latency = config.get(
             "api.websocket.monitoring.health_status.good_max_latency_ms", 50.0
         )
-        good_packet_loss = config_manager.get(
+        good_packet_loss = config.get(
             "api.websocket.monitoring.health_status.good_max_packet_loss", 0.02
         )
-        excellent_latency = config_manager.get(
+        excellent_latency = config.get(
             "api.websocket.monitoring.health_status.excellent_max_latency_ms", 20.0
         )
-        excellent_packet_loss = config_manager.get(
+        excellent_packet_loss = config.get(
             "api.websocket.monitoring.health_status.excellent_max_packet_loss", 0.01
         )
 
@@ -488,13 +492,13 @@ class ConnectionMonitor:
         if metrics.packet_loss_rate > self.packet_loss_threshold:
             issues.append(ConnectionIssue.PACKET_LOSS)
 
-        frequent_disconnects_threshold = config_manager.get(
+        frequent_disconnects_threshold = config.get(
             "api.websocket.monitoring.thresholds.frequent_disconnects_count", 5
         )
         if metrics.disconnections > frequent_disconnects_threshold:
             issues.append(ConnectionIssue.FREQUENT_DISCONNECTS)
 
-        failed_sends_rate = config_manager.get(
+        failed_sends_rate = config.get(
             "api.websocket.monitoring.thresholds.failed_sends_rate", 0.1
         )
         if metrics.failed_sends > metrics.messages_sent * failed_sends_rate:
@@ -505,14 +509,14 @@ class ConnectionMonitor:
 
         return issues
 
-    def _update_system_metrics(self):
+    def _update_system_metrics(self) -> None:
         """Update overall system metrics."""
         self.system_metrics.total_connections = len(self.client_metrics)
 
         # Count health distributions
-        health_counts = defaultdict(int)
-        total_latency = 0
-        total_throughput = 0
+        health_counts: defaultdict[HealthStatus, int] = defaultdict(int)
+        total_latency = 0.0
+        total_throughput = 0.0
 
         for metrics in self.client_metrics.values():
             health_counts[metrics.overall_health] += 1
@@ -591,12 +595,12 @@ class ConnectionMonitor:
 
     def _get_health_distribution(self) -> dict[str, int]:
         """Get distribution of health statuses."""
-        distribution = defaultdict(int)
+        distribution: defaultdict[str, int] = defaultdict(int)
         for metrics in self.client_metrics.values():
             distribution[metrics.overall_health.value] += 1
         return dict(distribution)
 
-    async def _send_health_ping(self, client_id: str):
+    async def _send_health_ping(self, client_id: str) -> None:
         """Send a health check ping to a client."""
         start_time = time.time()
 
@@ -621,7 +625,7 @@ class ConnectionMonitor:
             logger.debug(f"Health ping failed for {client_id}: {e}")
             self.record_error(client_id, "failed_send")
 
-    async def _check_and_send_alerts(self):
+    async def _check_and_send_alerts(self) -> None:
         """Check for alert conditions and send notifications."""
         alerts = []
 
@@ -643,7 +647,7 @@ class ConnectionMonitor:
             )
 
         # Check for high system latency
-        high_latency_threshold = config_manager.get(
+        high_latency_threshold = config.get(
             "api.websocket.monitoring.thresholds.high_system_latency_ms", 150.0
         )
         if self.system_metrics.average_system_latency > high_latency_threshold:
@@ -663,14 +667,13 @@ class ConnectionMonitor:
         for alert in alerts:
             for handler in self.alert_handlers:
                 try:
-                    if asyncio.iscoroutinefunction(handler):
-                        await handler(alert)
-                    else:
-                        handler(alert)
+                    result = handler(alert)
+                    if inspect.isawaitable(result):
+                        await result
                 except Exception as e:
                     logger.error(f"Error in alert handler: {e}")
 
-    def _store_performance_snapshot(self):
+    def _store_performance_snapshot(self) -> None:
         """Store current performance snapshot for historical analysis."""
         snapshot = {
             "timestamp": datetime.now(timezone.utc),

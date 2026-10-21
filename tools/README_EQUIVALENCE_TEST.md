@@ -1,173 +1,173 @@
-# Backend Equivalence Test
+# YOLO model-output equivalence comparison
 
-This test script verifies that the integrated backend system (`IntegrationService` + `VisionModule` + `CoreModule`) produces the same results as the standalone `video_debugger.py` tool.
+`test_backend_equivalence.py` compares the retained Python PT model against a
+second YOLO model or a saved Rust `billiards-perception-infer` JSON result. Use
+it to characterize detector output changes on recorded still images. It does
+not compare `VisionModule`, physics, tracking, cue geometry, or the full
+camera-to-client path.
 
-## Purpose
+This is a descriptive comparison. A close match shows that two providers
+produce similar outputs; it does not establish that either output is physically
+correct. Ground-truth scoring is optional and limited to annotated still-image
+box centers. Real-time freshness requires a separate test.
 
-The equivalence test ensures that:
-1. Ball detections are identical between both systems
-2. Cue stick detections match (position, angle)
-3. Trajectory calculations produce the same results (lines, collisions)
-4. Both systems process frames consistently
+## Run a comparison
 
-## Usage
-
-### Basic Usage
-
-```bash
-# Test a video file (all frames)
-python tools/test_backend_equivalence.py demo.mkv
-
-# Test first 100 frames
-python tools/test_backend_equivalence.py demo.mkv --frames 100
-
-# Test with custom position tolerance (in pixels)
-python tools/test_backend_equivalence.py demo.mkv --tolerance 5.0
-
-# Save detailed reports to custom directory
-python tools/test_backend_equivalence.py demo.mkv --output-dir ./my-test-results
-```
-
-### Advanced Options
+Provide a video, a single image, or a directory of images, along with both model
+paths:
 
 ```bash
-python tools/test_backend_equivalence.py <video_file> \
-  --frames N \              # Max frames to test (default: all)
-  --tolerance T \           # Position tolerance in pixels (default: 2.0)
-  --angle-tolerance A \     # Angle tolerance in degrees (default: 1.0)
-  --output-dir DIR \        # Output directory (default: ./equivalence-test-results)
-  --log-level LEVEL         # Logging level: DEBUG, INFO, WARNING, ERROR
+tools/run_equivalence_test.sh \
+  --video backend/vision/test_data/multiple_balls.png \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-model /path/to/model.onnx
 ```
 
-## What Gets Tested
+The direct Python command accepts the same options:
 
-### 1. Ball Detections
-- Number of balls detected
-- Ball positions (within tolerance)
-- Ball types/IDs
-- Ball tracking consistency
-
-### 2. Cue Stick Detection
-- Cue tip position
-- Cue angle
-- Cue stick presence/absence
-- Detection confidence
-
-### 3. Trajectory Calculations
-- Number of trajectory line segments
-- Line segment endpoints (within tolerance)
-- Number of collisions
-- Collision positions and types
-- Multi-ball trajectory consistency
-
-## Output
-
-The test generates two reports:
-
-### 1. JSON Report (`equivalence_report_TIMESTAMP.json`)
-Complete test results in JSON format with:
-- Per-frame comparison results
-- All ball positions and errors
-- Complete trajectory data
-- Detailed difference analysis
-
-### 2. Summary Report (`equivalence_summary_TIMESTAMP.txt`)
-Human-readable summary with:
-- Overall equivalence percentage
-- Statistics (avg/max errors)
-- Count of mismatches by type
-- First 50 differences listed
-- Pass/fail verdict
-
-## Exit Codes
-
-- `0`: Systems are equivalent (≥99% match) or mostly equivalent (≥95% match)
-- `1`: Systems have significant differences (<95% match) or test failed
-
-## Example Output
-
-```
-================================================================================
-EQUIVALENCE TEST RESULTS
-================================================================================
-
-Video: demo.mkv
-Total Frames: 300
-Frames with Differences: 3
-Equivalence: 99.00%
-
-Ball Position Error (avg): 0.87px
-Ball Position Error (max): 2.14px
-Ball Count Mismatches: 0
-Cue Detection Mismatches: 1
-Trajectory Mismatches: 2
-
-================================================================================
-✓ SYSTEMS ARE EQUIVALENT
+```bash
+python tools/test_backend_equivalence.py INPUT \
+  --reference-model MODEL \
+  --candidate-model MODEL \
+  --frames 100 \
+  --tolerance 2.0 \
+  --imgsz 1280 \
+  --confidence 0.4 \
+  --iou 0.45 \
+  --device cpu \
+  --output-dir thoughts/performance-audits/equivalence-tests
 ```
 
-## Interpreting Results
+To compare the retained Python checkpoint with a saved Rust recorded-image
+result, select `--candidate-result` instead of `--candidate-model` and pass the
+same image or image directory used for the Rust run. To score the new
+detection-batch v1 artifact, also pass its JSONL file:
 
-### Equivalence Levels
+```bash
+python tools/test_backend_equivalence.py backend/vision/test_data \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-result thoughts/performance-audits/detection-batch-jsonl-smoke-20261020-fixed/audit-report.json \
+  --candidate-batches-jsonl thoughts/performance-audits/detection-batch-jsonl-smoke-20261020-fixed/detection-batches.jsonl \
+  --frames 100 \
+  --tolerance 2.0 \
+  --imgsz 1280 \
+  --confidence 0.4 \
+  --iou 0.45 \
+  --output-dir thoughts/performance-audits/equivalence-tests
+```
 
-- **99-100%**: Systems are equivalent (expected)
-- **95-99%**: Mostly equivalent with minor differences (acceptable)
-- **<95%**: Significant differences (investigation needed)
+`--candidate-model` and `--candidate-result` are mutually exclusive and one is
+required. `--candidate-batches-jsonl` requires `--candidate-result`, because the
+aggregate report supplies source paths, encoded-image hashes, model lineage and
+settings that do not belong in the frame-scoped batch contract. The JSONL may
+come directly from the Rust file sink or from
+`backend/tools/receive_detection_batches.py` after framed loopback TCP
+delivery. The tool checks every JSONL line against the shared detection-batch
+v1 JSON Schema, then checks sequence ordering, run/session identity, model
+hashes, class map, detector settings, timestamp order, source dimensions, and
+detection geometry before joining detections to the aggregate report. The
+receiver records separate local monotonic receipt times and ordering; this
+scorer continues to evaluate detection output and does not subtract timestamps
+from different process clock epochs.
 
-### Common Differences
+The saved-result path accepts only the Rust tool's
+`recorded_static_images_unpaced` schema. It rejects video inputs, unsupported
+schemas/workloads, different class maps or detector settings, and reference
+checkpoints whose SHA-256 does not match the Rust result's recorded source
+checkpoint. Every input image must have exactly one Rust result, and every
+Rust image entry must map one-to-one to an input with a matching encoded-file
+SHA-256. If a path cannot be mapped uniquely, the tool stops with an error
+rather than guessing. The shell wrapper currently exposes the model-candidate
+mode; use the direct Python command for saved Rust artifacts.
 
-1. **Position Errors < 2px**: Normal due to floating-point precision
-2. **Occasional Cue Mismatches**: Different frame timing can cause slight differences
-3. **Trajectory Line Count**: Small differences expected due to collision depth limits
+### Optional CVAT still-image scoring
 
-### When to Investigate
+When an image corpus has CVAT image annotations, add `--ground-truth-cvat` to
+score both the retained Python reference and the candidate against those labels.
+For a saved Rust result, use the exact still-image corpus supplied to Rust:
 
-- Ball count mismatches > 5% of frames
-- Average position error > 5px
-- Trajectory mismatches > 10% of frames
-- Consistent pattern of differences
+```bash
+python tools/test_backend_equivalence.py thoughts/performance-audits/rust-cvat-ground-truth-20261020/input \
+  --reference-model models/billiards-yolov8n.pt \
+  --candidate-result thoughts/performance-audits/rust-cvat-ground-truth-20261020/rust-result.json \
+  --ground-truth-cvat backend/vision/test_data/annotations.xml \
+  --ground-truth-radius-px 20 \
+  --frames 9 --imgsz 1280 --confidence 0.4 --iou 0.45 \
+  --output-dir thoughts/performance-audits/equivalence-tests
+```
 
-## Requirements
+The XML must contain image annotations made of boxes whose labels match the
+model class names. Every processed image must map unambiguously to one XML
+image by exact relative path, unique path suffix, or unique basename, and image
+dimensions must agree. Missing or ambiguous matches fail instead of being
+silently omitted. CVAT track/video annotations and other shapes are not
+scored. The association radius is configurable; it is a pixel-distance rule
+for one-to-one class-aware center matching, not a production tolerance.
+Reports include overall and per-class TP/FP/FN, precision, recall, F1, and the
+error distribution for matched centers. Unmatched labels and detections remain
+false negatives and false positives, respectively. Empty annotated images are
+included as negative examples.
 
-- Python 3.10+
-- Backend modules (VisionModule, CoreModule, IntegrationService)
-- OpenCV, NumPy
-- YOLO model (for detection)
-- Video file in supported format (MKV, MP4)
+Scores are image-space measurements against this annotation set. They do not
+establish calibrated table-coordinate accuracy, temporal continuity, ball
+number identity, or live-camera performance. Review per-frame unmatched
+examples and annotation quality before drawing conclusions.
 
-## Troubleshooting
+An encoded-file hash proves that both reports refer to the same file bytes; it
+does not prove that Rust and Python decoders produce identical pixels. The Rust
+prototype uses a different image decoder and its preprocessing parity remains
+under evaluation. For pixel-level parity, compare saved preprocessed tensors
+separately. This equivalence report does not make a timing, real-time freshness,
+ground-truth accuracy, or production qualification claim; Rust timings are
+carried only as candidate provenance and are not used in the score.
 
-### "Failed to start video_debugger"
-- Check video file path is correct
-- Ensure video file is readable
-- Verify YOLO model exists
+The defaults use the current detector confidence and NMS IoU values, a square
+1280 input, CPU, and the repository's stated 2-pixel center association
+tolerance. These settings are recorded with each run. Change them explicitly
+when evaluating another model input shape or provider. The `--tolerance` value
+only controls which reference/candidate detections count as corresponding; it
+does not qualify model accuracy.
 
-### "No frames available"
-- Video file may be corrupted
-- Check video codec is supported
-- Try different video file
+The comparison stops with an error if either model cannot load or the class
+maps differ. It never falls back to an unrelated detector. With two model
+paths, both receive the same OpenCV BGR frame and identical Ultralytics
+prediction arguments. With a saved Rust result, the Python reference model is
+run on the mapped OpenCV-decoded frame and compared to the detections stored in
+that result.
 
-### High error rates
-- Check position tolerance is reasonable (2-5px)
-- Verify both systems use same configuration
-- Ensure table calibration is consistent
+## Reports
 
-## Implementation Details
+Each run writes a versioned JSON record and a concise Markdown summary under
+the selected output directory. The JSON records model hashes and package
+component hashes, class maps, observed backend/device/provider information,
+input hash, adjacent export-manifest content/hash when present, effective
+comparison settings, aggregate mismatch counts, center/confidence differences,
+and up to `--max-trace-frames` detailed frame records. Frame records identify
+the source image by stable relative path (or video frame number). By default,
+at most 100 frames are processed and detailed.
+Saved Rust-result comparisons also record the candidate JSON's SHA-256, ONNX
+and source-checkpoint hashes, requested and observed execution providers, and
+Rust workload/schema provenance. The effective image size, confidence, IoU,
+and detection cap are retained; the result adapter requires an integer schema
+version and verifies the reference checkpoint, class map, settings, complete
+source-image coverage, and encoded source hashes before scoring.
 
-The test works by:
+Exit status zero means the comparison completed and reports were written. It
+does not mean the models passed a production accuracy or performance gate.
 
-1. **Video Debugger Runner**: Processes frames using standalone `video_debugger.py` logic
-2. **Backend Runner**: Processes same frames through integrated backend
-3. **Frame Comparator**: Compares results frame-by-frame
-4. **Report Generator**: Analyzes differences and generates reports
+## Scope and limits
 
-Both systems process the same video frames sequentially, allowing direct comparison of outputs.
+- The tool compares class-aware detections after Ultralytics decoding and NMS.
+- Without `--ground-truth-cvat`, it does not compute precision/recall against
+  annotations. With it, the optional score covers CVAT image boxes only, as
+  described above.
+- It does not evaluate class identity beyond the model's exposed class names.
+  A generic `ball` class cannot distinguish numbered balls.
+- It does not report performance. Use the bounded production audit for warm-up,
+  throughput, latency percentiles, freshness, queueing, loss, and interference.
+- The default output limit bounds work and trace size; `--frames` and
+  `--max-trace-frames` can be adjusted for a larger investigation.
 
-## Configuration
-
-The test uses configuration from `config/current.json` for:
-- Table playing area corners
-- Calibration resolution
-- Detection parameters
-
-Ensure configuration is consistent between test runs for reproducible results.
+The machine-readable result is intended as evidence for the retained Python
+reference and future Rust/provider adapters, not as a competing benchmark
+format.

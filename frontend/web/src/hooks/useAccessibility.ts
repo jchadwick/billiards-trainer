@@ -68,7 +68,7 @@ const STORAGE_KEY = 'billiards-trainer-accessibility-preferences'
  */
 export function useAccessibility(): AccessibilityState & AccessibilityActions {
   const [state, setState] = useState<AccessibilityState>(DEFAULT_STATE)
-  const announcementTimeoutRef = useRef<NodeJS.Timeout>()
+  const announcementTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   // Load preferences from localStorage on mount
   useEffect(() => {
@@ -306,8 +306,8 @@ export function useKeyboardDetection() {
 /**
  * Hook for managing focus trapping in modals/overlays
  */
-export function useFocusTrap(isActive: boolean = false) {
-  const containerRef = useRef<HTMLElement>(null)
+export function useFocusTrap<T extends HTMLElement = HTMLElement>(isActive: boolean = false) {
+  const containerRef = useRef<T>(null)
 
   useEffect(() => {
     if (!isActive || !containerRef.current) return

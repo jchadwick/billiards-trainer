@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 3,
+  "camera_profile_id": "test-camera-profile",
+  "rectification_revision": 2,
+  "image_space": "rectified",
+  "source_width_px": 1000,
+  "source_height_px": 500,
+  "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+  "table_width_mm": 2000.0,
+  "table_height_mm": 1000.0,
+  "pixel_to_table_mm": [
+    [
+      2.125047713540181,
+      0.035984676455781225,
+      -1061.5614222639047
+    ],
+    [
+      -0.06122075982631654,
+      2.2166231098295546,
+      -541.0409880660932
+    ],
+    [
+      8.754572101127949e-06,
+      -0.00015861699172252267,
+      1.0
+    ]
+  ]
+}

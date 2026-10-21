@@ -4,24 +4,20 @@ This module combines camera capture, fisheye correction, and image preprocessing
 into a single efficient pipeline for both vision processing and web streaming.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-import sys
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Optional
-
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from typing import Any, Callable, Coroutine
 
 import cv2
 import numpy as np
-from config import Config, config
 
+from backend.config import Config, config
+from backend.perception.camera_source import resolve_configured_camera_source
 from backend.vision.calibration.camera import CameraCalibrator
 
 logger = logging.getLogger(__name__)
@@ -31,19 +27,19 @@ logger = logging.getLogger(__name__)
 class EnhancedCameraConfig:
     """Configuration for enhanced camera module.
 
-    This class holds runtime configuration that can be loaded from the
-    ConfigurationModule. All defaults are now sourced from the config system.
+    Runtime values are loaded from the shared, validated ``Config`` singleton
+    through :meth:`from_config`.
     """
 
     # Camera settings
     device_id: int | str  # Integer for camera device, string for video file path
-    resolution: Optional[tuple[int, int]]  # Auto-detect if None
+    resolution: tuple[int, int] | None  # Auto-detect if None
     fps: int
     loop_video: bool  # Loop video playback for file sources
 
     # Fisheye correction
     enable_fisheye_correction: bool
-    calibration_file: Optional[str]
+    calibration_file: str | None
     fisheye_alpha: float
 
     # Table cropping
@@ -71,7 +67,7 @@ class EnhancedCameraConfig:
     thread_join_timeout_seconds: float
 
     @classmethod
-    def from_config(cls, cfg: Config) -> "EnhancedCameraConfig":  # noqa: ARG003
+    def from_config(cls, cfg: Config) -> EnhancedCameraConfig:
         """Create configuration from Config.
 
         Args:
@@ -83,68 +79,62 @@ class EnhancedCameraConfig:
         # Get streaming config section
         # Note: The config module stores configs with flattened dot notation keys
         # e.g., 'streaming.camera.device_id' not {'streaming': {'camera': {'device_id': ...}}}
-        import logging
-
-        logger = logging.getLogger(__name__)
-
         # Access config using dot notation for flattened keys
         # Use vision.camera.* as the single source of truth for camera settings
 
-        # Auto-detect source: if video_file_path is set, use that; otherwise use device_id
-        video_file_path = config.get("vision.camera.video_file_path")
-        if video_file_path:
-            device_id = video_file_path
-        else:
-            device_id = config.get("vision.camera.device_id", 0)
+        # An explicit network URI selects the detector source. Preserve the
+        # legacy recorded-video fallback for local camera configurations.
+        video_file_path = cfg.get("vision.camera.video_file_path")
+        device_id = resolve_configured_camera_source(
+            cfg.get("vision.camera.device_id", 0), video_file_path
+        )
 
-        resolution = config.get("vision.camera.resolution")
+        resolution = cfg.get("vision.camera.resolution")
         if resolution and isinstance(resolution, list) and len(resolution) == 2:
             resolution = tuple(resolution)
-        fps = config.get("vision.camera.fps", 30)
-        buffer_size = config.get("vision.camera.buffer_size", 1)
-        loop_video = config.get("vision.camera.loop_video", True)
+        fps = cfg.get("vision.camera.fps", 30)
+        buffer_size = cfg.get("vision.camera.buffer_size", 1)
+        loop_video = cfg.get("vision.camera.loop_video", True)
 
         logger.info(
             f"[from_config] Loaded from flattened config: device_id={device_id}, resolution={resolution}, fps={fps}"
         )
 
         # Fisheye settings
-        enable_fisheye_correction = config.get(
+        enable_fisheye_correction = cfg.get(
             "streaming.fisheye.enable_correction", False
         )
-        calibration_file = config.get(
+        calibration_file = cfg.get(
             "streaming.fisheye.calibration_file", "calibration/camera_fisheye.yaml"
         )
-        fisheye_alpha = config.get("streaming.fisheye.alpha", 1.0)
+        fisheye_alpha = cfg.get("streaming.fisheye.alpha", 1.0)
 
         # Table crop settings
-        enable_table_crop = config.get("streaming.table_crop.enable", False)
-        hsv_lower = config.get("streaming.table_crop.hsv_lower", [35, 40, 40])
-        hsv_upper = config.get("streaming.table_crop.hsv_upper", [85, 255, 255])
-        table_crop_morphology_kernel_size = config.get(
+        enable_table_crop = cfg.get("streaming.table_crop.enable", False)
+        hsv_lower = cfg.get("streaming.table_crop.hsv_lower", [35, 40, 40])
+        hsv_upper = cfg.get("streaming.table_crop.hsv_upper", [85, 255, 255])
+        table_crop_morphology_kernel_size = cfg.get(
             "streaming.table_crop.morphology_kernel_size", 5
         )
-        table_crop_padding_ratio = config.get(
-            "streaming.table_crop.padding_ratio", 0.05
-        )
+        table_crop_padding_ratio = cfg.get("streaming.table_crop.padding_ratio", 0.05)
 
         # Preprocessing settings
-        enable_preprocessing = config.get("streaming.preprocessing.enable", True)
-        brightness = config.get("streaming.preprocessing.brightness", 0.0)
-        contrast = config.get("streaming.preprocessing.contrast", 1.0)
-        enable_clahe = config.get("streaming.preprocessing.clahe.enable", True)
-        clahe_clip_limit = config.get("streaming.preprocessing.clahe.clip_limit", 2.0)
-        clahe_grid_size = config.get("streaming.preprocessing.clahe.grid_size", 8)
+        enable_preprocessing = cfg.get("streaming.preprocessing.enable", True)
+        brightness = cfg.get("streaming.preprocessing.brightness", 0.0)
+        contrast = cfg.get("streaming.preprocessing.contrast", 1.0)
+        enable_clahe = cfg.get("streaming.preprocessing.clahe.enable", True)
+        clahe_clip_limit = cfg.get("streaming.preprocessing.clahe.clip_limit", 2.0)
+        clahe_grid_size = cfg.get("streaming.preprocessing.clahe.grid_size", 8)
 
         # Encoding settings
-        default_jpeg_quality = config.get("streaming.encoding.default_jpeg_quality", 80)
+        default_jpeg_quality = cfg.get("streaming.encoding.default_jpeg_quality", 80)
 
         # Performance settings
-        enable_gpu = config.get("streaming.performance.enable_gpu", False)
-        startup_timeout_seconds = config.get(
+        enable_gpu = cfg.get("streaming.performance.enable_gpu", False)
+        startup_timeout_seconds = cfg.get(
             "streaming.performance.startup_timeout_seconds", 5.0
         )
-        thread_join_timeout_seconds = config.get(
+        thread_join_timeout_seconds = cfg.get(
             "streaming.performance.thread_join_timeout_seconds", 2.0
         )
 
@@ -181,9 +171,11 @@ class EnhancedCameraModule:
     def __init__(
         self,
         config: EnhancedCameraConfig,
-        event_loop=None,
-        frame_callback=None,
-    ):
+        event_loop: asyncio.AbstractEventLoop | None = None,
+        frame_callback: (
+            Callable[[np.ndarray, int, int], Coroutine[Any, Any, Any]] | None
+        ) = None,
+    ) -> None:
         """Initialize enhanced camera module.
 
         Args:
@@ -192,29 +184,29 @@ class EnhancedCameraModule:
             frame_callback: Optional async callback for frame broadcasting
         """
         self.config = config
-        self.capture = None
+        self.capture: cv2.VideoCapture | None = None
         self.running = False
 
         # Threading components
         self._lock = threading.Lock()
-        self._current_frame = None
-        self._processed_frame = None
-        self._capture_thread = None
+        self._current_frame: np.ndarray | None = None
+        self._processed_frame: np.ndarray | None = None
+        self._capture_thread: threading.Thread | None = None
 
         # Async integration for WebSocket broadcasting
-        self._event_loop = event_loop
+        self._event_loop: asyncio.AbstractEventLoop | None = event_loop
         self._frame_callback = frame_callback
 
         # Table crop region (cached after first detection)
-        self._table_crop_region = None
+        self._table_crop_region: tuple[int, int, int, int] | None = None
 
         # Detect actual camera resolution BEFORE initializing calibration
         self._detect_actual_resolution()
 
         # Initialize calibration (uses the verified resolution from config)
-        self.calibrator = None
-        self.undistort_map1 = None
-        self.undistort_map2 = None
+        self.undistort_map1: cv2.Mat | np.ndarray | None = None
+        self.undistort_map2: cv2.Mat | np.ndarray | None = None
+        self.clahe: cv2.CLAHE | None = None
         if config.enable_fisheye_correction:
             self._load_calibration()
 
@@ -222,7 +214,7 @@ class EnhancedCameraModule:
         if config.enable_preprocessing:
             self._init_preprocessor()
 
-    def _detect_actual_resolution(self):
+    def _detect_actual_resolution(self) -> None:
         """Detect the actual resolution supported by the camera.
 
         Opens the camera temporarily to verify what resolution it actually provides,
@@ -270,10 +262,10 @@ class EnhancedCameraModule:
         finally:
             temp_cap.release()
 
-    def _load_calibration(self):
+    def _load_calibration(self) -> None:
         """Load fisheye calibration data."""
         if self.config.calibration_file:
-            fs = None
+            fs: cv2.FileStorage | None = None
             try:
                 # Load calibration file
                 fs = cv2.FileStorage(
@@ -322,11 +314,16 @@ class EnhancedCameraModule:
                     )
 
                 # Pre-compute undistortion maps for efficiency
-                h, w = self.config.resolution[1], self.config.resolution[0]
+                resolution = self.config.resolution
+                if resolution is None:
+                    raise RuntimeError(
+                        "Camera resolution is required to build undistortion maps"
+                    )
+                h, w = resolution[1], resolution[0]
 
                 # Use standard camera model (not fisheye) to match calibration
                 # The calibration uses cv2.calibrateCamera, so we must use standard undistortion
-                new_camera_matrix, roi = cv2.getOptimalNewCameraMatrix(
+                new_camera_matrix, _roi = cv2.getOptimalNewCameraMatrix(
                     camera_matrix,
                     dist_coeffs,
                     (w, h),
@@ -353,7 +350,7 @@ class EnhancedCameraModule:
                 if fs is not None:
                     fs.release()
 
-    def _init_preprocessor(self):
+    def _init_preprocessor(self) -> None:
         """Initialize image preprocessor."""
         self.clahe = None
         if self.config.enable_clahe:
@@ -381,7 +378,7 @@ class EnhancedCameraModule:
 
         return False
 
-    def stop_capture(self):
+    def stop_capture(self) -> None:
         """Stop camera capture."""
         self.running = False
         if self._capture_thread:
@@ -389,28 +386,32 @@ class EnhancedCameraModule:
         if self.capture:
             self.capture.release()
 
-    def _capture_loop(self):
+    def _capture_loop(self) -> None:
         """Main capture and processing loop."""
         # Open camera
-        self.capture = cv2.VideoCapture(self.config.device_id)
+        capture = cv2.VideoCapture(self.config.device_id)
+        self.capture = capture
 
-        if not self.capture.isOpened():
+        if not capture.isOpened():
             print(f"Failed to open camera {self.config.device_id}")
+            capture.release()
+            self.capture = None
             return
 
         # Configure camera (using already-verified resolution from __init__)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
-        self.capture.set(cv2.CAP_PROP_FPS, self.config.fps)
-        self.capture.set(cv2.CAP_PROP_BUFFERSIZE, self.config.buffer_size)
+        if self.config.resolution is not None:
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.resolution[0])
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.resolution[1])
+        capture.set(cv2.CAP_PROP_FPS, self.config.fps)
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, self.config.buffer_size)
 
         # Use camera defaults - let camera auto-adjust
         logger.info(
-            f"Camera settings - Exposure: {self.capture.get(cv2.CAP_PROP_EXPOSURE)}, "
-            f"Brightness: {self.capture.get(cv2.CAP_PROP_BRIGHTNESS)}, "
-            f"Contrast: {self.capture.get(cv2.CAP_PROP_CONTRAST)}, "
-            f"Saturation: {self.capture.get(cv2.CAP_PROP_SATURATION)}, "
-            f"WB: {self.capture.get(cv2.CAP_PROP_WB_TEMPERATURE)}"
+            f"Camera settings - Exposure: {capture.get(cv2.CAP_PROP_EXPOSURE)}, "
+            f"Brightness: {capture.get(cv2.CAP_PROP_BRIGHTNESS)}, "
+            f"Contrast: {capture.get(cv2.CAP_PROP_CONTRAST)}, "
+            f"Saturation: {capture.get(cv2.CAP_PROP_SATURATION)}, "
+            f"WB: {capture.get(cv2.CAP_PROP_WB_TEMPERATURE)}"
         )
 
         # Calculate frame delay for video playback
@@ -419,15 +420,15 @@ class EnhancedCameraModule:
         )  # Default ~30 FPS
 
         while self.running:
-            ret, frame = self.capture.read()
+            ret, frame = capture.read()
 
             if not ret:
                 # End of video or read error - loop back to start for video files
                 if isinstance(self.config.device_id, str) and self.config.loop_video:
                     # This is a video file with looping enabled, loop it
                     logger.info("End of video reached, looping back to start...")
-                    self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    ret, frame = self.capture.read()
+                    capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = capture.read()
                     if not ret:
                         # Still can't read, something is wrong
                         print(
@@ -477,7 +478,11 @@ class EnhancedCameraModule:
     def _process_frame(self, frame: np.ndarray) -> np.ndarray:
         """Apply fisheye correction and preprocessing pipeline."""
         # Step 1: Fisheye correction
-        if self.config.enable_fisheye_correction and self.undistort_map1 is not None:
+        if (
+            self.config.enable_fisheye_correction
+            and self.undistort_map1 is not None
+            and self.undistort_map2 is not None
+        ):
             frame = cv2.remap(
                 frame,
                 self.undistort_map1,
@@ -569,7 +574,7 @@ class EnhancedCameraModule:
         # Return original frame if detection fails
         return frame
 
-    def get_frame(self, processed: bool = True) -> Optional[np.ndarray]:
+    def get_frame(self, processed: bool = True) -> np.ndarray | None:
         """Get current frame for vision processing.
 
         Args:
@@ -587,10 +592,10 @@ class EnhancedCameraModule:
 
     def get_frame_for_streaming(
         self,
-        quality: Optional[int] = None,
-        max_width: Optional[int] = None,
-        max_height: Optional[int] = None,
-    ) -> Optional[bytes]:
+        quality: int | None = None,
+        max_width: int | None = None,
+        max_height: int | None = None,
+    ) -> bytes | None:
         """Get JPEG-encoded frame for streaming.
 
         Args:
@@ -634,7 +639,7 @@ class EnhancedCameraModule:
 
         return None
 
-    def calibrate_fisheye(self, calibration_images: list) -> bool:
+    def calibrate_fisheye(self, calibration_images: list[np.ndarray]) -> bool:
         """Calibrate fisheye lens using calibration images.
 
         Args:
@@ -643,31 +648,34 @@ class EnhancedCameraModule:
         Returns:
             True if calibration successful
         """
-        # Use existing CameraCalibrator class
+        if not self.config.calibration_file:
+            logger.error("Cannot save fisheye calibration without a calibration file")
+            return False
+
+        # Use the camera calibration API so calibration and output share the
+        # parameter representation consumed by _load_calibration().
         calibrator = CameraCalibrator()
+        success, camera_parameters = calibrator.calibrate_intrinsics(calibration_images)
+        if not success or camera_parameters is None:
+            return False
 
-        # Detect calibration pattern in images
-        for img in calibration_images:
-            calibrator.add_calibration_image(img)
+        saved = calibrator.save_fisheye_calibration_yaml(
+            self.config.calibration_file, camera_parameters
+        )
+        if not saved:
+            return False
 
-        # Perform calibration
-        if calibrator.calibrate():
-            # Save calibration
-            calibrator.save_calibration(self.config.calibration_file)
-
-            # Reload calibration maps
-            self._load_calibration()
-
-            return True
-
-        return False
+        self.config.resolution = camera_parameters.resolution
+        self.config.enable_fisheye_correction = True
+        self._load_calibration()
+        return self.config.enable_fisheye_correction
 
     def adjust_preprocessing(
         self,
-        brightness: Optional[float] = None,
-        contrast: Optional[float] = None,
-        clahe_enabled: Optional[bool] = None,
-    ):
+        brightness: float | None = None,
+        contrast: float | None = None,
+        clahe_enabled: bool | None = None,
+    ) -> None:
         """Dynamically adjust preprocessing parameters.
 
         Args:

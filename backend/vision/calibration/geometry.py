@@ -4,12 +4,13 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
-from config import config as config_manager
 from numpy.typing import NDArray
+
+from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ class GeometricCalibrator:
         )
 
         # Find largest quadrilateral contour
-        largest_area = 0
+        largest_area = 0.0
         best_contour = None
 
         min_area = config_manager.get(
@@ -323,8 +324,12 @@ class GeometricCalibrator:
         dst_points = np.array(target_points, dtype=np.float32)
 
         # Calculate perspective transform
-        transform_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
-        inverse_matrix = cv2.getPerspectiveTransform(dst_points, src_points)
+        transform_matrix = cast(
+            "NDArray[np.float32]", cv2.getPerspectiveTransform(src_points, dst_points)
+        )
+        inverse_matrix = cast(
+            "NDArray[np.float32]", cv2.getPerspectiveTransform(dst_points, src_points)
+        )
 
         # Calculate correction quality based on how much distortion is corrected
         quality = self._calculate_correction_quality(
@@ -344,9 +349,9 @@ class GeometricCalibrator:
 
     def _calculate_correction_quality(
         self,
-        src_points: NDArray[np.float64],
-        dst_points: NDArray[np.float64],
-        transform_matrix: NDArray[np.float64],
+        src_points: NDArray[np.float32],
+        dst_points: NDArray[np.float32],
+        transform_matrix: NDArray[np.float32],
     ) -> float:
         """Calculate the quality of perspective correction."""
         # Transform source points and compare with target
@@ -366,11 +371,11 @@ class GeometricCalibrator:
         )
         quality = max(0.0, 1.0 - (rms_error / max_expected_error))
 
-        return quality
+        return float(quality)
 
     def correct_keystone_distortion(
-        self, frame: NDArray[np.uint8], correction: PerspectiveCorrection
-    ) -> NDArray[np.float64]:
+        self, frame: NDArray[np.uint8], correction: Optional[PerspectiveCorrection]
+    ) -> NDArray[np.uint8]:
         """Apply keystone correction to frame.
 
         Args:
@@ -390,8 +395,9 @@ class GeometricCalibrator:
         height = int(np.max(target_points[:, 1]))
 
         # Apply perspective transformation
-        corrected = cv2.warpPerspective(
-            frame, correction.transform_matrix, (width, height)
+        corrected = cast(
+            "NDArray[np.uint8]",
+            cv2.warpPerspective(frame, correction.transform_matrix, (width, height)),
         )
 
         return corrected
@@ -607,7 +613,7 @@ class GeometricCalibrator:
         self,
         test_points: list[tuple[float, float]],
         expected_world_points: list[tuple[float, float]],
-    ) -> dict[str, float]:
+    ) -> dict[str, Any]:
         """Validate geometric calibration accuracy.
 
         Args:
@@ -630,10 +636,10 @@ class GeometricCalibrator:
             converted_points.append(world_point)
 
         # Calculate errors
-        errors = []
+        errors: list[float] = []
         for converted, expected in zip(converted_points, expected_world_points):
             error = np.linalg.norm(np.array(converted) - np.array(expected))
-            errors.append(error)
+            errors.append(float(error))
 
         return {
             "mean_error": float(np.mean(errors)),
@@ -645,7 +651,7 @@ class GeometricCalibrator:
 
     def correct_barrel_distortion(
         self, frame: NDArray[np.uint8], k1: float = 0.0, k2: float = 0.0
-    ) -> NDArray[np.float64]:
+    ) -> NDArray[np.uint8]:
         """Correct barrel/pincushion distortion.
 
         Args:
@@ -669,13 +675,15 @@ class GeometricCalibrator:
         dist_coeffs = np.array([k1, k2, 0, 0, 0], dtype=np.float32)
 
         # Undistort image
-        corrected = cv2.undistort(frame, camera_matrix, dist_coeffs)
+        corrected = cast(
+            "NDArray[np.uint8]", cv2.undistort(frame, camera_matrix, dist_coeffs)
+        )
 
         return corrected
 
     def create_rectification_grid(
         self, frame_size: tuple[int, int], grid_size: Optional[int] = None
-    ) -> NDArray[np.float64]:
+    ) -> NDArray[np.uint8]:
         """Create rectification grid for visual calibration assessment.
 
         Args:
@@ -719,10 +727,13 @@ class GeometricCalibrator:
             True if loaded successfully
         """
         try:
-            if filepath is None:
-                filepath = self.cache_dir / "geometric_calibration.json"
+            calibration_path = (
+                Path(filepath)
+                if filepath is not None
+                else self.cache_dir / "geometric_calibration.json"
+            )
 
-            with open(filepath) as f:
+            with open(calibration_path) as f:
                 data = json.load(f)
 
             self.current_calibration = GeometricCalibration.from_dict(data)

@@ -19,12 +19,16 @@ export function renderBallOverlay({ balls, transform, config, ctx }: BallOverlay
   ctx.globalAlpha = config.opacity;
 
   balls.forEach(ball => {
+    const isObserved = ball.isObserved !== false;
+    ctx.globalAlpha = config.opacity * (isObserved ? 1 : 0.45);
     const center = transform.videoToCanvas(ball.position);
-    const radius = config.radius * (center.x / 1000); // Scale with zoom
+    const radiusX = transform.videoExtentToCanvasX(ball.radiusX ?? ball.radius);
+    const radiusY = transform.videoExtentToCanvasY(ball.radiusY ?? ball.radius);
+    const radius = Math.sqrt(radiusX * radiusY);
 
     // Draw ball circle
     ctx.beginPath();
-    ctx.arc(center.x, center.y, radius, 0, 2 * Math.PI);
+    ctx.ellipse(center.x, center.y, radiusX, radiusY, 0, 0, 2 * Math.PI);
 
     // Color based on ball type
     const colors = {
@@ -32,6 +36,7 @@ export function renderBallOverlay({ balls, transform, config, ctx }: BallOverlay
       solid: '#FF6B6B',
       stripe: '#4ECDC4',
       eight: '#2C3E50',
+      unknown: '#B8B8B8',
     };
 
     const ballColor = ball.color || colors[ball.type] || '#CCCCCC';
@@ -60,12 +65,17 @@ export function renderBallOverlay({ balls, transform, config, ctx }: BallOverlay
         ctx.stroke();
       }
       ctx.restore();
+    } else if (ball.type === 'unknown') {
+      ctx.fillStyle = ballColor;
+      ctx.fill();
     }
 
     // Draw outline
-    ctx.strokeStyle = '#000000';
+    ctx.strokeStyle = isObserved ? '#000000' : '#F59E0B';
     ctx.lineWidth = 2;
+    ctx.setLineDash(isObserved ? [] : [5, 4]);
     ctx.stroke();
+    ctx.setLineDash([]);
 
     // Draw ball number if available and enabled
     if (config.showLabels && ball.number !== undefined) {
@@ -136,7 +146,9 @@ export function renderBallOverlay({ balls, transform, config, ctx }: BallOverlay
       ctx.font = '10px Arial';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'bottom';
-      const confidenceText = `${Math.round(ball.confidence * 100)}%`;
+      const confidenceText = ball.confidenceKind === 'unavailable'
+        ? 'n/a'
+        : `${Math.round(ball.confidence * 100)}%`;
       ctx.fillText(confidenceText, center.x, center.y - radius - 5);
     }
 

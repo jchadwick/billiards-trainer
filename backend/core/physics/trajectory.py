@@ -8,12 +8,16 @@ import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
-from ..constants_4k import BALL_RADIUS_4K, PIXELS_PER_METER_REFERENCE
+from ..constants_4k import (
+    BALL_RADIUS_4K,
+    CANONICAL_RESOLUTION,
+    PIXELS_PER_METER_REFERENCE,
+)
 from ..coordinates import Vector2D
 from ..models import BallState, CueState, TableState
-from ..utils.cache import CacheManager
+from ..utils.cache import CalculationCache
 from ..utils.geometry import GeometryUtils
 from ..utils.math import MathUtils
 
@@ -56,7 +60,7 @@ class PredictedCollision:
     """Detailed collision prediction."""
 
     time: float  # Time until collision
-    position: Vector2D  # Collision point
+    position: Vector2D  # Contact point; for ball-ball, the incoming ball center
     type: CollisionType  # Type of collision
     ball1_id: str  # Primary ball
     ball2_id: Optional[str]  # Secondary ball (None for cushion/pocket)
@@ -89,8 +93,8 @@ class Trajectory:
     points: list[TrajectoryPoint] = field(default_factory=list)
     collisions: list[PredictedCollision] = field(default_factory=list)
     branches: list[TrajectoryBranch] = field(default_factory=list)
-    final_position: Vector2D = None
-    final_velocity: Vector2D = None
+    final_position: Optional[Vector2D] = None
+    final_velocity: Optional[Vector2D] = None
     time_to_rest: float = 0.0
     total_distance: float = 0.0
     will_be_pocketed: bool = False
@@ -112,18 +116,19 @@ class MultiballTrajectoryResult:
     total_calculation_time: float = 0.0
 
     def get_position_at_time(self, t: float) -> Optional[Vector2D]:
-        """Get ball position at specific time."""
-        if not self.points:
+        """Get the primary ball position at a specific time."""
+        trajectory = self.trajectories.get(self.primary_ball_id)
+        if trajectory is None or not trajectory.points:
             return None
 
         # Find closest time points
-        for i, point in enumerate(self.points):
+        for i, point in enumerate(trajectory.points):
             if point.time >= t:
                 if i == 0:
                     return point.position
 
                 # Interpolate between points
-                prev_point = self.points[i - 1]
+                prev_point = trajectory.points[i - 1]
                 ratio = (t - prev_point.time) / (point.time - prev_point.time)
 
                 return Vector2D(
@@ -135,19 +140,20 @@ class MultiballTrajectoryResult:
                 )
 
         # Time is beyond trajectory end
-        return self.points[-1].position if self.points else None
+        return trajectory.points[-1].position
 
     def get_velocity_at_time(self, t: float) -> Optional[Vector2D]:
-        """Get ball velocity at specific time."""
-        if not self.points:
+        """Get the primary ball velocity at a specific time."""
+        trajectory = self.trajectories.get(self.primary_ball_id)
+        if trajectory is None or not trajectory.points:
             return None
 
-        for i, point in enumerate(self.points):
+        for i, point in enumerate(trajectory.points):
             if point.time >= t:
                 if i == 0:
                     return point.velocity
 
-                prev_point = self.points[i - 1]
+                prev_point = trajectory.points[i - 1]
                 ratio = (t - prev_point.time) / (point.time - prev_point.time)
 
                 return Vector2D(
@@ -158,19 +164,19 @@ class MultiballTrajectoryResult:
                     scale=prev_point.velocity.scale,
                 )
 
-        return self.points[-1].velocity if self.points else None
+        return trajectory.points[-1].velocity
 
 
 class TrajectoryCalculator:
     """Comprehensive ball trajectory calculations."""
 
-    def __init__(self, cache_manager: Optional[CacheManager] = None):
+    def __init__(self, cache_manager: Optional[CalculationCache] = None):
         """Initialize trajectory calculator.
 
         Args:
             cache_manager: Optional cache manager for performance optimization
         """
-        self.cache_manager = cache_manager or CacheManager()
+        self.cache_manager = cache_manager or CalculationCache()
         self.geometry = GeometryUtils()
         self.math_utils = MathUtils()
 
@@ -185,9 +191,9 @@ class TrajectoryCalculator:
         self,
         ball_state: BallState,
         table_state: TableState,
-        other_balls: list[BallState] = None,
+        other_balls: Optional[list[BallState]] = None,
         quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
-        time_limit: float = None,
+        time_limit: Optional[float] = None,
     ) -> Trajectory:
         """Calculate complete trajectory for a ball using geometric approach.
 
@@ -198,16 +204,15 @@ class TrajectoryCalculator:
         4. Max 2-3 bounces for reasonable prediction
         """
         start_time = time.time()
+        other_balls = other_balls or []
 
         # Check cache first
         cache_key = self._generate_cache_key(
             ball_state, table_state, other_balls, quality
         )
         cached_result = self.cache_manager.get(cache_key)
-        if cached_result:
+        if isinstance(cached_result, Trajectory):
             return cached_result
-
-        other_balls = other_balls or []
 
         trajectory = Trajectory(
             ball_id=ball_state.id,
@@ -393,7 +398,7 @@ class TrajectoryCalculator:
         ball_radius: float,
         max_bounces: int = 3,
         ball_id: str = "unknown",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Calculate geometric trajectory using line segments and reflections.
 
         Based on cassapa pool.cpp CalculateBallTrajectory() function (line 451).
@@ -404,7 +409,7 @@ class TrajectoryCalculator:
         - velocity: resulting velocity (for cushion bounces)
         - other metadata
         """
-        segments = []
+        segments: list[dict[str, Any]] = []
         current_pos = Vector2D(
             start_position.x, start_position.y, scale=start_position.scale
         )
@@ -467,6 +472,10 @@ class TrajectoryCalculator:
             if hit_type == "none":
                 # No hit - trajectory continues to edge of table (shouldn't happen)
                 break
+            if hit_point is None:
+                # Each recognized hit must include its point. Ignore malformed
+                # detector data instead of allowing it into a trajectory.
+                break
 
             segment = {
                 "start": current_pos,
@@ -495,13 +504,20 @@ class TrajectoryCalculator:
                     hit_point.y - current_pos.y, hit_point.x - current_pos.x
                 )
                 # Calculate resulting velocities for both balls
-                resulting_velocities = hit_data.get("resulting_velocities", {})
+                raw_resulting_velocities = hit_data.get("resulting_velocities", {})
+                resulting_velocities: dict[str, Vector2D] = {}
+                if isinstance(raw_resulting_velocities, dict):
+                    resulting_velocities = {
+                        key: value
+                        for key, value in raw_resulting_velocities.items()
+                        if isinstance(key, str) and isinstance(value, Vector2D)
+                    }
                 segment["resulting_velocities"] = resulting_velocities
                 segments.append(segment)
 
                 # Get the moving ball's new velocity after collision
                 new_velocity = resulting_velocities.get(ball_id)
-                if new_velocity and new_velocity.magnitude() > 0.01:
+                if new_velocity is not None and new_velocity.magnitude() > 0.01:
                     # Continue trajectory with new velocity
                     current_pos = hit_point
                     current_velocity = new_velocity
@@ -576,7 +592,7 @@ class TrajectoryCalculator:
         direction: Vector2D,
         table: TableState,
         ball_radius: float,
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, Any]]:
         """Find intersection with cushions defined by playing area polygon.
 
         Args:
@@ -649,7 +665,7 @@ class TrajectoryCalculator:
         direction: Vector2D,
         table: TableState,
         ball_radius: float,
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, Any]]:
         """Find intersection point with nearest cushion using geometric collision detector.
 
         Based on cassapa pool.cpp CalculateBallTrajectory() lines 471-504.
@@ -677,7 +693,7 @@ class TrajectoryCalculator:
         other_balls: list[BallState],
         ball_radius: float,
         moving_ball_id: str = "unknown",
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, Any]]:
         """Find intersection with nearest ball using geometric collision detector.
 
         Based on cassapa pool.cpp CheckIfLineCrossesBall() lines 737-826.
@@ -688,6 +704,9 @@ class TrajectoryCalculator:
         )
 
         if collision:
+            if collision.ball_id is None:
+                return None
+
             # Calculate resulting velocities using geometric approach
             # Find the target ball state
             target_ball = None
@@ -696,7 +715,7 @@ class TrajectoryCalculator:
                     target_ball = ball
                     break
 
-            resulting_velocities = {}
+            resulting_velocities: dict[str, Vector2D] = {}
             if target_ball:
                 # Create temporary ball state for moving ball
                 moving_ball = BallState(
@@ -733,7 +752,7 @@ class TrajectoryCalculator:
         direction: Vector2D,
         table: TableState,
         ball_radius: float,
-    ) -> Optional[dict]:
+    ) -> Optional[dict[str, Any]]:
         """Check if trajectory line intersects any pocket using geometric detector."""
         # Use geometric collision detector
         collision = self.geometric_detector.find_pocket_intersection(
@@ -822,10 +841,13 @@ class TrajectoryCalculator:
             )
 
             # Estimate final position based on modified velocity (simplified)
+            base_final_position = (
+                main_trajectory.final_position or main_trajectory.initial_state.position
+            )
             estimated_final = Vector2D(
-                main_trajectory.final_position.x + (factor - 1.0) * 0.1,
-                main_trajectory.final_position.y + (factor - 1.0) * 0.1,
-                scale=main_trajectory.final_position.scale,
+                base_final_position.x + (factor - 1.0) * 0.1,
+                base_final_position.y + (factor - 1.0) * 0.1,
+                scale=base_final_position.scale,
             )
 
             # Create trajectory branch with estimated values
@@ -853,7 +875,7 @@ class TrajectoryCalculator:
         cue_state: CueState,
         ball_state: BallState,
         table_state: TableState,
-        other_balls: list[BallState] = None,
+        other_balls: Optional[list[BallState]] = None,
         quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
     ) -> Trajectory:
         """Predict trajectory from cue shot parameters."""
@@ -876,30 +898,32 @@ class TrajectoryCalculator:
 
         return self.calculate_trajectory(shot_ball, table_state, other_balls, quality)
 
-    def export_visualization_data(self, trajectory: Trajectory) -> dict:
-        """Export trajectory data for visualization."""
-        # Keep points for backwards compatibility
-        points = [
-            {
-                "time": p.time,
-                "x": p.position.x,
-                "y": p.position.y,
-                "vx": p.velocity.x,
-                "vy": p.velocity.y,
-                "energy": p.energy,
-            }
-            for p in trajectory.points
-        ]
+    def export_visualization_data(self, trajectory: Trajectory) -> dict[str, Any]:
+        """Export line geometry with explicit image-space scales and units."""
 
-        # Convert points to lines (consecutive point pairs) for frontend rendering
+        def collision_payload(collision: PredictedCollision) -> dict[str, Any]:
+            return {
+                "time": collision.time,
+                "position": collision.position.to_dict(),
+                "position_unit": "canonical_pixels",
+                "type": collision.type.value,
+                "ball1_id": collision.ball1_id,
+                "ball2_id": collision.ball2_id,
+                "angle": collision.impact_angle,
+                "confidence": collision.confidence,
+            }
+
+        # Lines are the canonical exported geometry. Physics points remain
+        # internal state and are not duplicated in the transport payload.
         lines = []
         for i in range(len(trajectory.points) - 1):
             start_point = trajectory.points[i]
             end_point = trajectory.points[i + 1]
             lines.append(
                 {
-                    "start": [start_point.position.x, start_point.position.y],
-                    "end": [end_point.position.x, end_point.position.y],
+                    "start": start_point.position.to_dict(),
+                    "end": end_point.position.to_dict(),
+                    "coordinate_unit": "canonical_pixels",
                     "type": "primary",  # Type of trajectory segment
                     "confidence": trajectory.success_probability,
                 }
@@ -907,26 +931,11 @@ class TrajectoryCalculator:
 
         return {
             "ball_id": trajectory.ball_id,
-            "points": points,  # Keep for backwards compatibility
+            "coordinate_space": "4k_canonical",
+            "coordinate_resolution": list(CANONICAL_RESOLUTION),
+            "coordinate_unit": "canonical_pixels",
             "lines": lines,  # Add line segments for frontend
-            "collisions": [
-                {
-                    "time": c.time,
-                    "position": [
-                        c.position.x,
-                        c.position.y,
-                    ],  # Frontend expects array format
-                    "x": c.position.x,  # Keep for backwards compatibility
-                    "y": c.position.y,  # Keep for backwards compatibility
-                    "type": c.type.value,
-                    "ball_id": c.ball2_id,  # Target ball ID for frontend compatibility
-                    "ball1_id": c.ball1_id,  # The moving ball (e.g., cue ball)
-                    "ball2_id": c.ball2_id,  # The target ball (None for cushion/pocket)
-                    "angle": c.impact_angle if hasattr(c, "impact_angle") else 0.0,
-                    "confidence": c.confidence,
-                }
-                for c in trajectory.collisions
-            ],
+            "collisions": [collision_payload(c) for c in trajectory.collisions],
             "success_probability": trajectory.success_probability,
             "will_be_pocketed": trajectory.will_be_pocketed,
             "pocket_id": trajectory.pocket_id,
@@ -939,32 +948,14 @@ class TrajectoryCalculator:
                     "success_metrics": branch.success_metrics,
                     # Include full trajectory data for secondary balls (branches with ball_id)
                     "ball_id": branch.success_metrics.get("ball_id"),
-                    "points": (
-                        [
-                            {
-                                "time": p.time,
-                                "x": p.position.x,
-                                "y": p.position.y,
-                                "vx": p.velocity.x,
-                                "vy": p.velocity.y,
-                                "energy": p.energy,
-                            }
-                            for p in branch.points
-                        ]
-                        if branch.points
-                        else []
-                    ),
+                    "coordinate_space": "4k_canonical",
+                    "coordinate_unit": "canonical_pixels",
                     "lines": (
                         [
                             {
-                                "start": [
-                                    branch.points[i].position.x,
-                                    branch.points[i].position.y,
-                                ],
-                                "end": [
-                                    branch.points[i + 1].position.x,
-                                    branch.points[i + 1].position.y,
-                                ],
+                                "start": branch.points[i].position.to_dict(),
+                                "end": branch.points[i + 1].position.to_dict(),
+                                "coordinate_unit": "canonical_pixels",
                                 "type": "secondary",  # Mark as secondary trajectory
                                 "confidence": branch.probability,
                             }
@@ -973,29 +964,9 @@ class TrajectoryCalculator:
                         if len(branch.points) > 1
                         else []
                     ),
-                    "collisions": (
-                        [
-                            {
-                                "time": c.time,
-                                "position": [c.position.x, c.position.y],
-                                "x": c.position.x,
-                                "y": c.position.y,
-                                "type": c.type.value,
-                                "ball_id": c.ball2_id,
-                                "ball1_id": c.ball1_id,
-                                "ball2_id": c.ball2_id,
-                                "angle": (
-                                    c.impact_angle
-                                    if hasattr(c, "impact_angle")
-                                    else 0.0
-                                ),
-                                "confidence": c.confidence,
-                            }
-                            for c in branch.collisions
-                        ]
-                        if branch.collisions
-                        else []
-                    ),
+                    "collisions": [
+                        collision_payload(collision) for collision in branch.collisions
+                    ],
                 }
                 for branch in trajectory.branches
             ],
@@ -1006,7 +977,7 @@ class TrajectoryCalculator:
         cue_state: CueState,
         ball_state: BallState,
         table_state: TableState,
-        other_balls: list[BallState] = None,
+        other_balls: Optional[list[BallState]] = None,
         quality: TrajectoryQuality = TrajectoryQuality.MEDIUM,
         max_collision_depth: int = 2,
     ) -> MultiballTrajectoryResult:
@@ -1014,7 +985,7 @@ class TrajectoryCalculator:
 
         Uses geometric approach to calculate:
         1. Cue ball trajectory until it hits a target ball (or stops)
-        2. Target ball trajectory after being hit (from impact point)
+        2. Target ball trajectory after being hit (from its own center)
         3. Any subsequent collisions recursively up to max_collision_depth
 
         Based on cassapa pool.cpp FindBallHitByThisBall() (line 687) for recursive ball tracking.
@@ -1096,6 +1067,9 @@ class TrajectoryCalculator:
                 if hit_ball_id == current_traj.ball_id:
                     hit_ball_id = collision.ball1_id
 
+                if hit_ball_id is None:
+                    continue
+
                 # Skip if we've already processed this ball
                 if hit_ball_id in processed_ball_ids:
                     logging.info(f"Already processed ball {hit_ball_id}, skipping")
@@ -1115,16 +1089,21 @@ class TrajectoryCalculator:
                     continue
 
                 logging.info(
-                    f"Calculating trajectory for {hit_ball_id} from collision point"
+                    f"Calculating trajectory for {hit_ball_id} from its center after collision"
                 )
 
-                # Calculate trajectory from collision point
-                # The hit ball starts moving from the collision position
-                # with a velocity determined by the collision geometry
-                hit_ball_state.position = collision.position
+                # Keep the copied target ball's own center as the branch origin.
+                # collision.position belongs to the incoming trajectory: it is
+                # the incoming ball center at contact, one diameter from the
+                # target center. Replacing the target position with it would
+                # shift the outgoing path by a ball diameter and lose the
+                # observed target coordinate's scale metadata.
 
-                # Use the actual post-collision velocity from the collision physics
-                # This was calculated by the geometric collision detector
+                # Use the actual post-collision velocity from the collision
+                # physics, which is calculated by the geometric detector in
+                # canonical coordinates. The copied target position remains in
+                # its original coordinate scale; trajectory math uses canonical
+                # coordinates consistently for both.
                 hit_ball_velocity = collision.resulting_velocities.get(hit_ball_id)
                 if hit_ball_velocity:
                     hit_ball_state.velocity = hit_ball_velocity
@@ -1137,7 +1116,8 @@ class TrajectoryCalculator:
                         f"No resulting velocity found for {hit_ball_id}, using fallback"
                     )
 
-                # Calculate trajectory for this ball from impact point
+                # Calculate this ball's trajectory from its own center with the
+                # post-impact velocity.
                 remaining_balls = [
                     b
                     for b in other_balls
@@ -1175,6 +1155,6 @@ class TrajectoryCalculator:
         """Clear trajectory calculation cache."""
         self.cache_manager.clear()
 
-    def get_cache_stats(self) -> dict:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache performance statistics."""
         return self.cache_manager.get_stats()

@@ -4,21 +4,35 @@ This module provides comprehensive computer vision capabilities for detecting an
 pool table elements including table boundaries, balls, and cue sticks in real-time.
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
+import os
 import queue
 import threading
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
 
-from .calibration.camera import CameraCalibrator
+from backend.performance_audit import (
+    AsyncAuditRecorder,
+    AuditResourceSampler,
+    audit_domains_from_config,
+)
+
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
+from .coordinates import (
+    playing_area_to_frame,
+    point_is_within_scaled_radius,
+    point_to_frame,
+    radius_to_frame_ellipse,
+)
 from .models import (
     BallType,
     CalibrationData,
@@ -36,12 +50,26 @@ from .models import (
     ShotEvent,
     Table,
 )
+from .motion_monitor import MotionAssessment, MotionMonitor
 
 # Performance profiling
 from .performance_profiler import PerformanceProfiler
+from .phase_scheduler import (
+    BallMapObservation,
+    BallPosition,
+    CueObservation,
+    PhaseDecision,
+    VisionPhaseScheduler,
+)
 
 # Shared memory video consumer (for IPC with Video Module)
 from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
+
+    from .detection.yolo_detector import YOLODetector
+    from .tracking.tracker import ObjectTracker
 
 # Ball is now in backend.common.models - import from there instead
 # Not imported here to avoid circular dependency
@@ -49,6 +77,11 @@ from .stream.video_consumer import VideoConsumer, VideoModuleNotAvailableError
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+_BALL_DETECTION_SUCCESS_STATUSES = frozenset({"detections", "no_detections"})
+_BALL_DETECTION_FAILURE_STAGES = frozenset(
+    {"inference", "decoding", "classification", "unknown"}
+)
 
 
 def _get_config_value(key_path: str, default: Any) -> Any:
@@ -98,7 +131,7 @@ class VisionConfig:
     roi_enabled: bool
 
     # Background subtraction (from vision.detection.background_subtraction.*)
-    background_image_path: Optional[str]
+    background_image_path: str | None
     use_background_subtraction: bool
     background_threshold: int
 
@@ -107,8 +140,10 @@ class VisionConfig:
     save_debug_images: bool
     debug_output_path: str
 
+    latest_frame_queue_enabled: bool
+
     @classmethod
-    def from_config_dict(cls, config_dict: dict[str, Any]) -> "VisionConfig":
+    def from_config_dict(cls, config_dict: dict[str, Any]) -> VisionConfig:
         """Create VisionConfig from configuration dictionary.
 
         Args:
@@ -155,6 +190,10 @@ class VisionConfig:
             max_frame_queue_size=config_dict.get(
                 "max_frame_queue_size",
                 config_mgr.get("vision.processing.max_frame_queue_size", 5),
+            ),
+            latest_frame_queue_enabled=config_dict.get(
+                "latest_frame_queue_enabled",
+                config_mgr.get("vision.processing.latest_frame_queue_enabled", True),
             ),
             # Detection settings
             enable_ball_detection=config_dict.get(
@@ -212,13 +251,11 @@ class VisionStatistics:
     frames_dropped: int = 0
     avg_processing_time: float = 0.0
     avg_fps: float = 0.0
-    detection_accuracy: dict[str, float] = None
-    last_error: Optional[str] = None
+    detection_accuracy: dict[str, float] = field(
+        default_factory=lambda: {"table": 0.0, "balls": 0.0, "cue": 0.0}
+    )
+    last_error: str | None = None
     uptime: float = 0.0
-
-    def __post_init__(self):
-        if self.detection_accuracy is None:
-            self.detection_accuracy = {"table": 0.0, "balls": 0.0, "cue": 0.0}
 
 
 class VisionModuleError(Exception):
@@ -234,7 +271,12 @@ class VisionModule:
     including table detection, ball tracking, and cue stick detection.
     """
 
-    def __init__(self, config: Optional[dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        *,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         """Initialize the Vision Module.
 
         Args:
@@ -243,30 +285,79 @@ class VisionModule:
         # Parse configuration - use from_config_dict to load defaults from config system
         if config is None:
             config = {}
+        module_config = config
+        # Phase transitions and tracking accept an injectable monotonic clock
+        # for deterministic replay. Wall-clock publication timestamps remain
+        # separate source metadata and performance timers use the real clock.
+        self._clock = clock or time.monotonic
         self.config = VisionConfig.from_config_dict(config)
 
         # Initialize statistics
         self.stats = VisionStatistics()
-        self._start_time = time.time()
+        self._start_time = time.monotonic()
 
         # Video source - shared memory IPC with Video Module
-        self._video_consumer: Optional[VideoConsumer] = None
+        self._video_consumer = VideoConsumer()
+
+        # Component references have explicit nullable contracts because the
+        # corresponding configuration switches can disable detection/tracking.
+        self.detector: YOLODetector | None = None
+        self.tracker: ObjectTracker | None = None
 
         # Initialize components
         self._initialize_components()
 
         # Threading and state management
-        self._capture_thread: Optional[threading.Thread] = None
-        self._processing_thread: Optional[threading.Thread] = None
+        self._capture_thread: threading.Thread | None = None
+        self._processing_thread: threading.Thread | None = None
         self._is_running = False
-        self._frame_queue = queue.Queue(maxsize=self.config.max_frame_queue_size)
-        self._result_queue = queue.Queue(maxsize=self.config.max_frame_queue_size)
+        self._frame_queue: queue.Queue[dict[str, Any]] = queue.Queue(
+            maxsize=self.config.max_frame_queue_size
+        )
+        self._result_queue: queue.Queue[Any] = queue.Queue(
+            maxsize=self.config.max_frame_queue_size
+        )
         self._lock = threading.Lock()
 
         # Current state
-        self._current_frame: Optional[NDArray[np.float64]] = None
-        self._current_result: Optional[DetectionResult] = None
+        self._current_frame: NDArray[np.uint8] | None = None
+        self._current_result: DetectionResult | None = None
         self._frame_number = 0
+
+        # The phase-aware pipeline remains opt-in until camera recordings have
+        # validated its cadence profiles. Existing users therefore retain the
+        # continuous full-resolution path by default.
+        phase_settings = module_config.get(
+            "phase_scheduler",
+            module_config.get(
+                "vision.processing.phase_scheduler",
+                _get_config_value("vision.processing.phase_scheduler", {}),
+            ),
+        )
+        motion_settings = module_config.get(
+            "motion_monitor",
+            module_config.get(
+                "vision.processing.motion_monitor",
+                _get_config_value("vision.processing.motion_monitor", {}),
+            ),
+        )
+        self.phase_scheduler = VisionPhaseScheduler(phase_settings)
+        self.motion_monitor = MotionMonitor(motion_settings)
+        self._aiming_request_override: bool | None = None
+        self._phase_geometry_signature: tuple[Any, ...] | None = None
+        self._phase_calibration_revision: str | None = None
+        self._phase_last_motion_assessment: MotionAssessment | None = None
+        self._phase_last_motion_timestamp: float | None = None
+        self._phase_last_ball_timestamp: float | None = None
+        self._phase_last_ball_source_timestamp: float | None = None
+        self._phase_last_ball_source_frame_number: int | None = None
+        self._phase_last_ball_source_timestamp_kind: str | None = None
+        self._phase_last_source_frame_number: int | None = None
+        self._phase_last_source_process_id: int | None = None
+        self._phase_last_source_timestamp: float | None = None
+        self._phase_last_cue_timestamp: float | None = None
+        self._phase_last_cue: CueStick | None = None
+        self._phase_last_ball_map: list[Any] = []
 
         # Event callbacks
         self._callbacks: dict[str, list[Callable[..., Any]]] = {
@@ -276,28 +367,69 @@ class VisionModule:
         }
 
         # Region of interest
-        self._roi_corners: Optional[list[tuple[int, int]]] = None
+        self._roi_corners: list[tuple[int, int]] | None = None
 
-        # Performance profiler - enabled by default, silent mode (API-only)
-        enable_profiling = _get_config_value(
-            "vision.performance.enable_profiling", True
+        # Expensive detailed measurements are created only for an explicit
+        # audit session. A CLI override is process-local and never saved.
+        self.audit_domains = audit_domains_from_config(
+            bool(_get_config_value("performance_audit.enabled", False)),
+            os.environ.get("BT_PERFORMANCE_AUDIT"),
+            state_enabled=bool(
+                _get_config_value("performance_audit.state_enabled", True)
+            ),
+            trajectory_enabled=bool(
+                _get_config_value("performance_audit.trajectory_enabled", False)
+            ),
+            viewers_enabled=bool(
+                _get_config_value("performance_audit.viewers_enabled", False)
+            ),
         )
+        audit_state_enabled = self.audit_domains["state"]
+        self.audit_recorder: AsyncAuditRecorder | None = None
+        if any(self.audit_domains.values()):
+            output_directory = _get_config_value(
+                "performance_audit.output_directory", "thoughts/performance-audits"
+            )
+            self.audit_recorder = AsyncAuditRecorder(
+                Path(output_directory) / "live",
+                queue_capacity=_get_config_value(
+                    "performance_audit.event_queue_capacity", 2048
+                ),
+                sample_rate=_get_config_value("performance_audit.sample_rate", 1.0),
+                max_exported_events=_get_config_value(
+                    "performance_audit.event_export_limit", 200000
+                ),
+            )
+        enable_profiling = audit_state_enabled
         profile_interval = _get_config_value(
             "vision.performance.profile_log_interval", 30
         )
         profile_history = _get_config_value(
-            "vision.performance.profile_history_size", 100
+            "performance_audit.history_size",
+            _get_config_value("vision.performance.profile_history_size", 100),
         )
         profile_console = _get_config_value(
             "vision.performance.enable_console_logging", False
         )
+        resource_interval = _get_config_value(
+            "performance_audit.resource_sample_interval_seconds", 1.0
+        )
+        target_fps = _get_config_value("vision.camera.fps", None)
 
-        self.profiler: Optional[PerformanceProfiler] = None
+        self.profiler: PerformanceProfiler | None = None
+        self.resource_sampler: AuditResourceSampler | None = None
         if enable_profiling:
             self.profiler = PerformanceProfiler(
                 history_size=profile_history,
                 log_interval=profile_interval,
                 enable_console_logging=profile_console,
+                resource_sample_interval_seconds=resource_interval,
+                target_fps=target_fps,
+                event_sink=(
+                    self._record_profiler_audit_event
+                    if self.audit_recorder is not None
+                    else None
+                ),
             )
             if profile_console:
                 logger.info(
@@ -307,8 +439,29 @@ class VisionModule:
                 logger.info(
                     "Performance profiler enabled (API-only mode, use watch_performance.py to monitor)"
                 )
+            self._attach_profiler_to_detector()
+        elif self.audit_recorder is not None:
+            self.resource_sampler = AuditResourceSampler(
+                self.audit_recorder, resource_interval
+            )
 
         logger.info("Vision Module initialized successfully")
+
+    def _attach_profiler_to_detector(self) -> None:
+        """Connect the opt-in profiler after detector and profiler setup."""
+        detector = self.detector
+        profiler = self.profiler
+        if detector is not None and profiler is not None:
+            detector.audit_profiler = profiler
+
+    def _record_profiler_audit_event(self, event: dict[str, Any]) -> None:
+        """Enqueue profiler data and attach exporter health to resource samples."""
+        recorder = getattr(self, "audit_recorder", None)
+        if recorder is None:
+            return
+        if event.get("event_type") == "process_resource_sample":
+            event = {**event, "audit_export_status": recorder.status()}
+        recorder.record(event)
 
     def _initialize_components(self) -> None:
         """Initialize all vision processing components."""
@@ -318,11 +471,11 @@ class VisionModule:
             # Use VideoConsumer to read frames from Video Module via shared memory
             logger.info("Using shared memory IPC (VideoConsumer)")
 
-            # Create VideoConsumer (will be started in start_capture)
-            self._video_consumer = VideoConsumer()
+            # VideoConsumer was constructed before component setup; attach is
+            # deferred until start_capture.
             logger.info("VideoConsumer initialized (will attach on start_capture)")
 
-            # Detection components - YOLO+OpenCV hybrid only
+            # YOLO detection with optional experimental OpenCV classification.
             if self.config.enable_ball_detection:
                 # Load YOLO configuration parameters - use shared config manager
                 from ..config import config as config_mgr
@@ -338,31 +491,37 @@ class VisionModule:
                 yolo_device = config_mgr.get("vision.detection.yolo_device", "cpu")
                 min_ball_size = config_mgr.get("vision.detection.min_ball_radius", 20)
 
+                enable_opencv_classification = bool(
+                    config_mgr.get(
+                        "vision.detection.enable_opencv_classification", False
+                    )
+                )
+
                 logger.info(
-                    f"Initializing YOLO+OpenCV hybrid detector: model={yolo_model_path}, "
+                    f"Initializing YOLO detector: model={yolo_model_path}, "
                     f"confidence={yolo_confidence}, device={yolo_device}, "
-                    f"min_ball_size={min_ball_size}"
+                    f"min_ball_size={min_ball_size}, "
+                    f"opencv_classification={enable_opencv_classification}"
                 )
 
                 # Import YOLO detector
                 from .detection.yolo_detector import YOLODetector
 
                 try:
-                    # Create YOLO detector with OpenCV classification enabled
+                    # Exact ball numbers are not supported by the configured
+                    # binary YOLO model. Keep the color/stripe heuristic opt-in
+                    # until it is validated against representative table footage.
                     self.detector = YOLODetector(
                         model_path=yolo_model_path,
                         device=yolo_device,
                         confidence=yolo_confidence,
                         nms_threshold=yolo_nms_threshold,
                         auto_fallback=False,  # Fail loudly if YOLO not available
-                        enable_opencv_classification=True,  # Enable hybrid detection
+                        enable_opencv_classification=enable_opencv_classification,
                         min_ball_size=min_ball_size,  # Filter out markers and noise
                         camera_resolution=self.config.camera_resolution,
                     )
-                    logger.info("YOLO+OpenCV hybrid detector initialized successfully")
-
-                    # Store as ball_detector for compatibility with existing code
-                    self.ball_detector = self.detector
+                    logger.info("YOLO detector initialized successfully")
 
                 except Exception as e:
                     logger.error(
@@ -375,7 +534,6 @@ class VisionModule:
                     )
             else:
                 self.detector = None
-                self.ball_detector = None
 
             # Load background frame if configured
             if self.config.background_image_path:
@@ -388,12 +546,12 @@ class VisionModule:
                 from .tracking.tracker import ObjectTracker
 
                 tracking_config = config.get("vision.tracking", {})
-                self.tracker = ObjectTracker(tracking_config)
+                self.tracker = ObjectTracker(tracking_config, clock=self._clock)
             else:
                 self.tracker = None
 
-            # Calibration components
-            self.camera_calibrator = CameraCalibrator()
+            # Camera calibration is owned by the live calibration manager and
+            # camera service, which share the active camera lifecycle.
             self.color_calibrator = ColorCalibrator()
             self.geometry_calibrator = GeometricCalibrator()
 
@@ -432,8 +590,20 @@ class VisionModule:
 
             # Reset statistics
             self.stats = VisionStatistics()
-            self._start_time = time.time()
+            self._start_time = time.monotonic()
             self._frame_number = 0
+            self.phase_scheduler = VisionPhaseScheduler(self.phase_scheduler.settings)
+            self.motion_monitor.reset()
+            self._phase_geometry_signature = None
+            self._phase_last_motion_assessment = None
+            self._phase_last_motion_timestamp = None
+            self._phase_last_ball_timestamp = None
+            self._phase_last_ball_source_timestamp = None
+            self._phase_last_ball_source_frame_number = None
+            self._phase_last_ball_source_timestamp_kind = None
+            self._phase_last_cue_timestamp = None
+            self._phase_last_cue = None
+            self._phase_last_ball_map = []
 
             # Start processing threads
             self._is_running = True
@@ -474,9 +644,8 @@ class VisionModule:
             self._is_running = False
 
             # Stop VideoConsumer
-            if self._video_consumer:
-                logger.info("Stopping VideoConsumer...")
-                self._video_consumer.stop()
+            logger.info("Stopping VideoConsumer...")
+            self._video_consumer.stop()
 
             # Wait for threads to finish
             thread_timeout = _get_config_value(
@@ -507,7 +676,17 @@ class VisionModule:
             logger.error(f"Error stopping capture: {e}")
             self.stats.last_error = str(e)
 
-    def process_frame(self) -> Optional[DetectionResult]:
+    def close(self) -> None:
+        """Release optional audit resources during application shutdown."""
+        self.stop_capture()
+        if self.profiler is not None:
+            self.profiler.close()
+        if self.resource_sampler is not None:
+            self.resource_sampler.close()
+        if self.audit_recorder is not None:
+            self.audit_recorder.close()
+
+    def process_frame(self) -> DetectionResult | None:
         """Get latest detection results from processing thread.
 
         Returns:
@@ -524,7 +703,7 @@ class VisionModule:
             self._emit_event("error_occurred", {"error": str(e)})
             return None
 
-    def get_current_frame(self) -> Optional[NDArray[np.float64]]:
+    def get_current_frame(self) -> NDArray[np.uint8] | None:
         """Get latest captured frame.
 
         Returns:
@@ -541,56 +720,9 @@ class VisionModule:
                 logger.debug("No current frame available")
                 return None
 
-    def calibrate_camera(self) -> bool:
-        """Perform camera calibration using current frames.
-
-        Note: Camera calibration should be done on the Video Module side.
-        This method is provided for backwards compatibility but may not work
-        as expected with shared memory IPC.
-
-        Returns:
-            True if calibration successful
-        """
-        try:
-            logger.info("Starting camera calibration")
-
-            # Capture calibration images from current frames
-            num_frames = _get_config_value("vision.calibration.camera.num_frames", 20)
-            min_frames_required = _get_config_value(
-                "vision.calibration.camera.min_frames_required", 10
-            )
-            frame_capture_delay = _get_config_value(
-                "vision.calibration.camera.frame_capture_delay_sec", 0.1
-            )
-
-            calibration_frames = []
-            for _i in range(num_frames):
-                frame = self.get_current_frame()
-                if frame is not None:
-                    calibration_frames.append(frame)
-                time.sleep(frame_capture_delay)
-
-            if len(calibration_frames) < min_frames_required:
-                raise VisionModuleError("Insufficient frames for calibration")
-
-            # Perform calibration
-            success = self.camera_calibrator.calibrate(calibration_frames)
-
-            if success:
-                logger.info("Camera calibration completed successfully")
-            else:
-                logger.error("Camera calibration failed")
-
-            return success
-
-        except Exception as e:
-            logger.error(f"Camera calibration failed: {e}")
-            self.stats.last_error = str(e)
-            return False
-
     def calibrate_colors(
-        self, sample_image: Optional[NDArray[np.float64]] = None
-    ) -> dict:
+        self, sample_image: NDArray[np.uint8] | None = None
+    ) -> dict[str, Any]:
         """Auto-calibrate color thresholds.
 
         Args:
@@ -609,7 +741,9 @@ class VisionModule:
             logger.info("Starting color calibration")
 
             # Perform color calibration
-            calibration_results = self.color_calibrator.auto_calibrate(sample_image)
+            calibration_results = self.color_calibrator.create_default_profile(
+                sample_image
+            ).to_dict()
 
             logger.info("Color calibration completed successfully")
             return calibration_results
@@ -659,14 +793,14 @@ class VisionModule:
             logger.error(f"Failed to set ROI: {e}")
             self.stats.last_error = str(e)
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """Get processing statistics.
 
         Returns:
             Dictionary containing performance and accuracy statistics
         """
         # Update uptime
-        self.stats.uptime = time.time() - self._start_time
+        self.stats.uptime = time.monotonic() - self._start_time
 
         # Calculate current FPS
         if self.stats.uptime > 0:
@@ -681,9 +815,7 @@ class VisionModule:
             "uptime_seconds": self.stats.uptime,
             "last_error": self.stats.last_error,
             "is_running": self._is_running,
-            "video_consumer_running": (
-                self._video_consumer.is_running if self._video_consumer else False
-            ),
+            "video_consumer_running": (self._video_consumer.is_running),
         }
 
     def subscribe_to_events(
@@ -714,11 +846,11 @@ class VisionModule:
         sleep_interval_sec = sleep_interval_ms / 1000.0
 
         frame_interval = 1.0 / self.config.target_fps
-        last_frame_time = 0
+        last_frame_time = 0.0
 
         while self._is_running:
             try:
-                current_time = time.time()
+                current_time = time.monotonic()
 
                 # Rate limiting
                 if current_time - last_frame_time < frame_interval:
@@ -727,20 +859,44 @@ class VisionModule:
 
                 # Get frame from VideoConsumer (shared memory IPC)
                 logger.debug("VisionModule: Getting frame from VideoConsumer")
-                frame = self._video_consumer.get_frame()
+                shm_read_started_ns = (
+                    time.perf_counter_ns() if self._audit_enabled("state") else 0
+                )
+                frame, source_metadata = self._video_consumer.get_frame_with_metadata()
+                shm_read_copy_seconds = (
+                    (time.perf_counter_ns() - shm_read_started_ns) / 1e9
+                    if shm_read_started_ns
+                    else None
+                )
 
                 if frame is None:
                     # No new frame available, sleep briefly and continue
                     time.sleep(sleep_interval_sec)
                     continue
 
-                # Track frame metadata
+                # Preserve source identity and publication time. Local monotonic
+                # times are reserved for elapsed intervals and queue age.
                 frame_count += 1
+                published_at = (
+                    source_metadata.timestamp
+                    if source_metadata is not None
+                    else time.time()
+                )
+                source_frame_number = (
+                    source_metadata.frame_number
+                    if source_metadata is not None
+                    else None
+                )
+                frame_number = (
+                    source_frame_number
+                    if source_frame_number is not None
+                    else frame_count
+                )
 
                 if frame_count % log_interval == 0:
                     logger.debug(
                         f"VisionModule: Received frame #{frame_count}: shape={frame.shape}, "
-                        f"timestamp={current_time:.3f}s"
+                        f"publication_timestamp={published_at:.3f}s"
                     )
 
                 # Apply ROI if enabled
@@ -755,21 +911,47 @@ class VisionModule:
                         f"VisionModule: Updated current frame (frame #{frame_count})"
                     )
 
-                # Add to processing queue (non-blocking)
-                try:
-                    self._frame_queue.put_nowait(
-                        {
-                            "frame": frame,
-                            "timestamp": current_time,
-                            "frame_number": frame_count,
-                        }
-                    )
-                    self._frame_number = frame_count + 1
-                    last_frame_time = current_time
+                # Rate limiting follows consumed source frames, independent of
+                # whether a frame is accepted into the processing queue.
+                last_frame_time = current_time
 
+                # Add to processing queue. Latest-frame mode evicts stale work.
+                try:
+                    frame_data = {
+                        "frame": frame,
+                        "timestamp": published_at,
+                        "frame_number": frame_number,
+                        "source_frame_number": source_frame_number,
+                        "source_timestamp": (
+                            published_at if source_metadata is not None else None
+                        ),
+                        "source_timestamp_kind": (
+                            "shared_memory_publication"
+                            if source_metadata is not None
+                            else "vision_capture_fallback"
+                        ),
+                        "source_process_id": (
+                            source_metadata.writer_pid
+                            if source_metadata is not None
+                            else None
+                        ),
+                        "source_publication_monotonic_ns": (
+                            source_metadata.publication_monotonic_ns
+                            if source_metadata is not None
+                            else None
+                        ),
+                        "shared_memory_read_copy_seconds": shm_read_copy_seconds,
+                        "enqueued_monotonic": time.monotonic(),
+                    }
+                    self._enqueue_frame(frame_data)
                 except queue.Full:
-                    logger.debug("Processing queue full, dropping frame")
+                    logger.debug("Processing queue full, dropping incoming frame")
                     self.stats.frames_dropped += 1
+                    self._record_queue_drop(
+                        frame_data,
+                        None,
+                        reason="incoming_frame_overload",
+                    )
 
             except Exception as e:
                 logger.error(f"Error in VisionModule capture loop: {e}", exc_info=True)
@@ -782,6 +964,52 @@ class VisionModule:
 
         logger.info("VisionModule capture loop ended")
 
+    def _enqueue_frame(self, frame_data: dict[str, Any]) -> None:
+        """Queue a frame, replacing pending stale work in latest-frame mode."""
+        if not self.config.latest_frame_queue_enabled:
+            self._frame_queue.put_nowait(frame_data)
+            return
+
+        while True:
+            try:
+                self._frame_queue.put_nowait(frame_data)
+                return
+            except queue.Full:
+                try:
+                    dropped_frame = self._frame_queue.get_nowait()
+                except queue.Empty:
+                    # The processing thread won the race for the queued item;
+                    # retry insertion without losing the incoming frame.
+                    continue
+                self.stats.frames_dropped += 1
+                self._record_queue_drop(dropped_frame, frame_data)
+
+    def _record_queue_drop(
+        self,
+        dropped_frame: dict[str, Any],
+        replacement_frame: dict[str, Any] | None,
+        *,
+        reason: str = "latest_frame_replacement",
+    ) -> None:
+        """Report latest-frame queue evictions without blocking frame capture."""
+        recorder = getattr(self, "audit_recorder", None)
+        if recorder is None or not self._audit_enabled("state"):
+            return
+        recorder.record(
+            {
+                "event_type": "vision_queue_frame_dropped",
+                "reason": reason,
+                "source_frame_number": dropped_frame.get("source_frame_number"),
+                "source_process_id": dropped_frame.get("source_process_id"),
+                "replacement_source_frame_number": (
+                    replacement_frame.get("source_frame_number")
+                    if replacement_frame is not None
+                    else None
+                ),
+                "queue_depth_after_drop": self._frame_queue.qsize(),
+            }
+        )
+
     def _processing_loop(self) -> None:
         """Main processing loop running in separate thread."""
         logger.info("Starting processing loop")
@@ -791,21 +1019,54 @@ class VisionModule:
 
         while self._is_running:
             try:
-                # Get frame from queue (blocking with timeout)
+                # Get frame (blocking with timeout), then discard any backlog
+                # accumulated while inference was running.
                 try:
                     frame_data = self._frame_queue.get(timeout=queue_timeout)
                 except queue.Empty:
                     continue
 
+                if self.config.latest_frame_queue_enabled:
+                    while True:
+                        try:
+                            newer_frame_data = self._frame_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        self._record_queue_drop(frame_data, newer_frame_data)
+                        frame_data = newer_frame_data
+                        self.stats.frames_dropped += 1
+
+                processing_queue_depth = (
+                    self._frame_queue.qsize() if self._audit_enabled("state") else None
+                )
                 # Process frame
-                start_time = time.time()
+                queue_delay_seconds = max(
+                    0.0,
+                    time.monotonic()
+                    - frame_data.get("enqueued_monotonic", time.monotonic()),
+                )
+                start_time = time.monotonic()
                 result = self._process_single_frame(
                     frame_data["frame"],
                     frame_data["frame_number"],
                     frame_data["timestamp"],
+                    source_frame_number=frame_data.get("source_frame_number"),
+                    source_timestamp=frame_data.get("source_timestamp"),
+                    source_timestamp_kind=frame_data.get("source_timestamp_kind"),
+                    source_process_id=frame_data.get("source_process_id"),
+                    source_publication_monotonic_ns=frame_data.get(
+                        "source_publication_monotonic_ns"
+                    ),
+                    queue_delay_seconds=queue_delay_seconds,
+                    audit_metadata={
+                        "shared_memory_read_copy_seconds": frame_data.get(
+                            "shared_memory_read_copy_seconds"
+                        ),
+                        "processing_queue_depth": processing_queue_depth,
+                    },
                 )
 
-                processing_time = time.time() - start_time
+                processing_time = time.monotonic() - start_time
 
                 # Update statistics
                 self.stats.frames_processed += 1
@@ -823,6 +1084,17 @@ class VisionModule:
                     "frame_processed",
                     {
                         "frame_number": frame_data["frame_number"],
+                        "source_frame_number": frame_data.get("source_frame_number"),
+                        "source_timestamp": frame_data.get("source_timestamp"),
+                        "source_timestamp_kind": frame_data.get(
+                            "source_timestamp_kind"
+                        ),
+                        "queue_delay_seconds": queue_delay_seconds,
+                        "publication_age_seconds": (
+                            max(0.0, time.time() - frame_data["source_timestamp"])
+                            if frame_data.get("source_timestamp") is not None
+                            else None
+                        ),
                         "processing_time": processing_time,
                     },
                 )
@@ -830,7 +1102,17 @@ class VisionModule:
                 if result:
                     self._emit_event(
                         "detection_complete",
-                        {"result": result, "frame_number": frame_data["frame_number"]},
+                        {
+                            "result": result,
+                            "frame_number": frame_data["frame_number"],
+                            "source_frame_number": frame_data.get(
+                                "source_frame_number"
+                            ),
+                            "source_timestamp": frame_data.get("source_timestamp"),
+                            "source_timestamp_kind": frame_data.get(
+                                "source_timestamp_kind"
+                            ),
+                        },
                     )
 
             except Exception as e:
@@ -844,12 +1126,489 @@ class VisionModule:
 
         logger.info("Processing loop ended")
 
+    def set_aiming_requested(self, requested: bool | None) -> None:
+        """Set an explicit aiming request, or restore cue-based inference.
+
+        Passing ``None`` leaves aiming intent to fresh cue evidence when the
+        phase scheduler's ``infer_aiming_from_cue`` option is enabled. An
+        explicit ``False`` disables that inference until changed or reset.
+        """
+        self._aiming_request_override = None if requested is None else bool(requested)
+
+    @staticmethod
+    def _phase_table_geometry(
+        frame_shape: tuple[int, ...],
+    ) -> tuple[list[tuple[float, float]] | None, str]:
+        """Return configured corners scaled into current source-frame pixels."""
+        height, width = frame_shape[:2]
+        try:
+            from ..config import config as config_manager
+
+            raw_corners = config_manager.get("table.playing_area_corners", [])
+        except Exception:
+            raw_corners = []
+
+        polygon: list[tuple[float, float]] | None = None
+        try:
+            if len(raw_corners) == 4:
+                polygon = playing_area_to_frame(raw_corners, (width, height))
+        except (KeyError, TypeError, ValueError, IndexError, OverflowError):
+            polygon = None
+
+        # Include each point's scale metadata so scale-only edits invalidate
+        # phase stability and prediction based on the previous map.
+        revision = f"{width}x{height}:{raw_corners!r}"
+        return polygon, revision
+
+    def _resolve_aiming_request(self) -> bool | None:
+        """Return explicit intent or leave cue-based inference to the scheduler."""
+        override = getattr(self, "_aiming_request_override", None)
+        return None if override is None else bool(override)
+
+    def _monotonic_now(self) -> float:
+        """Read the injected processing clock, falling back for test adapters."""
+        return getattr(self, "_clock", time.monotonic)()
+
+    def _reset_after_source_restart(self) -> None:
+        """Forget temporal state tied to the previous shared-memory stream."""
+        if self.tracker is not None and hasattr(self.tracker, "reset"):
+            self.tracker.reset()
+        self.motion_monitor.reset()
+        self.phase_scheduler = VisionPhaseScheduler(self.phase_scheduler.settings)
+        self._phase_geometry_signature = None
+        self._phase_last_ball_map = []
+        self._phase_last_ball_timestamp = None
+        self._phase_last_ball_source_timestamp = None
+        self._phase_last_ball_source_frame_number = None
+        self._phase_last_ball_source_timestamp_kind = None
+        self._phase_last_motion_assessment = None
+        self._phase_last_motion_timestamp = None
+        self._phase_last_cue = None
+        self._phase_last_cue_timestamp = None
+        self._phase_last_source_frame_number = None
+        self._phase_last_source_process_id = None
+        self._phase_last_source_timestamp = None
+
+    @staticmethod
+    def _resize_for_phase(
+        frame: NDArray[np.uint8], max_dimension: int | None
+    ) -> NDArray[np.uint8]:
+        """Downscale for scheduled analysis without upscaling or changing display."""
+        if max_dimension is None or max_dimension <= 0:
+            return frame
+        height, width = frame.shape[:2]
+        largest = max(width, height)
+        if largest <= max_dimension:
+            return frame
+        scale = max_dimension / float(largest)
+        new_size = (
+            max(1, int(round(width * scale))),
+            max(1, int(round(height * scale))),
+        )
+        return cast(
+            "NDArray[np.uint8]",
+            cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA),
+        )
+
+    @staticmethod
+    def _crop_to_calibrated_table(
+        frame: NDArray[np.uint8],
+        table_polygon: list[tuple[float, float]] | None,
+        source_resolution: tuple[int, int],
+        margin_fraction: float,
+    ) -> tuple[NDArray[np.uint8], tuple[int, int, int, int] | None]:
+        """Crop an analysis view to calibrated table bounds in source pixels."""
+        if table_polygon is None or len(table_polygon) != 4:
+            return frame, None
+        frame_height, frame_width = frame.shape[:2]
+        source_width, source_height = source_resolution
+        scale_x = frame_width / float(source_width)
+        scale_y = frame_height / float(source_height)
+        points = [(float(x) * scale_x, float(y) * scale_y) for x, y in table_polygon]
+        left, right = min(x for x, _ in points), max(x for x, _ in points)
+        top, bottom = min(y for _, y in points), max(y for _, y in points)
+        margin_x = max(0.0, float(margin_fraction)) * (right - left)
+        margin_y = max(0.0, float(margin_fraction)) * (bottom - top)
+        x0 = max(0, int(np.floor(left - margin_x)))
+        y0 = max(0, int(np.floor(top - margin_y)))
+        x1 = min(frame_width, int(np.ceil(right + margin_x)))
+        y1 = min(frame_height, int(np.ceil(bottom + margin_y)))
+        if x1 <= x0 or y1 <= y0:
+            return frame, None
+        return frame[y0:y1, x0:x1], (x0, y0, x1, y1)
+
+    @staticmethod
+    def _normalise_cropped_balls_to_source(
+        balls: list[Any],
+        source_resolution: tuple[int, int],
+        processing_resolution: tuple[int, int],
+        crop_rect: tuple[int, int, int, int],
+    ) -> list[Any]:
+        """Restore crop offsets, resize factors, and canonical coordinates."""
+        from ..core.resolution_converter import ResolutionConverter
+        from .detection.detector_adapter import canonical_point_to_source_pixels
+
+        crop_x, crop_y, crop_right, crop_bottom = crop_rect
+        crop_resolution = (crop_right - crop_x, crop_bottom - crop_y)
+        source_width, source_height = source_resolution
+        processing_width, processing_height = processing_resolution
+        if min(*crop_resolution, *source_resolution, *processing_resolution) <= 0:
+            raise ValueError("Frame and crop resolutions must be positive")
+        scale_x = source_width / float(processing_width)
+        scale_y = source_height / float(processing_height)
+
+        def point_to_source(
+            point: tuple[float, float], coordinate_space: str
+        ) -> tuple[float, float]:
+            if coordinate_space == "4k_canonical":
+                crop_point = canonical_point_to_source_pixels(point, crop_resolution)
+            else:
+                crop_point = (float(point[0]), float(point[1]))
+            return (
+                (crop_point[0] + crop_x) * scale_x,
+                (crop_point[1] + crop_y) * scale_y,
+            )
+
+        def vector_to_source(
+            vector: tuple[float, float], coordinate_space: str
+        ) -> tuple[float, float]:
+            if coordinate_space == "4k_canonical":
+                crop_vector = ResolutionConverter.scale_from_4k(
+                    float(vector[0]), float(vector[1]), crop_resolution
+                )
+            else:
+                crop_vector = (float(vector[0]), float(vector[1]))
+            return (crop_vector[0] * scale_x, crop_vector[1] * scale_y)
+
+        normalized: list[Any] = []
+        for ball in balls:
+            coordinate_space = getattr(ball, "coordinate_space", "pixel")
+            if coordinate_space not in {"4k_canonical", "pixel"}:
+                normalized.append(ball)
+                continue
+
+            ball.position = point_to_source(ball.position, coordinate_space)
+            radius_in_crop_pixels = (
+                ResolutionConverter.scale_distance_from_4k(
+                    float(ball.radius), crop_resolution
+                )
+                if coordinate_space == "4k_canonical"
+                else float(ball.radius)
+            )
+            source_radius = radius_in_crop_pixels * scale_x
+
+            # Motion vectors and history are part of the same coordinate
+            # contract as the current position. Apply the crop/resize mapping
+            # to them too, while only points receive the crop origin offset.
+            for attribute in ("velocity", "acceleration"):
+                vector = getattr(ball, attribute, None)
+                if vector is not None:
+                    setattr(ball, attribute, vector_to_source(vector, coordinate_space))
+            predicted_position = getattr(ball, "predicted_position", None)
+            if predicted_position is not None:
+                ball.predicted_position = point_to_source(
+                    predicted_position, coordinate_space
+                )
+            history = getattr(ball, "position_history", None)
+            if history is not None:
+                ball.position_history = [
+                    point_to_source(point, coordinate_space) for point in history
+                ]
+
+            if coordinate_space == "4k_canonical":
+                ball.position = ResolutionConverter.scale_to_4k(
+                    ball.position[0], ball.position[1], source_resolution
+                )
+                ball.radius = ResolutionConverter.scale_distance_to_4k(
+                    source_radius, source_resolution
+                )
+                for attribute in ("velocity", "acceleration"):
+                    vector = getattr(ball, attribute, None)
+                    if vector is not None:
+                        setattr(
+                            ball,
+                            attribute,
+                            ResolutionConverter.scale_to_4k(
+                                vector[0], vector[1], source_resolution
+                            ),
+                        )
+                if ball.predicted_position is not None:
+                    ball.predicted_position = ResolutionConverter.scale_to_4k(
+                        ball.predicted_position[0],
+                        ball.predicted_position[1],
+                        source_resolution,
+                    )
+                if ball.position_history is not None:
+                    ball.position_history = [
+                        ResolutionConverter.scale_to_4k(
+                            point[0], point[1], source_resolution
+                        )
+                        for point in ball.position_history
+                    ]
+            else:
+                ball.radius = source_radius
+            ball.source_resolution = source_resolution
+            normalized.append(ball)
+        return normalized
+
+    @staticmethod
+    def _normalise_balls_to_source(
+        balls: list[Any],
+        source_resolution: tuple[int, int],
+        processing_resolution: tuple[int, int],
+    ) -> list[Any]:
+        """Restore detector outputs to source-frame coordinates and metadata."""
+        from ..core.resolution_converter import ResolutionConverter
+        from .detection.detector_adapter import canonical_point_to_source_pixels
+
+        source_width, source_height = source_resolution
+        if min(*source_resolution, *processing_resolution) <= 0:
+            raise ValueError("Frame resolutions must be positive")
+        default_resolution = processing_resolution
+        normalized: list[Any] = []
+        for ball in balls:
+            # Vision detector outputs are image pixels unless the producer
+            # explicitly marks them canonical. Never infer canonical space
+            # from a missing metadata field.
+            coordinate_space = getattr(ball, "coordinate_space", "pixel")
+            described_resolution = getattr(ball, "source_resolution", None)
+            if not described_resolution or min(described_resolution) <= 0:
+                described_resolution = default_resolution
+            described_width, described_height = described_resolution
+            if coordinate_space == "4k_canonical":
+                x, y = canonical_point_to_source_pixels(
+                    ball.position, (described_width, described_height)
+                )
+                radius = ResolutionConverter.scale_distance_from_4k(
+                    ball.radius, (described_width, described_height)
+                )
+            elif coordinate_space == "pixel":
+                x, y = float(ball.position[0]), float(ball.position[1])
+                radius = float(ball.radius)
+            else:
+                normalized.append(ball)
+                continue
+
+            scale_x = source_width / float(described_width)
+            scale_y = source_height / float(described_height)
+            source_x = float(x) * scale_x
+            source_y = float(y) * scale_y
+            source_radius = float(radius) * scale_x
+            if coordinate_space == "4k_canonical":
+                ball.position = ResolutionConverter.scale_to_4k(
+                    source_x, source_y, source_resolution
+                )
+                ball.radius = ResolutionConverter.scale_distance_to_4k(
+                    source_radius, source_resolution
+                )
+            else:
+                ball.position = (source_x, source_y)
+                ball.radius = source_radius
+                for attribute in ("velocity", "acceleration"):
+                    vector = getattr(ball, attribute, None)
+                    if vector is not None:
+                        setattr(
+                            ball,
+                            attribute,
+                            (float(vector[0]) * scale_x, float(vector[1]) * scale_y),
+                        )
+                predicted_position = getattr(ball, "predicted_position", None)
+                if predicted_position is not None:
+                    ball.predicted_position = (
+                        float(predicted_position[0]) * scale_x,
+                        float(predicted_position[1]) * scale_y,
+                    )
+                history = getattr(ball, "position_history", None)
+                if history is not None:
+                    ball.position_history = [
+                        (float(point[0]) * scale_x, float(point[1]) * scale_y)
+                        for point in history
+                    ]
+            ball.source_resolution = source_resolution
+            normalized.append(ball)
+        return normalized
+
+    @staticmethod
+    def _normalise_cue_to_source(
+        cue: CueStick | None,
+        source_resolution: tuple[int, int],
+        processing_resolution: tuple[int, int],
+    ) -> CueStick | None:
+        """Restore cue source metadata after a phase-specific resize."""
+        if cue is None or cue.coordinate_space == "world":
+            return cue
+        from ..core.resolution_converter import ResolutionConverter
+
+        if min(*source_resolution, *processing_resolution) <= 0:
+            raise ValueError("Frame resolutions must be positive")
+        described_resolution = cue.source_resolution or processing_resolution
+        described_width, described_height = described_resolution
+        source_width, source_height = source_resolution
+        if min(described_resolution) <= 0:
+            raise ValueError("Cue source resolution must be positive")
+        scale_x = source_width / float(described_width)
+        scale_y = source_height / float(described_height)
+
+        if cue.coordinate_space == "pixel":
+
+            def point_to_source(
+                point: tuple[float, float] | None,
+            ) -> tuple[float, float] | None:
+                if point is None:
+                    return None
+                return (float(point[0]) * scale_x, float(point[1]) * scale_y)
+
+            def vector_to_source(
+                vector: tuple[float, float],
+            ) -> tuple[float, float]:
+                return (float(vector[0]) * scale_x, float(vector[1]) * scale_y)
+
+            cue.tip_position = point_to_source(cue.tip_position)  # type: ignore[assignment]
+            cue.butt_position = point_to_source(cue.butt_position)  # type: ignore[assignment]
+            cue.tip_velocity = vector_to_source(cue.tip_velocity)
+            cue.shaft_points = [
+                point
+                for point in (point_to_source(point) for point in cue.shaft_points)
+                if point is not None
+            ]
+            cue.predicted_contact_point = point_to_source(cue.predicted_contact_point)
+            cue.aiming_line = (
+                [
+                    point
+                    for point in (point_to_source(point) for point in cue.aiming_line)
+                    if point is not None
+                ]
+                if cue.aiming_line is not None
+                else None
+            )
+            cue.length *= scale_x
+            cue.width *= scale_x
+        elif cue.coordinate_space != "4k_canonical":
+            return cue
+        cue.source_resolution = source_resolution
+        return cue
+
+    @staticmethod
+    def _normalise_table_to_source(
+        table: Table,
+        source_resolution: tuple[int, int],
+        processing_resolution: tuple[int, int],
+    ) -> Table:
+        """Restore table boundaries and extents to the captured frame space.
+
+        Pockets inherit their coordinate space from the containing table. This
+        keeps one source-resolution declaration authoritative for corners,
+        rails, playing-area boundaries, pocket geometry, and table extents.
+        """
+        if table.coordinate_space == "world":
+            return table
+        if min(*source_resolution, *processing_resolution) <= 0:
+            raise ValueError("Frame resolutions must be positive")
+
+        described_resolution = table.source_resolution or processing_resolution
+        if min(described_resolution) <= 0:
+            raise ValueError("Table source resolution must be positive")
+        if table.coordinate_space == "pixel":
+            scale_x = source_resolution[0] / float(described_resolution[0])
+            scale_y = source_resolution[1] / float(described_resolution[1])
+
+            def scale_point(point: tuple[float, float]) -> tuple[float, float]:
+                return (float(point[0]) * scale_x, float(point[1]) * scale_y)
+
+            table.corners = [scale_point(point) for point in table.corners]
+            table.rails = [
+                [scale_point(point) for point in rail] for rail in table.rails
+            ]
+            table.playing_area = [scale_point(point) for point in table.playing_area]
+            table.width *= scale_x
+            table.height *= scale_y
+            for pocket in table.pockets:
+                pocket.position = scale_point(pocket.position)
+                pocket.corners = [scale_point(point) for point in pocket.corners]
+                pocket.radius *= scale_x
+        elif table.coordinate_space != "4k_canonical":
+            return table
+
+        table.source_resolution = source_resolution
+        return table
+
+    @staticmethod
+    def _ball_positions_in_source(
+        balls: list[Any], source_resolution: tuple[int, int]
+    ) -> tuple[BallPosition, ...]:
+        """Build scheduler observations in native source pixels, never 4K space."""
+        from .detection.detector_adapter import canonical_point_to_source_pixels
+
+        positions: list[BallPosition] = []
+        for ball in balls:
+            coordinate_space = getattr(ball, "coordinate_space", "pixel")
+            if coordinate_space == "4k_canonical":
+                point = canonical_point_to_source_pixels(
+                    ball.position,
+                    getattr(ball, "source_resolution", None) or source_resolution,
+                )
+            elif coordinate_space == "pixel":
+                point = ball.position
+            else:
+                continue
+            positions.append(
+                BallPosition(
+                    x=float(point[0]),
+                    y=float(point[1]),
+                    confidence=float(getattr(ball, "confidence", 1.0)),
+                )
+            )
+        return tuple(positions)
+
+    def _assess_phase_motion(
+        self,
+        frame: NDArray[np.uint8],
+        polygon: list[tuple[float, float]] | None,
+        timestamp: float,
+    ) -> tuple[MotionAssessment | None, str]:
+        """Run one calibrated monitor observation and normalize bootstrap noise."""
+        candidates = []
+        for ball in self._phase_last_ball_map:
+            coordinate_space = getattr(ball, "coordinate_space", "pixel")
+            if coordinate_space == "4k_canonical":
+                from ..core.resolution_converter import ResolutionConverter
+                from .detection.detector_adapter import canonical_point_to_source_pixels
+
+                position = canonical_point_to_source_pixels(
+                    ball.position,
+                    ball.source_resolution or (frame.shape[1], frame.shape[0]),
+                )
+                radius = ResolutionConverter.scale_distance_from_4k(
+                    ball.radius,
+                    ball.source_resolution or (frame.shape[1], frame.shape[0]),
+                )
+            elif coordinate_space == "pixel":
+                position, radius = ball.position, ball.radius
+            else:
+                continue
+            candidates.append((float(position[0]), float(position[1]), float(radius)))
+
+        assessment = self.motion_monitor.assess(
+            frame,
+            polygon,
+            candidate_balls=candidates,
+            timestamp=timestamp,
+        )
+        return assessment, "observed" if assessment.valid else "failed"
+
     def _process_single_frame(
         self,
         frame: NDArray[np.uint8],
-        frame_number: Optional[int] = None,
-        timestamp: Optional[float] = None,
-    ) -> Optional[DetectionResult]:
+        frame_number: int | None = None,
+        timestamp: float | None = None,
+        source_frame_number: int | None = None,
+        source_timestamp: float | None = None,
+        source_timestamp_kind: str | None = None,
+        source_process_id: int | None = None,
+        source_publication_monotonic_ns: int | None = None,
+        queue_delay_seconds: float = 0.0,
+        audit_metadata: dict[str, Any] | None = None,
+    ) -> DetectionResult | None:
         """Process a single frame through the complete pipeline.
 
         Args:
@@ -861,7 +1620,7 @@ class VisionModule:
             Detection results or None if processing failed
         """
         try:
-            start_time = time.time()
+            start_time = time.monotonic()
 
             if frame_number is None:
                 frame_number = self._frame_number
@@ -870,11 +1629,165 @@ class VisionModule:
             if timestamp is None:
                 timestamp = time.time()
 
+            source_height, source_width = frame.shape[:2]
+            source_resolution = (source_width, source_height)
+            if source_frame_number is not None:
+                previous_source_process_id = getattr(
+                    self, "_phase_last_source_process_id", None
+                )
+                source_process_restarted = (
+                    source_process_id is not None
+                    and previous_source_process_id is not None
+                    and source_process_id != previous_source_process_id
+                )
+                if source_process_restarted:
+                    self._record_source_frame_event(
+                        "vision_source_restart_detected",
+                        source_frame_number,
+                        source_timestamp,
+                        source_process_id,
+                        reason="source_process_changed",
+                    )
+                    self._reset_after_source_restart()
+                previous_source_frame = getattr(
+                    self, "_phase_last_source_frame_number", None
+                )
+                previous_source_timestamp = getattr(
+                    self, "_phase_last_source_timestamp", None
+                )
+                if (
+                    not source_process_restarted
+                    and previous_source_frame is not None
+                    and source_frame_number <= previous_source_frame
+                ):
+                    reset_at = int(
+                        _get_config_value(
+                            "vision.processing.source_restart_sequence_reset_threshold",
+                            5,
+                        )
+                    )
+                    reset_drop = int(
+                        _get_config_value(
+                            "vision.processing.source_restart_sequence_drop_threshold",
+                            60,
+                        )
+                    )
+                    reset_sequence = (
+                        source_frame_number < previous_source_frame
+                        and previous_source_frame > reset_at
+                        and source_frame_number <= reset_at
+                    )
+                    reset_large_drop = (
+                        source_frame_number < previous_source_frame
+                        and previous_source_frame - source_frame_number >= reset_drop
+                        and source_timestamp is not None
+                        and previous_source_timestamp is not None
+                        and source_timestamp > previous_source_timestamp
+                    )
+                    if reset_sequence or reset_large_drop:
+                        self._record_source_frame_event(
+                            "vision_source_restart_detected",
+                            source_frame_number,
+                            source_timestamp,
+                            source_process_id,
+                        )
+                        self._reset_after_source_restart()
+                    else:
+                        self.stats.frames_dropped += 1
+                        self._record_source_frame_event(
+                            "vision_source_frame_rejected",
+                            source_frame_number,
+                            source_timestamp,
+                            source_process_id,
+                            reason="out_of_order_source_frame",
+                        )
+                        return None
+                elif (
+                    not source_process_restarted
+                    and source_timestamp is not None
+                    and previous_source_timestamp is not None
+                    and source_timestamp <= previous_source_timestamp
+                ):
+                    self.stats.frames_dropped += 1
+                    self._record_source_frame_event(
+                        "vision_source_frame_rejected",
+                        source_frame_number,
+                        source_timestamp,
+                        source_process_id,
+                        reason="non_monotonic_source_timestamp",
+                    )
+                    return None
+                self._phase_last_source_frame_number = source_frame_number
+                self._phase_last_source_process_id = source_process_id
+                if source_timestamp is not None:
+                    self._phase_last_source_timestamp = source_timestamp
+            phase_aware = bool(self.phase_scheduler.enabled)
+            phase_decision: PhaseDecision | None = None
+            table_polygon: list[tuple[float, float]] | None = None
+            calibration_revision: str | None = None
+            frame_monotonic_time = self._monotonic_now()
+
+            if phase_aware:
+                table_polygon, calibration_revision = self._phase_table_geometry(
+                    frame.shape
+                )
+                geometry_signature = (
+                    source_width,
+                    source_height,
+                    calibration_revision,
+                )
+                if geometry_signature != self._phase_geometry_signature:
+                    # Reference pixels and source-coordinate map entries are
+                    # tied to both camera resolution and table calibration.
+                    self.motion_monitor.reset()
+                    self._phase_last_ball_map = []
+                    self._phase_last_ball_timestamp = None
+                    self._phase_last_ball_source_timestamp = None
+                    self._phase_last_ball_source_frame_number = None
+                    self._phase_last_ball_source_timestamp_kind = None
+                    self._phase_last_motion_assessment = None
+                    self._phase_last_motion_timestamp = None
+                    self._phase_last_cue = None
+                    self._phase_last_cue_timestamp = None
+                    self._phase_geometry_signature = geometry_signature
+
+                phase_decision = self.phase_scheduler.update(
+                    now=frame_monotonic_time,
+                    calibration_revision=calibration_revision,
+                    aiming_requested=self._resolve_aiming_request(),
+                )
+                self._phase_calibration_revision = calibration_revision
+
             # Start profiling this frame
             if self.profiler:
-                self.profiler.start_frame(frame_number)
+                self.profiler.start_frame(
+                    frame_number,
+                    metadata={
+                        "source_frame_number": source_frame_number,
+                        "source_timestamp": source_timestamp,
+                        "source_timestamp_kind": source_timestamp_kind,
+                        "source_process_id": source_process_id,
+                        "source_publication_monotonic_ns": (
+                            source_publication_monotonic_ns
+                        ),
+                        "queue_delay_seconds": queue_delay_seconds,
+                        **(audit_metadata or {}),
+                        "calibration_revision": calibration_revision,
+                        "phase": (
+                            phase_decision.phase.value
+                            if phase_decision is not None
+                            else "unscheduled"
+                        ),
+                    },
+                )
+                current_frame = self.profiler.current_frame
+                if current_frame is not None:
+                    current_frame.queue_wait_time = queue_delay_seconds
+                    current_frame.inclusive_stages["queue_wait"] = queue_delay_seconds
+                    current_frame.exclusive_stages["queue_wait"] = queue_delay_seconds
 
-            # No preprocessing - disabled for performance
+            # Preserve the original frame for display. Scheduled inference can
+            # use a smaller view when a validated phase profile requests one.
             processed_frame = frame
 
             # Apply masking ONCE - marker dots and table boundaries
@@ -882,126 +1795,511 @@ class VisionModule:
             if self.profiler:
                 self.profiler.start_stage("masking")
 
+            if phase_aware and phase_decision and phase_decision.run_motion_monitor:
+                motion_timestamp = self._monotonic_now()
+                motion_assessment, motion_status = self._assess_phase_motion(
+                    frame, table_polygon, motion_timestamp
+                )
+                if motion_assessment is not None:
+                    self._phase_last_motion_assessment = motion_assessment
+                    self._phase_last_motion_timestamp = motion_timestamp
+            else:
+                motion_assessment = None
+                motion_status = "skipped"
+
             processed_frame = self._apply_all_masks(processed_frame)
+            processing_max_dimension = (
+                phase_decision.processing_max_dimension
+                if phase_aware and phase_decision
+                else None
+            )
+            processing_input = self._resize_for_phase(
+                processed_frame, processing_max_dimension
+            )
+            processing_height, processing_width = processing_input.shape[:2]
+            processing_resolution = (processing_width, processing_height)
+            ball_processing_input = processing_input
+            ball_crop_rect: tuple[int, int, int, int] | None = None
+            ball_detection_view = "full_frame"
+            crop_profile = (
+                self.phase_scheduler.settings.get("ball_detection_crop", {})
+                if phase_aware
+                else {}
+            )
+            crop_balls_to_table = bool(
+                phase_decision and crop_profile.get(phase_decision.phase.value, False)
+            )
+            if crop_balls_to_table:
+                ball_processing_input, ball_crop_rect = self._crop_to_calibrated_table(
+                    processing_input,
+                    table_polygon,
+                    source_resolution,
+                    self.phase_scheduler.settings.get(
+                        "ball_crop_margin_fraction", 0.08
+                    ),
+                )
+                ball_detection_view = (
+                    "calibrated_table_crop"
+                    if ball_crop_rect is not None
+                    else "full_frame_calibration_unavailable"
+                )
+
+            # A unique per-processing-pass token prevents reuse when sequence
+            # metadata repeats. Source metadata and view name make the cache
+            # contract explicit to detector implementations.
+            frame_cache_key = (
+                "vision-frame",
+                frame_number,
+                source_frame_number,
+                source_timestamp,
+                source_timestamp_kind,
+                f"masked-{processing_width}x{processing_height}",
+                object(),
+            )
+            ball_frame_cache_key = (
+                frame_cache_key
+                if ball_crop_rect is None
+                else (*frame_cache_key, "table-crop", ball_crop_rect)
+            )
 
             if self.profiler:
                 self.profiler.end_stage("masking")
 
-            # Detection
-            detected_balls = []
+            # Ball and cue inference have independent schedules. Skipped jobs
+            # preserve their latest successful result and never call tracking.
+            run_ball_detection = bool(
+                self.detector
+                and self.config.enable_ball_detection
+                and (
+                    not phase_aware
+                    or (
+                        phase_decision
+                        and (
+                            phase_decision.verify_ball_map
+                            or phase_decision.track_moving_balls
+                        )
+                    )
+                )
+            )
+            run_cue_detection = bool(
+                self.detector
+                and hasattr(self.detector, "detect_cue")
+                and (not phase_aware or (phase_decision and phase_decision.detect_cue))
+            )
+            ball_detection_status = "skipped"
+            ball_detection_failure_stage: str | None = None
+            cue_detection_status = "skipped"
+            detected_balls = list(self._phase_last_ball_map) if phase_aware else []
+            map_candidate_balls: list[Any] = []
+            ball_observation_timestamp: float | None = None
+            cue_observation_timestamp: float | None = None
+            ball_map_observation: BallMapObservation | None = None
+            cue_observation: CueObservation | None = None
+            detected_cue = self._phase_last_cue if phase_aware else None
 
-            # Ball detection using YOLO+OpenCV hybrid detector
-            if self.detector and self.config.enable_ball_detection:
+            if phase_aware and phase_decision and phase_decision.verify_ball_map:
+                if not run_ball_detection:
+                    ball_detection_status = "failed"
+            if phase_aware and phase_decision and phase_decision.detect_cue:
+                if not run_cue_detection:
+                    cue_detection_status = "failed"
+
+            if run_ball_detection and self.detector is not None:
                 if self.profiler:
                     self.profiler.start_stage("ball_detection")
-
                 try:
-                    # Use hybrid YOLO+OpenCV detection for ball classification
-                    # YOLO provides accurate position, OpenCV refines ball type
-                    detected_balls = self.detector.detect_balls_with_classification(
-                        processed_frame
+                    # Keep color classification aligned with the detector's
+                    # resized/cropped view while preserving the original color
+                    # evidence. Masks are useful for localization inference,
+                    # but can erase pixels needed to classify a ball.
+                    if self.profiler:
+                        self.profiler.start_stage("preprocessing")
+                    classification_input = self._resize_for_phase(
+                        frame, processing_max_dimension
                     )
-
-                    # CRITICAL: Filter out balls in invalid regions
-                    # This prevents balls detected on marker dots or outside playing area
-                    # Note: Cue stick can be on rails, so this filter is ONLY for balls
-                    frame_height, frame_width = processed_frame.shape[:2]
-                    filtered_balls = []
-                    excluded_count = 0
-
-                    for ball in detected_balls:
-                        ball_x, ball_y = ball.position
-
-                        if self._is_ball_in_invalid_region(
-                            ball_x, ball_y, frame_width, frame_height
-                        ):
-                            excluded_count += 1
-                            logger.debug(
-                                f"Excluded ball at ({ball_x:.1f}, {ball_y:.1f}) - in invalid region "
-                                f"(marker dot or outside playing area)"
+                    if ball_crop_rect is not None:
+                        crop_x, crop_y, crop_right, crop_bottom = ball_crop_rect
+                        classification_input = classification_input[
+                            crop_y:crop_bottom, crop_x:crop_right
+                        ]
+                    if self.profiler:
+                        self.profiler.end_stage("preprocessing")
+                        self.profiler.start_stage("detector_inference")
+                    outcome_method = getattr(
+                        self.detector,
+                        "detect_balls_with_classification_outcome",
+                        None,
+                    )
+                    if callable(outcome_method):
+                        outcome = outcome_method(
+                            ball_processing_input,
+                            frame_key=ball_frame_cache_key,
+                            classification_frame=classification_input,
+                        )
+                        raw_status = getattr(outcome, "status", None)
+                        status_name = getattr(raw_status, "value", raw_status)
+                        status_name = (
+                            status_name.lower() if isinstance(status_name, str) else ""
+                        )
+                        if status_name in _BALL_DETECTION_SUCCESS_STATUSES:
+                            # Both detections and a completed empty inference
+                            # are valid observations and may update the map.
+                            raw_balls = list(getattr(outcome, "detections", ()))
+                            ball_detection_status = "observed"
+                        elif status_name == "model_unavailable":
+                            raw_balls = []
+                            ball_detection_status = "unavailable"
+                        elif status_name == "failed":
+                            raw_balls = []
+                            ball_detection_status = "failed"
+                            raw_failure_stage = getattr(outcome, "failure_stage", None)
+                            failure_stage_name = getattr(
+                                raw_failure_stage, "value", raw_failure_stage
+                            )
+                            ball_detection_failure_stage = (
+                                failure_stage_name
+                                if isinstance(failure_stage_name, str)
+                                and failure_stage_name in _BALL_DETECTION_FAILURE_STAGES
+                                else "unknown"
                             )
                         else:
-                            filtered_balls.append(ball)
-
-                    if excluded_count > 0:
-                        logger.debug(
-                            f"Filtered out {excluded_count} ball(s) in invalid regions "
-                            f"({len(filtered_balls)} valid balls remaining)"
+                            # Unknown status values fail closed rather than
+                            # treating an empty detection collection as success.
+                            raw_balls = []
+                            ball_detection_status = "failed"
+                            ball_detection_failure_stage = "unknown"
+                    else:
+                        # Legacy detector plugins have no status-bearing API;
+                        # their returned list, including [], is a completed
+                        # observation under the legacy contract.
+                        raw_balls = self.detector.detect_balls_with_classification(
+                            ball_processing_input,
+                            frame_key=ball_frame_cache_key,
+                            classification_frame=classification_input,
                         )
-
-                    detected_balls = filtered_balls
-
-                    # Update tracking if available
-                    if self.tracker and self.config.enable_tracking:
+                        ball_detection_status = "observed"
+                    if self.profiler:
+                        self.profiler.end_stage("detector_inference")
+                    if ball_detection_status == "observed":
                         if self.profiler:
-                            self.profiler.start_stage("tracking")
+                            self.profiler.start_stage("postprocessing")
+                        if ball_crop_rect is None:
+                            raw_balls = self._normalise_balls_to_source(
+                                list(raw_balls),
+                                source_resolution,
+                                processing_resolution,
+                            )
+                        else:
+                            raw_balls = self._normalise_cropped_balls_to_source(
+                                list(raw_balls),
+                                source_resolution,
+                                processing_resolution,
+                                ball_crop_rect,
+                            )
 
-                        detected_balls = self.tracker.update_tracking(
-                            detected_balls, frame_number, timestamp
+                        filtered_balls: list[Any] = []
+                        excluded_count = 0
+                        for ball in raw_balls:
+                            coordinate_space = getattr(
+                                ball, "coordinate_space", "pixel"
+                            )
+                            if coordinate_space == "4k_canonical":
+                                from .detection.detector_adapter import (
+                                    canonical_point_to_source_pixels,
+                                )
+
+                                ball_x, ball_y = canonical_point_to_source_pixels(
+                                    ball.position, source_resolution
+                                )
+                            elif coordinate_space == "pixel":
+                                ball_x, ball_y = ball.position
+                            else:
+                                filtered_balls.append(ball)
+                                continue
+
+                            if self._is_ball_in_invalid_region(
+                                ball_x, ball_y, source_width, source_height
+                            ):
+                                excluded_count += 1
+                                logger.debug(
+                                    "Excluded ball at (%.1f, %.1f) in an invalid region",
+                                    ball_x,
+                                    ball_y,
+                                )
+                            else:
+                                filtered_balls.append(ball)
+
+                        if self.profiler:
+                            self.profiler.end_stage("postprocessing")
+
+                        if excluded_count:
+                            logger.debug(
+                                "Filtered out %s ball(s) in invalid regions",
+                                excluded_count,
+                            )
+
+                        map_candidate_balls = list(filtered_balls)
+                        # Detection construction happens after frame capture and can
+                        # run long after a frame waited in the processing queue.
+                        # Use the frame's wall-clock publication/arrival time for
+                        # per-ball freshness; it is not a camera exposure time.
+                        for ball in filtered_balls:
+                            if hasattr(ball, "last_seen"):
+                                ball.last_seen = timestamp
+                        detected_balls = list(filtered_balls)
+                        if (
+                            self.tracker
+                            and self.config.enable_tracking
+                            and (
+                                not phase_aware
+                                or (
+                                    phase_decision and phase_decision.track_moving_balls
+                                )
+                            )
+                        ):
+                            if self.profiler:
+                                self.profiler.start_stage("tracking")
+                            try:
+                                detected_balls = self.tracker.update_tracking(
+                                    detected_balls,
+                                    frame_number,
+                                    # Tracker intervals must use the same monotonic
+                                    # domain as its expiry and prediction settings.
+                                    # `timestamp` is wall-clock publication time and
+                                    # must remain source metadata only.
+                                    frame_monotonic_time,
+                                )
+                            finally:
+                                if self.profiler:
+                                    self.profiler.end_stage("tracking")
+
+                        ball_detection_status = "observed"
+                        ball_observation_timestamp = self._monotonic_now()
+                        if phase_aware:
+                            self._phase_last_ball_map = list(detected_balls)
+                            self._phase_last_ball_timestamp = ball_observation_timestamp
+                            self._phase_last_ball_source_timestamp = source_timestamp
+                            self._phase_last_ball_source_frame_number = (
+                                source_frame_number
+                                if source_frame_number is not None
+                                else frame_number
+                            )
+                            self._phase_last_ball_source_timestamp_kind = (
+                                source_timestamp_kind
+                            )
+
+                        max_balls = _get_config_value(
+                            "vision.detection.max_balls_on_table", 16
                         )
-
-                        if self.profiler:
-                            self.profiler.end_stage("tracking")
-
-                    max_balls = _get_config_value(
-                        "vision.detection.max_balls_on_table", 16
-                    )
-                    detection_rate = len(detected_balls) / float(max_balls)
-                    self.stats.detection_accuracy["balls"] = min(detection_rate, 1.0)
-
+                        detection_rate = len(detected_balls) / float(max_balls)
+                        self.stats.detection_accuracy["balls"] = min(
+                            detection_rate, 1.0
+                        )
+                    else:
+                        # Keep prior phase-aware state for display, but never
+                        # normalize or track unavailable/failed model output.
+                        self.stats.detection_accuracy["balls"] = 0.0
+                        detected_balls = (
+                            list(self._phase_last_ball_map) if phase_aware else []
+                        )
                 except Exception as e:
-                    logger.error(f"YOLO+OpenCV hybrid ball detection failed: {e}")
+                    # Backend exceptions may contain local paths or runtime
+                    # details; retain only the safe failure category.
+                    logger.error("Ball detection failed (%s)", type(e).__name__)
                     self.stats.detection_accuracy["balls"] = 0.0
+                    ball_detection_status = "failed"
+                    ball_detection_failure_stage = "unknown"
+                    detected_balls = (
+                        list(self._phase_last_ball_map) if phase_aware else []
+                    )
+                finally:
+                    if self.profiler:
+                        self.profiler.end_stage("ball_detection")
 
-                if self.profiler:
-                    self.profiler.end_stage("ball_detection")
+            if phase_aware and phase_decision and phase_decision.verify_ball_map:
+                if ball_detection_status == "observed":
+                    ball_map_observation = BallMapObservation(
+                        timestamp=ball_observation_timestamp,
+                        balls=self._ball_positions_in_source(
+                            map_candidate_balls, source_resolution
+                        ),
+                        full=True,
+                    )
+                elif ball_detection_status in {"failed", "unavailable"}:
+                    ball_map_observation = BallMapObservation(
+                        timestamp=self._monotonic_now(),
+                        balls=(),
+                        full=True,
+                        successful=False,
+                        uncertain=True,
+                    )
 
-            # Cue detection using YOLO
-            detected_cue = None
-            if self.detector and hasattr(self.detector, "detect_cue"):
+            if run_cue_detection and self.detector is not None:
                 if self.profiler:
                     self.profiler.start_stage("cue_detection")
-
                 try:
-                    # Get YOLO detection
-                    yolo_detection = self.detector.detect_cue(processed_frame)
-
+                    yolo_detection = self.detector.detect_cue(
+                        processing_input,
+                        frame_key=frame_cache_key,
+                    )
+                    # A scheduled detector call replaces the cached result.
+                    # A successful inference with no cue must clear the prior
+                    # measurement instead of renewing its age as if it were seen.
+                    detected_cue = None
                     if yolo_detection:
-                        # Convert YOLO Detection to CueStick object
                         from .detection.detector_adapter import yolo_cue_to_cue_stick
 
-                        frame_height, frame_width = processed_frame.shape[:2]
                         detected_cue = yolo_cue_to_cue_stick(
                             yolo_detection,
-                            image_shape=(frame_height, frame_width),
+                            image_shape=(processing_height, processing_width),
                             min_confidence=0.3,
                         )
+                        detected_cue = self._normalise_cue_to_source(
+                            detected_cue, source_resolution, processing_resolution
+                        )
 
-                        if detected_cue:
-                            logger.debug(
-                                f"Cue detected: confidence={detected_cue.confidence:.2f}, "
-                                f"angle={detected_cue.angle:.1f}°"
-                            )
-                            self.stats.detection_accuracy["cue"] = (
-                                detected_cue.confidence
-                            )
-                        else:
-                            self.stats.detection_accuracy["cue"] = 0.0
-                    else:
-                        self.stats.detection_accuracy["cue"] = 0.0
+                    cue_detection_status = "observed"
+                    cue_observation_timestamp = self._monotonic_now()
+                    self.stats.detection_accuracy["cue"] = (
+                        detected_cue.confidence if detected_cue else 0.0
+                    )
+                    if phase_aware:
+                        self._phase_last_cue = detected_cue
+                        self._phase_last_cue_timestamp = cue_observation_timestamp
+                        minimum_cue_confidence = self.phase_scheduler.settings.get(
+                            "minimum_cue_confidence", 0.3
+                        )
+                        cue_reliable = bool(
+                            detected_cue
+                            and detected_cue.confidence >= minimum_cue_confidence
+                        )
+                        cue_observation = CueObservation(
+                            timestamp=cue_observation_timestamp,
+                            detected=detected_cue is not None,
+                            reliable=cue_reliable,
+                        )
                 except Exception as e:
-                    logger.error(f"Cue detection failed: {e}")
+                    logger.error("Cue detection failed: %s", e)
                     self.stats.detection_accuracy["cue"] = 0.0
+                    cue_detection_status = "failed"
+                    detected_cue = None
+                    if phase_aware:
+                        cue_observation_timestamp = self._monotonic_now()
+                        self._phase_last_cue = None
+                        self._phase_last_cue_timestamp = cue_observation_timestamp
+                        cue_observation = CueObservation(
+                            timestamp=cue_observation_timestamp,
+                            detected=False,
+                            reliable=False,
+                        )
+                finally:
+                    if self.profiler:
+                        self.profiler.end_stage("cue_detection")
 
-                if self.profiler:
-                    self.profiler.end_stage("cue_detection")
+            if phase_aware and detected_cue is not None:
+                cue_age_seconds = (
+                    self._monotonic_now() - self._phase_last_cue_timestamp
+                    if self._phase_last_cue_timestamp is not None
+                    else float("inf")
+                )
+                maximum_cue_age_seconds = self.phase_scheduler.settings[
+                    "maximum_cue_age_seconds"
+                ]
+                if cue_age_seconds > maximum_cue_age_seconds:
+                    # Keep the last observation timestamp for diagnostics, but
+                    # stop publishing its geometry once it is no longer fresh.
+                    self._phase_last_cue = None
+                    detected_cue = None
+                    self.stats.detection_accuracy["cue"] = 0.0
+                    if cue_detection_status == "skipped":
+                        cue_detection_status = "stale"
+
+            if phase_aware and phase_decision and phase_decision.detect_cue:
+                if cue_detection_status == "failed" and cue_observation is None:
+                    cue_observation_timestamp = self._monotonic_now()
+                    cue_observation = CueObservation(
+                        timestamp=cue_observation_timestamp,
+                        detected=False,
+                        reliable=False,
+                    )
+                elif cue_detection_status == "observed" and cue_observation is None:
+                    cue_observation_timestamp = self._monotonic_now()
+                    cue_observation = CueObservation(
+                        timestamp=cue_observation_timestamp,
+                        detected=False,
+                        reliable=True,
+                    )
+
+            post_phase_decision: PhaseDecision | None = None
+            if phase_aware:
+                moving_ball_count: int | None = (
+                    sum(
+                        1
+                        for ball in detected_balls
+                        if getattr(ball, "is_moving", False)
+                    )
+                    if ball_detection_status == "observed"
+                    else None
+                )
+                if (
+                    moving_ball_count is None
+                    and phase_decision is not None
+                    and phase_decision.phase.value == "MANY_MOVING"
+                    and motion_assessment is not None
+                    and motion_assessment.valid
+                    and not motion_assessment.motion_detected
+                    and not motion_assessment.likely_occlusion
+                    and not motion_assessment.illumination_change
+                ):
+                    # In MANY_MOVING detailed detections are intentionally
+                    # suspended. Fresh quiet image evidence still contributes
+                    # a zero moving-ball estimate so hysteresis can recover.
+                    moving_ball_count = 0
+                post_update_time = self._monotonic_now()
+                post_phase_decision = self.phase_scheduler.update(
+                    now=post_update_time,
+                    motion_assessment=motion_assessment,
+                    ball_map_observation=ball_map_observation,
+                    cue_observation=cue_observation,
+                    moving_ball_count=moving_ball_count,
+                    aiming_requested=self._resolve_aiming_request(),
+                    calibration_revision=calibration_revision,
+                )
+                if (
+                    motion_assessment is not None
+                    and motion_assessment.valid
+                    and not motion_assessment.motion_detected
+                    and not motion_assessment.likely_occlusion
+                    and not motion_assessment.illumination_change
+                    and ball_map_observation is not None
+                    and ball_map_observation.successful
+                    and post_phase_decision.map_trusted
+                ):
+                    self.motion_monitor.commit_verified_reference(
+                        frame,
+                        table_polygon,
+                        settled=True,
+                        map_reconciled=True,
+                        timestamp=post_update_time,
+                    )
 
             # Create result
             if self.profiler:
                 self.profiler.start_stage("result_building")
             processing_time = (
-                time.time() - start_time
+                time.monotonic() - start_time
             ) * 1000  # Convert to milliseconds
+            age_reference_timestamp = source_timestamp
+            if (
+                age_reference_timestamp is None
+                and source_timestamp_kind == "vision_capture_fallback"
+            ):
+                age_reference_timestamp = timestamp
+            frame_publication_age_seconds = (
+                max(0.0, time.time() - age_reference_timestamp)
+                if age_reference_timestamp is not None
+                else None
+            )
 
             # Create a default table (no detection needed)
             h, w = frame.shape[:2]
@@ -1014,6 +2312,11 @@ class VisionModule:
                 width=w,
                 height=h,
                 surface_color=tuple(default_surface_color),
+                coordinate_space="pixel",
+                source_resolution=source_resolution,
+            )
+            detected_table = self._normalise_table_to_source(
+                detected_table, source_resolution, processing_resolution
             )
 
             # Create frame statistics
@@ -1041,6 +2344,60 @@ class VisionModule:
                 ),
             )
 
+            ball_observation_source_frame_number: int | None
+            if ball_detection_status == "observed":
+                ball_positions_status = "observed"
+                ball_observation_source_timestamp = source_timestamp
+                ball_observation_source_frame_number = (
+                    source_frame_number
+                    if source_frame_number is not None
+                    else frame_number
+                )
+                ball_observation_source_timestamp_kind = source_timestamp_kind
+            elif phase_aware and self._phase_last_ball_timestamp is not None:
+                # The ball list is intentionally retained through scheduler
+                # skips and inference failures, but its source identity must
+                # remain the successful observation that produced it.
+                ball_positions_status = "cached"
+                ball_observation_source_timestamp = (
+                    self._phase_last_ball_source_timestamp
+                )
+                ball_observation_source_frame_number = (
+                    self._phase_last_ball_source_frame_number
+                )
+                ball_observation_source_timestamp_kind = (
+                    self._phase_last_ball_source_timestamp_kind
+                )
+            else:
+                ball_positions_status = "unavailable"
+                ball_observation_source_timestamp = None
+                ball_observation_source_frame_number = None
+                ball_observation_source_timestamp_kind = None
+
+            component_statuses = {
+                "balls": ball_detection_status,
+                "cue": cue_detection_status,
+                "motion": motion_status,
+            }
+            failed_components = {
+                name: status
+                for name, status in component_statuses.items()
+                if status == "failed"
+            }
+            incomplete_components = {
+                name: status
+                for name, status in component_statuses.items()
+                if status in {"failed", "unavailable"}
+            }
+            safe_error_messages = [
+                (
+                    f"balls:failed:{ball_detection_failure_stage or 'unknown'}"
+                    if name == "balls"
+                    else f"{name}:failed"
+                )
+                for name in failed_components
+            ]
+
             result = DetectionResult(
                 frame_number=frame_number,
                 timestamp=timestamp,
@@ -1048,6 +2405,83 @@ class VisionModule:
                 cue=detected_cue,
                 table=detected_table,
                 statistics=statistics,
+                source_frame_number=source_frame_number,
+                source_timestamp=source_timestamp,
+                source_timestamp_kind=source_timestamp_kind,
+                source_process_id=source_process_id,
+                source_publication_monotonic_ns=source_publication_monotonic_ns,
+                frame_publication_age_seconds=frame_publication_age_seconds,
+                phase_aware=phase_aware,
+                vision_phase=(
+                    post_phase_decision.phase.value.lower()
+                    if post_phase_decision
+                    else None
+                ),
+                phase=(
+                    post_phase_decision.phase.value.lower()
+                    if post_phase_decision
+                    else None
+                ),
+                phase_reason=(
+                    post_phase_decision.reason if post_phase_decision else None
+                ),
+                map_revision=(
+                    post_phase_decision.map_revision if post_phase_decision else None
+                ),
+                map_trusted=(
+                    post_phase_decision.map_trusted if post_phase_decision else None
+                ),
+                moving_ball_count=(
+                    post_phase_decision.moving_ball_count
+                    if post_phase_decision
+                    else None
+                ),
+                aim_calculation_eligible=(
+                    post_phase_decision.can_calculate_aim
+                    if post_phase_decision
+                    else None
+                ),
+                calibration_revision=calibration_revision,
+                is_complete=not incomplete_components,
+                has_errors=bool(failed_components),
+                error_messages=safe_error_messages,
+                ball_detection_status=ball_detection_status,
+                ball_detection_failure_stage=ball_detection_failure_stage,
+                cue_detection_status=cue_detection_status,
+                motion_monitor_status=motion_status,
+                ball_positions_status=ball_positions_status,
+                ball_observation_source_timestamp=(ball_observation_source_timestamp),
+                ball_observation_source_frame_number=(
+                    ball_observation_source_frame_number
+                ),
+                ball_observation_source_timestamp_kind=(
+                    ball_observation_source_timestamp_kind
+                ),
+                ball_observation_timestamp=(
+                    self._phase_last_ball_timestamp if phase_aware else None
+                ),
+                maximum_ball_observation_gap_seconds=(
+                    self.phase_scheduler.settings.get(
+                        "maximum_ball_observation_gap_seconds"
+                    )
+                    if phase_aware
+                    else None
+                ),
+                actual_path_history_max_points=(
+                    self.phase_scheduler.settings.get("actual_path_history_max_points")
+                    if phase_aware
+                    else None
+                ),
+                ball_detection_view=ball_detection_view,
+                cue_observation_timestamp=(
+                    self._phase_last_cue_timestamp if phase_aware else None
+                ),
+                motion_observation_timestamp=(
+                    self._phase_last_motion_timestamp if phase_aware else None
+                ),
+                component_observation_status=(
+                    component_statuses if phase_aware else {}
+                ),
             )
 
             if self.profiler:
@@ -1055,6 +2489,19 @@ class VisionModule:
 
             # End profiling for this frame
             if self.profiler:
+                current_frame = self.profiler.current_frame
+                if current_frame is not None:
+                    current_frame.metadata.update(
+                        {
+                            "frame_status": "complete",
+                            "component_observation_status": result.component_observation_status,
+                            "ball_positions_status": result.ball_positions_status,
+                            "map_revision": result.map_revision,
+                            "ball_count": len(result.balls),
+                            "cue_present": result.cue is not None,
+                            "frame_publication_age_seconds": result.frame_publication_age_seconds,
+                        }
+                    )
                 self.profiler.end_frame()
 
             return result
@@ -1065,9 +2512,41 @@ class VisionModule:
 
             # End profiling even on error
             if self.profiler:
+                current_frame = self.profiler.current_frame
+                if current_frame is not None:
+                    current_frame.metadata["frame_status"] = "failed"
                 self.profiler.end_frame()
 
             return None
+
+    def _record_source_frame_event(
+        self,
+        event_type: str,
+        source_frame_number: int,
+        source_timestamp: float | None,
+        source_process_id: int | None,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        """Record source discontinuities only for state audit sessions."""
+        recorder = getattr(self, "audit_recorder", None)
+        if recorder is None or not self._audit_enabled("state"):
+            return
+        event: dict[str, Any] = {
+            "event_type": event_type,
+            "source_frame_number": source_frame_number,
+            "source_timestamp": source_timestamp,
+            "source_timestamp_kind": "shared_memory_publication",
+            "source_process_id": source_process_id,
+        }
+        if reason is not None:
+            event["reason"] = reason
+        recorder.record(event)
+
+    def _audit_enabled(self, domain: str) -> bool:
+        """Return whether an audit domain is active, including partial test setups."""
+        domains = getattr(self, "audit_domains", {})
+        return isinstance(domains, dict) and bool(domains.get(domain, False))
 
     def _is_ball_in_invalid_region(
         self, x: float, y: float, frame_width: int, frame_height: int
@@ -1091,49 +2570,46 @@ class VisionModule:
         try:
             from ..config import config
 
-            # Get calibration resolution for scaling
-            calib_width = config.get("table.calibration_resolution_width")
-            calib_height = config.get("table.calibration_resolution_height")
-
-            if calib_width is None or calib_height is None:
-                return False  # Can't check without calibration
-
-            scale_x = frame_width / calib_width
-            scale_y = frame_height / calib_height
+            frame_size = (frame_width, frame_height)
 
             # Check 1: Marker dots (balls can't be on marker stickers)
             marker_config = config.get("vision.detection.marker_filtering", {})
             if marker_config.get("enabled", True):
                 marker_dots = config.get("table.marker_dots", [])
-                mask_radius = marker_config.get("mask_radius_px", 25)
+                mask_radius = marker_config.get("mask_radius_px")
 
                 for dot in marker_dots:
-                    scaled_x = dot["x"] * scale_x
-                    scaled_y = dot["y"] * scale_y
-                    distance = np.sqrt((x - scaled_x) ** 2 + (y - scaled_y) ** 2)
-
-                    if distance < mask_radius:
-                        return True  # Ball is on a marker dot
+                    try:
+                        center = point_to_frame(dot, frame_size)
+                        if point_is_within_scaled_radius(
+                            x,
+                            y,
+                            center,
+                            mask_radius,
+                            dot["scale"],
+                            frame_size,
+                        ):
+                            return True  # Ball is on a marker dot
+                    except (KeyError, TypeError, ValueError):
+                        logger.warning(
+                            "Skipping marker exclusion with invalid scaled geometry"
+                        )
 
             # Check 2: Outside playing area (balls can't be outside the table)
             playing_area_corners = config.get("table.playing_area_corners", [])
-
             if len(playing_area_corners) == 4:
-                # Scale corners
-                corners = np.array(
-                    [
-                        [int(c["x"] * scale_x), int(c["y"] * scale_y)]
-                        for c in playing_area_corners
-                    ],
-                    dtype=np.float32,
-                )
-
-                # Use OpenCV pointPolygonTest to check if point is inside polygon
-                # Returns positive if inside, negative if outside, zero if on edge
-                result = cv2.pointPolygonTest(corners, (float(x), float(y)), False)
-
-                if result < 0:
-                    return True  # Ball is outside playing area
+                try:
+                    corners = np.asarray(
+                        playing_area_to_frame(playing_area_corners, frame_size),
+                        dtype=np.float32,
+                    )
+                    result = cv2.pointPolygonTest(corners, (float(x), float(y)), False)
+                    if result < 0:
+                        return True  # Ball is outside the playing area
+                except (KeyError, TypeError, ValueError):
+                    logger.warning(
+                        "Skipping playing-area exclusion with invalid scaled geometry"
+                    )
 
             return False  # Ball is in a valid location
 
@@ -1151,7 +2627,8 @@ class VisionModule:
         Post-filtering in detect_balls ensures ball detections in invalid regions
         (marker dots or outside playing area) are excluded.
 
-        IMPORTANT: Coordinates are scaled from calibration resolution to current frame resolution.
+        Configured marker coordinates and their radii are scaled through their
+        explicit canonical scale metadata into the current frame.
 
         Args:
             frame: Preprocessed frame
@@ -1168,20 +2645,7 @@ class VisionModule:
             # Get current frame dimensions
             frame_height, frame_width = frame.shape[:2]
 
-            # Get calibration resolution (must be set during calibration)
-            calib_width = config.get("table.calibration_resolution_width")
-            calib_height = config.get("table.calibration_resolution_height")
-
-            if calib_width is None or calib_height is None:
-                logger.error(
-                    "Calibration resolution not set! Please recalibrate. "
-                    "Skipping masking to avoid incorrect scaling."
-                )
-                return frame  # Return unmasked to avoid incorrect scaling
-
-            # Calculate scaling factors
-            scale_x = frame_width / calib_width
-            scale_y = frame_height / calib_height
+            frame_size = (frame_width, frame_height)
 
             # MASK 1: Marker dots (spots/stickers on table)
             marker_config = config.get("vision.detection.marker_filtering", {})
@@ -1189,16 +2653,14 @@ class VisionModule:
 
             if marker_filtering_enabled:
                 marker_dots = config.get("table.marker_dots", [])
-                mask_radius = marker_config.get(
-                    "mask_radius_px", 25
-                )  # DO NOT SCALE radius
+                mask_radius = marker_config.get("mask_radius_px")
 
                 if marker_dots:
                     # Log masking config only on first application (avoid spam)
                     if not hasattr(self, "_logged_marker_masking"):
                         logger.info(
                             f"Applying marker dot masking: {len(marker_dots)} dots, "
-                            f"radius={mask_radius}px, scale=({scale_x:.2f}, {scale_y:.2f}) "
+                            f"reference radius={mask_radius}px "
                             f"(post-filtering will exclude any detections in these regions)"
                         )
                         self._logged_marker_masking = True
@@ -1209,18 +2671,25 @@ class VisionModule:
                     mask_color = (0, 128, 0)  # Dark green - easy to spot if needed
 
                     for dot in marker_dots:
-                        # Scale coordinates from calibration resolution to frame resolution
-                        scaled_x = int(dot["x"] * scale_x)
-                        scaled_y = int(dot["y"] * scale_y)
-
-                        # Paint over marker dots (color doesn't matter - post-filtering excludes them)
-                        cv2.circle(
-                            masked_frame,
-                            (scaled_x, scaled_y),
-                            mask_radius,
-                            mask_color,
-                            -1,  # Filled
-                        )
+                        try:
+                            scaled_x, scaled_y = point_to_frame(dot, frame_size)
+                            radius_x, radius_y = radius_to_frame_ellipse(
+                                mask_radius, dot["scale"], frame_size
+                            )
+                            cv2.ellipse(
+                                masked_frame,
+                                (round(scaled_x), round(scaled_y)),
+                                (max(1, round(radius_x)), max(1, round(radius_y))),
+                                0,
+                                0,
+                                360,
+                                mask_color,
+                                -1,
+                            )
+                        except (KeyError, TypeError, ValueError):
+                            logger.warning(
+                                "Skipping marker mask with invalid scaled geometry"
+                            )
                 else:
                     if not hasattr(self, "_logged_no_marker_dots"):
                         logger.warning(
@@ -1245,7 +2714,7 @@ class VisionModule:
             logger.error(f"Failed to apply masks: {e}", exc_info=True)
             return frame  # Return unmasked on error
 
-    def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
+    def _apply_roi(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Apply region of interest cropping to frame."""
         expected_corner_count = _get_config_value("vision.defaults.roi_corner_count", 4)
         if not self._roi_corners or len(self._roi_corners) != expected_corner_count:
@@ -1259,7 +2728,7 @@ class VisionModule:
 
             # Apply mask
             result = cv2.bitwise_and(frame, frame, mask=mask)
-            return result
+            return cast("NDArray[np.uint8]", result)
 
         except Exception as e:
             logger.warning(f"Failed to apply ROI: {e}")
@@ -1286,17 +2755,12 @@ class VisionModule:
 
             logger.info(f"Loaded background frame from: {image_path}")
 
-            # Set background for unified detector
+            # Set background for the detector's integrated OpenCV classifier.
             if self.detector:
-                self.detector.set_background_frame(background_frame)
-                logger.info("Background frame set for unified detector")
-
-            # Set background for fallback ball detector if it exists
-            if self.ball_detector and self.ball_detector != getattr(
-                getattr(self.detector, "ball_detector", None), None, None
-            ):
-                self.ball_detector.set_background_frame(background_frame)
-                logger.info("Background frame set for fallback ball detector")
+                self.detector.set_background_frame(
+                    cast("NDArray[np.uint8]", background_frame)
+                )
+                logger.info("Background frame set for integrated ball classifier")
 
         except Exception as e:
             logger.error(f"Failed to load background frame: {e}")

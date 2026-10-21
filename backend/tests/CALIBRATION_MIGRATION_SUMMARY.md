@@ -1,5 +1,11 @@
 # Test Calibration Migration Summary
 
+> Historical migration record. The helper scripts and test paths listed below
+> are not current test entry points. Backend tests now use canonical
+> `backend.*` imports and collect from the repository root with
+> `python -m pytest --collect-only --no-cov backend/tests`. See
+> [`backend/README.md`](../README.md) for current setup and test commands.
+
 ## Overview
 Updated test files to use calibration-based table creation instead of hardcoded factory methods (`standard_9ft_table()` and `standard_table_4k()`).
 

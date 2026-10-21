@@ -424,11 +424,6 @@ function DebugHUD:drawNetwork(x, y)
             table.insert(lines, {text = "UDP: Disconnected", color = self.colors.error})
         end
 
-        if status.websocket then
-            table.insert(lines, {text = "WebSocket: Connected", color = self.colors.good})
-        else
-            table.insert(lines, {text = "WebSocket: N/A", color = self.colors.text})
-        end
     end
 
     -- Total messages

@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "engine_instance_id": "engine-a7c31",
+  "source": {
+    "session_id": "camera-run-20261020-01",
+    "frame_id": "frame-1043",
+    "timestamp": {
+      "ticks": "912378900000",
+      "unit": "nanoseconds",
+      "clock": "monotonic",
+      "domain_id": "host-clock-probe-pending",
+      "stage": "camera_read_complete"
+    },
+    "width_px": 3840,
+    "height_px": 2160
+  },
+  "snapshot_revision": 2,
+  "transport_sequence": 2,
+  "update_kind": "health",
+  "published_at": {
+    "ticks": "912379120000",
+    "unit": "nanoseconds",
+    "clock": "monotonic",
+    "domain_id": "host-clock-probe-pending",
+    "stage": "snapshot_publication"
+  },
+  "revisions": {
+    "configuration": 4,
+    "rectification": 2,
+    "calibration": 3,
+    "calibration_state": "valid"
+  },
+  "outcome": "failed",
+  "reason": "inference_timeout",
+  "cue": {
+    "status": "unavailable",
+    "last_observation": null,
+    "image_center_px": null,
+    "image_space": null,
+    "image_width_px": null,
+    "image_height_px": null,
+    "confidence": null
+  },
+  "balls": []
+}

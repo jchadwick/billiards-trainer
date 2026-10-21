@@ -11,10 +11,11 @@ This module provides the primary interface for all core functionality including:
 import asyncio
 import logging
 import time
-from dataclasses import asdict, dataclass
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from functools import partial
+from typing import Any, Callable, Optional, cast
 
-from .analysis.assistance import AssistanceEngine
+from .analysis.assistance import AssistanceEngine, AssistanceShotAnalysis
 from .analysis.prediction import TrajectoryPredictor
 from .analysis.shot import ShotAnalysis, ShotAnalyzer
 
@@ -30,9 +31,9 @@ from .constants_4k import (
 
 # Core component imports
 from .coordinates import Vector2D
-from .events.manager import EventManager
-from .game_state import BallState, GameState, GameStateManager, GameType
-from .models import Collision, ShotType
+from .events.manager import EventCallback, EventManager
+from .game_state import GameStateManager
+from .models import BallState, Collision, GameState, GameType, ShotType
 from .physics.collision import CollisionDetector, CollisionResolver
 from .physics.engine import PhysicsEngine
 from .physics.trajectory import TrajectoryCalculator
@@ -41,6 +42,7 @@ from .utils.cache import CalculationCache
 from .utils.geometry import GeometryUtils
 from .utils.math import MathUtils
 from .validation.physics import PhysicsValidator
+from .validation.physics import ValidationResult as PhysicsValidationResult
 from .validation.state import StateValidator, ValidationResult
 
 # Set up logging
@@ -102,7 +104,7 @@ class CoreModule:
     - Performance monitoring and optimization
     """
 
-    def __init__(self, config: Optional[CoreModuleConfig] = None):
+    def __init__(self, config: Optional[CoreModuleConfig] = None) -> None:
         """Initialize the Core Module.
 
         Args:
@@ -129,11 +131,11 @@ class CoreModule:
         self._last_update_time = 0.0
 
         # Event callbacks
-        self._event_callbacks: dict[str, list[Callable]] = {}
+        self._event_callbacks: dict[str, list[Callable[..., Any]]] = {}
 
         logger.info("Core Module initialized successfully")
 
-    def _initialize_components(self):
+    def _initialize_components(self) -> None:
         """Initialize all core components."""
         try:
             # Core managers
@@ -171,7 +173,9 @@ class CoreModule:
                     "max_velocity": self.config.max_velocity,
                     "max_acceleration": self.config.max_acceleration,
                 }
-                self.physics_validator = PhysicsValidator(validation_config)
+                self.physics_validator: Optional[PhysicsValidator] = PhysicsValidator(
+                    validation_config
+                )
             else:
                 self.physics_validator = None
 
@@ -181,7 +185,7 @@ class CoreModule:
             logger.error(f"Failed to initialize core components: {e}")
             raise CoreModuleError(f"Component initialization failed: {e}")
 
-    def _initialize_caches(self):
+    def _initialize_caches(self) -> None:
         """Initialize caching systems for performance optimization."""
         self.trajectory_cache = CalculationCache(self.config.cache_size)
         self.analysis_cache = CalculationCache(self.config.cache_size)
@@ -217,7 +221,7 @@ class CoreModule:
 
                 # Emit state change event with flattened structure
                 # Convert state to dict and flatten it (avoid nested {"state": {...}})
-                state_dict = asdict(new_state)
+                state_dict = new_state.to_dict()
                 await self._emit_event(
                     "state_updated",
                     state_dict,  # Emit flattened state directly
@@ -271,7 +275,7 @@ class CoreModule:
         cache_key = f"{ball_id}_{initial_velocity.x}_{initial_velocity.y}"
         cached_result = self.trajectory_cache.get(cache_key)
         if cached_result:
-            return cached_result
+            return cast("list[Vector2D]", cached_result)
 
         try:
             start_time = time.time()
@@ -338,8 +342,9 @@ class CoreModule:
             for i in range(len(trajectory) - 1):
                 lines.append(
                     {
-                        "start": [trajectory[i].x, trajectory[i].y],
-                        "end": [trajectory[i + 1].x, trajectory[i + 1].y],
+                        "start": trajectory[i].to_dict(),
+                        "end": trajectory[i + 1].to_dict(),
+                        "coordinate_unit": "canonical_pixels",
                         "type": "primary",
                         "confidence": 1.0,
                     }
@@ -356,7 +361,8 @@ class CoreModule:
                                 "time": (
                                     point.time if hasattr(point, "time") else i * 0.1
                                 ),
-                                "position": [point.position.x, point.position.y],
+                                "position": point.position.to_dict(),
+                                "position_unit": "canonical_pixels",
                                 "type": "unknown",
                             }
                         )
@@ -368,7 +374,10 @@ class CoreModule:
                         "ball_id": ball_id,
                         "lines": lines,
                         "collisions": collisions,
-                        "points": [{"x": p.x, "y": p.y} for p in trajectory],
+                        "points": [p.to_dict() for p in trajectory],
+                        "coordinate_space": "4k_canonical",
+                        "coordinate_resolution": list(CANONICAL_RESOLUTION),
+                        "coordinate_unit": "canonical_pixels",
                     },
                     "calculation_time_ms": calc_time * 1000,
                 },
@@ -382,17 +391,14 @@ class CoreModule:
             logger.error(f"Trajectory calculation failed: {e}")
             raise CoreModuleError(f"Trajectory calculation failed: {e}")
 
-    async def analyze_shot(
-        self, target_ball: Optional[str] = None, include_alternatives: bool = True
-    ) -> ShotAnalysis:
+    async def analyze_shot(self, target_ball: Optional[str] = None) -> ShotAnalysis:
         """Analyze current shot setup and provide recommendations.
 
         Args:
             target_ball: ID of target ball (auto-detect if None)
-            include_alternatives: Whether to include alternative shot options
 
         Returns:
-            Shot analysis with recommendations
+            Basic shot type and legality analysis
 
         Raises:
             CoreModuleError: If shot analysis fails
@@ -404,7 +410,7 @@ class CoreModule:
         cache_key = f"shot_{target_ball}_{self._current_state.timestamp}"
         cached_result = self.analysis_cache.get(cache_key)
         if cached_result:
-            return cached_result
+            return cast("ShotAnalysis", cached_result)
 
         try:
             start_time = time.time()
@@ -422,11 +428,6 @@ class CoreModule:
                 analysis = self.shot_analyzer.analyze_shot(
                     self._current_state, target_ball
                 )
-
-            # Get alternatives if requested
-            if include_alternatives and self.config.assistance_enabled:
-                alternatives = await self._get_alternative_shots(target_ball)
-                analysis.alternative_shots = alternatives
 
             # Cache result
             self.analysis_cache.set(cache_key, analysis)
@@ -464,23 +465,78 @@ class CoreModule:
         if not self._current_state:
             raise CoreModuleError("No current game state available")
 
+        if num_predictions <= 0:
+            return []
+
         try:
             start_time = time.time()
 
-            # Get predictions
+            cue_ball = self._current_state.get_cue_ball()
+            if cue_ball is None:
+                raise CoreModuleError("No cue ball found in current game state")
+
+            predicted_cue_ball = cue_ball.copy()
+            predicted_cue_ball.velocity = shot_velocity.to_4k_canonical()
+            other_balls = [
+                ball.copy()
+                for ball in self._current_state.balls
+                if ball.id != cue_ball.id and not ball.is_pocketed
+            ]
+            calculate = partial(
+                self.trajectory_calculator.calculate_trajectory,
+                predicted_cue_ball,
+                self._current_state.table,
+                other_balls,
+                time_limit=self.config.max_trajectory_time,
+            )
+
             if self.config.async_processing:
                 loop = asyncio.get_event_loop()
-                predictions = await loop.run_in_executor(
-                    None,
-                    self.outcome_predictor.predict_outcomes,
-                    self._current_state,
-                    shot_velocity,
-                    num_predictions,
-                )
+                trajectory = await loop.run_in_executor(None, calculate)
             else:
-                predictions = self.outcome_predictor.predict_outcomes(
-                    self._current_state, shot_velocity, num_predictions
+                trajectory = calculate()
+
+            def outcome(
+                probability: float,
+                description: str,
+                final_state: BallState,
+                success_metrics: dict[str, float],
+            ) -> dict[str, Any]:
+                return {
+                    "ball_id": final_state.id,
+                    "probability": probability,
+                    "description": description,
+                    "final_position": final_state.position.to_dict(),
+                    "final_velocity": final_state.velocity.to_dict(),
+                    "will_be_pocketed": final_state.is_pocketed,
+                    "success_metrics": success_metrics,
+                }
+
+            primary_final_state = predicted_cue_ball.copy()
+            if trajectory.final_position is not None:
+                primary_final_state.position = trajectory.final_position
+            if trajectory.final_velocity is not None:
+                primary_final_state.velocity = trajectory.final_velocity
+            primary_final_state.is_pocketed = trajectory.will_be_pocketed
+
+            predictions = [
+                outcome(
+                    trajectory.success_probability,
+                    "primary prediction",
+                    primary_final_state,
+                    {"success_probability": trajectory.success_probability},
                 )
+            ]
+            predictions.extend(
+                outcome(
+                    branch.probability,
+                    branch.description,
+                    branch.final_state,
+                    branch.success_metrics,
+                )
+                for branch in trajectory.branches
+            )
+            predictions = predictions[:num_predictions]
 
             logger.debug(f"Outcomes predicted in {time.time() - start_time:.4f}s")
             return predictions
@@ -495,7 +551,7 @@ class CoreModule:
         difficulty_filter: Optional[float] = None,
         shot_type_filter: Optional[ShotType] = None,
         max_suggestions: int = 3,
-    ) -> list[ShotAnalysis]:
+    ) -> list[AssistanceShotAnalysis]:
         """Suggest optimal shots based on current game state.
 
         Args:
@@ -515,30 +571,42 @@ class CoreModule:
         try:
             start_time = time.time()
 
-            # Get shot suggestions
+            # AssistanceEngine produces target recommendations rather than a
+            # `suggest_shots` method. Pull the primary and alternative shot
+            # assessments from its actual result contract.
             if self.config.async_processing:
                 loop = asyncio.get_event_loop()
-                suggestions = await loop.run_in_executor(
+                package = await loop.run_in_executor(
                     None,
-                    self.assistance_engine.suggest_shots,
+                    self.assistance_engine.provide_assistance,
                     self._current_state,
-                    difficulty_filter or 0.5,
                 )
             else:
-                suggestions = self.assistance_engine.suggest_shots(
-                    self._current_state, difficulty_filter or 0.5
-                )
+                package = self.assistance_engine.provide_assistance(self._current_state)
+
+            recommendations = [
+                package.primary_recommendation,
+                *package.alternative_targets,
+            ]
+            suggestions = [
+                recommendation.shot_analysis for recommendation in recommendations
+            ]
+
+            if difficulty_filter is not None:
+                suggestions = [
+                    suggestion
+                    for suggestion in suggestions
+                    if suggestion.difficulty <= difficulty_filter
+                ]
 
             # Filter by shot type if specified
-            if shot_type_filter:
+            if shot_type_filter is not None:
                 suggestions = [
-                    s
-                    for s in suggestions
-                    if hasattr(s, "shot_type") and s.shot_type == shot_type_filter
+                    s for s in suggestions if s.shot_type == shot_type_filter
                 ]
 
             # Limit number of suggestions
-            suggestions = suggestions[:max_suggestions]
+            suggestions = suggestions[: max(0, max_suggestions)]
 
             logger.debug(f"Shots suggested in {time.time() - start_time:.4f}s")
             return suggestions
@@ -592,10 +660,7 @@ class CoreModule:
                     if ball.position.x < 0 or ball.position.y < 0:
                         issues.append(f"Ball {ball.id} has invalid position")
 
-                    # Check velocity (with None check)
-                    if ball.velocity is None:
-                        issues.append(f"Ball {ball.id} has None velocity")
-                    elif ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
+                    if ball.velocity.magnitude() > 50.0:  # Unrealistic velocity
                         issues.append(f"Ball {ball.id} has unrealistic velocity")
 
                 # Check table bounds
@@ -635,7 +700,7 @@ class CoreModule:
         ball_id: str,
         initial_velocity: Vector2D,
         time_limit: Optional[float] = None,
-    ) -> ValidationResult:
+    ) -> PhysicsValidationResult:
         """Validate a predicted trajectory for physics consistency.
 
         Args:
@@ -674,7 +739,7 @@ class CoreModule:
                     TrajectoryPoint(
                         time=i * time_step,
                         position=position,
-                        velocity=Vector2D(0, 0),  # Simplified for now
+                        velocity=Vector2D.zero(),  # Simplified for now
                     )
                 )
 
@@ -687,7 +752,7 @@ class CoreModule:
 
     async def validate_collision(
         self, collision: Collision, ball1_id: str, ball2_id: Optional[str] = None
-    ) -> ValidationResult:
+    ) -> PhysicsValidationResult:
         """Validate a collision for physics consistency.
 
         Args:
@@ -727,7 +792,7 @@ class CoreModule:
 
     async def validate_conservation_laws(
         self, before_states: list[BallState], after_states: list[BallState]
-    ) -> dict[str, ValidationResult]:
+    ) -> dict[str, PhysicsValidationResult]:
         """Validate energy and momentum conservation laws.
 
         Args:
@@ -859,7 +924,7 @@ class CoreModule:
             logger.error(f"Game reset failed: {e}")
             raise CoreModuleError(f"Game reset failed: {e}")
 
-    def subscribe_to_events(self, event_type: str, callback: Callable) -> str:
+    def subscribe_to_events(self, event_type: str, callback: EventCallback) -> str:
         """Subscribe to core module events.
 
         Args:
@@ -910,25 +975,15 @@ class CoreModule:
 
         for i, ball1 in enumerate(balls):
             for ball2 in balls[i + 1 :]:
-                distance = self.geometry_utils.distance(ball1.position, ball2.position)
+                distance = self.geometry_utils.distance_between_vectors(
+                    ball1.position, ball2.position
+                )
                 min_distance = ball1.radius + ball2.radius
 
                 if distance < min_distance:
                     issues.append(f"Balls {ball1.id} and {ball2.id} are overlapping")
 
         return issues
-
-    async def _get_alternative_shots(
-        self, target_ball: Optional[str]
-    ) -> list[ShotAnalysis]:
-        """Get alternative shot suggestions."""
-        try:
-            # Use the assistance engine to get alternative shots
-            suggestions = await self.suggest_shots(max_suggestions=5)
-            return suggestions
-        except Exception as e:
-            logger.warning(f"Failed to get alternative shots: {e}")
-            return []
 
     def _update_performance_metrics(self, update_time: float) -> None:
         """Update performance tracking metrics."""
@@ -974,6 +1029,8 @@ __all__ = [
     "CoreModuleConfig",
     "CoreModuleError",
     "PerformanceMetrics",
+    "BallState",
+    "AssistanceEngine",
     "GameState",
     "GameType",
     "ShotType",

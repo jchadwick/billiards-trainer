@@ -5,12 +5,13 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 import cv2
 import numpy as np
-from config import config as config_manager
 from numpy.typing import NDArray
+
+from backend.config import config as config_manager
 
 from .camera import CameraCalibrator
 from .color import ColorCalibrator
@@ -27,7 +28,7 @@ class ValidationResult:
     timestamp: float
     passed: bool
     accuracy_score: float  # 0.0-1.0
-    error_metrics: dict[str, float]
+    error_metrics: dict[str, Any]
     details: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -158,7 +159,9 @@ class CalibrationValidator:
         }
 
     def validate_camera_calibration(
-        self, camera_calibrator: CameraCalibrator, test_images: list[np.ndarray]
+        self,
+        camera_calibrator: CameraCalibrator,
+        test_images: list[NDArray[np.uint8]],
     ) -> ValidationResult:
         """Validate camera calibration accuracy.
 
@@ -181,8 +184,8 @@ class CalibrationValidator:
 
         try:
             # Test reprojection accuracy using chessboard patterns
-            reprojection_errors = []
-            detection_rate = 0
+            reprojection_errors: list[float] = []
+            detection_rate = 0.0
             total_images = len(test_images)
 
             pattern_points = camera_calibrator.generate_chessboard_points()
@@ -222,16 +225,15 @@ class CalibrationValidator:
                     )
 
                     # Project 3D points to image
-                    rvec = np.zeros((3, 1))
-                    tvec = np.zeros((3, 1))
-
                     # Solve PnP to get pose
-                    ret_pnp, rvec, tvec = cv2.solvePnP(
+                    ret_pnp, rvec_result, tvec_result = cv2.solvePnP(
                         pattern_points,
                         corners_refined,
                         camera_calibrator.camera_params.camera_matrix,
                         camera_calibrator.camera_params.distortion_coefficients,
                     )
+                    rvec = cast("NDArray[Any]", rvec_result)
+                    tvec = cast("NDArray[Any]", tvec_result)
 
                     if ret_pnp:
                         # Reproject points
@@ -247,16 +249,20 @@ class CalibrationValidator:
                         error = cv2.norm(
                             corners_refined, projected_points, cv2.NORM_L2
                         ) / len(projected_points)
-                        reprojection_errors.append(error)
+                        reprojection_errors.append(float(error))
 
             detection_rate /= total_images if total_images > 0 else 1
 
             # Calculate metrics
             mean_reprojection_error = (
-                np.mean(reprojection_errors) if reprojection_errors else float("inf")
+                float(np.mean(reprojection_errors))
+                if reprojection_errors
+                else float("inf")
             )
             max_reprojection_error = (
-                np.max(reprojection_errors) if reprojection_errors else float("inf")
+                float(np.max(reprojection_errors))
+                if reprojection_errors
+                else float("inf")
             )
 
             # Test distortion correction quality
@@ -325,7 +331,7 @@ class CalibrationValidator:
     def _test_distortion_correction(
         self,
         camera_calibrator: CameraCalibrator,
-        test_image: Optional[NDArray[np.float64]],
+        test_image: Optional[NDArray[np.uint8]],
     ) -> float:
         """Test quality of distortion correction."""
         if test_image is None or camera_calibrator.camera_params is None:
@@ -373,7 +379,7 @@ class CalibrationValidator:
                 quality = max(
                     0.0, 1.0 - (mean_deviation / (np.pi / 4))
                 )  # Normalize to 0-1
-                return quality
+                return float(quality)
 
             return 0.5  # Neutral score if no lines detected
 
@@ -384,7 +390,7 @@ class CalibrationValidator:
     def validate_color_calibration(
         self,
         color_calibrator: ColorCalibrator,
-        test_frame: NDArray[np.float64],
+        test_frame: NDArray[np.uint8],
         ground_truth_labels: dict[str, list[tuple[int, int, int, int]]],
     ) -> ValidationResult:
         """Validate color calibration accuracy.
@@ -408,7 +414,7 @@ class CalibrationValidator:
             )
 
         try:
-            hsv = cv2.cvtColor(test_frame, cv2.COLOR_BGR2HSV)
+            hsv = cast("NDArray[np.uint8]", cv2.cvtColor(test_frame, cv2.COLOR_BGR2HSV))
 
             detection_results = {}
             overall_accuracy = 0.0
@@ -445,8 +451,8 @@ class CalibrationValidator:
                 intersection = cv2.bitwise_and(mask, gt_mask)
                 cv2.bitwise_or(mask, gt_mask)
 
-                true_positives = np.sum(intersection > 0)
-                false_positives = np.sum(mask > gt_mask)
+                true_positives = int(np.count_nonzero(intersection > 0))
+                false_positives = int(np.count_nonzero(mask > gt_mask))
 
                 # Calculate metrics
                 precision = (
@@ -482,9 +488,13 @@ class CalibrationValidator:
                     mask = color_calibrator.current_profile.ball_colors[
                         obj_type
                     ].apply_mask(hsv)
-                    all_masks = cv2.bitwise_or(all_masks, mask)
+                    all_masks = cast(
+                        "NDArray[np.uint8]", cv2.bitwise_or(all_masks, mask)
+                    )
 
-            false_positive_rate = np.sum(all_masks > 0) / all_masks.size
+            false_positive_rate = float(
+                np.count_nonzero(all_masks > 0) / all_masks.size
+            )
 
             # Determine if validation passed
             passed = (
@@ -646,7 +656,7 @@ class CalibrationValidator:
         camera_calibrator: CameraCalibrator,
         color_calibrator: ColorCalibrator,
         geometry_calibrator: GeometricCalibrator,
-        test_frame: NDArray[np.float64],
+        test_frame: NDArray[np.uint8],
         ground_truth: dict[str, Any],
     ) -> ValidationResult:
         """Validate end-to-end calibration integration.
@@ -748,7 +758,7 @@ class CalibrationValidator:
         if not color_calibrator.current_profile:
             return []
 
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cast("NDArray[np.uint8]", cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
         detected_balls = []
 
         for (
@@ -812,7 +822,9 @@ class CalibrationValidator:
         for exp_ball in expected:
             min_distance = float("inf")
             for det_ball in detected:
-                distance = np.linalg.norm(np.array(exp_ball) - np.array(det_ball))
+                distance = float(
+                    np.linalg.norm(np.array(exp_ball) - np.array(det_ball))
+                )
                 if distance < min_distance:
                     min_distance = distance
 
@@ -834,12 +846,12 @@ class CalibrationValidator:
             error = np.linalg.norm(np.array(det_corner) - np.array(exp_corner))
             errors.append(error)
 
-        mean_error = np.mean(errors)
+        mean_error = float(np.mean(errors))
         normalization_factor = config_manager.get(
             "vision.calibration.validation.ball_detection.normalization_factor_pixels",
             100.0,
         )
-        accuracy = max(0.0, 1.0 - (mean_error / normalization_factor))  # Normalize
+        accuracy = float(max(0.0, 1.0 - (mean_error / normalization_factor)))
 
         return accuracy
 
@@ -917,7 +929,7 @@ class CalibrationValidator:
         if integration_validation:
             scores.append(integration_validation.accuracy_score)
 
-        overall_score = np.mean(scores) if scores else 0.0
+        overall_score = float(np.mean(scores)) if scores else 0.0
 
         # Generate recommendations
         recommendations = self._generate_recommendations(
@@ -1060,7 +1072,7 @@ class CalibrationValidator:
     def stability_test(
         self,
         calibrators: dict[str, Any],
-        test_frames: list[np.ndarray],
+        test_frames: list[NDArray[np.uint8]],
         duration_minutes: int = 10,
     ) -> dict[str, Any]:
         """Test calibration stability over time.
@@ -1073,10 +1085,13 @@ class CalibrationValidator:
         Returns:
             Stability test results
         """
+        if not test_frames:
+            raise ValueError("At least one frame is required for a stability test")
+
         start_time = time.time()
         end_time = start_time + (duration_minutes * 60)
 
-        stability_metrics = {
+        stability_metrics: dict[str, list[Any]] = {
             "camera": [],
             "color": [],
             "geometry": [],
@@ -1125,7 +1140,7 @@ class CalibrationValidator:
             time.sleep(sleep_interval)  # Process frames at configured interval
 
         # Calculate stability statistics
-        results = {}
+        results: dict[str, Any] = {}
 
         for metric_type, values in stability_metrics.items():
             if metric_type == "timestamps":

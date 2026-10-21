@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 3,
+  "camera_profile_id": "test-camera-profile",
+  "rectification_revision": 2,
+  "image_space": "rectified",
+  "source_width_px": 1000,
+  "source_height_px": 500,
+  "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+  "table_width_mm": 2000.0,
+  "table_height_mm": 1000.0,
+  "pixel_to_table_mm": [
+    [2.0, 0.0, -1000.0],
+    [0.0, 2.0, -500.0],
+    [0.0, 0.0, 1.0]
+  ]
+}

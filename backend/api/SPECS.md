@@ -1,5 +1,10 @@
 # API Module Specification
 
+> This file preserves API requirements and design history. For the current
+> transport contract, use [the API reference](../../docs/API_REFERENCE.md) and
+> the running OpenAPI document. The active API has one WebSocket route and no
+> production UDP publisher for the projector.
+
 ## Module Purpose
 
 The API module serves as the primary interface between the backend processing system and all client applications. It provides RESTful endpoints for configuration and control, WebSocket connections for real-time data streaming, and handles validation and communication protocols. The API module acts as a proxy to the Streaming Service for video delivery, ensuring efficient multi-client support without camera access conflicts.
@@ -45,33 +50,24 @@ The API module serves as the primary interface between the backend processing sy
 
 ### 2. Real-time Communication Requirements
 
-#### 2.1 Real-time Streaming (WebSocket & UDP)
-- **FR-RT-001**: Proxy video streams from Streaming Service to WebSocket clients
-- **FR-RT-002**: Broadcast game state updates with <50ms latency (WebSocket & UDP)
-- **FR-RT-003**: Send trajectory calculations in real-time (WebSocket & UDP)
-- **FR-RT-004**: Push system alerts and notifications (WebSocket & UDP)
-- **FR-RT-005A**: Publish static ball positions at configurable intervals (default 500ms) (WebSocket & UDP)
-- **FR-RT-005B**: Publish ball motion events immediately when detected (WebSocket & UDP)
-- **FR-RT-005C**: Include unique ball ID in all state messages (WebSocket & UDP)
-- **FR-RT-005D**: Include optional ball number/type when available (WebSocket & UDP)
+#### 2.1 Real-time Streaming (WebSocket)
+- Publish subscribed game-state, trajectory, alert, and configuration updates through the API WebSocket protocol.
+- Image-space points and geometry use the explicit scale metadata defined by the current transport schemas.
+- WebSocket video/frame transmission is disabled in the current deployment contract; use the HTTP video and frame routes.
 
 #### 2.2 WebSocket Client Management
-- **FR-WS-005**: Support unlimited concurrent WebSocket connections (limited only by Streaming Service)
-- **FR-WS-006**: Implement automatic reconnection handling
-- **FR-WS-007**: Provide connection quality indicators
-- **FR-WS-008**: Enable selective subscription to different quality streams
+- Support connection lifecycle, selective stream subscriptions, and bounded per-client delivery.
+- Apply configured send deadlines and disconnect clients that cannot keep up with control messages.
+- Expose connection and delivery metrics through the WebSocket management routes.
 
-#### 2.3 UDP Datagram Client Management
-- **FR-UDP-001**: Send identical state/motion/trajectory messages via UDP datagram sockets
-- **FR-UDP-002**: Support configurable UDP destination host and port
-- **FR-UDP-003**: Handle UDP packet size limits (fragment large messages if needed)
-- **FR-UDP-004**: Provide UDP send failure logging and retry mechanism
+#### 2.3 Projector Integration Boundary
+- The LÖVE projector is a separate UDP receiver on localhost port 9999. Its custom `paths`/`ghostBalls` payload is not published by the backend.
+- Backend WebSocket trajectories use their own schema and are not interchangeable with the projector UDP format.
+- A future adapter would need to explicitly map and scale geometry before the projector can consume backend updates.
 
-#### 2.4 WebSocket Endpoints
-- **FR-WS-101**: Provide `/api/v1/game/state/ws` endpoint for projector web client connections
-- **FR-WS-102**: Send identical messages to WebSocket projector clients as UDP clients
-- **FR-WS-103**: Support multiple concurrent projector WebSocket connections
-- **FR-WS-104**: Handle WebSocket connection lifecycle (connect, disconnect, reconnect)
+#### 2.4 WebSocket Endpoint
+- The only connection endpoint is `/api/v1/websocket/ws`.
+- Subscription and message schemas are defined in `backend/api/websocket/schemas.py`.
 
 ## Interface Specifications
 
@@ -142,17 +138,6 @@ paths:
                   balls: array
                   cue: object
                   table: object
-
-  /api/v1/game/state/ws:
-    websocket:
-      summary: WebSocket endpoint for projector clients
-      description: Real-time bidirectional communication for web-based projector clients
-      messages:
-        - state: Periodic ball position updates (every 500ms)
-        - motion: Immediate ball motion events
-        - trajectory: Trajectory calculation updates
-        - alert: System alerts and notifications
-        - config: Configuration updates
 
 /api/v1/stream/video:
     get:
@@ -245,113 +230,28 @@ paths:
                     duration: number
 ```
 
-### Real-time Message Protocol (WebSocket & UDP)
+### Real-time Message Protocol
 
-**Note**: The following message formats are sent via BOTH WebSocket and UDP datagram sockets to ensure all clients (web browsers and projector) receive identical updates.
+The API WebSocket route is `/api/v1/websocket/ws`. Clients subscribe by sending
+a `subscribe` request with the desired streams in `data.streams`:
 
-```javascript
-// Message format (WebSocket JSON / UDP JSON)
+```json
 {
-  "type": "frame|state|motion|trajectory|alert|config",
-  "timestamp": "ISO 8601 timestamp",
-  "sequence": 12345,  // Message sequence number
-  "data": {
-    // Type-specific payload
-  }
-}
-
-// Frame message
-{
-  "type": "frame",
-  "data": {
-    "image": "base64_encoded_jpeg",
-    "width": 1920,
-    "height": 1080,
-    "fps": 30.5
-  }
-}
-
-// State message (periodic update of all ball positions)
-{
-  "type": "state",
-  "data": {
-    "balls": [
-      {
-        "id": "ball_001",  // Unique persistent identifier
-        "position": [100, 200],
-        "radius": 20,
-        "velocity": [0, 0],
-        "is_moving": false,
-        "number": 1,  // Optional: ball number (1-15) or null
-        "is_cue_ball": false
-      },
-      {
-        "id": "ball_cue",
-        "position": [150, 250],
-        "radius": 20,
-        "velocity": [0, 0],
-        "is_moving": false,
-        "number": null,
-        "is_cue_ball": true
-      }
-    ],
-    "cue": {
-      "angle": 45.5,
-      "position": [150, 250],
-      "detected": true
-    },
-    "table": {
-      "corners": [[0,0], [1920,0], [1920,1080], [0,1080]],
-      "pockets": [...]
-    }
-  }
-}
-
-// Motion event (immediate update when ball starts moving)
-{
-  "type": "motion",
-  "data": {
-    "ball_id": "ball_001",  // Which ball is moving
-    "position": [105, 205],
-    "velocity": [10.5, 5.2],
-    "is_moving": true,
-    "number": 1,  // Optional
-    "timestamp": "2024-01-15T10:30:45.123Z"
-  }
-}
-
-// Trajectory message
-{
-  "type": "trajectory",
-  "data": {
-    "lines": [
-      {
-        "start": [100, 200],
-        "end": [300, 400],
-        "type": "primary|reflection|collision"
-      }
-    ],
-    "collisions": [
-      {
-        "position": [300, 400],
-        "ball_id": "8ball",
-        "angle": 30
-      }
-    ]
-  }
-}
-
-// Alert message
-{
-  "type": "alert",
-  "data": {
-    "level": "info|warning|error",
-    "message": "Camera disconnected",
-    "code": "CAM_001",
-    "details": {}
-  }
+  "type": "subscribe",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "data": {"streams": ["state", "trajectory", "alert", "config"]}
 }
 ```
+
+The server sends message envelopes with `type`, `timestamp`, and `data`; current
+field and coordinate schemas are defined in
+[`websocket/schemas.py`](websocket/schemas.py). Image-space values, including
+boundaries and extents, must follow the explicit scale contract in the
+[API reference](../../docs/API_REFERENCE.md).
+
+WebSocket video transmission is disabled. The API does not publish UDP
+projector messages. The projector's local receiver expects a distinct custom
+`paths`/`ghostBalls` payload and requires an adapter to consume backend data.
 
 ## Data Models
 
@@ -401,11 +301,6 @@ class NetworkConfig(BaseModel):
     state_publish_interval_ms: int = 500  # Interval for static ball position updates
     motion_event_immediate: bool = True  # Publish motion events immediately
 
-    # UDP datagram socket configuration
-    udp_enabled: bool = True
-    udp_host: str = "127.0.0.1"  # Projector host
-    udp_port: int = 5005  # Projector listening port
-    udp_max_packet_size: int = 65507  # Max UDP packet size
 
 class Configuration(BaseModel):
     system: SystemConfig
@@ -459,10 +354,14 @@ ERROR_CODES = {
     "VAL_002": {"status": 400, "message": "Missing required parameter"},
     "VAL_003": {"status": 400, "message": "Parameter out of range"},
     "RES_001": {"status": 404, "message": "Resource not found"},
+    "GAME_002": {"status": 409, "message": "Game state conflict"},
     "RATE_001": {"status": 429, "message": "Rate limit exceeded"},
+    "NET_001": {"status": 502, "message": "Network connectivity error"},
+    "NET_002": {"status": 504, "message": "Request timeout"},
 
     # Server errors (5xx)
     "SYS_001": {"status": 500, "message": "Internal server error"},
+    "SYS_002": {"status": 503, "message": "Service unavailable"},
     "CAM_001": {"status": 503, "message": "Camera unavailable"},
     "PROC_001": {"status": 503, "message": "Vision processing failed"},
     "WS_001": {"status": 503, "message": "WebSocket service unavailable"}
@@ -564,7 +463,6 @@ api/
 - **FastAPI**: Web framework
 - **uvicorn**: ASGI server
 - **pydantic**: Data validation
-- **python-jose**: JWT handling
 - **python-multipart**: File uploads
 - **websockets**: WebSocket support
 

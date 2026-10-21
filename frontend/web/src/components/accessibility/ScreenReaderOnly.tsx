@@ -8,9 +8,10 @@ import React from 'react'
 export interface ScreenReaderOnlyProps {
   children: React.ReactNode
   className?: string
-  as?: keyof JSX.IntrinsicElements
+  as?: keyof React.JSX.IntrinsicElements
   live?: 'polite' | 'assertive' | 'off'
   atomic?: boolean
+  role?: React.AriaRole
 }
 
 /**
@@ -23,6 +24,7 @@ export const ScreenReaderOnly: React.FC<ScreenReaderOnlyProps> = ({
   as: Component = 'span',
   live,
   atomic,
+  role,
 }) => {
   const liveRegionProps = live ? {
     'aria-live': live,
@@ -34,6 +36,7 @@ export const ScreenReaderOnly: React.FC<ScreenReaderOnlyProps> = ({
     {
       className: `sr-only ${className}`,
       ...liveRegionProps,
+      role,
     },
     children
   )

@@ -1,293 +1,58 @@
-# Docker Setup for Billiards Trainer
+# Docker deployment
 
-This document provides comprehensive instructions for building and running the Billiards Trainer backend API using Docker and Docker Compose.
+The repository Compose file builds one backend process per table from
+`backend/Dockerfile`. It does not start Redis, the web frontend, or the LÖVE
+projector. Redis is optional for distributed rate-limit admission; it does not
+distribute camera ownership, game state, or broadcasts.
 
-## 🐳 Docker Configuration Overview
-
-The project includes:
-- **Multi-stage Dockerfile** for optimized production builds
-- **Docker Compose** for orchestrating the complete stack
-- **Development and production modes** with appropriate configurations
-- **Health checks and monitoring** for production readiness
-
-## 📁 File Structure
-
-```
-billiards-trainer/
-├── backend/
-│   ├── Dockerfile              # Multi-stage Docker configuration
-│   ├── .dockerignore           # Build context optimization
-│   └── requirements.txt        # Python dependencies
-├── docker-compose.yml          # Complete stack orchestration
-├── .env.docker                 # Docker environment template
-├── monitoring/
-│   └── prometheus.yml          # Monitoring configuration
-└── DOCKER.md                   # This documentation
-```
-
-## 🚀 Quick Start
-
-### 1. Set Up Environment
-
-Copy the Docker environment template:
-```bash
-cp .env.docker .env
-```
-
-Edit the `.env` file to customize settings for your environment as needed.
-
-### 2. Build and Run (Development)
-
-For development with hot reload:
-```bash
-docker-compose --profile development up backend-dev redis
-```
-
-### 3. Build and Run (Production)
-
-For production deployment:
-```bash
-docker-compose up -d backend redis
-```
-
-### 4. Full Stack with Monitoring
-
-To run with Prometheus and Grafana monitoring:
-```bash
-docker-compose --profile monitoring up -d
-```
-
-## 🔧 Configuration Options
-
-### Environment Variables
-
-Key environment variables that can be customized:
-
-#### Application Settings
-- `ENVIRONMENT`: `development` or `production`
-- `DEBUG`: `true` or `false`
-- `LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`
-
-#### API Configuration
-- `API_HOST`: Host to bind to (default: `0.0.0.0`)
-- `API_PORT`: API port (default: `8000`)
-
-#### Computer Vision
-- `CAMERA_INDEX`: Camera device index (default: `0`)
-- `CAMERA_WIDTH`: Camera resolution width (default: `1920`)
-- `CAMERA_HEIGHT`: Camera resolution height (default: `1080`)
-- `CAMERA_FPS`: Camera frame rate (default: `30`)
-
-#### Performance
-- `WORKERS`: Number of worker processes (default: `1`)
-- `MAX_CONCURRENT_CONNECTIONS`: Max simultaneous connections (default: `100`)
-
-### Docker Compose Profiles
-
-The setup includes several profiles for different use cases:
-
-- **Default**: Backend API + Redis
-- **development**: Development mode with hot reload
-- **monitoring**: Adds Prometheus and Grafana
-
-## 📋 Available Commands
-
-### Basic Operations
+## Start the backend
 
 ```bash
-# Build the backend image
-docker-compose build backend
-
-# Start production stack
-docker-compose up -d
-
-# Start development stack
-docker-compose --profile development up
-
-# View logs
-docker-compose logs -f backend
-
-# Stop all services
-docker-compose down
-
-# Stop and remove volumes
-docker-compose down -v
+docker compose build backend
+docker compose up -d backend
+docker compose logs -f backend
+docker compose down
 ```
 
-### Health Checks
+The API is exposed on host port 8000 by default. To use another host port, set
+`API_PORT` when starting Compose; the container continues listening on port
+8000:
 
 ```bash
-# Check API health
-curl http://localhost:8000/api/v1/health
-
-# Check container status
-docker-compose ps
-
-# Monitor container logs
-docker-compose logs -f backend
+API_PORT=8080 docker compose up -d backend
 ```
 
-### Scaling
+The image includes the repository's `config.json`; `CONFIG_FILE` selects the
+file passed to `python -m backend.main`. The Compose service mounts
+`./models` read-only at `/app/models` by default (`MODEL_DIRECTORY` can select
+another host directory). Supply the detector model named by the selected
+configuration. Startup fails clearly when that required model is missing. The
+default configuration points to a CoreML `.mlpackage`; Linux deployments must
+select a Linux-compatible model format and device in their mounted config.
 
-```bash
-# Scale backend to 3 instances
-docker-compose up -d --scale backend=3
+To use a host-managed config, add a read-write bind mount and change
+`CONFIG_FILE` in a Compose override. The file must be writable by the
+container's application user because validated API updates persist atomically.
 
-# Scale with custom worker count
-WORKERS=4 docker-compose up -d backend
-```
+The container starts through `backend/entrypoint.sh`, which performs import
+checks and launches `backend.main` as one process. Run one backend instance per
+table. Do not increase worker count to scale multiple tables in one process;
+start a separate instance for each table.
 
-## 🔍 Development Workflow
+## Other components
 
-### Hot Reload Development
+The frontend runs separately from Compose. From `frontend/web`, install the
+locked dependencies and start the Vite server with `npm ci` and `npm run dev`.
 
-```bash
-# Start development environment
-docker-compose --profile development up backend-dev redis
+The projector is also separate. It listens on `127.0.0.1:9999` for its local
+custom UDP payload; the backend does not publish that protocol. WebSocket video
+delivery is disabled. The backend's HTTP video routes remain available on the
+API port.
 
-# The backend code is mounted as a volume for hot reload
-# Changes to Python files will automatically restart the server
-```
+## Rate limiting
 
-### Debugging
-
-```bash
-# Access development container shell
-docker-compose exec backend-dev bash
-
-# View detailed logs
-docker-compose logs -f backend-dev
-
-# Check Python environment
-docker-compose exec backend-dev python -c "import sys; print(sys.path)"
-```
-
-### Testing
-
-```bash
-# Run tests inside container
-docker-compose exec backend python -m pytest
-
-# Run with coverage
-docker-compose exec backend python -m pytest --cov=.
-```
-
-## 📊 Monitoring
-
-### Prometheus Metrics
-
-When using the monitoring profile:
-- **Prometheus**: http://localhost:9091
-- **Grafana**: http://localhost:3000 (admin/admin)
-- **API Metrics**: http://localhost:9090/metrics
-
-### Health Checks
-
-All services include comprehensive health checks:
-- **Backend API**: `/api/v1/health` endpoint
-- **Redis**: Redis ping command
-- **Automatic restart** if health checks fail
-
-## 🔒 Security Considerations
-
-### Production Deployment
-
-**Required security steps for production:**
-
-1. **Limit network access:**
-   - Remove external port mappings for Redis
-   - Use proper firewall rules
-   - Configure CORS appropriately
-
-2. **Use HTTPS:**
-   - Add reverse proxy (nginx/traefik)
-   - Configure SSL certificates
-   - Redirect HTTP to HTTPS
-
-### Resource Limits
-
-Production containers include resource limits:
-- **Backend**: 4GB RAM, 2 CPU cores
-- **Redis**: 512MB RAM, 0.5 CPU cores
-
-Adjust in `docker-compose.yml` based on your hardware.
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-**1. Build failures:**
-```bash
-# Clean Docker cache
-docker system prune -a
-
-# Rebuild without cache
-docker-compose build --no-cache backend
-```
-
-**2. Permission issues:**
-```bash
-# Fix volume permissions
-sudo chown -R $USER:$USER ./data ./logs ./config
-```
-
-**3. Port conflicts:**
-```bash
-# Check what's using the port
-lsof -i :8000
-
-# Use different ports
-API_PORT=8080 docker-compose up
-```
-
-**4. Memory issues:**
-```bash
-# Check container memory usage
-docker stats
-
-# Reduce worker count
-WORKERS=1 docker-compose up backend
-```
-
-### Log Analysis
-
-```bash
-# View startup logs
-docker-compose logs backend | grep "Starting"
-
-# Check for errors
-docker-compose logs backend | grep -i error
-
-# Monitor real-time logs
-docker-compose logs -f --tail=100 backend
-```
-
-## 🚀 Production Deployment
-
-### Recommended Production Setup
-
-1. **Use Docker Swarm or Kubernetes** for orchestration
-2. **Set up proper secrets management**
-3. **Configure external load balancer**
-4. **Set up log aggregation** (ELK Stack, etc.)
-5. **Monitor with external tools** (New Relic, Datadog, etc.)
-
-### Example Production Command
-
-```bash
-# Set production environment
-export ENVIRONMENT=production
-export DEBUG=false
-
-# Deploy with production settings
-docker-compose -f docker-compose.yml up -d
-```
-
-## 📚 Additional Resources
-
-- **Backend API Documentation**: http://localhost:8000/docs
-- **OpenAPI Specification**: http://localhost:8000/openapi.json
-- **Health Check Endpoint**: http://localhost:8000/api/v1/health
-- **Metrics Endpoint**: http://localhost:9090/metrics
-
-For more information about the application architecture and development, see the main README.md file.
+In-memory rate limiting is the default for this single-worker deployment. If
+Redis storage is explicitly selected in configuration, provide a reachable
+Redis service separately. The application fails readiness when the selected
+Redis store is unavailable and rejects WebSocket admission during an outage;
+it does not silently fall back to per-process memory limits.

@@ -11,11 +11,12 @@ import argparse
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 import requests
 
 
-def clear_screen():
+def clear_screen() -> None:
     """Clear the terminal screen."""
     print("\033[2J\033[H", end="")
 
@@ -40,7 +41,7 @@ def format_bar(value: float, max_value: float, width: int = 30) -> str:
     return bar
 
 
-def display_performance(stats: dict):
+def display_performance(stats: dict[str, Any]) -> None:
     """Display performance statistics in a nice format.
 
     Args:
@@ -108,7 +109,7 @@ def display_performance(stats: dict):
     print("Press Ctrl+C to exit")
 
 
-def watch_performance(base_url: str, interval: float = 1.0):
+def watch_performance(base_url: str, interval: float = 1.0) -> None:
     """Watch performance stats in real-time.
 
     Args:
@@ -129,7 +130,10 @@ def watch_performance(base_url: str, interval: float = 1.0):
             try:
                 response = requests.get(api_url, timeout=5)
                 response.raise_for_status()
-                stats = response.json()
+                response_data = response.json()
+                if not isinstance(response_data, dict):
+                    raise ValueError("performance endpoint returned a non-object")
+                stats: dict[str, Any] = response_data
 
                 # Reset error counter on success
                 consecutive_errors = 0
@@ -137,7 +141,7 @@ def watch_performance(base_url: str, interval: float = 1.0):
                 # Display the stats
                 display_performance(stats)
 
-            except requests.exceptions.RequestException as e:
+            except (requests.exceptions.RequestException, ValueError) as e:
                 consecutive_errors += 1
 
                 if consecutive_errors >= max_errors:
@@ -158,7 +162,7 @@ def watch_performance(base_url: str, interval: float = 1.0):
         sys.exit(0)
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Real-time performance monitor for billiards vision"

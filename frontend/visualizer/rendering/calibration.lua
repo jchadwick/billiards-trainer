@@ -1,21 +1,25 @@
 -- Calibration Module
 -- Handles perspective transformation and calibration for projector alignment
 
+local Coordinates = require("core.coordinates")
+
 local Calibration = {
-    -- Calibration corners (in normalized 0-1 coordinates)
+    -- Projector-output corners live in normalized screen fractions rather than
+    -- camera pixels. Identity scale is explicit so they cannot be confused
+    -- with untagged incoming image coordinates.
     corners = {
-        {x = 0.1, y = 0.1},    -- Top-left
-        {x = 0.9, y = 0.1},    -- Top-right
-        {x = 0.9, y = 0.9},    -- Bottom-right
-        {x = 0.1, y = 0.9}     -- Bottom-left
+        {x = 0.1, y = 0.1, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.9, y = 0.1, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.9, y = 0.9, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.1, y = 0.9, scale = {1, 1}, coordinate_space = "normalized_projector"}
     },
 
     -- Source rectangle (table dimensions in world units)
     sourceRect = {
-        {x = 0, y = 0},
-        {x = 1, y = 0},
-        {x = 1, y = 1},
-        {x = 0, y = 1}
+        {x = 0, y = 0, scale = {1, 1}, coordinate_space = "normalized_table"},
+        {x = 1, y = 0, scale = {1, 1}, coordinate_space = "normalized_table"},
+        {x = 1, y = 1, scale = {1, 1}, coordinate_space = "normalized_table"},
+        {x = 0, y = 1, scale = {1, 1}, coordinate_space = "normalized_table"}
     },
 
     -- Transformation matrix
@@ -50,10 +54,55 @@ function Calibration:load()
         if contents then
             local success, data = pcall(json.decode, contents)
             if success and data and data.corners then
-                self.corners = data.corners
-                self:calculateTransform()
-                print("Calibration loaded from " .. self.saveFile)
-                return true
+                local valid = type(data.corners) == "table" and #data.corners == 4
+                local corners = {}
+                if valid then
+                    for index, corner in ipairs(data.corners) do
+                        if type(corner) ~= "table"
+                            or type(corner.x) ~= "number"
+                            or type(corner.y) ~= "number"
+                            or corner.x ~= corner.x or corner.y ~= corner.y
+                            or math.abs(corner.x) == math.huge
+                            or math.abs(corner.y) == math.huge then
+                            valid = false
+                            break
+                        end
+                        -- Existing local calibration files have always stored
+                        -- normalized projector fractions. Upgrade that known
+                        -- format with explicit metadata; never infer camera scale.
+                        if corner.coordinate_space
+                            and corner.coordinate_space ~= "normalized_projector" then
+                            valid = false
+                            break
+                        end
+                        if corner.scale and not Coordinates.validScale(corner.scale) then
+                            valid = false
+                            break
+                        end
+                        if corner.scale
+                            and (corner.scale[1] ~= 1 or corner.scale[2] ~= 1) then
+                            valid = false
+                            break
+                        end
+                        if corner.x < 0 or corner.x > 1
+                            or corner.y < 0 or corner.y > 1 then
+                            valid = false
+                            break
+                        end
+                        corners[index] = {
+                            x = corner.x,
+                            y = corner.y,
+                            scale = {1, 1},
+                            coordinate_space = "normalized_projector"
+                        }
+                    end
+                end
+                if valid then
+                    self.corners = corners
+                    self:calculateTransform()
+                    print("Calibration loaded from " .. self.saveFile)
+                    return true
+                end
             end
         end
     end
@@ -120,17 +169,73 @@ end
 
 -- Transform a point from world to screen coordinates
 function Calibration:transform(worldX, worldY)
-    if not self.transformMatrix then
-        self:calculateTransform()
+    if type(worldX) ~= "number" or type(worldY) ~= "number"
+        or worldX ~= worldX or worldY ~= worldY
+        or math.abs(worldX) == math.huge or math.abs(worldY) == math.huge then
+        return nil, nil
     end
 
     local sw, sh = love.graphics.getDimensions()
+    local corners = self.corners
+    if type(corners) ~= "table" or #corners ~= 4 then return nil, nil end
+    for _, corner in ipairs(corners) do
+        if type(corner) ~= "table"
+            or type(corner.x) ~= "number" or type(corner.y) ~= "number"
+            or corner.x ~= corner.x or corner.y ~= corner.y
+            or math.abs(corner.x) == math.huge or math.abs(corner.y) == math.huge
+            or corner.coordinate_space ~= "normalized_projector"
+            or not Coordinates.validScale(corner.scale)
+            or corner.scale[1] ~= 1 or corner.scale[2] ~= 1 then
+            return nil, nil
+        end
+    end
 
-    -- Simple linear interpolation for now
-    local screenX = self.corners[1].x * sw + worldX * (self.corners[2].x - self.corners[1].x) * sw
-    local screenY = self.corners[1].y * sh + worldY * (self.corners[3].y - self.corners[1].y) * sh
+    -- Bilinear interpolation preserves the existing normalized calibration
+    -- plane while honoring all four user-adjusted output corners. In
+    -- particular, (0,0), (1,0), (1,1), and (0,1) map exactly to their paired
+    -- projector corners even when the screen quadrilateral is skewed.
+    local inverseU, inverseV = 1 - worldX, 1 - worldY
+    local screenX = inverseU * inverseV * corners[1].x
+        + worldX * inverseV * corners[2].x
+        + worldX * worldY * corners[3].x
+        + inverseU * worldY * corners[4].x
+    local screenY = inverseU * inverseV * corners[1].y
+        + worldX * inverseV * corners[2].y
+        + worldX * worldY * corners[3].y
+        + inverseU * worldY * corners[4].y
 
-    return screenX, screenY
+    return screenX * sw, screenY * sh
+end
+
+-- Transform a canonical camera/table point through calibrated playing-area
+-- bounds before applying the projector calibration. Pixel scale factors must
+-- already have been applied at the WebSocket boundary.
+function Calibration:transformCanonical(pixelX, pixelY)
+    if type(pixelX) ~= "number" or type(pixelY) ~= "number"
+        or pixelX ~= pixelX or pixelY ~= pixelY
+        or math.abs(pixelX) == math.huge or math.abs(pixelY) == math.huge then
+        return nil, nil
+    end
+    local stateManager = _G.StateManager
+    local tableState = stateManager and stateManager:getTable()
+    local u, v = Coordinates.toTablePlane({
+        x = pixelX,
+        y = pixelY,
+        scale = {1, 1},
+        coordinate_space = Coordinates.CANONICAL_SPACE
+    }, tableState and tableState.playing_area_corners)
+    if not u then return nil, nil end
+    return self:transform(u, v)
+end
+
+-- Size of the calibrated output plane in current window pixels. Physical and
+-- canonical radii are mapped through this scale at their source unit boundary.
+function Calibration:getOutputScale()
+    local sw, sh = love.graphics.getDimensions()
+    return {
+        width = math.abs(self.corners[2].x - self.corners[1].x) * sw,
+        height = math.abs(self.corners[4].y - self.corners[1].y) * sh
+    }
 end
 
 -- Adjust selected corner
@@ -138,6 +243,8 @@ function Calibration:adjustCorner(dx, dy)
     local sw, sh = love.graphics.getDimensions()
     self.corners[self.selectedCorner].x = self.corners[self.selectedCorner].x + (dx / sw)
     self.corners[self.selectedCorner].y = self.corners[self.selectedCorner].y + (dy / sh)
+    self.corners[self.selectedCorner].scale = {1, 1}
+    self.corners[self.selectedCorner].coordinate_space = "normalized_projector"
 
     -- Clamp to screen bounds
     self.corners[self.selectedCorner].x = math.max(0, math.min(1, self.corners[self.selectedCorner].x))
@@ -176,6 +283,8 @@ function Calibration:dragCorner(x, y)
     local sw, sh = love.graphics.getDimensions()
     self.corners[self.selectedCorner].x = x / sw
     self.corners[self.selectedCorner].y = y / sh
+    self.corners[self.selectedCorner].scale = {1, 1}
+    self.corners[self.selectedCorner].coordinate_space = "normalized_projector"
 
     -- Clamp to screen bounds
     self.corners[self.selectedCorner].x = math.max(0, math.min(1, self.corners[self.selectedCorner].x))
@@ -187,10 +296,10 @@ end
 -- Reset calibration to default
 function Calibration:reset()
     self.corners = {
-        {x = 0.1, y = 0.1},
-        {x = 0.9, y = 0.1},
-        {x = 0.9, y = 0.9},
-        {x = 0.1, y = 0.9}
+        {x = 0.1, y = 0.1, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.9, y = 0.1, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.9, y = 0.9, scale = {1, 1}, coordinate_space = "normalized_projector"},
+        {x = 0.1, y = 0.9, scale = {1, 1}, coordinate_space = "normalized_projector"}
     }
     self.isDirty = true
 end

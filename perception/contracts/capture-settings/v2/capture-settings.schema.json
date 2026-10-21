@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://billiards-trainer.local/contracts/capture-settings/v2/capture-settings.schema.json",
+  "title": "Billiards Capture Settings Request v2",
+  "description": "Python-owned requested capture settings. This document is not a device-application acknowledgment.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "configuration_revision",
+    "requested"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "configuration_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "requested": {
+      "$ref": "#/$defs/requested"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width_px",
+        "height_px",
+        "frame_rate",
+        "pixel_format"
+      ],
+      "properties": {
+        "width_px": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "height_px": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "frame_rate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "frames_numerator",
+            "seconds_denominator"
+          ],
+          "properties": {
+            "frames_numerator": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "seconds_denominator": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        },
+        "pixel_format": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.-]+$"
+        }
+      }
+    },
+    "timestamp_semantics": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "read_completion_only"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "unit",
+            "clock",
+            "domain_id",
+            "stage"
+          ],
+          "properties": {
+            "kind": {
+              "const": "source_timestamp"
+            },
+            "unit": {
+              "const": "nanoseconds"
+            },
+            "clock": {
+              "enum": [
+                "monotonic",
+                "unix_epoch",
+                "sensor"
+              ]
+            },
+            "domain_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "stage": {
+              "enum": [
+                "exposure",
+                "camera_read_complete",
+                "shared_memory_publication",
+                "frame_arrival"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "requested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device_id",
+        "backend",
+        "requested_profile",
+        "expected_negotiated_profile",
+        "camera_profile_id",
+        "image_space",
+        "rectification_revision",
+        "calibration_revision",
+        "calibration",
+        "timestamp_semantics",
+        "control_requirements",
+        "requested_controls",
+        "reconnect_policy",
+        "maximum_frame_age_ms",
+        "maximum_rgb_frame_bytes",
+        "maximum_aggregate_rgb_frame_bytes",
+        "output_frame_geometry"
+      ],
+      "properties": {
+        "device_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "backend": {
+          "enum": [
+            "auto",
+            "v4l2",
+            "dshow",
+            "gstreamer",
+            "opencv",
+            "kinect2"
+          ]
+        },
+        "requested_profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "expected_negotiated_profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "camera_profile_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "image_space": {
+          "enum": [
+            "raw",
+            "rectified"
+          ]
+        },
+        "rectification_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "calibration_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "calibration": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "urn:billiards-trainer:perception:table-calibration:v1"
+            }
+          ]
+        },
+        "timestamp_semantics": {
+          "$ref": "#/$defs/timestamp_semantics"
+        },
+        "control_requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manual_exposure",
+            "automatic_exposure",
+            "gain_control"
+          ],
+          "properties": {
+            "manual_exposure": {
+              "type": "boolean"
+            },
+            "automatic_exposure": {
+              "type": "boolean"
+            },
+            "gain_control": {
+              "type": "boolean"
+            }
+          }
+        },
+        "requested_controls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "exposure_mode",
+            "exposure_value",
+            "gain",
+            "brightness",
+            "contrast",
+            "saturation",
+            "auto_focus",
+            "buffer_size"
+          ],
+          "properties": {
+            "exposure_mode": {
+              "enum": [
+                "auto",
+                "manual"
+              ]
+            },
+            "exposure_value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "gain": {
+              "type": "number",
+              "minimum": 0
+            },
+            "brightness": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "contrast": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "saturation": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "auto_focus": {
+              "type": "boolean"
+            },
+            "buffer_size": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        },
+        "reconnect_policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "delay_seconds",
+            "maximum_attempts",
+            "stop_timeout_seconds"
+          ],
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "delay_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "maximum_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "stop_timeout_seconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "maximum_frame_age_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "maximum_rgb_frame_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "maximum_aggregate_rgb_frame_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1073741824
+        },
+        "output_frame_geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "width_px",
+            "height_px"
+          ],
+          "properties": {
+            "width_px": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "height_px": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            }
+          }
+        }
+      }
+    }
+  }
+}

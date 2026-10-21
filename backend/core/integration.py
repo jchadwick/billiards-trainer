@@ -1,11 +1,13 @@
 """Integration interfaces for core module communication with other backend modules."""
 
 import logging
+import math
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, Protocol
+from typing import Any, Callable, Optional, Protocol, TypedDict, cast
 
 import cv2
 import numpy as np
@@ -13,8 +15,124 @@ import numpy as np
 from .events.manager import EventManager, EventType
 from .game_state import GameStateManager
 from .models import BallState, GameState, ShotAnalysis, Trajectory
+from .resolution_converter import ResolutionConverter
 
 logger = logging.getLogger(__name__)
+
+_TABLE_METER_ORIGIN = "playing_area_top_left"
+
+WebSocketHandler = Callable[..., Any]
+ConfigChangeCallback = Callable[[dict[str, Any]], Any]
+
+
+class WebSocketHandlerInfo(TypedDict):
+    handler: WebSocketHandler
+    registered_at: float
+    message_count: int
+    last_used: float
+
+
+class ConfigSubscriberInfo(TypedDict):
+    callback: ConfigChangeCallback
+    subscribed_at: float
+    notification_count: int
+    last_notified: float
+
+
+def _validated_homography(matrix: Any) -> Optional[np.ndarray]:
+    """Return a usable homography, rejecting singular and default identity data.
+
+    An identity transform cannot represent a calibrated mapping between pixel
+    coordinates and meters. Rejecting it prevents an uninitialized matrix from
+    being presented as projector calibration.
+    """
+    try:
+        candidate = np.asarray(matrix, dtype=np.float64)
+    except (TypeError, ValueError):
+        return None
+    if candidate.shape != (3, 3) or not np.all(np.isfinite(candidate)):
+        return None
+    scale = float(np.max(np.abs(candidate)))
+    if scale <= np.finfo(np.float64).eps:
+        return None
+    normalized = candidate / scale
+    if np.linalg.matrix_rank(normalized) != 3:
+        return None
+    if abs(float(normalized[2, 2])) > np.finfo(np.float64).eps:
+        projective_normalized = normalized / normalized[2, 2]
+        if np.allclose(projective_normalized, np.eye(3), rtol=1e-9, atol=1e-12):
+            return None
+    return candidate
+
+
+def _table_coordinate_context(table: Any) -> Optional[dict[str, Any]]:
+    """Snapshot table geometry and its canonical-pixel-to-meter homography.
+
+    The table-meter origin is the first playing-area corner (top-left); +X
+    follows the first edge to the top-right and +Y follows the last edge to the
+    bottom-left. All values are copied into immutable tuples before fitting the
+    matrix, keeping the serialized matrix and its source geometry consistent.
+    """
+    if table is None:
+        return None
+    corners = getattr(table, "playing_area_corners", None)
+    width = getattr(table, "real_width_meters", None)
+    height = getattr(table, "real_height_meters", None)
+    if (
+        not isinstance(corners, (list, tuple))
+        or len(corners) != 4
+        or isinstance(width, bool)
+        or not isinstance(width, (int, float))
+        or isinstance(height, bool)
+        or not isinstance(height, (int, float))
+        or not math.isfinite(float(width))
+        or not math.isfinite(float(height))
+        or float(width) <= 0
+        or float(height) <= 0
+    ):
+        return None
+    try:
+        canonical_corners = []
+        for corner in corners:
+            canonical = corner.to_4k_canonical()
+            canonical_corners.append((float(canonical.x), float(canonical.y)))
+        immutable_corners = tuple(canonical_corners)
+        width_meters = float(width)
+        height_meters = float(height)
+        source = np.asarray(immutable_corners, dtype=np.float32)
+        destination = np.asarray(
+            [
+                (0.0, 0.0),
+                (width_meters, 0.0),
+                (width_meters, height_meters),
+                (0.0, height_meters),
+            ],
+            dtype=np.float32,
+        )
+        matrix = _validated_homography(cv2.getPerspectiveTransform(source, destination))
+        if matrix is None:
+            return None
+        return {
+            "coordinate_space": "4k_canonical",
+            "coordinate_unit": "canonical_pixels",
+            "table_meter_origin": _TABLE_METER_ORIGIN,
+            "playing_area_corners": immutable_corners,
+            "real_width_meters": width_meters,
+            "real_height_meters": height_meters,
+            "camera_to_table_meters": tuple(
+                tuple(float(value) for value in row) for row in matrix
+            ),
+        }
+    except (AttributeError, TypeError, ValueError, cv2.error):
+        return None
+
+
+def _table_pixel_to_meter_homography(table: Any) -> Optional[np.ndarray]:
+    """Return table context's canonical image-pixel to meter transform."""
+    context = _table_coordinate_context(table)
+    if context is None:
+        return None
+    return np.asarray(context["camera_to_table_meters"], dtype=np.float64)
 
 
 class ModuleInterface(Protocol):
@@ -83,7 +201,7 @@ class APIInterface(ABC):
         )
 
     @abstractmethod
-    def register_websocket_handler(self, handler: Callable) -> str:
+    def register_websocket_handler(self, handler: WebSocketHandler) -> str:
         """Register WebSocket message handler."""
         raise NotImplementedError(
             "API interface must implement register_websocket_handler"
@@ -131,7 +249,7 @@ class ConfigInterface(ABC):
         )
 
     @abstractmethod
-    def subscribe_config_changes(self, callback: Callable) -> str:
+    def subscribe_config_changes(self, callback: ConfigChangeCallback) -> str:
         """Subscribe to configuration changes."""
         raise NotImplementedError(
             "Config interface must implement subscribe_config_changes"
@@ -172,7 +290,7 @@ class CoreModuleIntegrator:
         # Setup integration event handlers
         self._setup_integration_handlers()
 
-    def _setup_integration_handlers(self):
+    def _setup_integration_handlers(self) -> None:
         """Setup event handlers for module integration."""
         # Vision data reception (FR-CORE-051)
         self.event_manager.subscribe_to_events(
@@ -240,7 +358,7 @@ class CoreModuleIntegrator:
             "config", interface, ["configuration", "persistence", "validation"]
         )
 
-    def _handle_vision_data(self, event_type: str, data: dict[str, Any]):
+    def _handle_vision_data(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle vision detection data reception (FR-CORE-051)."""
         detection_data = data.get("detection_data", {})
 
@@ -258,7 +376,7 @@ class CoreModuleIntegrator:
             self.integration_stats["errors"] += 1
             self.logger.error(f"Error processing vision data: {e}")
 
-    def _handle_state_update(self, event_type: str, data: dict[str, Any]):
+    def _handle_state_update(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle state updates for API module (FR-CORE-052)."""
         if self.api_interface:
             try:
@@ -268,7 +386,7 @@ class CoreModuleIntegrator:
                 self.integration_stats["errors"] += 1
                 self.logger.error(f"Error sending state update to API: {e}")
 
-    def _handle_trajectory_data(self, event_type: str, data: dict[str, Any]):
+    def _handle_trajectory_data(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle trajectory data for Projector module (FR-CORE-053)."""
         if self.projector_interface:
             try:
@@ -279,7 +397,7 @@ class CoreModuleIntegrator:
                 self.integration_stats["errors"] += 1
                 self.logger.error(f"Error sending trajectory data to Projector: {e}")
 
-    def _handle_config_change(self, event_type: str, data: dict[str, Any]):
+    def _handle_config_change(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle configuration changes (FR-CORE-054)."""
         module_name = data.get("module_name")
         config = data.get("config")
@@ -292,7 +410,9 @@ class CoreModuleIntegrator:
         if module_name and config:
             self._forward_config_change(module_name, config)
 
-    def _handle_module_initialization(self, event_type: str, data: dict[str, Any]):
+    def _handle_module_initialization(
+        self, event_type: str, data: dict[str, Any]
+    ) -> None:
         """Handle module initialization (FR-CORE-055)."""
         module_name = data.get("module_name")
         capabilities = data.get("capabilities", [])
@@ -313,7 +433,7 @@ class CoreModuleIntegrator:
             # Send welcome configuration
             self._send_welcome_configuration(module_name)
 
-    def _handle_module_shutdown(self, event_type: str, data: dict[str, Any]):
+    def _handle_module_shutdown(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle module shutdown (FR-CORE-055)."""
         module_name = data.get("module_name")
 
@@ -324,7 +444,7 @@ class CoreModuleIntegrator:
             # Clean up module-specific resources
             self._cleanup_module_resources(module_name)
 
-    def _broadcast_state_update(self, state: GameState):
+    def _broadcast_state_update(self, state: GameState) -> None:
         """Broadcast state update to all connected modules."""
         state_data = {
             "timestamp": state.timestamp,
@@ -352,20 +472,15 @@ class CoreModuleIntegrator:
 
     def _serialize_ball(self, ball: BallState) -> dict[str, Any]:
         """Serialize ball state for module communication."""
+        # Keep the model's canonical scale and explicit radius/mass units on
+        # every module boundary instead of rebuilding lossy x/y dictionaries.
         return {
-            "id": ball.id,
-            "position": {"x": ball.position.x, "y": ball.position.y},
-            "velocity": {"x": ball.velocity.x, "y": ball.velocity.y},
-            "radius": ball.radius,
-            "mass": ball.mass,
-            "spin": {"x": ball.spin.x, "y": ball.spin.y} if ball.spin else None,
-            "is_cue_ball": ball.is_cue_ball,
-            "is_pocketed": ball.is_pocketed,
-            "number": ball.number,
-            "confidence": ball.confidence,
+            **ball.to_dict(),
+            "position_unit": "canonical_pixels",
+            "velocity_unit": "canonical_pixels_per_second",
         }
 
-    def _apply_core_configuration(self, config: dict[str, Any]):
+    def _apply_core_configuration(self, config: dict[str, Any]) -> None:
         """Apply configuration changes to core module."""
         if "validation_enabled" in config:
             self.game_state_manager.set_validation_config(
@@ -374,8 +489,22 @@ class CoreModuleIntegrator:
             )
 
         if "event_history_size" in config:
-            # Update event manager history size
-            self.event_manager.event_history.maxlen = config["event_history_size"]
+            # deque.maxlen is immutable; replace the history atomically while
+            # holding the same lock used by event delivery.
+            history_size = config["event_history_size"]
+            if (
+                isinstance(history_size, int)
+                and not isinstance(history_size, bool)
+                and history_size > 0
+            ):
+                with self.event_manager._lock:
+                    self.event_manager.event_history = deque(
+                        self.event_manager.event_history, maxlen=history_size
+                    )
+            else:
+                self.logger.warning(
+                    "Ignoring invalid event history size: %r", history_size
+                )
 
         if "logging_level" in config:
             logging.getLogger("backend.core").setLevel(
@@ -384,7 +513,7 @@ class CoreModuleIntegrator:
 
         self.logger.info("Core configuration updated")
 
-    def _forward_config_change(self, module_name: str, config: dict[str, Any]):
+    def _forward_config_change(self, module_name: str, config: dict[str, Any]) -> None:
         """Forward configuration changes to specific modules."""
         if module_name == "vision" and self.vision_interface:
             try:
@@ -404,9 +533,9 @@ class CoreModuleIntegrator:
             except Exception as e:
                 self.logger.error(f"Error forwarding config to Projector module: {e}")
 
-    def _send_welcome_configuration(self, module_name: str):
+    def _send_welcome_configuration(self, module_name: str) -> None:
         """Send initial configuration to newly connected module."""
-        welcome_configs = {
+        welcome_configs: dict[str, dict[str, Any]] = {
             "vision": {
                 "detection_frequency": 60,
                 "confidence_threshold": 0.7,
@@ -430,6 +559,10 @@ class CoreModuleIntegrator:
                 "show_assistance": True,
                 "projection_settings": {
                     "resolution": [1920, 1080],
+                    "resolution_scale": list(
+                        ResolutionConverter.calculate_scale_to_4k((1920, 1080))
+                    ),
+                    "resolution_unit": "pixels",
                     "refresh_rate": 60,
                     "calibration_required": True,
                 },
@@ -440,7 +573,7 @@ class CoreModuleIntegrator:
         if config:
             self.event_manager.exchange_config_with_module(module_name, config)
 
-    def _cleanup_module_resources(self, module_name: str):
+    def _cleanup_module_resources(self, module_name: str) -> None:
         """Clean up resources associated with disconnected module."""
         # Clear module-specific interface
         if module_name == "vision":
@@ -454,16 +587,26 @@ class CoreModuleIntegrator:
 
     # Public API methods for external module integration
 
-    def send_trajectory_update(self, trajectories: list[Trajectory]):
-        """Send trajectory update to Projector module."""
+    def send_trajectory_update(self, trajectories: list[Trajectory]) -> None:
+        """Send trajectories with a detached snapshot of calibrated table geometry."""
         trajectory_data = {
             "trajectories": [traj.to_dict() for traj in trajectories],
             "timestamp": time.time(),
         }
 
+        current_state = self.game_state_manager.get_current_state()
+        table = (
+            current_state.table
+            if current_state is not None
+            else getattr(self.game_state_manager, "_default_table", None)
+        )
+        table_context = _table_coordinate_context(table)
+        if table_context is not None:
+            trajectory_data["table_coordinate_context"] = table_context
+
         self.event_manager.provide_trajectory_to_projector(trajectory_data)
 
-    def send_shot_analysis(self, shot_analysis: ShotAnalysis):
+    def send_shot_analysis(self, shot_analysis: ShotAnalysis) -> None:
         """Send shot analysis to API and Projector modules."""
         analysis_data = shot_analysis.to_dict()
 
@@ -522,7 +665,7 @@ class CoreModuleIntegrator:
             "event_manager_stats": self.event_manager.get_statistics(),
         }
 
-    def shutdown_integration(self):
+    def shutdown_integration(self) -> None:
         """Shutdown module integration."""
         # Notify all modules of shutdown
         for module_name in self.connected_modules:
@@ -548,7 +691,7 @@ class VisionInterfaceImpl(VisionInterface):
         self.event_manager = event_manager
         self.vision_module = vision_module
         self._lock = threading.RLock()  # Thread safety
-        self.calibration_data = {
+        self.calibration_data: dict[str, dict[str, Any]] = {
             "table": {
                 "corners": [],
                 "pocket_positions": [],
@@ -568,7 +711,7 @@ class VisionInterfaceImpl(VisionInterface):
                 "timestamp": 0.0,
             },
         }
-        self.detection_parameters = {
+        self.detection_parameters: dict[str, Any] = {
             "ball_radius_range": [0.025, 0.032],
             "confidence_threshold": 0.7,
             "tracking_enabled": True,
@@ -629,7 +772,7 @@ class VisionInterfaceImpl(VisionInterface):
                         live_calibration = self.vision_module.get_calibration_data(
                             calibration_type
                         )
-                        if live_calibration:
+                        if isinstance(live_calibration, dict) and live_calibration:
                             self.logger.info(
                                 f"Retrieved live {calibration_type} calibration from vision module"
                             )
@@ -725,9 +868,35 @@ class VisionInterfaceImpl(VisionInterface):
                 return False
 
     def _validate_ball_detection(self, ball_data: dict[str, Any]) -> bool:
-        """Validate ball detection data."""
+        """Validate detections before accepting image-space geometry."""
         required_fields = ["id", "position", "confidence"]
-        return all(field in ball_data for field in required_fields)
+        if not all(field in ball_data for field in required_fields):
+            return False
+        position = ball_data["position"]
+        if not isinstance(position, dict) or not {"x", "y", "scale"}.issubset(position):
+            return False
+        try:
+            coordinates = (position["x"], position["y"])
+            scale = position["scale"]
+            return (
+                all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                    for value in coordinates
+                )
+                and isinstance(scale, (list, tuple))
+                and len(scale) == 2
+                and all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                    and float(value) > 0
+                    for value in scale
+                )
+            )
+        except (OverflowError, TypeError, ValueError):
+            return False
 
     def _process_ball_detection(self, ball_data: dict[str, Any]) -> dict[str, Any]:
         """Process and enhance ball detection data."""
@@ -744,10 +913,20 @@ class VisionInterfaceImpl(VisionInterface):
 
         return processed
 
-    def _estimate_velocity(self, ball_data: dict[str, Any]) -> dict[str, float]:
-        """Estimate ball velocity from position tracking."""
-        # Simplified velocity estimation - real implementation would use tracking history
-        return {"x": 0.0, "y": 0.0}
+    def _estimate_velocity(self, ball_data: dict[str, Any]) -> dict[str, Any]:
+        """Return a stationary estimate in the detected point's pixel scale.
+
+        Tracking history is not available in this adapter yet; even the zero
+        estimate must state its coordinate scale and time unit so downstream
+        consumers do not infer either from context.
+        """
+        position = ball_data["position"]
+        return {
+            "x": 0.0,
+            "y": 0.0,
+            "scale": list(position["scale"]),
+            "unit": "pixels_per_second",
+        }
 
     def _assess_detection_quality(self, balls: list[dict[str, Any]]) -> dict[str, Any]:
         """Assess overall detection quality."""
@@ -772,7 +951,7 @@ class VisionInterfaceImpl(VisionInterface):
 
     def _validate_parameter(self, key: str, value: Any) -> bool:
         """Validate parameter values."""
-        validators = {
+        validators: dict[str, Callable[[Any], bool]] = {
             "confidence_threshold": lambda v: 0.0 <= v <= 1.0,
             "detection_frequency": lambda v: 1 <= v <= 120,
             "ball_radius_range": lambda v: isinstance(v, list)
@@ -805,7 +984,7 @@ class APIInterfaceImpl(APIInterface):
         self.message_broadcaster = message_broadcaster
         self._event_loop = event_loop  # Store event loop for cross-thread async calls
         self._lock = threading.RLock()  # Thread safety
-        self.websocket_handlers = {}
+        self.websocket_handlers: dict[str, WebSocketHandlerInfo] = {}
         self.connection_status = {
             "connected": False,
             "last_heartbeat": 0.0,
@@ -887,7 +1066,7 @@ class APIInterfaceImpl(APIInterface):
             except Exception as e:
                 self.logger.error(f"Error sending event notification: {e}")
 
-    def register_websocket_handler(self, handler: Callable) -> str:
+    def register_websocket_handler(self, handler: WebSocketHandler) -> str:
         """Register WebSocket message handler."""
         with self._lock:
             try:
@@ -1051,10 +1230,12 @@ class APIInterfaceImpl(APIInterface):
             f"No broadcast mechanism available, message dropped: {message_type}"
         )
 
-    def _wrap_handler(self, handler: Callable, handler_id: str) -> Callable:
+    def _wrap_handler(
+        self, handler: WebSocketHandler, handler_id: str
+    ) -> WebSocketHandler:
         """Wrap handler with error handling and statistics."""
 
-        def wrapped_handler(*args, **kwargs):
+        def wrapped_handler(*args: Any, **kwargs: Any) -> Any:
             try:
                 # Update usage statistics
                 self.websocket_handlers[handler_id]["message_count"] += 1
@@ -1078,7 +1259,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         self.event_manager = event_manager
         self.projector_module = projector_module
         self._lock = threading.RLock()  # Thread safety
-        self.projection_settings = {
+        self.projection_settings: dict[str, Any] = {
             "brightness": 0.8,
             "contrast": 1.0,
             "resolution": [1920, 1080],
@@ -1091,9 +1272,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             "calibration_points": [],
             "keystone_correction": {"x": 0, "y": 0},
         }
-        self.active_overlays = {}
-        self.trajectory_cache = {}
-        self.calibration_status = {
+        self.active_overlays: dict[str, dict[str, Any]] = {}
+        self.trajectory_cache: dict[str, dict[str, Any]] = {}
+        self.calibration_status: dict[str, Any] = {
             "is_calibrated": False,
             "last_calibration": 0.0,
             "calibration_error": 0.0,
@@ -1129,7 +1310,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                     "type": "trajectory_update",
                     "timestamp": time.time(),
                     "overlay": overlay,
-                    "settings": self.projection_settings,
+                    "settings": self._projection_settings_payload(),
                     "duration_ms": trajectory_data.get("duration_ms", 5000),
                 }
 
@@ -1180,7 +1361,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                     "type": "overlay_update",
                     "timestamp": time.time(),
                     "overlay": composite_overlay,
-                    "settings": self.projection_settings,
+                    "settings": self._projection_settings_payload(),
                 }
 
                 self._send_to_projector(projection_message)
@@ -1212,7 +1393,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 settings_message = {
                     "type": "settings_update",
                     "timestamp": time.time(),
-                    "settings": self.projection_settings,
+                    "settings": self._projection_settings_payload(),
                     "requires_restart": self._requires_projector_restart(
                         valid_settings
                     ),
@@ -1230,7 +1411,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         """Get current projector status."""
         with self._lock:
             return {
-                "settings": self.projection_settings.copy(),
+                "settings": self._projection_settings_payload(),
                 "calibration": self.calibration_status.copy(),
                 "performance": self.performance_stats.copy(),
                 "active_overlays": list(self.active_overlays.keys()),
@@ -1256,6 +1437,12 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 if transformation_matrix is None:
                     self.logger.error("Failed to calculate transformation matrix")
                     return False
+                calibration_error = self._calculate_calibration_error(
+                    processed_points, transformation_matrix
+                )
+                if not math.isfinite(calibration_error):
+                    self.logger.error("Calibration reprojection error is not finite")
+                    return False
 
                 # Update calibration
                 self.projection_settings["calibration_points"] = processed_points
@@ -1266,9 +1453,8 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 self.calibration_status = {
                     "is_calibrated": True,
                     "last_calibration": time.time(),
-                    "calibration_error": self._calculate_calibration_error(
-                        processed_points
-                    ),
+                    "calibration_error": calibration_error,
+                    "calibration_error_unit": "meters",
                 }
 
                 self.logger.info("Projector calibration completed successfully")
@@ -1291,7 +1477,7 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         """Validate and filter projector settings."""
         valid_settings = {}
 
-        validators = {
+        validators: dict[str, Callable[[Any], bool]] = {
             "brightness": lambda v: 0.0 <= v <= 1.0,
             "contrast": lambda v: 0.1 <= v <= 2.0,
             "resolution": lambda v: isinstance(v, list) and len(v) == 2,
@@ -1312,18 +1498,161 @@ class ProjectorInterfaceImpl(ProjectorInterface):
 
         return valid_settings
 
+    def _projector_resolution(self) -> tuple[int, int]:
+        """Return and validate the configured projector pixel dimensions."""
+        resolution = self.projection_settings.get("resolution")
+        if (
+            not isinstance(resolution, (list, tuple))
+            or len(resolution) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) <= 0
+                or not float(value).is_integer()
+                for value in resolution
+            )
+        ):
+            raise ValueError("Projector resolution must contain two positive pixels")
+        return int(resolution[0]), int(resolution[1])
+
+    def _projector_scale(self) -> tuple[float, float]:
+        """Return the configured projector resolution's scale to 4K pixels."""
+        return ResolutionConverter.calculate_scale_to_4k(self._projector_resolution())
+
+    def _default_text_position(self) -> list[float]:
+        """Return projector-center coordinates in its configured resolution."""
+        width, height = self._projector_resolution()
+        return [width / 2, height / 2]
+
+    def _projection_settings_payload(self) -> dict[str, Any]:
+        """Serialize projector dimensions and offsets with pixel metadata."""
+        settings = self.projection_settings.copy()
+        settings["resolution_unit"] = "pixels"
+        settings["resolution_scale"] = list(self._projector_scale())
+        keystone = settings.get("keystone_correction")
+        if isinstance(keystone, dict) and {"x", "y"}.issubset(keystone):
+            settings["keystone_correction"] = {
+                **keystone,
+                "scale": list(self._projector_scale()),
+                "unit": "pixels",
+            }
+        settings["calibration_points"] = self._process_calibration_points(
+            cast("list[dict[str, Any]]", settings.get("calibration_points", []))
+        )
+        return settings
+
+    def _scaled_overlay_point(
+        self,
+        point: Any,
+        *,
+        fallback_scale: Optional[tuple[float, float]] = None,
+        coordinate_space: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Normalize a projector point and reject coordinates without scale.
+
+        Legacy two-element arrays are accepted only when their source is known
+        to be the configured projector resolution. Scale-aware dictionaries
+        preserve their original scale and coordinate-space declaration.
+        """
+        if hasattr(point, "to_dict"):
+            point = point.to_dict()
+        if isinstance(point, (list, tuple)) and len(point) == 2:
+            if fallback_scale is None:
+                raise ValueError("Overlay point array requires an explicit scale")
+            point = {"x": point[0], "y": point[1], "scale": list(fallback_scale)}
+        if not isinstance(point, dict) or not {"x", "y"}.issubset(point):
+            raise ValueError("Overlay points must contain x and y coordinates")
+        if any(
+            isinstance(point[axis], bool)
+            or not isinstance(point[axis], (int, float))
+            or not math.isfinite(float(point[axis]))
+            for axis in ("x", "y")
+        ):
+            raise ValueError("Overlay coordinates must be finite numbers")
+        scale = point.get("scale", fallback_scale)
+        if (
+            not isinstance(scale, (list, tuple))
+            or len(scale) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or float(value) <= 0
+                for value in scale
+            )
+        ):
+            raise ValueError("Overlay point requires two finite positive scale values")
+        result = dict(point)
+        result["scale"] = [float(scale[0]), float(scale[1])]
+        if coordinate_space and not result.get("coordinate_space"):
+            result["coordinate_space"] = coordinate_space
+        return result
+
     def _process_trajectories(
         self, trajectory_data: dict[str, Any]
     ) -> list[dict[str, Any]]:
         """Process trajectory data for visualization."""
         trajectories = trajectory_data.get("trajectories", [])
+        table_geometry = trajectory_data.get("table_coordinate_context")
         processed = []
 
         for trajectory in trajectories:
-            # Convert to screen coordinates
+            source_space = trajectory.get("coordinate_space")
+            source_unit = trajectory.get("coordinate_unit")
+            lines = trajectory.get("lines")
+            if not isinstance(lines, list) or not lines:
+                continue
+
+            # TrajectoryCalculator exports nested, scaled line endpoints as
+            # the canonical geometry. Build the projector polyline from the
+            # first start point followed by every end point, then pass those
+            # points through the same calibrated camera → table → projector
+            # transform used by other overlay geometry.
+            polyline: list[dict[str, Any]] = []
+            for line in lines:
+                if not isinstance(line, dict):
+                    polyline = []
+                    break
+                start = line.get("start")
+                end = line.get("end")
+                if not isinstance(start, dict) or not isinstance(end, dict):
+                    polyline = []
+                    break
+                if not polyline:
+                    polyline.append(start)
+                polyline.append(end)
+
+            if not polyline:
+                continue
             screen_points = self._convert_to_screen_coordinates(
-                trajectory.get("points", [])
+                polyline,
+                coordinate_space=source_space,
+                coordinate_unit=source_unit,
+                table_geometry=table_geometry,
             )
+            # A trajectory without both calibrated transforms is not safe to
+            # draw on the projector. In particular, never relabel camera pixels
+            # as projector pixels when calibration or table geometry is absent.
+            if not screen_points:
+                continue
+            screen_collisions = []
+            for collision in trajectory.get("collisions", []):
+                collision_position = self._convert_to_screen_coordinates(
+                    [collision["position"]],
+                    coordinate_space=source_space,
+                    coordinate_unit=collision.get("position_unit", source_unit),
+                    table_geometry=table_geometry,
+                )
+                if not collision_position:
+                    continue
+                screen_collisions.append(
+                    {
+                        **collision,
+                        "position": collision_position[0],
+                        "position_unit": "projector_pixels",
+                    }
+                )
 
             # Apply visual styling
             processed_trajectory = {
@@ -1333,6 +1662,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 "line_width": self._get_trajectory_width(trajectory),
                 "style": self._get_trajectory_style(trajectory),
                 "confidence": trajectory.get("confidence", 1.0),
+                "coordinate_space": "projector_pixels",
+                "coordinate_unit": "projector_pixels",
+                "collisions": screen_collisions,
             }
             processed.append(processed_trajectory)
 
@@ -1355,8 +1687,11 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             line_element = {
                 "type": "polyline",
                 "points": trajectory["points"],
+                "coordinate_space": trajectory["coordinate_space"],
+                "coordinate_unit": trajectory["coordinate_unit"],
                 "color": trajectory["color"],
                 "width": trajectory["line_width"],
+                "width_unit": "projector_pixels",
                 "style": trajectory["style"],
             }
             overlay_elements.append(line_element)
@@ -1367,9 +1702,13 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                     marker = {
                         "type": "marker",
                         "position": collision["position"],
+                        "position_unit": collision.get(
+                            "position_unit", "canonical_pixels"
+                        ),
                         "symbol": "collision",
                         "color": "yellow",
                         "size": 8,
+                        "size_unit": "projector_pixels",
                     }
                     overlay_elements.append(marker)
 
@@ -1399,9 +1738,18 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             probability_text = {
                 "type": "text",
                 "text": f"{data['success_probability']:.1%}",
-                "position": data.get("text_position", [50, 50]),
+                "position": self._scaled_overlay_point(
+                    data.get(
+                        "text_position",
+                        self._default_text_position(),
+                    ),
+                    fallback_scale=self._projector_scale(),
+                    coordinate_space="projector_pixels",
+                ),
+                "position_unit": "projector_pixels",
                 "color": "white",
                 "size": 24,
+                "size_unit": "projector_pixels",
             }
             elements.append(probability_text)
 
@@ -1422,10 +1770,18 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         if "aim_line" in data and self.projection_settings.get("show_aim_lines", True):
             aim_line = {
                 "type": "line",
-                "start": data["aim_line"]["start"],
-                "end": data["aim_line"]["end"],
+                "start": self._scaled_overlay_point(
+                    data["aim_line"]["start"],
+                    fallback_scale=self._projector_scale(),
+                ),
+                "end": self._scaled_overlay_point(
+                    data["aim_line"]["end"],
+                    fallback_scale=self._projector_scale(),
+                ),
+                "coordinate_unit": "pixels",
                 "color": "cyan",
                 "width": 2,
+                "width_unit": "projector_pixels",
                 "style": "solid",
             }
             elements.append(aim_line)
@@ -1446,9 +1802,11 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 id_text = {
                     "type": "text",
                     "text": str(ball.get("number", "?")),
-                    "position": ball["position"],
+                    "position": self._scaled_overlay_point(ball["position"]),
+                    "position_unit": "canonical_pixels",
                     "color": "white",
                     "size": 16,
+                    "size_unit": "projector_pixels",
                 }
                 elements.append(id_text)
 
@@ -1460,10 +1818,12 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             ):
                 velocity_arrow = {
                     "type": "arrow",
-                    "start": ball["position"],
-                    "velocity": ball["velocity"],
+                    "start": self._scaled_overlay_point(ball["position"]),
+                    "velocity": self._scaled_overlay_point(ball["velocity"]),
+                    "velocity_unit": "pixels_per_second",
                     "color": "red",
                     "scale": 100,
+                    "scale_unit": "projector_pixels_per_velocity_unit",
                 }
                 elements.append(velocity_arrow)
 
@@ -1480,10 +1840,14 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         for point in data.get("calibration_points", []):
             marker = {
                 "type": "marker",
-                "position": point["position"],
+                "position": self._scaled_overlay_point(
+                    point["position"], fallback_scale=self._projector_scale()
+                ),
+                "position_unit": "projector_pixels",
                 "symbol": "crosshair",
                 "color": "white",
                 "size": 20,
+                "size_unit": "projector_pixels",
             }
             elements.append(marker)
 
@@ -1577,56 +1941,102 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         self.event_manager.send_projector_command(message)
 
     def _convert_to_screen_coordinates(
-        self, world_points: list[dict[str, float]]
-    ) -> list[dict[str, float]]:
-        """Convert world coordinates to screen coordinates using transformation matrix."""
-        # Get transformation matrix from projection settings
-        matrix = self.projection_settings.get("transformation_matrix")
+        self,
+        world_points: list[dict[str, Any]],
+        *,
+        coordinate_space: Optional[str] = None,
+        coordinate_unit: Optional[str] = None,
+        table_geometry: Optional[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
+        """Project table points only when both calibrated transforms are valid.
 
-        if not matrix or len(world_points) == 0:
-            # No calibration or no points - return as-is
-            return world_points
+        The stored matrix maps canonical projector pixels to table meters. The
+        runtime table context maps canonical camera/image pixels to those same
+        meters. Pixel trajectories therefore follow camera pixels → meters →
+        projector pixels. Explicit table-meter points skip only the first map.
+        """
+        if not world_points:
+            return []
+        if not getattr(self, "calibration_status", {}).get("is_calibrated", False):
+            return []
+        projector_to_meters = _validated_homography(
+            self.projection_settings.get("transformation_matrix")
+        )
+        if projector_to_meters is None:
+            return []
+
+        direct_meters = (
+            coordinate_unit == "meters" and coordinate_space == "table_meters"
+        )
+        camera_to_meters: Optional[np.ndarray] = None
+        if direct_meters:
+            if (
+                table_geometry is None
+                or table_geometry.get("table_meter_origin") != _TABLE_METER_ORIGIN
+            ):
+                return []
+        else:
+            if coordinate_unit != "canonical_pixels" or coordinate_space not in {
+                "4k_canonical",
+            }:
+                return []
+            if (
+                table_geometry is None
+                or table_geometry.get("table_meter_origin") != _TABLE_METER_ORIGIN
+                or table_geometry.get("coordinate_space") != "4k_canonical"
+                or table_geometry.get("coordinate_unit") != "canonical_pixels"
+            ):
+                return []
+            camera_to_meters = _validated_homography(
+                table_geometry.get("camera_to_table_meters")
+            )
+            if camera_to_meters is None:
+                return []
 
         try:
-            # Convert list of dicts to numpy array
-            # Assuming points have 'x' and 'y' keys
-            pts = np.array([[p["x"], p["y"]] for p in world_points], dtype=np.float32)
-
-            # Reshape for cv2.perspectiveTransform (requires Nx1x2 shape)
-            pts = pts.reshape(-1, 1, 2)
-
-            # Convert transformation matrix from list to numpy array
-            matrix_np = np.array(matrix, dtype=np.float32)
-
-            # CRITICAL FIX: The stored matrix maps screen→world (from calibration),
-            # but we need world→screen for projection. Must invert the matrix.
-            # Calibration creates: H × [screen_x, screen_y] = [world_x, world_y]
-            # We need: H⁻¹ × [world_x, world_y] = [screen_x, screen_y]
-            inverse_matrix = np.linalg.inv(matrix_np)
-
-            # Apply perspective transformation with inverted matrix
-            transformed = cv2.perspectiveTransform(pts, inverse_matrix)
-
-            # Convert back to list of dicts
-            result = []
-            for pt in transformed:
-                result.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
-
-            return result
-
-        except np.linalg.LinAlgError as e:
-            # Matrix inversion failed - matrix is singular (non-invertible)
-            self.logger.error(
-                f"Cannot invert transformation matrix (singular or degenerate): {e}"
+            projector_inverse = np.linalg.inv(projector_to_meters)
+            if _validated_homography(projector_inverse) is None:
+                return []
+            normalized = [
+                self._scaled_overlay_point(point, coordinate_space=coordinate_space)
+                for point in world_points
+            ]
+            source_coordinates = np.asarray(
+                [
+                    [
+                        point["x"] if direct_meters else point["x"] * point["scale"][0],
+                        point["y"] if direct_meters else point["y"] * point["scale"][1],
+                    ]
+                    for point in normalized
+                ],
+                dtype=np.float64,
+            ).reshape(-1, 1, 2)
+            if direct_meters:
+                table_meters = source_coordinates
+            else:
+                if camera_to_meters is None:
+                    return []
+                table_meters = cv2.perspectiveTransform(
+                    source_coordinates.astype(np.float32), camera_to_meters
+                ).astype(np.float64)
+            projector_canonical = cv2.perspectiveTransform(
+                table_meters.astype(np.float32), projector_inverse.astype(np.float32)
             )
-            self.logger.error(
-                "Calibration may be invalid - try recalibrating with better point distribution"
-            )
-            return world_points
-        except Exception as e:
-            # Log error and return original points as fallback
-            self.logger.error(f"Error applying coordinate transformation: {e}")
-            return world_points
+            if not np.all(np.isfinite(projector_canonical)):
+                return []
+            projector_scale = self._projector_scale()
+            return [
+                {
+                    "x": float(point[0][0]) / projector_scale[0],
+                    "y": float(point[0][1]) / projector_scale[1],
+                    "scale": list(projector_scale),
+                    "coordinate_space": "projector_pixels",
+                }
+                for point in projector_canonical
+            ]
+        except (ValueError, TypeError, np.linalg.LinAlgError, cv2.error) as error:
+            self.logger.warning("Projector coordinate conversion rejected: %s", error)
+            return []
 
     def _get_trajectory_color(self, trajectory: dict[str, Any]) -> str:
         """Get color for trajectory visualization."""
@@ -1648,7 +2058,9 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         confidence = trajectory.get("confidence", 1.0)
         return "solid" if confidence > 0.7 else "dashed"
 
-    def _calibration_required(self, old_settings: dict, new_settings: dict) -> bool:
+    def _calibration_required(
+        self, old_settings: dict[str, Any], new_settings: dict[str, Any]
+    ) -> bool:
         """Check if settings change requires recalibration."""
         calibration_sensitive = {"resolution", "keystone_correction", "projection_mode"}
         return any(key in calibration_sensitive for key in new_settings)
@@ -1661,54 +2073,172 @@ class ProjectorInterfaceImpl(ProjectorInterface):
     def _process_calibration_points(
         self, points: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Process calibration points."""
-        return points  # Simplified for now
+        """Validate calibration points and scale projector pixels exactly once."""
+        processed: list[dict[str, Any]] = []
+        for point in points:
+            if not isinstance(point, dict):
+                raise ValueError("Projector calibration points must be mappings")
+
+            # Read the accepted source shapes without adding an implicit scale.
+            if "screen_position" in point:
+                screen_source = self._scaled_overlay_point(
+                    point["screen_position"], coordinate_space="projector_pixels"
+                )
+                screen_scale = screen_source["scale"]
+                screen_x = screen_source["x"]
+                screen_y = screen_source["y"]
+            elif {"screen_x", "screen_y", "screen_scale"}.issubset(point):
+                screen_source = self._scaled_overlay_point(
+                    {
+                        "x": point["screen_x"],
+                        "y": point["screen_y"],
+                        "scale": point["screen_scale"],
+                    },
+                    coordinate_space="projector_pixels",
+                )
+                screen_scale = screen_source["scale"]
+                screen_x = screen_source["x"]
+                screen_y = screen_source["y"]
+            else:
+                raise ValueError(
+                    "Calibration projector points require x, y, and explicit scale"
+                )
+            if screen_source.get("coordinate_space") not in {
+                "projector_pixels",
+                "projector_canonical_4k",
+            }:
+                raise ValueError("Calibration screen points must be projector pixels")
+
+            if "world_position" in point:
+                world_position = point["world_position"]
+                if not isinstance(world_position, dict):
+                    raise ValueError("Calibration world position must be a mapping")
+                world_x, world_y = world_position.get("x"), world_position.get("y")
+                world_unit = world_position.get("unit", point.get("world_unit"))
+                world_origin = world_position.get("origin", point.get("world_origin"))
+            else:
+                world_x, world_y = point.get("world_x"), point.get("world_y")
+                world_unit = point.get("world_unit")
+                world_origin = point.get("world_origin")
+            if world_unit != "meters":
+                raise ValueError(
+                    "Projector calibration world points require unit meters"
+                )
+            if world_origin != _TABLE_METER_ORIGIN:
+                raise ValueError(
+                    "Projector calibration world points require origin "
+                    f"{_TABLE_METER_ORIGIN}"
+                )
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in (world_x, world_y)
+            ):
+                raise ValueError("Calibration world coordinates must be finite numbers")
+
+            # Store canonical projector-pixel values for homography calculation
+            # and retain the original scaled point for an unambiguous settings
+            # response. The matrix input is therefore never multiplied twice.
+            processed.append(
+                {
+                    "screen_x": screen_x * screen_scale[0],
+                    "screen_y": screen_y * screen_scale[1],
+                    "screen_scale": [1.0, 1.0],
+                    "screen_coordinate_space": "projector_canonical_4k",
+                    "source_screen_position": {
+                        "x": screen_x,
+                        "y": screen_y,
+                        "scale": list(screen_scale),
+                        "coordinate_space": "projector_pixels",
+                    },
+                    "world_x": float(cast("float", world_x)),
+                    "world_y": float(cast("float", world_y)),
+                    "world_unit": world_unit,
+                    "world_origin": world_origin,
+                }
+            )
+        return processed
 
     def _calculate_transformation_matrix(
         self, points: list[dict[str, Any]]
     ) -> Optional[list[list[float]]]:
         """Calculate transformation matrix from calibration points.
 
-        Uses OpenCV's homography calculation to compute the perspective transformation
-        from screen coordinates to world coordinates. This allows accurate mapping
-        between projector output and table positions.
+        Uses OpenCV to compute canonical projector-pixel → table-meter mapping.
+        Invalid or ambiguous calibration is rejected; identity is never used as
+        a fallback because it cannot represent this pixel-to-meter contract.
 
         Args:
             points: List of calibration point dictionaries, each containing:
-                   - 'screen_x', 'screen_y': Screen/projector coordinates
-                   - 'world_x', 'world_y': Table/world coordinates
+                   - 'screen_x', 'screen_y': canonical projector pixel coordinates.
+                   - 'world_x', 'world_y': table coordinates in meters.
+                   - Explicit screen canonical-space, world-unit and world-origin labels.
 
         Returns:
-            3x3 transformation matrix as list of lists, or None if calculation fails.
-            Falls back to identity matrix only on error.
+            3x3 transformation matrix as list of lists, or None if invalid.
         """
         try:
             if not points or len(points) < 4:
                 self.logger.error(
                     f"Insufficient calibration points: need at least 4, got {len(points) if points else 0}"
                 )
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+                return None
 
             # Extract source (screen) and destination (world) points
             src_points = []
             dst_points = []
 
             for point in points:
-                # Validate point has required fields
-                if not all(
-                    k in point for k in ["screen_x", "screen_y", "world_x", "world_y"]
+                required = {
+                    "screen_x",
+                    "screen_y",
+                    "screen_scale",
+                    "screen_coordinate_space",
+                    "world_x",
+                    "world_y",
+                    "world_unit",
+                    "world_origin",
+                }
+                if not required.issubset(point):
+                    self.logger.warning(
+                        "Calibration point is missing coordinate metadata"
+                    )
+                    return None
+                if (
+                    point["screen_coordinate_space"] != "projector_canonical_4k"
+                    or point["screen_scale"] != [1.0, 1.0]
+                    or point["world_unit"] != "meters"
+                    or point["world_origin"] != _TABLE_METER_ORIGIN
                 ):
-                    self.logger.warning(f"Skipping invalid calibration point: {point}")
-                    continue
-
-                src_points.append((point["screen_x"], point["screen_y"]))
-                dst_points.append((point["world_x"], point["world_y"]))
+                    self.logger.warning(
+                        "Calibration point coordinate metadata is invalid"
+                    )
+                    return None
+                values = [
+                    point["screen_x"],
+                    point["screen_y"],
+                    point["world_x"],
+                    point["world_y"],
+                ]
+                if any(
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in values
+                ):
+                    self.logger.warning(
+                        "Calibration coordinates must be finite numbers"
+                    )
+                    return None
+                src_points.append((float(point["screen_x"]), float(point["screen_y"])))
+                dst_points.append((float(point["world_x"]), float(point["world_y"])))
 
             if len(src_points) < 4:
                 self.logger.error(
                     f"After validation, insufficient valid points: {len(src_points)}"
                 )
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+                return None
 
             # Convert to numpy arrays
             src_pts = np.array(src_points, dtype=np.float32)
@@ -1724,16 +2254,12 @@ class ProjectorInterfaceImpl(ProjectorInterface):
                 self.logger.debug(
                     f"Using cv2.findHomography with RANSAC for {len(src_points)} points"
                 )
-                homography, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-
-                if homography is None:
-                    self.logger.error("OpenCV findHomography failed to find solution")
-                    return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+                homography, _mask = cv2.findHomography(src_pts, dst_pts, 0)
 
             # Validate the homography matrix
             if not self._validate_homography(homography):
                 self.logger.error("Calculated homography matrix is invalid")
-                return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+                return None
 
             # Convert numpy array to list for JSON serialization
             matrix_list = homography.tolist()
@@ -1741,14 +2267,14 @@ class ProjectorInterfaceImpl(ProjectorInterface):
             self.logger.info(
                 f"Successfully calculated transformation matrix from {len(src_points)} calibration points"
             )
-            return matrix_list
+            return cast("list[list[float]]", matrix_list)
 
         except cv2.error as e:
             self.logger.error(f"OpenCV error calculating transformation matrix: {e}")
-            return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+            return None
         except Exception as e:
             self.logger.error(f"Failed to calculate transformation matrix: {e}")
-            return [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # Fallback to identity
+            return None
 
     def _validate_homography(self, homography: np.ndarray) -> bool:
         """Validate that homography matrix is reasonable.
@@ -1759,29 +2285,41 @@ class ProjectorInterfaceImpl(ProjectorInterface):
         Returns:
             True if matrix is valid, False otherwise
         """
-        if homography is None or homography.shape != (3, 3):
-            self.logger.warning("Homography matrix is None or not 3x3")
+        validated = _validated_homography(homography)
+        if validated is None:
+            self.logger.warning("Homography matrix is invalid, singular, or identity")
             return False
-
-        # Check determinant to ensure matrix is invertible
-        det = np.linalg.det(homography)
-        if abs(det) < 1e-6:
-            self.logger.warning(f"Homography matrix is near-singular (det={det})")
-            return False
-
-        # Check for NaN or infinite values
-        if not np.all(np.isfinite(homography)):
-            self.logger.warning(
-                "Homography matrix contains invalid values (NaN or inf)"
-            )
-            return False
-
         return True
 
-    def _calculate_calibration_error(self, points: list[dict[str, Any]]) -> float:
-        """Calculate calibration error."""
-        # This would calculate RMS error or similar metric
-        return 0.0  # Simplified for now
+    def _calculate_calibration_error(
+        self,
+        points: list[dict[str, Any]],
+        transformation_matrix: Optional[list[list[float]]] = None,
+    ) -> float:
+        """Return the RMS projector-calibration reprojection error in meters."""
+        matrix = _validated_homography(
+            transformation_matrix
+            if transformation_matrix is not None
+            else self._calculate_transformation_matrix(points)
+        )
+        if matrix is None or len(points) < 4:
+            return math.inf
+        try:
+            source = np.asarray(
+                [(point["screen_x"], point["screen_y"]) for point in points],
+                dtype=np.float32,
+            ).reshape(-1, 1, 2)
+            expected = np.asarray(
+                [(point["world_x"], point["world_y"]) for point in points],
+                dtype=np.float64,
+            )
+            projected = cv2.perspectiveTransform(
+                source, matrix.astype(np.float32)
+            ).reshape(-1, 2)
+            errors = projected.astype(np.float64) - expected
+            return float(np.sqrt(np.mean(np.sum(errors * errors, axis=1))))
+        except (KeyError, TypeError, ValueError, cv2.error):
+            return math.inf
 
 
 class ConfigInterfaceImpl(ConfigInterface):
@@ -1826,7 +2364,6 @@ class ConfigInterfaceImpl(ConfigInterface):
                 "cors_enabled": True,
                 "state_compression": False,
                 "rate_limits": {"state_updates": 60, "events": 100},
-                "auth_enabled": False,
                 "port": 8000,
             },
             "projector": {
@@ -1847,8 +2384,8 @@ class ConfigInterfaceImpl(ConfigInterface):
                 },
             },
         }
-        self.config_subscribers = {}
-        self.config_history = {}
+        self.config_subscribers: dict[str, ConfigSubscriberInfo] = {}
+        self.config_history: dict[str, dict[str, Any]] = {}
         self.validation_schemas = self._initialize_validation_schemas()
         self.logger = logging.getLogger(__name__ + ".ConfigInterface")
 
@@ -1862,7 +2399,7 @@ class ConfigInterfaceImpl(ConfigInterface):
                 ):
                     try:
                         live_config = self.config_module.get_module_config(module_name)
-                        if live_config:
+                        if isinstance(live_config, dict) and live_config:
                             self.logger.debug(
                                 f"Retrieved live configuration for module: {module_name}"
                             )
@@ -1961,7 +2498,7 @@ class ConfigInterfaceImpl(ConfigInterface):
             except Exception as e:
                 self.logger.error(f"Error updating config for {module_name}: {e}")
 
-    def subscribe_config_changes(self, callback: Callable) -> str:
+    def subscribe_config_changes(self, callback: ConfigChangeCallback) -> str:
         """Subscribe to configuration changes."""
         with self._lock:
             try:
@@ -2004,7 +2541,7 @@ class ConfigInterfaceImpl(ConfigInterface):
         """Validate configuration without applying changes."""
         with self._lock:
             try:
-                validation_result = {
+                validation_result: dict[str, Any] = {
                     "valid": False,
                     "errors": [],
                     "warnings": [],
@@ -2062,15 +2599,16 @@ class ConfigInterfaceImpl(ConfigInterface):
     def _validate_config(self, module_name: str, config: dict[str, Any]) -> bool:
         """Validate configuration against schema."""
         validation_result = self.validate_config(module_name, config)
-        return validation_result["valid"]
+        is_valid = validation_result.get("valid")
+        return is_valid if isinstance(is_valid, bool) else False
 
     def _validate_against_schema(
         self, config: dict[str, Any], schema: dict[str, Any]
     ) -> tuple[list[str], list[str], list[str]]:
         """Validate configuration against schema."""
-        errors = []
-        warnings = []
-        suggestions = []
+        errors: list[str] = []
+        warnings: list[str] = []
+        suggestions: list[str] = []
 
         for key, value in config.items():
             if key in schema:
@@ -2139,11 +2677,11 @@ class ConfigInterfaceImpl(ConfigInterface):
                 )
 
     def _wrap_config_callback(
-        self, callback: Callable, subscription_id: str
-    ) -> Callable:
+        self, callback: ConfigChangeCallback, subscription_id: str
+    ) -> ConfigChangeCallback:
         """Wrap config callback with error handling."""
 
-        def wrapped_callback(notification):
+        def wrapped_callback(notification: dict[str, Any]) -> Any:
             try:
                 return callback(notification)
             except Exception as e:
@@ -2156,7 +2694,7 @@ class ConfigInterfaceImpl(ConfigInterface):
         self, old_config: dict[str, Any], new_config: dict[str, Any]
     ) -> dict[str, Any]:
         """Calculate changes between configurations."""
-        changes = {"added": [], "removed": [], "modified": []}
+        changes: dict[str, Any] = {"added": [], "removed": [], "modified": []}
 
         old_keys = set(old_config.keys())
         new_keys = set(new_config.keys())

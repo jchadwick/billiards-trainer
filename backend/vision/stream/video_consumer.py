@@ -5,11 +5,12 @@ from the Video Module via shared memory IPC.
 """
 
 import logging
+from types import TracebackType
 from typing import Optional
 
 import numpy as np
 
-from backend.video.ipc.shared_memory import SharedMemoryFrameReader
+from backend.video.ipc.shared_memory import FrameMetadata, SharedMemoryFrameReader
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class VideoConsumer:
             consumer.stop()
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize VideoConsumer.
 
         Configuration is loaded from the config system automatically.
@@ -49,7 +50,7 @@ class VideoConsumer:
         self.is_running = False
 
         # Load configuration
-        from config import config
+        from backend.config import config
 
         self._shm_name = config.get("video.shared_memory_name", "billiards_video")
         self._attach_timeout = config.get("video.shared_memory_attach_timeout_sec", 5.0)
@@ -79,7 +80,8 @@ class VideoConsumer:
 
             logger.info(
                 f"VideoConsumer: Successfully attached to shared memory "
-                f"({self.reader.width}x{self.reader.height} {self.reader.frame_format.name})"
+                f"({self.reader.width}x{self.reader.height} "
+                f"{self.reader.frame_format.name if self.reader.frame_format else 'unknown'})"
             )
 
         except TimeoutError as e:
@@ -100,7 +102,7 @@ class VideoConsumer:
             raise VideoModuleNotAvailableError(error_msg) from e
 
     def get_frame(self) -> Optional[np.ndarray]:
-        """Non-blocking frame read. Returns None if no new frame available.
+        """Non-blocking frame read. Returns None if no new frame is available.
 
         This method reads the latest frame from shared memory without blocking.
         If no new frame has been written since the last read, it returns None.
@@ -117,21 +119,53 @@ class VideoConsumer:
                 "VideoConsumer not running. Call start() before get_frame()"
             )
 
+        frame, _metadata = self.get_frame_with_metadata()
+        return frame
+
+    def get_frame_with_metadata(
+        self,
+    ) -> tuple[Optional[np.ndarray], Optional[FrameMetadata]]:
+        """Read the latest frame and its shared-memory publication metadata.
+
+        ``FrameMetadata.timestamp`` is written by the video publisher when it
+        publishes the frame. It is not a camera exposure timestamp. The old
+        :meth:`get_frame` method remains available for callers that only need
+        image pixels.
+
+        Returns:
+            A ``(frame, metadata)`` pair, or ``(None, None)`` when there is no
+            new frame or the shared-memory read fails.
+
+        Raises:
+            RuntimeError: If the consumer is not running.
+        """
+        if not self.is_running:
+            raise RuntimeError(
+                "VideoConsumer not running. Call start() before get_frame_with_metadata()"
+            )
+
         try:
+            if self.reader is None:
+                raise RuntimeError(
+                    "VideoConsumer is running without an attached reader"
+                )
             frame, metadata = self.reader.read_frame()
 
             if frame is not None:
-                logger.debug(
-                    f"VideoConsumer: Read frame #{metadata.frame_number}, "
-                    f"timestamp={metadata.timestamp:.3f}s"
-                )
+                if metadata is not None:
+                    logger.debug(
+                        f"VideoConsumer: Read frame #{metadata.frame_number}, "
+                        f"publication_timestamp={metadata.timestamp:.3f}s"
+                    )
+                else:
+                    logger.debug("VideoConsumer: Read frame without metadata")
 
-            return frame
+            return frame, metadata
 
         except Exception as e:
             logger.error(f"VideoConsumer: Error reading frame: {e}")
             # Don't raise - just return None to allow graceful degradation
-            return None
+            return None, None
 
     def stop(self) -> None:
         """Detach from shared memory.
@@ -152,11 +186,16 @@ class VideoConsumer:
         self.is_running = False
         logger.info("VideoConsumer: Stopped")
 
-    def __enter__(self):
+    def __enter__(self) -> "VideoConsumer":
         """Context manager entry."""
         self.start()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit."""
         self.stop()

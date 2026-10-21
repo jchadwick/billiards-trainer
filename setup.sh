@@ -361,7 +361,6 @@ if [ -f ".env" ]; then
 
     # Check required variables
     REQUIRED_VARS=(
-        "JWT_SECRET_KEY"
         "CAMERA_INDEX"
         "API_PORT"
     )
@@ -383,7 +382,7 @@ else
     if [ -f ".env.example" ]; then
         print_info "Copying .env.example to .env..."
         cp .env.example .env
-        print_info "Please edit .env and set JWT_SECRET_KEY and other required values"
+        print_info "Please edit .env and set the camera and API values for this machine"
     else
         print_error ".env.example not found - cannot create .env"
     fi

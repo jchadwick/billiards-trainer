@@ -1,10 +1,11 @@
-# Billiards Trainer - Production Distribution
+# Billiards Trainer - Local Distribution
 
-This is a production-ready distribution of the Billiards Trainer system.
+This is a locally built distribution of the Billiards Trainer system. The
+project does not provide remote deployment or user authentication.
 
 ## Quick Start
 
-1. Copy this entire directory to your target system
+1. Copy this entire directory to the machine that will run the application
 2. Run the setup script (first time only):
    ```bash
    ./setup_config.sh
@@ -16,31 +17,35 @@ This is a production-ready distribution of the Billiards Trainer system.
 
 ## Features
 
-- **Auto-restart**: The system automatically restarts when files change (via rsync)
+- **Local restart**: The startup script can restart the local process when files change
 - **Built-in configuration wizard**: Interactive setup for first-time deployment
 - **Self-contained**: Includes all necessary components (backend, frontend, projector)
 - **Production-optimized**: Pre-built frontend and optimized for performance
 
 ## Deployment Workflow
 
-### Initial Deployment
+### Initial Local Install
 ```bash
-# On target system
-rsync -av /path/to/dist/ /opt/billiards-trainer/
+# On the machine that will run the application
+cp -R /path/to/dist /opt/billiards-trainer
 cd /opt/billiards-trainer
 ./run.sh
 ```
 
-### Update Deployment
+### Local Update
 ```bash
-# On source system: rebuild distribution
+# Rebuild the distribution in the source checkout
 make deploy
 
-# On target system: sync and the system will auto-restart
-rsync -av /path/to/dist/ /opt/billiards-trainer/
+# Copy it locally to the installation directory, then restart the app
+cp -R dist/. /opt/billiards-trainer/
+cd /opt/billiards-trainer
+./run.sh
 ```
 
-The system will automatically detect file changes and restart.
+The project does not copy files over SSH, sign into a container registry, or
+configure remote deployment credentials. Move the bundle using a local file
+transfer method if the application runs on another machine.
 
 ## Directory Structure
 
@@ -66,7 +71,7 @@ dist/
 ## Configuration
 
 The configuration wizard will guide you through:
-- Security credentials (auto-generated)
+- Local API port and device settings (the API has no login)
 - API port configuration
 - Camera settings
 - Projector settings

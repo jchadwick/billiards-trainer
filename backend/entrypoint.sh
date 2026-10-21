@@ -1,18 +1,14 @@
 #!/bin/bash
 set -e
 
-# Set default values
-WORKERS=${WORKERS:-1}
-HOST=${API_HOST:-0.0.0.0}
-PORT=${API_PORT:-8000}
-LOG_LEVEL=$(echo "${LOG_LEVEL:-info}" | tr '[:upper:]' '[:lower:]')
-
+# The application owns one camera and one game state per backend process. Keep
+# this launcher single-process; distribute tables by running separate instances.
+CONFIG_FILE=${CONFIG_FILE:-/app/config.json}
 
 echo "🚀 Starting Billiards Trainer Backend API..."
 echo "Environment: ${ENVIRONMENT:-production}"
 echo "Debug Mode: ${DEBUG:-false}"
-echo "API Host: ${API_HOST:-0.0.0.0}"
-echo "API Port: ${API_PORT:-8000}"
+echo "Configuration file: ${CONFIG_FILE}"
 echo "Config Dir: ${CONFIG_DIR}"
 echo "Data Dir: ${DATA_DIR}"
 echo "Log Dir: ${LOG_DIR}"
@@ -51,12 +47,6 @@ except ImportError as e:
 print('✅ Health check completed')
 "
 
-echo "🌟 Starting server with ${WORKERS} worker(s) on ${HOST}:${PORT}"
+echo "🌟 Starting the application with one backend process per table"
 
-exec uvicorn api.main:app \
-    --host "$HOST" \
-    --port "$PORT" \
-    --workers "$WORKERS" \
-    --log-level "$LOG_LEVEL" \
-    --access-log \
-    --no-use-colors
+exec python -m backend.main --config "$CONFIG_FILE"

@@ -374,6 +374,19 @@ jq '.frames[] | select(.estimated_ball_count > 10) | .filename' dataset/raw/meta
 
 Use a YOLO annotation tool (e.g., LabelImg, Roboflow) on extracted frames.
 
+If labels are split across multiple local YOLO datasets, merge them by class
+name before training. The merger remaps class indices, validates each label,
+and does not connect to an external dataset service or request an API key:
+
+```bash
+python tools/merge_yolo_datasets.py dataset/source_a dataset/source_b \
+  --output-dir dataset/merged
+```
+
+Keep the merged output outside the input dataset directories. The existing
+training script reads from `dataset/`; move the validated output there before
+training if it was merged to a different path.
+
 ### Step 4: Train YOLO Model
 
 ```bash

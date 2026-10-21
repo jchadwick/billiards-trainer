@@ -1,70 +1,20 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile.dev
-    container_name: billiards-backend-dev
+      dockerfile: backend/Dockerfile
     ports:
-      - "8000:8000"
-      - "5005:5005/udp"  # UDP port for projector communication
+      - "${API_PORT:-8000}:8000"
     volumes:
-      # Mount source code for hot reload
-      - ./backend:/app/backend
-      - ./config:/app/config
-      - ./models:/app/models
-      # Mount video files for testing
-      - ./demo.mp4:/app/demo.mp4
-      - ./demo2.mp4:/app/demo2.mp4
-      - ./demo2_short.mp4:/app/demo2_short.mp4
-      # Mount data directories
-      - ./calibration_cache:/app/calibration_cache
-      - ./color_profiles:/app/color_profiles
-      - ./game_state_data:/app/game_state_data
-      - ./geometry_cache:/app/geometry_cache
-      - ./logs:/app/logs
-    develop:
-      watch:
-        - path: ./backend
-          target: /app/backend
-          action: sync
+      - "${MODEL_DIRECTORY:-./models}:/app/models:ro"
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-      - API_PORT=8000
-      - API_HOST=0.0.0.0
-      - VIDEO_SOURCE=/app/demo2_short.mp4
-      - VIDEO_LOOP=true
-      - CONFIG_PATH=/app/config/default.json
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      API_PORT: "8000"
+      CONFIG_FILE: /app/config.json
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  # frontend:
-  #   build:
-  #     context: ./frontend/web
-  #     dockerfile: Dockerfile.dev
-  #   container_name: billiards-frontend-dev
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     # Mount source code for hot reload
-  #     - ./frontend/web/src:/app/src
-  #     - ./frontend/web/public:/app/public
-  #     - ./frontend/web/index.html:/app/index.html
-  #     - ./frontend/web/vite.config.ts:/app/vite.config.ts
-  #     - ./frontend/web/tsconfig.json:/app/tsconfig.json
-  #     - ./frontend/web/tailwind.config.js:/app/tailwind.config.js
-  #     - ./frontend/web/postcss.config.js:/app/postcss.config.js
-  #     # Exclude node_modules to avoid conflicts
-  #     - /app/node_modules
-  #   environment:
-  #     - NODE_ENV=development
-  #     - VITE_API_URL=http://localhost:8000
-  #     - VITE_WS_URL=ws://localhost:8000
-  #   depends_on:
-  #     - backend

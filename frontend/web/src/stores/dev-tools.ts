@@ -83,7 +83,7 @@ export class DevTools {
 
       // Store-specific helpers
       system: {
-        connect: () => this.rootStore.system.connect('ws://localhost:8080/ws'),
+        connect: () => this.rootStore.system.connect('ws://localhost:8000/api/v1/websocket/ws'),
         disconnect: () => this.rootStore.system.disconnect(),
         addError: (msg: string) => this.rootStore.system.addError('DevTools', msg),
         clearErrors: () => this.rootStore.system.clearErrors()

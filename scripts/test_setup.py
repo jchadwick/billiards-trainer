@@ -66,8 +66,6 @@ def check_dependencies() -> bool:
         ("pygame", "pygame"),
         ("moderngl", "moderngl"),
         ("websockets", "websockets"),
-        ("jose", "python-jose"),
-        ("passlib", "passlib"),
         ("PIL", "Pillow"),
         ("skimage", "scikit-image"),
         ("numba", "numba"),

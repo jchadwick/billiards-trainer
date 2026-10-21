@@ -34,6 +34,9 @@ Usage:
     # With ground truth annotations
     python benchmark_detectors.py --video test_video.mp4 --ground-truth annotations.json
 
+    # With custom resolution-aware OpenCV thresholds
+    python benchmark_detectors.py --video test_video.mp4 --opencv-config detector.json
+
     # Save visualizations to directory
     python benchmark_detectors.py --video test_video.mp4 --visualize --output-dir results/
 
@@ -45,6 +48,7 @@ Output:
 """
 
 import argparse
+import copy
 import json
 import logging
 import sys
@@ -63,6 +67,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 from vision.detection.balls import BallDetector, BallDetectionConfig
 from vision.detection.yolo_detector import YOLODetector
 from common.models import Ball
+
+try:
+    from .coordinate_scaling import CANONICAL_RESOLUTION, CoordinateMetadata
+except ImportError:  # Direct ``python tools/benchmark_detectors.py`` execution.
+    from coordinate_scaling import CANONICAL_RESOLUTION, CoordinateMetadata
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -194,7 +203,9 @@ class BenchmarkResults:
                 self.winner = "opencv"
         else:
             # Without ground truth, use detection consistency and speed
-            yolo_score = self.yolo_metrics.avg_fps - self.yolo_metrics.detection_variance
+            yolo_score = (
+                self.yolo_metrics.avg_fps - self.yolo_metrics.detection_variance
+            )
             opencv_score = (
                 self.opencv_metrics.avg_fps - self.opencv_metrics.detection_variance
             )
@@ -216,6 +227,7 @@ class DetectorBenchmark:
         yolo_model_path: Optional[str] = None,
         max_frames: Optional[int] = None,
         ground_truth_path: Optional[str] = None,
+        opencv_config_path: Optional[str] = None,
         visualize: bool = False,
         output_dir: Optional[str] = None,
     ):
@@ -228,11 +240,15 @@ class DetectorBenchmark:
             ground_truth_path: Optional path to ground truth annotations
             visualize: Whether to generate visualization frames
             output_dir: Directory to save visualization frames
+            opencv_config_path: Resolution-tagged OpenCV detector settings
         """
         self.video_path = video_path
         self.yolo_model_path = yolo_model_path
         self.max_frames = max_frames
         self.ground_truth_path = ground_truth_path
+        self.opencv_config_path = Path(
+            opencv_config_path or Path(__file__).with_name("example_opencv_config.json")
+        )
         self.visualize = visualize
         self.output_dir = Path(output_dir) if output_dir else None
 
@@ -241,61 +257,182 @@ class DetectorBenchmark:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Load ground truth if provided
+        self.ground_truth_metadata: Optional[CoordinateMetadata] = None
         self.ground_truth = self._load_ground_truth() if ground_truth_path else None
-
-        # Initialize detectors
-        self._init_detectors()
+        self._opencv_config = self._load_opencv_config(self.opencv_config_path)
+        self.opencv_detector: Optional[BallDetector] = None
+        self.yolo_detector: Optional[YOLODetector] = None
 
         # Video properties
         self.video_fps = 0.0
         self.video_frame_count = 0
 
     def _load_ground_truth(self) -> dict[int, list[dict[str, Any]]]:
-        """Load ground truth annotations.
-
-        Expected format:
-        {
-            "frame_number": [
-                {"x": float, "y": float, "radius": float, "type": str},
-                ...
-            ],
-            ...
-        }
-
-        Returns:
-            Dictionary mapping frame numbers to ball annotations
-        """
-        try:
-            with open(self.ground_truth_path, "r") as f:
-                data = json.load(f)
-            logger.info(
-                f"Loaded ground truth for {len(data)} frames from {self.ground_truth_path}"
-            )
-            return {int(k): v for k, v in data.items()}
-        except Exception as e:
-            logger.error(f"Failed to load ground truth: {e}")
+        """Load explicit-source annotations and reject ambiguous legacy files."""
+        if not self.ground_truth_path:
             return {}
+        with open(self.ground_truth_path, encoding="utf-8") as ground_truth_file:
+            data = json.load(ground_truth_file)
+        if not isinstance(data, dict):
+            raise ValueError("Ground truth must be a JSON object")
+        self.ground_truth_metadata = CoordinateMetadata.from_mapping(data)
+        frames = data.get("frames")
+        if not isinstance(frames, dict):
+            raise ValueError(
+                "Ground truth must contain a frame-numbered 'frames' object"
+            )
+        parsed_frames: dict[int, list[dict[str, Any]]] = {}
+        for frame_key, annotations in frames.items():
+            try:
+                frame_number = int(frame_key)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Invalid ground-truth frame number: {frame_key!r}"
+                ) from error
+            if frame_number < 0 or not isinstance(annotations, list):
+                raise ValueError(
+                    f"Ground truth frame {frame_key!r} must contain an annotation list"
+                )
+            parsed_frames[frame_number] = [
+                self._validate_ground_truth_annotation(item, frame_number)
+                for item in annotations
+            ]
+        logger.info(
+            "Loaded ground truth for %s frames from %s (%s pixels at %s)",
+            len(parsed_frames),
+            self.ground_truth_path,
+            self.ground_truth_metadata.source_resolution,
+            self.ground_truth_metadata.coordinate_space,
+        )
+        return parsed_frames
 
-    def _init_detectors(self):
-        """Initialize OpenCV and YOLO detectors."""
-        # OpenCV detector with standard configuration
-        opencv_config = {
-            "detection_method": "combined",
-            "hough_dp": 1.0,
-            "hough_min_dist_ratio": 0.8,
-            "hough_param1": 50,
-            "hough_param2": 30,
-            "min_radius": 15,
-            "max_radius": 26,
-            "expected_radius": 20,
-            "radius_tolerance": 0.30,
-            "min_circularity": 0.75,
-            "min_confidence": 0.4,
-            "max_overlap_ratio": 0.30,
-            "debug_mode": False,
-        }
-        self.opencv_detector = BallDetector(opencv_config)
-        logger.info("OpenCV detector initialized")
+    @staticmethod
+    def _validate_ground_truth_annotation(
+        annotation: Any, frame_number: int
+    ) -> dict[str, Any]:
+        """Validate circle fields and optional rectangle boundaries."""
+        if not isinstance(annotation, dict):
+            raise ValueError(
+                f"Ground-truth annotation in frame {frame_number} must be an object"
+            )
+        required = ("x", "y", "radius")
+        if any(key not in annotation for key in required):
+            raise ValueError(
+                f"Ground-truth annotation in frame {frame_number} requires x, y, and radius"
+            )
+        values: dict[str, Any] = dict(annotation)
+        for key in required:
+            try:
+                numeric = float(annotation[key])
+            except (TypeError, ValueError, OverflowError) as error:
+                raise ValueError(f"Ground-truth {key} must be finite") from error
+            if not np.isfinite(numeric):
+                raise ValueError(f"Ground-truth {key} must be finite")
+            values[key] = numeric
+        if values["radius"] <= 0:
+            raise ValueError("Ground-truth radius must be positive")
+        extent_fields = ("width", "height")
+        if any(key in annotation for key in extent_fields):
+            if any(key not in annotation for key in extent_fields):
+                raise ValueError(
+                    "Ground-truth extents must include both width and height"
+                )
+            extents = []
+            for key in extent_fields:
+                try:
+                    extent = float(annotation[key])
+                except (TypeError, ValueError, OverflowError) as error:
+                    raise ValueError(f"Ground-truth {key} must be finite") from error
+                if not np.isfinite(extent) or extent <= 0:
+                    raise ValueError(f"Ground-truth {key} must be positive and finite")
+                extents.append(extent)
+            values["width"], values["height"] = extents
+        bounds = annotation.get("bounds")
+        if bounds is not None:
+            if not isinstance(bounds, dict) or any(
+                key not in bounds for key in ("left", "top", "right", "bottom")
+            ):
+                raise ValueError(
+                    "Ground-truth bounds must include left, top, right, and bottom"
+                )
+            values["bounds"] = {
+                key: float(bounds[key]) for key in ("left", "top", "right", "bottom")
+            }
+            if not np.isfinite(list(values["bounds"].values())).all():
+                raise ValueError("Ground-truth bounds must be finite")
+            if (
+                values["bounds"]["right"] <= values["bounds"]["left"]
+                or values["bounds"]["bottom"] <= values["bounds"]["top"]
+            ):
+                raise ValueError(
+                    "Ground-truth bounds must have positive width and height"
+                )
+        return values
+
+    def _load_opencv_config(self, config_path: Path) -> dict[str, Any]:
+        """Load config with an explicit reference resolution for every pixel extent."""
+        with config_path.open("r", encoding="utf-8") as config_file:
+            config = json.load(config_file)
+        if not isinstance(config, dict):
+            raise ValueError("OpenCV config must be a JSON object")
+        metadata = CoordinateMetadata.from_mapping(
+            config,
+            resolution_key="source_resolution",
+            scale_key="coordinate_scale",
+        )
+        if not isinstance(config.get("size_constraints"), dict):
+            raise ValueError(
+                "OpenCV config must use a nested 'size_constraints' object"
+            )
+        config["_coordinate_metadata"] = metadata
+        return config
+
+    def _config_for_resolution(
+        self, target_resolution: tuple[int, int]
+    ) -> dict[str, Any]:
+        """Scale pixel extents from config reference pixels to the actual video frame."""
+        config = copy.deepcopy(self._opencv_config)
+        metadata = self._opencv_config["_coordinate_metadata"]
+        config.pop("coordinate_space", None)
+        config.pop("source_resolution", None)
+        config.pop("coordinate_scale", None)
+        config.pop("_coordinate_metadata", None)
+
+        size_constraints = config["size_constraints"]
+        for key in ("min_radius", "max_radius", "expected_radius"):
+            if key in size_constraints:
+                value = float(size_constraints[key])
+                if not np.isfinite(value) or value <= 0:
+                    raise ValueError(
+                        f"OpenCV size_constraints.{key} must be positive and finite"
+                    )
+                size_constraints[key] = int(
+                    round(metadata.radius_to_resolution(value, target_resolution))
+                )
+        if "min_radius" in size_constraints and "max_radius" in size_constraints:
+            if size_constraints["min_radius"] > size_constraints["max_radius"]:
+                raise ValueError("Scaled OpenCV minimum radius exceeds maximum radius")
+
+        performance = config.get("performance")
+        if isinstance(performance, dict) and "roi_margin" in performance:
+            margin = float(performance["roi_margin"])
+            if not np.isfinite(margin) or margin < 0:
+                raise ValueError(
+                    "OpenCV performance.roi_margin must be finite and non-negative"
+                )
+            scaled_x, _ = metadata.extent_to_resolution(
+                margin, margin, target_resolution
+            )
+            performance["roi_margin"] = int(round(scaled_x))
+        config["camera_resolution"] = list(target_resolution)
+        return config
+
+    def _init_detectors(self, camera_resolution: tuple[int, int]) -> None:
+        """Initialize detectors after reading an actual frame size."""
+        opencv_config = self._config_for_resolution(camera_resolution)
+        opencv_config.pop("camera_resolution", None)
+        self.opencv_detector = BallDetector(opencv_config, camera_resolution)
+        logger.info("OpenCV detector initialized for %sx%s", *camera_resolution)
 
         # YOLO detector (if model provided)
         if self.yolo_model_path:
@@ -307,7 +444,9 @@ class DetectorBenchmark:
                     nms_threshold=0.45,
                     auto_fallback=False,
                 )
-                logger.info(f"YOLO detector initialized with model: {self.yolo_model_path}")
+                logger.info(
+                    f"YOLO detector initialized with model: {self.yolo_model_path}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to initialize YOLO detector: {e}")
                 self.yolo_detector = None
@@ -353,7 +492,9 @@ class DetectorBenchmark:
         beta = np.arccos((d_sq + r2_sq - r1_sq) / (2 * distance * r2))
 
         intersection_area = (
-            r1_sq * alpha + r2_sq * beta - 0.5 * (r1_sq * np.sin(2 * alpha) + r2_sq * np.sin(2 * beta))
+            r1_sq * alpha
+            + r2_sq * beta
+            - 0.5 * (r1_sq * np.sin(2 * alpha) + r2_sq * np.sin(2 * beta))
         )
 
         # Union area
@@ -362,7 +503,11 @@ class DetectorBenchmark:
         return intersection_area / union_area if union_area > 0 else 0.0
 
     def _match_detections_to_ground_truth(
-        self, detections: list[Ball], ground_truth: list[dict[str, Any]], iou_threshold: float = 0.5
+        self,
+        detections: list[Ball],
+        ground_truth: list[dict[str, Any]],
+        target_resolution: tuple[int, int],
+        iou_threshold: float = 0.5,
     ) -> tuple[int, int, int]:
         """Match detections to ground truth and count TP/FP/FN.
 
@@ -378,8 +523,11 @@ class DetectorBenchmark:
             # No ground truth, count all detections as false positives
             return 0, len(detections), 0
 
-        # Convert detections to (x, y, r) tuples
-        det_circles = [(b.position[0], b.position[1], b.radius) for b in detections]
+        # Normalize any detector output to the source frame before comparing.
+        det_circles = [
+            self._ball_circle_for_resolution(ball, target_resolution)
+            for ball in detections
+        ]
 
         # Convert ground truth to (x, y, r) tuples
         gt_circles = [(g["x"], g["y"], g["radius"]) for g in ground_truth]
@@ -414,6 +562,84 @@ class DetectorBenchmark:
 
         return true_positives, false_positives, false_negatives
 
+    @staticmethod
+    def _ball_circle_for_resolution(
+        ball: Ball, target_resolution: tuple[int, int]
+    ) -> tuple[float, float, float]:
+        """Normalize one detector circle using its declared coordinate source."""
+        if ball.coordinate_space == "pixel":
+            if ball.source_resolution is None:
+                raise ValueError(
+                    "Pixel-space detector output requires source_resolution"
+                )
+            source_resolution = ball.source_resolution
+        elif ball.coordinate_space == "4k_canonical":
+            source_resolution = CANONICAL_RESOLUTION
+        else:
+            raise ValueError(
+                f"Detector output cannot be compared in {ball.coordinate_space!r} coordinates"
+            )
+        metadata = CoordinateMetadata.from_mapping(
+            {
+                "coordinate_space": ball.coordinate_space,
+                "source_resolution": source_resolution,
+                "coordinate_scale": [
+                    CANONICAL_RESOLUTION[0] / source_resolution[0],
+                    CANONICAL_RESOLUTION[1] / source_resolution[1],
+                ],
+            }
+        )
+        x, y = metadata.point_to_resolution(
+            ball.position[0], ball.position[1], target_resolution
+        )
+        radius = metadata.radius_to_resolution(ball.radius, target_resolution)
+        return x, y, radius
+
+    def _ground_truth_for_resolution(
+        self,
+        annotations: list[dict[str, Any]],
+        target_resolution: tuple[int, int],
+    ) -> list[dict[str, Any]]:
+        """Scale annotation centers, radii, and optional rectangle boundaries."""
+        if self.ground_truth_metadata is None:
+            raise ValueError("Ground-truth coordinate metadata is unavailable")
+        scaled: list[dict[str, Any]] = []
+        for annotation in annotations:
+            result = dict(annotation)
+            result["x"], result["y"] = self.ground_truth_metadata.point_to_resolution(
+                annotation["x"], annotation["y"], target_resolution
+            )
+            result["radius"] = self.ground_truth_metadata.radius_to_resolution(
+                annotation["radius"], target_resolution
+            )
+            if "width" in annotation:
+                result["width"], result["height"] = (
+                    self.ground_truth_metadata.extent_to_resolution(
+                        annotation["width"],
+                        annotation["height"],
+                        target_resolution,
+                    )
+                )
+            if "bounds" in annotation:
+                bounds = annotation["bounds"]
+                left, top, right, bottom = (
+                    self.ground_truth_metadata.bounds_to_resolution(
+                        bounds["left"],
+                        bounds["top"],
+                        bounds["right"],
+                        bounds["bottom"],
+                        target_resolution,
+                    )
+                )
+                result["bounds"] = {
+                    "left": left,
+                    "top": top,
+                    "right": right,
+                    "bottom": bottom,
+                }
+            scaled.append(result)
+        return scaled
+
     def _visualize_comparison(
         self,
         frame: NDArray[np.uint8],
@@ -435,18 +661,24 @@ class DetectorBenchmark:
         # Create two copies of the frame
         opencv_frame = frame.copy()
         yolo_frame = frame.copy()
+        target_resolution = (int(frame.shape[1]), int(frame.shape[0]))
 
-        # Draw OpenCV detections
+        # Detector outputs may use different coordinate spaces. Normalize all
+        # display geometry to the source frame before drawing either result.
         for ball in opencv_balls:
-            x, y = int(ball.position[0]), int(ball.position[1])
-            r = int(ball.radius)
+            x_value, y_value, radius = self._ball_circle_for_resolution(
+                ball, target_resolution
+            )
+            x, y, r = int(x_value), int(y_value), int(radius)
             cv2.circle(opencv_frame, (x, y), r, (0, 255, 0), 2)
             cv2.circle(opencv_frame, (x, y), 2, (0, 0, 255), -1)
 
-        # Draw YOLO detections
+        # Draw YOLO detections in the same frame-pixel space.
         for ball in yolo_balls:
-            x, y = int(ball.position[0]), int(ball.position[1])
-            r = int(ball.radius)
+            x_value, y_value, radius = self._ball_circle_for_resolution(
+                ball, target_resolution
+            )
+            x, y, r = int(x_value), int(y_value), int(radius)
             cv2.circle(yolo_frame, (x, y), r, (255, 0, 0), 2)
             cv2.circle(yolo_frame, (x, y), 2, (0, 0, 255), -1)
 
@@ -506,6 +738,13 @@ class DetectorBenchmark:
             f"Video: {self.video_frame_count} frames @ {self.video_fps:.2f} FPS"
         )
 
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            cap.release()
+            raise RuntimeError(f"Video contains no readable frames: {self.video_path}")
+        target_resolution = (int(frame.shape[1]), int(frame.shape[0]))
+        self._init_detectors(target_resolution)
+
         # Initialize metrics
         opencv_metrics = DetectionMetrics(detector_name="OpenCV")
         yolo_metrics = (
@@ -517,16 +756,24 @@ class DetectorBenchmark:
         frames_to_process = (
             self.max_frames if self.max_frames else self.video_frame_count
         )
+        if frames_to_process <= 0:
+            frames_to_process = 2**63 - 1
 
         logger.info(f"Processing {frames_to_process} frames...")
 
         while frame_number < frames_to_process:
-            ret, frame = cap.read()
-            if not ret:
+            if frame is None:
                 break
+            if (int(frame.shape[1]), int(frame.shape[0])) != target_resolution:
+                cap.release()
+                raise RuntimeError(
+                    "Video frame dimensions changed during the benchmark; use a "
+                    "constant-resolution video so configured pixel thresholds remain valid"
+                )
 
             # Benchmark OpenCV detector
             start_time = time.time()
+            assert self.opencv_detector is not None
             opencv_balls = self.opencv_detector.detect_balls(frame)
             opencv_time = time.time() - start_time
 
@@ -573,6 +820,8 @@ class DetectorBenchmark:
                         confidence=det.confidence,
                         velocity=(0.0, 0.0),
                         is_moving=False,
+                        coordinate_space="pixel",
+                        source_resolution=target_resolution,
                     )
                     yolo_balls.append(ball)
 
@@ -586,18 +835,24 @@ class DetectorBenchmark:
                     yolo_metrics.avg_confidence += avg_conf
 
             # Match against ground truth if available
-            if self.ground_truth and frame_number in self.ground_truth:
-                gt = self.ground_truth[frame_number]
+            if self.ground_truth is not None and frame_number in self.ground_truth:
+                gt = self._ground_truth_for_resolution(
+                    self.ground_truth[frame_number], target_resolution
+                )
 
                 # OpenCV accuracy
-                tp, fp, fn = self._match_detections_to_ground_truth(opencv_balls, gt)
+                tp, fp, fn = self._match_detections_to_ground_truth(
+                    opencv_balls, gt, target_resolution
+                )
                 opencv_metrics.true_positives += tp
                 opencv_metrics.false_positives += fp
                 opencv_metrics.false_negatives += fn
 
                 # YOLO accuracy
                 if self.yolo_detector:
-                    tp, fp, fn = self._match_detections_to_ground_truth(yolo_balls, gt)
+                    tp, fp, fn = self._match_detections_to_ground_truth(
+                        yolo_balls, gt, target_resolution
+                    )
                     yolo_metrics.true_positives += tp
                     yolo_metrics.false_positives += fp
                     yolo_metrics.false_negatives += fn
@@ -614,10 +869,17 @@ class DetectorBenchmark:
 
             # Progress reporting
             if frame_number % 10 == 0:
-                progress = (frame_number / frames_to_process) * 100
-                logger.info(
-                    f"Progress: {frame_number}/{frames_to_process} ({progress:.1f}%)"
-                )
+                if frames_to_process < 2**63 - 1:
+                    progress = (frame_number / frames_to_process) * 100
+                    logger.info(
+                        f"Progress: {frame_number}/{frames_to_process} ({progress:.1f}%)"
+                    )
+
+            if frame_number >= frames_to_process:
+                break
+            ret, frame = cap.read()
+            if not ret:
+                frame = None
 
         cap.release()
 
@@ -664,9 +926,13 @@ def print_results_table(results: BenchmarkResults):
     print("=" * 80)
 
     print(f"\nTest Video: {results.test_video_path}")
-    print(f"Video Properties: {results.test_video_frames} frames @ {results.test_video_fps:.2f} FPS")
+    print(
+        f"Video Properties: {results.test_video_frames} frames @ {results.test_video_fps:.2f} FPS"
+    )
     print(f"Benchmark Date: {results.benchmark_date}")
-    print(f"Ground Truth: {'Available' if results.ground_truth_available else 'Not Available'}")
+    print(
+        f"Ground Truth: {'Available' if results.ground_truth_available else 'Not Available'}"
+    )
 
     # Performance metrics
     print("\n" + "-" * 80)
@@ -678,21 +944,45 @@ def print_results_table(results: BenchmarkResults):
 
     print(f"\n{'Metric':<30} {'OpenCV':>20} {'YOLO':>20}")
     print("-" * 72)
-    print(f"{'Total Frames Processed':<30} {opencv.total_frames:>20} {yolo.total_frames if yolo else 'N/A':>20}")
-    print(f"{'Total Detections':<30} {opencv.total_detections:>20} {yolo.total_detections if yolo else 'N/A':>20}")
-    print(f"{'Avg Detections/Frame':<30} {opencv.avg_detections_per_frame:>20.2f} {yolo.avg_detections_per_frame if yolo else 'N/A':>20}")
-    print(f"{'Detection Variance':<30} {opencv.detection_variance:>20.2f} {yolo.detection_variance if yolo else 'N/A':>20}")
+    print(
+        f"{'Total Frames Processed':<30} {opencv.total_frames:>20} {yolo.total_frames if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Total Detections':<30} {opencv.total_detections:>20} {yolo.total_detections if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Avg Detections/Frame':<30} {opencv.avg_detections_per_frame:>20.2f} {yolo.avg_detections_per_frame if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Detection Variance':<30} {opencv.detection_variance:>20.2f} {yolo.detection_variance if yolo else 'N/A':>20}"
+    )
     print()
-    print(f"{'Average FPS':<30} {opencv.avg_fps:>20.2f} {yolo.avg_fps if yolo else 'N/A':>20}")
-    print(f"{'Min FPS':<30} {opencv.min_fps:>20.2f} {yolo.min_fps if yolo else 'N/A':>20}")
-    print(f"{'Max FPS':<30} {opencv.max_fps:>20.2f} {yolo.max_fps if yolo else 'N/A':>20}")
-    print(f"{'Median FPS':<30} {opencv.median_fps:>20.2f} {yolo.median_fps if yolo else 'N/A':>20}")
+    print(
+        f"{'Average FPS':<30} {opencv.avg_fps:>20.2f} {yolo.avg_fps if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Min FPS':<30} {opencv.min_fps:>20.2f} {yolo.min_fps if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Max FPS':<30} {opencv.max_fps:>20.2f} {yolo.max_fps if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Median FPS':<30} {opencv.median_fps:>20.2f} {yolo.median_fps if yolo else 'N/A':>20}"
+    )
     print()
-    print(f"{'Average Latency (ms)':<30} {opencv.avg_latency_ms:>20.2f} {yolo.avg_latency_ms if yolo else 'N/A':>20}")
-    print(f"{'Min Latency (ms)':<30} {opencv.min_latency_ms:>20.2f} {yolo.min_latency_ms if yolo else 'N/A':>20}")
-    print(f"{'Max Latency (ms)':<30} {opencv.max_latency_ms:>20.2f} {yolo.max_latency_ms if yolo else 'N/A':>20}")
+    print(
+        f"{'Average Latency (ms)':<30} {opencv.avg_latency_ms:>20.2f} {yolo.avg_latency_ms if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Min Latency (ms)':<30} {opencv.min_latency_ms:>20.2f} {yolo.min_latency_ms if yolo else 'N/A':>20}"
+    )
+    print(
+        f"{'Max Latency (ms)':<30} {opencv.max_latency_ms:>20.2f} {yolo.max_latency_ms if yolo else 'N/A':>20}"
+    )
     print()
-    print(f"{'Average Confidence':<30} {opencv.avg_confidence:>20.3f} {yolo.avg_confidence if yolo else 'N/A':>20}")
+    print(
+        f"{'Average Confidence':<30} {opencv.avg_confidence:>20.3f} {yolo.avg_confidence if yolo else 'N/A':>20}"
+    )
 
     # Accuracy metrics (if ground truth available)
     if results.ground_truth_available:
@@ -702,13 +992,25 @@ def print_results_table(results: BenchmarkResults):
 
         print(f"\n{'Metric':<30} {'OpenCV':>20} {'YOLO':>20}")
         print("-" * 72)
-        print(f"{'True Positives':<30} {opencv.true_positives:>20} {yolo.true_positives if yolo else 'N/A':>20}")
-        print(f"{'False Positives':<30} {opencv.false_positives:>20} {yolo.false_positives if yolo else 'N/A':>20}")
-        print(f"{'False Negatives':<30} {opencv.false_negatives:>20} {yolo.false_negatives if yolo else 'N/A':>20}")
+        print(
+            f"{'True Positives':<30} {opencv.true_positives:>20} {yolo.true_positives if yolo else 'N/A':>20}"
+        )
+        print(
+            f"{'False Positives':<30} {opencv.false_positives:>20} {yolo.false_positives if yolo else 'N/A':>20}"
+        )
+        print(
+            f"{'False Negatives':<30} {opencv.false_negatives:>20} {yolo.false_negatives if yolo else 'N/A':>20}"
+        )
         print()
-        print(f"{'Precision':<30} {opencv.precision:>20.3f} {yolo.precision if yolo else 'N/A':>20}")
-        print(f"{'Recall':<30} {opencv.recall:>20.3f} {yolo.recall if yolo else 'N/A':>20}")
-        print(f"{'F1 Score':<30} {opencv.f1_score:>20.3f} {yolo.f1_score if yolo else 'N/A':>20}")
+        print(
+            f"{'Precision':<30} {opencv.precision:>20.3f} {yolo.precision if yolo else 'N/A':>20}"
+        )
+        print(
+            f"{'Recall':<30} {opencv.recall:>20.3f} {yolo.recall if yolo else 'N/A':>20}"
+        )
+        print(
+            f"{'F1 Score':<30} {opencv.f1_score:>20.3f} {yolo.f1_score if yolo else 'N/A':>20}"
+        )
 
     # Comparison
     if yolo:
@@ -720,16 +1022,20 @@ def print_results_table(results: BenchmarkResults):
         if results.yolo_speedup_factor > 1.0:
             print(f"  → YOLO is {results.yolo_speedup_factor:.2f}x FASTER than OpenCV")
         else:
-            print(f"  → OpenCV is {1.0/results.yolo_speedup_factor:.2f}x FASTER than YOLO")
+            print(
+                f"  → OpenCV is {1.0/results.yolo_speedup_factor:.2f}x FASTER than YOLO"
+            )
 
         if results.ground_truth_available:
-            print(f"\nYOLO Accuracy Gain: {results.yolo_accuracy_gain:+.3f} (F1 score difference)")
+            print(
+                f"\nYOLO Accuracy Gain: {results.yolo_accuracy_gain:+.3f} (F1 score difference)"
+            )
             if results.yolo_accuracy_gain > 0.05:
-                print(f"  → YOLO is MORE ACCURATE than OpenCV")
+                print("  → YOLO is MORE ACCURATE than OpenCV")
             elif results.yolo_accuracy_gain < -0.05:
-                print(f"  → OpenCV is MORE ACCURATE than YOLO")
+                print("  → OpenCV is MORE ACCURATE than YOLO")
             else:
-                print(f"  → Both detectors have SIMILAR ACCURACY")
+                print("  → Both detectors have SIMILAR ACCURACY")
 
         print(f"\nWinner: {results.winner.upper()}")
 
@@ -807,9 +1113,7 @@ def main():
     parser.add_argument(
         "--video", required=True, help="Path to test video file or image sequence"
     )
-    parser.add_argument(
-        "--yolo-model", help="Path to YOLO model file (.pt or .onnx)"
-    )
+    parser.add_argument("--yolo-model", help="Path to YOLO model file (.pt or .onnx)")
     parser.add_argument(
         "--frames",
         type=int,
@@ -817,7 +1121,12 @@ def main():
     )
     parser.add_argument(
         "--ground-truth",
-        help="Path to ground truth annotations JSON file",
+        help="Path to source-scaled ground truth annotations JSON file",
+    )
+    parser.add_argument(
+        "--opencv-config",
+        default=str(Path(__file__).with_name("example_opencv_config.json")),
+        help="JSON detector settings with declared source resolution and scale",
     )
     parser.add_argument(
         "--visualize",
@@ -870,6 +1179,7 @@ def main():
         yolo_model_path=args.yolo_model,
         max_frames=args.frames,
         ground_truth_path=args.ground_truth,
+        opencv_config_path=args.opencv_config,
         visualize=args.visualize,
         output_dir=args.output_dir if args.visualize else None,
     )

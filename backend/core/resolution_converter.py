@@ -8,6 +8,7 @@ This module provides lightweight conversion utilities for scaling coordinates
 between different resolutions while maintaining the 4K canonical standard.
 """
 
+import math
 from typing import Tuple
 
 from .constants_4k import CANONICAL_RESOLUTION
@@ -31,6 +32,23 @@ class ResolutionConverter:
     """
 
     @staticmethod
+    def _validate_resolution(resolution: tuple[int, int], description: str) -> None:
+        """Reject missing, non-finite, or fractional image dimensions."""
+        if not isinstance(resolution, (tuple, list)) or len(resolution) != 2:
+            raise ValueError(f"{description} must contain positive pixel dimensions")
+        for dimension in resolution:
+            if (
+                isinstance(dimension, bool)
+                or not isinstance(dimension, (int, float))
+                or not math.isfinite(dimension)
+                or dimension <= 0
+                or not float(dimension).is_integer()
+            ):
+                raise ValueError(
+                    f"{description} must contain positive whole-pixel dimensions"
+                )
+
+    @staticmethod
     def calculate_scale_to_4k(
         source_resolution: tuple[int, int],
     ) -> tuple[float, float]:
@@ -48,6 +66,7 @@ class ResolutionConverter:
             >>> ResolutionConverter.calculate_scale_to_4k((1280, 720))
             (3.0, 3.0)
         """
+        ResolutionConverter._validate_resolution(source_resolution, "Source resolution")
         scale_x = CANONICAL_RESOLUTION[0] / source_resolution[0]
         scale_y = CANONICAL_RESOLUTION[1] / source_resolution[1]
         return (scale_x, scale_y)
@@ -70,6 +89,7 @@ class ResolutionConverter:
             >>> ResolutionConverter.calculate_scale_from_4k((1280, 720))
             (0.333..., 0.333...)
         """
+        ResolutionConverter._validate_resolution(target_resolution, "Target resolution")
         scale_x = target_resolution[0] / CANONICAL_RESOLUTION[0]
         scale_y = target_resolution[1] / CANONICAL_RESOLUTION[1]
         return (scale_x, scale_y)

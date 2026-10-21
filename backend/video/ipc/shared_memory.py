@@ -34,7 +34,8 @@ Memory Layout:
     - Timestamp nanoseconds (8 bytes): Timestamp nanoseconds
     - Writer pid (4 bytes): Process ID of writer
     - Reader count (4 bytes): Number of active readers
-    - Reserved (164 bytes): For future use
+    - Publication monotonic timestamp (8 bytes): Optional perf-counter nanoseconds
+    - Reserved (160 bytes): For future use
 
 Performance Targets:
     - Latency: <50ms from capture to Vision access
@@ -54,7 +55,8 @@ from dataclasses import dataclass
 from enum import IntEnum
 from multiprocessing import shared_memory
 from pathlib import Path
-from typing import Optional, Tuple
+from types import TracebackType
+from typing import BinaryIO, Optional, Tuple, Union, cast
 
 import numpy as np
 
@@ -100,8 +102,8 @@ class FileBackedSharedMemory:
     def __init__(self, name: str, size: Optional[int], create: bool):
         self.name = name
         self.path = _fallback_path(name)
-        self._file = None
-        self._mmap = None
+        self._file: Optional[BinaryIO] = None
+        self._mmap: Optional[mmap.mmap] = None
         self._size = size
 
         if create:
@@ -121,10 +123,12 @@ class FileBackedSharedMemory:
             raise ValueError("Shared memory size could not be determined")
 
         self._file = file_obj
-        self._mmap = mmap.mmap(self._file.fileno(), self._size)
+        self._mmap = mmap.mmap(file_obj.fileno(), self._size)
 
     @property
     def buf(self) -> memoryview:
+        if self._mmap is None:
+            raise RuntimeError("File-backed shared memory is closed")
         return memoryview(self._mmap)
 
     def close(self) -> None:
@@ -147,18 +151,15 @@ class FileBackedSharedMemory:
             pass
 
 
-from typing import Optional, Tuple
+SharedMemoryHandle = Union[shared_memory.SharedMemory, FileBackedSharedMemory]
 
-import numpy as np
 
-# Configure logging
-logger = logging.getLogger(__name__)
-
-# Protocol constants
-MAGIC_NUMBER = 0x424954414C4C5344  # "BITALLSD" in hex
-PROTOCOL_VERSION = 1
-HEADER_SIZE = 4096  # 4KB header block (256 bytes used, rest is padding)
-BUFFER_COUNT = 3  # Triple buffering
+def _shared_buffer(shm: SharedMemoryHandle) -> memoryview:
+    """Return an open shared-memory buffer, rejecting already-closed handles."""
+    buffer = shm.buf
+    if buffer is None:
+        raise RuntimeError("Shared memory is closed")
+    return memoryview(buffer)
 
 
 class FrameFormat(IntEnum):
@@ -181,6 +182,8 @@ class FrameMetadata:
     width: int
     height: int
     format: FrameFormat
+    writer_pid: int | None = None
+    publication_monotonic_ns: int | None = None
 
     @property
     def timestamp(self) -> float:
@@ -214,7 +217,8 @@ class SharedMemoryHeader:
         "Q"  # Timestamp nanoseconds (8 bytes)
         "I"  # Writer pid (4 bytes)
         "I"  # Reader count (4 bytes)
-        "164x"  # Reserved (164 bytes padding to 256 bytes)
+        "Q"  # Optional publication perf-counter timestamp (nanoseconds)
+        "160x"  # Reserved (160 bytes padding to 256 bytes)
     )
 
     HEADER_STRUCT = struct.Struct(HEADER_FORMAT)
@@ -226,6 +230,17 @@ class SharedMemoryHeader:
             memory_view: Memory view of the header region (first 4KB).
         """
         self.memory_view = memory_view
+
+    def close(self) -> None:
+        """Release the exported header view before its mapping is closed."""
+        self.memory_view.release()
+
+    def _unpack(self) -> tuple[int, ...]:
+        """Read the integer-only protocol header with precise field types."""
+        return cast(
+            "tuple[int, ...]",
+            self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size]),
+        )
 
     def initialize(
         self, width: int, height: int, frame_format: FrameFormat, bytes_per_frame: int
@@ -254,6 +269,7 @@ class SharedMemoryHeader:
             0,  # timestamp_nsec
             os.getpid(),  # writer_pid
             0,  # reader_count
+            0,  # publication_monotonic_ns is unavailable until the first write
         )
         self.memory_view[: len(header_data)] = header_data
 
@@ -264,9 +280,7 @@ class SharedMemoryHeader:
             True if header is valid, False otherwise.
         """
         try:
-            data = self.HEADER_STRUCT.unpack(
-                self.memory_view[: self.HEADER_STRUCT.size]
-            )
+            data = self._unpack()
             magic = data[0]
             version = data[1]
             return magic == MAGIC_NUMBER and version == PROTOCOL_VERSION
@@ -279,7 +293,7 @@ class SharedMemoryHeader:
         Returns:
             Tuple of (width, height, format, bytes_per_frame).
         """
-        data = self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
+        data = self._unpack()
         return (data[3], data[4], FrameFormat(data[5]), data[6])
 
     def update_frame_metadata(self, metadata: FrameMetadata, buffer_index: int) -> None:
@@ -293,9 +307,7 @@ class SharedMemoryHeader:
             buffer_index: Index of buffer that was written (0-2).
         """
         # Read current header
-        data = list(
-            self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
-        )
+        data = list(self._unpack())
 
         # Update metadata fields
         data[7] = buffer_index  # write_index
@@ -304,6 +316,8 @@ class SharedMemoryHeader:
         data[10] = metadata.frame_number
         data[11] = metadata.timestamp_sec
         data[12] = metadata.timestamp_nsec
+        data[13] = metadata.writer_pid or os.getpid()
+        data[15] = metadata.publication_monotonic_ns or 0
 
         # Pack and write back
         header_data = self.HEADER_STRUCT.pack(*data)
@@ -315,7 +329,7 @@ class SharedMemoryHeader:
         Returns:
             Current frame metadata.
         """
-        data = self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
+        data = self._unpack()
         return FrameMetadata(
             frame_number=data[10],
             timestamp_sec=data[11],
@@ -323,6 +337,8 @@ class SharedMemoryHeader:
             width=data[3],
             height=data[4],
             format=FrameFormat(data[5]),
+            writer_pid=data[13],
+            publication_monotonic_ns=data[15] or None,
         )
 
     def get_read_index(self) -> int:
@@ -331,7 +347,7 @@ class SharedMemoryHeader:
         Returns:
             Buffer index (0-2).
         """
-        data = self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
+        data = self._unpack()
         return data[8]
 
     def get_write_counter(self) -> int:
@@ -340,23 +356,19 @@ class SharedMemoryHeader:
         Returns:
             Total number of frames written.
         """
-        data = self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
+        data = self._unpack()
         return data[9]
 
     def increment_reader_count(self) -> None:
         """Increment reader count (called when reader attaches)."""
-        data = list(
-            self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
-        )
+        data = list(self._unpack())
         data[14] = data[14] + 1  # reader_count
         header_data = self.HEADER_STRUCT.pack(*data)
         self.memory_view[: len(header_data)] = header_data
 
     def decrement_reader_count(self) -> None:
         """Decrement reader count (called when reader detaches)."""
-        data = list(
-            self.HEADER_STRUCT.unpack(self.memory_view[: self.HEADER_STRUCT.size])
-        )
+        data = list(self._unpack())
         data[14] = max(0, data[14] - 1)  # reader_count (don't go negative)
         header_data = self.HEADER_STRUCT.pack(*data)
         self.memory_view[: len(header_data)] = header_data
@@ -392,6 +404,7 @@ class SharedMemoryFrameWriter:
         width: int,
         height: int,
         frame_format: FrameFormat = FrameFormat.BGR24,
+        capture_publication_clock: bool = False,
     ):
         """Initialize frame writer.
 
@@ -400,11 +413,15 @@ class SharedMemoryFrameWriter:
             width: Frame width in pixels.
             height: Frame height in pixels.
             frame_format: Frame format (default BGR24 for OpenCV).
+            capture_publication_clock: Store a monotonic publication timestamp
+                for audit runs. Disabled by default so ordinary frame writes do
+                not pay for detailed audit timing.
         """
         self.name = name
         self.width = width
         self.height = height
         self.frame_format = frame_format
+        self.capture_publication_clock = capture_publication_clock
 
         # Calculate frame buffer size
         if frame_format in (FrameFormat.RGB24, FrameFormat.BGR24):
@@ -420,7 +437,7 @@ class SharedMemoryFrameWriter:
         self.total_size = HEADER_SIZE + (self.bytes_per_frame * BUFFER_COUNT)
 
         # State
-        self.shm: Optional[shared_memory.SharedMemory] = None
+        self.shm: Optional[SharedMemoryHandle] = None
         self.header: Optional[SharedMemoryHeader] = None
         self.current_buffer_index = 0
         self.frame_counter = 0
@@ -444,25 +461,21 @@ class SharedMemoryFrameWriter:
         try:
             existing_shm = shared_memory.SharedMemory(name=self.name)
         except FileNotFoundError:
-            existing_shm = None
+            pass
         except PermissionError:
-            existing_shm = None
             logger.warning(
                 "Unable to inspect existing shared memory '%s' due to permission error; "
                 "assuming it does not exist.",
                 self.name,
             )
         else:
-            try:
-                existing_shm.close()
-                existing_shm.unlink()
-            finally:
-                existing_shm = None
+            existing_shm.close()
+            existing_shm.unlink()
             logger.warning(f"Removed existing shared memory segment: {self.name}")
 
         # Create shared memory segment (with fallback if permissions block us)
         try:
-            self.shm = shared_memory.SharedMemory(
+            shm: SharedMemoryHandle = shared_memory.SharedMemory(
                 create=True, size=self.total_size, name=self.name
             )
             self._using_fallback = False
@@ -474,11 +487,12 @@ class SharedMemoryFrameWriter:
                 exc,
                 _FALLBACK_DIR,
             )
-            self.shm = FileBackedSharedMemory(self.name, self.total_size, create=True)
+            shm = FileBackedSharedMemory(self.name, self.total_size, create=True)
             self._using_fallback = True
 
+        self.shm = shm
         # Initialize header
-        header_view = memoryview(self.shm.buf)[0:HEADER_SIZE]
+        header_view = _shared_buffer(shm)[0:HEADER_SIZE]
         self.header = SharedMemoryHeader(header_view)
         self.header.initialize(
             self.width, self.height, self.frame_format, self.bytes_per_frame
@@ -518,11 +532,6 @@ class SharedMemoryFrameWriter:
         if not frame.flags["C_CONTIGUOUS"]:
             frame = np.ascontiguousarray(frame)
 
-        # Get timestamp
-        timestamp = time.time()
-        timestamp_sec = int(timestamp)
-        timestamp_nsec = int((timestamp - timestamp_sec) * 1e9)
-
         with self.lock:
             # Choose next buffer (triple buffering)
             buffer_index = (self.current_buffer_index + 1) % BUFFER_COUNT
@@ -531,13 +540,22 @@ class SharedMemoryFrameWriter:
             buffer_offset = HEADER_SIZE + (buffer_index * self.bytes_per_frame)
 
             # Write frame data to buffer
-            frame_view = memoryview(self.shm.buf)[
+            frame_view = _shared_buffer(self.shm)[
                 buffer_offset : buffer_offset + self.bytes_per_frame
             ]
             frame_bytes = frame.tobytes()
             frame_view[: len(frame_bytes)] = frame_bytes
 
-            # Update metadata and switch buffers atomically
+            # Timestamp immediately before metadata publication. This remains
+            # software publication time, not camera exposure time.
+            timestamp = time.time()
+            timestamp_sec = int(timestamp)
+            timestamp_nsec = int((timestamp - timestamp_sec) * 1e9)
+            publication_monotonic_ns = (
+                time.perf_counter_ns() if self.capture_publication_clock else None
+            )
+
+            # Update metadata and switch buffers atomically.
             metadata = FrameMetadata(
                 frame_number=(
                     frame_number if frame_number is not None else self.frame_counter
@@ -547,6 +565,7 @@ class SharedMemoryFrameWriter:
                 width=self.width,
                 height=self.height,
                 format=self.frame_format,
+                publication_monotonic_ns=publication_monotonic_ns,
             )
             self.header.update_frame_metadata(metadata, buffer_index)
 
@@ -554,7 +573,7 @@ class SharedMemoryFrameWriter:
             self.current_buffer_index = buffer_index
             self.frame_counter += 1
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Union[int, float, bool]]:
         """Get writer statistics.
 
         Returns:
@@ -578,6 +597,13 @@ class SharedMemoryFrameWriter:
         """
         logger.info("Cleaning up SharedMemoryFrameWriter")
 
+        # The header holds an exported view of the mapping. Release it before
+        # closing POSIX shared memory or the mmap fallback, or close can fail
+        # with BufferError and leave a leaked segment behind.
+        if self.header is not None:
+            self.header.close()
+            self.header = None
+
         # Close and unlink shared memory
         if self.shm is not None:
             try:
@@ -589,14 +615,17 @@ class SharedMemoryFrameWriter:
             finally:
                 self.shm = None
 
-        self.header = None
-
-    def __enter__(self):
+    def __enter__(self) -> "SharedMemoryFrameWriter":
         """Context manager entry."""
         self.initialize()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Context manager exit."""
         self.cleanup()
 
@@ -632,7 +661,7 @@ class SharedMemoryFrameReader:
         self.name = name
 
         # State
-        self.shm: Optional[shared_memory.SharedMemory] = None
+        self.shm: Optional[SharedMemoryHandle] = None
         self.header: Optional[SharedMemoryHeader] = None
         self.last_read_counter = -1  # Track which frames we've seen
 
@@ -689,17 +718,31 @@ class SharedMemoryFrameReader:
                 time.sleep(0.1)
 
         # Read header
-        header_view = memoryview(self.shm.buf)[0:HEADER_SIZE]
+        shm = self.shm
+        if shm is None:
+            raise RuntimeError("Failed to attach to shared memory")
+        header_view = _shared_buffer(shm)[0:HEADER_SIZE]
         self.header = SharedMemoryHeader(header_view)
 
-        # Validate header
-        if not self.header.validate():
-            raise RuntimeError("Invalid shared memory header (magic/version mismatch)")
+        try:
+            # Validate before trusting dimensions or offsets from the segment.
+            if not self.header.validate():
+                raise RuntimeError(
+                    "Invalid shared memory header (magic/version mismatch)"
+                )
 
-        # Read configuration
-        self.width, self.height, self.frame_format, self.bytes_per_frame = (
-            self.header.read_config()
-        )
+            # Read configuration from the validated header.
+            (
+                self.width,
+                self.height,
+                self.frame_format,
+                self.bytes_per_frame,
+            ) = self.header.read_config()
+        except Exception:
+            # A malformed or truncated segment must not leave an attached
+            # mapping behind when attach() fails.
+            self.detach()
+            raise
 
         logger.info(
             f"Attached to shared memory: {self.name}, "
@@ -722,6 +765,21 @@ class SharedMemoryFrameReader:
         if self.shm is None or self.header is None:
             raise RuntimeError("Reader not attached. Call attach() first.")
 
+        # ``attach`` fills these values from a validated header. Check them
+        # explicitly because a partially completed or manually reset reader
+        # cannot safely calculate offsets or NumPy shapes.
+        width = self.width
+        height = self.height
+        frame_format = self.frame_format
+        bytes_per_frame = self.bytes_per_frame
+        if (
+            width is None
+            or height is None
+            or frame_format is None
+            or bytes_per_frame is None
+        ):
+            raise RuntimeError("Reader configuration is unavailable; attach first")
+
         # Check if there's a new frame
         current_counter = self.header.get_write_counter()
         if current_counter == 0 or current_counter == self.last_read_counter:
@@ -735,22 +793,23 @@ class SharedMemoryFrameReader:
         metadata = self.header.read_metadata()
 
         # Calculate buffer offset
-        buffer_offset = HEADER_SIZE + (buffer_index * self.bytes_per_frame)
+        buffer_offset = HEADER_SIZE + (buffer_index * bytes_per_frame)
 
         # Read frame data
-        frame_view = memoryview(self.shm.buf)[
-            buffer_offset : buffer_offset + self.bytes_per_frame
+        frame_view = _shared_buffer(self.shm)[
+            buffer_offset : buffer_offset + bytes_per_frame
         ]
 
         # Convert to numpy array
-        if self.frame_format in (FrameFormat.RGB24, FrameFormat.BGR24):
-            shape = (self.height, self.width, 3)
-        elif self.frame_format == FrameFormat.GRAY8:
-            shape = (self.height, self.width)
-        elif self.frame_format in (FrameFormat.RGBA32, FrameFormat.BGRA32):
-            shape = (self.height, self.width, 4)
+        shape: tuple[int, ...]
+        if frame_format in (FrameFormat.RGB24, FrameFormat.BGR24):
+            shape = (height, width, 3)
+        elif frame_format == FrameFormat.GRAY8:
+            shape = (height, width)
+        elif frame_format in (FrameFormat.RGBA32, FrameFormat.BGRA32):
+            shape = (height, width, 4)
         else:
-            raise RuntimeError(f"Unsupported frame format: {self.frame_format}")
+            raise RuntimeError(f"Unsupported frame format: {frame_format}")
 
         frame = np.frombuffer(frame_view, dtype=np.uint8).reshape(shape).copy()
 
@@ -787,6 +846,11 @@ class SharedMemoryFrameReader:
         """
         logger.info("Detaching from shared memory")
 
+        # Release the header's exported view before closing the mapping.
+        if self.header is not None:
+            self.header.close()
+            self.header = None
+
         # Close shared memory (but don't unlink - writer owns it)
         if self.shm is not None:
             try:
@@ -795,15 +859,18 @@ class SharedMemoryFrameReader:
                 logger.error(f"Failed to close shared memory: {e}")
             finally:
                 self.shm = None
-
-        self.header = None
         logger.info("Detached from shared memory")
 
-    def __enter__(self):
+    def __enter__(self) -> "SharedMemoryFrameReader":
         """Context manager entry."""
         self.attach()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
         """Context manager exit."""
         self.detach()

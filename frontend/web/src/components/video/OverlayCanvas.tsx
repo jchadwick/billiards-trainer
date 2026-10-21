@@ -15,6 +15,7 @@ import type {
 } from '../../types/video';
 import { createCoordinateTransform } from '../../utils/coordinates';
 import { renderCalibrationOverlay } from './overlays/CalibrationOverlay';
+import { renderObservedBallPathOverlay } from './overlays/ObservedBallPathOverlay';
 
 interface OverlayCanvasProps {
   videoStore: VideoStore;
@@ -38,7 +39,7 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
   onDoubleClick,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | undefined>(undefined);
   const [coordinateTransform, setCoordinateTransform] = useState<CoordinateTransform | null>(null);
 
   // Create coordinate transformation functions
@@ -96,11 +97,14 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
       const center = transform.videoToCanvas(ball.position);
 
       // Apply opacity
-      ctx.globalAlpha = config.balls.opacity;
+      const isObserved = ball.isObserved !== false;
+      ctx.globalAlpha = config.balls.opacity * (isObserved ? 1 : 0.45);
 
       // Draw ball circle
+      const radiusX = transform.videoExtentToCanvasX(ball.radiusX ?? ball.radius);
+      const radiusY = transform.videoExtentToCanvasY(ball.radiusY ?? ball.radius);
       ctx.beginPath();
-      ctx.arc(center.x, center.y, ball.radius * (transform as any).scale || config.balls.radius, 0, 2 * Math.PI);
+      ctx.ellipse(center.x, center.y, radiusX, radiusY, 0, 0, 2 * Math.PI);
 
       // Color based on ball type
       const colors = {
@@ -108,14 +112,17 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
         solid: '#FF6B6B',
         stripe: '#4ECDC4',
         eight: '#2C3E50',
+        unknown: '#B8B8B8',
       };
       ctx.fillStyle = ball.color || colors[ball.type] || '#CCCCCC';
       ctx.fill();
 
       // Draw outline
-      ctx.strokeStyle = '#000000';
+      ctx.strokeStyle = isObserved ? '#000000' : '#F59E0B';
       ctx.lineWidth = 2;
+      ctx.setLineDash(isObserved ? [] : [5, 4]);
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Draw ball number if available and enabled
       if (config.balls.showLabels && ball.number !== undefined) {
@@ -132,7 +139,7 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText(ball.id.slice(0, 6), center.x, center.y + ball.radius + 5);
+        ctx.fillText(ball.id.slice(0, 6), center.x, center.y + radiusY + 5);
       }
 
       // Draw velocity vector if enabled
@@ -172,9 +179,12 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
         ctx.font = '10px Arial';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
-        const confidenceText = `${Math.round(ball.confidence * 100)}%`;
-        ctx.fillText(confidenceText, center.x, center.y - ball.radius - 5);
+        const confidenceText = ball.confidenceKind === 'unavailable'
+          ? 'n/a'
+          : `${Math.round(ball.confidence * 100)}%`;
+        ctx.fillText(confidenceText, center.x, center.y - radiusY - 5);
       }
+      ctx.globalAlpha = 1;
     });
 
     ctx.globalAlpha = 1.0;
@@ -190,8 +200,10 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
       if (trajectory.points.length < 2) return;
 
       ctx.globalAlpha = config.trajectories.opacity;
-      ctx.strokeStyle = trajectory.color || '#00FF00';
+      const isReference = trajectory.predictionStatus === 'frozen_reference';
+      ctx.strokeStyle = isReference ? '#F4B942' : (trajectory.color || '#00FF00');
       ctx.lineWidth = config.trajectories.lineWidth;
+      ctx.setLineDash(isReference ? [8, 6] : []);
 
       // Draw trajectory line
       ctx.beginPath();
@@ -204,6 +216,15 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
       });
 
       ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (isReference) {
+        ctx.fillStyle = '#F4B942';
+        ctx.font = '12px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('Previous prediction', startPoint.x + 5, startPoint.y - 5);
+      }
 
       // Draw collision points
       trajectory.collisions.forEach(collision => {
@@ -231,7 +252,22 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
       }
     });
 
+    ctx.setLineDash([]);
     ctx.globalAlpha = 1.0;
+  }, [config.trajectories, videoStore]);
+
+  const drawObservedBallPaths = useCallback((ctx: CanvasRenderingContext2D, transform: CoordinateTransform) => {
+    const hasFrozenReference = videoStore.currentTrajectories.some(
+      trajectory => trajectory.predictionStatus === 'frozen_reference'
+    );
+    if (!hasFrozenReference) return;
+
+    renderObservedBallPathOverlay({
+      trails: videoStore.observedBallTrails,
+      transform,
+      config: config.trajectories,
+      ctx,
+    });
   }, [config.trajectories, videoStore]);
 
   // Draw table overlay
@@ -402,7 +438,7 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
   }, [config.grid, canvasSize]);
 
   // Main render function - stored in ref to avoid animation loop recreation
-  const renderOverlaysRef = useRef<() => void>();
+  const renderOverlaysRef = useRef<(() => void) | undefined>(undefined);
 
   // Update the render function when dependencies change
   useEffect(() => {
@@ -422,10 +458,11 @@ export const OverlayCanvas = observer<OverlayCanvasProps>(({
       drawCalibration(ctx, coordinateTransform);
       drawTable(ctx, coordinateTransform);
       drawTrajectories(ctx, coordinateTransform);
+      drawObservedBallPaths(ctx, coordinateTransform);
       drawBalls(ctx, coordinateTransform);
       drawCue(ctx, coordinateTransform);
     };
-  }, [coordinateTransform, setupCanvas, clearCanvas, drawGrid, drawCalibration, drawTable, drawTrajectories, drawBalls, drawCue]);
+  }, [coordinateTransform, setupCanvas, clearCanvas, drawGrid, drawCalibration, drawTable, drawTrajectories, drawObservedBallPaths, drawBalls, drawCue]);
 
   // Animation loop - runs once on mount
   useEffect(() => {

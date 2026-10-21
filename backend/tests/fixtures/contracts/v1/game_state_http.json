@@ -1,0 +1,66 @@
+{
+  "timestamp": "2024-12-31T19:00:00",
+  "frame_number": 42,
+  "balls": [
+    {
+      "id": "cue",
+      "number": null,
+      "position": {"x": 1500.0, "y": 1080.0, "scale": [1.0, 1.0]},
+      "velocity": {"x": 0.0, "y": 0.0, "scale": [1.0, 1.0]},
+      "is_cue_ball": true,
+      "is_pocketed": false,
+      "is_observed": true,
+      "confidence": 0.99,
+      "last_update": "2024-12-31T19:00:00"
+    },
+    {
+      "id": "track-17",
+      "number": 8,
+      "position": {"x": 2400.0, "y": 1080.0, "scale": [1.0, 1.0]},
+      "velocity": {"x": 120.0, "y": 0.0, "scale": [1.0, 1.0]},
+      "is_cue_ball": false,
+      "is_pocketed": false,
+      "is_observed": false,
+      "confidence": 0.87,
+      "last_update": "2024-12-31T18:59:59.750000"
+    }
+  ],
+  "cue": {
+    "tip_position": {"x": 1300.0, "y": 1080.0, "scale": [1.0, 1.0]},
+    "butt_position": null,
+    "angle": 0.0,
+    "elevation": 0.0,
+    "estimated_force": 0.0,
+    "is_visible": true,
+    "confidence": 0.95
+  },
+  "table": {
+    "width": 3200.0,
+    "height": 1600.0,
+    "dimensions_scale": [1.0, 1.0],
+    "dimensions_unit": "canonical_pixels",
+    "pocket_positions": [
+      {"x": 320.0, "y": 280.0, "scale": [1.0, 1.0]},
+      {"x": 1920.0, "y": 280.0, "scale": [1.0, 1.0]},
+      {"x": 3520.0, "y": 280.0, "scale": [1.0, 1.0]},
+      {"x": 320.0, "y": 1880.0, "scale": [1.0, 1.0]},
+      {"x": 1920.0, "y": 1880.0, "scale": [1.0, 1.0]},
+      {"x": 3520.0, "y": 1880.0, "scale": [1.0, 1.0]}
+    ],
+    "playing_area_corners": [
+      {"x": 320.0, "y": 280.0, "scale": [1.0, 1.0]},
+      {"x": 3520.0, "y": 280.0, "scale": [1.0, 1.0]},
+      {"x": 3520.0, "y": 1880.0, "scale": [1.0, 1.0]},
+      {"x": 320.0, "y": 1880.0, "scale": [1.0, 1.0]}
+    ],
+    "pocket_radius": 72.0,
+    "pocket_radius_scale": [1.0, 1.0],
+    "pocket_radius_unit": "canonical_pixels",
+    "real_world_dimensions": {"width": 2.54, "height": 1.27, "unit": "meters"},
+    "surface_friction": 0.2
+  },
+  "game_type": "8ball",
+  "is_valid": true,
+  "confidence": 0.95,
+  "events": []
+}

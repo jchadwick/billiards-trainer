@@ -199,24 +199,6 @@ export const SystemValidation: React.FC<SystemValidationProps> = observer(({ sui
 
       // Security Tests
       {
-        id: 'authentication-validation',
-        name: 'Authentication System Validation',
-        description: 'Test authentication and authorization mechanisms',
-        category: 'security',
-        priority: 'high',
-        status: 'pending',
-        progress: 0,
-      },
-      {
-        id: 'session-security-validation',
-        name: 'Session Security Validation',
-        description: 'Test session management and security',
-        category: 'security',
-        priority: 'medium',
-        status: 'pending',
-        progress: 0,
-      },
-      {
         id: 'data-encryption-validation',
         name: 'Data Encryption Validation',
         description: 'Verify data encryption in transit and at rest',
@@ -264,12 +246,6 @@ export const SystemValidation: React.FC<SystemValidationProps> = observer(({ sui
             id: 'initialize-system',
             name: 'Initialize System',
             description: 'Initialize all system components',
-            status: 'pending',
-          },
-          {
-            id: 'authenticate-user',
-            name: 'Authenticate User',
-            description: 'Authenticate user and establish session',
             status: 'pending',
           },
           {
@@ -431,7 +407,7 @@ export const SystemValidation: React.FC<SystemValidationProps> = observer(({ sui
             success: false,
             score: 0,
             message: 'Test execution failed',
-            details: { error: error.message },
+            details: { error: error instanceof Error ? error.message : String(error) },
             issues: ['Test execution error'],
             recommendations: ['Check system logs for details'],
           },
@@ -568,10 +544,10 @@ export const SystemValidation: React.FC<SystemValidationProps> = observer(({ sui
       details: {
         securityChecks: 15,
         vulnerabilities: success ? 0 : Math.floor(Math.random() * 2) + 1,
-        authenticationStatus: success ? 'secure' : 'needs attention',
+        encryptionStatus: success ? 'secure' : 'needs attention',
       },
-      issues: success ? [] : ['Weak session timeout configuration'],
-      recommendations: success ? [] : ['Update session security settings', 'Enable additional auth factors'],
+      issues: success ? [] : ['Transport or stored-data encryption needs review'],
+      recommendations: success ? [] : ['Review transport and stored-data encryption settings'],
     };
   };
 
@@ -689,7 +665,7 @@ export const SystemValidation: React.FC<SystemValidationProps> = observer(({ sui
       ));
 
       // If critical step fails, stop workflow
-      if (!stepSuccess && ['initialize-system', 'authenticate-user', 'initialize-camera'].includes(step.id)) {
+      if (!stepSuccess && ['initialize-system', 'initialize-camera'].includes(step.id)) {
         break;
       }
     }

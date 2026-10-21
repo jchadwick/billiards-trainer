@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-from config import Config, config
+from backend.config import Config, config
 
 
 def _get_config() -> Config:
@@ -65,7 +65,3 @@ class CalculationCache:
             "max_size": self.max_size,
             "usage": len(self._cache) / self.max_size if self.max_size > 0 else 0,
         }
-
-
-# Alias for compatibility
-CacheManager = CalculationCache

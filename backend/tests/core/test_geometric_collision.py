@@ -23,7 +23,7 @@ from backend.core.coordinates import Vector2D
 from backend.core.models import BallState, TableState
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestVector2DScaleValidation:
     """Test that all Vector2D instantiations have proper scale parameters.
 
@@ -60,7 +60,7 @@ class TestVector2DScaleValidation:
         assert vec.y == 1080.0
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestLineCircleIntersection:
     """Test line-circle intersection calculations."""
 
@@ -173,7 +173,7 @@ class TestLineCircleIntersection:
         assert collision.distance < 200.0
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGeometricReflection:
     """Test geometric reflection calculations for cushion bounces."""
 
@@ -258,7 +258,7 @@ class TestGeometricReflection:
         assert reflected.y > 0  # Moving down
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBallCollisionVelocities:
     """Test ball-to-ball collision velocity calculations."""
 
@@ -354,7 +354,7 @@ class TestBallCollisionVelocities:
         assert final_ke > 0.5 * initial_ke
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestClosestBallCollision:
     """Test finding closest ball collision along a ray."""
 
@@ -467,7 +467,7 @@ class TestClosestBallCollision:
         assert collision is None
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCushionIntersection:
     """Test cushion intersection detection."""
 
@@ -581,7 +581,7 @@ class TestCushionIntersection:
         assert collision.cushion_side == "bottom"
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestCushionIntersectionWithPlayingArea:
     """Test cushion intersection with calibrated playing area."""
 
@@ -637,7 +637,7 @@ class TestCushionIntersectionWithPlayingArea:
         assert collision.hit_point.scale == (1.0, 1.0)
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestPocketIntersection:
     """Test pocket intersection detection."""
 
@@ -707,7 +707,7 @@ class TestPocketIntersection:
             assert collision.pocket_id is not None
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestLineSegmentIntersection:
     """Test line-line segment intersection helper method."""
 
@@ -762,7 +762,7 @@ class TestLineSegmentIntersection:
         assert result is None
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestGeometricCollisionDataclass:
     """Test GeometricCollision dataclass."""
 
@@ -812,7 +812,7 @@ class TestGeometricCollisionDataclass:
         assert collision.cushion_side is None
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestBoundingBoxCheck:
     """Test bounding box quick rejection."""
 
@@ -847,7 +847,7 @@ class TestBoundingBoxCheck:
         assert result is False
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestPointOnSegment:
     """Test point-on-segment helper method."""
 
@@ -886,7 +886,7 @@ class TestPointOnSegment:
         assert result is False
 
 
-@pytest.mark.unit()
+@pytest.mark.unit
 class TestPointDistance:
     """Test point distance calculation."""
 

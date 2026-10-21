@@ -7,6 +7,7 @@ before trajectory calculations are performed.
 import logging
 from typing import Optional
 
+from ..coordinates import Vector2D
 from ..models import TableState
 
 logger = logging.getLogger(__name__)
@@ -21,9 +22,9 @@ class TableStateValidationError(Exception):
 class TableStateValidator:
     """Validates table state for trajectory calculations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize table state validator."""
-        self.last_validation_warnings = []
+        self.last_validation_warnings: list[str] = []
 
     def validate_for_trajectory(
         self, table_state: Optional[TableState], require_playing_area: bool = False
@@ -118,7 +119,7 @@ class TableStateValidator:
 
         return len(errors) == 0, errors
 
-    def _validate_corner_geometry(self, corners: list) -> bool:
+    def _validate_corner_geometry(self, corners: list[Vector2D]) -> bool:
         """Validate that corners form a reasonable quadrilateral.
 
         Args:
@@ -138,18 +139,11 @@ class TableStateValidator:
         # Cross product
         cross = edge1[0] * edge2[1] - edge1[1] * edge2[0]
 
-        # If cross product is near zero, points are collinear
-        if abs(cross) < 1.0:  # Allow some tolerance
-            return False
-
-        # Check minimum area
+        # Require a non-collinear turn and a reasonable pixel area.
         area = self._calculate_polygon_area(corners)
-        if area < 1000:  # Minimum reasonable area in pixels
-            return False
+        return abs(cross) >= 1.0 and area >= 1000
 
-        return True
-
-    def _calculate_polygon_area(self, corners: list) -> float:
+    def _calculate_polygon_area(self, corners: list[Vector2D]) -> float:
         """Calculate area of polygon defined by corners using shoelace formula.
 
         Args:

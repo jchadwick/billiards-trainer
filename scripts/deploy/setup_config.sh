@@ -32,15 +32,6 @@ cp .env.example .env
 echo -e "${BLUE}Please provide the following configuration:${NC}"
 echo ""
 
-# Generate secure keys
-echo -e "${YELLOW}Generating secure keys...${NC}"
-JWT_SECRET=$(openssl rand -hex 32)
-API_KEY=$(openssl rand -hex 16)
-sed -i.tmp "s/JWT_SECRET_KEY=.*/JWT_SECRET_KEY=$JWT_SECRET/" .env
-sed -i.tmp "s/DEFAULT_API_KEY=.*/DEFAULT_API_KEY=$API_KEY/" .env
-rm .env.tmp
-echo -e "${GREEN}✓ Generated JWT secret and API key${NC}"
-
 # API Configuration
 echo ""
 read -p "API Port [8000]: " API_PORT
@@ -104,9 +95,6 @@ fi
 
 echo ""
 echo -e "${GREEN}=== Configuration Complete ===${NC}"
-echo ""
-echo -e "${BLUE}Generated credentials (save these securely):${NC}"
-echo -e "API Key: ${YELLOW}$API_KEY${NC}"
 echo ""
 echo "Configuration saved to .env"
 echo ""

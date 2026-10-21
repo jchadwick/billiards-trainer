@@ -1,5 +1,10 @@
 {
   "image": "multiple_balls.png",
+  "coordinate_space": "4k_canonical",
+  "coordinate_scale": [
+    1.0,
+    1.0
+  ],
   "balls": [
     {
       "center": {

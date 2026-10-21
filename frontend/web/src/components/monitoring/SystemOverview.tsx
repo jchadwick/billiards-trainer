@@ -33,8 +33,8 @@ export const SystemOverview: React.FC = observer(() => {
     try {
       // Fetch real health and metrics data from backend
       const [healthResponse, metricsResponse] = await Promise.all([
-        apiClient.get('/health?include_details=true&include_metrics=true'),
-        apiClient.get('/health/metrics')
+        apiClient.get<HealthResponse>('/health?include_details=true&include_metrics=true'),
+        apiClient.get<SystemMetrics>('/health/metrics')
       ]);
 
       setSystemHealth(healthResponse);

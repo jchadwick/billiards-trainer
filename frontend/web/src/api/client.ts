@@ -6,6 +6,7 @@
 import axiosClient from './axios-client';
 import { AxiosError } from './axios-client';
 import type { ApiErrorResponse, AxiosResponse } from './axios-client';
+import type { ApiGameStateResponse } from '../types/api';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -65,8 +66,10 @@ export interface WebSocketMessage {
 }
 
 export class ApiClient {
-  setAuthToken(token: string | null): void {
-    axiosClient.setAuthToken(token);
+  /** Read a versioned API resource for monitoring views that consume raw payloads. */
+  async get<T = unknown>(path: string): Promise<T> {
+    const response = await axiosClient.get<T>(`/api/v1${path}`);
+    return response.data;
   }
 
   /**
@@ -127,6 +130,18 @@ export class ApiClient {
   async healthCheck(): Promise<ApiResponse<void>> {
     try {
       const response = await axiosClient.head('/api/health');
+      return this.handleResponse(response);
+    } catch (error) {
+      return this.handleError(error);
+    }
+  }
+
+  /** Fetch the current Core or scene-localized state without coercing unknown fields. */
+  async getCurrentGameState(): Promise<ApiResponse<ApiGameStateResponse>> {
+    try {
+      const response = await axiosClient.get<ApiGameStateResponse>(
+        '/api/v1/game/state'
+      );
       return this.handleResponse(response);
     } catch (error) {
       return this.handleError(error);
@@ -213,51 +228,6 @@ export class ApiClient {
     }
   }
 
-  async exportConfiguration(
-    format = "json",
-    sections?: string[],
-    includeDefaults = false,
-    includeMetadata = true
-  ): Promise<ApiResponse<any>> {
-    try {
-      const params: Record<string, string | string[]> = {
-        format,
-        include_defaults: includeDefaults.toString(),
-        include_metadata: includeMetadata.toString(),
-      };
-
-      if (sections) {
-        params.sections = sections;
-      }
-
-      const response = await axiosClient.get('/api/v1/config/export', { params });
-      return this.handleResponse(response);
-    } catch (error) {
-      return this.handleError(error);
-    }
-  }
-
-  async importConfiguration(
-    file: File,
-    mergeStrategy = "replace",
-    validateOnly = false
-  ): Promise<ApiResponse<any>> {
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const params: Record<string, string> = {
-        merge_strategy: mergeStrategy,
-        validate_only: validateOnly.toString(),
-      };
-
-      const response = await axiosClient.upload('/api/v1/config/import', formData, { params });
-      return this.handleResponse(response);
-    } catch (error) {
-      return this.handleError(error);
-    }
-  }
-
   // Video streaming endpoints
   getVideoStreamUrl(
     quality = 80,
@@ -315,8 +285,8 @@ export class ApiClient {
   }
 
   // WebSocket connection
-  createWebSocket(token?: string): WebSocket {
-    return axiosClient.createWebSocket('/api/v1/ws', token);
+  createWebSocket(): WebSocket {
+    return axiosClient.createWebSocket('/api/v1/websocket/ws');
   }
 
   // Vision and Calibration endpoints

@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "configuration_revision": 1,
+  "request_sha256": "c552373ded7859e22f26dd0aa6eabcba831ec5ea3854ce3385b8b5744a4be2b7",
+  "outcome": "compatible",
+  "source_report": {
+    "session_id": "capture-session-20261020-1",
+    "device_id": "device-index:0",
+    "device_name": null,
+    "backend_id": "opencv",
+    "requested_profile": {
+      "frame_rate": {
+        "frames_numerator": 30,
+        "seconds_denominator": 1
+      },
+      "height_px": 1080,
+      "pixel_format": "RGB8",
+      "width_px": 1920
+    },
+    "negotiated_profile": {
+      "frame_rate": {
+        "frames_numerator": 30,
+        "seconds_denominator": 1
+      },
+      "height_px": 1080,
+      "pixel_format": "RGB8",
+      "width_px": 1920
+    },
+    "capabilities": {
+      "supported_pixel_formats": [
+        "RGB8"
+      ],
+      "manual_exposure": "unsupported",
+      "automatic_exposure": "supported",
+      "gain_control": "supported",
+      "source_timestamps": "unknown"
+    },
+    "applied_frame_geometry": {
+      "configuration_revision": 1,
+      "camera_profile_id": "camera-profile-v2:a71c7321562c3b6e5584473d5888e3823fea6264107814fd071ea53daa1dcf5f",
+      "image_space": "raw",
+      "rectification_revision": 0
+    },
+    "applied_controls": {
+      "exposure_mode": {
+        "status": "applied",
+        "value": "automatic"
+      },
+      "exposure_value": {
+        "status": "unknown"
+      },
+      "gain": {
+        "status": "applied",
+        "value": 1.0
+      },
+      "brightness": {
+        "status": "unknown"
+      },
+      "contrast": {
+        "status": "unsupported"
+      },
+      "saturation": {
+        "status": "unknown"
+      },
+      "auto_focus": {
+        "status": "applied",
+        "value": true
+      },
+      "buffer_size": {
+        "status": "applied",
+        "value": 2
+      }
+    },
+    "timestamp_semantics": {
+      "kind": "read_completion_only"
+    },
+    "output_frame_geometry": {
+      "height_px": 1080,
+      "width_px": 1920
+    }
+  },
+  "failure": null
+}

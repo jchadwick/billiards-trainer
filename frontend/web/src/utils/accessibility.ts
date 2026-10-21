@@ -150,7 +150,7 @@ export function createNavigationAria(options: {
  * Create ARIA attributes for live regions
  */
 export function createLiveRegionAria(options: {
-  level?: 'polite' | 'assertive'
+  level?: 'polite' | 'assertive' | 'off'
   atomic?: boolean
   relevant?: 'all' | 'additions' | 'removals' | 'text' | 'additions text' | 'additions removals' | 'removals additions' | 'removals text' | 'text additions' | 'text removals'
 }): AriaAttributes {

@@ -11,6 +11,8 @@ Pillow>=10.0.0
 onnxruntime>=1.23.0  # Has CoreML support for Apple Silicon
 onnx>=1.17.0
 ultralytics>=8.0.0
+# CoreML package loading is required by the macOS default model; Linux does not install this runtime.
+coremltools>=9.0; sys_platform == "darwin"
 # Note: Use device="coreml" in config for hardware acceleration on Mac
 
 # API and Communication
@@ -40,8 +42,10 @@ moderngl>=5.8.0
 # Development and Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-timeout>=2.4.0
 httpx>=0.24.0
-black>=23.0.0
+black==25.9.0
 isort>=5.12.0
 mypy>=1.5.0
 

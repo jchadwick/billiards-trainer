@@ -19,19 +19,38 @@ import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Optional, Tuple
+from typing import Any, Optional, Tuple, TypedDict, cast
 
 import cv2
 import numpy as np
-from core.constants_4k import BALL_RADIUS_4K
-from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 from backend.common.models import Ball
+from backend.core.constants_4k import BALL_RADIUS_4K
+from backend.core.resolution_converter import ResolutionConverter
 
 from ..models import BallType
 
 logger = logging.getLogger(__name__)
+
+
+class DetectionMethodStats(TypedDict):
+    """Counts of candidates returned by each configured detector."""
+
+    hough: int
+    contour: int
+    blob: int
+    combined: int
+
+
+class BallDetectionStats(TypedDict):
+    """Aggregated counters reported by :class:`BallDetector`."""
+
+    total_detections: int
+    successful_detections: int
+    false_positives: int
+    avg_confidence: float
+    detection_method_stats: DetectionMethodStats
 
 
 class DetectionMethod(Enum):
@@ -71,7 +90,7 @@ class BallDetectionConfig:
     radius_tolerance: float = 0.30
 
     # Color classification
-    ball_colors: dict[str, dict[str, tuple[int, int, int]]] = None
+    ball_colors: Optional[dict[str, dict[str, tuple[int, int, int]]]] = None
 
     # Quality filters
     min_circularity: float = 0.75
@@ -155,7 +174,7 @@ class BallDetectionConfig:
 
         # Extract ball colors and convert to tuple format
         ball_colors_raw = config.get("ball_colors", {})
-        ball_colors = {}
+        ball_colors: dict[str, dict[str, tuple[int, int, int]]] = {}
         for color_name, color_range in ball_colors_raw.items():
             ball_colors[color_name] = {
                 "lower": tuple(color_range.get("lower", [0, 0, 0])),
@@ -288,16 +307,21 @@ class BallDetector:
         self.playing_area_mask: Optional[NDArray[np.uint8]] = None
 
         # Statistics tracking
-        self.stats = {
+        self.stats: BallDetectionStats = {
             "total_detections": 0,
             "successful_detections": 0,
             "false_positives": 0,
             "avg_confidence": 0.0,
-            "detection_method_stats": {method.value: 0 for method in DetectionMethod},
+            "detection_method_stats": {
+                "hough": 0,
+                "contour": 0,
+                "blob": 0,
+                "combined": 0,
+            },
         }
 
         # Debug storage
-        self.debug_images = []
+        self.debug_images: list[tuple[str, NDArray[np.uint8]]] = []
 
         logger.info(
             f"Ball detector initialized with method: {self.config.detection_method}"
@@ -306,7 +330,10 @@ class BallDetector:
     def _initialize_detectors(self) -> None:
         """Initialize detection algorithm components."""
         # Blob detector for alternative detection
-        params = cv2.SimpleBlobDetector_Params()
+        # OpenCV exposes these generated APIs at runtime, but its bundled type
+        # stubs omit the symbols. Resolve the supported runtime factory names.
+        params_factory = cast("Any", cv2.__dict__["SimpleBlobDetector_Params"])
+        params = params_factory()
         params.filterByArea = True
         params.minArea = math.pi * (self.config.min_radius**2)
         params.maxArea = math.pi * (self.config.max_radius**2)
@@ -317,7 +344,8 @@ class BallDetector:
         params.filterByInertia = True
         params.minInertiaRatio = self.config.min_inertia_ratio
 
-        self.blob_detector = cv2.SimpleBlobDetector_create(params)
+        detector_factory = cast("Any", cv2.__dict__["SimpleBlobDetector_create"])
+        self.blob_detector: Any = detector_factory(params)
 
         logger.debug("Detection algorithms initialized")
 
@@ -336,10 +364,13 @@ class BallDetector:
         else:
             gray = frame
 
-        if len(self.background_frame.shape) == 3:
-            bg_gray = cv2.cvtColor(self.background_frame, cv2.COLOR_BGR2GRAY)
+        background_frame = self.background_frame
+        if background_frame is None:
+            raise ValueError("A background frame must be set before subtraction")
+        if len(background_frame.shape) == 3:
+            bg_gray = cv2.cvtColor(background_frame, cv2.COLOR_BGR2GRAY)
         else:
-            bg_gray = self.background_frame
+            bg_gray = background_frame
 
         # Compute absolute difference
         diff = cv2.absdiff(gray, bg_gray)
@@ -366,7 +397,7 @@ class BallDetector:
         # Less aggressive dilation to reduce motion blur
         fg_mask = cv2.dilate(fg_mask, kernel, iterations=morph_iterations)
 
-        return fg_mask
+        return cast("NDArray[np.uint8]", fg_mask)
 
     def _detect_pockets_from_background(
         self, frame: NDArray[np.uint8]
@@ -544,8 +575,9 @@ class BallDetector:
         kernel_erode = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (erode_kernel_size, erode_kernel_size)
         )
-        playing_area_mask = cv2.erode(
-            playing_area_mask, kernel_erode, iterations=erode_iterations
+        playing_area_mask = cast(
+            "NDArray[np.uint8]",
+            cv2.erode(playing_area_mask, kernel_erode, iterations=erode_iterations),
         )
 
         logger.info(
@@ -579,7 +611,7 @@ class BallDetector:
             )
 
     def detect_balls(
-        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
+        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.uint8]] = None
     ) -> list[Ball]:
         """Detect all balls in frame using configured method.
 
@@ -599,13 +631,22 @@ class BallDetector:
                 fg_mask = self._create_foreground_mask(frame)
                 # Combine with table mask if provided
                 if table_mask is not None:
-                    combined_mask = cv2.bitwise_and(fg_mask, table_mask)
-                    masked_frame = cv2.bitwise_and(frame, frame, mask=combined_mask)
+                    combined_mask = cast(
+                        "NDArray[np.uint8]", cv2.bitwise_and(fg_mask, table_mask)
+                    )
+                    masked_frame = cast(
+                        "NDArray[np.uint8]",
+                        cv2.bitwise_and(frame, frame, mask=combined_mask),
+                    )
                 else:
-                    masked_frame = cv2.bitwise_and(frame, frame, mask=fg_mask)
+                    masked_frame = cast(
+                        "NDArray[np.uint8]", cv2.bitwise_and(frame, frame, mask=fg_mask)
+                    )
             # Apply table mask if provided (and no background subtraction)
             elif table_mask is not None:
-                masked_frame = cv2.bitwise_and(frame, frame, mask=table_mask)
+                masked_frame = cast(
+                    "NDArray[np.uint8]", cv2.bitwise_and(frame, frame, mask=table_mask)
+                )
             else:
                 masked_frame = frame
 
@@ -653,7 +694,7 @@ class BallDetector:
 
     def classify_ball_type(
         self,
-        ball_region: NDArray[np.float64],
+        ball_region: NDArray[np.uint8],
         position: tuple[float, float],
         radius: float,
     ) -> tuple[BallType, float, Optional[int]]:
@@ -689,22 +730,24 @@ class BallDetector:
             v_vals = hsv_region[:, :, 2][mask > 0]
 
             # Calculate median HSV values (more robust than mean for outliers)
-            median_h = np.median(h_vals) if len(h_vals) > 0 else 0
-            median_s = np.median(s_vals) if len(s_vals) > 0 else 0
-            median_v = np.median(v_vals) if len(v_vals) > 0 else 0
+            median_h = float(np.median(h_vals)) if len(h_vals) > 0 else 0.0
+            median_s = float(np.median(s_vals)) if len(s_vals) > 0 else 0.0
+            median_v = float(np.median(v_vals)) if len(v_vals) > 0 else 0.0
 
             # Analyze color distribution using range matching
-            color_scores = {}
+            color_scores: dict[str, float] = {}
+            if self.config.ball_colors is None:
+                raise RuntimeError("Ball color ranges were not initialized")
             for color_name, color_range in self.config.ball_colors.items():
                 color_mask = cv2.inRange(
                     hsv_region, color_range["lower"], color_range["upper"]
                 )
                 color_mask = cv2.bitwise_and(color_mask, mask)
-                score = np.sum(color_mask > 0) / np.sum(mask > 0)
+                score = float(np.sum(color_mask > 0) / np.sum(mask > 0))
                 color_scores[color_name] = score
 
             # Determine ball type based on color with disambiguation for similar colors
-            best_color = max(color_scores, key=color_scores.get)
+            best_color = max(color_scores, key=lambda color: color_scores[color])
             confidence = color_scores[best_color]
 
             # DISAMBIGUATION: Handle similar colors that might be confused
@@ -726,12 +769,12 @@ class BallDetector:
                 if median_h < 18:
                     best_color = "orange"
                     confidence = max(
-                        color_scores.get("orange", 0), color_scores.get("yellow", 0)
+                        color_scores.get("orange", 0.0), color_scores.get("yellow", 0.0)
                     )
                 else:
                     best_color = "yellow"
                     confidence = max(
-                        color_scores.get("yellow", 0), color_scores.get("orange", 0)
+                        color_scores.get("yellow", 0.0), color_scores.get("orange", 0.0)
                     )
 
             # Cue ball: must have very high value and very low saturation
@@ -802,7 +845,7 @@ class BallDetector:
         morph_kernel_size = color_filter_config.get("morph_kernel_size", 5)
 
         # Create mask that EXCLUDES non-ball regions
-        exclude_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+        exclude_mask: NDArray[np.uint8] = np.zeros(frame.shape[:2], dtype=np.uint8)
 
         # 1. Exclude GREEN/BLUE table surface (biggest source of false positives)
         green_table_lower = np.array(
@@ -820,7 +863,9 @@ class BallDetector:
             ]
         )
         green_table_mask = cv2.inRange(hsv, green_table_lower, green_table_upper)
-        exclude_mask = cv2.bitwise_or(exclude_mask, green_table_mask)
+        exclude_mask = cast(
+            "NDArray[np.uint8]", cv2.bitwise_or(exclude_mask, green_table_mask)
+        )
 
         blue_table_lower = np.array(
             [
@@ -837,7 +882,9 @@ class BallDetector:
             ]
         )
         blue_table_mask = cv2.inRange(hsv, blue_table_lower, blue_table_upper)
-        exclude_mask = cv2.bitwise_or(exclude_mask, blue_table_mask)
+        exclude_mask = cast(
+            "NDArray[np.uint8]", cv2.bitwise_or(exclude_mask, blue_table_mask)
+        )
 
         # 2. Exclude SKIN TONES (hands, arms)
         skin_lower = np.array(
@@ -855,7 +902,9 @@ class BallDetector:
             ]
         )
         skin_mask = cv2.inRange(hsv, skin_lower, skin_upper)
-        exclude_mask = cv2.bitwise_or(exclude_mask, skin_mask)
+        exclude_mask = cast(
+            "NDArray[np.uint8]", cv2.bitwise_or(exclude_mask, skin_mask)
+        )
 
         # 3. Exclude VERY DARK regions (pockets, shadows)
         dark_lower = np.array(
@@ -873,16 +922,21 @@ class BallDetector:
             ]
         )
         dark_mask = cv2.inRange(hsv, dark_lower, dark_upper)
-        exclude_mask = cv2.bitwise_or(exclude_mask, dark_mask)
+        exclude_mask = cast(
+            "NDArray[np.uint8]", cv2.bitwise_or(exclude_mask, dark_mask)
+        )
 
         # Invert: what's left is POSSIBLE ball locations
-        ball_color_mask = cv2.bitwise_not(exclude_mask)
+        ball_color_mask = cast("NDArray[np.uint8]", cv2.bitwise_not(exclude_mask))
 
         # Clean up with morphology
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (morph_kernel_size, morph_kernel_size)
         )
-        ball_color_mask = cv2.morphologyEx(ball_color_mask, cv2.MORPH_OPEN, kernel)
+        ball_color_mask = cast(
+            "NDArray[np.uint8]",
+            cv2.morphologyEx(ball_color_mask, cv2.MORPH_OPEN, kernel),
+        )
 
         return ball_color_mask
 
@@ -892,7 +946,9 @@ class BallDetector:
         """Detect circles using Hough transform with adaptive thresholding."""
         # FIRST: Apply color pre-filter to eliminate obvious non-balls
         color_mask = self._create_ball_color_mask(frame)
-        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+        masked_frame = cast(
+            "NDArray[np.uint8]", cv2.bitwise_and(frame, frame, mask=color_mask)
+        )
 
         gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
@@ -922,7 +978,7 @@ class BallDetector:
             maxRadius=self.config.max_radius,
         )
 
-        candidates = []
+        candidates: list[tuple[float, float, float]] = []
         if circles is not None:
             circles = np.round(circles[0, :]).astype("int")
             for x, y, r in circles:
@@ -976,7 +1032,9 @@ class BallDetector:
         """Detect circles using contour analysis."""
         # Apply color pre-filter
         color_mask = self._create_ball_color_mask(frame)
-        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+        masked_frame = cast(
+            "NDArray[np.uint8]", cv2.bitwise_and(frame, frame, mask=color_mask)
+        )
 
         gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
@@ -1000,7 +1058,7 @@ class BallDetector:
             binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 
-        candidates = []
+        candidates: list[tuple[float, float, float]] = []
         for contour in contours:
             area = cv2.contourArea(contour)
 
@@ -1032,7 +1090,9 @@ class BallDetector:
         """Detect circles using blob detection."""
         # Apply color pre-filter
         color_mask = self._create_ball_color_mask(frame)
-        masked_frame = cv2.bitwise_and(frame, frame, mask=color_mask)
+        masked_frame = cast(
+            "NDArray[np.uint8]", cv2.bitwise_and(frame, frame, mask=color_mask)
+        )
 
         gray = cv2.cvtColor(masked_frame, cv2.COLOR_BGR2GRAY)
 
@@ -1042,7 +1102,7 @@ class BallDetector:
         # Detect blobs
         keypoints = self.blob_detector.detect(inverted)
 
-        candidates = []
+        candidates: list[tuple[float, float, float]] = []
         for keypoint in keypoints:
             x, y = keypoint.pt
             radius = keypoint.size / 2
@@ -1070,7 +1130,7 @@ class BallDetector:
             return []
 
         # Use more sophisticated merging with confidence weighting
-        merged_candidates = []
+        merged_candidates: list[tuple[float, float, float]] = []
         used_indices = set()
 
         for i, candidate in enumerate(all_candidates):
@@ -1244,10 +1304,7 @@ class BallDetector:
 
         # Second check: Must have at least SOME bright pixels (specular highlights)
         # This is the key filter: shadows have NO bright spots
-        if max_brightness < min_max_brightness:
-            return False
-
-        return True
+        return not max_brightness < min_max_brightness
 
     def _filter_ball_shadows(
         self, candidates: list[tuple[float, float, float]], frame: NDArray[np.uint8]
@@ -1270,7 +1327,7 @@ class BallDetector:
             return candidates
 
         # Calculate brightness for each candidate
-        brightnesses = []
+        brightnesses: list[float] = []
         for x, y, r in candidates:
             x1, y1 = max(0, int(x - r)), max(0, int(y - r))
             x2, y2 = min(frame.shape[1], int(x + r)), min(frame.shape[0], int(y + r))
@@ -1279,9 +1336,9 @@ class BallDetector:
             if region.size > 0:
                 hsv_region = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
                 avg_brightness = np.mean(hsv_region[:, :, 2])
-                brightnesses.append(avg_brightness)
+                brightnesses.append(float(avg_brightness))
             else:
-                brightnesses.append(0)
+                brightnesses.append(0.0)
 
         # Get shadow detection config
         shadow_config = self.raw_config.get("shadow_detection", {})
@@ -1360,6 +1417,12 @@ class BallDetector:
                         confidence=confidence,
                         velocity=(0.0, 0.0),  # Will be calculated by tracking
                         is_moving=False,  # Will be determined by tracking
+                        # Hough/contour/blob detections are expressed in the
+                        # exact detector input frame, which may be a resized
+                        # or cropped view. Carry that resolution so the vision
+                        # pipeline can restore source-frame coordinates.
+                        coordinate_space="pixel",
+                        source_resolution=(int(frame.shape[1]), int(frame.shape[0])),
                     )
                     balls.append(ball)
 
@@ -1439,6 +1502,8 @@ class BallDetector:
                     confidence=merged_confidence,
                     velocity=(0.0, 0.0),
                     is_moving=False,
+                    coordinate_space=ball.coordinate_space,
+                    source_resolution=ball.source_resolution,
                 )
                 final_balls.append(merged_ball)
             else:
@@ -1469,8 +1534,8 @@ class BallDetector:
 
         Rule: Only one cue ball and one 8-ball allowed on table.
         If multiple detected, highest confidence wins, others are reclassified:
-        - Extra cue balls → OTHER
-        - Extra 8-balls → OTHER
+        - Extra cue balls → UNKNOWN
+        - Extra 8-balls → UNKNOWN
 
         Args:
             balls: List of detected balls
@@ -1484,7 +1549,7 @@ class BallDetector:
         # Find all cue balls
         cue_balls = [ball for ball in balls if ball.ball_type == BallType.CUE]
 
-        # If multiple cue balls, keep highest confidence, convert others to OTHER
+        # If multiple cue balls, keep highest confidence, convert others to UNKNOWN
         if len(cue_balls) > 1:
             # Sort by confidence (highest first)
             cue_balls.sort(key=lambda b: b.confidence, reverse=True)
@@ -1492,22 +1557,24 @@ class BallDetector:
 
             logger.info(
                 f"Multiple cue balls detected ({len(cue_balls)}), keeping highest confidence "
-                f"({best_cue.confidence:.3f}), converting others to OTHER"
+                f"({best_cue.confidence:.3f}), converting others to UNKNOWN"
             )
 
-            # Convert all but the best to OTHER
+            # Convert all but the best to UNKNOWN
             for ball in cue_balls[1:]:
-                ball.ball_type = BallType.OTHER
+                # BallType has no generic OTHER member; use its declared
+                # unclassified state for a duplicate special-ball detection.
+                ball.ball_type = BallType.UNKNOWN
                 ball.number = None
                 logger.debug(
                     f"Converting cue ball at ({ball.position[0]:.1f}, {ball.position[1]:.1f}) "
-                    f"with confidence {ball.confidence:.3f} to OTHER"
+                    f"with confidence {ball.confidence:.3f} to UNKNOWN"
                 )
 
         # Find all 8-balls
         eight_balls = [ball for ball in balls if ball.ball_type == BallType.EIGHT]
 
-        # If multiple 8-balls, keep highest confidence, convert others to OTHER
+        # If multiple 8-balls, keep highest confidence, convert others to UNKNOWN
         if len(eight_balls) > 1:
             # Sort by confidence (highest first)
             eight_balls.sort(key=lambda b: b.confidence, reverse=True)
@@ -1515,16 +1582,18 @@ class BallDetector:
 
             logger.info(
                 f"Multiple 8-balls detected ({len(eight_balls)}), keeping highest confidence "
-                f"({best_eight.confidence:.3f}), converting others to OTHER"
+                f"({best_eight.confidence:.3f}), converting others to UNKNOWN"
             )
 
-            # Convert all but the best to OTHER
+            # Convert all but the best to UNKNOWN
             for ball in eight_balls[1:]:
-                ball.ball_type = BallType.OTHER
+                # BallType has no generic OTHER member; use its declared
+                # unclassified state for a duplicate special-ball detection.
+                ball.ball_type = BallType.UNKNOWN
                 ball.number = None
                 logger.debug(
                     f"Converting 8-ball at ({ball.position[0]:.1f}, {ball.position[1]:.1f}) "
-                    f"with confidence {ball.confidence:.3f} to OTHER"
+                    f"with confidence {ball.confidence:.3f} to UNKNOWN"
                 )
 
         return balls
@@ -1594,7 +1663,7 @@ class BallDetector:
 
         return balls
 
-    def _is_striped_ball(self, ball_region: NDArray[np.float64]) -> tuple[bool, float]:
+    def _is_striped_ball(self, ball_region: NDArray[np.uint8]) -> tuple[bool, float]:
         """Detect if a ball has a stripe pattern.
 
         Uses multiple techniques to detect stripe patterns:
@@ -1701,7 +1770,7 @@ class BallDetector:
             return False, 0.0
 
     def _color_to_ball_type(
-        self, color_name: str, ball_region: NDArray[np.float64]
+        self, color_name: str, ball_region: NDArray[np.uint8]
     ) -> tuple[BallType, Optional[int]]:
         """Map detected color to specific ball type and number.
 
@@ -1750,7 +1819,7 @@ class BallDetector:
 
     def _draw_candidates(
         self, frame: NDArray[np.uint8], candidates: list[tuple[float, float, float]]
-    ):
+    ) -> None:
         """Draw detected candidates for debugging."""
         debug_frame = frame.copy()
 
@@ -1771,7 +1840,7 @@ class BallDetector:
                 + avg_conf
             ) / self.stats["successful_detections"]
 
-    def get_debug_images(self) -> list[tuple[str, np.ndarray]]:
+    def get_debug_images(self) -> list[tuple[str, NDArray[np.uint8]]]:
         """Get debug images."""
         return self.debug_images
 
@@ -1781,4 +1850,4 @@ class BallDetector:
 
     def get_statistics(self) -> dict[str, Any]:
         """Get detection statistics."""
-        return self.stats.copy()
+        return dict(self.stats)

@@ -37,13 +37,13 @@ from backend.core.validation.physics import (
 # ============================================================================
 
 
-@pytest.fixture()
+@pytest.fixture
 def validator():
     """Create a PhysicsValidator with default configuration."""
     return PhysicsValidator()
 
 
-@pytest.fixture()
+@pytest.fixture
 def strict_validator():
     """Create a PhysicsValidator with strict tolerances."""
     config = {
@@ -55,7 +55,7 @@ def strict_validator():
     return PhysicsValidator(config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def lenient_validator():
     """Create a PhysicsValidator with lenient tolerances."""
     config = {
@@ -67,7 +67,7 @@ def lenient_validator():
     return PhysicsValidator(config)
 
 
-@pytest.fixture()
+@pytest.fixture
 def table_state():
     """Create a standard table state for testing."""
     pocket_positions = [
@@ -88,7 +88,7 @@ def table_state():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def cue_ball():
     """Create a standard cue ball."""
     return BallState(
@@ -101,7 +101,7 @@ def cue_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def object_ball():
     """Create a standard object ball."""
     return BallState(
@@ -331,7 +331,15 @@ def test_validate_trajectory_position_discontinuity(validator):
 
     # Should generate warning for large position discontinuity (90 pixels >> 1 pixel tolerance)
     assert len(result.warnings) >= 1
-    assert any(w.error_type == "position_discontinuity" for w in result.warnings)
+    warning = next(
+        w for w in result.warnings if w.error_type == "position_discontinuity"
+    )
+    assert warning.details["expected_position"]["scale"] == [1.0, 1.0]
+    assert warning.details["actual_position"]["scale"] == [1.0, 1.0]
+    assert warning.details["position_unit"] == "canonical_pixels"
+    assert warning.details["error_distance"] > 0
+    assert warning.details["distance_unit"] == "canonical_pixels"
+    assert warning.details["distance_scale"] == [1.0, 1.0]
 
 
 def test_validate_trajectory_position_continuity_within_tolerance(validator):
@@ -570,6 +578,13 @@ def test_validate_collision_position_far_from_balls(validator):
 
     # Should generate warning
     assert len(result.warnings) >= 1
+    position_warning = next(
+        warning
+        for warning in result.warnings
+        if warning.error_type == "collision_position"
+    )
+    assert position_warning.details["distance_unit"] == "canonical_pixels"
+    assert position_warning.details["distance_scale"] == [1.0, 1.0]
 
 
 # ============================================================================
@@ -852,7 +867,37 @@ def test_validate_ball_state_position_out_of_bounds(validator, table_state):
 
     assert result.is_valid is False
     assert len(result.errors) >= 1
-    assert any(e.error_type == "position_out_of_bounds" for e in result.errors)
+    error = next(e for e in result.errors if e.error_type == "position_out_of_bounds")
+    assert error.details["position"]["scale"] == [1.0, 1.0]
+    assert error.details["position_unit"] == "canonical_pixels"
+    assert error.details["ball_radius"] == BALL_RADIUS_4K
+    assert error.details["ball_radius_scale"] == [1.0, 1.0]
+    assert error.details["ball_radius_unit"] == "canonical_pixels"
+    assert error.details["table_width"] == table_state.width
+    assert error.details["table_height"] == table_state.height
+    assert error.details["table_dimensions_scale"] == [1.0, 1.0]
+    assert error.details["table_dimensions_unit"] == "canonical_pixels"
+
+
+def test_validate_ball_state_invalid_radius_reports_canonical_scale(validator):
+    """Validation detail keeps the radius' canonical pixel contract explicit."""
+    ball = BallState(
+        id="test",
+        position=Vector2D(800.0, 800.0, scale=(1.0, 1.0)),
+        velocity=Vector2D(0.0, 0.0, scale=(1.0, 1.0)),
+        radius=BALL_RADIUS_4K,
+        mass=0.17,
+    )
+    # Model construction correctly rejects invalid radii. Mutate afterward to
+    # exercise the validator's defensive path for malformed legacy state.
+    ball.radius = 0.0
+
+    result = validator.validate_ball_state(ball)
+    error = next(e for e in result.errors if e.error_type == "invalid_radius")
+
+    assert error.details["radius"] == 0.0
+    assert error.details["radius_scale"] == [1.0, 1.0]
+    assert error.details["radius_unit"] == "canonical_pixels"
 
 
 def test_validate_ball_state_pocketed_ball_position_ignored(validator, table_state):
@@ -995,7 +1040,10 @@ def test_validate_forces_negative_mass(validator):
 
 def test_validate_forces_nan_values(validator):
     """Test detection of NaN force values."""
-    forces = Vector2D(float("nan"), 5.0, scale=(1.0, 1.0))
+    forces = Vector2D(0.0, 5.0, scale=(1.0, 1.0))
+    # Simulate corruption after construction; the coordinate boundary now
+    # rejects non-finite inputs before a vector can be created.
+    forces.x = float("nan")
     mass = 0.17
     result = validator.validate_forces(forces, mass)
 
@@ -1007,7 +1055,8 @@ def test_validate_forces_nan_values(validator):
 
 def test_validate_forces_infinite_values(validator):
     """Test detection of infinite force values."""
-    forces = Vector2D(float("inf"), 5.0, scale=(1.0, 1.0))
+    forces = Vector2D(0.0, 5.0, scale=(1.0, 1.0))
+    forces.x = float("inf")
     mass = 0.17
     result = validator.validate_forces(forces, mass)
 
@@ -1427,7 +1476,9 @@ def test_validate_system_state_ball_overlap(validator, table_state):
 
     assert result.is_valid is False
     assert len(result.errors) >= 1
-    assert any(e.error_type == "ball_overlap" for e in result.errors)
+    overlap = next(e for e in result.errors if e.error_type == "ball_overlap")
+    assert overlap.details["distance_unit"] == "canonical_pixels"
+    assert overlap.details["distance_scale"] == [1.0, 1.0]
 
 
 def test_validate_system_state_balls_touching(validator, table_state):

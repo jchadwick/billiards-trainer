@@ -1,3 +1,5 @@
+> Historical implementation report: the claims and `ConfigurationModule` references below describe an earlier implementation and are not current runtime guidance. Use the [Configuration Guide](CONFIG.md) and [configuration schema](../backend/config_schema_defaults.json) for the current configuration contract. The report is retained unchanged below.
+
 # Hardcoded Values Elimination - Complete Summary
 
 **Date:** 2025-10-09

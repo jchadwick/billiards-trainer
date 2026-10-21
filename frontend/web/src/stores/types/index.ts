@@ -173,34 +173,6 @@ export interface UIConfig {
   language: string;
 }
 
-// Authentication types
-export interface User {
-  id: string;
-  username: string;
-  email: string;
-  roles: string[];
-  preferences: UserPreferences;
-  lastLogin: Date;
-}
-
-export interface UserPreferences {
-  theme: UIConfig['theme'];
-  language: string;
-  notifications: {
-    gameEvents: boolean;
-    systemAlerts: boolean;
-    achievements: boolean;
-  };
-}
-
-export interface AuthState {
-  isAuthenticated: boolean;
-  user: User | null;
-  token: string | null;
-  refreshToken: string | null;
-  expiresAt: Date | null;
-}
-
 // UI state types
 export interface UIState {
   modals: {

@@ -7,14 +7,17 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional, ParamSpec, TypeVar, cast
 
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel, Field
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
 
 # Thread-local storage for correlation context
 _correlation_context = threading.local()
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 @dataclass
@@ -46,7 +49,7 @@ class TraceSpan:
         """Add a tag to the span."""
         self.tags[key] = value
 
-    def add_log(self, message: str, level: str = "info", **kwargs) -> None:
+    def add_log(self, message: str, level: str = "info", **kwargs: Any) -> None:
         """Add a log entry to the span."""
         log_entry = {
             "timestamp": time.time(),
@@ -162,7 +165,7 @@ class TraceManager:
         self.config = config
         self.active_traces: dict[str, TraceContext] = {}
         self.logger = logging.getLogger("api.tracing")
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task[None]] = None
         self._start_cleanup_task()
 
     def _start_cleanup_task(self) -> None:
@@ -191,9 +194,10 @@ class TraceManager:
                 expired_traces.append(trace_id)
 
         for trace_id in expired_traces:
-            trace_context = self.active_traces.pop(trace_id, None)
-            if trace_context:
-                trace_context.finish_trace()
+            expired_context = self.active_traces.get(trace_id)
+            if expired_context:
+                del self.active_traces[trace_id]
+                expired_context.finish_trace()
                 self.logger.debug(f"Cleaned up expired trace: {trace_id}")
 
     def should_sample_trace(self) -> bool:
@@ -300,7 +304,7 @@ def get_trace_context() -> Optional[TraceContext]:
 
 
 @contextmanager
-def trace_operation(operation_name: str, **tags):
+def trace_operation(operation_name: str, **tags: Any) -> Iterator[Optional[TraceSpan]]:
     """Context manager for tracing an operation."""
     trace_context = get_trace_context()
     if not trace_context:
@@ -333,7 +337,7 @@ def trace_operation(operation_name: str, **tags):
         _correlation_context.current_span_id = old_span_id
 
 
-def add_trace_log(message: str, level: str = "info", **kwargs) -> None:
+def add_trace_log(message: str, level: str = "info", **kwargs: Any) -> None:
     """Add a log entry to the current span."""
     span_id = get_current_span_id()
     if span_id:
@@ -358,15 +362,18 @@ def add_trace_tag(key: str, value: Any) -> None:
 class TracingMiddleware(BaseHTTPMiddleware):
     """Middleware for request tracing and correlation IDs."""
 
-    def __init__(self, app, config: Optional[TracingConfig] = None):
+    def __init__(self, app: ASGIApp, config: Optional[TracingConfig] = None) -> None:
         """Initialize tracing middleware."""
         super().__init__(app)
         self.config = config or TracingConfig()
         global _trace_manager
-        _trace_manager = TraceManager(self.config)
+        self.trace_manager = TraceManager(self.config)
+        _trace_manager = self.trace_manager
         self.logger = logging.getLogger("api.tracing")
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Process request with tracing."""
         # Check if path should be traced
         if request.url.path in self.config.excluded_paths:
@@ -374,11 +381,13 @@ class TracingMiddleware(BaseHTTPMiddleware):
 
         # Extract or generate trace and request IDs
         trace_id = request.headers.get(self.config.trace_header_name)
-        request_id = request.headers.get(self.config.request_id_header_name)
+        request_id = getattr(request.state, "request_id", None) or request.headers.get(
+            self.config.request_id_header_name
+        )
         parent_span_id = request.headers.get(self.config.parent_span_header_name)
 
         # Create trace context
-        trace_context = _trace_manager.create_trace_context(
+        trace_context = self.trace_manager.create_trace_context(
             request, trace_id, request_id
         )
 
@@ -487,25 +496,27 @@ def extract_correlation_info(request: Request) -> dict[str, Optional[str]]:
 
 
 # Decorator for automatic function tracing
-def traced(operation_name: Optional[str] = None):
+def traced(
+    operation_name: Optional[str] = None,
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator to automatically trace function calls."""
 
-    def decorator(func):
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
         actual_operation_name = operation_name or f"{func.__module__}.{func.__name__}"
 
         if asyncio.iscoroutinefunction(func):
 
-            async def async_wrapper(*args, **kwargs):
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
                 with trace_operation(actual_operation_name) as span:
                     if span:
                         span.add_tag("function.name", func.__name__)
                         span.add_tag("function.module", func.__module__)
                     return await func(*args, **kwargs)
 
-            return async_wrapper
+            return cast("Callable[P, R]", async_wrapper)
         else:
 
-            def sync_wrapper(*args, **kwargs):
+            def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
                 with trace_operation(actual_operation_name) as span:
                     if span:
                         span.add_tag("function.name", func.__name__)

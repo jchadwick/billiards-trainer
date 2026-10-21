@@ -1,23 +1,26 @@
 # Python
-__pycache__/
-*.py[cod]
+**/__pycache__/
+**/*.py[cod]
 *$py.class
 *.so
 .Python
-.venv/
-venv/
-env/
-ENV/
-.pytest_cache/
-.coverage
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
-dist/
-build/
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+**/.pytest_cache/
+**/.coverage
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.egg-info/
+**/dist/
+**/build/
+**/htmlcov/
+**/tests/
+**/test_data/
 
 # Node
-node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -39,7 +42,12 @@ yarn-error.log*
 # Documentation
 *.md
 !README.md
-docs/
+**/docs/
+thoughts/
+
+# The backend image has no frontend runtime. Keep web and visualization assets
+# out of the image build context.
+frontend/
 
 # Docker
 Dockerfile*
@@ -55,6 +63,7 @@ docker-compose*.yml
 .cache/
 temp/
 tmp/
+**/target/
 *.log
 logs/
 

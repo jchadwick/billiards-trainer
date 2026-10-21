@@ -5,7 +5,7 @@ A modular, extensible projector application for the Billiards Trainer system bui
 ## Features
 
 - **Modular Architecture**: Drop-in module system for easy extension
-- **UDP Networking**: Low-latency communication with backend (port 9999)
+- **UDP Receiver**: Local custom-message input on 127.0.0.1:9999; production backend publishing is not wired yet
 - **Hot Reload**: Modify modules without restarting (Ctrl+R)
 - **Calibration System**: 4-point perspective transformation
 - **Trajectory Visualization**: Real-time ball path rendering
@@ -15,12 +15,10 @@ A modular, extensible projector application for the Billiards Trainer system bui
 
 ### Ubuntu/Debian
 
-```bash
-# Install LÖVE2D
-sudo apt-get update
-sudo apt-get install love
+Install LÖVE2D from your distribution's configured package repository using
+the local package manager, then verify it:
 
-# Verify installation
+```bash
 love --version
 ```
 
@@ -121,9 +119,14 @@ return MyModule
 
 ### UDP Message Format (Port 9999)
 
+The LÖVE app binds to `127.0.0.1:9999` and receives this custom JSON protocol.
+It currently has no production backend UDP publisher or WebSocket client; the
+examples below describe the receiver contract and are exercised by local test
+senders. See [Backend Integration](#backend-integration) for the integration gap.
+
 ```json
 {
-    "type": "trajectory|collision|state|config",
+    "type": "trajectory|collision|aim|state|motion|event|frame|config",
     "timestamp": 1234567890.123,
     "data": {
         // Type-specific payload
@@ -138,6 +141,13 @@ return MyModule
 {
     "type": "trajectory",
     "data": {
+        "coordinate_space": "normalized_table",
+        "coordinate_scale": [1, 1],
+        "table_boundary": [
+            {"x": 0, "y": 0}, {"x": 1, "y": 0},
+            {"x": 1, "y": 1}, {"x": 0, "y": 1}
+        ],
+        "bounds": {"x": 0, "y": 0, "width": 1, "height": 1},
         "paths": [
             {
                 "points": [{"x": 0.1, "y": 0.2}, ...],
@@ -149,7 +159,13 @@ return MyModule
             {"x": 0.5, "y": 0.5, "type": "ball"}
         ],
         "ghostBalls": [
-            {"x": 0.3, "y": 0.4, "radius": 10, "number": 8}
+            {
+                "x": 0.3, "y": 0.4,
+                "radius": 10,
+                "radius_space": "projector_pixels",
+                "radius_scale": [1, 1],
+                "number": 8
+            }
         ]
     }
 }
@@ -160,6 +176,8 @@ return MyModule
 {
     "type": "collision",
     "data": {
+        "coordinate_space": "normalized_table",
+        "coordinate_scale": [1, 1],
         "x": 0.5,
         "y": 0.5,
         "type": "ball|cushion|pocket"
@@ -172,18 +190,74 @@ return MyModule
 {
     "type": "aim",
     "data": {
+        "coordinate_space": "normalized_table",
+        "coordinate_scale": [1, 1],
         "x1": 0.2, "y1": 0.3,
         "x2": 0.7, "y2": 0.6
     }
 }
 ```
 
+#### State geometry
+State messages that contain balls, cue points, or table geometry use the same
+`normalized_table` metadata at the `data` level. Ball centers, cue points,
+table corners, pockets, nested positions, and playing-area bounds are validated
+before the debug HUD sees them. Every nested x/y point inherits the message's
+table metadata; a nested `coordinate_space` override must also say
+`normalized_table` and carry identity `coordinate_scale`. Ball radii, when
+supplied, use explicit `projector_pixels` radius fields as in the trajectory
+example. Other width/height extents must declare `extent_space` and identity
+`extent_scale`; bounds use normalized table extents directly.
+
+Physical positions and `real_world_dimensions` remain separate data: a physical
+point declares `unit: "meters"` (optionally `coordinate_space: "world_meters"`)
+and physical dimensions declare `unit: "meters"`. These
+records are validated as finite SI values and are never sent through table or
+projector transforms. A physical radius uses `radius_unit: "meters"` and must
+not include projector-pixel scale fields. Unsupported or conflicting unit/space
+overrides reject the message.
+
+#### Motion
+Motion data requires normalized table metadata for its position and a separately
+tagged table-relative velocity:
+
+```json
+{
+  "type": "motion",
+  "data": {
+    "coordinate_space": "normalized_table",
+    "coordinate_scale": [1, 1],
+    "position": {"x": 0.4, "y": 0.6},
+    "velocity": {
+      "x": -0.2,
+      "y": 0.1,
+      "velocity_space": "normalized_table_per_second",
+      "velocity_scale": [1, 1]
+    }
+  }
+}
+```
+
+The velocity components are finite vectors and are not constrained to the
+position range [0, 1]. Missing velocity units or scale metadata are rejected.
+Events with nested table geometry follow the same normalized-table contract;
+non-spatial telemetry does not need coordinate metadata.
+
+#### Calibration and frame extents
+`show_calibration_chessboard` uses `coordinate_space: "projector_pixels"` and
+`coordinate_scale: [1, 1]`; `squareSize` and optional `offsetX`/`offsetY` are
+pixel extents/positions. A frame carrying width and height declares
+`dimensions_space: "image_pixels"` and `dimensions_scale: [1, 1]`. The hide
+command and frames with telemetry only contain no coordinates and need no such
+metadata.
+
 ## Coordinate System
 
-- All coordinates from backend are normalized (0-1 range)
-- Calibration system transforms to screen coordinates
-- (0,0) = top-left corner of table
-- (1,1) = bottom-right corner of table
+- Coordinate-bearing `trajectory`, `collision`, `aim`, `state`, `motion`, and `event` payloads must declare `coordinate_space: "normalized_table"` and `coordinate_scale: [1, 1]` at the owning message boundary.
+- Every point, including the optional four-point `table_boundary`, uses finite x/y values in the inclusive range 0–1. Optional `bounds` uses normalized x/y plus positive width/height and must fit inside the unit table rectangle. Nested points and bounds cannot use a singular `scale` field; they inherit the message-level `coordinate_scale`.
+- (0,0) is the table's top-left and (1,1) its bottom-right. The projector calibration maps this normalized table space to the display.
+- Ghost-ball `radius` is a positive extent in projector pixels and must declare `radius_space: "projector_pixels"` and `radius_scale: [1, 1]`. It is drawn directly in display pixels; it is not a table-space distance.
+- The UDP receiver rejects missing, non-identity, non-finite, or out-of-range coordinate metadata before forwarding a message to modules. Calibration files also store four `normalized_projector` corners with identity scale.
 
 ## Configuration Files
 
@@ -208,9 +282,9 @@ Automatically saved when exiting calibration mode.
 - Check for syntax errors in Lua files
 
 ### No trajectory display
-- Check UDP port 9999 is not blocked
-- Verify backend is sending messages
-- Check network status in UI overlay (green = connected)
+- Confirm the projector shows UDP as connected and a local sender targets `127.0.0.1:9999`.
+- The production backend does not currently publish this projector UDP protocol; backend WebSocket trajectories use a different payload shape.
+- Check that the sender uses the `normalized_table` contract and required scale metadata shown above.
 
 ### Calibration issues
 - Press 'R' in calibration mode to reset
@@ -254,7 +328,13 @@ local CONFIG = {
 
 ## Backend Integration
 
-To send messages from the backend to the projector, add UDP broadcasting:
+The production backend does not currently send UDP messages to this app. Its
+trajectory broadcaster publishes `lines` with scaled `start`/`end` points and
+structured collisions over the API WebSocket. The LÖVE app listens only on
+localhost UDP and expects the custom `paths` / `ghostBalls` payload documented
+above, so an adapter must convert and publish that contract before this app can
+receive production trajectories. The following snippet is an example of the
+UDP publisher such an adapter would need; it is not wired into the backend:
 
 ```python
 import socket
@@ -265,12 +345,16 @@ udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 message = {
     "type": "trajectory",
     "timestamp": time.time(),
-    "data": {...}
+    "data": {
+        "coordinate_space": "normalized_table",
+        "coordinate_scale": [1, 1],
+        "paths": [...]
+    }
 }
 
 udp_socket.sendto(
     json.dumps(message).encode(),
-    ("projector_ip", 9999)
+    ("127.0.0.1", 9999)
 )
 ```
 

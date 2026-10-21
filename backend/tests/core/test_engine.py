@@ -15,40 +15,34 @@ Test Coverage:
 """
 
 import math
-import sys
-from pathlib import Path
 
 import pytest
 
-# Add backend to path to allow direct imports
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
 # Import directly from module files to avoid triggering __init__.py
-from core.coordinates import Vector2D
-from core.models import BallState, Collision, TableState
-from core.physics.engine import PhysicsEngine, TrajectoryPoint
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, Collision, TableState
+from backend.core.physics.engine import PhysicsEngine, TrajectoryPoint
 
 
-@pytest.fixture()
+@pytest.fixture
 def physics_engine():
     """Create a basic physics engine for testing."""
     return PhysicsEngine()
 
 
-@pytest.fixture()
+@pytest.fixture
 def physics_engine_no_friction():
     """Create a physics engine with friction disabled."""
     return PhysicsEngine(config={"friction_enabled": False})
 
 
-@pytest.fixture()
+@pytest.fixture
 def physics_engine_no_spin():
     """Create a physics engine with spin disabled."""
     return PhysicsEngine(config={"spin_enabled": False})
 
 
-@pytest.fixture()
+@pytest.fixture
 def simple_table():
     """Create a simple test table with proper 4K dimensions."""
     # Standard 9ft table in 4K pixels
@@ -75,7 +69,7 @@ def simple_table():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def cue_ball():
     """Create a cue ball at table center with proper scale."""
     return BallState(
@@ -88,7 +82,7 @@ def cue_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def moving_ball():
     """Create a moving ball with proper velocity scale."""
     return BallState(
@@ -101,7 +95,7 @@ def moving_ball():
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def target_ball():
     """Create a stationary target ball."""
     return BallState(
@@ -117,7 +111,7 @@ def target_ball():
 class TestPhysicsEngineInitialization:
     """Test PhysicsEngine initialization and configuration."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_default_initialization(self):
         """Test engine initializes with default configuration."""
         engine = PhysicsEngine()
@@ -128,7 +122,7 @@ class TestPhysicsEngineInitialization:
         assert engine.magnus_effect_enabled is True
         assert engine.enable_masse_shots is True
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_custom_configuration(self):
         """Test engine initializes with custom configuration."""
         config = {
@@ -148,7 +142,7 @@ class TestPhysicsEngineInitialization:
 class TestBallStateCopying:
     """Test ball state copying with proper Vector2D scale preservation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_copy_ball_state_preserves_scale(self, physics_engine, cue_ball):
         """Test that _copy_ball_state preserves Vector2D scale metadata."""
         # Create a ball with specific scale metadata
@@ -179,7 +173,7 @@ class TestBallStateCopying:
         copied_ball.position.x = 2000.0
         assert original_ball.position.x == 1920.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_copy_ball_state_without_spin(self, physics_engine):
         """Test copying ball state when spin is None."""
         ball = BallState(
@@ -201,7 +195,7 @@ class TestBallStateCopying:
 class TestMotionIntegration:
     """Test motion integration with proper Vector2D scale handling."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_integrate_motion_with_friction(self, physics_engine, simple_table):
         """Test motion integration applies friction correctly."""
         ball = BallState(
@@ -229,7 +223,7 @@ class TestMotionIntegration:
         assert ball.position.scale == (1.0, 1.0)
         assert ball.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_integrate_motion_without_friction(
         self, physics_engine_no_friction, simple_table
     ):
@@ -257,7 +251,7 @@ class TestMotionIntegration:
         assert abs(ball.position.x - expected_x) < 0.01
         assert abs(ball.position.y - expected_y) < 0.01
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_integrate_motion_stops_below_threshold(self, physics_engine, simple_table):
         """Test that ball stops when velocity drops below threshold."""
         ball = BallState(
@@ -278,7 +272,7 @@ class TestMotionIntegration:
 class TestCollisionDetection:
     """Test collision detection with proper Vector2D instantiation."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_ball_collision_time(self, physics_engine):
         """Test ball-ball collision time calculation."""
         # Two balls on collision course
@@ -306,7 +300,7 @@ class TestCollisionDetection:
         expected_time = (500.0 - 72.0) / 500.0
         assert abs(collision_time - expected_time) < 0.01
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_ball_collision_time_moving_apart(self, physics_engine):
         """Test that no collision is detected when balls move apart."""
         ball1 = BallState(
@@ -329,7 +323,7 @@ class TestCollisionDetection:
         # No collision when moving apart
         assert collision_time is None
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_collision_position(self, physics_engine):
         """Test collision position calculation with proper scale."""
         ball = BallState(
@@ -351,7 +345,7 @@ class TestCollisionDetection:
         assert abs(collision_pos.y - expected_y) < 0.01
         assert collision_pos.scale == ball.position.scale
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_detect_cushion_collision(self, physics_engine, simple_table):
         """Test cushion collision detection with Vector2D scale."""
         # Ball moving toward left cushion
@@ -374,7 +368,7 @@ class TestCollisionDetection:
         assert collision.time < max_time
         assert collision.position.scale == ball.position.scale
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_detect_pocket_collision(self, physics_engine, simple_table):
         """Test pocket collision detection."""
         # Ball moving toward top-left pocket at (0, 0)
@@ -403,7 +397,7 @@ class TestCollisionDetection:
 class TestCollisionResolution:
     """Test collision resolution with proper physics and scale handling."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_resolve_ball_collision(self, physics_engine):
         """Test ball-ball collision resolution preserves momentum and energy."""
         # Create two balls for head-on collision
@@ -446,7 +440,7 @@ class TestCollisionResolution:
         assert ball1.velocity.scale == (1.0, 1.0)
         assert ball2.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_resolve_cushion_collision(self, physics_engine, simple_table):
         """Test cushion collision resolution reverses velocity component."""
         ball = BallState(
@@ -482,7 +476,7 @@ class TestCollisionResolution:
         # Scale preserved
         assert ball.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_resolve_pocket_collision(self, physics_engine):
         """Test pocket collision stops ball and marks as pocketed."""
         ball = BallState(
@@ -518,7 +512,7 @@ class TestCollisionResolution:
 class TestTrajectoryCalculation:
     """Test trajectory calculation with comprehensive Vector2D coverage."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_trajectory_stationary_ball(self, physics_engine, simple_table):
         """Test trajectory of stationary ball returns single point."""
         ball = BallState(
@@ -539,7 +533,7 @@ class TestTrajectoryCalculation:
         assert trajectory[0].position.y == ball.position.y
         assert trajectory[0].position.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_trajectory_moving_ball(self, physics_engine, simple_table):
         """Test trajectory of moving ball contains multiple points."""
         ball = BallState(
@@ -566,7 +560,7 @@ class TestTrajectoryCalculation:
         assert trajectory[0].position.x == pytest.approx(ball.position.x, abs=0.1)
         assert trajectory[0].position.y == pytest.approx(ball.position.y, abs=0.1)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_trajectory_with_collision(self, physics_engine, simple_table):
         """Test trajectory with ball collision generates valid trajectory."""
         # Moving ball
@@ -605,7 +599,7 @@ class TestTrajectoryCalculation:
             assert point.collision_type == "ball"
             assert point.position.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_trajectory_with_spin(self, physics_engine, simple_table):
         """Test trajectory calculation with spin enabled."""
         ball = BallState(
@@ -629,7 +623,7 @@ class TestTrajectoryCalculation:
             assert point.position.scale == (1.0, 1.0)
             assert point.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_trajectory_records_proper_time(self, physics_engine, simple_table):
         """Test that trajectory points record time correctly."""
         ball = BallState(
@@ -655,7 +649,7 @@ class TestTrajectoryCalculation:
 class TestIntegrationWithSpin:
     """Test motion integration with spin effects."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_integrate_motion_with_spin(self, physics_engine, simple_table):
         """Test _integrate_motion_with_spin preserves scale."""
         ball = BallState(
@@ -677,7 +671,7 @@ class TestIntegrationWithSpin:
         # Position should have changed
         assert ball.position.x != 1600.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_integrate_motion_with_spin_disabled(
         self, physics_engine_no_spin, simple_table
     ):
@@ -704,7 +698,7 @@ class TestIntegrationWithSpin:
 class TestVectorScaleValidation:
     """Test that all Vector2D instantiations have proper scale parameters."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_all_trajectory_points_have_scale(self, physics_engine, simple_table):
         """Test that all trajectory points have valid scale metadata."""
         ball = BallState(
@@ -735,7 +729,7 @@ class TestVectorScaleValidation:
             assert point.velocity.scale[0] > 0
             assert point.velocity.scale[1] > 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_collision_position_has_scale(self, physics_engine):
         """Test that collision positions have proper scale."""
         ball = BallState(
@@ -754,7 +748,7 @@ class TestVectorScaleValidation:
             assert pos.scale is not None
             assert pos.scale == ball.position.scale
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_copied_balls_preserve_scale(self, physics_engine):
         """Test that copied balls preserve all Vector2D scales."""
         original = BallState(
@@ -780,7 +774,7 @@ class TestVectorScaleValidation:
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_zero_velocity_ball(self, physics_engine, simple_table):
         """Test handling of ball with zero velocity."""
         ball = BallState(
@@ -798,7 +792,7 @@ class TestEdgeCases:
         assert len(trajectory) == 1
         assert trajectory[0].velocity.magnitude() < 0.001
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_very_high_velocity(self, physics_engine, simple_table):
         """Test handling of very high velocity ball."""
         ball = BallState(
@@ -819,7 +813,7 @@ class TestEdgeCases:
             assert point.position.scale == (1.0, 1.0)
             assert point.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_multiple_balls_on_table(self, physics_engine, simple_table):
         """Test trajectory calculation with multiple balls on table."""
         moving_ball = BallState(
@@ -862,7 +856,7 @@ class TestEdgeCases:
 class TestPhysicsAccuracy:
     """Test physics accuracy and conservation laws."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_momentum_conservation_in_collision(self, physics_engine):
         """Test that momentum is conserved in ball collisions."""
         # Equal mass balls in head-on collision
@@ -901,7 +895,7 @@ class TestPhysicsAccuracy:
         # Note: Perfect conservation only without restitution
         assert abs(final_momentum - initial_momentum) < initial_momentum * 0.2
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_friction_reduces_velocity(self, physics_engine, simple_table):
         """Test that friction consistently reduces velocity."""
         ball = BallState(

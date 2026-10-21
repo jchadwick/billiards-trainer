@@ -9,7 +9,7 @@ proper coordinate space tracking. See constants_4k.py for canonical dimensions.
 
 import math
 
-from config import Config, config
+from backend.config import Config, config
 
 from ..coordinates import Vector2D
 
@@ -397,12 +397,14 @@ class GeometryUtils:
 
         # Get tolerance from config
         config = _get_config()
-        tolerance = config.get(
-            "core.utils.geometry.tolerance.triangle_point_test", default=1e-10
+        tolerance = float(
+            config.get(
+                "core.utils.geometry.tolerance.triangle_point_test", default=1e-10
+            )
         )
 
         # Point is inside if sum of sub-triangle areas equals main triangle area
-        return abs(area - (area1 + area2 + area3)) < tolerance
+        return bool(abs(area - (area1 + area2 + area3)) < tolerance)
 
     @staticmethod
     def lerp(start: Vector2D, end: Vector2D, t: float) -> Vector2D:
@@ -482,7 +484,7 @@ def find_ball_cue_is_pointing_at(
     cue_tip: tuple[float, float] | Vector2D,
     cue_direction: tuple[float, float] | Vector2D | None = None,
     cue_angle: float | None = None,
-    balls: list[tuple[float, float] | Vector2D] = None,
+    balls: list[tuple[float, float] | Vector2D] | None = None,
     max_perpendicular_distance: float = 40.0,
 ) -> int | None:
     """Find which ball the cue is currently pointing at.

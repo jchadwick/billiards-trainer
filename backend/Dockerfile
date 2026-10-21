@@ -29,8 +29,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Upgrade pip and install wheel
 RUN pip install --upgrade pip setuptools wheel
 
-# Copy requirements and install dependencies
-COPY requirements.txt /tmp/requirements.txt
+# Use the CPU-only PyTorch index. PyPI's default Linux wheels now bundle CUDA,
+# which expanded this CPU deployment image by several gigabytes.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch \
+    torchvision \
+    && python -c "import torch, torchvision; assert not torch.cuda.is_available(); print(f'CPU PyTorch {torch.__version__}, torchvision {torchvision.__version__}')"
 
 # Install core dependencies first
 RUN pip install --no-cache-dir \
@@ -48,28 +52,21 @@ RUN pip install --no-cache-dir \
     sqlalchemy \
     redis \
     aiofiles \
-    aiohttp
+    aiohttp \
+    ultralytics \
+    onnxruntime \
+    onnx
 
 # Install OpenCV headless (no GUI dependencies)
 RUN pip install --no-cache-dir opencv-python-headless
 
-# Install remaining dependencies from requirements.txt
-# Skip optional GPU/display packages that may fail in headless environment
+# Install the remaining runtime dependencies. Calibration uses scikit-learn;
+# test runners and projector display libraries stay out of the production image.
 RUN pip install --no-cache-dir \
-    scikit-image \
     scikit-learn \
-    numba \
     Pillow \
     email-validator \
-    jsonschema \
-    pytest \
-    pytest-asyncio \
-    httpx \
-    || echo "Some optional packages skipped"
-
-# Try PyOpenGL, pygame, moderngl but don't fail if they can't install
-RUN pip install --no-cache-dir PyOpenGL pygame moderngl || \
-    echo "Display packages skipped (not needed for headless operation)"
+    jsonschema
 
 # ========================
 # Production Stage
@@ -98,14 +95,8 @@ ENV PYTHONUNBUFFERED=1 \
     # Application settings
     ENVIRONMENT=production \
     DEBUG=false \
-    LOG_LEVEL=INFO \
     # API configuration
-    API_HOST=0.0.0.0 \
     API_PORT=8000 \
-    # Performance
-    MAX_CONCURRENT_CONNECTIONS=100 \
-    API_TIMEOUT=30 \
-    WEBSOCKET_TIMEOUT=60 \
     # Directories
     CONFIG_DIR=/app/config \
     DATA_DIR=/app/data \
@@ -132,7 +123,7 @@ COPY --from=builder /opt/venv /opt/venv
 RUN mkdir -p /app/config /app/data /app/logs /app/temp
 
 # Copy entrypoint script
-COPY --chown=root:root entrypoint.sh /app/entrypoint.sh
+COPY --chown=root:root backend/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
 # Set proper ownership for app directory
@@ -140,6 +131,12 @@ RUN chown -R appuser:appuser /app
 
 # Copy application code
 COPY --chown=appuser:appuser . /app/
+
+# The repository may use a symlink for its externally managed model directory.
+# Normalize that path in the image so Docker volume mounts can target /app/models.
+RUN if [ -L /app/models ]; then rm /app/models; fi \
+    && mkdir -p /app/models \
+    && chown appuser:appuser /app/models
 
 # Switch to non-root user
 USER appuser
@@ -152,7 +149,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${API_PORT:-8000}/api/v1/health || exit 1
 
 # Expose ports
-EXPOSE 8000 8001
+EXPOSE 8000
 
 # Set entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]

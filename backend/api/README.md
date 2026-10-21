@@ -1,258 +1,72 @@
-# Billiards Trainer API Module
+# Backend API
 
-A comprehensive FastAPI application for the billiards training system, providing RESTful endpoints and WebSocket connections for real-time data streaming.
+The FastAPI application exposes versioned HTTP routes and one WebSocket stream.
+The live OpenAPI document at `/openapi.json` is the authoritative HTTP contract;
+[the API reference](../../docs/API_REFERENCE.md) documents coordinate and
+transport behavior.
 
-## ✅ Implementation Status
+## Run locally
 
-### Core Application Structure
-- ✅ **FastAPI Application Setup** - Complete with lifecycle management
-- ✅ **Dependency Injection** - Integrated CoreModule and ConfigurationModule
-- ✅ **Application State Management** - Centralized state container
-- ✅ **Startup/Shutdown Lifecycle** - Proper async context management
-
-### Middleware Stack
-- ✅ **Error Handling** - Comprehensive error middleware with structured responses
-- ✅ **Rate Limiting** - Client-based rate limiting protection
-- ✅ **Request Logging** - Detailed request/response logging with timing
-
-### API Endpoints
-- ✅ **Health Check Routes** (`/api/v1/health`) - System monitoring and status
-- ✅ **Configuration Routes** (`/api/v1/config`) - System configuration management
-- ✅ **Game State Routes** (`/api/v1/game`) - Game state access and control
-- ✅ **Calibration Routes** (`/api/v1/calibration`) - Calibration control
-
-### WebSocket System
-- ✅ **Connection Handler** - Advanced connection management with monitoring
-- ✅ **Session Manager** - Client session lifecycle and metadata
-- ✅ **Message Broadcasting** - Efficient real-time data streaming
-- ✅ **Subscription System** - Selective data stream subscriptions
-
-### Data Models
-- ✅ **Request Models** - Comprehensive Pydantic models for validation
-- ✅ **Response Models** - Structured response schemas
-- ✅ **WebSocket Schemas** - Message formats for real-time communication
-- ✅ **Common Models** - Shared data structures and utilities
-
-### Development Tools
-- ✅ **Development Server** - Hot-reload development server script
-- ✅ **Integration Tests** - Comprehensive API endpoint testing
-- ✅ **Error Handling Testing** - Validation of error response formats
-
-## 🏗️ Architecture Overview
-
-### Main Components
-
-```
-api/
-├── main.py              # FastAPI application setup and lifecycle
-├── dependencies.py      # Dependency injection functions
-├── middleware/          # Request/response middleware
-│   ├── authentication.py
-│   ├── cors.py
-│   ├── error_handler.py
-│   └── rate_limit.py
-├── routes/              # API endpoint handlers
-│   ├── health.py
-│   ├── config.py
-│   ├── calibration.py
-│   ├── game.py
-│   └── auth.py
-├── websocket/           # WebSocket system
-│   ├── handler.py
-│   ├── manager.py
-│   └── schemas.py
-├── models/              # Pydantic data models
-│   ├── requests.py
-│   ├── responses.py
-│   └── common.py
-└── utils/               # Utility functions
-```
-
-### Key Features
-
-1. **Comprehensive Error Handling**
-   - Structured error responses with error codes
-   - Security-aware error sanitization
-   - Request correlation tracking
-
-2. **Real-time Communication**
-   - WebSocket connections for live data streaming
-   - Subscription-based data streaming
-   - Connection quality monitoring
-   - Automatic reconnection handling
-
-3. **Configuration Management**
-   - Live configuration updates
-   - Configuration validation
-   - Import/export functionality
-   - Section-based configuration control
-
-4. **Health Monitoring**
-   - Comprehensive health checks
-   - Performance metrics collection
-   - Component status monitoring
-   - Graceful shutdown capabilities
-
-## 🚀 Getting Started
-
-### Running the Development Server
+From the repository root:
 
 ```bash
-# Simple development server
-python dev_server.py --simple
-
-# Production-like server (if dependencies are resolved)
-python dev_server.py --production
-
-# Custom configuration
-python dev_server.py --host 0.0.0.0 --port 8000 --no-reload
+python -m backend.main --config config.json
 ```
 
-### Running Tests
+Interactive documentation is available at `http://localhost:8000/docs`, and the
+OpenAPI schema is at `http://localhost:8000/openapi.json`.
 
-```bash
-# Integration tests
-python test_integration.py
+## Current routes
 
-# Simple application test
-python test_simple.py
-```
+- HTTP API routes use the `/api/v1` prefix. Health, readiness, configuration,
+  game state, calibration, diagnostics, and video routes are registered by
+  `backend/api/main.py`.
+- The only WebSocket connection route is
+  `ws://localhost:8000/api/v1/websocket/ws`.
+- The LÖVE projector listens on UDP port 9999 for its own custom `paths` and
+  `ghostBalls` payload. Production backend publishing to that receiver is not
+  wired; backend WebSocket trajectories use a different schema.
+- WebSocket video broadcast is disabled. Use the HTTP video and frame routes
+  for camera output.
 
-### API Documentation
+WebSocket clients subscribe by sending a message with a `type` of `subscribe`
+and a `data.streams` array. Available stream names and payload schemas are
+maintained in `backend/api/websocket/schemas.py`. State and trajectory image
+coordinates carry explicit scale metadata; see the API reference for the full
+coordinate contract.
 
-When the server is running, access the interactive API documentation:
+## Configuration
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
-
-## 📋 API Endpoints
-
-### Health & Status
-- `GET /api/v1/health` - System health check
-- `GET /api/v1/health/ready` - Readiness check
-- `GET /api/v1/health/live` - Liveness check
-- `GET /api/v1/health/metrics` - Performance metrics
-
-### Configuration
-- `GET /api/v1/config` - Retrieve configuration
-- `PUT /api/v1/config` - Update configuration
-- `POST /api/v1/config/reset` - Reset to defaults
-- `POST /api/v1/config/import` - Import configuration
-- `GET /api/v1/config/export` - Export configuration
-
-### Game State
-- `GET /api/v1/game/state` - Current game state
-- `GET /api/v1/game/history` - Game state history
-- `POST /api/v1/game/reset` - Reset game state
-
-### WebSocket
-- `WS /ws` - Real-time data streaming
-
-## 🔧 Configuration
-
-The API module integrates with the ConfigurationModule and CoreModule:
+The API reads the shared `backend.config.Config` singleton. The application
+launcher selects the active JSON file before starting services. Configuration
+updates go through the shared schema validator and atomic persistence store.
 
 ```python
-# Core module initialization
-core_config = CoreModuleConfig(
-    physics_enabled=True,
-    prediction_enabled=True,
-    assistance_enabled=True,
-    async_processing=True
-)
+from backend.config import Config
 
-# Application state management
-app_state = ApplicationState()
-app_state.core_module = CoreModule(core_config)
-app_state.config_module = ConfigurationModule()
+Config.set_config_file("config.json")
+config = Config()
+settings = config.get_all()
+config.apply_updates({"vision": {"camera": {"fps": 30}}})
 ```
 
-## 📊 Monitoring
+The HTTP configuration routes include validation-only updates and schema
+retrieval. `force_update` can bypass warnings, not validation errors.
 
-### Health Checks
-- Component health status (core, config, websocket)
-- System resource monitoring (CPU, memory, disk)
-- Network statistics
-- Application metrics
+## Lifecycle and deployment
 
-### Logging
-- Structured logging with request correlation
-- Performance timing
-- Security event logging
-- Error tracking with context
+The application owns one camera/vision lifecycle and one in-process state for a
+table. Run one backend worker per table. Redis can coordinate rate-limit
+admission when explicitly selected, but does not distribute camera ownership,
+game state, or broadcasts.
 
-## 🔄 WebSocket Protocol
+## Tests
 
-### Message Format
-```json
-{
-  "type": "frame|state|trajectory|alert|config",
-  "timestamp": "ISO 8601 timestamp",
-  "sequence": 12345,
-  "data": { }
-}
+Run API tests from the repository root with:
+
+```bash
+python -m pytest backend/tests/unit/api --no-cov
 ```
 
-### Subscription Management
-```json
-{
-  "type": "subscribe",
-  "data": {
-    "streams": ["frame", "state", "trajectory"]
-  }
-}
-```
-
-## ⚡ Performance
-
-### Optimizations
-- Async/await throughout the application
-- Connection pooling and reuse
-- Efficient JSON serialization
-- Request/response compression
-- WebSocket message batching
-
-### Scalability
-- Stateless design for horizontal scaling
-- Redis support for distributed sessions
-- Load balancer compatible
-- Graceful degradation under load
-
-## 🧪 Testing
-
-### Test Coverage
-- ✅ Application startup/shutdown
-- ✅ Health endpoint functionality
-- ✅ CORS configuration
-- ✅ OpenAPI documentation generation
-- ✅ Error handling and response formats
-
-### Future Testing
-- Authentication flow testing
-- WebSocket connection testing
-- Configuration management testing
-- Load testing
-- Security testing
-
-## 📝 Implementation Notes
-
-### Current Status
-The FastAPI application structure is complete and functional. The basic application starts successfully and can handle HTTP requests. All major components are implemented according to the SPECS.md requirements.
-
-### Integration Dependencies
-Some features require full integration with the CoreModule and ConfigurationModule. The current implementation includes fallback handling for when these dependencies are not fully available.
-
-### Next Steps
-1. Resolve circular import issues in the main application
-2. Complete integration with CoreModule and ConfigurationModule
-3. Add comprehensive authentication testing
-4. Implement WebSocket message broadcasting
-5. Add production deployment configuration
-
-## 🔗 Related Documentation
-- [API Specifications](SPECS.md) - Complete API requirements and specifications
-- [Core Module](../core/) - Game logic and physics engine
-- [Configuration Module](../config/) - System configuration management
-- [Vision Module](../vision/) - Computer vision processing
-- [WebSocket Protocol](websocket/README.md) - Real-time communication details
+See [API specifications](SPECS.md) for requirement history and
+[the backend README](../README.md) for repository-wide setup and verification.

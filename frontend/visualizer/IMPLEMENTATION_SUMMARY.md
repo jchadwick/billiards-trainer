@@ -1,3 +1,5 @@
+> Historical implementation report. Its endpoints and progress notes predate the current API. The live visualizer configuration uses `/api/v1/websocket/ws`; see [current visualizer specifications](SPECS.md) and [default configuration](config/default.json).
+
 # LOVE2D Visualizer Implementation Summary
 
 **Session Date:** October 13, 2025

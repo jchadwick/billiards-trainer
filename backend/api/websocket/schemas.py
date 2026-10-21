@@ -1,21 +1,43 @@
 """WebSocket message protocol schemas using Pydantic for validation and documentation."""
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from backend.api.models.common import PositionWithScale
 
-class MessageType(str, Enum):
-    """WebSocket message types."""
 
-    # Outbound data streams
+def _validate_scale_factors(value: list[float]) -> list[float]:
+    """Validate scale metadata for pixel dimensions that are not points."""
+    if len(value) != 2 or not all(math.isfinite(item) and item > 0 for item in value):
+        raise ValueError("Scale factors must contain two positive finite values")
+    return value
+
+
+class StreamType(str, Enum):
+    """Data streams supported by the connection manager and API."""
+
     FRAME = "frame"
     STATE = "state"
     TRAJECTORY = "trajectory"
     ALERT = "alert"
     CONFIG = "config"
+    PERFORMANCE = "performance"
+
+
+class MessageType(str, Enum):
+    """WebSocket message types."""
+
+    # Outbound data streams
+    FRAME = StreamType.FRAME.value
+    STATE = StreamType.STATE.value
+    TRAJECTORY = StreamType.TRAJECTORY.value
+    ALERT = StreamType.ALERT.value
+    CONFIG = StreamType.CONFIG.value
+    PERFORMANCE = StreamType.PERFORMANCE.value
     METRICS = "metrics"
 
     # Connection management
@@ -82,7 +104,7 @@ class FrameData(BaseModel):
 
     @field_validator("format")
     @classmethod
-    def validate_format(cls, v):
+    def validate_format(cls: type[Any], v: str) -> str:
         """Validate image format is one of the supported types."""
         allowed_formats = ["jpeg", "jpg", "png", "webp"]
         if v.lower() not in allowed_formats:
@@ -91,109 +113,272 @@ class FrameData(BaseModel):
 
 
 class BallData(BaseModel):
-    """Individual ball data structure."""
+    """Individual ball data structure shared by Python and Rust providers.
 
-    id: str = Field(..., description="Ball identifier (cue, 1, 2, ..., 8ball, etc.)")
-    position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="[x, y] position"
+    Rust localization intentionally does not invent color or identity before
+    there is evidence. The optional scene fields describe the measurement and
+    its provenance while retaining the established state stream shape.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Union[str, int] = Field(
+        ..., description="Provider track identifier; may be numeric for legacy states"
+    )
+    position: PositionWithScale = Field(
+        ..., description="Ball center in scaled image coordinates"
     )
     radius: float = Field(..., gt=0, description="Ball radius in pixels")
-    color: str = Field(..., description="Ball color name or hex code")
-    velocity: Optional[list[float]] = Field(
-        None, min_length=2, max_length=2, description="[vx, vy] velocity"
+    radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for radius in the source image axes",
+    )
+    color: Optional[str] = Field(
+        None,
+        description="Ball color name or hex code; null when color is not established",
+    )
+    velocity: Optional[PositionWithScale] = Field(
+        None, description="Velocity in scaled image-pixel units per second"
     )
     confidence: float = Field(1.0, ge=0, le=1, description="Detection confidence")
     visible: bool = Field(True, description="Whether ball is visible/detected")
+    is_observed: bool = Field(
+        True,
+        description="Whether this position has a detector match in the latest frame",
+    )
+    number: Optional[int] = Field(
+        None, ge=1, le=15, description="Numbered-ball identity when established"
+    )
+    identity_status: Optional[Literal["unknown", "identified"]] = Field(
+        None, description="Whether numbered-ball identity is known"
+    )
+    identity_confidence: Optional[float] = Field(
+        None, ge=0, le=1, description="Confidence of the optional identity result"
+    )
+    identity_evidence: list[dict[str, Any]] = Field(
+        default_factory=list, description="Evidence supporting optional identity"
+    )
+    confidence_kind: Optional[Literal["detector_observation", "unavailable"]] = Field(
+        None,
+        description="Whether confidence describes a current detector match",
+    )
+    last_observation_confidence: Optional[float] = Field(
+        None, ge=0, le=1, description="Historical confidence from the last detection"
+    )
+    tracking_status: Optional[Literal["observed", "tracked", "occluded", "lost"]] = (
+        Field(None, description="Location track state for this source observation")
+    )
+    position_kind: Optional[str] = Field(
+        None, description="Measured, estimated, or cached position semantics"
+    )
+    radius_unit: Optional[Literal["canonical_pixels"]] = Field(
+        None, description="Unit of the compatibility radius field"
+    )
+    radius_source: Optional[str] = Field(
+        None, description="Whether radius is measured or a compatibility assumption"
+    )
+    table_position: Optional["TablePositionData"] = Field(
+        None, description="Calibrated position in physical table coordinates"
+    )
+    source_observation: Optional["SourceObservationData"] = Field(
+        None, description="Original source identity and capture-stage timestamp"
+    )
+    image_space: Optional[Literal["raw", "rectified"]] = Field(
+        None, description="Image coordinate space for the reported position"
+    )
+    image_width_px: Optional[int] = Field(None, gt=0)
+    image_height_px: Optional[int] = Field(None, gt=0)
 
-    @field_validator("position", "velocity")
+    @field_validator("radius_scale")
     @classmethod
-    def validate_coordinates(cls, v):
-        """Validate coordinate arrays are exactly [x, y] format."""
-        if v is not None and len(v) != 2:
-            raise ValueError("Coordinates must be [x, y] format")
-        return v
+    def validate_radius_scale(cls: type[Any], v: list[float]) -> list[float]:
+        """Reject scales that cannot map the radius into canonical pixels."""
+        return _validate_scale_factors(v)
+
+    type: Optional[str] = Field(
+        None, description="Ball type when established; unknown remains explicit"
+    )
+
+
+class TablePositionData(BaseModel):
+    """Physical table-plane position, separate from image pixels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(..., allow_inf_nan=False)
+    y: float = Field(..., allow_inf_nan=False)
+    unit: Literal["millimeters"]
+    origin: Literal["playing_surface_center"]
+
+
+class SourceObservationTimestamp(BaseModel):
+    """Source clock evidence; ticks are not gateway wall-clock timestamps."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ticks: str = Field(..., pattern=r"^[0-9]+$")
+    unit: Literal["nanoseconds"]
+    clock: str
+    domain_id: str
+    stage: str
+
+
+class SourceObservationData(BaseModel):
+    """Frame identity and source timestamp for one ball location."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    engine_instance_id: str
+    session_id: str
+    frame_id: str
+    timestamp: SourceObservationTimestamp
 
 
 class CueData(BaseModel):
     """Cue stick data structure."""
 
     angle: float = Field(..., description="Cue angle in degrees")
-    position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="[x, y] cue position"
+    position: PositionWithScale = Field(
+        ..., description="Cue position in scaled image coordinates"
     )
     detected: bool = Field(True, description="Whether cue is detected")
     confidence: float = Field(1.0, ge=0, le=1, description="Detection confidence")
     length: Optional[float] = Field(
         None, gt=0, description="Detected cue length in pixels"
     )
-    tip_position: Optional[list[float]] = Field(
-        None, min_length=2, max_length=2, description="Cue tip position"
+    length_scale: Optional[list[float]] = Field(
+        None,
+        min_length=2,
+        max_length=2,
+        validate_default=True,
+        description="Scale factors for length in the source image axes",
     )
+    tip_position: Optional[PositionWithScale] = Field(
+        None, description="Cue tip position in scaled image coordinates"
+    )
+    butt_position: Optional[PositionWithScale] = Field(
+        None, description="Measured cue butt endpoint in scaled image coordinates"
+    )
+
+    @field_validator("length_scale")
+    @classmethod
+    def validate_length_scale(
+        cls: type[Any], value: Optional[list[float]], info: Any
+    ) -> Optional[list[float]]:
+        """Require scale whenever a pixel length is supplied."""
+        if info.data.get("length") is not None and value is None:
+            raise ValueError("length_scale is required when length is supplied")
+        if value is not None:
+            return _validate_scale_factors(value)
+        return value
+
+
+class RailSegmentData(BaseModel):
+    """A table boundary segment with scaled endpoints."""
+
+    start: PositionWithScale = Field(..., description="Rail start point")
+    end: PositionWithScale = Field(..., description="Rail end point")
+
+
+class TableDimensionsData(BaseModel):
+    """Physical table dimensions, represented in meters rather than pixels."""
+
+    width: float = Field(..., gt=0, allow_inf_nan=False)
+    height: float = Field(..., gt=0, allow_inf_nan=False)
+    unit: Literal["meters"] = Field(..., description="Dimension unit")
 
 
 class TableData(BaseModel):
     """Pool table data structure."""
 
-    corners: list[list[float]] = Field(
-        ..., min_length=4, max_length=4, description="Table corner coordinates"
+    corners: list[PositionWithScale] = Field(
+        ..., min_length=4, max_length=4, description="Scaled table corner coordinates"
     )
-    pockets: list[list[float]] = Field(..., description="Pocket center coordinates")
-    rails: Optional[list[dict[str, Any]]] = Field(None, description="Rail segment data")
+    pockets: list[PositionWithScale] = Field(
+        ..., description="Scaled pocket center coordinates"
+    )
+    rails: Optional[list[RailSegmentData]] = Field(
+        None, description="Scaled rail segments"
+    )
     calibrated: bool = Field(True, description="Whether table is properly calibrated")
-    dimensions: Optional[dict[str, float]] = Field(
-        None, description="Real-world table dimensions"
+    dimensions: Optional[TableDimensionsData] = Field(
+        None, description="Real-world table dimensions in meters"
     )
 
     @field_validator("corners")
     @classmethod
-    def validate_corners(cls, v):
-        """Validate table has exactly 4 corners with [x, y] coordinates."""
+    def validate_corners(
+        cls: type[Any], v: list[PositionWithScale]
+    ) -> list[PositionWithScale]:
+        """Validate table has its four scaled boundary corners."""
         if len(v) != 4:
             raise ValueError("Table must have exactly 4 corners")
-        for corner in v:
-            if len(corner) != 2:
-                raise ValueError("Each corner must be [x, y] coordinates")
         return v
 
 
 class GameStateData(BaseModel):
     """Complete game state data structure."""
 
+    model_config = ConfigDict(extra="allow")
+
     balls: list[BallData] = Field(..., description="List of detected balls")
     cue: Optional[CueData] = Field(None, description="Cue stick data")
     table: Optional[TableData] = Field(None, description="Table geometry data")
+    game_type: Optional[Literal["practice", "8ball", "9ball", "straight"]] = Field(
+        None, description="Current billiards game mode"
+    )
     ball_count: int = Field(..., ge=0, description="Total number of balls detected")
     frame_number: Optional[int] = Field(None, ge=0, description="Frame sequence number")
+    observation_status: Optional[dict[str, Any]] = Field(
+        None,
+        description="Phase, map trust and source observation freshness from vision",
+    )
+    timestamp: Optional[datetime] = Field(
+        None, description="Gateway publication time for this state message"
+    )
+    sequence: Optional[int] = Field(
+        None, ge=0, description="State stream sequence number"
+    )
 
 
 class TrajectoryLine(BaseModel):
     """Individual trajectory line segment."""
 
-    start: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Line start coordinates"
-    )
-    end: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Line end coordinates"
-    )
-    type: Literal["primary", "reflection", "collision"] = Field(
+    start: PositionWithScale = Field(..., description="Scaled line start point")
+    end: PositionWithScale = Field(..., description="Scaled line end point")
+    type: Literal["primary", "secondary", "reflection", "collision"] = Field(
         ..., description="Line type"
     )
     confidence: float = Field(1.0, ge=0, le=1, description="Prediction confidence")
+    ball_id: Optional[str] = Field(
+        None, description="Ball whose path this line follows"
+    )
 
 
 class CollisionData(BaseModel):
-    """Ball collision prediction data."""
+    """Collision prediction data using canonical participant identifiers."""
 
-    position: list[float] = Field(
-        ..., min_length=2, max_length=2, description="Collision point"
+    model_config = ConfigDict(extra="forbid")
+
+    position: PositionWithScale = Field(..., description="Scaled collision point")
+    ball1_id: str = Field(..., description="ID of the primary ball involved")
+    ball2_id: Optional[str] = Field(
+        None,
+        description="ID of the target ball; absent for cushion and pocket collisions",
     )
-    ball_id: str = Field(..., description="ID of ball being hit")
+    type: Optional[str] = Field(None, description="Collision kind")
+    time: Optional[float] = Field(
+        None, ge=0, allow_inf_nan=False, description="Time to collision in seconds"
+    )
     angle: float = Field(..., description="Collision angle in degrees")
-    velocity_before: Optional[list[float]] = Field(
-        None, description="Ball velocity before collision"
+    confidence: Optional[float] = Field(None, ge=0, le=1)
+    velocity_before: Optional[PositionWithScale] = Field(
+        None, description="Scaled ball velocity before collision"
     )
-    velocity_after: Optional[list[float]] = Field(
-        None, description="Ball velocity after collision"
+    velocity_after: Optional[PositionWithScale] = Field(
+        None, description="Scaled ball velocity after collision"
     )
     time_to_collision: Optional[float] = Field(
         None, ge=0, description="Time to collision in seconds"
@@ -202,6 +387,8 @@ class CollisionData(BaseModel):
 
 class TrajectoryData(BaseModel):
     """Trajectory prediction data structure."""
+
+    model_config = ConfigDict(extra="forbid")
 
     lines: list[TrajectoryLine] = Field(..., description="Trajectory line segments")
     collisions: list[CollisionData] = Field(
@@ -216,6 +403,36 @@ class TrajectoryData(BaseModel):
     line_count: int = Field(..., ge=0, description="Number of trajectory lines")
     collision_count: int = Field(
         ..., ge=0, description="Number of predicted collisions"
+    )
+    timestamp: Optional[datetime] = Field(
+        None, description="Publication timestamp for this trajectory"
+    )
+    sequence: Optional[int] = Field(None, description="Trajectory stream sequence")
+    prediction_status: str = Field(
+        "live", description="live, frozen_reference, or invalidated"
+    )
+    spatial_valid: bool = Field(
+        True, description="Whether geometry matches the current calibration"
+    )
+    phase: Optional[str] = Field(None, description="Current vision processing phase")
+    source_frame_number: Optional[int] = Field(
+        None, ge=0, description="Source sequence that produced the prediction"
+    )
+    source_timestamp: Optional[float] = Field(
+        None, description="Source publication timestamp, not camera exposure time"
+    )
+    source_timestamp_kind: Optional[str] = Field(
+        None, description="Meaning/source of the publication timestamp"
+    )
+    map_revision: Optional[Any] = Field(None, description="Ball-map revision used")
+    calibration_revision: Optional[Any] = Field(
+        None, description="Calibration revision used"
+    )
+    prediction_settings: dict[str, Any] = Field(
+        default_factory=dict, description="Settings used to calculate the prediction"
+    )
+    source_observations: dict[str, Any] = Field(
+        default_factory=dict, description="Freshness/status of source observations"
     )
 
 
@@ -252,7 +469,6 @@ class StatusData(BaseModel):
     """Client status information."""
 
     client_id: str = Field(..., description="Client identifier")
-    user_id: Optional[str] = Field(None, description="User identifier if authenticated")
     connected_at: datetime = Field(..., description="Connection establishment time")
     uptime: float = Field(..., ge=0, description="Connection uptime in seconds")
     subscriptions: list[str] = Field(
@@ -467,7 +683,7 @@ def validate_websocket_message(message_dict: dict[str, Any]) -> WebSocketMessage
 
 def validate_client_message(message_type: str, data: dict[str, Any]) -> BaseModel:
     """Validate client-sent message data based on type."""
-    message_type_map = {
+    message_type_map: dict[str, type[BaseModel]] = {
         "subscribe": SubscribeRequest,
         "unsubscribe": UnsubscribeRequest,
         "ping": PingRequest,
@@ -478,14 +694,10 @@ def validate_client_message(message_type: str, data: dict[str, Any]) -> BaseMode
         raise ValueError(f"Unknown message type: {message_type}")
 
     schema_class = message_type_map[message_type]
-    return schema_class(**data)
+    return schema_class.model_validate(data)
 
 
 # Constants for validation
-VALID_STREAM_TYPES = [
-    stream_type.value
-    for stream_type in MessageType
-    if stream_type.value in ["frame", "state", "trajectory", "alert", "config"]
-]
+VALID_STREAM_TYPES = [stream_type.value for stream_type in StreamType]
 VALID_ALERT_LEVELS = [level.value for level in AlertLevel]
 VALID_QUALITY_LEVELS = [level.value for level in QualityLevel]

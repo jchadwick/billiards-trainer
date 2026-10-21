@@ -154,6 +154,7 @@ export function useGameState() {
 export function useVision() {
   const visionStore = useVisionStore();
   return {
+    frameCount: visionStore.frameCount,
     cameras: visionStore.availableCameras,
     selectedCamera: visionStore.selectedCamera,
     isConnected: visionStore.isConnected,
@@ -197,8 +198,8 @@ export function useConfig() {
 
 // HOC for automatic re-rendering with MobX
 export function withStores<P extends object>(
-  Component: React.ComponentType<P>
-): React.ComponentType<P> {
+  Component: React.FunctionComponent<P>
+): React.FunctionComponent<P> {
   return observer(Component);
 }
 

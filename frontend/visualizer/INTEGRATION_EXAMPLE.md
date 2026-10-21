@@ -26,6 +26,21 @@ local showHUD = config:get('debug_hud.enabled')
 
 ## Integration Steps
 
+### Spatial payload contract
+
+Game and vision geometry arrives as points or vectors with `x`, `y`, and a
+two-element `scale`. The factors convert both components to the backend's
+canonical 3840 x 2160 image plane; canonical payloads therefore use
+`scale: [1, 1]`. The visualizer scales positions, velocities, trajectories,
+collisions, pockets, and table boundaries once when each message arrives, then
+maps canonical pixels to its normalized projector calibration. Untagged image
+geometry is ignored because its source resolution cannot be determined.
+
+Physical table dimensions and geometry explicitly marked in meters remain in
+meters. Projector calibration corners are a separate output-space contract:
+their values are normalized screen fractions, stored locally with
+`coordinate_space: "normalized_projector"` and identity scale.
+
 ### Step 1: Add Config to main.lua
 
 At the top of `main.lua`, add:
@@ -158,7 +173,7 @@ Users can create `config/user.json`:
     "fullscreen": true
   },
   "network": {
-    "websocket_url": "ws://192.168.1.100:8000/api/v1/game/state/ws"
+    "websocket_url": "ws://192.168.1.100:8000/api/v1/websocket/ws"
   },
   "debug_hud": {
     "enabled": false,

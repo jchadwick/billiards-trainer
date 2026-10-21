@@ -151,7 +151,7 @@ Each module operates independently and can be:
 ### Data Type Compatibility ✅
 Critical data type conversions work flawlessly:
 - `Vision.Ball` ↔ `Core.BallState`
-- `tuple(x, y)` ↔ `Vector2D(x, y)`
+- Raw `tuple(x, y)` values convert to `Vector2D` only with explicit source scale or resolution; canonicalize at the boundary before core use.
 - `BallType.CUE` ↔ `is_cue_ball=True`
 - Numeric precision maintained through all conversions
 

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -11,7 +12,8 @@ from fastapi.routing import APIRouter
 from .broadcaster import message_broadcaster
 from .handler import websocket_handler
 from .manager import websocket_manager
-from .monitoring import connection_monitor
+from .monitoring import QualityMetrics, connection_monitor
+from .rate_limit import RateLimitUnavailable, rate_limiter, resolve_client_ip
 from .schemas import VALID_STREAM_TYPES, SubscribeRequest, UnsubscribeRequest
 from .subscriptions import subscription_manager
 
@@ -21,65 +23,21 @@ logger = logging.getLogger(__name__)
 websocket_router = APIRouter(tags=["websocket"])
 
 
-# Rate limiting for WebSocket connections
-class ConnectionRateLimiter:
-    """Rate limiter for WebSocket connections per IP."""
-
-    def __init__(self):
-        self.connection_attempts = {}  # IP -> [timestamps]
-        self.max_attempts = 10  # Max connections per IP per minute
-        self.window_seconds = 60
-
-    def check_rate_limit(self, client_ip: str) -> bool:
-        """Check if IP is within rate limits."""
-        import time
-
-        current_time = time.time()
-
-        if client_ip not in self.connection_attempts:
-            self.connection_attempts[client_ip] = []
-
-        # Clean old attempts
-        attempts = self.connection_attempts[client_ip]
-        self.connection_attempts[client_ip] = [
-            timestamp
-            for timestamp in attempts
-            if current_time - timestamp < self.window_seconds
-        ]
-
-        # Check limit
-        if len(self.connection_attempts[client_ip]) >= self.max_attempts:
-            return False
-
-        # Add current attempt
-        self.connection_attempts[client_ip].append(current_time)
-        return True
-
-
-rate_limiter = ConnectionRateLimiter()
-
-
 # Dependency for extracting client IP
 async def get_client_ip(websocket: WebSocket) -> str:
     """Extract client IP address from WebSocket."""
-    # Try to get real IP from headers (if behind proxy)
-    real_ip = websocket.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-
-    forwarded_for = websocket.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-
-    # Fallback to client host
-    return websocket.client.host if websocket.client else "unknown"
+    return resolve_client_ip(
+        websocket.client.host if websocket.client else None,
+        websocket.headers,
+        rate_limiter.settings.trusted_proxies,
+    )
 
 
 @websocket_router.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
     client_ip: str = Depends(get_client_ip),
-):
+) -> None:
     """Main WebSocket endpoint for real-time data streaming.
 
     Supports:
@@ -88,43 +46,63 @@ async def websocket_endpoint(
     - Real-time health monitoring
     - Automatic reconnection handling
     """
-    # Rate limiting check
-    if not rate_limiter.check_rate_limit(client_ip):
+    request_id = str(uuid.uuid4())
+    # An unavailable selected store must reject admission instead of allowing
+    # connections without enforcement. A healthy store can reject by quota.
+    try:
+        allowed = await rate_limiter.check_rate_limit(client_ip)
+    except RateLimitUnavailable:
+        logger.error(
+            "WebSocket admission rejected because rate-limit store is unavailable "
+            "(request_id=%s, client_ip=%s)",
+            request_id,
+            client_ip,
+        )
+        await websocket.close(
+            code=status.WS_1013_TRY_AGAIN_LATER,
+            reason="Rate limit service unavailable",
+        )
+        return
+    if not allowed:
+        logger.warning(
+            "WebSocket admission rejected by rate limit (request_id=%s, client_ip=%s)",
+            request_id,
+            client_ip,
+        )
         await websocket.close(
             code=status.WS_1008_POLICY_VIOLATION, reason="Rate limit exceeded"
         )
         return
+    logger.info(
+        "WebSocket rate-limit admission accepted (request_id=%s, client_ip=%s)",
+        request_id,
+        client_ip,
+    )
 
     client_id = None
     try:
-        # Establish WebSocket connection (no authentication)
-        client_id = await websocket_handler.connect(websocket, None)
-
-        # All users get full permissions (no authentication)
-        permissions = {"stream:*", "control:*", "config:*"}
-
-        # Register client in manager
-        await websocket_manager.register_client(
-            client_id=client_id,
-            user_id=None,
-            permissions=permissions,
+        # Local clients connect directly; there is no login or token step.
+        client_id = await websocket_handler.connect(
+            websocket,
             metadata={
                 "ip_address": client_ip,
                 "user_agent": websocket.headers.get("user-agent"),
+                "request_id": request_id,
             },
         )
 
         # Start monitoring for this client
-        connection_monitor.client_metrics[client_id] = (
-            connection_monitor.client_metrics.get(
-                client_id,
-                connection_monitor.client_metrics.__class__.__dict__[
-                    "__dataclass_fields__"
-                ]["client_id"].default_factory(),
+        if client_id not in connection_monitor.client_metrics:
+            connection_monitor.client_metrics[client_id] = QualityMetrics(
+                client_id=client_id
             )
-        )
 
-        logger.info(f"WebSocket connection established: {client_id} from {client_ip}")
+        logger.info(
+            "WebSocket connection established: %s from %s (request_id=%s)",
+            client_id,
+            client_ip,
+            request_id,
+        )
 
         # Message handling loop
         while True:
@@ -151,12 +129,18 @@ async def websocket_endpoint(
                         "data": {
                             "code": "INVALID_JSON",
                             "message": "Invalid JSON format",
+                            "request_id": request_id,
                         },
                     },
                 )
 
             except Exception as e:
-                logger.error(f"Error handling WebSocket message from {client_id}: {e}")
+                logger.error(
+                    "Error handling WebSocket message from %s (request_id=%s): %s",
+                    client_id,
+                    request_id,
+                    e,
+                )
                 connection_monitor.record_error(client_id, "protocol_error")
 
     except Exception as e:
@@ -168,7 +152,6 @@ async def websocket_endpoint(
         # Clean up connection
         if client_id:
             await websocket_handler.disconnect(client_id)
-            await websocket_manager.unregister_client(client_id)
             await subscription_manager.remove_all_subscriptions(client_id)
 
             logger.info(f"WebSocket connection cleaned up: {client_id}")
@@ -176,7 +159,7 @@ async def websocket_endpoint(
 
 # REST endpoints for WebSocket management
 @websocket_router.get("/connections", response_model=dict[str, Any])
-async def get_active_connections():
+async def get_active_connections() -> dict[str, Any]:
     """Get information about all active WebSocket connections."""
     try:
         stats = websocket_handler.get_connection_stats()
@@ -195,7 +178,7 @@ async def get_active_connections():
 
 
 @websocket_router.get("/connections/{client_id}", response_model=dict[str, Any])
-async def get_connection_info(client_id: str):
+async def get_connection_info(client_id: str) -> dict[str, Any]:
     """Get detailed information about a specific connection."""
     try:
         session_info = await websocket_manager.get_session_info(client_id)
@@ -221,7 +204,9 @@ async def get_connection_info(client_id: str):
 
 
 @websocket_router.post("/connections/{client_id}/subscribe")
-async def subscribe_client_to_streams(client_id: str, request: SubscribeRequest):
+async def subscribe_client_to_streams(
+    client_id: str, request: SubscribeRequest
+) -> dict[str, Any]:
     """Subscribe a client to specific data streams."""
     try:
         if client_id not in websocket_handler.connections:
@@ -254,7 +239,9 @@ async def subscribe_client_to_streams(client_id: str, request: SubscribeRequest)
 
 
 @websocket_router.post("/connections/{client_id}/unsubscribe")
-async def unsubscribe_client_from_streams(client_id: str, request: UnsubscribeRequest):
+async def unsubscribe_client_from_streams(
+    client_id: str, request: UnsubscribeRequest
+) -> dict[str, Any]:
     """Unsubscribe a client from specific data streams."""
     try:
         if client_id not in websocket_handler.connections:
@@ -277,7 +264,7 @@ async def unsubscribe_client_from_streams(client_id: str, request: UnsubscribeRe
 
 
 @websocket_router.post("/connections/{client_id}/disconnect")
-async def disconnect_client(client_id: str):
+async def disconnect_client(client_id: str) -> dict[str, str]:
     """Forcefully disconnect a specific client."""
     try:
         if client_id not in websocket_handler.connections:
@@ -294,7 +281,7 @@ async def disconnect_client(client_id: str):
 
 
 @websocket_router.get("/health", response_model=dict[str, Any])
-async def get_websocket_health():
+async def get_websocket_health() -> dict[str, Any]:
     """Get overall WebSocket system health."""
     try:
         system_health = connection_monitor.get_system_health()
@@ -315,7 +302,7 @@ async def get_websocket_health():
 
 
 @websocket_router.get("/health/summary", response_model=dict[str, Any])
-async def get_health_summary():
+async def get_health_summary() -> dict[str, Any]:
     """Get a summary of health status for all connections."""
     try:
         return connection_monitor.get_health_summary()
@@ -327,7 +314,7 @@ async def get_health_summary():
 @websocket_router.post("/broadcast/frame")
 async def broadcast_test_frame(
     width: int = 1920, height: int = 1080, quality: int = 85
-):
+) -> dict[str, str]:
     """Broadcast a test frame to all frame subscribers."""
     try:
         # Generate a simple test image (black with white text)
@@ -362,7 +349,7 @@ async def broadcast_test_frame(
 @websocket_router.post("/broadcast/alert")
 async def broadcast_test_alert(
     level: str = "info", message: str = "Test alert message", code: str = "TEST_001"
-):
+) -> dict[str, str]:
     """Broadcast a test alert to all alert subscribers."""
     try:
         await message_broadcaster.broadcast_alert(
@@ -380,7 +367,7 @@ async def broadcast_test_alert(
 
 
 @websocket_router.post("/system/start")
-async def start_websocket_system():
+async def start_websocket_system() -> dict[str, str]:
     """Start the WebSocket system services."""
     try:
         # Start all WebSocket services
@@ -396,7 +383,7 @@ async def start_websocket_system():
 
 
 @websocket_router.post("/system/stop")
-async def stop_websocket_system():
+async def stop_websocket_system() -> dict[str, str]:
     """Stop the WebSocket system services."""
     try:
         # Stop all WebSocket services
@@ -417,7 +404,7 @@ async def stop_websocket_system():
 
 
 @websocket_router.get("/metrics", response_model=dict[str, Any])
-async def get_websocket_metrics():
+async def get_websocket_metrics() -> dict[str, Any]:
     """Get detailed WebSocket performance metrics."""
     try:
         # Get comprehensive metrics from both broadcaster and websocket handler
@@ -456,7 +443,7 @@ async def get_websocket_metrics():
 
 
 # Event handlers for monitoring alerts
-async def handle_health_alert(alert: dict[str, Any]):
+async def handle_health_alert(alert: dict[str, Any]) -> None:
     """Handle health monitoring alerts."""
     logger.warning(f"Health alert: {alert}")
 

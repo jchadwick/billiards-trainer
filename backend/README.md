@@ -464,27 +464,25 @@ Trajectory results are broadcast via WebSocket:
 
 ### Configuration System
 
-The backend uses a **hierarchical configuration system**:
-
-1. **Default Configuration** (`config/default.json`): Baseline values
-2. **Environment Configuration** (`config/local.json`, `config/production.json`): Environment overrides
-3. **Current Configuration** (`config/current.json`): Active runtime configuration
-4. **Runtime Overrides**: API-based configuration updates
+The backend reads one JSON configuration file selected by `backend.main` (the
+repository-root `config.json` by default). The immutable
+`backend/config_schema_defaults.json` supplies supported keys, defaults, and
+validation rules. Runtime/API updates use the same validated configuration
+store and are persisted to the selected file.
 
 ```python
-from backend.config.manager import ConfigurationModule
+from backend.config import Config
 
-config = ConfigurationModule(config_dir=Path("config"))
+# Select the active JSON file before starting services.
+Config.set_config_file("config.json")
+config = Config()
 
-# Get configuration value with default
-detection_backend = config.get("vision.detection.detection_backend", default="yolo")
+# Read nested values; missing keys may use an explicit caller default.
+detection_backend = config.get("vision.detection.detection_backend", "yolo")
+camera_config = config.get("vision.camera", {})
 
-# Set configuration value (persisted to current.json)
+# Updates are validated and atomically persisted to the selected file.
 config.set("vision.detection.yolo_confidence", 0.5)
-
-# Get nested configuration
-camera_config = config.get_section("vision.camera")
-# Returns: {"device_id": 0, "backend": "auto", ...}
 ```
 
 ### Key Configuration Sections
@@ -553,13 +551,11 @@ camera_config = config.get_section("vision.camera")
 
 ### Configuration Files
 
-- **`config/default.json`**: System defaults (never edited)
-- **`config/local.json`**: Local development overrides
-- **`config/production.json`**: Production overrides
-- **`config/current.json`**: Active runtime configuration
-- **`backend/config/default.json`**: Backend module defaults
+- **`config.json`**: Active runtime configuration selected by the default launcher
+- **`backend/config_schema_defaults.json`**: Supported keys, defaults, and validation rules
 
-See `docs/CONFIG.md` for comprehensive configuration reference.
+Pass `--config PATH` to `python -m backend.main` to select another JSON file.
+See `docs/CONFIG.md` for the configuration API and validation behavior.
 
 ---
 
@@ -706,13 +702,13 @@ wget https://path.to/yolov8n-pool.onnx -O models/yolov8n-pool.onnx
 
 ```bash
 # Start development server
-python backend/dev_server.py
+python -m backend.dev_server
 
-# Or with custom config
-python backend/dev_server.py --config config/local.json
+# Full application with an explicitly selected configuration file
+python -m backend.main --config config.json
 
 # With logging
-python backend/dev_server.py --log-level DEBUG
+python -m backend.dev_server --log-level DEBUG
 ```
 
 ### Testing with Video File
@@ -729,10 +725,10 @@ python tools/video_debugger.py video.mp4 --loop --log-level INFO
 
 ```bash
 # REST API (default port 8000)
-curl http://localhost:8000/api/health
+curl http://localhost:8000/api/v1/health
 
 # WebSocket (default port 8000)
-ws://localhost:8000/ws
+ws://localhost:8000/api/v1/websocket/ws
 ```
 
 ---
@@ -748,17 +744,13 @@ backend/
 │   ├── __init__.py
 │   ├── routes/
 │   │   ├── calibration.py
-│   │   ├── configuration.py
+│   │   ├── config.py
 │   │   └── health.py
 │   └── websocket/
 │       ├── __init__.py
 │       └── broadcaster.py
-├── config/
-│   ├── __init__.py
-│   ├── manager.py
-│   ├── default.json
-│   └── models/
-│       └── schemas.py
+├── config.py
+├── config_schema_defaults.json
 ├── core/
 │   ├── __init__.py
 │   ├── models.py
@@ -780,43 +772,64 @@ backend/
 └── dev_server.py
 ```
 
-### Running Tests
+### Testing and Code Quality
+
+Install the backend development and test dependencies from the repository root:
 
 ```bash
-# Run all tests
-pytest backend/
-
-# Run specific module tests
-pytest backend/vision/detection/tests/
-pytest backend/core/physics/tests/
-
-# With coverage
-pytest --cov=backend --cov-report=html
-
-# Watch mode
-pytest-watch backend/
+python3 -m pip install -r backend/requirements.txt
 ```
 
-### Code Quality
+The canonical test suite is `backend/tests`. Check that every test imports and
+collects before running the hardware-free suite:
 
 ```bash
-# Format code
-black backend/
-isort backend/
-
-# Lint
-flake8 backend/
-pylint backend/
-
-# Type checking
-mypy backend/
+python3 -m pytest --collect-only --no-cov backend/tests
+python3 -m pytest backend/tests -m "not slow and not hardware"
 ```
+
+Run the CI coverage gate and formatting checks with:
+
+```bash
+python3 -m pytest backend/tests \
+  -m "not slow and not hardware" \
+  --cov-report=xml:backend/coverage.xml \
+  --cov-report=html:backend/coverage-html \
+  --junitxml=backend/junit.xml
+python3 -m black --check --diff backend
+python3 -m isort --check-only --diff backend
+pre-commit run --all-files
+```
+
+Pytest configuration, registered markers, timeout, and the 80% coverage
+threshold are maintained in the root `pyproject.toml`. CI and pre-commit use
+Black 25.9.0. A local environment can run
+`make -f backend/tests/Makefile test-ci` for the same collection and coverage
+checks.
+
+### Public Python Contracts
+
+- `backend.config.Config` is the configuration singleton. Select a JSON file with
+  `Config.set_config_file(path)`. Its public operations are `get`, `set`,
+  `apply_updates`, `replace_configuration`, `reload`, and `get_all`. Updates are
+  validated and atomically persisted to the selected file.
+- Import physics state and assistance classes as `BallState` and
+  `AssistanceEngine` from their canonical modules. Import the tracker as
+  `ObjectTracker` from `backend.vision.tracking`.
+- `backend.common.models.Ball` is the vision/tracking detection model and is a
+  separate type from the core physics `BallState`.
+- `SubscriptionManager.create_subscription(...)` and
+  `remove_subscription(client_id, stream_type)` are the supported asynchronous
+  subscription methods.
+- The API WebSocket route is `/api/v1/websocket/ws`. The projector is a separate
+  UDP receiver with a custom payload; backend trajectory messages are not
+  connected to that receiver.
 
 ### Adding New Features
 
 1. **Create feature branch**: `git checkout -b feature/new-detection-method`
 2. **Implement in appropriate module** (vision, core, or api)
-3. **Add configuration parameters** to `config/default.json`
+3. **Add supported configuration parameters** to `backend/config_schema_defaults.json` and set runtime values in `config.json`
 4. **Write tests**: Unit tests + integration tests
 5. **Update documentation**: This README + docstrings
 6. **Submit PR** with description and test results
@@ -826,7 +839,7 @@ mypy backend/
 ```bash
 # Enable debug logging
 export LOG_LEVEL=DEBUG
-python backend/dev_server.py
+python -m backend.dev_server
 
 # Use video debugger for vision issues
 python tools/video_debugger.py video.mp4 --log-level DEBUG

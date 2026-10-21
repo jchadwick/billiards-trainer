@@ -30,7 +30,7 @@ export const AppLayout = observer<AppLayoutProps>(
 
         {/* Global Loading Overlay */}
         {uiStore.isGlobalLoading && (
-          <FullScreenLoading text={uiStore.loadingText} />
+          <FullScreenLoading />
         )}
 
         {/* Header */}

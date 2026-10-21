@@ -18,7 +18,7 @@ All collision detection now operates in 4K pixels (3840×2160).
 
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ..constants_4k import BALL_RADIUS_4K
 from ..coordinates import Vector2D
@@ -62,7 +62,7 @@ class GeometricCollisionDetector:
     - All collision points have scale=[1.0, 1.0] (4K canonical)
     """
 
-    def __init__(self, config: Optional[dict] = None):
+    def __init__(self, config: Optional[dict[str, Any]] = None):
         """Initialize geometric collision detector.
 
         4K Migration: All coordinates and radii should be in 4K pixels.
@@ -204,14 +204,13 @@ class GeometricCollisionDetector:
         else:
             ya, yb = line_end.y, line_start.y
 
-        # Check if circle is completely outside bounding box (with radius margin)
-        if circle_center.x + circle_radius < xa or circle_center.x - circle_radius > xb:
-            return False
-
-        if circle_center.y + circle_radius < ya or circle_center.y - circle_radius > yb:
-            return False
-
-        return True
+        # Check whether the circle overlaps the line segment's bounding box.
+        return not (
+            circle_center.x + circle_radius < xa
+            or circle_center.x - circle_radius > xb
+            or circle_center.y + circle_radius < ya
+            or circle_center.y - circle_radius > yb
+        )
 
     def _vertical_line_circle_intersection(
         self,

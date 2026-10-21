@@ -4,9 +4,11 @@
 
 import { VideoStore } from '../../stores/VideoStore';
 import { VisionStore } from '../../stores/VisionStore';
+import { apiClient } from '../../api/client';
 import { WebSocketClient } from '../../services/websocket-client';
 import type { GameStateData, TrajectoryData, BallData, CueData, TableData } from '../../types/api';
 import type { DetectionFrame, Ball, CueStick, Table, Trajectory } from '../../types/video';
+import { vi } from 'vitest';
 
 // Mock WebSocket data that matches backend schema
 const mockGameStateData: GameStateData = {
@@ -15,6 +17,7 @@ const mockGameStateData: GameStateData = {
       id: 'cue',
       position: { x: 400, y: 300, scale: [1.0, 1.0] },
       radius: 15,
+      radius_scale: [1.0, 1.0],
       color: '#FFFFFF',
       velocity: { x: 0, y: 0, scale: [1.0, 1.0] },
       confidence: 0.95,
@@ -24,6 +27,7 @@ const mockGameStateData: GameStateData = {
       id: '1',
       position: { x: 500, y: 250, scale: [1.0, 1.0] },
       radius: 15,
+      radius_scale: [1.0, 1.0],
       color: '#FF0000',
       velocity: { x: 10, y: -5, scale: [1.0, 1.0] },
       confidence: 0.88,
@@ -33,6 +37,7 @@ const mockGameStateData: GameStateData = {
       id: '8',
       position: { x: 350, y: 400, scale: [1.0, 1.0] },
       radius: 15,
+      radius_scale: [1.0, 1.0],
       color: '#000000',
       velocity: { x: 0, y: 0, scale: [1.0, 1.0] },
       confidence: 0.92,
@@ -41,29 +46,29 @@ const mockGameStateData: GameStateData = {
   ],
   cue: {
     angle: 45,
-    position: [380, 280],
+    position: { x: 380, y: 280, scale: [1.0, 1.0] },
     detected: true,
     confidence: 0.89,
     length: 120,
-    tip_position: [365, 265],
+    tip_position: { x: 365, y: 265, scale: [1.0, 1.0] },
   },
   table: {
     corners: [
-      [100, 50],
-      [700, 50],
-      [700, 450],
-      [100, 450],
+      { x: 100, y: 50, scale: [1.0, 1.0] },
+      { x: 700, y: 50, scale: [1.0, 1.0] },
+      { x: 700, y: 450, scale: [1.0, 1.0] },
+      { x: 100, y: 450, scale: [1.0, 1.0] },
     ],
     pockets: [
-      [100, 50],
-      [400, 50],
-      [700, 50],
-      [700, 450],
-      [400, 450],
-      [100, 450],
+      { x: 100, y: 50, scale: [1.0, 1.0] },
+      { x: 400, y: 50, scale: [1.0, 1.0] },
+      { x: 700, y: 50, scale: [1.0, 1.0] },
+      { x: 700, y: 450, scale: [1.0, 1.0] },
+      { x: 400, y: 450, scale: [1.0, 1.0] },
+      { x: 100, y: 450, scale: [1.0, 1.0] },
     ],
     calibrated: true,
-    dimensions: { width: 600, height: 400 },
+    dimensions: { width: 6, height: 4, unit: 'meters' },
   },
   ball_count: 3,
   frame_number: 1234,
@@ -72,25 +77,25 @@ const mockGameStateData: GameStateData = {
 const mockTrajectoryData: TrajectoryData = {
   lines: [
     {
-      start: [400, 300],
-      end: [500, 250],
+      start: { x: 400, y: 300, scale: [1.0, 1.0] },
+      end: { x: 500, y: 250, scale: [1.0, 1.0] },
       type: 'primary',
       confidence: 0.85,
     },
     {
-      start: [500, 250],
-      end: [600, 200],
+      start: { x: 500, y: 250, scale: [1.0, 1.0] },
+      end: { x: 600, y: 200, scale: [1.0, 1.0] },
       type: 'reflection',
       confidence: 0.72,
     },
   ],
   collisions: [
     {
-      position: [500, 250],
-      ball_id: '1',
+      position: { x: 500, y: 250, scale: [1.0, 1.0] },
+      ball2_id: '1',
       angle: 45,
-      velocity_before: [10, -5],
-      velocity_after: [8, -3],
+      velocity_before: { x: 10, y: -5, scale: [1.0, 1.0] },
+      velocity_after: { x: 8, y: -3, scale: [1.0, 1.0] },
       time_to_collision: 0.5,
     },
   ],
@@ -98,6 +103,7 @@ const mockTrajectoryData: TrajectoryData = {
   calculation_time_ms: 15.2,
   line_count: 2,
   collision_count: 1,
+  prediction_status: 'live',
 };
 
 describe('Detection Overlay Integration Tests', () => {
@@ -105,13 +111,23 @@ describe('Detection Overlay Integration Tests', () => {
   let visionStore: VisionStore;
 
   beforeEach(() => {
+    vi.spyOn(apiClient, 'stopVideoCapture').mockResolvedValue({
+      success: true,
+      timestamp: new Date().toISOString(),
+    });
+    vi.spyOn(apiClient, 'getCalibrationData').mockResolvedValue({
+      success: false,
+      timestamp: new Date().toISOString(),
+    });
     videoStore = new VideoStore();
     visionStore = new VisionStore();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     videoStore.dispose();
     visionStore.destroy();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    vi.restoreAllMocks();
   });
 
   describe('WebSocket Data Transformation', () => {
@@ -155,12 +171,12 @@ describe('Detection Overlay Integration Tests', () => {
       const cueData = mockGameStateData.cue!;
 
       const transformedCue: CueStick = {
-        tipPosition: { x: cueData.position[0], y: cueData.position[1] },
+        tipPosition: { x: cueData.position!.x, y: cueData.position!.y },
         tailPosition: cueData.tip_position
-          ? { x: cueData.tip_position[0], y: cueData.tip_position[1] }
+          ? { x: cueData.tip_position.x, y: cueData.tip_position.y }
           : {
-              x: cueData.position[0] - Math.cos(cueData.angle) * (cueData.length || 100),
-              y: cueData.position[1] - Math.sin(cueData.angle) * (cueData.length || 100)
+              x: cueData.position!.x - Math.cos(cueData.angle) * (cueData.length || 100),
+              y: cueData.position!.y - Math.sin(cueData.angle) * (cueData.length || 100)
             },
         angle: cueData.angle,
         elevation: 0,
@@ -179,8 +195,11 @@ describe('Detection Overlay Integration Tests', () => {
       const tableData = mockGameStateData.table!;
 
       const transformedTable: Table = {
-        corners: tableData.corners.map(corner => ({ x: corner[0], y: corner[1] })),
-        pockets: tableData.pockets.map(pocket => ({ x: pocket[0], y: pocket[1] })),
+        corners: tableData.corners.map(corner => ({ x: corner.x, y: corner.y })),
+        pockets: tableData.pockets.map(pocket => ({
+          x: 'position' in pocket ? pocket.position.x : pocket.x,
+          y: 'position' in pocket ? pocket.position.y : pocket.y,
+        })),
         bounds: { x: 0, y: 0, width: 0, height: 0 },
         rails: [],
         detected: tableData.calibrated,
@@ -210,13 +229,13 @@ describe('Detection Overlay Integration Tests', () => {
       const trajectories: Trajectory[] = mockTrajectoryData.lines.map((line, index) => ({
         ballId: `trajectory_${index}`,
         points: [
-          { x: line.start[0], y: line.start[1] },
-          { x: line.end[0], y: line.end[1] },
+          { x: line.start.x, y: line.start.y },
+          { x: line.end.x, y: line.end.y },
         ],
         collisions: mockTrajectoryData.collisions.map(collision => ({
-          position: { x: collision.position[0], y: collision.position[1] },
-          type: collision.ball_id ? 'ball' : 'rail' as 'ball' | 'rail' | 'pocket',
-          targetId: collision.ball_id,
+          position: { x: collision.position.x, y: collision.position.y },
+          type: collision.ball2_id ? 'ball' : 'rail' as 'ball' | 'rail' | 'pocket',
+          targetId: collision.ball2_id,
           angle: collision.angle,
           impulse: 0,
         })),

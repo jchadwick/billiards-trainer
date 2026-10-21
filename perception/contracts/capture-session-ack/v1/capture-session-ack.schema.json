@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://billiards-trainer.local/contracts/capture-session-ack/v1/capture-session-ack.schema.json",
+  "title": "Billiards Capture Session Acknowledgement v1",
+  "description": "Request-bound report of one opened Rust capture session. Source values remain reports, not hardware proof.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "configuration_revision", "request_sha256", "outcome", "source_report", "failure"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "configuration_revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "request_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "outcome": {"enum": ["compatible", "rejected", "failed", "stopped"]},
+    "source_report": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/source_report"}]},
+    "failure": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/failure"}]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "compatible"}}, "required": ["outcome"]},
+      "then": {"properties": {"source_report": {"$ref": "#/$defs/source_report"}, "failure": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "rejected"}}, "required": ["outcome"]},
+      "then": {"properties": {"source_report": {"$ref": "#/$defs/source_report"}, "failure": {"$ref": "#/$defs/preflight_failure"}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "failed"}}, "required": ["outcome"]},
+      "then": {"properties": {"failure": {"$ref": "#/$defs/runtime_failure"}}}
+    },
+    {
+      "if": {"properties": {"outcome": {"const": "stopped"}}, "required": ["outcome"]},
+      "then": {"properties": {"failure": {"$ref": "#/$defs/stopped_failure"}}}
+    }
+  ],
+  "$defs": {
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+$"},
+    "revision": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "positive_revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_px", "height_px", "frame_rate", "pixel_format"],
+      "properties": {
+        "width_px": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "height_px": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+        "frame_rate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frames_numerator", "seconds_denominator"],
+          "properties": {
+            "frames_numerator": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+            "seconds_denominator": {"type": "integer", "minimum": 1, "maximum": 4294967295}
+          }
+        },
+        "pixel_format": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.-]+$"}
+      }
+    },
+    "capability": {"enum": ["supported", "unsupported", "unknown"]},
+    "readback_unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {"status": {"enum": ["unsupported", "unknown"]}}
+    },
+    "readback_mode": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"enum": ["automatic", "manual"]}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "readback_number": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"type": "number"}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "readback_nonnegative_number": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"type": "number", "minimum": 0}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "readback_unit_number": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"type": "number", "minimum": 0, "maximum": 1}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "readback_boolean": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"type": "boolean"}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "readback_buffer_size": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["status", "value"], "properties": {"status": {"const": "applied"}, "value": {"type": "integer", "minimum": 1, "maximum": 4294967295}}},
+        {"$ref": "#/$defs/readback_unavailable"}
+      ]
+    },
+    "timestamp_semantics": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {"kind": {"const": "read_completion_only"}}},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "unit", "clock", "domain_id", "stage"],
+          "properties": {
+            "kind": {"const": "source_timestamp"},
+            "unit": {"const": "nanoseconds"},
+            "clock": {"enum": ["monotonic", "unix_epoch", "sensor"]},
+            "domain_id": {"$ref": "#/$defs/identifier"},
+            "stage": {"enum": ["exposure", "camera_read_complete", "shared_memory_publication", "frame_arrival"]}
+          }
+        }
+      ]
+    },
+    "source_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "device_id", "device_name", "backend_id", "requested_profile", "negotiated_profile", "capabilities", "applied_frame_geometry", "applied_controls", "timestamp_semantics"],
+      "properties": {
+        "session_id": {"$ref": "#/$defs/identifier"},
+        "device_id": {"$ref": "#/$defs/identifier"},
+        "device_name": {"oneOf": [{"type": "null"}, {"type": "string", "maxLength": 128}]},
+        "backend_id": {"enum": ["v4l2", "dshow", "gstreamer", "opencv", "kinect2"]},
+        "requested_profile": {"$ref": "#/$defs/profile"},
+        "negotiated_profile": {"$ref": "#/$defs/profile"},
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supported_pixel_formats", "manual_exposure", "automatic_exposure", "gain_control", "source_timestamps"],
+          "properties": {
+            "supported_pixel_formats": {"oneOf": [{"type": "null"}, {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.-]+$"}}]},
+            "manual_exposure": {"$ref": "#/$defs/capability"},
+            "automatic_exposure": {"$ref": "#/$defs/capability"},
+            "gain_control": {"$ref": "#/$defs/capability"},
+            "source_timestamps": {"$ref": "#/$defs/capability"}
+          }
+        },
+        "applied_frame_geometry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["configuration_revision", "camera_profile_id", "image_space", "rectification_revision"],
+          "properties": {
+            "configuration_revision": {"$ref": "#/$defs/positive_revision"},
+            "camera_profile_id": {"$ref": "#/$defs/identifier"},
+            "image_space": {"enum": ["raw", "rectified"]},
+            "rectification_revision": {"$ref": "#/$defs/revision"}
+          }
+        },
+        "applied_controls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["exposure_mode", "exposure_value", "gain", "brightness", "contrast", "saturation", "auto_focus", "buffer_size"],
+          "properties": {
+            "exposure_mode": {"$ref": "#/$defs/readback_mode"},
+            "exposure_value": {"$ref": "#/$defs/readback_number"},
+            "gain": {"$ref": "#/$defs/readback_nonnegative_number"},
+            "brightness": {"$ref": "#/$defs/readback_unit_number"},
+            "contrast": {"$ref": "#/$defs/readback_unit_number"},
+            "saturation": {"$ref": "#/$defs/readback_unit_number"},
+            "auto_focus": {"$ref": "#/$defs/readback_boolean"},
+            "buffer_size": {"$ref": "#/$defs/readback_buffer_size"}
+          }
+        },
+        "timestamp_semantics": {"$ref": "#/$defs/timestamp_semantics"}
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {"category": {"enum": ["preflight_rejected", "source_open_failed", "runtime_failed", "stopped"]}}
+    },
+    "preflight_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {"category": {"const": "preflight_rejected"}}
+    },
+    "runtime_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {"category": {"enum": ["source_open_failed", "runtime_failed"]}}
+    },
+    "stopped_failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {"category": {"const": "stopped"}}
+    }
+  }
+}

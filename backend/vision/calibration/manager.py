@@ -5,7 +5,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from types import TracebackType
+from typing import Any, Literal, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -14,9 +15,6 @@ from .camera import CameraCalibrator, CameraParameters
 from .color import ColorCalibrator, ColorProfile
 from .geometry import GeometricCalibration, GeometricCalibrator
 from .validation import CalibrationReport, CalibrationValidator
-
-if TYPE_CHECKING:
-    from ..utils.performance import PerformanceTimer
 
 logger = logging.getLogger(__name__)
 
@@ -317,7 +315,7 @@ class CalibrationManager:
             logger.error(f"System validation failed: {e}")
             return None
 
-    def process_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.float64]:
+    def process_frame(self, frame: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Process frame with all calibrations applied.
 
         Args:
@@ -398,7 +396,7 @@ class CalibrationManager:
         Returns:
             Dictionary with calibration status information
         """
-        status = {
+        status: dict[str, Any] = {
             "session_active": self.current_session is not None,
             "camera_calibrated": self.camera_calibrator.camera_params is not None,
             "color_calibrated": self.color_calibrator.current_profile is not None,
@@ -658,11 +656,17 @@ class CalibrationManager:
 
         return False
 
-    def __enter__(self) -> "PerformanceTimer":
+    def __enter__(self) -> "CalibrationManager":
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> Literal[False]:
         """Context manager exit - save session if active."""
         if self.current_session:
             self.save_current_session()
+        return False

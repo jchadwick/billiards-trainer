@@ -55,7 +55,7 @@ The Billiards Trainer system follows a modular, microservices-inspired architect
 - **Projector Client**: Standalone module for AR display
 
 #### Technology Stack
-- **Language**: Python 3.12+
+- **Language**: Python 3.9 or newer; CI validates the backend on Python 3.11
 - **Framework**: FastAPI for async HTTP and WebSocket
 - **Computer Vision**: OpenCV 4.8+ with NumPy
 - **Async Runtime**: asyncio for concurrent operations
@@ -126,7 +126,7 @@ The Billiards Trainer system follows a modular, microservices-inspired architect
 ### API Request Flow
 
 ```
-Client Request → API Gateway → Authentication → Route Handler
+Client Request → API Gateway → Route Handler
                                                       ↓
 Response ← Serialization ← Business Logic ← Data Validation
 ```
@@ -176,7 +176,7 @@ billiards-trainer-python/
 │   │   ├── __init__.py
 │   │   ├── routes/         # REST endpoints
 │   │   ├── websocket/      # WebSocket handlers
-│   │   └── middleware/     # Auth, CORS, etc.
+│   │   └── middleware/     # CORS, logging, metrics, and error handling
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── game_state.py   # State management
@@ -261,7 +261,7 @@ api_endpoints = {
     "POST /api/v1/game/reset": "Reset detection",
 
     # WebSocket
-    "WS /ws": "Real-time data stream"
+    "WS /api/v1/websocket/ws": "Real-time data stream"
 }
 ```
 
@@ -312,6 +312,35 @@ config:
 3. Configuration file
 4. Database settings
 5. Default values (lowest)
+
+## Backend Python Contracts
+
+Backend modules and tests use the `backend.*` package paths from the repository
+root. This keeps class and singleton identity stable across imports.
+
+| Public name | Current implementation | Current contract |
+| --- | --- | --- |
+| `backend.config.Config` | Singleton configuration store | Select a JSON file with `set_config_file(path)`. Use `get`, `set`, `apply_updates`, `replace_configuration`, `reload`, and `get_all`. |
+| `backend.core.BallState` | Core physics ball state | Physics calculations use this scale-aware state model. |
+| `backend.core.AssistanceEngine` | Shot assistance engine | Import the implementation by its canonical name. |
+| `backend.vision.tracking.ObjectTracker` | Multi-object tracker | Import the implementation by its canonical name. |
+| `backend.common.models.Ball` | Vision/tracking detection model | Separate from the core physics `BallState`; convert through the shared conversion layer. |
+
+WebSocket stream subscriptions are registered in both the connection handler
+and the client manager. `StreamType` is defined in
+`backend.api.websocket.schemas`, re-exported by the manager, and is the source
+for `VALID_STREAM_TYPES`. The
+`SubscriptionManager` canonical asynchronous methods are
+`create_subscription(client_id, stream_type, quality_level=..., max_fps=None,
+min_fps=None, include_fields=None, exclude_fields=None,
+filter_conditions=None, enable_aggregation=False, aggregation_window_ms=100.0,
+sample_rate=1.0, sample_offset=0.0, max_latency_ms=None)` and
+`remove_subscription(client_id, stream_type)`. These are the supported
+asynchronous subscription methods.
+
+Run `python -m pytest --collect-only --no-cov backend/tests` from the repository
+root to validate imports. The hardware-free test suite and its 80% coverage
+threshold are configured in `pyproject.toml`; CI runs it on Python 3.11.
 
 ## Success Metrics Architecture
 

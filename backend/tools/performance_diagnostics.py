@@ -7,22 +7,24 @@ Usage:
     python backend/tools/performance_diagnostics.py [--frames 100] [--output report.json]
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import config
-from vision import VisionModule
-from vision.performance_profiler import PerformanceProfiler
+from backend.config import config
+from backend.vision import VisionModule
+from backend.vision.performance_profiler import PerformanceProfiler
 
 # Setup logging
 logging.basicConfig(
@@ -32,151 +34,25 @@ logger = logging.getLogger(__name__)
 
 
 class InstrumentedVisionModule(VisionModule):
-    """Vision module with performance instrumentation."""
+    """Vision module using the pipeline's supported performance profiler."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.profiler = PerformanceProfiler(history_size=200, log_interval=10)
-
-        # Patch YOLO detector if available
-        if hasattr(self, "detector") and self.detector:
-            self._instrument_yolo_detector()
-
-    def _instrument_yolo_detector(self):
-        """Add timing to YOLO detector methods."""
-        original_inference = self.detector._run_standard_inference
-
-        def timed_inference(frame):
-            self.profiler.start_stage("yolo_preprocessing")
-            # Preprocessing happens inside _run_standard_inference
-            self.profiler.end_stage("yolo_preprocessing")
-
-            self.profiler.start_stage("yolo_inference")
-            result = original_inference(frame)
-            self.profiler.end_stage("yolo_inference")
-
-            return result
-
-        self.detector._run_standard_inference = timed_inference
-
-    def _process_single_frame(self, frame, frame_number=None, timestamp=None):
-        """Instrumented version of frame processing."""
-        if frame_number is None:
-            frame_number = self._frame_number
-            self._frame_number += 1
-
-        if timestamp is None:
-            timestamp = time.time()
-
-        # Start profiling this frame
-        self.profiler.start_frame(frame_number)
-
-        try:
-            # Preprocessing
-            self.profiler.start_stage("preprocessing")
-            if self.config.preprocessing_enabled:
-                processed_frame = self.preprocessor.process(frame)
-            else:
-                processed_frame = frame
-            self.profiler.end_stage("preprocessing")
-
-            # Masking
-            self.profiler.start_stage("masking")
-            processed_frame = self._apply_all_masks(processed_frame)
-            self.profiler.end_stage("masking")
-
-            detected_balls = []
-
-            # Table detection
-            if self.table_detector and self.config.enable_table_detection:
-                self.profiler.start_stage("table_detection")
-                try:
-                    table_confidence_threshold = config.get(
-                        "vision.detection.table_detection_confidence_threshold", 0.5
-                    )
-                    table_result = self.table_detector.detect_complete_table(
-                        processed_frame
-                    )
-                    if (
-                        table_result
-                        and table_result.confidence > table_confidence_threshold
-                    ):
-                        from vision.models import Table
-
-                        Table(
-                            corners=table_result.corners.to_list(),
-                            pockets=[
-                                pocket.position for pocket in table_result.pockets
-                            ],
-                            width=table_result.width,
-                            height=table_result.height,
-                            surface_color=table_result.surface_color,
-                        )
-                except Exception as e:
-                    logger.warning(f"Table detection failed: {e}")
-                self.profiler.end_stage("table_detection")
-
-            # Ball detection
-            if self.detector and self.config.enable_ball_detection:
-                self.profiler.start_stage("ball_detection")
-                try:
-                    detected_balls = self.detector.detect_balls_with_classification(
-                        processed_frame
-                    )
-
-                    # Tracking
-                    if self.tracker and self.config.enable_tracking:
-                        self.profiler.start_stage("tracking")
-                        detected_balls = self.tracker.update_tracking(
-                            detected_balls, frame_number, timestamp
-                        )
-                        self.profiler.end_stage("tracking")
-
-                except Exception as e:
-                    logger.error(f"Ball detection failed: {e}")
-                self.profiler.end_stage("ball_detection")
-
-            # Cue detection
-            if self.cue_detector and self.config.enable_cue_detection:
-                self.profiler.start_stage("cue_detection")
-                try:
-                    from vision.models import BallType
-
-                    cue_ball_pos = None
-                    for ball in detected_balls:
-                        if ball.ball_type == BallType.CUE:
-                            cue_ball_pos = ball.position
-                            break
-
-                    self.cue_detector.detect_cue(
-                        processed_frame, cue_ball_pos
-                    )
-                except Exception as e:
-                    logger.error(f"Cue detection failed: {e}")
-                self.profiler.end_stage("cue_detection")
-
-            # Result building
-            self.profiler.start_stage("result_building")
-            # ... (rest of result building code)
-            self.profiler.end_stage("result_building")
-
-            # End profiling
-            self.profiler.end_frame()
-
-            # Call parent implementation for actual result
-            return super()._process_single_frame(frame, frame_number, timestamp)
-
-        except Exception as e:
-            logger.error(f"Frame processing failed: {e}")
-            self.profiler.end_frame()
-            return None
+    def __init__(self, config_dict: dict[str, Any] | None = None) -> None:
+        super().__init__(config=config_dict)
+        # VisionModule already records the actual production pipeline stages.
+        # Ensure diagnostics remain usable when profiling is disabled in the
+        # application config, without duplicating or monkey-patching detection.
+        if self.profiler is None:
+            self.profiler = PerformanceProfiler(
+                history_size=config.get("vision.performance.profile_history_size", 100),
+                log_interval=config.get("vision.performance.profile_log_interval", 30),
+            )
 
 
 def verify_device_configuration() -> dict[str, Any]:
     """Verify what device is actually being used."""
     logger.info("=== Device Configuration ===")
 
-    device_info = {}
+    device_info: dict[str, Any] = {}
 
     # Check PyTorch
     try:
@@ -202,7 +78,9 @@ def verify_device_configuration() -> dict[str, Any]:
 
     # Check CoreML
     try:
-        import coremltools
+        import importlib
+
+        coremltools = importlib.import_module("coremltools")
 
         device_info["coreml_version"] = coremltools.__version__
         logger.info(f"✓ CoreML Tools installed: {coremltools.__version__}")
@@ -249,7 +127,9 @@ def verify_device_configuration() -> dict[str, Any]:
     return device_info
 
 
-def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str, Any]:
+def run_diagnostics(
+    num_frames: int = 100, output_file: str | None = None
+) -> dict[str, Any]:
     """Run performance diagnostics.
 
     Args:
@@ -267,7 +147,10 @@ def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str,
 
     # Initialize vision module
     logger.info("\n=== Initializing Vision Module ===")
-    vision = InstrumentedVisionModule(config_dict=config.config_data)
+    vision = InstrumentedVisionModule()
+    profiler = vision.profiler
+    if profiler is None:
+        raise RuntimeError("Performance diagnostics requires an active profiler")
 
     # Start capture
     logger.info("\n=== Starting Camera Capture ===")
@@ -308,7 +191,7 @@ def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str,
 
     # Get final statistics
     logger.info("\n=== Final Results ===")
-    stats = vision.profiler.get_current_stats()
+    stats = profiler.get_current_stats()
     summary = stats.get_summary()
 
     logger.info(f"Processed {frames_processed} frames in {total_time:.1f}s")
@@ -320,7 +203,7 @@ def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str,
     )
 
     # Get bottlenecks
-    bottlenecks = vision.profiler.get_bottlenecks(top_n=5)
+    bottlenecks = profiler.get_bottlenecks(top_n=5)
     logger.info("\n=== Top Bottlenecks ===")
     for i, (stage, time_ms) in enumerate(bottlenecks, 1):
         pct = (
@@ -331,7 +214,7 @@ def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str,
         logger.info(f"{i}. {stage:20s}: {time_ms:6.1f}ms ({pct:5.1f}%)")
 
     # Realtime status
-    realtime_status = vision.profiler.get_realtime_status()
+    realtime_status = profiler.get_realtime_status()
     target_fps = 15.0
     logger.info("\n=== Realtime Performance ===")
     logger.info(f"Target FPS: {target_fps}")
@@ -375,7 +258,7 @@ def run_diagnostics(num_frames: int = 100, output_file: str = None) -> dict[str,
     return results
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Performance diagnostics for billiards vision system"

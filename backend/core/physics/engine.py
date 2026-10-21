@@ -6,7 +6,7 @@ Physical constants from meters are converted to pixels for consistency.
 
 import math
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from ..constants_4k import (
     BALL_RADIUS_4K,
@@ -14,9 +14,9 @@ from ..constants_4k import (
     TABLE_HEIGHT_4K,
     TABLE_WIDTH_4K,
 )
-from ..game_state import BallState, TableState, Vector2D
-from ..models import Collision
-from .collision import CollisionDetector, CollisionResolver
+from ..coordinates import Vector2D
+from ..models import BallState, Collision, TableState
+from .collision import CollisionDetector, CollisionResolver, CollisionResult
 from .spin import SpinCalculator
 
 
@@ -94,7 +94,7 @@ class PhysicsEngine:
     def calculate_trajectory(
         self,
         ball_state: BallState,
-        table_state: TableState,
+        table_state: Optional[TableState],
         other_balls: list[BallState],
         time_limit: float = 5.0,
     ) -> list[TrajectoryPoint]:
@@ -112,7 +112,7 @@ class PhysicsEngine:
         if ball_state.velocity.magnitude() < self.constants.MIN_VELOCITY:
             return [TrajectoryPoint(0.0, ball_state.position, ball_state.velocity)]
 
-        trajectory = []
+        trajectory: list[TrajectoryPoint] = []
         current_ball = BallState(
             id=ball_state.id,
             position=Vector2D(
@@ -163,22 +163,48 @@ class PhysicsEngine:
                 break
 
             # Detect collisions in next time step
-            collision = self._detect_next_collision(
-                current_ball, sim_balls, table_state, self.time_step
+            collision = (
+                self._detect_next_collision(
+                    current_ball, sim_balls, table_state, self.time_step
+                )
+                if table_state is not None
+                else None
             )
 
             if collision is None:
                 # No collision, advance ball using numerical integration
-                self._integrate_motion(current_ball, table_state, self.time_step)
+                if table_state is not None:
+                    self._integrate_motion(current_ball, table_state, self.time_step)
+                else:
+                    current_ball.position = Vector2D(
+                        current_ball.position.x
+                        + current_ball.velocity.x * self.time_step,
+                        current_ball.position.y
+                        + current_ball.velocity.y * self.time_step,
+                        scale=current_ball.position.scale,
+                    )
                 current_time += self.time_step
             else:
                 # Collision detected, advance to collision time
                 collision_time = collision.time
                 if collision_time > 0:
-                    self._integrate_motion(current_ball, table_state, collision_time)
+                    if table_state is not None:
+                        self._integrate_motion(
+                            current_ball, table_state, collision_time
+                        )
+                    else:
+                        current_ball.position = Vector2D(
+                            current_ball.position.x
+                            + current_ball.velocity.x * collision_time,
+                            current_ball.position.y
+                            + current_ball.velocity.y * collision_time,
+                            scale=current_ball.position.scale,
+                        )
                     current_time += collision_time
 
                 # Handle collision
+                if table_state is None:
+                    raise RuntimeError("A detected collision requires a table state")
                 self._handle_collision(current_ball, sim_balls, collision, table_state)
 
                 # Record collision point
@@ -277,7 +303,7 @@ class PhysicsEngine:
                 ball_state, table_state, other_balls, time_limit
             )
 
-        trajectory = []
+        trajectory: list[TrajectoryPoint] = []
         current_ball = self._copy_ball_state(ball_state)
         sim_balls = [
             self._copy_ball_state(ball) for ball in other_balls if not ball.is_pocketed
@@ -325,17 +351,20 @@ class PhysicsEngine:
                     )
 
             # Detect collisions using advanced collision detector
-            if self.enable_advanced_collisions:
+            collisions: Sequence[CollisionResult | Collision]
+            if self.enable_advanced_collisions and table_state is not None:
                 all_balls = [current_ball] + sim_balls
                 collisions = self.collision_detector.detect_multiple_collisions(
                     all_balls, table_state, self.time_step
                 )
-            else:
+            elif table_state is not None:
                 # Use basic collision detection
                 collision = self._detect_next_collision(
                     current_ball, sim_balls, table_state, self.time_step
                 )
                 collisions = [collision] if collision else []
+            else:
+                collisions = []
 
             if not collisions:
                 # No collision, advance ball using numerical integration
@@ -355,7 +384,7 @@ class PhysicsEngine:
                     current_time += collision_time
 
                 # Resolve collision with advanced physics
-                if self.enable_advanced_collisions:
+                if isinstance(first_collision, CollisionResult):
                     resolved_collisions = (
                         self.collision_resolver.resolve_simultaneous_collisions(
                             [first_collision], [current_ball] + sim_balls
@@ -368,6 +397,10 @@ class PhysicsEngine:
                             current_ball.spin = resolved.ball1_spin
                 else:
                     # Basic collision handling
+                    if table_state is None:
+                        raise RuntimeError(
+                            "A detected collision requires a table state"
+                        )
                     self._handle_collision(
                         current_ball, sim_balls, first_collision, table_state
                     )
@@ -388,14 +421,14 @@ class PhysicsEngine:
                         ),
                         collision_type=(
                             first_collision.collision_type.value
-                            if hasattr(first_collision, "collision_type")
+                            if isinstance(first_collision, CollisionResult)
                             else first_collision.type
                         ),
                     )
                 )
 
                 # Check if ball was pocketed
-                if hasattr(first_collision, "collision_type"):
+                if isinstance(first_collision, CollisionResult):
                     if first_collision.collision_type.value == "ball_pocket":
                         break
                 elif first_collision.type == "pocket":
@@ -503,149 +536,6 @@ class PhysicsEngine:
                     )
                     self._resolve_ball_collision(ball1, balls, collision)
 
-    def detect_ball_collision(self, ball1: Any, ball2: Any) -> Optional[Any]:
-        """Detect collision between two balls.
-
-        Args:
-            ball1: First ball
-            ball2: Second ball
-
-        Returns:
-            Collision object if collision detected, None otherwise
-        """
-        # Calculate distance between balls
-        dx = (
-            ball2.x - ball1.x
-            if hasattr(ball1, "x")
-            else ball2.position.x - ball1.position.x
-        )
-        dy = (
-            ball2.y - ball1.y
-            if hasattr(ball1, "y")
-            else ball2.position.y - ball1.position.y
-        )
-        distance = math.sqrt(dx**2 + dy**2)
-
-        # Check if balls are touching or overlapping
-        radius1 = ball1.radius
-        radius2 = ball2.radius
-
-        if distance <= radius1 + radius2:
-            # Create collision result
-            from dataclasses import dataclass
-
-            @dataclass
-            class CollisionResult:
-                ball1: Any
-                ball2: Any
-                distance: float
-
-            return CollisionResult(ball1=ball1, ball2=ball2, distance=distance)
-
-        return None
-
-    def resolve_ball_collision(self, ball1: Any, ball2: Any) -> None:
-        """Resolve collision between two balls.
-
-        Args:
-            ball1: First ball
-            ball2: Second ball
-        """
-        # Handle both Ball and BallState types
-        if hasattr(ball1, "x"):
-            # Legacy Ball type
-            dx = ball2.x - ball1.x
-            dy = ball2.y - ball1.y
-        else:
-            # BallState type
-            dx = ball2.position.x - ball1.position.x
-            dy = ball2.position.y - ball1.position.y
-
-        distance = math.sqrt(dx**2 + dy**2)
-
-        if distance == 0:
-            return  # Balls at same position, skip
-
-        # Unit normal vector
-        nx = dx / distance
-        ny = dy / distance
-
-        # Unit tangent vector
-        tx = -ny
-        ty = nx
-
-        # Get velocities
-        if hasattr(ball1, "velocity_x"):
-            # Legacy Ball type
-            v1x, v1y = ball1.velocity_x, ball1.velocity_y
-            v2x, v2y = ball2.velocity_x, ball2.velocity_y
-        else:
-            # BallState type
-            v1x, v1y = ball1.velocity.x, ball1.velocity.y
-            v2x, v2y = ball2.velocity.x, ball2.velocity.y
-
-        # Project velocities onto normal and tangent directions
-        v1n = v1x * nx + v1y * ny
-        v1t = v1x * tx + v1y * ty
-        v2n = v2x * nx + v2y * ny
-        v2t = v2x * tx + v2y * ty
-
-        # Conservation of momentum in normal direction
-        m1 = ball1.mass if hasattr(ball1, "mass") else self.constants.BALL_MASS
-        m2 = ball2.mass if hasattr(ball2, "mass") else self.constants.BALL_MASS
-
-        v1n_new = ((m1 - m2) * v1n + 2 * m2 * v2n) / (m1 + m2)
-        v2n_new = ((m2 - m1) * v2n + 2 * m1 * v1n) / (m1 + m2)
-
-        # Apply restitution
-        restitution = self.constants.BALL_RESTITUTION
-        v1n_new *= restitution
-        v2n_new *= restitution
-
-        # Tangent velocities remain unchanged
-        v1t_new = v1t
-        v2t_new = v2t
-
-        # Convert back to x,y coordinates
-        new_v1x = v1n_new * nx + v1t_new * tx
-        new_v1y = v1n_new * ny + v1t_new * ty
-        new_v2x = v2n_new * nx + v2t_new * tx
-        new_v2y = v2n_new * ny + v2t_new * ty
-
-        # Update velocities
-        if hasattr(ball1, "velocity_x"):
-            # Legacy Ball type
-            ball1.velocity_x = new_v1x
-            ball1.velocity_y = new_v1y
-            ball2.velocity_x = new_v2x
-            ball2.velocity_y = new_v2y
-        else:
-            # BallState type
-            ball1.velocity.x = new_v1x
-            ball1.velocity.y = new_v1y
-            ball2.velocity.x = new_v2x
-            ball2.velocity.y = new_v2y
-
-        # Separate balls to prevent overlap
-        radius1 = ball1.radius
-        radius2 = ball2.radius
-        overlap = (radius1 + radius2) - distance
-
-        if overlap > 0:
-            separation = overlap / 2.0
-            if hasattr(ball1, "x"):
-                # Legacy Ball type
-                ball1.x -= separation * nx
-                ball1.y -= separation * ny
-                ball2.x += separation * nx
-                ball2.y += separation * ny
-            else:
-                # BallState type
-                ball1.position.x -= separation * nx
-                ball1.position.y -= separation * ny
-                ball2.position.x += separation * nx
-                ball2.position.y += separation * ny
-
     def apply_english_to_cue_ball(
         self,
         cue_ball: BallState,
@@ -708,7 +598,7 @@ class PhysicsEngine:
             mass=ball.mass,
             spin=(
                 Vector2D(ball.spin.x, ball.spin.y, scale=ball.spin.scale)
-                if ball.spin
+                if ball.spin is not None
                 else None
             ),
             is_cue_ball=ball.is_cue_ball,

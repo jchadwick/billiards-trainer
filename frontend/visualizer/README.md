@@ -1,24 +1,20 @@
 # Billiards Visualizer
 
-A data-driven LOVE2D visualizer for the billiards training system. Receives all game state via WebSocket from the backend and displays video feed with AR overlays.
+A data-driven LÖVE2D visualizer for billiards state and trajectory overlays. It receives supported game-state data over WebSocket; camera video is a separate delivery path.
 
 ## Status
 
-**Task Group 1: Core Setup** - ✅ COMPLETE (2025-10-13)
-
-The foundation is complete with state management, message handling, and basic structure in place.
+The WebSocket client, state manager, trajectory normalization, and diagnostic HUD are implemented. Ball, cue, table, and video-feed rendering modules remain placeholders. Backend WebSocket video delivery is disabled, so this app does not receive camera frames over its WebSocket connection.
 
 ## Architecture
 
 ### What the Visualizer DOES:
-- Display video feed from backend (camera stream)
-- Draw AR overlays: trajectories, aiming guides, safe zones, table boundaries
-- Highlight balls for training modules (positions come from backend)
+- Render trajectory overlays from backend updates
 - Show diagnostic HUD with connection/performance info
-- Receive ALL data via WebSocket (no direct camera access)
+- Receive supported game-state and trajectory messages via WebSocket (no direct camera access)
 
 ### What the Visualizer DOES NOT DO:
-- ❌ Draw ball/cue representations (visible on table/video feed)
+- ❌ Render ball, cue, table, or camera-video modules; those modules are placeholders
 - ❌ Access camera directly (backend handles all video)
 - ❌ Recreate the scene from scratch
 
@@ -26,7 +22,7 @@ The foundation is complete with state management, message handling, and basic st
 
 ```
 Backend Vision System
-    ↓ (WebSocket)
+    ↓ (WebSocket state and trajectory messages; no video frames)
 MessageHandler (routes messages)
     ↓
 StateManager (maintains game state)

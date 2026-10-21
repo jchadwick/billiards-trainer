@@ -115,7 +115,7 @@ export interface SkipLinkTargetProps {
   id: string
   children: React.ReactNode
   className?: string
-  as?: keyof JSX.IntrinsicElements
+  as?: keyof React.JSX.IntrinsicElements
 }
 
 export const SkipLinkTarget: React.FC<SkipLinkTargetProps> = ({

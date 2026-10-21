@@ -1,5 +1,7 @@
 # Core Module Specification
 
+> **Coordinate contract:** Core image geometry uses canonical 3840 × 2160 pixels with explicit scale metadata. Core physics and game-state positions are not meter-valued. Physical table dimensions and calibration world points remain separate SI values. See [`docs/COORDINATE_SYSTEMS.md`](../../docs/COORDINATE_SYSTEMS.md).
+
 ## Module Purpose
 
 The Core module serves as the central business logic layer, managing game state, calculating physics-based trajectories, coordinating between other modules, and maintaining the overall system state. It acts as the intelligent hub that transforms raw detection data into meaningful game insights and predictions.
@@ -65,7 +67,7 @@ The Core module serves as the central business logic layer, managing game state,
 - **FR-CORE-039**: Track score and game progress (optional - training system focus)
 - **FR-CORE-040**: Detect game completion conditions (optional - training system focus)
 
-**Implementation Note**: This is a training system focused on shot visualization and trajectory prediction. Full game rule enforcement (turn order, fouls, scoring) is optional and not required for core training functionality. Basic game type tracking and illegal shot detection are implemented for context.
+**Implementation Note**: This is a training system focused on shot visualization and trajectory prediction. It tracks the selected game type, but does not implement game-rule enforcement such as turn order, fouls, scoring, or illegal-shot detection. Rule enforcement remains optional and is not required for core training functionality.
 
 ### 4. Trajectory Prediction
 
@@ -120,204 +122,59 @@ The Core module serves as the central business logic layer, managing game state,
 
 ## Interface Specifications
 
-### Core Module Interface
+### Current Core Coordinate and Model Interface
+
+The code excerpts in this section describe the current coordinate contract and use constructors from `backend/core/coordinates.py` and `backend/core/models.py`. The broader functional requirements above remain architectural requirements; consult the implementation for exact service method signatures.
 
 ```python
-from typing import List, Optional, Tuple, Dict, Any
-from dataclasses import dataclass
-from enum import Enum
-import numpy as np
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, TableState
+from backend.core.resolution_converter import ResolutionConverter
 
-class ShotType(Enum):
-    BREAK = "break"
-    DIRECT = "direct"
-    BANK = "bank"
-    COMBINATION = "combination"
-    SAFETY = "safety"
-    MASSE = "masse"
+# Source image points carry scale into 3840 × 2160 canonical pixels.
+point_1080p = Vector2D.from_resolution(960, 540, (1920, 1080))
+point_4k = point_1080p.to_4k_canonical()
+assert point_4k.scale == (1.0, 1.0)
 
-class GameType(Enum):
-    EIGHT_BALL = "8ball"
-    NINE_BALL = "9ball"
-    STRAIGHT_POOL = "straight"
-    PRACTICE = "practice"
+# BallState normalizes position and pixel radius to canonical pixels.
+ball = BallState.from_resolution(
+    id="cue", x=320, y=180, resolution=(640, 360), radius=6
+)
 
-@dataclass
-class Vector2D:
-    """2D vector for positions and velocities"""
-    x: float
-    y: float
+# Pixel corners and physical table dimensions are separate inputs.
+table = TableState.from_calibration(
+    table_corners_pixel=[(50, 40), (590, 40), (590, 320), (50, 320)],
+    camera_resolution=(640, 360),
+    table_dimensions_real=(2.54, 1.27),  # meters
+)
 
-    def magnitude(self) -> float:
-        return np.sqrt(self.x**2 + self.y**2)
-
-    def normalize(self) -> 'Vector2D':
-        mag = self.magnitude()
-        return Vector2D(self.x/mag, self.y/mag) if mag > 0 else Vector2D(0, 0)
-
-@dataclass
-class BallState:
-    """Complete ball state information"""
-    id: str  # Unique persistent identifier for tracking
-    position: Vector2D
-    velocity: Vector2D
-    radius: float
-    mass: float = 0.17  # kg, standard pool ball
-    is_cue_ball: bool = False
-    is_pocketed: bool = False
-    number: Optional[int] = None  # Optional: ball number (1-15) or type
-    is_moving: bool = False  # Track if ball is currently in motion
-
-@dataclass
-class TableState:
-    """Pool table state information"""
-    width: float  # mm
-    height: float  # mm
-    pocket_positions: List[Vector2D]
-    pocket_radius: float
-    cushion_elasticity: float = 0.85
-    surface_friction: float = 0.2
-    surface_slope: float = 0.0  # degrees
-
-@dataclass
-class CueState:
-    """Cue stick state information"""
-    tip_position: Vector2D
-    angle: float  # degrees
-
-@dataclass
-class Collision:
-    """Collision prediction information"""
-    time: float  # seconds from now
-    position: Vector2D
-    ball1_id: str
-    ball2_id: Optional[str]  # None for cushion collision
-    type: str  # "ball", "cushion", "pocket"
-    resulting_velocities: Optional[Dict[str, Vector2D]] = None
-
-@dataclass
-class Trajectory:
-    """Ball trajectory information"""
-    ball_id: str
-    points: List[Vector2D]  # Path points
-    collisions: List[Collision]
-    final_position: Vector2D
-    final_velocity: Vector2D
-    time_to_rest: float  # seconds
-    will_be_pocketed: bool
-    pocket_id: Optional[int] = None
-
-@dataclass
-class ShotAnalysis:
-    """Basic shot type identification"""
-    shot_type: ShotType
-
-@dataclass
-class GameState:
-    """Complete game state"""
-    timestamp: float
-    frame_number: int
-    balls: List[BallState]
-    table: TableState
-    cue: Optional[CueState]
-    game_type: GameType
-    current_player: Optional[int]
-    scores: Dict[int, int]
-    is_break: bool
-    last_shot: Optional[ShotAnalysis]
-
-class CoreModule:
-    """Main core logic interface"""
-
-    def __init__(self, config: Dict[str, Any]):
-        """Initialize with configuration"""
-        pass
-
-    def update_state(self, detection_data: Dict) -> GameState:
-        """Update game state from detection data"""
-        pass
-
-    def calculate_trajectory(self,
-                           ball_id: str,
-                           initial_velocity: Vector2D,
-                           time_limit: float = 10.0) -> List[Trajectory]:
-        """Calculate ball trajectories from initial conditions"""
-        pass
-
-    def analyze_shot(self, target_ball: Optional[str] = None) -> ShotAnalysis:
-        """Identify basic shot type"""
-        pass
-
-    def predict_trajectory(self, time_horizon: float = 5.0) -> List[Trajectory]:
-        """Predict ball trajectories with max 2 collision levels"""
-        pass
-
-    def validate_state(self, state: GameState) -> Tuple[bool, List[str]]:
-        """Validate game state for consistency"""
-        pass
-
-    def get_state_history(self, frames: int = 100) -> List[GameState]:
-        """Get historical game states"""
-        pass
-
-    def reset_game(self, game_type: GameType = GameType.PRACTICE) -> None:
-        """Reset game to initial state"""
-        pass
-
-    def subscribe_to_events(self, event_type: str, callback: callable) -> None:
-        """Subscribe to state change events"""
-        pass
+source_scale = ResolutionConverter.calculate_scale_to_4k((640, 360))
+assert source_scale == (6.0, 6.0)
 ```
 
-### Configuration Schema
+Scale multiplies source x/y values into canonical image pixels. Bounds, radii, and table extents have their own scale fields; never infer one from another. Physical world points are separate meter-valued data and connect to image points through explicit calibration. See [`docs/COORDINATE_SYSTEMS.md`](../../docs/COORDINATE_SYSTEMS.md) for the full contract.
+
+### Core Configuration and Validation Units
+
+`CoreModuleConfig` is defined in `backend/core/__init__.py`; it is not the Pydantic schema shown in an earlier version of this specification. In `PhysicsValidator`, position tolerances use canonical pixels, velocity tolerances use canonical pixels per second, and explicit maximum velocity/acceleration values use those corresponding pixel units. Mass, force, and time remain in SI units or seconds as documented by their consumers.
 
 ```python
-from pydantic import BaseModel, Field
-from typing import Optional, Dict
+from backend.core import CoreModule, CoreModuleConfig
+from backend.core.validation.physics import PhysicsValidator
 
-class PhysicsConfig(BaseModel):
-    """Physics simulation parameters"""
-    gravity: float = 9.81  # m/s²
-    rolling_friction: float = 0.01
-    cushion_coefficient: float = 0.85
-    max_iterations: int = 1000
-    time_step: float = 0.001  # seconds
-    medium_shot_speed: float = 2.0  # m/s - fixed speed for all shots
-
-class PredictionConfig(BaseModel):
-    """Trajectory prediction parameters"""
-    max_prediction_time: float = 10.0  # seconds
-    prediction_resolution: int = 100  # points per trajectory
-    collision_threshold: float = 0.001  # meters
-    max_collision_depth: int = 2  # Maximum collision levels to calculate
-
-class ValidationConfig(BaseModel):
-    """State validation parameters"""
-    max_ball_velocity: float = 10.0  # m/s
-    min_ball_separation: float = 0.001  # meters
-    position_tolerance: float = 0.005  # meters
-    velocity_tolerance: float = 0.1  # m/s
-    enable_physics_validation: bool = True
-    enable_continuity_check: bool = True
-
-class StatePublishingConfig(BaseModel):
-    """State publishing configuration"""
-    static_ball_interval_ms: int = 500  # Interval for publishing static ball positions
-    motion_event_immediate: bool = True  # Publish motion events immediately
-    include_ball_numbers: bool = True  # Include optional ball numbers when available
-    motion_velocity_threshold: float = 0.01  # m/s threshold to consider ball moving
-
-class CoreConfig(BaseModel):
-    """Core module configuration"""
-    physics: PhysicsConfig
-    prediction: PredictionConfig
-    validation: ValidationConfig
-    publishing: StatePublishingConfig
-    state_history_size: int = 1000
-    event_buffer_size: int = 100
-    update_frequency: float = 60.0  # Hz
-    enable_logging: bool = True
-    debug_mode: bool = False
+core = CoreModule(
+    CoreModuleConfig(
+        physics_validation_enabled=True,
+        detailed_validation=True,
+        conservation_checks=True,
+    )
+)
+validator = PhysicsValidator(
+    {
+        "position_tolerance": 1.0,  # canonical pixels
+        "velocity_tolerance": 1.0,  # canonical pixels / second
+    }
+)
 ```
 
 ## Processing Algorithms

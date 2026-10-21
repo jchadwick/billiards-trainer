@@ -18,25 +18,19 @@ All tests use pytest framework and are marked with @pytest.mark.unit.
 """
 
 import math
-import sys
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pytest
 
-# Add backend to path for imports
-backend_path = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(backend_path))
-
-from core.coordinates import Vector2D
-from core.models import BallState, Collision
-from core.physics.spin import SpinCalculator, SpinPhysics, SpinState
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, Collision
+from backend.core.physics.spin import SpinCalculator, SpinPhysics, SpinState
 
 
 class TestSpinState:
     """Test suite for SpinState dataclass."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_spin_state_initialization(self) -> None:
         """Test SpinState creation with default values."""
         spin = SpinState()
@@ -45,7 +39,7 @@ class TestSpinState:
         assert spin.back_spin == 0.0
         assert spin.decay_rate == 2.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_spin_state_with_values(self) -> None:
         """Test SpinState creation with custom values."""
         spin = SpinState(
@@ -59,13 +53,13 @@ class TestSpinState:
         assert spin.back_spin == 2.0
         assert spin.decay_rate == 1.5
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_spin_magnitude(self) -> None:
         """Test spin magnitude calculation."""
         spin = SpinState(top_spin=3.0, side_spin=4.0, back_spin=0.0)
         assert abs(spin.magnitude() - 5.0) < 1e-10
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_spin_magnitude_3d(self) -> None:
         """Test spin magnitude with all three components."""
         # 3-4-5 Pythagorean triple scaled
@@ -73,7 +67,7 @@ class TestSpinState:
         expected = math.sqrt(4.0 + 9.0 + 36.0)  # sqrt(49) = 7.0
         assert abs(spin.magnitude() - expected) < 1e-10
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_to_vector2d_scale_parameter(self) -> None:
         """Test Vector2D conversion includes mandatory scale parameter.
 
@@ -90,7 +84,7 @@ class TestSpinState:
         # Verify mandatory scale parameter is present
         assert vec.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_from_vector2d(self) -> None:
         """Test updating SpinState from Vector2D."""
         spin = SpinState()
@@ -107,12 +101,12 @@ class TestSpinState:
 class TestSpinPhysics:
     """Test suite for SpinPhysics calculations."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def physics(self) -> SpinPhysics:
         """Create a SpinPhysics instance with default configuration."""
         return SpinPhysics()
 
-    @pytest.fixture()
+    @pytest.fixture
     def custom_physics(self) -> SpinPhysics:
         """Create a SpinPhysics instance with custom configuration."""
         config = {
@@ -123,7 +117,7 @@ class TestSpinPhysics:
         }
         return SpinPhysics(config)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_initialization(self, physics: SpinPhysics) -> None:
         """Test SpinPhysics initialization with default config."""
         assert physics.cloth_friction == 0.3
@@ -131,7 +125,7 @@ class TestSpinPhysics:
         assert physics.spin_transfer_efficiency == 0.7
         assert physics.cue_efficiency == 0.8
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_physics_custom_config(self, custom_physics: SpinPhysics) -> None:
         """Test SpinPhysics initialization with custom config."""
         assert custom_physics.cloth_friction == 0.4
@@ -139,7 +133,7 @@ class TestSpinPhysics:
         assert custom_physics.spin_transfer_efficiency == 0.8
         assert custom_physics.cue_efficiency == 0.9
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_apply_english_basic(self, physics: SpinPhysics) -> None:
         """Test basic English application from cue impact.
 
@@ -172,7 +166,7 @@ class TestSpinPhysics:
         # Verify velocity was updated with proper scale
         assert cue_ball.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_apply_english_with_offset(self, physics: SpinPhysics) -> None:
         """Test English application with offset impact point."""
         cue_ball = BallState.from_4k(
@@ -195,7 +189,7 @@ class TestSpinPhysics:
         # Offset impact should create side spin
         assert abs(spin_state.side_spin) > 0.0 or abs(spin_state.top_spin) > 0.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_apply_english_with_elevation(self, physics: SpinPhysics) -> None:
         """Test English application with cue elevation (follow/draw)."""
         cue_ball = BallState.from_4k(
@@ -220,7 +214,7 @@ class TestSpinPhysics:
         total_spin = abs(spin_state.top_spin) + abs(spin_state.side_spin)
         assert total_spin > 0.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_update_spin_with_motion_no_spin(self, physics: SpinPhysics) -> None:
         """Test spin update with stationary ball.
 
@@ -246,7 +240,7 @@ class TestSpinPhysics:
         # Verify mandatory scale parameter
         assert magnus_force.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_update_spin_with_motion_spinning_ball(self, physics: SpinPhysics) -> None:
         """Test spin update with moving, spinning ball."""
         ball = BallState.from_4k(
@@ -269,7 +263,7 @@ class TestSpinPhysics:
         # Verify scale parameter
         assert magnus_force.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_update_spin_decay(self, physics: SpinPhysics) -> None:
         """Test spin decay over time."""
         ball = BallState.from_4k(
@@ -292,7 +286,7 @@ class TestSpinPhysics:
         assert spin.side_spin < initial_spin.side_spin
         assert spin.back_spin < initial_spin.back_spin
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_transfer_spin_collision(self, physics: SpinPhysics) -> None:
         """Test spin transfer during ball-to-ball collision."""
         # Create two balls
@@ -335,7 +329,7 @@ class TestSpinPhysics:
         # Top spin typically reduces in collisions
         assert new_spin1.top_spin < spin1.top_spin
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_transfer_spin_no_collision_position(self, physics: SpinPhysics) -> None:
         """Test spin transfer when collision position is None."""
         ball1 = BallState.from_4k(id="ball_1", x=1920.0, y=1080.0, number=1)
@@ -364,7 +358,7 @@ class TestSpinPhysics:
         assert isinstance(new_spin1, SpinState)
         assert isinstance(new_spin2, SpinState)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_cushion_spin_interaction_vertical(self, physics: SpinPhysics) -> None:
         """Test spin interaction with vertical cushion."""
         ball = BallState.from_4k(
@@ -386,7 +380,7 @@ class TestSpinPhysics:
         # Side spin should reverse and reduce
         assert new_spin.side_spin * spin_state.side_spin <= 0  # Opposite sign or zero
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_cushion_spin_interaction_horizontal(self, physics: SpinPhysics) -> None:
         """Test spin interaction with horizontal cushion."""
         ball = BallState.from_4k(
@@ -408,7 +402,7 @@ class TestSpinPhysics:
         # Top spin should reverse and reduce
         assert new_spin.top_spin * spin_state.top_spin <= 0  # Opposite sign or zero
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_masse_shot_scale_parameters(self, physics: SpinPhysics) -> None:
         """Test masse shot calculation with proper Vector2D scale handling.
 
@@ -442,7 +436,7 @@ class TestSpinPhysics:
         # English should create side spin
         assert abs(masse_spin.side_spin) > 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_masse_shot_no_english(self, physics: SpinPhysics) -> None:
         """Test masse shot without English."""
         cue_ball = BallState.from_4k(
@@ -465,7 +459,7 @@ class TestSpinPhysics:
         # But should still have back spin from elevation
         assert masse_spin.top_spin < 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_masse_shot_extreme_elevation(self, physics: SpinPhysics) -> None:
         """Test masse shot with extreme elevation."""
         cue_ball = BallState.from_4k(
@@ -492,19 +486,19 @@ class TestSpinPhysics:
 class TestSpinCalculator:
     """Test suite for SpinCalculator high-level interface."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def calculator(self) -> SpinCalculator:
         """Create a SpinCalculator instance."""
         return SpinCalculator()
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculator_initialization(self, calculator: SpinCalculator) -> None:
         """Test SpinCalculator initialization."""
         assert isinstance(calculator.physics, SpinPhysics)
         assert isinstance(calculator.spin_states, dict)
         assert len(calculator.spin_states) == 0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_apply_english(self, calculator: SpinCalculator) -> None:
         """Test high-level English application."""
         cue_ball = BallState.from_4k(
@@ -524,7 +518,7 @@ class TestSpinCalculator:
         # Ball's spin vector should be updated
         assert cue_ball.spin.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_transfer_spin(self, calculator: SpinCalculator) -> None:
         """Test high-level spin transfer."""
         ball1 = BallState.from_4k(id="ball_1", x=1920.0, y=1080.0, number=1)
@@ -552,7 +546,7 @@ class TestSpinCalculator:
         assert ball1.spin.scale == (1.0, 1.0)
         assert ball2.spin.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_update_ball_motion(self, calculator: SpinCalculator) -> None:
         """Test ball motion update with spin."""
         ball = BallState.from_4k(id="ball_1", x=1920.0, y=1080.0, number=1)
@@ -567,7 +561,7 @@ class TestSpinCalculator:
         # Spin state should be updated
         assert "ball_1" in calculator.spin_states
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_handle_cushion_collision(self, calculator: SpinCalculator) -> None:
         """Test cushion collision handling."""
         ball = BallState.from_4k(id="ball_1", x=1920.0, y=1080.0, number=1)
@@ -583,7 +577,7 @@ class TestSpinCalculator:
         # Ball spin vector should be updated
         assert ball.spin.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_calculate_masse_shot_calculator(self, calculator: SpinCalculator) -> None:
         """Test masse shot calculation through calculator."""
         cue_ball = BallState.from_4k(id="cue", x=1920.0, y=1080.0, number=0)
@@ -601,7 +595,7 @@ class TestSpinCalculator:
         # Spin state should be stored
         assert "cue" in calculator.spin_states
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_get_spin_state(self, calculator: SpinCalculator) -> None:
         """Test retrieving spin state."""
         # Initially empty
@@ -616,7 +610,7 @@ class TestSpinCalculator:
         assert retrieved is spin
         assert retrieved.top_spin == 5.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_reset_spin(self, calculator: SpinCalculator) -> None:
         """Test resetting spin state."""
         # Add a spin state
@@ -638,7 +632,7 @@ class TestVector2DScaleValidation:
     in spin.py properly include the mandatory scale parameter.
     """
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_spin_state_to_vector2d_has_scale(self) -> None:
         """Verify line 44: to_vector2d() includes scale parameter."""
         spin = SpinState(top_spin=10.0, side_spin=5.0)
@@ -648,7 +642,7 @@ class TestVector2DScaleValidation:
         assert hasattr(vec, "scale")
         assert vec.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_cue_direction_vector_has_scale(self) -> None:
         """Verify line 121-125: cue_dir includes scale parameter."""
         physics = SpinPhysics()
@@ -667,7 +661,7 @@ class TestVector2DScaleValidation:
         # If it worked without error, scale was properly set
         assert isinstance(spin, SpinState)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_velocity_change_vector_has_scale(self) -> None:
         """Verify line 134-138: velocity_change includes scale parameter."""
         physics = SpinPhysics()
@@ -688,7 +682,7 @@ class TestVector2DScaleValidation:
         assert cue_ball.velocity.magnitude() > initial_velocity
         assert cue_ball.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_cue_ball_velocity_update_has_scale(self) -> None:
         """Verify line 141-145: cue_ball.velocity update includes scale parameter."""
         physics = SpinPhysics()
@@ -706,7 +700,7 @@ class TestVector2DScaleValidation:
         # Updated velocity must have scale
         assert cue_ball.velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_magnus_force_vector_has_scale(self) -> None:
         """Verify line 222-224: magnus_force includes scale parameter."""
         physics = SpinPhysics()
@@ -719,7 +713,7 @@ class TestVector2DScaleValidation:
         # Magnus force must have scale
         assert magnus_force.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_masse_direction_vector_has_scale(self) -> None:
         """Verify line 435-439: direction vector includes scale parameter."""
         physics = SpinPhysics()
@@ -735,7 +729,7 @@ class TestVector2DScaleValidation:
         assert isinstance(velocity, Vector2D)
         assert velocity.scale == (1.0, 1.0)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_masse_initial_velocity_has_scale(self) -> None:
         """Verify line 447-451: initial_velocity includes scale parameter."""
         physics = SpinPhysics()
@@ -753,13 +747,13 @@ class TestVector2DScaleValidation:
 class TestEdgeCases:
     """Test suite for edge cases and boundary conditions."""
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_zero_magnitude_spin(self) -> None:
         """Test spin with zero magnitude."""
         spin = SpinState()
         assert spin.magnitude() == 0.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_zero_force_english(self) -> None:
         """Test English application with zero force."""
         physics = SpinPhysics()
@@ -778,7 +772,7 @@ class TestEdgeCases:
         assert isinstance(spin, SpinState)
         assert spin.magnitude() < 1.0
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_impact_outside_ball_surface(self) -> None:
         """Test impact point far outside ball surface (should be normalized)."""
         physics = SpinPhysics()
@@ -798,7 +792,7 @@ class TestEdgeCases:
 
         assert isinstance(spin, SpinState)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_very_long_time_step(self) -> None:
         """Test spin update with very long time step.
 
@@ -820,7 +814,7 @@ class TestEdgeCases:
         # Side spin should decay (perpendicular to motion)
         assert new_spin.side_spin < spin.side_spin
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_negative_decay_rate(self) -> None:
         """Test that negative decay rate doesn't cause issues."""
         # This tests robustness, though negative decay is physically unrealistic
@@ -828,7 +822,7 @@ class TestEdgeCases:
         assert spin.decay_rate == -1.0
         # The physics should handle it (though results may be unphysical)
 
-    @pytest.mark.unit()
+    @pytest.mark.unit
     def test_collision_with_zero_velocity(self) -> None:
         """Test spin transfer when both balls are stationary."""
         physics = SpinPhysics()

@@ -4,6 +4,191 @@
 
 import type { Point2D, Size2D, ViewportTransform, CoordinateTransform, BoundingBox } from '../types/video';
 
+/** Canonical image plane used by backend vision and physics serializers. */
+export const CANONICAL_IMAGE_SIZE: Readonly<Size2D> = Object.freeze({
+  width: 3840,
+  height: 2160,
+});
+
+export type ScaleFactors = readonly [number, number];
+
+/** Wire-format image point. Scale factors map source pixels to canonical pixels. */
+export interface ScaledImagePoint {
+  x: number;
+  y: number;
+  scale?: ScaleFactors;
+  coordinate_space?: 'pixel' | '4k_canonical';
+}
+
+function validScale(scale: unknown): scale is ScaleFactors {
+  return (
+    Array.isArray(scale) &&
+    scale.length === 2 &&
+    scale.every((factor) => typeof factor === 'number' && Number.isFinite(factor) && factor > 0)
+  );
+}
+
+/**
+ * Convert transport image geometry to the frontend's canonical 4K plane.
+ * Raw coordinate arrays are accepted only at explicit source-frame boundaries
+ * where the caller supplies that exact frame size. Wire objects must carry a
+ * scale; a canonical-space label does not replace missing scale metadata.
+ */
+export function normalizeImagePointToCanonical(
+  point: unknown,
+  sourceResolution?: Size2D,
+): Point2D | null {
+  let x: unknown;
+  let y: unknown;
+  let scale: unknown;
+
+  if (Array.isArray(point) && point.length === 2) {
+    [x, y] = point;
+    if (sourceResolution && isValidSize(sourceResolution)) {
+      scale = [
+        CANONICAL_IMAGE_SIZE.width / sourceResolution.width,
+        CANONICAL_IMAGE_SIZE.height / sourceResolution.height,
+      ];
+    }
+  } else if (point && typeof point === 'object') {
+    const wirePoint = point as ScaledImagePoint;
+    if (
+      wirePoint.coordinate_space !== undefined &&
+      wirePoint.coordinate_space !== 'pixel' &&
+      wirePoint.coordinate_space !== '4k_canonical'
+    ) {
+      return null;
+    }
+    x = wirePoint.x;
+    y = wirePoint.y;
+    scale = wirePoint.scale;
+    if (scale === undefined && wirePoint.coordinate_space === '4k_canonical') {
+      return null;
+    }
+    if (
+      scale === undefined &&
+      wirePoint.coordinate_space === 'pixel' &&
+      sourceResolution &&
+      isValidSize(sourceResolution)
+    ) {
+      scale = [
+        CANONICAL_IMAGE_SIZE.width / sourceResolution.width,
+        CANONICAL_IMAGE_SIZE.height / sourceResolution.height,
+      ];
+    }
+  }
+
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !validScale(scale)
+  ) {
+    return null;
+  }
+
+  const canonical = { x: x * scale[0], y: y * scale[1] };
+  return Number.isFinite(canonical.x) && Number.isFinite(canonical.y)
+    ? canonical
+    : null;
+}
+
+/** Normalize an image extent with its explicit per-axis source-to-canonical scale. */
+export function normalizeImageExtentToCanonical(
+  extent: number,
+  scale: unknown,
+): { x: number; y: number } | null {
+  if (!Number.isFinite(extent) || extent < 0 || !validScale(scale)) return null;
+  const normalized = { x: extent * scale[0], y: extent * scale[1] };
+  return Number.isFinite(normalized.x) && Number.isFinite(normalized.y)
+    ? normalized
+    : null;
+}
+
+export interface TablePixelExtentSource {
+  width?: number;
+  width_scale?: unknown;
+  height?: number;
+  height_scale?: unknown;
+  dimensions_scale?: unknown;
+  dimensions_unit?: unknown;
+}
+
+export interface CanonicalTablePixelExtents {
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Normalize table width and height into the canonical image plane. The API's
+ * shared scale is per axis; producers with independent width and height scales
+ * may provide those explicitly. Units other than canonical pixels invalidate
+ * the extents, and unit labels never stand in for scale metadata.
+ */
+export function normalizeTablePixelExtentsToCanonical(
+  source: TablePixelExtentSource,
+): CanonicalTablePixelExtents {
+  if (
+    source.dimensions_unit !== undefined &&
+    source.dimensions_unit !== 'canonical_pixels'
+  ) {
+    return {};
+  }
+
+  const sharedScale: unknown = source.dimensions_scale;
+
+  const normalize = (
+    extent: number | undefined,
+    ownScale: unknown,
+    axis: 'x' | 'y',
+  ): number | undefined => {
+    if (extent === undefined || !Number.isFinite(extent) || extent <= 0) return undefined;
+    const scale = ownScale !== undefined ? ownScale : sharedScale;
+    if (!validScale(scale)) return undefined;
+    const normalized = normalizeImageExtentToCanonical(extent, scale);
+    return normalized ? normalized[axis] : undefined;
+  };
+
+  const width = normalize(source.width, source.width_scale, 'x');
+  const height = normalize(source.height, source.height_scale, 'y');
+  return {
+    ...(width === undefined ? {} : { width }),
+    ...(height === undefined ? {} : { height }),
+  };
+}
+
+/** Normalize a directed pixel length, accounting for non-uniform axis scaling. */
+export function normalizeImageLengthToCanonical(
+  length: number,
+  scale: unknown,
+  angleRadians: number,
+): number | null {
+  if (!Number.isFinite(length) || length < 0 || !Number.isFinite(angleRadians) || !validScale(scale)) {
+    return null;
+  }
+  const xComponent = Math.cos(angleRadians) * scale[0];
+  const yComponent = Math.sin(angleRadians) * scale[1];
+  const normalized = length * Math.hypot(xComponent, yComponent);
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+/** Convert canonical image pixels into active-frame pixels for rendering. */
+export function canonicalToImagePoint(point: Point2D, imageSize: Size2D): Point2D | null {
+  if (!isValidSize(imageSize) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return null;
+  }
+  return {
+    x: point.x * imageSize.width / CANONICAL_IMAGE_SIZE.width,
+    y: point.y * imageSize.height / CANONICAL_IMAGE_SIZE.height,
+  };
+}
+
+function isValidSize(size: Size2D): boolean {
+  return Number.isFinite(size.width) && size.width > 0 &&
+    Number.isFinite(size.height) && size.height > 0;
+}
+
 /**
  * Creates coordinate transformation functions for video and canvas
  */
@@ -12,6 +197,10 @@ export function createCoordinateTransform(
   canvasSize: Size2D,
   transform: ViewportTransform = { x: 0, y: 0, scale: 1, rotation: 0 }
 ): CoordinateTransform {
+
+  if (!isValidSize(videoSize) || !isValidSize(canvasSize)) {
+    throw new RangeError('Video and canvas dimensions must be finite and positive');
+  }
 
   // Calculate scaling factors
   const scaleX = canvasSize.width / videoSize.width;
@@ -26,9 +215,12 @@ export function createCoordinateTransform(
 
   return {
     videoToCanvas: (point: Point2D): Point2D => {
-      // Apply video to canvas transformation
-      let x = point.x * uniformScale + offsetX;
-      let y = point.y * uniformScale + offsetY;
+      // Internal points are canonical. Map to the active video frame exactly
+      // once before applying the frame-to-canvas and viewport transforms.
+      const imagePoint = canonicalToImagePoint(point, videoSize);
+      if (!imagePoint) return { x: Number.NaN, y: Number.NaN };
+      let x = imagePoint.x * uniformScale + offsetX;
+      let y = imagePoint.y * uniformScale + offsetY;
 
       // Apply viewport transformation
       x = (x - transform.x) * transform.scale;
@@ -73,12 +265,23 @@ export function createCoordinateTransform(
       x = x / transform.scale + transform.x;
       y = y / transform.scale + transform.y;
 
-      // Reverse canvas to video transformation
+      // Reverse canvas-to-active-image transformation.
       x = (x - offsetX) / uniformScale;
       y = (y - offsetY) / uniformScale;
 
+      // Return canonical image coordinates to keep the internal plane stable
+      // across frame resolutions.
+      x *= CANONICAL_IMAGE_SIZE.width / videoSize.width;
+      y *= CANONICAL_IMAGE_SIZE.height / videoSize.height;
+
       return { x, y };
     },
+
+    videoExtentToCanvasX: (extent: number): number =>
+      extent * videoSize.width / CANONICAL_IMAGE_SIZE.width * uniformScale * transform.scale,
+
+    videoExtentToCanvasY: (extent: number): number =>
+      extent * videoSize.height / CANONICAL_IMAGE_SIZE.height * uniformScale * transform.scale,
 
     screenToCanvas: (point: Point2D): Point2D => {
       // This will be set by the canvas component based on canvas bounds

@@ -1,84 +1,59 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Billiards Projector Deployment Script
+# Local convenience entry point retained for existing developer workflows.
+# This script never connects to or changes another machine.
 
-TARGET_HOST="jchadwick@192.168.1.31"
-TARGET_DIR="/opt/billiards-trainer/frontend/projector"
+set -euo pipefail
 
-echo "Billiards Projector Deployment"
-echo "=============================="
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Parse command line arguments
-ACTION=${1:-deploy}
+usage() {
+    cat <<'USAGE'
+Usage: ./deploy.sh [run|test|web] [arguments...]
+
+Local-only commands:
+  run [love arguments...]       Run the native projector on this machine.
+  test [duration [interval]]     Run the local projector and UDP test sender.
+  web                           Build the browser package locally.
+
+Install LÖVE, Python, Node.js, and npm with this machine's package manager as
+needed. This script does not install software, request credentials, or deploy.
+USAGE
+}
+
+require_command() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        printf 'Required command not found: %s\n' "$1" >&2
+        exit 1
+    fi
+}
+
+ACTION="${1:-run}"
+if (($# > 0)); then
+    shift
+fi
 
 case "$ACTION" in
-    deploy)
-        echo "Deploying to $TARGET_HOST:$TARGET_DIR..."
-
-        # Create target directory if it doesn't exist
-        ssh $TARGET_HOST "mkdir -p $TARGET_DIR"
-
-        # Sync files (exclude development files)
-        rsync -av --exclude=".git" --exclude="*.swp" --exclude=".DS_Store" \
-            ./ $TARGET_HOST:$TARGET_DIR/
-
-        echo "Deployment complete!"
-        echo ""
-        echo "To run on target:"
-        echo "  ssh $TARGET_HOST"
-        echo "  cd $TARGET_DIR"
-        echo "  love ."
-        ;;
-
-    install)
-        echo "Installing LÖVE2D on target system..."
-        ssh $TARGET_HOST "sudo apt-get update && sudo apt-get install -y love"
-        ;;
-
     run)
-        echo "Running projector on target system..."
-        ssh -t $TARGET_HOST "cd $TARGET_DIR && love ."
+        require_command love
+        cd "$SCRIPT_DIR"
+        exec love . "$@"
         ;;
-
     test)
-        echo "Running in test mode (windowed) on target..."
-        # Create temporary conf.lua with windowed mode
-        cat > /tmp/conf_test.lua << 'EOF'
-function love.conf(t)
-    t.window.fullscreen = false
-    t.window.width = 1280
-    t.window.height = 720
-end
-EOF
-        scp /tmp/conf_test.lua $TARGET_HOST:$TARGET_DIR/conf_test.lua
-        ssh -t $TARGET_HOST "cd $TARGET_DIR && love . --config conf_test.lua"
+        require_command love
+        require_command python3
+        exec "$SCRIPT_DIR/test_local.sh" "$@"
         ;;
-
-    logs)
-        echo "Viewing logs from target system..."
-        ssh $TARGET_HOST "cd $TARGET_DIR && tail -f love.log 2>/dev/null || echo 'No logs found'"
+    web)
+        require_command node
+        require_command npm
+        exec "$SCRIPT_DIR/build_html.sh"
         ;;
-
-    status)
-        echo "Checking status on target system..."
-        ssh $TARGET_HOST "pgrep -fl love || echo 'Projector not running'"
+    -h|--help|help)
+        usage
         ;;
-
-    stop)
-        echo "Stopping projector on target system..."
-        ssh $TARGET_HOST "pkill -f love || echo 'Projector was not running'"
-        ;;
-
     *)
-        echo "Usage: $0 [deploy|install|run|test|logs|status|stop]"
-        echo ""
-        echo "  deploy  - Deploy files to target system (default)"
-        echo "  install - Install LÖVE2D on target system"
-        echo "  run     - Run projector on target (fullscreen)"
-        echo "  test    - Run projector in windowed mode for testing"
-        echo "  logs    - View projector logs"
-        echo "  status  - Check if projector is running"
-        echo "  stop    - Stop projector"
-        exit 1
+        usage >&2
+        exit 2
         ;;
 esac

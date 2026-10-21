@@ -653,7 +653,7 @@ export const DiagnosticReport: React.FC<DiagnosticReportProps> = observer(({ rep
               >
                 <span className="mr-2">{tab.icon}</span>
                 <span>{tab.label}</span>
-                {tab.count !== undefined && tab.count > 0 && (
+                {'count' in tab && tab.count !== undefined && tab.count > 0 && (
                   <span className="ml-2 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs px-2 py-1 rounded-full">
                     {tab.count}
                   </span>

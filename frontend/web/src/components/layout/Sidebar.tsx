@@ -41,8 +41,8 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
 
   const handleNavItemClick = (item: NavItem) => {
     // Close mobile sidebar when item is clicked
-    if (uiStore.sidebarMobileOpen) {
-      uiStore.setMobileSidebarOpen(false)
+    if (uiStore.isMobile && uiStore.uiState.sidebarOpen) {
+      uiStore.setSidebarOpen(false)
     }
   }
 
@@ -51,20 +51,20 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
       {/* Desktop Sidebar */}
       <aside
         className={`hidden lg:flex flex-col fixed inset-y-0 left-0 z-50 bg-white dark:bg-secondary-800 border-r border-secondary-200 dark:border-secondary-700 transition-all duration-300 ${
-          uiStore.sidebarCollapsed ? 'w-16' : 'w-64'
+          !uiStore.uiState.sidebarOpen ? 'w-16' : 'w-64'
         } ${className}`}
       >
         <div className="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto">
           <div className="flex-1 px-3 space-y-1">
             <NavMenu
               items={navigationItems}
-              collapsed={uiStore.sidebarCollapsed}
+              collapsed={!uiStore.uiState.sidebarOpen}
               onItemClick={handleNavItemClick}
             />
           </div>
 
           {/* Footer area */}
-          {!uiStore.sidebarCollapsed && (
+          {uiStore.uiState.sidebarOpen && (
             <div className="px-3 py-4 border-t border-secondary-200 dark:border-secondary-700">
               <div className="text-xs text-secondary-500 text-center">
                 <div>Billiards Trainer v1.0.0</div>
@@ -76,12 +76,12 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
       </aside>
 
       {/* Mobile Sidebar */}
-      {uiStore.sidebarMobileOpen && (
+      {(uiStore.isMobile && uiStore.uiState.sidebarOpen) && (
         <>
           {/* Mobile backdrop */}
           <div
             className="lg:hidden fixed inset-0 z-40 bg-black/50"
-            onClick={() => uiStore.setMobileSidebarOpen(false)}
+            onClick={() => uiStore.setSidebarOpen(false)}
             aria-hidden="true"
           />
 
@@ -101,7 +101,7 @@ export const Sidebar = observer<SidebarProps>(({ className = '' }) => {
                   </h2>
                 </div>
                 <button
-                  onClick={() => uiStore.setMobileSidebarOpen(false)}
+                  onClick={() => uiStore.setSidebarOpen(false)}
                   className="p-2 rounded-md text-secondary-400 hover:text-secondary-600 hover:bg-secondary-100 dark:hover:bg-secondary-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
                   aria-label="Close sidebar"
                 >

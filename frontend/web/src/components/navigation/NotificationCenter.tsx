@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { observer } from 'mobx-react-lite'
 import { useUIStore } from '../../hooks/useStores'
 import { Button } from '../ui/Button'
-import type { Notification } from '../../types'
+import type { Notification } from '../../stores/types'
 
 export interface NotificationCenterProps {
   className?: string
@@ -65,7 +65,7 @@ const NotificationItem: React.FC<{
   onRemove: (id: string) => void
 }> = observer(({ notification, onRead, onRemove }) => {
   const handleMarkRead = () => {
-    if (!notification.read) {
+    if (!notification.isRead) {
       onRead(notification.id)
     }
   }
@@ -77,7 +77,7 @@ const NotificationItem: React.FC<{
   return (
     <div
       className={`p-4 border-b border-secondary-200 dark:border-secondary-700 hover:bg-secondary-50 dark:hover:bg-secondary-800/50 ${
-        !notification.read ? 'bg-primary-50/50 dark:bg-primary-900/10' : ''
+        !notification.isRead ? 'bg-primary-50/50 dark:bg-primary-900/10' : ''
       }`}
     >
       <div className="flex items-start space-x-3">
@@ -104,7 +104,7 @@ const NotificationItem: React.FC<{
             <span className="text-xs text-secondary-500">
               {notification.timestamp.toLocaleString()}
             </span>
-            {!notification.read && (
+            {!notification.isRead && (
               <button
                 onClick={handleMarkRead}
                 className="text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
@@ -137,7 +137,7 @@ export const NotificationCenter = observer<NotificationCenterProps>(({ className
   }, [])
 
   const handleMarkRead = (id: string) => {
-    uiStore.markNotificationRead(id)
+    uiStore.markNotificationAsRead(id)
   }
 
   const handleRemove = (id: string) => {
@@ -181,7 +181,7 @@ export const NotificationCenter = observer<NotificationCenterProps>(({ className
               <h3 className="text-sm font-medium text-secondary-900 dark:text-secondary-100">
                 Notifications
               </h3>
-              {uiStore.notifications.length > 0 && (
+              {uiStore.uiState.notifications.length > 0 && (
                 <Button variant="ghost" size="sm" onClick={handleClearAll}>
                   Clear all
                 </Button>
@@ -191,7 +191,7 @@ export const NotificationCenter = observer<NotificationCenterProps>(({ className
 
           {/* Notifications List */}
           <div className="max-h-64 overflow-y-auto">
-            {uiStore.notifications.length === 0 ? (
+            {uiStore.uiState.notifications.length === 0 ? (
               <div className="p-8 text-center">
                 <svg className="w-12 h-12 mx-auto text-secondary-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -204,7 +204,7 @@ export const NotificationCenter = observer<NotificationCenterProps>(({ className
                 <p className="text-sm text-secondary-500">No notifications</p>
               </div>
             ) : (
-              uiStore.notifications.map((notification) => (
+              uiStore.uiState.notifications.map((notification) => (
                 <NotificationItem
                   key={notification.id}
                   notification={notification}

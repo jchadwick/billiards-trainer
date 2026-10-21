@@ -48,7 +48,7 @@ const createAxiosInstance = (config: ApiClientConfig): AxiosInstance => {
     headers: {
       "Content-Type": "application/json",
     },
-    // Allow cookies for CSRF protection if needed
+    // Keep the anonymous single-user API from sending browser cookies.
     withCredentials: false,
   });
 
@@ -116,14 +116,6 @@ const createAxiosInstance = (config: ApiClientConfig): AxiosInstance => {
         const status = error.response.status;
 
         switch (status) {
-          case 401:
-            // Unauthorized - could trigger auth flow here
-            console.warn("[API] Unauthorized request - token may be expired");
-            break;
-          case 403:
-            // Forbidden
-            console.warn("[API] Forbidden - insufficient permissions");
-            break;
           case 404:
             // Not found
             console.warn(`[API] Resource not found: ${config?.url}`);
@@ -197,7 +189,6 @@ export const createRetryableRequest = <T = any>(
 export class AxiosClient {
   private instance: AxiosInstance;
   private config: ApiClientConfig;
-  private token: string | null = null;
 
   constructor(config: ApiClientConfig) {
     this.config = config;
@@ -223,19 +214,6 @@ export class AxiosClient {
    */
   getWsBaseURL(): string {
     return this.config.wsBaseURL;
-  }
-
-  /**
-   * Set authentication token for all requests
-   */
-  setAuthToken(token: string | null): void {
-    this.token = token;
-    if (token) {
-      this.instance.defaults.headers.common["Authorization"] =
-        `Bearer ${token}`;
-    } else {
-      delete this.instance.defaults.headers.common["Authorization"];
-    }
   }
 
   /**
@@ -389,23 +367,11 @@ export class AxiosClient {
 
   /**
    * Create a WebSocket connection to the specified endpoint
-   * @param path - The WebSocket path (e.g., '/api/v1/ws')
-   * @param token - Optional authentication token
+   * @param path - The WebSocket path (e.g., '/api/v1/websocket/ws')
    * @returns WebSocket instance
    */
-  createWebSocket(path: string, token?: string): WebSocket {
-    const wsUrl = `${this.config.wsBaseURL}${path}`;
-    const url = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
-    return new WebSocket(url);
-  }
-
-  /**
-   * Create a WebSocket connection with the current auth token
-   * @param path - The WebSocket path (e.g., '/api/v1/ws')
-   * @returns WebSocket instance
-   */
-  createAuthenticatedWebSocket(path: string): WebSocket {
-    return this.createWebSocket(path, this.token || undefined);
+  createWebSocket(path: string): WebSocket {
+    return new WebSocket(this.getWebSocketUrl(path));
   }
 
   /**
@@ -420,12 +386,10 @@ export class AxiosClient {
   /**
    * Get the full WebSocket URL for a given path
    * @param path - The WebSocket path
-   * @param token - Optional authentication token
    * @returns Full WebSocket URL
    */
-  getWebSocketUrl(path: string, token?: string): string {
-    const wsUrl = `${this.config.wsBaseURL}${path}`;
-    return token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
+  getWebSocketUrl(path: string): string {
+    return `${this.config.wsBaseURL}${path}`;
   }
 }
 

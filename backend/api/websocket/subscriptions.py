@@ -6,12 +6,21 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, TypedDict, Union
+
+from backend.config import config
 
 from .manager import StreamType
 from .schemas import QualityLevel
 
 logger = logging.getLogger(__name__)
+
+
+class AggregationBufferEntry(TypedDict):
+    """One timestamped message held during a bounded aggregation window."""
+
+    data: dict[str, Any]
+    timestamp: datetime
 
 
 class FilterOperator(Enum):
@@ -54,8 +63,8 @@ class StreamSubscription:
     max_latency_ms: Optional[float] = None
 
     # Data filtering
-    include_fields: Optional[set[str]] = None
-    exclude_fields: Optional[set[str]] = None
+    include_fields: Optional[set[str] | list[str]] = None
+    exclude_fields: Optional[set[str] | list[str]] = None
     filter_conditions: list[FilterCondition] = field(default_factory=list)
 
     # Aggregation settings
@@ -76,7 +85,7 @@ class StreamSubscription:
     # Custom processing
     preprocessor: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Convert field lists to sets after initialization."""
         if self.include_fields is not None and not isinstance(self.include_fields, set):
             self.include_fields = set(self.include_fields)
@@ -87,18 +96,30 @@ class StreamSubscription:
 class SubscriptionManager:
     """Advanced subscription manager with filtering, aggregation, and performance optimization."""
 
-    def __init__(self):
+    def __init__(self, aggregation_buffer_capacity: Optional[int] = None):
         """Initialize subscription manager with tracking and performance monitoring."""
+        configured_capacity = config.get(
+            "api.websocket.delivery.aggregation_buffer_capacity", 32
+        )
+        if aggregation_buffer_capacity is None:
+            aggregation_buffer_capacity = configured_capacity
+        if (
+            isinstance(aggregation_buffer_capacity, bool)
+            or not isinstance(aggregation_buffer_capacity, int)
+            or aggregation_buffer_capacity < 1
+        ):
+            aggregation_buffer_capacity = 32
+        self.aggregation_buffer_capacity = aggregation_buffer_capacity
         self.subscriptions: dict[str, dict[StreamType, StreamSubscription]] = (
             defaultdict(dict)
         )
         self.stream_subscribers: dict[StreamType, set[str]] = {
             stream_type: set() for stream_type in StreamType
         }
-        self.aggregation_buffers: dict[str, dict[StreamType, list[dict[str, Any]]]] = (
-            defaultdict(lambda: defaultdict(list))
-        )
-        self.aggregation_tasks: dict[str, asyncio.Task] = {}
+        self.aggregation_buffers: dict[
+            str, dict[StreamType, list[AggregationBufferEntry]]
+        ] = defaultdict(lambda: defaultdict(list))
+        self.aggregation_tasks: dict[str, asyncio.Task[None]] = {}
         self.sample_counters: dict[str, dict[StreamType, int]] = defaultdict(
             lambda: defaultdict(int)
         )
@@ -108,6 +129,7 @@ class SubscriptionManager:
             "messages_processed": 0,
             "messages_filtered": 0,
             "aggregation_hit_rate": 0.0,
+            "aggregation_dropped_messages": 0,
         }
 
     async def create_subscription(
@@ -214,9 +236,15 @@ class SubscriptionManager:
 
         # Stop aggregation task if running
         task_key = f"{client_id}:{stream_type.value}"
-        if task_key in self.aggregation_tasks:
-            self.aggregation_tasks[task_key].cancel()
-            del self.aggregation_tasks[task_key]
+        aggregation_task = self.aggregation_tasks.pop(task_key, None)
+        if aggregation_task is not None:
+            aggregation_task.cancel()
+            try:
+                await aggregation_task
+            except asyncio.CancelledError:
+                # The task may be cancelled before its coroutine gets to handle
+                # cancellation itself. Awaiting it guarantees teardown is complete.
+                pass
 
         # Clean up empty client subscriptions
         if not self.subscriptions[client_id]:
@@ -228,6 +256,8 @@ class SubscriptionManager:
             and stream_type in self.aggregation_buffers[client_id]
         ):
             del self.aggregation_buffers[client_id][stream_type]
+            if not self.aggregation_buffers[client_id]:
+                del self.aggregation_buffers[client_id]
 
         # Clean up sample counters
         if (
@@ -235,13 +265,15 @@ class SubscriptionManager:
             and stream_type in self.sample_counters[client_id]
         ):
             del self.sample_counters[client_id][stream_type]
+            if not self.sample_counters[client_id]:
+                del self.sample_counters[client_id]
 
         self._update_active_subscriptions()
 
         logger.info(f"Removed subscription for {client_id} from {stream_type.value}")
         return True
 
-    async def remove_all_subscriptions(self, client_id: str):
+    async def remove_all_subscriptions(self, client_id: str) -> None:
         """Remove all subscriptions for a client."""
         if client_id not in self.subscriptions:
             return
@@ -265,7 +297,7 @@ class SubscriptionManager:
             return {}
 
         message_timestamp = timestamp or datetime.now(timezone.utc)
-        processed_messages = {}
+        processed_messages: dict[str, dict[str, Any]] = {}
 
         for client_id in subscribers:
             if (
@@ -385,7 +417,7 @@ class SubscriptionManager:
 
     async def update_subscription_quality(
         self, client_id: str, stream_type: StreamType, quality_level: QualityLevel
-    ):
+    ) -> None:
         """Update the quality level for a subscription."""
         if (
             client_id in self.subscriptions
@@ -396,7 +428,7 @@ class SubscriptionManager:
                 f"Updated quality for {client_id}/{stream_type.value} to {quality_level.value}"
             )
 
-    async def pause_subscription(self, client_id: str, stream_type: StreamType):
+    async def pause_subscription(self, client_id: str, stream_type: StreamType) -> None:
         """Pause a subscription without removing it."""
         if (
             client_id in self.subscriptions
@@ -405,7 +437,9 @@ class SubscriptionManager:
             self.subscriptions[client_id][stream_type].active = False
             logger.info(f"Paused subscription for {client_id}/{stream_type.value}")
 
-    async def resume_subscription(self, client_id: str, stream_type: StreamType):
+    async def resume_subscription(
+        self, client_id: str, stream_type: StreamType
+    ) -> None:
         """Resume a paused subscription."""
         if (
             client_id in self.subscriptions
@@ -466,7 +500,7 @@ class SubscriptionManager:
         """Evaluate a single filter condition against data."""
         try:
             # Navigate to the field using dot notation
-            value = data
+            value: Any = data
             for field_part in condition.field_path.split("."):
                 if field_part.isdigit():
                     # Array index
@@ -477,23 +511,23 @@ class SubscriptionManager:
 
             # Apply operator
             if condition.operator == FilterOperator.EQUALS:
-                return value == condition.value
+                return bool(value == condition.value)
             elif condition.operator == FilterOperator.NOT_EQUALS:
-                return value != condition.value
+                return bool(value != condition.value)
             elif condition.operator == FilterOperator.GREATER_THAN:
-                return value > condition.value
+                return bool(value > condition.value)
             elif condition.operator == FilterOperator.GREATER_EQUAL:
-                return value >= condition.value
+                return bool(value >= condition.value)
             elif condition.operator == FilterOperator.LESS_THAN:
-                return value < condition.value
+                return bool(value < condition.value)
             elif condition.operator == FilterOperator.LESS_EQUAL:
-                return value <= condition.value
+                return bool(value <= condition.value)
             elif condition.operator == FilterOperator.IN:
-                return value in condition.value
+                return bool(value in condition.value)
             elif condition.operator == FilterOperator.NOT_IN:
-                return value not in condition.value
+                return bool(value not in condition.value)
             elif condition.operator == FilterOperator.CONTAINS:
-                return condition.value in str(value)
+                return bool(condition.value in str(value))
             elif condition.operator == FilterOperator.MATCHES:
                 import re
 
@@ -502,8 +536,6 @@ class SubscriptionManager:
         except (KeyError, IndexError, TypeError, ValueError):
             # Field not found or type mismatch, condition fails
             return False
-
-        return True
 
     async def _apply_quality_adjustments(
         self,
@@ -537,12 +569,20 @@ class SubscriptionManager:
         stream_type: StreamType,
         data: dict[str, Any],
         timestamp: datetime,
-    ):
+    ) -> None:
         """Add message to aggregation buffer."""
-        buffer_entry = {"data": data, "timestamp": timestamp}
-        self.aggregation_buffers[client_id][stream_type].append(buffer_entry)
+        buffer_entry: AggregationBufferEntry = {"data": data, "timestamp": timestamp}
+        buffer = self.aggregation_buffers[client_id][stream_type]
+        if len(buffer) >= self.aggregation_buffer_capacity:
+            # Retain the newest samples because aggregated output represents the
+            # most recent state over the configured aggregation window.
+            buffer.pop(0)
+            self.performance_stats["aggregation_dropped_messages"] += 1
+        buffer.append(buffer_entry)
 
-    async def _start_aggregation_task(self, client_id: str, stream_type: StreamType):
+    async def _start_aggregation_task(
+        self, client_id: str, stream_type: StreamType
+    ) -> None:
         """Start aggregation task for a client/stream combination."""
         task_key = f"{client_id}:{stream_type.value}"
 
@@ -551,7 +591,7 @@ class SubscriptionManager:
 
         subscription = self.subscriptions[client_id][stream_type]
 
-        async def aggregation_task():
+        async def aggregation_task() -> None:
             try:
                 while subscription.active:
                     await asyncio.sleep(subscription.aggregation_window_ms / 1000.0)
@@ -582,7 +622,7 @@ class SubscriptionManager:
         self.aggregation_tasks[task_key] = asyncio.create_task(aggregation_task())
 
     async def _aggregate_messages(
-        self, buffer: list[dict[str, Any]], stream_type: StreamType
+        self, buffer: list[AggregationBufferEntry], stream_type: StreamType
     ) -> Optional[dict[str, Any]]:
         """Aggregate multiple messages into a single message."""
         if not buffer:
@@ -596,8 +636,8 @@ class SubscriptionManager:
             return buffer[-1]["data"]
         elif stream_type == StreamType.TRAJECTORY:
             # For trajectories, combine all line segments
-            all_lines = []
-            all_collisions = []
+            all_lines: list[Any] = []
+            all_collisions: list[Any] = []
             for entry in buffer:
                 data = entry["data"]
                 all_lines.extend(data.get("lines", []))
@@ -613,14 +653,14 @@ class SubscriptionManager:
             # For other types, use the most recent
             return buffer[-1]["data"]
 
-    def _update_active_subscriptions(self):
+    def _update_active_subscriptions(self) -> None:
         """Update active subscription count."""
         active_count = 0
         for client_subs in self.subscriptions.values():
             active_count += sum(1 for sub in client_subs.values() if sub.active)
         self.performance_stats["active_subscriptions"] = active_count
 
-    def _update_performance_stats(self):
+    def _update_performance_stats(self) -> None:
         """Update performance statistics."""
         total_filtered = sum(
             sub.messages_filtered

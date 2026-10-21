@@ -1,3 +1,7 @@
+> Historical migration proposal, retained for rationale only. The accepted
+> coordinate contract is documented in ADR-0007 and
+> [the current coordinate guide](../docs/COORDINATE_SYSTEMS.md).
+
 # 4K Resolution Standardization Migration Plan
 
 **Version**: 1.0

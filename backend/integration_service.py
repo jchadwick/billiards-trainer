@@ -9,30 +9,60 @@ This service is the critical missing piece that ties all modules together:
 """
 
 import asyncio
+import copy
 import logging
+import math
+import os
+import threading
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Optional
 
 import numpy as np
-from config import Config, config
-from core import CoreModule
-from core.models import BallState, CueState, TableState, Vector2D
-from core.physics.trajectory import (
+
+from backend.config import Config, config
+from backend.core import CoreModule
+from backend.core.coordinates import Vector2D
+from backend.core.models import BallState, CueState, TableState
+from backend.core.physics.trajectory import (
     MultiballTrajectoryResult,
     TrajectoryCalculator,
     TrajectoryQuality,
 )
-from core.validation.physics import PhysicsValidator
-from core.validation.table_state import TableStateValidator
-from integration_service_conversion_helpers import StateConversionHelpers
-
-from backend.common.models import Ball
+from backend.core.validation.physics import PhysicsValidator
+from backend.core.validation.table_state import TableStateValidator
+from backend.integration_service_conversion_helpers import (
+    CoordinateConversionError,
+    StateConversionHelpers,
+    serialize_vision_ball,
+    serialize_vision_cue,
+    serialize_vision_table,
+)
 from backend.vision import VisionModule
-from backend.vision.models import CueStick, DetectionResult
+from backend.vision.models import DetectionResult
 
 logger = logging.getLogger(__name__)
+_UNSET_OBSERVATION_STATUS = object()
+
+
+@dataclass(frozen=True)
+class _PredictionRequest:
+    """Detached inputs and provenance for one background prediction."""
+
+    cue_state: CueState
+    ball_state: BallState
+    table_state: TableState
+    other_balls: list[BallState]
+    quality: TrajectoryQuality
+    max_collision_depth: int
+    metadata: dict[str, Any]
+    requested_at: float
+    observation_age_seconds: Optional[float]
+    maximum_observation_age_seconds: float
+    lifecycle_generation: int
+    timing: dict[str, float | None] = field(default_factory=dict, compare=False)
 
 
 class BroadcastErrorType(Enum):
@@ -206,9 +236,30 @@ class IntegrationService:
         self.running = False
         self.integration_task: Optional[asyncio.Task[None]] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._audit_recorder = getattr(vision_module, "audit_recorder", None)
+        self._audit_domains = getattr(vision_module, "audit_domains", {})
+        self._vision_instance_id = str(uuid.uuid4())
+        self._vision_process_id = os.getpid()
+        self._last_processed_observation_identity: tuple[Any, ...] | None = None
+        self.duplicate_observation_count = 0
+        # Core emits state_updated while update_state is still in flight, but
+        # its state model replaces the source frame/timestamp with Core-local
+        # values. Serialize gateway-originated updates and keep a short-lived
+        # FIFO handoff for the matching flattened state event. The callback can
+        # run on an executor thread, so handoff access is protected by a lock.
+        self._core_update_provenance_lock = asyncio.Lock()
+        self._state_event_observation_lock = threading.Lock()
+        self._pending_state_event_observations: list[
+            tuple[object, Optional[dict[str, Any]]]
+        ] = []
 
         # Initialize trajectory calculator for multiball predictions
         self.trajectory_calculator = TrajectoryCalculator()
+        self._trajectory_calculation_lock = threading.Lock()
+        self._prediction_task: Optional[asyncio.Task[None]] = None
+        self._pending_prediction: Optional[_PredictionRequest] = None
+        self._prediction_lifecycle_generation = 0
+        self._latest_observation_received_at: Optional[float] = None
 
         # Initialize validators
         self.physics_validator = PhysicsValidator()
@@ -216,6 +267,12 @@ class IntegrationService:
 
         # Configuration (use provided or singleton)
         self.config = config_module if config_module is not None else config
+        self._maximum_prediction_observation_age_seconds = float(
+            self.config.get(
+                "vision.processing.phase_scheduler.maximum_observation_age_seconds",
+                0.5,
+            )
+        )
 
         # Initialize state conversion helpers
         self.state_converter = StateConversionHelpers(
@@ -231,6 +288,31 @@ class IntegrationService:
         self.shot_speed_estimate = self.config.get(
             "integration.shot_speed_estimate_m_per_s", 2.0
         )
+        requested_quality = str(
+            self.config.get("integration.trajectory_quality", "low")
+        ).lower()
+        try:
+            self.trajectory_quality = TrajectoryQuality(requested_quality)
+        except ValueError:
+            logger.warning(
+                "Invalid integration.trajectory_quality=%r; using configured fallback 'low'",
+                requested_quality,
+            )
+            self.trajectory_quality = TrajectoryQuality.LOW
+        try:
+            self.max_collision_depth = int(
+                self.config.get("integration.max_collision_depth", 2)
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid integration.max_collision_depth; using fallback depth 2"
+            )
+            self.max_collision_depth = 2
+        if self.max_collision_depth < 0:
+            logger.warning(
+                "integration.max_collision_depth must be non-negative; using fallback depth 2"
+            )
+            self.max_collision_depth = 2
 
         # Validation thresholds
         self.max_ball_velocity = self.config.get(
@@ -257,6 +339,15 @@ class IntegrationService:
         self.last_detection_time = 0.0
         self.trajectory_frame_count = 0  # Track frames for periodic trajectory logging
 
+        # The latest vision status is also used by request-triggered API
+        # calculations. Keep this beside integration rather than the core game
+        # state, whose model intentionally contains only billiards state.
+        self.latest_observation_status: Optional[dict[str, Any]] = None
+        self._last_vision_phase: Optional[str] = None
+        self._last_calibration_revision: Any = None
+        self.last_live_prediction: Optional[dict[str, Any]] = None
+        self.frozen_comparison_prediction: Optional[dict[str, Any]] = None
+
         # Broadcast error recovery
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=self.circuit_breaker_threshold,
@@ -271,6 +362,7 @@ class IntegrationService:
             return
 
         logger.info("Starting integration service...")
+        self._prediction_lifecycle_generation += 1
         self.running = True
 
         # Capture the event loop for use in event callbacks
@@ -299,8 +391,10 @@ class IntegrationService:
                 if not self.vision.calibrator.is_calibrated():
                     logger.warning(
                         "Vision module is not calibrated - detection accuracy may be poor. "
-                        "Please run camera calibration via API endpoint: "
-                        "POST /api/v1/vision/calibration/camera/auto-calibrate"
+                        "Use the supported chessboard workflow: start with "
+                        "POST /api/v1/vision/calibration/camera/mode/start, capture "
+                        "images with POST /api/v1/vision/calibration/camera/images/capture, "
+                        "then process them with POST /api/v1/vision/calibration/camera/process."
                     )
             else:
                 logger.warning(
@@ -319,10 +413,16 @@ class IntegrationService:
     async def stop(self) -> None:
         """Stop the integration service."""
         if not self.running:
+            await self._drain_prediction_task()
             return
 
         logger.info("Stopping integration service...")
         self.running = False
+        self._prediction_lifecycle_generation += 1
+        # Pending observations have no value after shutdown begins. The active
+        # calculation is allowed to finish because cancelling asyncio.to_thread
+        # would leave its worker thread running against the calculator.
+        self._pending_prediction = None
 
         if self.integration_task:
             self.integration_task.cancel()
@@ -330,6 +430,8 @@ class IntegrationService:
                 await self.integration_task
             except asyncio.CancelledError:
                 pass
+
+        await self._drain_prediction_task()
 
         # Stop vision module camera capture
         logger.info("Stopping vision module camera capture...")
@@ -364,16 +466,39 @@ class IntegrationService:
                 loop_start = asyncio.get_event_loop().time()
 
                 # Get detection result from vision
+                poll_started_ns = time.perf_counter_ns()
                 detection_result = await self._get_vision_detection()
+                poll_finished_ns = time.perf_counter_ns()
+                self._record_audit_event(
+                    "state",
+                    {
+                        "event_type": "integration_vision_poll",
+                        "observation_available": detection_result is not None,
+                        "poll_seconds": max(0, poll_finished_ns - poll_started_ns)
+                        / 1e9,
+                        "vision_queue_depth": (
+                            self.vision._frame_queue.qsize()
+                            if hasattr(self.vision, "_frame_queue")
+                            else None
+                        ),
+                        "configured_target_fps": self.target_fps,
+                    },
+                )
 
                 if detection_result:
                     # Convert to Core format and update state
-                    await self._process_detection(detection_result)
+                    observation_processed = await self._process_detection(
+                        detection_result
+                    )
 
-                    self.frame_count += 1
+                    if observation_processed:
+                        self.frame_count += 1
 
                     # Log progress periodically
-                    if self.frame_count % self.log_interval_frames == 0:
+                    if (
+                        observation_processed
+                        and self.frame_count % self.log_interval_frames == 0
+                    ):
                         logger.info(
                             f"Integration: {self.frame_count} frames processed, "
                             f"{self.error_count} errors"
@@ -407,60 +532,383 @@ class IntegrationService:
             logger.error(f"Failed to get vision detection: {e}")
             return None
 
-    async def _process_detection(self, detection: DetectionResult) -> None:
-        """Process detection result and update Core.
+    async def _process_detection(self, detection: DetectionResult) -> bool:
+        """Process one new source observation and update Core.
 
         Args:
             detection: Detection result from vision
-        """
-        # Convert detection to Core format
-        detection_data = self._convert_detection_to_core_format(detection)
 
-        # Update Core state
+        Returns:
+            True when this result is admitted for processing. False when the
+            result repeats the most recently admitted source observation or
+            fails coordinate-contract validation. Results without usable
+            identity are processed but cannot be deduplicated.
+        """
+        observation_identity = self._source_observation_identity(detection)
+        if (
+            observation_identity is not None
+            and observation_identity == self._last_processed_observation_identity
+        ):
+            self.duplicate_observation_count += 1
+            if self._audit_enabled("state"):
+                self._record_audit_event(
+                    "state",
+                    {
+                        "event_type": "integration_observation_duplicate",
+                        "source_frame_number": getattr(
+                            detection, "source_frame_number", detection.frame_number
+                        ),
+                        "source_process_id": getattr(
+                            detection, "source_process_id", None
+                        ),
+                        "vision_instance_id": getattr(
+                            self, "_vision_instance_id", None
+                        ),
+                        "duplicate_observation_count": self.duplicate_observation_count,
+                    },
+                )
+            return False
+
+        state_audit_enabled = self._audit_enabled("state")
+        # A malformed coordinate contract must stop at this boundary instead
+        # of injecting unscaled values into Core. Keep the integration loop
+        # alive so a corrected frame can recover on the next observation.
+        observation_started_ns = time.perf_counter_ns() if state_audit_enabled else None
+        conversion_started_ns = observation_started_ns
+        conversion_finished_ns: int | None = None
+        core_started_ns: int | None = None
+        core_finished_ns: int | None = None
+        trajectory_started_ns: int | None = None
+        trajectory_finished_ns: int | None = None
+        lock_wait_seconds: float | None = None
         try:
-            await self.core.update_state(detection_data)
-        except Exception as e:
-            logger.error(f"Failed to update Core state: {e}", exc_info=True)
-
-        # Check if we should calculate trajectory
-        await self._check_trajectory_calculation(detection)
-
-    # Deprecated wrapper methods - kept for test compatibility only
-    # Tests should be updated to use the public API methods instead:
-    # - Use state_converter.vision_cue_to_cue_state() directly
-    # - Use state_converter.vision_ball_to_ball_state() directly
-
-    def _create_cue_state(self, detected_cue: CueStick) -> CueState:
-        """DEPRECATED: Use state_converter.vision_cue_to_cue_state() instead.
-
-        Kept for backward compatibility with existing tests only.
-        """
-        return self.state_converter.vision_cue_to_cue_state(detected_cue)
-
-    def _create_ball_state(self, ball: Ball, is_target: bool = False) -> BallState:
-        """DEPRECATED: Use state_converter.vision_ball_to_ball_state() instead.
-
-        Kept for backward compatibility with existing tests only.
-        """
-        return self.state_converter.vision_ball_to_ball_state(ball, is_target)
-
-    def _create_ball_states(
-        self, balls: list[Ball], exclude_ball: Optional[Ball] = None
-    ) -> list[BallState]:
-        """DEPRECATED: Use list comprehension with state_converter.vision_ball_to_ball_state() instead.
-
-        Kept for backward compatibility with existing tests only.
-        """
-        ball_states = []
-        for ball in balls:
-            if exclude_ball is not None and ball == exclude_ball:
-                continue
-            ball_state = self.state_converter.vision_ball_to_ball_state(
-                ball, is_target=False
+            detection_data = self._convert_detection_to_core_format(detection)
+            if state_audit_enabled:
+                conversion_finished_ns = time.perf_counter_ns()
+        except CoordinateConversionError as error:
+            self.error_count += 1
+            logger.error(
+                "Skipping frame %s because its coordinate contract is invalid: %s",
+                detection.frame_number,
+                error,
             )
-            if ball_state is not None:
-                ball_states.append(ball_state)
-        return ball_states
+            if state_audit_enabled:
+                conversion_finished_ns = time.perf_counter_ns()
+                assert conversion_started_ns is not None
+                self._record_audit_event(
+                    "state",
+                    {
+                        "event_type": "integration_observation_rejected",
+                        "source_frame_number": getattr(
+                            detection, "source_frame_number", detection.frame_number
+                        ),
+                        "coordinate_conversion_seconds": max(
+                            0, conversion_finished_ns - conversion_started_ns
+                        )
+                        / 1e9,
+                        "reason": "coordinate_contract_invalid",
+                    },
+                )
+            return False
+
+        # Store the identity only after conversion succeeds. A failed coordinate
+        # contract must not become an admitted observation; a corrected result
+        # from the same source frame can still be retried.
+        if observation_identity is not None:
+            self._last_processed_observation_identity = observation_identity
+
+        # Attach vision eligibility/provenance to the Core update. Public
+        # freshness advances only after Core accepts this state update.
+        status = self._observation_status_with_identity(detection)
+        if status is not None:
+            detection_data["observation_status"] = copy.deepcopy(status)
+
+        state_event_token = object()
+        update_lock = getattr(self, "_core_update_provenance_lock", None)
+        if update_lock is None:
+            # Lightweight unit-test doubles may bypass __init__.
+            update_lock = asyncio.Lock()
+            self._core_update_provenance_lock = update_lock
+
+        # Keep the status handoff in registration order. Core's own state lock
+        # serializes calls, and this integration lock ensures concurrent
+        # gateway callers cannot reorder their handoffs while awaiting Core.
+        lock_wait_started_ns = time.perf_counter_ns() if state_audit_enabled else None
+        async with update_lock:
+            if state_audit_enabled and lock_wait_started_ns is not None:
+                lock_acquired_ns = time.perf_counter_ns()
+                lock_wait_seconds = (
+                    max(0, lock_acquired_ns - lock_wait_started_ns) / 1e9
+                )
+            self._register_state_event_observation(state_event_token, status)
+            try:
+                if state_audit_enabled:
+                    core_started_ns = time.perf_counter_ns()
+                await self.core.update_state(detection_data)
+                if state_audit_enabled:
+                    core_finished_ns = time.perf_counter_ns()
+                core_update_status = "complete"
+            except Exception as e:
+                if state_audit_enabled:
+                    core_finished_ns = time.perf_counter_ns()
+                core_update_status = "failed"
+                self.error_count += 1
+                logger.error(f"Failed to update Core state: {e}", exc_info=True)
+            finally:
+                # If Core failed before emitting its event (or has no listener),
+                # discard the pending handoff. If the callback already consumed
+                # it, this is a no-op.
+                self._discard_state_event_observation(state_event_token)
+
+            # Freshness must describe the state actually held by Core. Updating
+            # it before releasing this lock preserves ordering between
+            # concurrent gateway callers.
+            if core_update_status == "complete":
+                self.latest_observation_status = status
+                self._latest_observation_received_at = time.monotonic()
+
+        # Freshness must describe the state actually held by Core. A failed
+        # update leaves the prior status/receipt age untouched and must not
+        # launch predictions from a mixture of old Core state and new vision.
+        trajectory_admission_status = "skipped_core_update_failed"
+        if core_update_status == "complete":
+            if state_audit_enabled:
+                trajectory_started_ns = time.perf_counter_ns()
+            await self._check_trajectory_calculation(detection)
+            if state_audit_enabled:
+                trajectory_finished_ns = time.perf_counter_ns()
+            trajectory_admission_status = "checked"
+        elif state_audit_enabled:
+            trajectory_finished_ns = time.perf_counter_ns()
+
+        if state_audit_enabled:
+            assert conversion_started_ns is not None
+            assert conversion_finished_ns is not None
+            assert observation_started_ns is not None
+            assert trajectory_finished_ns is not None
+            self._record_audit_event(
+                "state",
+                {
+                    "event_type": "integration_observation_processed",
+                    "source_frame_number": status.get("source_frame_number"),
+                    "source_process_id": status.get("source_process_id"),
+                    "vision_instance_id": status.get("vision_instance_id"),
+                    "source_timestamp": status.get("source_timestamp"),
+                    "source_timestamp_kind": status.get("source_timestamp_kind"),
+                    "map_revision": status.get("map_revision"),
+                    "calibration_revision": status.get("calibration_revision"),
+                    "coordinate_conversion_seconds": max(
+                        0, conversion_finished_ns - conversion_started_ns
+                    )
+                    / 1e9,
+                    "integration_lock_wait_seconds": lock_wait_seconds,
+                    "core_update_seconds": (
+                        max(0, core_finished_ns - core_started_ns) / 1e9
+                        if core_started_ns is not None and core_finished_ns is not None
+                        else None
+                    ),
+                    "core_update_status": core_update_status,
+                    "trajectory_admission_status": trajectory_admission_status,
+                    "trajectory_admission_seconds": (
+                        max(0, trajectory_finished_ns - trajectory_started_ns) / 1e9
+                        if trajectory_started_ns is not None
+                        and trajectory_finished_ns is not None
+                        else None
+                    ),
+                    "ball_count": len(detection.balls),
+                    "cue_present": detection.cue is not None,
+                    "observation_status": status.get("component_observation_status"),
+                    "service_elapsed_seconds": max(
+                        0, trajectory_finished_ns - observation_started_ns
+                    )
+                    / 1e9,
+                },
+            )
+        return True
+
+    def _source_observation_identity(
+        self, detection: DetectionResult
+    ) -> tuple[Any, ...] | None:
+        """Build a stable key for recognizing repeated cached source results.
+
+        Producer PID and service instance identity scope frame counters across
+        process/service restarts. A timestamp supplements the frame number so a
+        reset or legacy counter can be disambiguated where provenance exists.
+        These values identify the source result; map and calibration revisions
+        intentionally do not turn an old camera frame into a new observation.
+        """
+        source_frame_number = getattr(detection, "source_frame_number", None)
+        if source_frame_number is None:
+            source_frame_number = getattr(detection, "frame_number", None)
+
+        publication_monotonic_ns = getattr(
+            detection, "source_publication_monotonic_ns", None
+        )
+        if (
+            not isinstance(publication_monotonic_ns, int)
+            or publication_monotonic_ns <= 0
+        ):
+            publication_monotonic_ns = None
+
+        source_timestamp = getattr(detection, "source_timestamp", None)
+        if source_timestamp is None:
+            source_timestamp = getattr(detection, "timestamp", None)
+        if not isinstance(source_timestamp, (int, float)) or not math.isfinite(
+            source_timestamp
+        ):
+            source_timestamp = None
+
+        if source_frame_number is None and source_timestamp is None:
+            return None
+
+        return (
+            getattr(self, "_vision_instance_id", None),
+            getattr(detection, "source_process_id", None),
+            source_frame_number,
+            getattr(detection, "source_timestamp_kind", None),
+            publication_monotonic_ns,
+            source_timestamp,
+        )
+
+    def _audit_enabled(self, domain: str) -> bool:
+        """Check audit activation without constructing an event on the hot path."""
+        recorder = getattr(self, "_audit_recorder", None)
+        domains = getattr(self, "_audit_domains", {})
+        return bool(
+            recorder is not None
+            and isinstance(domains, dict)
+            and domains.get(domain, False)
+        )
+
+    def _record_audit_event(self, domain: str, event: dict[str, Any]) -> None:
+        """Record an event only when its audit domain is explicitly enabled."""
+        recorder = getattr(self, "_audit_recorder", None)
+        if recorder is not None and self._audit_enabled(domain):
+            recorder.record(event)
+
+    def _register_state_event_observation(
+        self,
+        token: object,
+        status: Optional[dict[str, Any]],
+    ) -> None:
+        """Publish one temporary event-provenance handoff to Core callbacks.
+
+        The current Core event schema omits the source frame identity. Calls
+        from this service are therefore serialized and paired in order with
+        Core's synchronous, flattened state event. If Core gains another
+        concurrent state-update producer, the event contract should carry an
+        explicit request identity instead of relying on this handoff.
+        """
+        pending = getattr(self, "_pending_state_event_observations", None)
+        lock = getattr(self, "_state_event_observation_lock", None)
+        if pending is None or lock is None:
+            # Support lightweight service doubles that bypass __init__ while
+            # preserving correct production behavior.
+            lock = threading.Lock()
+            pending = []
+            self._state_event_observation_lock = lock
+            self._pending_state_event_observations = pending
+        with lock:
+            pending.append((token, copy.deepcopy(status)))
+
+    def _take_state_event_observation(
+        self, state: dict[str, Any]
+    ) -> tuple[bool, Optional[dict[str, Any]]]:
+        """Consume provenance only for a flattened Core state event.
+
+        Other state_updated messages (including GameStateManager's smaller
+        internal change notification) do not carry this full shape and must
+        continue to use the last successfully applied observation status.
+        """
+        frame_number = state.get("frame_number")
+        timestamp = state.get("timestamp")
+        if (
+            not all(
+                field_name in state
+                for field_name in (
+                    "balls",
+                    "table",
+                    "timestamp",
+                    "frame_number",
+                    "game_type",
+                    "cue",
+                    "scores",
+                    "coordinate_metadata",
+                )
+            )
+            or not isinstance(state.get("balls"), list)
+            or not isinstance(state.get("table"), dict)
+            or not isinstance(state.get("game_type"), str)
+            or not isinstance(frame_number, int)
+            or isinstance(frame_number, bool)
+            or not isinstance(timestamp, (int, float))
+            or isinstance(timestamp, bool)
+        ):
+            return False, None
+        try:
+            timestamp_seconds = float(timestamp)
+        except (OverflowError, ValueError):
+            return False, None
+        if not math.isfinite(timestamp_seconds):
+            return False, None
+        pending = getattr(self, "_pending_state_event_observations", None)
+        lock = getattr(self, "_state_event_observation_lock", None)
+        if pending is None or lock is None:
+            return False, None
+        with lock:
+            if not pending:
+                return False, None
+            _token, status = pending.pop(0)
+        return True, copy.deepcopy(status)
+
+    def _discard_state_event_observation(self, token: object) -> None:
+        """Remove an unconsumed provenance handoff after Core returns."""
+        pending = getattr(self, "_pending_state_event_observations", None)
+        lock = getattr(self, "_state_event_observation_lock", None)
+        if pending is None or lock is None:
+            return
+        with lock:
+            self._pending_state_event_observations = [
+                entry for entry in pending if entry[0] is not token
+            ]
+
+    def _observation_status_with_identity(
+        self, detection: DetectionResult
+    ) -> dict[str, Any]:
+        """Add process-local restart identity to the source observation."""
+        status = self._observation_status(detection) or {}
+        status.setdefault(
+            "source_frame_number",
+            getattr(
+                detection,
+                "source_frame_number",
+                getattr(detection, "frame_number", None),
+            ),
+        )
+        status.setdefault(
+            "source_timestamp", getattr(detection, "source_timestamp", None)
+        )
+        status.setdefault(
+            "source_timestamp_kind",
+            getattr(detection, "source_timestamp_kind", None),
+        )
+        status.setdefault(
+            "source_process_id", getattr(detection, "source_process_id", None)
+        )
+        publication_monotonic_ns = getattr(
+            detection, "source_publication_monotonic_ns", None
+        )
+        if isinstance(publication_monotonic_ns, int) and publication_monotonic_ns > 0:
+            status["source_publication_monotonic_ns"] = publication_monotonic_ns
+        status["vision_instance_id"] = getattr(self, "_vision_instance_id", None)
+        status["vision_process_id"] = getattr(self, "_vision_process_id", None)
+        return status
+
+    async def _drain_prediction_task(self) -> None:
+        """Wait for the active physics thread without cancelling its wrapper."""
+        task = self._prediction_task
+        if task is not None and not task.done():
+            await asyncio.shield(task)
 
     def _convert_detection_to_core_format(
         self, detection: DetectionResult
@@ -478,72 +926,531 @@ class IntegrationService:
             "frame_number": detection.frame_number,
         }
 
-        # Convert balls
+        status = self._observation_status_with_identity(detection)
+        if status is not None:
+            detection_data["observation_status"] = status
+
+        frame_resolution = detection.frame_size
+        # Explicit null means the source did not provide valid dimensions;
+        # Core must not substitute configured camera dimensions for this frame.
+        detection_data["source_resolution"] = None
+        # Keep the exact source dimensions with the observation. Geometry is
+        # canonicalized below, but Core uses this value for camera provenance
+        # and any legacy pixel payloads; substituting configured dimensions
+        # would make that metadata inaccurate when the camera mode changes.
+        if (
+            isinstance(frame_resolution, (tuple, list))
+            and len(frame_resolution) == 2
+            and all(
+                not isinstance(value, bool)
+                and isinstance(value, (int, float))
+                and math.isfinite(value)
+                and value > 0
+                and float(value).is_integer()
+                for value in frame_resolution
+            )
+        ):
+            detection_data["source_resolution"] = [
+                int(frame_resolution[0]),
+                int(frame_resolution[1]),
+            ]
+
+        # Convert balls. Each serializer resolves the object's own source
+        # space and resolution, falling back only to this exact DetectionResult
+        # frame size for pixel data without object-local resolution metadata.
         if detection.balls:
             detection_data["balls"] = [
-                {
-                    # Use track_id if available, otherwise generate ID from position
-                    "id": (
-                        ball.track_id
-                        if ball.track_id is not None
-                        else hash(
-                            (
-                                round(ball.position[0]),
-                                round(ball.position[1]),
-                                ball.ball_type.value,
-                            )
-                        )
-                        % 10000
-                    ),
-                    "position": {"x": ball.position[0], "y": ball.position[1]},
-                    "radius": ball.radius,
-                    "velocity": {"x": ball.velocity[0], "y": ball.velocity[1]},
-                    "is_moving": ball.is_moving,
-                    "number": ball.number,
-                    "type": ball.ball_type.value if ball.ball_type else "unknown",
-                    "is_cue_ball": (
-                        ball.ball_type.value == "cue" if ball.ball_type else False
-                    ),
-                    "confidence": ball.confidence,
-                }
+                serialize_vision_ball(ball, frame_resolution)
                 for ball in detection.balls
             ]
 
         # Convert cue
         if detection.cue:
-            cue = detection.cue
-            detection_data["cue"] = {
-                "tip_position": {"x": cue.tip_position[0], "y": cue.tip_position[1]},
-                "angle": cue.angle,
-                "length": cue.length,
-                "state": cue.state.value if cue.state else "unknown",
-                "confidence": cue.confidence,
-            }
+            detection_data["cue"] = serialize_vision_cue(
+                detection.cue, frame_resolution
+            )
 
         # Convert table
         if detection.table:
-            table = detection.table
-            detection_data["table"] = {
-                "corners": [
-                    {"x": float(corner[0]), "y": float(corner[1])}
-                    for corner in table.corners
-                ],
-                "width": table.width,
-                "height": table.height,
-                "pockets": [
-                    {
-                        "position": {"x": pocket.position[0], "y": pocket.position[1]},
-                        "type": (
-                            pocket.pocket_type.value
-                            if pocket.pocket_type
-                            else "unknown"
-                        ),
-                    }
-                    for pocket in (table.pockets or [])
-                ],
-            }
+            detection_data["table"] = serialize_vision_table(
+                detection.table, frame_resolution
+            )
 
         return detection_data
+
+    @staticmethod
+    def _phase_name(detection: DetectionResult) -> Optional[str]:
+        """Return a normalized scheduler phase when the detector provides one."""
+        value = getattr(detection, "phase", None)
+        if value is None:
+            return None
+        value = getattr(value, "value", value)
+        return str(value).strip().lower().replace("-", "_").replace(" ", "_")
+
+    @classmethod
+    def _observation_status(
+        cls, detection: DetectionResult
+    ) -> Optional[dict[str, Any]]:
+        """Build the shared, serializable vision eligibility/status contract."""
+        phase = cls._phase_name(detection)
+        fields = (
+            "phase_aware",
+            "map_revision",
+            "map_trusted",
+            "aim_calculation_eligible",
+            "component_observation_timestamps",
+            "component_observation_status",
+            "source_frame_number",
+            "source_timestamp",
+            "source_timestamp_kind",
+            "source_publication_monotonic_ns",
+            "frame_publication_age_seconds",
+            "ball_positions_status",
+            "ball_detection_status",
+            "cue_detection_status",
+            "motion_monitor_status",
+            "ball_observation_source_timestamp",
+            "ball_observation_source_frame_number",
+            "ball_observation_source_timestamp_kind",
+            "ball_observation_timestamp",
+            "maximum_ball_observation_gap_seconds",
+            "actual_path_history_max_points",
+            "ball_detection_view",
+            "calibration_revision",
+            "moving_ball_count",
+            "map_observation_fresh",
+            "shot_detected",
+            "balls_in_motion",
+            "game_state",
+        )
+        has_contract = phase is not None or any(
+            hasattr(detection, field_name) for field_name in fields
+        )
+        if not has_contract:
+            return None
+
+        explicit_phase_awareness = getattr(detection, "phase_aware", None)
+        status: dict[str, Any] = {
+            "phase_aware": (
+                bool(explicit_phase_awareness)
+                if explicit_phase_awareness is not None
+                else phase is not None
+            ),
+            "phase": phase,
+        }
+        for field_name in fields:
+            if hasattr(detection, field_name):
+                value = getattr(detection, field_name)
+                if value is not None:
+                    status[field_name] = copy.deepcopy(value)
+        return status
+
+    @staticmethod
+    def _phase_blocks_live_prediction(phase: Optional[str]) -> bool:
+        """Motion and recovery phases may compare predictions, never calculate."""
+        return phase in {
+            "strike",
+            "limited_motion",
+            "many_balls_moving",
+            "many_moving",
+            "recovery",
+            "recovering",
+            "uncertain",
+        }
+
+    def _live_prediction_is_eligible(self, detection: DetectionResult) -> bool:
+        """Apply the same explicit scheduler gate to automatic calculations."""
+        status = self._observation_status(detection)
+        return self._observation_status_is_eligible(status, detection)
+
+    def _observation_status_is_eligible(
+        self,
+        status: Optional[dict[str, Any]],
+        detection: Optional[DetectionResult] = None,
+    ) -> bool:
+        """Apply the scheduler gate to a detection or its saved status."""
+        scheduler_enabled = bool(
+            getattr(self, "config", None)
+            and self.config.get("vision.processing.phase_scheduler.enabled", False)
+        )
+        if status and self._phase_blocks_live_prediction(status.get("phase")):
+            return False
+        if status is None or not status.get("phase_aware"):
+            if scheduler_enabled:
+                return False
+            # Legacy mode remains available until the opt-in scheduler is
+            # enabled. Existing callers still cannot calculate during a
+            # directly reported shot/motion event. At completion time there
+            # is no DetectionResult, so also consult the saved status snapshot.
+            game_state = (
+                status.get("game_state")
+                if status is not None and "game_state" in status
+                else getattr(detection, "game_state", "")
+            )
+            return not bool(
+                (status or {}).get("shot_detected", False)
+                or getattr(detection, "shot_detected", False)
+                or (status or {}).get("balls_in_motion", 0)
+                or getattr(detection, "balls_in_motion", 0)
+                or str(game_state).lower() in {"moving", "shooting", "strike"}
+            )
+
+        phase = status.get("phase")
+        if self._phase_blocks_live_prediction(phase):
+            return False
+        if status.get("phase_aware") and not (
+            status.get("aim_calculation_eligible") is True
+            and status.get("map_trusted") is True
+        ):
+            return False
+        if status.get("aim_calculation_eligible") is False:
+            return False
+        if status.get("map_trusted") is False:
+            return False
+        if status.get("map_observation_fresh") is False:
+            return False
+        component_status = status.get("component_observation_status") or {}
+        cue_status = component_status.get("cue")
+        return not (
+            isinstance(cue_status, str)
+            and cue_status.lower() in {"stale", "missing", "failed", "uncertain"}
+        )
+
+    def _prediction_request_is_current(self, request: _PredictionRequest) -> bool:
+        """Reject results whose phase, map, calibration, or age has changed."""
+        if not getattr(self, "running", False):
+            return False
+        if request.lifecycle_generation != self._prediction_lifecycle_generation:
+            return False
+
+        current = getattr(self, "latest_observation_status", None)
+        if not self._observation_status_is_eligible(current):
+            return False
+        if current is None:
+            if any(
+                request.metadata.get(field) is not None
+                for field in ("phase", "map_revision", "calibration_revision")
+            ):
+                return False
+        else:
+            if current.get("phase") != request.metadata.get("phase"):
+                return False
+            if current.get("map_revision") != request.metadata.get("map_revision"):
+                return False
+            if current.get("calibration_revision") != request.metadata.get(
+                "calibration_revision"
+            ):
+                return False
+            current_age = current.get("frame_publication_age_seconds")
+            received_at = self._latest_observation_received_at
+            if current_age is not None and received_at is not None:
+                if (
+                    float(current_age) + time.monotonic() - received_at
+                    > request.maximum_observation_age_seconds
+                ):
+                    return False
+
+        if request.observation_age_seconds is not None:
+            age = request.observation_age_seconds + (
+                time.monotonic() - request.requested_at
+            )
+            if age > request.maximum_observation_age_seconds:
+                return False
+        return True
+
+    def _queue_prediction(self, request: _PredictionRequest) -> None:
+        """Keep only the newest request and supervise a single worker task."""
+        previous = self._pending_prediction
+        if previous is not None:
+            self._record_audit_event(
+                "trajectory",
+                {
+                    "event_type": "trajectory_request_coalesced",
+                    "replaced_source_frame_number": previous.metadata.get(
+                        "source_frame_number"
+                    ),
+                    "source_frame_number": request.metadata.get("source_frame_number"),
+                },
+            )
+        self._pending_prediction = request
+        task = self._prediction_task
+        if task is None or task.done():
+            self._prediction_task = asyncio.create_task(
+                self._prediction_worker(), name="integration-trajectory-prediction"
+            )
+            self._prediction_task.add_done_callback(self._observe_prediction_task)
+
+    def _create_prediction_request(
+        self,
+        *,
+        cue_state: CueState,
+        ball_state: BallState,
+        table_state: TableState,
+        other_balls: list[BallState],
+        detection: DetectionResult,
+        status: dict[str, Any],
+    ) -> _PredictionRequest:
+        """Capture owned physics inputs and immutable observation provenance."""
+        return _PredictionRequest(
+            cue_state=copy.deepcopy(cue_state),
+            ball_state=copy.deepcopy(ball_state),
+            table_state=copy.deepcopy(table_state),
+            other_balls=copy.deepcopy(other_balls),
+            quality=self.trajectory_quality,
+            max_collision_depth=self.max_collision_depth,
+            metadata=copy.deepcopy(self._prediction_metadata(detection, status)),
+            requested_at=time.monotonic(),
+            observation_age_seconds=status.get("frame_publication_age_seconds"),
+            maximum_observation_age_seconds=(
+                self._maximum_prediction_observation_age_seconds
+            ),
+            lifecycle_generation=self._prediction_lifecycle_generation,
+        )
+
+    @staticmethod
+    def _observe_prediction_task(task: asyncio.Task[None]) -> None:
+        """Retrieve unexpected task failures so they cannot go unnoticed."""
+        if task.cancelled():
+            logger.warning("Background trajectory prediction task was cancelled")
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error(
+                "Background trajectory prediction task failed",
+                exc_info=(type(error), error, error.__traceback__),
+            )
+
+    def _calculate_multiball_prediction(
+        self, request: _PredictionRequest
+    ) -> MultiballTrajectoryResult:
+        """Run physics with detached values and serialized calculator access."""
+        worker_started_ns = time.perf_counter_ns()
+        executor_submitted_ns = request.timing.pop(
+            "executor_submitted_monotonic_ns", None
+        )
+        request.timing["executor_wait_seconds"] = (
+            max(0, worker_started_ns - executor_submitted_ns) / 1e9
+            if isinstance(executor_submitted_ns, int)
+            else None
+        )
+        lock_started_ns = worker_started_ns
+        with self._trajectory_calculation_lock:
+            compute_started_ns = time.perf_counter_ns()
+            result = self.trajectory_calculator.predict_multiball_cue_shot(
+                cue_state=request.cue_state,
+                ball_state=request.ball_state,
+                table_state=request.table_state,
+                other_balls=request.other_balls,
+                quality=request.quality,
+                max_collision_depth=request.max_collision_depth,
+            )
+            compute_finished_ns = time.perf_counter_ns()
+        request.timing["calculator_lock_wait_seconds"] = (
+            max(0, compute_started_ns - lock_started_ns) / 1e9
+        )
+        request.timing["physics_compute_seconds"] = (
+            max(0, compute_finished_ns - compute_started_ns) / 1e9
+        )
+        return result
+
+    async def _prediction_worker(self) -> None:
+        """Calculate queued predictions without blocking frame processing."""
+        try:
+            while self._pending_prediction is not None:
+                request = self._pending_prediction
+                self._pending_prediction = None
+                worker_started = time.monotonic()
+                request.timing["prediction_queue_wait_seconds"] = max(
+                    0.0, worker_started - request.requested_at
+                )
+                request.timing["executor_submitted_monotonic_ns"] = (
+                    time.perf_counter_ns()
+                )
+                try:
+                    result = await asyncio.to_thread(
+                        self._calculate_multiball_prediction, request
+                    )
+                except Exception:
+                    logger.exception(
+                        "Background trajectory calculation failed for source frame %s",
+                        request.metadata.get("source_frame_number"),
+                    )
+                    self._record_audit_event(
+                        "trajectory",
+                        {
+                            "event_type": "trajectory_prediction_failed",
+                            "source_frame_number": request.metadata.get(
+                                "source_frame_number"
+                            ),
+                            **request.timing,
+                        },
+                    )
+                    continue
+
+                if not self._prediction_request_is_current(request):
+                    logger.debug(
+                        "Discarding stale trajectory result for source frame %s",
+                        request.metadata.get("source_frame_number"),
+                    )
+                    self._record_audit_event(
+                        "trajectory",
+                        {
+                            "event_type": "trajectory_prediction_discarded_stale",
+                            "source_frame_number": request.metadata.get(
+                                "source_frame_number"
+                            ),
+                            **request.timing,
+                        },
+                    )
+                    continue
+
+                publish_started = time.perf_counter()
+                try:
+                    await self._emit_multiball_trajectory(
+                        result, prediction_metadata=request.metadata
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to publish trajectory for source frame %s",
+                        request.metadata.get("source_frame_number"),
+                    )
+                    request.timing["trajectory_publication_seconds"] = max(
+                        0.0, time.perf_counter() - publish_started
+                    )
+                    self._record_audit_event(
+                        "trajectory",
+                        {
+                            "event_type": "trajectory_publication_failed",
+                            "source_frame_number": request.metadata.get(
+                                "source_frame_number"
+                            ),
+                            **request.timing,
+                        },
+                    )
+                    continue
+
+                request.timing["trajectory_publication_seconds"] = max(
+                    0.0, time.perf_counter() - publish_started
+                )
+                self._record_audit_event(
+                    "trajectory",
+                    {
+                        "event_type": "trajectory_prediction_published",
+                        "source_frame_number": request.metadata.get(
+                            "source_frame_number"
+                        ),
+                        "source_timestamp": request.metadata.get("source_timestamp"),
+                        "prediction_status": "live",
+                        **request.timing,
+                    },
+                )
+
+                total_lines = sum(
+                    max(len(trajectory.points) - 1, 0)
+                    for trajectory in result.trajectories.values()
+                )
+                total_collisions = sum(
+                    len(trajectory.collisions)
+                    for trajectory in result.trajectories.values()
+                )
+                logger.info(
+                    "Trajectory calculated and broadcast - %s ball(s) affected, "
+                    "%s line segments, %s collisions",
+                    len(result.trajectories),
+                    total_lines,
+                    total_collisions,
+                )
+        finally:
+            # stop() never cancels this task; it clears pending work and waits
+            # for this wrapper to drain the active physics thread.
+            if self._prediction_task is asyncio.current_task():
+                self._prediction_task = None
+
+    async def _refresh_prediction_lifecycle(self, detection: DetectionResult) -> None:
+        """Freeze a prior valid prediction on motion and invalidate stale geometry."""
+        status = self._observation_status(detection)
+        if status is None:
+            return
+
+        phase = status.get("phase")
+        calibration_revision = status.get("calibration_revision")
+        calibration_changed = (
+            self._last_calibration_revision is not None
+            and calibration_revision is not None
+            and calibration_revision != self._last_calibration_revision
+        )
+        if calibration_revision is not None:
+            self._last_calibration_revision = calibration_revision
+
+        phase_entered_motion = self._phase_blocks_live_prediction(
+            phase
+        ) and not self._phase_blocks_live_prediction(self._last_vision_phase)
+        if phase_entered_motion and self.frozen_comparison_prediction is None:
+            snapshot = self._freeze_last_live_prediction(phase)
+            if snapshot is not None and not calibration_changed:
+                await self._broadcast_prediction_snapshot(snapshot)
+
+        if calibration_changed:
+            snapshot = self.frozen_comparison_prediction
+            if snapshot is None:
+                snapshot = self._freeze_last_live_prediction(phase)
+            if snapshot is not None:
+                invalidated = copy.deepcopy(snapshot)
+                invalidated["spatial_valid"] = False
+                invalidated["prediction_status"] = "invalidated"
+                invalidated["phase"] = phase
+                self.frozen_comparison_prediction = invalidated
+                await self._broadcast_prediction_snapshot(
+                    self.frozen_comparison_prediction
+                )
+
+        self._last_vision_phase = phase
+
+    def _freeze_last_live_prediction(
+        self, phase: Optional[str]
+    ) -> Optional[dict[str, Any]]:
+        """Copy the exact last valid live prediction as a retained reference."""
+        if self.frozen_comparison_prediction is not None:
+            return self.frozen_comparison_prediction
+        if self.last_live_prediction is None:
+            return None
+        frozen = copy.deepcopy(self.last_live_prediction)
+        frozen["prediction_status"] = "frozen_reference"
+        frozen["spatial_valid"] = (
+            frozen.get("calibration_revision") == self._last_calibration_revision
+            or self._last_calibration_revision is None
+        )
+        frozen["phase"] = phase
+        self.frozen_comparison_prediction = frozen
+        return frozen
+
+    async def _broadcast_prediction_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Send a saved prediction without recalculating or altering its geometry."""
+        lines = copy.deepcopy(snapshot.get("lines", []))
+        if len(lines) < 2:
+            # There is no valid geometry to show. Never create an empty or
+            # synthetic trajectory just to signal a phase transition.
+            return
+        collisions = copy.deepcopy(snapshot.get("collisions", []))
+        await self._broadcast_with_retry(
+            self.broadcaster.broadcast_trajectory,
+            "broadcast_prediction_reference",
+            f"{len(lines)} retained lines, {len(collisions)} collisions",
+            lines,
+            collisions,
+            confidence=snapshot.get("confidence", 1.0),
+            calculation_time_ms=snapshot.get("calculation_time_ms", 0.0),
+            prediction_status=snapshot.get("prediction_status", "frozen_reference"),
+            spatial_valid=snapshot.get("spatial_valid", True),
+            phase=snapshot.get("phase"),
+            source_frame_number=snapshot.get("source_frame_number"),
+            source_timestamp=snapshot.get("source_timestamp"),
+            source_timestamp_kind=snapshot.get("source_timestamp_kind"),
+            map_revision=snapshot.get("map_revision"),
+            calibration_revision=snapshot.get("calibration_revision"),
+            prediction_settings=copy.deepcopy(snapshot.get("prediction_settings", {})),
+            source_observations=copy.deepcopy(snapshot.get("source_observations", {})),
+        )
 
     def _find_ball_cue_is_pointing_at(self, cue: Any, balls: Any) -> Optional[Any]:
         """Find which ball the cue is currently pointing at.
@@ -609,6 +1516,28 @@ class IntegrationService:
         # Increment trajectory frame counter for periodic logging
         self.trajectory_frame_count += 1
         should_log = (self.trajectory_frame_count % 30) == 0  # Log every 30 frames
+        # Use this observation's provenance for any prediction request, but do
+        # not mutate the latest-applied pointer here: another Core update may
+        # already have committed while this optional trajectory work awaited.
+        status = self._observation_status_with_identity(detection)
+
+        # Observe phase transitions before considering this frame for a new
+        # calculation. The retained reference is copied from the exact last
+        # successful live prediction and is never recomputed during motion.
+        await self._refresh_prediction_lifecycle(detection)
+
+        if not self._live_prediction_is_eligible(detection):
+            self._pending_prediction = None
+            if should_log:
+                logger.debug(
+                    "Trajectory calculation skipped: phase/map/cue status is not eligible "
+                    "for a live aiming prediction"
+                )
+            return
+
+        # This observation supersedes any queued candidate even if it later
+        # proves incomplete (for example, the cue or target ball disappeared).
+        self._pending_prediction = None
 
         # Only calculate trajectory if:
         # 1. Cue is detected (removed aiming state requirement for more flexibility)
@@ -736,54 +1665,20 @@ class IntegrationService:
                 summary = self.table_state_validator.get_validation_summary(table_state)
                 logger.debug(f"Table state validation: {summary}")
 
-            # Call trajectory_calculator.predict_multiball_cue_shot() directly
-            multiball_result = self.trajectory_calculator.predict_multiball_cue_shot(
+            prediction_status = status or {}
+            request = self._create_prediction_request(
                 cue_state=cue_state,
                 ball_state=ball_state,
                 table_state=table_state,
                 other_balls=other_ball_states,
-                quality=TrajectoryQuality.LOW,  # Use low quality for real-time performance
-                max_collision_depth=2,  # Simplified: max 2 collision levels
+                detection=detection,
+                status=prediction_status,
             )
-
-            # Log trajectory calculation results
-            total_lines = sum(
-                len(traj.points) - 1 if len(traj.points) >= 2 else 0
-                for traj in multiball_result.trajectories.values()
-            )
-            total_collisions = sum(
-                len(traj.collisions) for traj in multiball_result.trajectories.values()
-            )
-
-            if should_log:
-                logger.debug(
-                    f"Trajectory calculation results - "
-                    f"balls affected: {len(multiball_result.trajectories)}, "
-                    f"total line segments: {total_lines}, "
-                    f"total collisions: {total_collisions}"
-                )
-
-                # Log detailed collision info
-                for ball_id, traj in multiball_result.trajectories.items():
-                    if traj.collisions:
-                        collision_types = [c.type.value for c in traj.collisions]
-                        logger.debug(
-                            f"  Ball {ball_id}: {len(traj.collisions)} collisions - "
-                            f"types: {', '.join(collision_types)}"
-                        )
-
-            # Convert multiball result to event format and emit
-            await self._emit_multiball_trajectory(multiball_result)
-
-            logger.info(
-                f"Trajectory calculated and broadcast - "
-                f"{len(multiball_result.trajectories)} ball(s) affected, "
-                f"{total_lines} line segments, {total_collisions} collisions"
-            )
+            self._queue_prediction(request)
 
         except Exception as e:
             logger.error(
-                f"Trajectory calculation failed - "
+                f"Trajectory preparation failed - "
                 f"Error: {str(e)}, "
                 f"Context: cue_angle={detection.cue.angle:.2f}deg, "
                 f"cue_tip=({detection.cue.tip_position[0]:.1f},{detection.cue.tip_position[1]:.1f}), "
@@ -791,6 +1686,49 @@ class IntegrationService:
                 f"target_ball={'found' if target_ball else 'not_found'}",
                 exc_info=True,
             )
+
+    def _prediction_metadata(
+        self, detection: DetectionResult, status: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Capture immutable provenance needed to compare prediction to motion."""
+        return {
+            "prediction_status": "live",
+            "spatial_valid": True,
+            "phase": status.get("phase"),
+            "source_frame_number": status.get(
+                "source_frame_number", getattr(detection, "frame_number", None)
+            ),
+            "source_timestamp": status.get(
+                "source_timestamp", getattr(detection, "timestamp", None)
+            ),
+            "source_timestamp_kind": status.get("source_timestamp_kind"),
+            "source_publication_monotonic_ns": status.get(
+                "source_publication_monotonic_ns"
+            ),
+            "map_revision": status.get("map_revision"),
+            "calibration_revision": status.get("calibration_revision"),
+            "source_observations": {
+                "component_timestamps": copy.deepcopy(
+                    status.get("component_observation_timestamps", {})
+                ),
+                "component_status": copy.deepcopy(
+                    status.get("component_observation_status", {})
+                ),
+                "vision_instance_id": status.get("vision_instance_id"),
+                "vision_process_id": status.get("vision_process_id"),
+                "source_process_id": status.get("source_process_id"),
+                "source_publication_monotonic_ns": status.get(
+                    "source_publication_monotonic_ns"
+                ),
+                "map_observation_fresh": status.get("map_observation_fresh"),
+                "map_trusted": status.get("map_trusted"),
+            },
+            "prediction_settings": {
+                "trajectory_quality": self.trajectory_quality.value,
+                "max_collision_depth": self.max_collision_depth,
+                "shot_speed_estimate_m_per_s": self.shot_speed_estimate,
+            },
+        }
 
     def _estimate_velocity_from_cue(self, cue: Any) -> dict[str, float]:
         """Estimate initial velocity from cue angle and estimated force.
@@ -962,9 +1900,25 @@ class IntegrationService:
 
         # Schedule the coroutine on the stored event loop
         try:
+            has_matching_observation, matching_status = (
+                self._take_state_event_observation(event_data)
+                if isinstance(event_data, dict)
+                else (False, None)
+            )
+            # Use request-local status for the event emitted inside
+            # Core.update_state. Public freshness remains tied to successful
+            # completion of that call. Unrelated Core events retain the last
+            # successfully applied observation status.
+            observation_status = copy.deepcopy(
+                matching_status
+                if has_matching_observation
+                else self.latest_observation_status
+            )
             self._event_loop.call_soon_threadsafe(
                 lambda: asyncio.ensure_future(
-                    self._on_state_updated_async(event_type, event_data),
+                    self._on_state_updated_async(
+                        event_type, event_data, observation_status
+                    ),
                     loop=self._event_loop,
                 )
             )
@@ -972,7 +1926,10 @@ class IntegrationService:
             logger.error(f"Failed to schedule state update processing: {e}")
 
     async def _on_state_updated_async(
-        self, event_type: str, event_data: dict[str, Any]
+        self,
+        event_type: str,
+        event_data: Any,
+        observation_status: Any = _UNSET_OBSERVATION_STATUS,
     ) -> None:
         """Async handler for Core state update events.
 
@@ -1004,6 +1961,7 @@ class IntegrationService:
         balls = event_data.get("balls", [])
         cue = event_data.get("cue")
         table = event_data.get("table")
+        game_type = event_data.get("game_type")
 
         # Validate balls is a list
         if not isinstance(balls, list):
@@ -1060,13 +2018,62 @@ class IntegrationService:
             self._logged_state_structure = True
 
         # Broadcast with retry logic
-        await self._broadcast_with_retry(
+        broadcast_started_ns = time.perf_counter_ns()
+        broadcast_succeeded = await self._broadcast_with_retry(
             self.broadcaster.broadcast_game_state,
             "broadcast_game_state",
             data_summary,
             balls_converted,
             cue,
             table,
+            game_type=game_type,
+            observation_status=copy.deepcopy(
+                self.latest_observation_status
+                if observation_status is _UNSET_OBSERVATION_STATUS
+                else observation_status
+            ),
+        )
+        observation = (
+            observation_status
+            if isinstance(observation_status, dict)
+            else self.latest_observation_status
+        )
+        self._record_audit_event(
+            "state",
+            {
+                "event_type": "state_publication_enqueued",
+                "source_frame_number": (
+                    observation.get("source_frame_number")
+                    if isinstance(observation, dict)
+                    else None
+                ),
+                "source_timestamp": (
+                    observation.get("source_timestamp")
+                    if isinstance(observation, dict)
+                    else None
+                ),
+                "source_timestamp_kind": (
+                    observation.get("source_timestamp_kind")
+                    if isinstance(observation, dict)
+                    else None
+                ),
+                "map_revision": (
+                    observation.get("map_revision")
+                    if isinstance(observation, dict)
+                    else None
+                ),
+                "calibration_revision": (
+                    observation.get("calibration_revision")
+                    if isinstance(observation, dict)
+                    else None
+                ),
+                "serialization_and_enqueue_seconds": max(
+                    0, time.perf_counter_ns() - broadcast_started_ns
+                )
+                / 1e9,
+                "broadcast_succeeded": broadcast_succeeded,
+                "payload_ball_count": len(balls_converted),
+            },
         )
 
     def _on_trajectory_calculated(
@@ -1112,12 +2119,75 @@ class IntegrationService:
         if not trajectory:
             return
 
+        status = self.latest_observation_status
+        phase = (status or {}).get("phase")
+        scheduler_enabled = bool(
+            self.config.get("vision.processing.phase_scheduler.enabled", False)
+        )
+        if (
+            self._phase_blocks_live_prediction(phase)
+            or (
+                status
+                and status.get("phase_aware")
+                and not (
+                    status.get("aim_calculation_eligible") is True
+                    and status.get("map_trusted") is True
+                )
+            )
+            or (scheduler_enabled and not (status and status.get("phase_aware")))
+        ):
+            logger.debug(
+                "Ignoring trajectory event because current vision status is not "
+                "eligible for a live aim prediction"
+            )
+            return
+
         # Extract trajectory lines and collision points
         lines = trajectory.get("lines", [])
         collisions = trajectory.get("collisions", [])
 
         # Create summary for logging
         data_summary = f"{len(lines)} lines, {len(collisions)} collisions"
+
+        if len(lines) < 2:
+            return
+
+        metadata = {
+            "phase": phase,
+            "source_frame_number": (status or {}).get("source_frame_number"),
+            "source_timestamp": (status or {}).get("source_timestamp"),
+            "source_timestamp_kind": (status or {}).get("source_timestamp_kind"),
+            "source_publication_monotonic_ns": (status or {}).get(
+                "source_publication_monotonic_ns"
+            ),
+            "map_revision": (status or {}).get("map_revision"),
+            "calibration_revision": (status or {}).get("calibration_revision"),
+            "prediction_settings": {},
+            "source_observations": {
+                "component_timestamps": (status or {}).get(
+                    "component_observation_timestamps", {}
+                ),
+                "component_status": (status or {}).get(
+                    "component_observation_status", {}
+                ),
+                "source_publication_monotonic_ns": (status or {}).get(
+                    "source_publication_monotonic_ns"
+                ),
+                "map_observation_fresh": (status or {}).get("map_observation_fresh"),
+                "map_trusted": (status or {}).get("map_trusted"),
+            },
+        }
+        live_prediction = {
+            "lines": copy.deepcopy(lines),
+            "collisions": copy.deepcopy(collisions),
+            "confidence": 1.0,
+            "calculation_time_ms": event_data.get("calculation_time_ms", 0.0),
+            **metadata,
+            "prediction_status": "live",
+            "spatial_valid": True,
+        }
+        self.last_live_prediction = live_prediction
+        self.frozen_comparison_prediction = None
 
         # Broadcast with retry logic
         await self._broadcast_with_retry(
@@ -1126,10 +2196,24 @@ class IntegrationService:
             data_summary,
             lines,
             collisions,
+            confidence=live_prediction["confidence"],
+            calculation_time_ms=live_prediction["calculation_time_ms"],
+            prediction_status="live",
+            spatial_valid=True,
+            phase=phase,
+            source_frame_number=live_prediction.get("source_frame_number"),
+            source_timestamp=live_prediction.get("source_timestamp"),
+            source_timestamp_kind=live_prediction.get("source_timestamp_kind"),
+            map_revision=live_prediction.get("map_revision"),
+            calibration_revision=live_prediction.get("calibration_revision"),
+            prediction_settings={},
+            source_observations=live_prediction.get("source_observations", {}),
         )
 
     async def _emit_multiball_trajectory(
-        self, multiball_result: MultiballTrajectoryResult
+        self,
+        multiball_result: MultiballTrajectoryResult,
+        prediction_metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Convert MultiballTrajectoryResult to event format and emit/broadcast.
 
@@ -1156,8 +2240,12 @@ class IntegrationService:
                     end_point = trajectory.points[i + 1]
                     all_lines.append(
                         {
-                            "start": [start_point.position.x, start_point.position.y],
-                            "end": [end_point.position.x, end_point.position.y],
+                            "start": self._trajectory_position_payload(
+                                start_point.position
+                            ),
+                            "end": self._trajectory_position_payload(
+                                end_point.position
+                            ),
                             "type": line_type,
                             "ball_id": ball_id,
                         }
@@ -1165,14 +2253,14 @@ class IntegrationService:
 
             # Convert collisions to event format
             for collision in trajectory.collisions:
+                collision_position = self._trajectory_position_payload(
+                    collision.position
+                )
                 all_collisions.append(
                     {
                         "time": collision.time,
-                        "position": [collision.position.x, collision.position.y],
-                        "x": collision.position.x,
-                        "y": collision.position.y,
+                        "position": collision_position,
                         "type": collision.type.value,
-                        "ball_id": collision.ball2_id,  # Target ball for frontend compatibility
                         "ball1_id": collision.ball1_id,  # Moving ball
                         "ball2_id": collision.ball2_id,  # Target ball (None for cushion/pocket)
                         "angle": collision.impact_angle,
@@ -1186,6 +2274,26 @@ class IntegrationService:
             f"across {len(multiball_result.trajectories)} ball(s)"
         )
 
+        if len(all_lines) < 2:
+            logger.debug(
+                "Trajectory result has fewer than two line segments; "
+                "it is not retained as a valid prediction"
+            )
+            return
+
+        metadata = copy.deepcopy(prediction_metadata or {})
+        # Retain a detached copy before broadcasting. A later phase transition
+        # must snapshot these exact segments and collisions, not recalculate.
+        live_prediction = {
+            "lines": copy.deepcopy(all_lines),
+            "collisions": copy.deepcopy(all_collisions),
+            "confidence": 1.0,
+            "calculation_time_ms": multiball_result.total_calculation_time * 1000.0,
+            **metadata,
+        }
+        self.last_live_prediction = live_prediction
+        self.frozen_comparison_prediction = None
+
         # Broadcast with retry logic
         await self._broadcast_with_retry(
             self.broadcaster.broadcast_trajectory,
@@ -1193,7 +2301,29 @@ class IntegrationService:
             data_summary,
             all_lines,
             all_collisions,
+            confidence=live_prediction["confidence"],
+            calculation_time_ms=live_prediction["calculation_time_ms"],
+            prediction_status="live",
+            spatial_valid=True,
+            phase=live_prediction.get("phase"),
+            source_frame_number=live_prediction.get("source_frame_number"),
+            source_timestamp=live_prediction.get("source_timestamp"),
+            source_timestamp_kind=live_prediction.get("source_timestamp_kind"),
+            map_revision=live_prediction.get("map_revision"),
+            calibration_revision=live_prediction.get("calibration_revision"),
+            prediction_settings=live_prediction.get("prediction_settings", {}),
+            source_observations=live_prediction.get("source_observations", {}),
         )
+
+    @staticmethod
+    def _trajectory_position_payload(position: Vector2D) -> dict[str, Any]:
+        """Serialize a Core vector as canonical x/y with explicit scale metadata."""
+        canonical = position.to_4k_canonical()
+        return {
+            "x": canonical.x,
+            "y": canonical.y,
+            "scale": [canonical.scale[0], canonical.scale[1]],
+        }
 
     def get_statistics(self) -> dict[str, Any]:
         """Get integration service statistics.
@@ -1204,6 +2334,7 @@ class IntegrationService:
         return {
             "running": self.running,
             "frames_processed": self.frame_count,
+            "duplicate_observations": self.duplicate_observation_count,
             "errors": self.error_count,
             "error_rate": (
                 self.error_count / self.frame_count if self.frame_count > 0 else 0

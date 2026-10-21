@@ -14,16 +14,28 @@ npm run start
 To build this application for production:
 
 ```bash
-npm run build
+VITE_API_BASE_URL=http://127.0.0.1:8000 npm run build
 ```
+
+The build checks TypeScript before bundling and exits unsuccessfully if either step fails.
+`npm run build:strict` uses the same checks. The default bundle output is `../../backend/static`
+relative to `frontend/web`; use `npm run build -- --outDir /tmp/billiards-web-build`
+for validation without replacing the backend static files.
 
 ## Testing
 
 This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
 
 ```bash
-npm run test
+VITE_API_BASE_URL=http://127.0.0.1:8000 npm run test
+npm run typecheck
 ```
+
+`VITE_API_BASE_URL` configures both HTTP and WebSocket destinations. The
+runtime `api.stream.viewer_url` setting may point directly to a browser-reachable
+HTTP(S) MJPEG stream; if unset, Live View uses the API video route. The
+application uses anonymous transport; browser cookies and authentication
+headers are not required.
 
 ## Styling
 

@@ -22,15 +22,25 @@ Options:
     --table-height METERS Real table height in meters (default: 1.27 for 9ft table)
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
+
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    from numpy.typing import NDArray
+
+    from backend.vision.calibration.camera import (
+        CameraCalibrator as CameraCalibratorType,
+    )
 
 # Add backend to path for imports
 backend_dir = Path(__file__).parent.parent.resolve()
@@ -46,7 +56,7 @@ os.chdir(backend_dir)
 import importlib.util
 
 
-def load_module_from_file(module_name: str, file_path: Path):
+def load_module_from_file(module_name: str, file_path: Path) -> ModuleType:
     """Load a module directly from file path."""
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec and spec.loader:
@@ -62,7 +72,7 @@ config_module = load_module_from_file("config", backend_dir / "config.py")
 
 # Load calibration modules
 camera_cal_path = backend_dir / "vision" / "calibration" / "camera.py"
-CameraCalibrator = load_module_from_file(
+camera_calibrator_type: type[CameraCalibratorType] = load_module_from_file(
     "vision.calibration.camera", camera_cal_path
 ).CameraCalibrator
 
@@ -90,7 +100,7 @@ class ManualCornerSelector:
         self.corners: list[tuple[float, float]] = []
         self.window_name = "Select Table Corners (clockwise from top-left)"
 
-    def select_corners(self) -> Optional[list[tuple[float, float]]]:
+    def select_corners(self) -> list[tuple[float, float]] | None:
         """Display image and allow user to click 4 corners.
 
         Returns:
@@ -124,9 +134,9 @@ class ManualCornerSelector:
                         f"Need exactly 4 corners, got {len(self.corners)}. Continue clicking."
                     )
 
-        return None
-
-    def _mouse_callback(self, event, x, y, flags, param):
+    def _mouse_callback(
+        self, event: int, x: int, y: int, flags: int, param: Any
+    ) -> None:
         """Handle mouse click events."""
         if event == cv2.EVENT_LBUTTONDOWN and len(self.corners) < 4:
             self.corners.append((float(x), float(y)))
@@ -160,7 +170,7 @@ class ManualCornerSelector:
 
 def detect_table_corners_auto(
     image: NDArray[np.uint8],
-) -> Optional[list[tuple[float, float]]]:
+) -> list[tuple[float, float]] | None:
     """Automatically detect table corners using TableDetector.
 
     NOTE: TableDetector has been removed. This function now always returns None.
@@ -180,7 +190,9 @@ def detect_table_corners_auto(
 
 
 def visualize_distortion_lines(
-    image: NDArray[np.uint8], corners: list[tuple[float, float]], color=(0, 255, 0)
+    image: NDArray[np.uint8],
+    corners: list[tuple[float, float]],
+    color: tuple[int, int, int] = (0, 255, 0),
 ) -> NDArray[np.uint8]:
     """Draw lines on table edges to visualize distortion.
 
@@ -248,7 +260,7 @@ def create_before_after_visualization(
     original: NDArray[np.uint8],
     corrected: NDArray[np.uint8],
     original_corners: list[tuple[float, float]],
-    corrected_corners: Optional[list[tuple[float, float]]] = None,
+    corrected_corners: list[tuple[float, float]] | None = None,
 ) -> NDArray[np.uint8]:
     """Create side-by-side before/after comparison.
 
@@ -270,11 +282,17 @@ def create_before_after_visualization(
         target_h = min(h1, h2)
         scale1 = target_h / h1
         scale2 = target_h / h2
-        original = cv2.resize(
-            original, (int(w1 * scale1), target_h), interpolation=cv2.INTER_AREA
+        original = np.asarray(
+            cv2.resize(
+                original, (int(w1 * scale1), target_h), interpolation=cv2.INTER_AREA
+            ),
+            dtype=np.uint8,
         )
-        corrected = cv2.resize(
-            corrected, (int(w2 * scale2), target_h), interpolation=cv2.INTER_AREA
+        corrected = np.asarray(
+            cv2.resize(
+                corrected, (int(w2 * scale2), target_h), interpolation=cv2.INTER_AREA
+            ),
+            dtype=np.uint8,
         )
 
         # Scale corners
@@ -308,7 +326,7 @@ def create_before_after_visualization(
     return combined
 
 
-def print_calibration_stats(calibrator: CameraCalibrator):
+def print_calibration_stats(calibrator: CameraCalibratorType) -> None:
     """Print calibration statistics to console.
 
     Args:
@@ -363,7 +381,7 @@ def print_calibration_stats(calibrator: CameraCalibrator):
     logger.info("=" * 60)
 
 
-def main():
+def main() -> int:
     """Main calibration script."""
     parser = argparse.ArgumentParser(
         description="Calibrate camera distortion from test grid image"
@@ -429,15 +447,18 @@ def main():
         logger.error(f"Input image not found: {input_path}")
         return 1
 
-    image = cv2.imread(str(input_path))
-    if image is None:
+    loaded_image = cv2.imread(str(input_path))
+    if loaded_image is None:
         logger.error(f"Failed to load image: {input_path}")
         return 1
+    # OpenCV loads a standard 8-bit color image here; make the dtype explicit
+    # for downstream image operations and the calibrator's public contract.
+    image: NDArray[np.uint8] = np.asarray(loaded_image, dtype=np.uint8)
 
     logger.info(f"Image loaded: {image.shape[1]}x{image.shape[0]} pixels")
 
     # Detect or manually select table corners
-    corners: Optional[list[tuple[float, float]]] = None
+    corners: list[tuple[float, float]] | None = None
 
     if args.manual_corners:
         selector = ManualCornerSelector(image)
@@ -460,7 +481,7 @@ def main():
 
     # Create calibrator
     cache_dir = backend_dir / "calibration_cache"
-    calibrator = CameraCalibrator(cache_dir=str(cache_dir))
+    calibrator = camera_calibrator_type(cache_dir=str(cache_dir))
 
     # Calibrate fisheye distortion from table geometry
     logger.info("Calibrating fisheye distortion from table geometry...")
@@ -479,7 +500,8 @@ def main():
 
     # Apply undistortion to validate
     logger.info("Applying undistortion to validate calibration...")
-    undistorted = calibrator.undistort_image(image)
+    undistorted_result = calibrator.undistort_image(image)
+    undistorted: NDArray[np.uint8] = np.asarray(undistorted_result, dtype=np.uint8)
 
     # Save calibration to YAML
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -521,8 +543,11 @@ def main():
         if w > max_width:
             scale = max_width / w
             new_h = int(h * scale)
-            comparison = cv2.resize(
-                comparison, (max_width, new_h), interpolation=cv2.INTER_AREA
+            comparison = np.asarray(
+                cv2.resize(
+                    comparison, (max_width, new_h), interpolation=cv2.INTER_AREA
+                ),
+                dtype=np.uint8,
             )
 
         cv2.imshow("Calibration Result", comparison)

@@ -4,12 +4,13 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
-from config import config as config_manager
 from numpy.typing import NDArray
+
+from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ class CameraCalibrator:
         object_points = []
         image_points = []
 
-        image_size = None
+        image_size: Optional[tuple[int, int]] = None
 
         for i, image in enumerate(calibration_images):
             if len(image.shape) == 3:
@@ -214,19 +215,23 @@ class CameraCalibrator:
             )
             return False, None
 
+        if image_size is None:
+            logger.error("No calibration image dimensions are available")
+            return False, None
+
         # Perform camera calibration
         logger.info(f"Calibrating camera with {len(object_points)} valid images...")
 
-        ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
+        rms_error, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
             object_points, image_points, image_size, None, None
         )
 
-        if not ret:
+        if not np.isfinite(rms_error):
             logger.error("Camera calibration failed")
             return False, None
 
         # Calculate calibration error
-        total_error = 0
+        total_error = 0.0
         for i in range(len(object_points)):
             projected_points, _ = cv2.projectPoints(
                 object_points[i], rvecs[i], tvecs[i], camera_matrix, dist_coeffs
@@ -236,7 +241,7 @@ class CameraCalibrator:
             )
             total_error += error
 
-        mean_error = total_error / len(object_points)
+        mean_error = float(total_error / len(object_points))
 
         # Create camera parameters object
         from datetime import datetime
@@ -300,9 +305,12 @@ class CameraCalibrator:
         ransac_threshold = config_manager.get(
             "vision.calibration.camera.homography.ransac_threshold", 5.0
         )
-        homography, mask = cv2.findHomography(
+        homography_result, mask = cv2.findHomography(
             src_points, dst_points, cv2.RANSAC, ransac_threshold
         )
+        # OpenCV can return None when it cannot find a homography even though
+        # some versions of its stubs declare a non-optional matrix result.
+        homography = cast("Optional[NDArray[Any]]", homography_result)
 
         if homography is None:
             logger.error("Failed to calculate homography matrix")
@@ -320,7 +328,7 @@ class CameraCalibrator:
             table_corners_pixel=table_corners,
             table_corners_world=table_corners_world,
             table_dimensions=table_dimensions,
-            transformation_error=error,
+            transformation_error=float(error),
         )
 
         logger.info(f"Table transformation calculated. Error: {error:.6f} meters")
@@ -335,7 +343,7 @@ class CameraCalibrator:
         image: NDArray[np.uint8],
         camera_matrix: Optional[NDArray[np.float64]] = None,
         distortion: Optional[NDArray[np.float64]] = None,
-    ) -> NDArray[np.float64]:
+    ) -> NDArray[np.uint8]:
         """Remove lens distortion from image.
 
         Args:
@@ -360,8 +368,9 @@ class CameraCalibrator:
         )
 
         # Undistort image
-        undistorted = cv2.undistort(
-            image, camera_matrix, distortion, None, new_camera_matrix
+        undistorted = cast(
+            "NDArray[np.uint8]",
+            cv2.undistort(image, camera_matrix, distortion, None, new_camera_matrix),
         )
 
         # Crop to valid region
@@ -516,10 +525,13 @@ class CameraCalibrator:
             True if loaded successfully
         """
         try:
-            if filepath is None:
-                filepath = self.cache_dir / "camera_params.json"
+            params_path = (
+                Path(filepath)
+                if filepath is not None
+                else self.cache_dir / "camera_params.json"
+            )
 
-            with open(filepath) as f:
+            with open(params_path) as f:
                 data = json.load(f)
 
             self.camera_params = CameraParameters.from_dict(data)
@@ -540,10 +552,13 @@ class CameraCalibrator:
             True if loaded successfully
         """
         try:
-            if filepath is None:
-                filepath = self.cache_dir / "table_transform.json"
+            transform_path = (
+                Path(filepath)
+                if filepath is not None
+                else self.cache_dir / "table_transform.json"
+            )
 
-            with open(filepath) as f:
+            with open(transform_path) as f:
                 data = json.load(f)
 
             self.table_transform = TableTransform.from_dict(data)
@@ -652,8 +667,8 @@ class CameraCalibrator:
         center = np.mean(corners_array, axis=0)
 
         # Sort by angle from center
-        def angle_from_center(point):
-            return np.arctan2(point[1] - center[1], point[0] - center[0])
+        def angle_from_center(point: NDArray[np.float32]) -> float:
+            return float(np.arctan2(point[1] - center[1], point[0] - center[0]))
 
         corners_with_angles = [
             (corner, angle_from_center(corner)) for corner in corners_array
@@ -671,8 +686,8 @@ class CameraCalibrator:
         points_per_edge = config_manager.get(
             "vision.calibration.camera.fisheye.points_per_edge", 5
         )  # Sample points along each edge
-        detected_points = []
-        object_points_3d = []
+        detected_points: list[NDArray[np.float32]] = []
+        object_points_3d: list[NDArray[np.float64]] = []
 
         table_width, table_height = table_dimensions
 
@@ -706,10 +721,12 @@ class CameraCalibrator:
                 point_3d = edge_start_3d * (1 - t) + edge_end_3d * t
                 object_points_3d.append(point_3d)
 
-        detected_points = np.array(detected_points, dtype=np.float32)
-        object_points_3d = np.array(object_points_3d, dtype=np.float32)
+        detected_points_array = np.array(detected_points, dtype=np.float32)
+        object_points_3d_array = np.array(object_points_3d, dtype=np.float32)
 
-        logger.info(f"Generated {len(detected_points)} points for fisheye calibration")
+        logger.info(
+            f"Generated {len(detected_points_array)} points for fisheye calibration"
+        )
 
         # Use standard calibrateCamera with FIXED focal length and principal point
         # Only optimize distortion coefficients for stability with limited points
@@ -730,10 +747,10 @@ class CameraCalibrator:
         distortion_coeffs = np.zeros((5, 1), dtype=np.float64)
 
         # Prepare data for standard calibration
-        obj_points = [object_points_3d.astype(np.float32)]
-        img_points = [detected_points.astype(np.float32)]
+        obj_points = [object_points_3d_array.astype(np.float32)]
+        img_points = [detected_points_array.astype(np.float32)]
 
-        logger.info(f"Using {len(detected_points)} points for calibration")
+        logger.info(f"Using {len(detected_points_array)} points for calibration")
         logger.info(f"Image size: {image_size}")
         logger.info(
             f"Fixed focal length: {fx:.1f}, principal point: ({cx:.1f}, {cy:.1f})"
@@ -847,14 +864,18 @@ class CameraCalibrator:
                 return False
 
             # Read camera matrix
-            camera_matrix = fs.getNode("camera_matrix").mat()
+            camera_matrix = cast(
+                "Optional[NDArray[Any]]", fs.getNode("camera_matrix").mat()
+            )
             if camera_matrix is None:
                 logger.error("No camera_matrix found in calibration file")
                 fs.release()
                 return False
 
             # Read distortion coefficients
-            dist_coeffs = fs.getNode("dist_coeffs").mat()
+            dist_coeffs = cast(
+                "Optional[NDArray[Any]]", fs.getNode("dist_coeffs").mat()
+            )
             if dist_coeffs is None:
                 logger.error("No dist_coeffs found in calibration file")
                 fs.release()
@@ -899,10 +920,6 @@ class CameraCalibrator:
                 calibration_error=calibration_error,
                 calibration_date=calibration_date,
             )
-
-            # Store additional attributes for backward compatibility
-            self.camera_matrix = camera_matrix
-            self.dist_coeffs = dist_coeffs
 
             logger.info(f"Calibration loaded from {filepath}")
             logger.info(f"  Resolution: {int(image_width)}x{int(image_height)}")

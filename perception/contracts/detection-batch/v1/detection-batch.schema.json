@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:billiards-trainer:perception:detection-batch:v1",
+  "title": "Billiards per-frame detection batch v1",
+  "description": "Complete detector output for one source frame; detections are not cross-frame tracks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine_instance_id",
+    "batch_sequence",
+    "source",
+    "image_space",
+    "model",
+    "settings",
+    "inference_started_at",
+    "inference_completed_at",
+    "published_at",
+    "outcome",
+    "reason",
+    "detections"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "engine_instance_id": { "$ref": "#/$defs/identifier" },
+    "batch_sequence": { "$ref": "#/$defs/safeCounter" },
+    "source": { "$ref": "#/$defs/source" },
+    "image_space": { "enum": ["raw", "rectified"] },
+    "model": { "$ref": "#/$defs/model" },
+    "settings": { "$ref": "#/$defs/settings" },
+    "inference_started_at": { "$ref": "#/$defs/inferenceTimestamp" },
+    "inference_completed_at": { "$ref": "#/$defs/inferenceTimestamp" },
+    "published_at": { "$ref": "#/$defs/publicationTimestamp" },
+    "outcome": { "enum": ["success", "failed", "skipped"] },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 512,
+      "pattern": ".*\\S.*"
+    },
+    "detections": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/detection" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "success" } },
+        "required": ["outcome"]
+      },
+      "then": { "properties": { "reason": { "type": "null" } } }
+    },
+    {
+      "if": {
+        "properties": { "outcome": { "enum": ["failed", "skipped"] } },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reason": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "detections": { "maxItems": 0 }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f]+$"
+    },
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "timestamp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticks", "unit", "clock", "domain_id", "stage"],
+      "properties": {
+        "ticks": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "unit": { "const": "nanoseconds" },
+        "clock": { "enum": ["monotonic", "unix_epoch", "sensor"] },
+        "domain_id": { "$ref": "#/$defs/identifier" },
+        "stage": {
+          "enum": [
+            "exposure",
+            "camera_read_complete",
+            "shared_memory_publication",
+            "frame_arrival",
+            "inference_started",
+            "inference_complete",
+            "batch_publication"
+          ]
+        }
+      }
+    },
+    "inferenceTimestamp": {
+      "allOf": [
+        { "$ref": "#/$defs/timestamp" },
+        {
+          "properties": {
+            "clock": { "const": "monotonic" },
+            "stage": { "enum": ["inference_started", "inference_complete"] }
+          }
+        }
+      ]
+    },
+    "publicationTimestamp": {
+      "allOf": [
+        { "$ref": "#/$defs/timestamp" },
+        {
+          "properties": {
+            "clock": { "const": "monotonic" },
+            "stage": { "const": "batch_publication" }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "frame_id", "timestamp", "width_px", "height_px"],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/identifier" },
+        "frame_id": { "$ref": "#/$defs/identifier" },
+        "timestamp": {
+          "oneOf": [{ "$ref": "#/$defs/timestamp" }, { "type": "null" }]
+        },
+        "width_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "height_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "modelClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class_id", "class_name"],
+      "properties": {
+        "class_id": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "class_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f]+$"
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_sha256", "source_checkpoint_sha256", "classes"],
+      "properties": {
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "source_checkpoint_sha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "classes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/modelClass" }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_width_px",
+        "input_height_px",
+        "confidence_threshold",
+        "iou_threshold",
+        "max_detections"
+      ],
+      "properties": {
+        "input_width_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "input_height_px": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "confidence_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "iou_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "max_detections": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "boundingBox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["left", "top", "right", "bottom"],
+      "properties": {
+        "left": { "type": "number", "minimum": 0 },
+        "top": { "type": "number", "minimum": 0 },
+        "right": { "type": "number", "minimum": 0 },
+        "bottom": { "type": "number", "minimum": 0 }
+      }
+    },
+    "detection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "detection_index",
+        "class_id",
+        "class_name",
+        "confidence",
+        "bbox_image_px",
+        "center_image_px"
+      ],
+      "properties": {
+        "detection_index": { "$ref": "#/$defs/safeCounter" },
+        "class_id": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "class_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f]+$"
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bbox_image_px": { "$ref": "#/$defs/boundingBox" },
+        "center_image_px": { "$ref": "#/$defs/point" }
+      }
+    }
+  }
+}

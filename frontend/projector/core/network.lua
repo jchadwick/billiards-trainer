@@ -1,18 +1,16 @@
 -- Network Module
--- Handles UDP and WebSocket communication with backend
+-- Receives UDP messages from local projector integrations
 
 local socket = require "socket"  -- Built into LÖVE2D
 local json = require "lib.json"  -- We'll add this library
+local CoordinateContract = require "core.coordinate_contract"
 
 local Network = {
     udp = nil,
     udpPort = 9999,
-    udpHost = "127.0.0.1",  -- Listen on localhost for testing
-    websocket = nil,
-    websocketUrl = "ws://localhost:8000/ws",
+    udpHost = "127.0.0.1",  -- Local-only receiver for testing and adapters
     status = {
         udp = false,
-        websocket = false,
         udpPort = 9999,
         lastMessage = nil,
         messagesReceived = 0
@@ -47,9 +45,6 @@ function Network:init()
     local ip, port = self.udp:getsockname()
     print(string.format("UDP socket bound to %s:%d", ip, port))
 
-    -- WebSocket initialization would go here
-    -- For now, we'll focus on UDP which is simpler and lower latency
-    self.status.websocket = false
 end
 
 -- Update network (called every frame)
@@ -87,13 +82,21 @@ end
 
 -- Process incoming message
 function Network:processMessage(msg, ip, port)
+    -- Validate message structure
+    if type(msg) ~= "table" or type(msg.type) ~= "string" then
+        return false
+    end
+
+    -- Reject malformed geometry before it reaches any subscribed module. The
+    -- message-level scale applies to all table points, boundaries, and bounds.
+    local coordinatesValid, coordinateError = CoordinateContract.validateMessage(msg.type, msg.data)
+    if not coordinatesValid then
+        print(string.format("Rejected %s message from %s:%d: %s", msg.type, ip or "unknown", port or 0, coordinateError))
+        return false
+    end
+
     self.status.lastMessage = love.timer.getTime()
     self.status.messagesReceived = self.status.messagesReceived + 1
-
-    -- Validate message structure
-    if type(msg) ~= "table" or not msg.type then
-        return
-    end
 
     -- Add to queue with metadata
     table.insert(self.messageQueue, {
@@ -102,6 +105,7 @@ function Network:processMessage(msg, ip, port)
         ip = ip,
         port = port
     })
+    return true
 end
 
 -- Process message queue
@@ -168,13 +172,7 @@ function Network:cleanup()
         self.udp = nil
     end
 
-    if self.websocket then
-        -- Close WebSocket
-        self.websocket = nil
-    end
-
     self.status.udp = false
-    self.status.websocket = false
 end
 
 return Network

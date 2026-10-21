@@ -55,6 +55,9 @@ class EventPriority(Enum):
     CRITICAL = 4
 
 
+EventCallback = Callable[[str, dict[str, Any]], Any]
+
+
 @dataclass
 class Event:
     """System event data structure."""
@@ -108,7 +111,7 @@ class Event:
 class ModuleCoordinator:
     """Handles module coordination and communication (FR-CORE-051 to FR-CORE-055)."""
 
-    def __init__(self, event_manager: "EventManager"):
+    def __init__(self, event_manager: "EventManager") -> None:
         self.event_manager = event_manager
         self.module_states: dict[str, dict[str, Any]] = {}
         self.module_configs: dict[str, dict[str, Any]] = {}
@@ -118,7 +121,7 @@ class ModuleCoordinator:
         # Register for coordination events
         self._setup_coordination_handlers()
 
-    def _setup_coordination_handlers(self):
+    def _setup_coordination_handlers(self) -> None:
         """Setup handlers for module coordination events."""
         self.event_manager.subscribe_to_events(
             EventType.MODULE_INITIALIZED.value, self._handle_module_initialization
@@ -128,7 +131,9 @@ class ModuleCoordinator:
             EventType.CONFIG_CHANGED.value, self._handle_config_change
         )
 
-    def _handle_module_initialization(self, event_type: str, data: dict[str, Any]):
+    def _handle_module_initialization(
+        self, event_type: str, data: dict[str, Any]
+    ) -> None:
         """Handle module initialization."""
         with self.coordination_lock:
             module_name = data.get("module_name")
@@ -144,7 +149,7 @@ class ModuleCoordinator:
 
                 logger.info(f"Module {module_name} initialized")
 
-    def _handle_config_change(self, event_type: str, data: dict[str, Any]):
+    def _handle_config_change(self, event_type: str, data: dict[str, Any]) -> None:
         """Handle configuration changes."""
         with self.coordination_lock:
             module_name = data.get("module_name")
@@ -156,7 +161,7 @@ class ModuleCoordinator:
 
     def register_module(
         self, module_name: str, interface: Any, capabilities: list[str]
-    ):
+    ) -> None:
         """Register a module with the coordinator."""
         self.event_manager.emit_event(
             EventType.MODULE_INITIALIZED.value,
@@ -167,7 +172,9 @@ class ModuleCoordinator:
             },
         )
 
-    def send_data_to_module(self, target_module: str, data_type: str, data: Any):
+    def send_data_to_module(
+        self, target_module: str, data_type: str, data: Any
+    ) -> None:
         """Send data to a specific module."""
         event_type_map = {
             "state_update": EventType.STATE_UPDATED.value,
@@ -185,7 +192,7 @@ class ModuleCoordinator:
             target_modules=[target_module],
         )
 
-    def broadcast_state_update(self, state_data: dict[str, Any]):
+    def broadcast_state_update(self, state_data: dict[str, Any]) -> None:
         """Broadcast state update to all modules."""
         self.event_manager.emit_event(EventType.STATE_UPDATED.value, state_data)
 
@@ -210,14 +217,16 @@ class EventManager:
     - Event serialization and logging
     """
 
-    def __init__(self, max_history_size: int = 10000, enable_logging: bool = True):
+    def __init__(
+        self, max_history_size: int = 10000, enable_logging: bool = True
+    ) -> None:
         """Initialize comprehensive event manager."""
         # Legacy API compatibility
-        self._subscribers: dict[str, dict[str, Callable]] = defaultdict(dict)
+        self._subscribers: dict[str, dict[str, EventCallback]] = defaultdict(dict)
         self._lock = threading.RLock()
 
         # Enhanced event management
-        self.event_history: deque = deque(maxlen=max_history_size)
+        self.event_history: deque[Event] = deque(maxlen=max_history_size)
         self.event_filters: dict[str, Callable[[Event], bool]] = {}
         self.enable_logging = enable_logging
 
@@ -225,7 +234,7 @@ class EventManager:
         self.executor = ThreadPoolExecutor(
             max_workers=4, thread_name_prefix="event_handler"
         )
-        self.event_queue = Queue()
+        self.event_queue: Queue[Event | None] = Queue()
         self.processing_thread: Optional[threading.Thread] = None
         self.is_running = False
 
@@ -246,7 +255,7 @@ class EventManager:
         # Start enhanced processing
         self.start_enhanced_processing()
 
-    def subscribe_to_events(self, event_type: str, callback: Callable) -> str:
+    def subscribe_to_events(self, event_type: str, callback: EventCallback) -> str:
         """Subscribe to state change events.
 
         Args:
@@ -336,7 +345,7 @@ class EventManager:
                 )
 
     def _handle_async_callback_result(
-        self, task: asyncio.Task, subscription_id: str
+        self, task: asyncio.Task[Any], subscription_id: str
     ) -> None:
         """Handle the result of an async callback task.
 
@@ -353,7 +362,7 @@ class EventManager:
                 f"Error in async event callback {subscription_id}: {e}", exc_info=True
             )
 
-    def get_subscriber_count(self, event_type: str = None) -> int:
+    def get_subscriber_count(self, event_type: str | None = None) -> int:
         """Get number of subscribers for event type.
 
         Args:
@@ -368,7 +377,7 @@ class EventManager:
             else:
                 return sum(len(subs) for subs in self._subscribers.values())
 
-    def clear_subscribers(self, event_type: str = None) -> None:
+    def clear_subscribers(self, event_type: str | None = None) -> None:
         """Clear subscribers for event type or all events.
 
         Args:
@@ -384,7 +393,7 @@ class EventManager:
 
     # Enhanced event management methods (FR-CORE-056 to FR-CORE-060)
 
-    def start_enhanced_processing(self):
+    def start_enhanced_processing(self) -> None:
         """Start enhanced event processing system."""
         if self.is_running:
             return
@@ -400,7 +409,7 @@ class EventManager:
         if self.enable_logging:
             logger.info("Enhanced event manager started")
 
-    def stop_enhanced_processing(self):
+    def stop_enhanced_processing(self) -> None:
         """Stop enhanced event processing system."""
         self.is_running = False
 
@@ -416,7 +425,7 @@ class EventManager:
         if self.enable_logging:
             logger.info("Enhanced event manager stopped")
 
-    def _process_enhanced_events(self):
+    def _process_enhanced_events(self) -> None:
         """Enhanced event processing loop."""
         while self.is_running:
             try:
@@ -437,7 +446,7 @@ class EventManager:
                 if self.enable_logging:
                     logger.error(f"Error processing enhanced event: {e}")
 
-    def _handle_enhanced_event(self, event: Event):
+    def _handle_enhanced_event(self, event: Event) -> None:
         """Handle enhanced event with filtering and targeting."""
         with self._lock:
             # Add to history (FR-CORE-058)
@@ -593,7 +602,7 @@ class EventManager:
 
         return replayed_count
 
-    def add_event_filter(self, name: str, filter_func: Callable[[Event], bool]):
+    def add_event_filter(self, name: str, filter_func: Callable[[Event], bool]) -> None:
         """Add global event filter (FR-CORE-059)."""
         self.event_filters[name] = filter_func
         logger.debug(f"Event filter '{name}' added")
@@ -635,7 +644,7 @@ class EventManager:
 
     # Module coordination interface methods (FR-CORE-051 to FR-CORE-055)
 
-    def receive_vision_data(self, detection_data: dict[str, Any]):
+    def receive_vision_data(self, detection_data: dict[str, Any]) -> None:
         """Receive detection data from Vision module (FR-CORE-051)."""
         self.emit_enhanced_event(
             EventType.VISION_DATA_RECEIVED,
@@ -644,7 +653,7 @@ class EventManager:
             priority=EventPriority.HIGH,
         )
 
-    def send_state_update_to_api(self, state_data: dict[str, Any]):
+    def send_state_update_to_api(self, state_data: dict[str, Any]) -> None:
         """Send state updates to API module (FR-CORE-052)."""
         self.emit_enhanced_event(
             EventType.STATE_UPDATED,
@@ -654,7 +663,7 @@ class EventManager:
             priority=EventPriority.HIGH,
         )
 
-    def provide_trajectory_to_projector(self, trajectory_data: dict[str, Any]):
+    def provide_trajectory_to_projector(self, trajectory_data: dict[str, Any]) -> None:
         """Provide trajectory data to Projector module (FR-CORE-053)."""
         self.emit_enhanced_event(
             EventType.TRAJECTORY_CALCULATED,
@@ -666,7 +675,7 @@ class EventManager:
 
     def exchange_config_with_module(
         self, module_name: str, config_data: dict[str, Any]
-    ):
+    ) -> None:
         """Exchange configuration with modules (FR-CORE-054)."""
         self.emit_enhanced_event(
             EventType.CONFIG_CHANGED,
@@ -675,7 +684,9 @@ class EventManager:
             target_modules=[module_name],
         )
 
-    def coordinate_module_lifecycle(self, action: str, module_name: str, **kwargs):
+    def coordinate_module_lifecycle(
+        self, action: str, module_name: str, **kwargs: Any
+    ) -> None:
         """Coordinate module initialization and shutdown (FR-CORE-055)."""
         if action == "initialize":
             event_type = EventType.MODULE_INITIALIZED
@@ -717,7 +728,7 @@ class EventManager:
         )
 
     # Cleanup
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup resources."""
         with contextlib.suppress(Exception):
             self.stop_enhanced_processing()

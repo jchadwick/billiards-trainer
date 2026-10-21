@@ -343,9 +343,9 @@ export const DiagnosticsSystem: React.FC = observer(() => {
             automated: true,
           },
           {
-            id: 'security-validation',
-            name: 'Security Validation',
-            description: 'Test authentication and authorization systems',
+            id: 'transport-security-validation',
+            name: 'Transport Security Validation',
+            description: 'Review secure transport and data-handling configuration',
             category: 'system-validation',
             priority: 'medium',
             status: 'pending',
@@ -433,9 +433,9 @@ export const DiagnosticsSystem: React.FC = observer(() => {
       issues: detectedIssues,
       suites: diagnosticSuites,
       systemInfo: {
-        version: systemStore.version,
-        uptime: systemStore.uptimeFormatted,
-        health: systemStore.overallHealth,
+        version: systemStore.status.backendVersion ?? 'unknown',
+        uptime: systemStore.lastHealthCheck?.uptime ?? null,
+        health: systemStore.lastHealthCheck?.status ?? 'unknown',
       },
     };
   }, [diagnosticSuites, detectedIssues, systemStore]);
@@ -581,10 +581,11 @@ export const DiagnosticsSystem: React.FC = observer(() => {
         <AlertPanel
           alerts={detectedIssues.map(issue => ({
             id: issue.id,
-            type: issue.severity === 'critical' ? 'error' :
+            level: issue.severity === 'critical' ? 'error' :
                   issue.severity === 'high' ? 'warning' : 'info',
-            message: issue.title,
-            details: issue.description,
+            title: issue.title,
+            message: issue.description,
+            timestamp: issue.detectedAt,
           }))}
           title="Detected Issues"
           onDismiss={(alertId) => {

@@ -28,7 +28,7 @@ export const FocusManager: React.FC<FocusManagerProps> = ({
   onEscape,
   onFocusLeave,
 }) => {
-  const containerRef = useFocusTrap(trapFocus)
+  const containerRef = useFocusTrap<HTMLDivElement>(trapFocus)
   const previousActiveElement = useRef<HTMLElement | null>(null)
   const [isMounted, setIsMounted] = useState(false)
 

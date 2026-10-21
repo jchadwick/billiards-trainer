@@ -8,6 +8,7 @@ import type {
   Point2D,
   ActionResult
 } from './types';
+import { normalizeImagePointToCanonical } from '../utils/coordinates';
 
 export class VisionStore {
   // Observable state
@@ -347,7 +348,7 @@ export class VisionStore {
         calibration_type: 'geometry',
         manual_points: this.markedCorners.map((corner, index) => ({
           id: `corner_${index}`,
-          image_point: corner,
+          image_point: { ...corner, scale: [1, 1] },
           world_point: null, // Backend will calculate
           is_valid: true,
           confidence: 1.0
@@ -433,7 +434,7 @@ export class VisionStore {
         calibration_type: 'geometry',
         manual_points: this.markedCorners.map((corner, index) => ({
           id: `corner_${index}`,
-          image_point: corner,
+          image_point: { ...corner, scale: [1, 1] },
           world_point: null,
           is_valid: true,
           confidence: 1.0
@@ -534,11 +535,19 @@ export class VisionStore {
 
         // Check if we have valid geometric calibration
         if (backendCalibration.geometry && backendCalibration.geometry.is_valid) {
+          const resolution = backendCalibration.camera?.resolution;
+          const sourceResolution = Array.isArray(resolution) && resolution.length === 2
+            ? { width: resolution[0], height: resolution[1] }
+            : undefined;
+          const sourceCorners: unknown[] = Array.isArray(backendCalibration.geometry.table_corners_image)
+            ? backendCalibration.geometry.table_corners_image
+            : [];
+          const tableCorners = sourceCorners
+            .map((corner) => normalizeImagePointToCanonical(corner, sourceResolution))
+            .filter((corner: Point2D | null): corner is Point2D => corner !== null);
+          if (tableCorners.length !== 4) return;
           const calibrationData: CalibrationData = {
-            tableCorners: backendCalibration.geometry.table_corners_image.map(corner => ({
-              x: corner.x,
-              y: corner.y
-            })),
+            tableCorners,
             homographyMatrix: backendCalibration.geometry.homography_matrix,
             distortionCoefficients: backendCalibration.camera?.distortion_coefficients || [0, 0, 0, 0, 0],
             isValid: backendCalibration.geometry.is_valid,

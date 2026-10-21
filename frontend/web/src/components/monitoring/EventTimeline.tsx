@@ -6,17 +6,17 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { observer } from 'mobx-react-lite';
 import { apiClient } from '../../api/client';
+import type { GameStateResponse } from '../../types/api';
 
 export interface SystemEvent {
   id: string;
   timestamp: Date;
-  type: 'system' | 'user' | 'game' | 'calibration' | 'error' | 'performance';
+  type: 'system' | 'game' | 'calibration' | 'error' | 'performance';
   category: string;
   title: string;
   description: string;
   metadata?: Record<string, any>;
   severity?: 'low' | 'medium' | 'high' | 'critical';
-  userId?: string;
   sessionId?: string;
 }
 
@@ -41,15 +41,11 @@ export const EventTimeline: React.FC = observer(() => {
 
   const loadRealEvents = async () => {
     try {
-      // Fetch events from multiple backend sources
-      const [securityEvents, gameHistory] = await Promise.all([
-        fetchSecurityEvents().catch(() => []),
-        fetchGameEvents().catch(() => [])
-      ]);
+      // Fetch game events, then add local system monitoring events.
+      const gameHistory = await fetchGameEvents().catch(() => []);
 
       // Combine and convert to SystemEvent format
       const allEvents: SystemEvent[] = [
-        ...securityEvents,
         ...gameHistory,
         ...generateSystemEvents() // Keep some system events for monitoring
       ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
@@ -63,35 +59,14 @@ export const EventTimeline: React.FC = observer(() => {
     }
   };
 
-  const fetchSecurityEvents = async (): Promise<SystemEvent[]> => {
-    try {
-      const response = await apiClient.get('/auth/security-events?limit=20');
-      return response.map((event: any) => ({
-        id: event.id || `security-${Date.now()}-${Math.random()}`,
-        timestamp: new Date(event.timestamp),
-        type: 'user' as const,
-        category: 'authentication',
-        title: event.event_type || 'Security Event',
-        description: event.description || 'Security-related event occurred',
-        severity: event.level || 'medium' as const,
-        metadata: event.metadata || {},
-        userId: event.user_id,
-        sessionId: event.session_id
-      }));
-    } catch (error) {
-      console.warn('Could not fetch security events:', error);
-      return [];
-    }
-  };
-
   const fetchGameEvents = async (): Promise<SystemEvent[]> => {
     try {
-      const response = await apiClient.get('/game/history?limit=20&include_events=true');
+      const response = await apiClient.get<{ states: GameStateResponse[] }>('/game/history?limit=20&include_events=true');
       const gameEvents: SystemEvent[] = [];
 
-      response.forEach((gameState: any) => {
+      response.states.forEach((gameState) => {
         if (gameState.events) {
-          gameState.events.forEach((event: any) => {
+          gameState.events.forEach((event) => {
             gameEvents.push({
               id: `game-${event.timestamp}-${Math.random()}`,
               timestamp: new Date(event.timestamp),
@@ -101,7 +76,6 @@ export const EventTimeline: React.FC = observer(() => {
               description: event.description || 'Game-related event occurred',
               severity: 'low' as const,
               metadata: event.data || {},
-              sessionId: gameState.session_id
             });
           });
         }
@@ -215,7 +189,6 @@ export const EventTimeline: React.FC = observer(() => {
   const getEventIcon = (type: SystemEvent['type']): string => {
     switch (type) {
       case 'system': return '⚙️';
-      case 'user': return '👤';
       case 'game': return '🎱';
       case 'calibration': return '🎯';
       case 'error': return '❌';

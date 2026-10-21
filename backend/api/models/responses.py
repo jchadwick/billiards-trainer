@@ -10,13 +10,14 @@ This module defines all Pydantic models for API responses, including:
 All models include comprehensive validation, documentation, and OpenAPI schema support.
 """
 
+import math
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional, Union
+from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .common import PositionWithScale
+from .common import PositionWithScale, RealWorldDimensions, validate_positive_scale_pair
 
 # =============================================================================
 # Base Response Models and Enums
@@ -61,12 +62,6 @@ class StatusCode(str, Enum):
 
 class ErrorCode(str, Enum):
     """Standardized error codes."""
-
-    # Authentication errors (AUTH_xxx)
-    AUTH_INVALID_CREDENTIALS = "AUTH_001"
-    AUTH_TOKEN_EXPIRED = "AUTH_002"
-    AUTH_INSUFFICIENT_PERMISSIONS = "AUTH_003"
-    AUTH_ACCOUNT_DISABLED = "AUTH_004"
 
     # Validation errors (VAL_xxx)
     VAL_INVALID_FORMAT = "VAL_001"
@@ -342,6 +337,10 @@ class BallInfo(BaseResponse):
     )
     is_cue_ball: bool = Field(..., description="Whether this is the cue ball")
     is_pocketed: bool = Field(..., description="Whether ball is pocketed")
+    is_observed: bool = Field(
+        True,
+        description="Whether this position has a detector match in the latest frame",
+    )
     confidence: float = Field(..., description="Detection confidence")
     last_update: datetime = Field(..., description="Last update timestamp")
 
@@ -355,6 +354,9 @@ class CueInfo(BaseResponse):
 
     tip_position: PositionWithScale = Field(
         ..., description="Cue tip position with scale metadata"
+    )
+    butt_position: Optional[PositionWithScale] = Field(
+        None, description="Measured cue butt position with scale metadata"
     )
     angle: float = Field(..., description="Cue angle in degrees")
     elevation: float = Field(..., description="Cue elevation in degrees")
@@ -370,13 +372,78 @@ class TableInfo(BaseResponse):
     Each position has format: {"x": float, "y": float, "scale": [sx, sy]}
     """
 
-    width: float = Field(..., description="Table width in meters")
-    height: float = Field(..., description="Table height in meters")
+    width: float = Field(
+        ...,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Table width in canonical 4K pixels",
+    )
+    height: float = Field(
+        ...,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Table height in canonical 4K pixels",
+    )
+    dimensions_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Table extent scale into canonical pixels",
+    )
+    dimensions_unit: Literal["canonical_pixels"] = Field(
+        ..., description="Unit of table width and height values"
+    )
     pocket_positions: list[PositionWithScale] = Field(
         ..., description="Pocket positions with scale metadata"
     )
-    pocket_radius: float = Field(..., description="Pocket radius in meters")
+    playing_area_corners: Optional[list[PositionWithScale]] = Field(
+        default=None,
+        description=(
+            "Optional calibrated playing-area corners in canonical pixel space, "
+            "with scale metadata on each point"
+        ),
+    )
+    pocket_radius: float = Field(
+        ...,
+        gt=0.0,
+        allow_inf_nan=False,
+        description="Pocket radius in canonical 4K pixels",
+    )
+    pocket_radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Pocket radius scale into canonical pixels",
+    )
+    pocket_radius_unit: Literal["canonical_pixels"] = Field(
+        ..., description="Unit of pocket radius value"
+    )
+    real_world_dimensions: Optional[RealWorldDimensions] = Field(
+        default=None,
+        description="Optional physical table dimensions, separate from image geometry",
+    )
     surface_friction: float = Field(..., description="Surface friction coefficient")
+
+    @field_validator("dimensions_scale", "pocket_radius_scale", mode="before")
+    @classmethod
+    def validate_table_scales(cls, value: Any) -> list[float]:
+        return validate_positive_scale_pair(value, "Table geometry scale")
+
+    @field_validator("pocket_radius_scale")
+    @classmethod
+    def validate_circular_pocket_radius_scale(cls, value: list[float]) -> list[float]:
+        if not math.isclose(value[0], value[1], rel_tol=1e-6):
+            raise ValueError("Circular pocket radius cannot use anisotropic scaling")
+        return value
+
+    @field_validator("playing_area_corners")
+    @classmethod
+    def validate_playing_area_corner_count(
+        cls, value: Optional[list[PositionWithScale]]
+    ) -> Optional[list[PositionWithScale]]:
+        if value is not None and len(value) != 4:
+            raise ValueError("Playing area must contain exactly four corners")
+        return value
 
 
 class GameEvent(BaseResponse):
@@ -402,6 +469,112 @@ class GameStateResponse(BaseResponse):
     is_valid: bool = Field(..., description="State validity")
     confidence: float = Field(..., description="Overall state confidence")
     events: list[GameEvent] = Field(default_factory=list, description="Recent events")
+
+
+class SceneTablePosition(BaseResponse):
+    """Physical ball center in the calibrated, center-origin table frame."""
+
+    x: float
+    y: float
+    unit: Literal["millimeters"]
+    origin: Literal["playing_surface_center"]
+
+
+class SceneSourceObservation(BaseResponse):
+    """Original producer identity and source timestamp for one ball location."""
+
+    engine_instance_id: str
+    session_id: str
+    frame_id: str
+    timestamp: dict[str, Any]
+
+
+class SceneBallInfo(BaseResponse):
+    """Scene-derived ball state with unknown physics left explicitly unavailable."""
+
+    id: str = Field(..., description="Stable scene track identifier")
+    number: Optional[int] = Field(None, description="Asynchronously classified number")
+    position: PositionWithScale = Field(
+        ..., description="Canonical image position with scale metadata"
+    )
+    velocity: Optional[PositionWithScale] = Field(
+        default=None,
+        description="Unavailable until a source-timed velocity estimate is supplied",
+    )
+    is_cue_ball: Optional[bool] = Field(
+        default=None,
+        description="Unavailable because generic ball detections do not identify the cue ball",
+    )
+    is_pocketed: Optional[bool] = Field(
+        default=None,
+        description="Unavailable because the scene contract does not classify pocketing",
+    )
+    is_observed: bool = Field(
+        ..., description="Whether this position has a detection in the latest scene"
+    )
+    confidence: float = Field(
+        ..., description="Current detector confidence, zero when unavailable"
+    )
+    last_update: datetime = Field(
+        ..., description="Gateway receipt time for the latest successful localization"
+    )
+    velocity_status: Literal["unavailable"]
+    cue_ball_status: Literal["unavailable"]
+    pocket_status: Literal["unavailable"]
+    confidence_kind: Literal["detector_observation", "unavailable"]
+    last_observation_confidence: Optional[float] = None
+    identity_status: Literal["identified", "unknown"]
+    identity_confidence: Optional[float] = None
+    identity_evidence: list[dict[str, Any]]
+    ball_type: Literal["solid", "stripe", "eight", "unknown"]
+    tracking_status: Literal["observed", "tracked", "occluded", "lost"]
+    position_kind: Literal["measured", "filtered", "extrapolated", "last_observed"]
+    table_position: Optional[SceneTablePosition] = None
+    source_observation: SceneSourceObservation
+    radius: float
+    radius_unit: Literal["canonical_pixels"]
+    radius_source: Literal["legacy_standard_pool_ball_assumption"]
+
+
+class SceneGameStateResponse(BaseResponse):
+    """Current Rust localization plus independently sourced Core metadata."""
+
+    timestamp: datetime = Field(..., description="Gateway scene publication time")
+    frame_number: Optional[int] = Field(
+        ...,
+        description=(
+            "Latest scene sequence when available; null for gateway-generated "
+            "stale health updates"
+        ),
+    )
+    balls: list[SceneBallInfo]
+    cue: Optional[CueInfo] = Field(
+        None, description="Cue geometry is unavailable in the scene compatibility view"
+    )
+    table: Optional[TableInfo] = Field(
+        ...,
+        description=("Core table geometry only when calibration alignment is verified"),
+    )
+    game_type: Optional[str] = Field(
+        ..., description="Game type from Core, unavailable when Core has no state"
+    )
+    is_valid: bool
+    confidence: Optional[float] = Field(
+        ..., description="Mean detector confidence, unavailable for empty/health states"
+    )
+    core_metadata_status: Literal["available", "unavailable"]
+    core_metadata_timestamp: Optional[datetime] = Field(
+        ..., description="Timestamp of independently sourced Core game metadata"
+    )
+    table_metadata_status: Literal["matched", "unverified", "mismatch", "unavailable"]
+    scene_calibration_revision: Optional[int] = None
+    table_calibration_revision: Optional[int] = None
+    events: list[GameEvent] = Field(
+        default_factory=list, description="Recent game events"
+    )
+    confidence_status: Literal["mean_detector_confidence", "unavailable"]
+    observation_status: dict[str, Any]
+    perception_source: Literal["rust_scene"]
 
 
 class GameHistoryResponse(BaseResponse):
@@ -515,50 +688,6 @@ class ProjectorControlResponse(BaseResponse):
     )
     timestamp: datetime = Field(..., description="Operation timestamp")
     errors: list[str] = Field(default_factory=list, description="Operation errors")
-
-
-# =============================================================================
-# Authentication Response Models
-# =============================================================================
-
-
-class LoginResponse(BaseResponse):
-    """User login response."""
-
-    success: bool = Field(..., description="Login success status")
-    access_token: Optional[str] = Field(None, description="JWT access token")
-    refresh_token: Optional[str] = Field(None, description="JWT refresh token")
-    expires_in: Optional[int] = Field(
-        None, description="Token expiration time in seconds"
-    )
-    user_id: Optional[str] = Field(None, description="User identifier")
-    role: Optional[str] = Field(None, description="User role")
-    permissions: list[str] = Field(default_factory=list, description="User permissions")
-    timestamp: datetime = Field(..., description="Login timestamp")
-
-
-class TokenRefreshResponse(BaseResponse):
-    """Token refresh response."""
-
-    success: bool = Field(..., description="Refresh success status")
-    access_token: Optional[str] = Field(None, description="New JWT access token")
-    expires_in: Optional[int] = Field(
-        None, description="Token expiration time in seconds"
-    )
-    timestamp: datetime = Field(..., description="Refresh timestamp")
-
-
-class UserCreateResponse(BaseResponse):
-    """User creation response."""
-
-    success: bool = Field(..., description="Creation success status")
-    user_id: str = Field(..., description="Created user identifier")
-    username: str = Field(..., description="Created username")
-    role: str = Field(..., description="Assigned role")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    validation_errors: list[str] = Field(
-        default_factory=list, description="Validation errors"
-    )
 
 
 # =============================================================================
@@ -788,19 +917,6 @@ class CameraCalibrationProcessResponse(BaseResponse):
     saved_to: str = Field(..., description="Path where calibration was saved")
     quality_rating: str = Field(
         ..., description="Quality rating: excellent, good, fair, poor"
-    )
-    message: str = Field(..., description="Status message")
-
-
-class CameraCalibrationApplyResponse(BaseResponse):
-    """Camera calibration apply response."""
-
-    success: bool = Field(..., description="Apply success status")
-    calibration_loaded: bool = Field(
-        ..., description="Whether calibration was successfully loaded"
-    )
-    fisheye_correction_enabled: bool = Field(
-        ..., description="Whether fisheye correction is now enabled"
     )
     message: str = Field(..., description="Status message")
 

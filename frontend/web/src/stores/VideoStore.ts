@@ -4,12 +4,17 @@
 
 import { action, computed, makeAutoObservable, runInAction } from "mobx";
 import {
-  WebSocketClient,
   createWebSocketClient,
+  type WebSocketClient,
 } from "../services/websocket-client";
 import type {
   BallData,
+  CueData,
   GameStateData,
+  PhysicalTableDimensions,
+  PositionWithScale,
+  TableData,
+  TablePocketData,
   TrajectoryData,
   WebSocketMessage,
 } from "../types/api";
@@ -29,7 +34,44 @@ import type {
   VideoQuality,
   VideoStreamConfig,
   VideoStreamStatus,
+  ObservedBallTrail,
+  ObservedBallTrailPoint,
 } from "../types/video";
+import { observedPathFallbacks } from "../config/vision";
+import {
+  normalizeImageExtentToCanonical,
+  normalizeImageLengthToCanonical,
+  normalizeImagePointToCanonical,
+  normalizeTablePixelExtentsToCanonical,
+} from "../utils/coordinates";
+
+function normalizePoint(point: unknown): { x: number; y: number } | null {
+  return normalizeImagePointToCanonical(point);
+}
+
+function scaleForExtent(scale: unknown): [number, number] | null {
+  if (
+    !Array.isArray(scale) ||
+    scale.length !== 2 ||
+    !scale.every((factor) => typeof factor === "number" && Number.isFinite(factor) && factor > 0)
+  ) return null;
+  return [scale[0], scale[1]];
+}
+
+function physicalTableDimensions(value: unknown): PhysicalTableDimensions | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const dimensions = value as Record<string, unknown>;
+  if (
+    dimensions.unit !== "meters" ||
+    typeof dimensions.width !== "number" || !Number.isFinite(dimensions.width) || dimensions.width <= 0 ||
+    typeof dimensions.height !== "number" || !Number.isFinite(dimensions.height) || dimensions.height <= 0
+  ) return undefined;
+  return {
+    width: dimensions.width,
+    height: dimensions.height,
+    unit: "meters",
+  };
+}
 
 export class VideoStore {
   // Stream configuration
@@ -53,8 +95,22 @@ export class VideoStore {
 
   // Current detection data
   currentFrame: DetectionFrame | null = null;
+  /** Original state payload retained for the live overlay and external consumers. */
+  latestGameState: GameStateData | null = null;
   currentFrameImage: string | null = null; // For WebSocket frame streaming
   calibrationData: CalibrationData | null = null;
+  /** Latest vision phase metadata, when supplied by the backend. */
+  visionPhase: string | null = null;
+  calibrationRevision: string | number | null = null;
+  mapRevision: string | number | null = null;
+  mapTrusted: boolean | null = null;
+  aimCalculationEligible: boolean | null = null;
+  movingBallCount: number | null = null;
+  /** Actual measured ball positions, kept separate from predicted trajectories. */
+  observedBallTrails: ObservedBallTrail[] = [];
+  latestObservationStatus: GameStateData["observation_status"] | null = null;
+  private latestObservationIdentity: string | null = null;
+  private pendingObservedTrailGaps = new Set<string>();
 
   // Stream URL and connection
   private streamUrl = "";
@@ -63,7 +119,16 @@ export class VideoStore {
 
   // WebSocket connection for real-time detection data
   private wsClient: WebSocketClient | null = null;
+  private readonly injectedWebSocketClient: WebSocketClient | null;
+  private registeredWebSocketClient: WebSocketClient | null = null;
+  private ownsWebSocketClient = false;
   private isWebSocketConnected = false;
+  private readonly frameMessageHandler = (message: WebSocketMessage) => this.handleFrameMessage(message);
+  private readonly stateMessageHandler = (message: WebSocketMessage) => this.handleGameStateMessage(message);
+  private readonly trajectoryMessageHandler = (message: WebSocketMessage) => this.handleTrajectoryMessage(message);
+  private readonly metricsMessageHandler = (message: WebSocketMessage) => this.handleMetricsMessage(message);
+  private readonly alertMessageHandler = (message: WebSocketMessage) => this.handleAlertMessage(message);
+  private readonly connectionStateHandler = (state: string, error?: Error) => this.handleWebSocketStateChange(state, error);
 
   // Performance tracking
   performance: PerformanceMetrics = {
@@ -82,8 +147,20 @@ export class VideoStore {
   isFullscreen = false;
   isLoading = false;
 
-  constructor() {
+  constructor(websocketClient?: WebSocketClient) {
+    this.injectedWebSocketClient = websocketClient ?? null;
+    this.wsClient = websocketClient ?? null;
     makeAutoObservable(this, {
+      injectedWebSocketClient: false,
+      wsClient: false,
+      registeredWebSocketClient: false,
+      ownsWebSocketClient: false,
+      frameMessageHandler: false,
+      stateMessageHandler: false,
+      trajectoryMessageHandler: false,
+      metricsMessageHandler: false,
+      alertMessageHandler: false,
+      connectionStateHandler: false,
       // Actions
       setConfig: action,
       setStatus: action,
@@ -104,7 +181,9 @@ export class VideoStore {
       hasErrors: computed,
       latestError: computed,
       hasCalibration: computed,
-    });
+    } as any);
+
+    if (websocketClient) this.registerWebSocketHandlers(websocketClient);
 
     // Start performance monitoring
     this.startPerformanceMonitoring();
@@ -132,7 +211,10 @@ export class VideoStore {
   }
 
   get currentTrajectories(): Trajectory[] {
-    return this.currentFrame?.trajectories || [];
+    const trajectories = this.currentFrame?.trajectories || [];
+    return trajectories.filter((trajectory) =>
+      this.isTrajectorySpatiallyValid(trajectory)
+    );
   }
 
   get hasErrors(): boolean {
@@ -145,6 +227,11 @@ export class VideoStore {
 
   get hasCalibration(): boolean {
     return this.calibrationData !== null && this.calibrationData.isValid;
+  }
+
+  /** Live transport state, independent of whether capture has been started. */
+  get isRealtimeConnected(): boolean {
+    return this.isWebSocketConnected;
   }
 
   // Actions
@@ -262,15 +349,16 @@ export class VideoStore {
   }
 
   async disconnect(): Promise<void> {
+    // Release this store's subscriptions immediately; waiting for the capture
+    // API call would leave auxiliary streams active during a slow shutdown.
+    this.disconnectWebSocket();
+
     try {
       const { apiClient } = await import("../api/client");
       await apiClient.stopVideoCapture();
     } catch (error) {
       console.warn("Failed to stop video capture:", error);
     }
-
-    // Disconnect WebSocket
-    this.disconnectWebSocket();
 
     runInAction(() => {
       this.status.connected = false;
@@ -332,29 +420,47 @@ export class VideoStore {
       if (response.success && response.data) {
         // Transform API response to CalibrationData format
         const apiData = response.data;
+        const sourceResolution = this.calibrationSourceResolution(apiData);
+        const corners = (apiData.corners || [])
+          .map((corner: unknown, index: number) => {
+            const record = corner && typeof corner === "object" && !Array.isArray(corner)
+              ? corner as Record<string, unknown>
+              : {};
+            const imagePoint = normalizeImagePointToCanonical(
+              record.image_point ?? corner,
+              sourceResolution,
+            );
+            if (!imagePoint) return null;
+            const world = record.world_position ?? record.world;
+            const worldPosition = world && typeof world === "object"
+              ? world as { x?: unknown; y?: unknown; unit?: unknown }
+              : undefined;
+            return {
+              id: `corner-${index}`,
+              screenPosition: imagePoint,
+              ...(worldPosition?.unit === "meters" &&
+                typeof worldPosition.x === "number" && Number.isFinite(worldPosition.x) &&
+                typeof worldPosition.y === "number" && Number.isFinite(worldPosition.y)
+                ? { worldPosition: { x: worldPosition.x, y: worldPosition.y, unit: "meters" as const } }
+                : {}),
+              timestamp: Date.now(),
+              confidence: apiData.accuracy || 1.0,
+            };
+          })
+          .filter((corner: unknown): corner is NonNullable<typeof corner> => corner !== null);
 
-        // Convert API calibration data to our CalibrationData format
-        // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
         const calibrationData: CalibrationData = {
-          corners: (apiData.corners || []).map((corner: any, index: number) => ({
-            id: `corner-${index}`,
-            screenPosition: {
-              x: corner.x,
-              y: corner.y,
-            },
-            worldPosition: {
-              x: corner.x,
-              y: corner.y,
-            },
-            timestamp: Date.now(),
-            confidence: apiData.accuracy || 1.0,
-          })),
+          corners,
           transformationMatrix: apiData.transformation_matrix,
           calibratedAt: apiData.calibrated_at ? new Date(apiData.calibrated_at).getTime() : Date.now(),
           accuracy: apiData.accuracy,
-          isValid: apiData.is_valid !== false && (apiData.corners || []).length >= 4,
+          isValid: apiData.is_valid !== false && corners.length >= 4,
           tableType: apiData.table_type,
-          dimensions: apiData.dimensions,
+          dimensions: apiData.dimensions && {
+            width: apiData.dimensions.width,
+            height: apiData.dimensions.height,
+            ...(apiData.dimensions.unit === "meters" ? { unit: "meters" as const } : {}),
+          },
         };
 
         runInAction(() => {
@@ -373,6 +479,28 @@ export class VideoStore {
         this.calibrationData = null;
       });
     }
+  }
+
+  private calibrationSourceResolution(data: Record<string, any>): { width: number; height: number } | undefined {
+    const resolution = data.source_resolution ?? data.calibration_resolution;
+    if (resolution && typeof resolution === "object" && !Array.isArray(resolution)) {
+      const width = resolution.width;
+      const height = resolution.height;
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        return { width, height };
+      }
+    }
+    if (Array.isArray(resolution) && resolution.length === 2) {
+      const [width, height] = resolution;
+      if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+        return { width, height };
+      }
+    }
+    const width = data.calibration_resolution_width ?? data.resolution_width;
+    const height = data.calibration_resolution_height ?? data.resolution_height;
+    return Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+      ? { width, height }
+      : undefined;
   }
 
   async captureFrame(): Promise<string | null> {
@@ -463,38 +591,29 @@ export class VideoStore {
       const axiosClient = (await import("../api/axios-client")).default;
 
       // Get WebSocket URL from axios client
-      const wsUrl = axiosClient.getWebSocketUrl("/api/v1/ws");
+      const wsUrl = axiosClient.getWebSocketUrl("/api/v1/websocket/ws");
 
-      // Initialize WebSocket client
-      this.wsClient = createWebSocketClient({
-        url: wsUrl,
-        autoReconnect: true,
-        maxReconnectAttempts: 10,
-        reconnectDelay: 1000,
-        heartbeatInterval: 30000,
-      });
+      // Production injects the RootStore's shared client. A standalone store
+      // retains its historical ability to create its own client for tests and
+      // isolated use, while never creating a second one when injected.
+      if (!this.wsClient) {
+        this.wsClient = createWebSocketClient({ url: wsUrl });
+        this.ownsWebSocketClient = true;
+      }
+      this.wsClient.updateConfig({ url: wsUrl, autoReconnect: true });
+      this.registerWebSocketHandlers(this.wsClient);
 
-      // Set up message handlers
-      this.wsClient.on("frame", this.handleFrameMessage.bind(this));
-      this.wsClient.on("state", this.handleGameStateMessage.bind(this));
-      this.wsClient.on("trajectory", this.handleTrajectoryMessage.bind(this));
-      this.wsClient.on("metrics", this.handleMetricsMessage.bind(this));
-      this.wsClient.on("alert", this.handleAlertMessage.bind(this));
-      this.wsClient.onConnectionState(
-        this.handleWebSocketStateChange.bind(this)
-      );
-
-      // Connect and subscribe to real-time data streams
-      await this.wsClient.connect();
-
-      // Subscribe to detection data streams including video frames
+      // SystemStore owns the state subscription. This store requests only the
+      // auxiliary streams it consumes when shared. Standalone stores have no
+      // SystemStore, so retain their previous self-contained state behavior.
+      const streams = this.ownsWebSocketClient
+        ? ["state", "frame", "trajectory", "metrics", "alert"]
+        : ["frame", "trajectory", "metrics", "alert"];
       this.wsClient.subscribe(
-        ["frame", "state", "trajectory", "metrics", "alert"],
-        {
-          quality: this.config.quality,
-          frame_rate: this.config.fps,
-        }
+        streams,
+        { quality: this.config.quality, frame_rate: this.config.fps },
       );
+      await this.wsClient.connect();
 
       runInAction(() => {
         this.isWebSocketConnected = true;
@@ -515,13 +634,41 @@ export class VideoStore {
 
   private disconnectWebSocket(): void {
     if (this.wsClient) {
-      this.wsClient.disconnect();
-      this.wsClient = null;
+      this.wsClient.unsubscribe(["frame", "trajectory", "metrics", "alert"]);
+      if (this.ownsWebSocketClient) {
+        this.unregisterWebSocketHandlers();
+        this.wsClient.destroy();
+        this.wsClient = null;
+        this.ownsWebSocketClient = false;
+      }
     }
 
     runInAction(() => {
       this.isWebSocketConnected = false;
     });
+  }
+
+  private registerWebSocketHandlers(client: WebSocketClient): void {
+    if (this.registeredWebSocketClient === client) return;
+    this.unregisterWebSocketHandlers();
+    client.on("frame", this.frameMessageHandler);
+    client.on("state", this.stateMessageHandler);
+    client.on("trajectory", this.trajectoryMessageHandler);
+    client.on("metrics", this.metricsMessageHandler);
+    client.on("alert", this.alertMessageHandler);
+    client.onConnectionState(this.connectionStateHandler);
+    this.registeredWebSocketClient = client;
+  }
+
+  private unregisterWebSocketHandlers(): void {
+    if (!this.registeredWebSocketClient) return;
+    this.registeredWebSocketClient.off("frame", this.frameMessageHandler);
+    this.registeredWebSocketClient.off("state", this.stateMessageHandler);
+    this.registeredWebSocketClient.off("trajectory", this.trajectoryMessageHandler);
+    this.registeredWebSocketClient.off("metrics", this.metricsMessageHandler);
+    this.registeredWebSocketClient.off("alert", this.alertMessageHandler);
+    this.registeredWebSocketClient.offConnectionState(this.connectionStateHandler);
+    this.registeredWebSocketClient = null;
   }
 
   private handleWebSocketStateChange(state: string, error?: Error): void {
@@ -544,82 +691,135 @@ export class VideoStore {
     if (!isGameStateMessage(message)) return;
 
     const gameState = message.data as GameStateData;
+    const observationStatus = gameState.observation_status;
+    const sourceIdentity = observationStatus?.observation_identity;
+    const trailIdentity =
+      sourceIdentity?.engine_instance_id && sourceIdentity.session_id
+        ? `${sourceIdentity.engine_instance_id}\u0000${sourceIdentity.session_id}`
+        : null;
+    if (trailIdentity !== null && trailIdentity !== this.latestObservationIdentity) {
+      // Track IDs are only unique within an engine/session. A restarted source
+      // may reuse the same ID and reset its timestamp or frame counter.
+      this.observedBallTrails = [];
+      this.pendingObservedTrailGaps.clear();
+    }
+    if (trailIdentity !== null) this.latestObservationIdentity = trailIdentity;
+    const phase = observationStatus?.phase ?? gameState.phase;
+    const previousPhase = this.visionPhase;
+    const calibrationRevision =
+      observationStatus?.calibration_revision ?? gameState.calibration_revision;
 
-    // Convert WebSocket ball data to frontend ball format
-    // Note: API now sends positions/velocities as {x, y, scale} dicts instead of [x, y] arrays
-    const balls: Ball[] = gameState.balls.map((ballData: BallData) => ({
-      id: ballData.id,
-      position: { x: ballData.position.x, y: ballData.position.y },
-      radius: ballData.radius,
-      type: this.inferBallType(ballData.id, ballData.color),
-      number: this.inferBallNumber(ballData.id, ballData.color),
-      velocity: ballData.velocity
-        ? { x: ballData.velocity.x, y: ballData.velocity.y }
-        : { x: 0, y: 0 },
-      confidence: ballData.confidence,
-      color: ballData.color,
-    }));
+    if (phase !== undefined) this.visionPhase = phase;
+    if (
+      this.isMotionOrRecoveryPhase(phase) &&
+      !this.isMotionOrRecoveryPhase(previousPhase) &&
+      this.isMotionPhase(phase)
+    ) {
+      // Start a distinct actual path for each new shot while retaining the
+      // frozen prediction that the path will be compared against.
+      this.observedBallTrails = [];
+      this.pendingObservedTrailGaps.clear();
+    }
+    this.latestObservationStatus = observationStatus ?? null;
+    if (calibrationRevision !== undefined) {
+      this.calibrationRevision = calibrationRevision;
+    }
+    const mapRevision = observationStatus?.map_revision ?? gameState.map_revision;
+    if (mapRevision !== undefined) this.mapRevision = mapRevision;
+    const mapTrusted = observationStatus?.map_trusted ?? gameState.map_trusted;
+    if (mapTrusted !== undefined) this.mapTrusted = mapTrusted;
+    const aimCalculationEligible =
+      observationStatus?.aim_calculation_eligible ?? gameState.aim_calculation_eligible;
+    if (aimCalculationEligible !== undefined) {
+      this.aimCalculationEligible = aimCalculationEligible;
+    }
+    const movingBallCount =
+      observationStatus?.moving_ball_count ?? gameState.moving_ball_count;
+    if (movingBallCount !== undefined) this.movingBallCount = movingBallCount;
 
-    // Convert cue data
-    // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
-    let cue: CueStick | null = null;
-    if (gameState.cue && gameState.cue.detected) {
-      cue = {
-        tipPosition: {
-          x: gameState.cue.position.x,
-          y: gameState.cue.position.y,
-        },
-        tailPosition: gameState.cue.tip_position
-          ? {
-              x: gameState.cue.tip_position.x,
-              y: gameState.cue.tip_position.y,
-            }
-          : {
-              x:
-                gameState.cue.position.x -
-                Math.cos(gameState.cue.angle) * (gameState.cue.length || 100),
-              y:
-                gameState.cue.position.y -
-                Math.sin(gameState.cue.angle) * (gameState.cue.length || 100),
-            },
-        angle: gameState.cue.angle,
-        elevation: 0,
-        detected: gameState.cue.detected,
-        confidence: gameState.cue.confidence,
-        length: gameState.cue.length || 100,
-      };
+    if (this.isMotionOrRecoveryPhase(phase)) {
+      // A moving or recovering map cannot authorize new aim guidance. Keep these
+      // false until a later state message explicitly reports trusted eligibility.
+      this.mapTrusted = false;
+      this.aimCalculationEligible = false;
+      this.freezeCurrentPrediction();
     }
 
-    // Convert table data
-    // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
-    let table: Table | null = null;
-    if (gameState.table && gameState.table.calibrated) {
-      table = {
-        corners: gameState.table.corners.map((corner) => ({
-          x: corner.x,
-          y: corner.y,
-        })),
-        pockets: gameState.table.pockets.map((pocket) => ({
-          x: pocket.x,
-          y: pocket.y,
-        })),
-        bounds: { x: 0, y: 0, width: 0, height: 0 }, // Will be calculated
-        rails: [], // Will be populated if available
-        detected: gameState.table.calibrated,
-        confidence: 0.9, // Default high confidence for calibrated table
-      };
-
-      // Calculate table bounds from corners
-      if (table.corners.length >= 4) {
-        const xs = table.corners.map((c) => c.x);
-        const ys = table.corners.map((c) => c.y);
-        table.bounds = {
-          x: Math.min(...xs),
-          y: Math.min(...ys),
-          width: Math.max(...xs) - Math.min(...xs),
-          height: Math.max(...ys) - Math.min(...ys),
-        };
+    // Normalize all image geometry once at the transport boundary. Radius and
+    // velocity each carry independent source-to-canonical scales.
+    const balls: Ball[] = gameState.balls.flatMap((ballData: BallData) => {
+      if (
+        typeof phase === "string" && phase.startsWith("rust_scene_") &&
+        ballData.image_space !== "raw"
+      ) {
+        return [];
       }
+      if (ballData.radius_unit !== undefined && ballData.radius_unit !== "canonical_pixels") {
+        return [];
+      }
+      const position = normalizePoint(ballData.position);
+      const radiusScale = scaleForExtent(ballData.radius_scale ?? (
+        ballData.radius_unit === "canonical_pixels" ? [1, 1] : ballData.position.scale
+      ));
+      const radiusExtent = ballData.radius_extent
+        ? normalizePoint(ballData.radius_extent)
+        : radiusScale
+          ? normalizeImageExtentToCanonical(ballData.radius, radiusScale)
+          : null;
+      if (!position || !radiusExtent) return [];
+
+      const velocity = ballData.velocity
+        ? normalizePoint(ballData.velocity)
+        : { x: 0, y: 0 };
+      if (!velocity) return [];
+      const number = this.inferBallNumber(
+        ballData.id,
+        ballData.number,
+        ballData.is_cue_ball === true,
+      );
+      return [{
+        id: ballData.id,
+        position,
+        radius: Math.sqrt(radiusExtent.x * radiusExtent.y),
+        radiusX: radiusExtent.x,
+        radiusY: radiusExtent.y,
+        type: this.inferBallType(
+          ballData.id,
+          ballData.number,
+          ballData.is_cue_ball === true,
+        ),
+        number,
+        identityStatus: ballData.identity_status,
+        identityConfidence: ballData.identity_confidence,
+        identityEvidence: ballData.identity_evidence,
+        velocity,
+        confidence: ballData.confidence,
+        confidenceKind: ballData.confidence_kind,
+        lastObservationConfidence: ballData.last_observation_confidence,
+        color: ballData.color ?? "",
+        isObserved: ballData.is_observed !== false,
+        trackingStatus: ballData.tracking_status,
+        positionKind: ballData.position_kind,
+        tablePositionMm: ballData.table_position
+          ? { x: ballData.table_position.x, y: ballData.table_position.y }
+          : undefined,
+        sourceObservation: ballData.source_observation,
+      }];
+    });
+
+    this.recordObservedBallPositions(gameState, balls);
+
+    // Cue endpoints are normalized independently. A pixel length is used only
+    // when the backend has not supplied both endpoints and carries its own scale.
+    let cue: CueStick | null = null;
+    if (gameState.cue && gameState.cue.detected) {
+      cue = this.normalizeCue(gameState.cue);
+    }
+
+    // Normalize every boundary point and pocket center before deriving bounds.
+    let table: Table | null = null;
+    if (gameState.table && gameState.table.calibrated !== false) {
+      table = this.normalizeTable(gameState.table);
     }
 
     // Create detection frame
@@ -627,15 +827,292 @@ export class VideoStore {
       balls,
       cue,
       table,
-      trajectories: [], // Will be updated by trajectory messages
+      // A state message carries observed ball state, not a new prediction. Keep the
+      // last prediction visible so observed movement can be compared against it.
+      trajectories: this.currentFrame?.trajectories ?? [],
       timestamp: Date.now(),
       frameNumber: gameState.frame_number || 0,
       processingTime: 0, // Not provided in game state
     };
 
     runInAction(() => {
+      this.latestGameState = gameState;
       this.setCurrentFrame(detectionFrame);
     });
+  }
+
+  private normalizeCue(cueData: CueData): CueStick | null {
+    const tip = normalizePoint(cueData.tip_position ?? cueData.position);
+    if (!tip) return null;
+    const tailInput = cueData.butt_position ??
+      (cueData.position && cueData.tip_position ? cueData.position : undefined);
+    let tail = tailInput ? normalizePoint(tailInput) : null;
+    if (tailInput && !tail) return null;
+
+    const angle = cueData.angle * Math.PI / 180;
+    let length = tail ? Math.hypot(tip.x - tail.x, tip.y - tail.y) : 0;
+    if (!tail && cueData.length !== undefined) {
+      const scale = scaleForExtent(
+        cueData.length_scale ?? (cueData.tip_position ?? cueData.position)?.scale,
+      );
+      const canonicalLength = scale
+        ? normalizeImageLengthToCanonical(cueData.length, scale, angle)
+        : null;
+      if (canonicalLength === null) return null;
+      length = canonicalLength;
+      tail = {
+        x: tip.x - Math.cos(angle) * length,
+        y: tip.y - Math.sin(angle) * length,
+      };
+    }
+    if (!tail) return null;
+
+    return {
+      tipPosition: tip,
+      tailPosition: tail,
+      angle,
+      elevation: 0,
+      detected: cueData.detected === true,
+      confidence: cueData.confidence,
+      length,
+    };
+  }
+
+  private normalizeTable(tableData: TableData): Table | null {
+    const sourcePockets: Array<PositionWithScale | TablePocketData> = tableData.pockets?.length
+      ? tableData.pockets
+      : (tableData.pocket_positions ?? []).map((position) => ({
+        position,
+        radius: tableData.pocket_radius,
+        radius_scale: tableData.pocket_radius_scale,
+        radius_unit: tableData.pocket_radius_unit,
+      }));
+    const pockets = (sourcePockets ?? []).map((pocket) => {
+      const position = pocket && typeof pocket === "object" && "position" in pocket
+        ? pocket.position
+        : pocket as PositionWithScale;
+      return normalizePoint(position);
+    });
+    if (pockets.some((pocket) => pocket === null)) return null;
+
+    const sourceCorners = (tableData.playing_area_corners ?? tableData.corners ?? []).map(normalizePoint);
+    if (sourceCorners.some((corner) => corner === null)) return null;
+    const corners = sourceCorners as Array<{ x: number; y: number }>;
+
+    const rails: Array<Array<{ x: number; y: number }>> = [];
+    for (const rail of tableData.rails ?? []) {
+      let sourcePoints: unknown[];
+      if (Array.isArray(rail)) {
+        sourcePoints = rail;
+      } else {
+        const segment = rail as Record<string, unknown>;
+        if (!segment.start || !segment.end) return null;
+        sourcePoints = [segment.start, segment.end];
+      }
+      const normalized = sourcePoints.map(normalizePoint);
+      if (normalized.length < 2 || normalized.some((point) => point === null)) return null;
+      rails.push(normalized as Array<{ x: number; y: number }>);
+    }
+
+    const pocketRadii: Array<{ x: number; y: number }> = [];
+    for (const pocket of sourcePockets ?? []) {
+      if (!(pocket && typeof pocket === "object" && "position" in pocket) || pocket.radius === undefined) {
+        pocketRadii.push({ x: 0, y: 0 });
+        continue;
+      }
+      const radiusUnit = pocket.radius_unit ?? tableData.pocket_radius_unit;
+      if (radiusUnit !== undefined && radiusUnit !== "canonical_pixels") {
+        pocketRadii.push({ x: 0, y: 0 });
+        continue;
+      }
+      const scale = scaleForExtent(pocket.radius_scale ?? (
+        radiusUnit === "canonical_pixels"
+          ? tableData.pocket_radius_scale ?? [1, 1]
+          : pocket.position.scale
+      ));
+      const extent = pocket.radius_extent
+        ? normalizePoint(pocket.radius_extent)
+        : scale
+          ? normalizeImageExtentToCanonical(pocket.radius, scale)
+          : null;
+      if (!extent) return null;
+      pocketRadii.push(extent);
+    }
+
+    const validPockets = pockets as Array<{ x: number; y: number }>;
+    const xs = corners.map((corner) => corner.x);
+    const ys = corners.map((corner) => corner.y);
+    const pixelExtents = normalizeTablePixelExtentsToCanonical(tableData);
+    const physicalDimensions = physicalTableDimensions(tableData.real_world_dimensions) ??
+      physicalTableDimensions(tableData.dimensions);
+    return {
+      corners,
+      pockets: validPockets,
+      ...(corners.length >= 4 ? {
+        bounds: {
+          x: Math.min(...xs),
+          y: Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
+        },
+      } : {}),
+      rails,
+      pocketRadii,
+      width: pixelExtents.width,
+      height: pixelExtents.height,
+      dimensions: physicalDimensions,
+      detected: tableData.calibrated !== false,
+      confidence: 0.9,
+    };
+  }
+
+  /**
+   * Append only full successful observations. Cached positions remain useful
+   * for rendering the stable map, but must never be mistaken for measurements.
+   */
+  private recordObservedBallPositions(gameState: GameStateData, balls: Ball[]): void {
+    const observation = gameState.observation_status;
+    if (observation?.ball_positions_status !== "observed") {
+      this.observedBallTrails.forEach((trail) =>
+        this.pendingObservedTrailGaps.add(trail.ballId)
+      );
+      return;
+    }
+
+    const timestamp = this.toTimestampSeconds(
+      observation.ball_observation_source_timestamp ??
+        observation.source_timestamp ??
+        observation.ball_observation_timestamp,
+      observation.ball_observation_source_timestamp_unit ??
+        observation.source_timestamp_unit,
+      observation.phase === "rust_scene_observation" ||
+        observation.phase === "rust_scene_health",
+    );
+    const sourceFrameNumber =
+      observation.ball_observation_source_frame_number ?? gameState.frame_number;
+    const timestampKind =
+      observation.ball_observation_source_timestamp_kind ??
+      (observation.ball_observation_timestamp !== undefined
+        ? "vision_monotonic_observation"
+        : "unknown_source_timestamp");
+
+    if (timestamp === null) {
+      this.observedBallTrails.forEach((trail) =>
+        this.pendingObservedTrailGaps.add(trail.ballId)
+      );
+      return;
+    }
+
+    const maximumGapSeconds = this.positiveSetting(
+      observation.maximum_ball_observation_gap_seconds,
+      observedPathFallbacks.maximumGapSeconds
+    );
+    const maximumPoints = Math.floor(
+      this.positiveSetting(
+        observation.actual_path_history_max_points,
+        observedPathFallbacks.maximumPointsPerBall
+      )
+    );
+    const presentIds = new Set(balls.map((ball) => ball.id));
+    this.observedBallTrails.forEach((trail) => {
+      if (!presentIds.has(trail.ballId)) {
+        this.pendingObservedTrailGaps.add(trail.ballId);
+      }
+    });
+
+    const trailsById = new Map(
+      this.observedBallTrails.map((trail) => [trail.ballId, trail])
+    );
+    balls.forEach((ball) => {
+      const trail = trailsById.get(ball.id) ?? { ballId: ball.id, points: [] };
+      const previous = trail.points[trail.points.length - 1];
+      if (
+        previous &&
+        sourceFrameNumber !== undefined &&
+        previous.sourceFrameNumber !== undefined &&
+        sourceFrameNumber <= previous.sourceFrameNumber
+      ) {
+        if (sourceFrameNumber < previous.sourceFrameNumber) {
+          this.pendingObservedTrailGaps.add(ball.id);
+        }
+        return;
+      }
+      if (
+        previous &&
+        previous.timestampKind === timestampKind &&
+        timestamp <= previous.timestamp
+      ) {
+        if (timestamp < previous.timestamp) {
+          this.pendingObservedTrailGaps.add(ball.id);
+        }
+        return;
+      }
+
+      const gapByTime = Boolean(
+        previous &&
+          (previous.timestampKind !== timestampKind ||
+            timestamp - previous.timestamp > maximumGapSeconds)
+      );
+      const gapPending = this.pendingObservedTrailGaps.delete(ball.id);
+      const point: ObservedBallTrailPoint = {
+        x: ball.position.x,
+        y: ball.position.y,
+        timestamp,
+        timestampKind,
+        sourceFrameNumber,
+        gapBefore: gapByTime || gapPending,
+      };
+      trail.points.push(point);
+      if (trail.points.length > maximumPoints) {
+        trail.points.splice(0, trail.points.length - maximumPoints);
+      }
+      trailsById.set(ball.id, trail);
+    });
+    this.observedBallTrails = Array.from(trailsById.values());
+  }
+
+  private toTimestampSeconds(
+    value: unknown,
+    unit?: string,
+    requireExplicitUnit = false,
+  ): number | null {
+    if (unit !== undefined) {
+      const numericValue =
+        typeof value === "number" || typeof value === "string"
+          ? Number(value)
+          : Number.NaN;
+      if (!Number.isFinite(numericValue) || numericValue < 0) return null;
+      switch (unit) {
+        case "nanoseconds":
+          return numericValue / 1_000_000_000;
+        case "milliseconds":
+          return numericValue / 1_000;
+        case "seconds":
+          return numericValue;
+        default:
+          return null;
+      }
+    }
+    if (requireExplicitUnit) return null;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value > 1e12 ? value / 1000 : value;
+    }
+    if (typeof value === "string") {
+      const numericValue = Number(value);
+      if (Number.isFinite(numericValue)) {
+        return numericValue > 1e12 ? numericValue / 1000 : numericValue;
+      }
+      const parsed = Date.parse(value);
+      return Number.isFinite(parsed) ? parsed / 1000 : null;
+    }
+    return null;
+  }
+
+  private positiveSetting(value: unknown, fallback: number): number {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) && numericValue > 0
+      ? numericValue
+      : fallback;
   }
 
   private handleTrajectoryMessage(message: WebSocketMessage): void {
@@ -643,21 +1120,50 @@ export class VideoStore {
 
     const trajectoryData = message.data as TrajectoryData;
 
-    // Get the ball_id from the trajectory data (the moving ball, typically cue ball)
-    const movingBallId = trajectoryData.ball_id || `trajectory_0`;
+    if (trajectoryData.spatial_valid === false) {
+      // Treat an explicit spatial invalidation as authoritative even when either
+      // side lacks a calibration revision to compare.
+      runInAction(() => {
+        if (this.currentFrame) {
+          this.currentFrame.trajectories = this.currentFrame.trajectories.map(
+            (trajectory) => ({ ...trajectory, spatialValid: false })
+          );
+        }
+      });
+      return;
+    }
+    if (!this.isValidTrajectoryMessage(trajectoryData)) return;
+    const predictionStatus = trajectoryData.prediction_status;
+    if (predictionStatus !== "live" && predictionStatus !== "frozen_reference") return;
+
+    // A live aim prediction is only eligible to replace a retained reference while
+    // aiming is valid. Frozen references are accepted through motion/recovery.
+    const predictionPhase = trajectoryData.phase ?? this.visionPhase;
+    if (
+      predictionStatus === "live" &&
+      (this.isMotionOrRecoveryPhase(predictionPhase) ||
+        (!!predictionPhase && !this.isAimingPhase(predictionPhase)) ||
+        this.aimCalculationEligible === false ||
+        this.mapTrusted === false)
+    ) {
+      return;
+    }
+
+    // Collision metadata can identify an otherwise unlabelled trajectory, while
+    // producers without either identity get a stable ID based on their line order.
+    const collisionBallId = trajectoryData.collisions[0]?.ball1_id;
 
     // Convert trajectory data to frontend format
     // Note: API now sends positions as {x, y, scale} dicts instead of [x, y] arrays
     const trajectories: Trajectory[] = trajectoryData.lines.map(
       (line, index) => ({
-        // Use the ball1_id from collisions (the moving ball) or fall back to trajectory ball_id
-        ballId: trajectoryData.collisions[0]?.ball1_id || movingBallId,
+        ballId: line.ball_id || collisionBallId || `trajectory_${index}`,
         points: [
-          { x: line.start.x, y: line.start.y },
-          { x: line.end.x, y: line.end.y },
+          normalizePoint(line.start)!,
+          normalizePoint(line.end)!,
         ],
         collisions: trajectoryData.collisions.map((collision) => ({
-          position: { x: collision.position.x, y: collision.position.y },
+          position: normalizePoint(collision.position)!,
           // Use ball2_id to determine collision type (if ball2_id exists, it's a ball collision)
           type: collision.ball2_id
             ? "ball"
@@ -669,6 +1175,14 @@ export class VideoStore {
         type: line.type,
         probability: line.confidence,
         color: this.getTrajectoryColor(line.type),
+        predictionStatus,
+        predictionId: trajectoryData.prediction_id,
+        sourceFrameNumber: trajectoryData.source_frame_number,
+        sourceTimestamp: trajectoryData.source_timestamp,
+        sourceMapRevision: trajectoryData.map_revision,
+        calibrationRevision: trajectoryData.calibration_revision,
+        sourceObservations: trajectoryData.source_observations,
+        spatialValid: trajectoryData.spatial_valid,
       })
     );
 
@@ -678,6 +1192,64 @@ export class VideoStore {
         this.currentFrame.trajectories = trajectories;
       }
     });
+  }
+
+  private isMotionOrRecoveryPhase(phase: string | undefined | null): boolean {
+    if (!phase) return false;
+    const normalized = phase.toLowerCase().replace(/[\s-]+/g, "_");
+    return ["limited_motion", "many_moving", "many_balls_moving", "strike", "recovering", "recovery", "uncertain"].some(
+      (phaseName) => normalized.includes(phaseName)
+    );
+  }
+
+  private isMotionPhase(phase: string | undefined | null): boolean {
+    if (!phase) return false;
+    const normalized = phase.toLowerCase().replace(/[\s-]+/g, "_");
+    return ["limited_motion", "many_moving", "many_balls_moving", "strike"].some(
+      (phaseName) => normalized.includes(phaseName)
+    );
+  }
+
+  private isAimingPhase(phase: string): boolean {
+    const normalized = phase.toLowerCase().replace(/[\s-]+/g, "_");
+    return normalized.includes("aiming") || normalized.includes("setup");
+  }
+
+  private freezeCurrentPrediction(): void {
+    if (!this.currentFrame?.trajectories.length) return;
+    this.currentFrame.trajectories = this.currentFrame.trajectories.map((trajectory) => ({
+      ...trajectory,
+      predictionStatus: "frozen_reference",
+    }));
+  }
+
+  private isValidTrajectoryMessage(trajectoryData: TrajectoryData): boolean {
+    if (
+      !Array.isArray(trajectoryData.lines) ||
+      trajectoryData.lines.length === 0 ||
+      !Array.isArray(trajectoryData.collisions)
+    ) {
+      return false;
+    }
+    return trajectoryData.lines.every((line) => {
+      const start = line?.start;
+      const end = line?.end;
+      return (
+        normalizePoint(start) !== null &&
+        normalizePoint(end) !== null
+      );
+    }) && trajectoryData.collisions.every((collision) =>
+      normalizePoint(collision?.position) !== null
+    );
+  }
+
+  private isTrajectorySpatiallyValid(trajectory: Trajectory): boolean {
+    if (trajectory.spatialValid === false) return false;
+    return !(
+      this.calibrationRevision !== null &&
+      trajectory.calibrationRevision !== undefined &&
+      String(trajectory.calibrationRevision) !== String(this.calibrationRevision)
+    );
   }
 
   private handleFrameMessage(message: WebSocketMessage): void {
@@ -745,30 +1317,45 @@ export class VideoStore {
     }
   }
 
-  private inferBallType(id: string, color: string): Ball["type"] {
-    if (id.toLowerCase().includes("cue") || id === "0") return "cue";
-    if (id === "8" || id === "eight") return "eight";
+  private inferBallType(
+    id: string,
+    explicitNumber?: number | null,
+    isCueBall = false,
+  ): Ball["type"] {
+    if (isCueBall || explicitNumber === 0) return "cue";
+    if (explicitNumber !== undefined) {
+      if (explicitNumber === null) return "unknown";
+      return this.ballTypeForNumber(explicitNumber);
+    }
 
-    // Check if it's a stripe ball (numbers 9-15)
-    const ballNumber = parseInt(id);
-    if (!isNaN(ballNumber) && ballNumber >= 9 && ballNumber <= 15)
-      return "stripe";
-
-    // Default to solid for other numbered balls
-    if (!isNaN(ballNumber) && ballNumber >= 1 && ballNumber <= 7)
-      return "solid";
-
-    return "solid"; // Default fallback
+    const legacyId = id.trim().toLowerCase();
+    if (["cue", "cue-ball", "cue_ball", "0"].includes(legacyId)) return "cue";
+    const number = this.inferBallNumber(id);
+    return number === undefined ? "unknown" : this.ballTypeForNumber(number);
   }
 
-  private inferBallNumber(id: string, color: string): number | undefined {
-    const ballNumber = parseInt(id);
-    if (!isNaN(ballNumber)) return ballNumber;
+  private inferBallNumber(
+    id: string,
+    explicitNumber?: number | null,
+    isCueBall = false,
+  ): number | undefined {
+    if (isCueBall) return 0;
+    if (explicitNumber !== undefined) return explicitNumber ?? undefined;
 
-    if (id.toLowerCase().includes("cue")) return 0;
-    if (id.toLowerCase().includes("eight")) return 8;
+    const legacyId = id.trim().toLowerCase();
+    if (["cue", "cue-ball", "cue_ball"].includes(legacyId)) return 0;
+    if (legacyId === "eight") return 8;
+    return /^(?:0|[1-9]|1[0-5])$/.test(legacyId)
+      ? Number(legacyId)
+      : undefined;
+  }
 
-    return undefined;
+  private ballTypeForNumber(number: number): Ball["type"] {
+    if (number === 0) return "cue";
+    if (number === 8) return "eight";
+    if (number >= 9 && number <= 15) return "stripe";
+    if (number >= 1 && number <= 7) return "solid";
+    return "unknown";
   }
 
   private getTrajectoryColor(type: string): string {
@@ -782,6 +1369,7 @@ export class VideoStore {
 
   // Cleanup
   dispose(): void {
+    this.unregisterWebSocketHandlers();
     this.disconnect();
 
     if (this.performanceInterval) {

@@ -1,10 +1,20 @@
 """Vision-related API models for data transformation."""
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, validator
+
+from .common import BoundingBox, PositionWithScale, WorldPoint2DModel
+
+
+def _validate_scale_factors(value: list[float]) -> list[float]:
+    """Validate two positive finite scale factors shared by pixel measurements."""
+    if len(value) != 2 or not all(math.isfinite(item) and item > 0 for item in value):
+        raise ValueError("Scale factors must contain two positive finite values")
+    return value
 
 
 class CameraStatusEnum(str, Enum):
@@ -56,58 +66,39 @@ class CueStateEnum(str, Enum):
 # Basic geometry models
 
 
-class Point2DModel(BaseModel):
-    """2D point model for vision coordinates with scale metadata.
-
-    The scale metadata indicates the coordinate space and allows proper conversion
-    between different resolution contexts (e.g., 1080p to 4K).
-
-    Format:
-        {
-            "x": float,          # X coordinate in pixels
-            "y": float,          # Y coordinate in pixels
-            "scale": [sx, sy]    # Scale factors [x_scale, y_scale]
-        }
-    """
-
-    x: float = Field(..., description="X coordinate in pixels")
-    y: float = Field(..., description="Y coordinate in pixels")
-    scale: list[float] = Field(
-        default=[1.0, 1.0],
-        min_length=2,
-        max_length=2,
-        description="Scale factors [x_scale, y_scale] indicating coordinate space",
-    )
-
-    @validator("scale")
-    def validate_scale(cls, v):
-        """Validate that scale factors are positive."""
-        if len(v) != 2:
-            raise ValueError("Scale must have exactly 2 values [x_scale, y_scale]")
-        if v[0] <= 0 or v[1] <= 0:
-            raise ValueError(f"Scale factors must be positive, got {v}")
-        return v
+class Point2DModel(PositionWithScale):
+    """Image point whose scale maps source pixels into canonical 4K pixels."""
 
 
-class BoundingBoxModel(BaseModel):
-    """Bounding box model."""
+class BoundingBoxModel(BoundingBox):
+    """Pixel bounds with scale metadata covering origin, width, and height."""
 
-    x: float = Field(..., description="Top-left X coordinate")
-    y: float = Field(..., description="Top-left Y coordinate")
-    width: float = Field(..., ge=0, description="Box width")
-    height: float = Field(..., ge=0, description="Box height")
     confidence: float = Field(
         default=1.0, ge=0.0, le=1.0, description="Detection confidence"
     )
 
 
 class ContourModel(BaseModel):
-    """Contour model for shape detection."""
+    """Contour geometry and measurements with one explicit pixel scale."""
 
     points: list[Point2DModel] = Field(..., description="Contour points")
-    area: float = Field(..., ge=0, description="Contour area")
-    perimeter: float = Field(..., ge=0, description="Contour perimeter")
+    area: float = Field(
+        ..., ge=0, allow_inf_nan=False, description="Contour area in pixels squared"
+    )
+    perimeter: float = Field(
+        ..., ge=0, allow_inf_nan=False, description="Contour perimeter in pixels"
+    )
+    scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for perimeter; area scales by their product",
+    )
     center: Point2DModel = Field(..., description="Contour center")
+
+    @validator("scale")
+    def validate_measurement_scale(cls: type[Any], value: list[float]) -> list[float]:
+        return _validate_scale_factors(value)
 
 
 # Vision detection models
@@ -118,7 +109,15 @@ class VisionBallModel(BaseModel):
 
     id: str = Field(..., description="Ball identifier")
     center: Point2DModel = Field(..., description="Ball center in pixels")
-    radius: float = Field(..., gt=0, description="Ball radius in pixels")
+    radius: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Ball radius in pixels"
+    )
+    radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for radius in the source image axes",
+    )
     color: tuple[int, int, int] = Field(..., description="Detected ball color (RGB)")
     ball_type: BallTypeEnum = Field(
         default=BallTypeEnum.UNKNOWN, description="Ball type"
@@ -132,35 +131,65 @@ class VisionBallModel(BaseModel):
         None, description="Velocity in pixels/frame"
     )
 
+    @validator("radius_scale")
+    def validate_radius_scale(cls: Any, value: list[float]) -> list[float]:
+        return _validate_scale_factors(value)
+
 
 class VisionPocketModel(BaseModel):
     """Pocket model for vision detection."""
 
     id: str = Field(..., description="Pocket identifier")
     center: Point2DModel = Field(..., description="Pocket center in pixels")
-    radius: float = Field(..., gt=0, description="Pocket radius in pixels")
+    radius: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Pocket radius in pixels"
+    )
+    radius_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for radius in the source image axes",
+    )
     type: str = Field(default="corner", description="Pocket type (corner/side)")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence")
     bounding_box: BoundingBoxModel = Field(..., description="Pocket bounding box")
+
+    @validator("radius_scale")
+    def validate_radius_scale(cls: Any, value: list[float]) -> list[float]:
+        return _validate_scale_factors(value)
 
 
 class VisionTableModel(BaseModel):
     """Table model for vision detection."""
 
     corners: list[Point2DModel] = Field(
-        ..., min_items=4, max_items=4, description="Table corner points"
+        ..., min_length=4, max_length=4, description="Table corner points"
     )
     rails: list[list[Point2DModel]] = Field(default=[], description="Rail boundaries")
     pockets: list[VisionPocketModel] = Field(default=[], description="Detected pockets")
     surface_color: tuple[int, int, int] = Field(
         ..., description="Table surface color (RGB)"
     )
-    width_pixels: float = Field(..., gt=0, description="Table width in pixels")
-    height_pixels: float = Field(..., gt=0, description="Table height in pixels")
+    width_pixels: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Table width in pixels"
+    )
+    height_pixels: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Table height in pixels"
+    )
+    dimensions_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for width_pixels and height_pixels",
+    )
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence")
     transform_matrix: Optional[list[list[float]]] = Field(
         None, description="Perspective transform matrix"
     )
+
+    @validator("dimensions_scale")
+    def validate_dimensions_scale(cls: type[Any], value: list[float]) -> list[float]:
+        return _validate_scale_factors(value)
 
 
 class VisionCueModel(BaseModel):
@@ -169,11 +198,23 @@ class VisionCueModel(BaseModel):
     tip_position: Point2DModel = Field(..., description="Cue tip position in pixels")
     end_position: Point2DModel = Field(..., description="Cue end position in pixels")
     angle: float = Field(..., description="Cue angle in radians")
-    length_pixels: float = Field(..., gt=0, description="Cue length in pixels")
+    length_pixels: float = Field(
+        ..., gt=0, allow_inf_nan=False, description="Cue length in pixels"
+    )
+    length_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for cue length in source image axes",
+    )
     state: CueStateEnum = Field(default=CueStateEnum.DETECTED, description="Cue state")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence")
     bounding_box: BoundingBoxModel = Field(..., description="Cue bounding box")
     is_visible: bool = Field(default=True, description="Whether cue is fully visible")
+
+    @validator("length_scale")
+    def validate_length_scale(cls: type[Any], value: list[float]) -> list[float]:
+        return _validate_scale_factors(value)
 
 
 class DetectionResultModel(BaseModel):
@@ -217,6 +258,11 @@ class CameraConfigModel(BaseModel):
     buffer_size: int = Field(default=1, ge=1, le=10, description="Frame buffer size")
 
 
+def _default_camera_config() -> CameraConfigModel:
+    """Build the camera defaults through Pydantic's runtime validation path."""
+    return CameraConfigModel.model_validate({})
+
+
 class ColorThresholdModel(BaseModel):
     """Color threshold model for detection."""
 
@@ -231,7 +277,7 @@ class VisionConfigModel(BaseModel):
     """Vision module configuration model."""
 
     camera: CameraConfigModel = Field(
-        default=CameraConfigModel(), description="Camera configuration"
+        default_factory=_default_camera_config, description="Camera configuration"
     )
     detection_enabled: dict[str, bool] = Field(
         default={"table": True, "balls": True, "cue": True, "pockets": True},
@@ -259,8 +305,8 @@ class CalibrationPointModel(BaseModel):
 
     id: str = Field(..., description="Point identifier")
     image_point: Point2DModel = Field(..., description="Point in image coordinates")
-    world_point: Optional[Point2DModel] = Field(
-        None, description="Point in world coordinates"
+    world_point: Optional[WorldPoint2DModel] = Field(
+        None, description="Point in table-plane world coordinates, measured in meters"
     )
     is_valid: bool = Field(default=True, description="Whether point is valid")
     confidence: float = Field(
@@ -294,17 +340,33 @@ class GeometricCalibrationModel(BaseModel):
     table_corners_image: list[Point2DModel] = Field(
         ..., description="Table corners in image coordinates"
     )
-    table_corners_world: list[Point2DModel] = Field(
-        ..., description="Table corners in world coordinates"
+    table_corners_world: list[WorldPoint2DModel] = Field(
+        ...,
+        description="Table corners in table-plane world coordinates, measured in meters",
     )
     pixels_per_meter: float = Field(..., gt=0, description="Pixels per meter ratio")
     calibration_error: float = Field(
-        ..., ge=0, description="Geometric calibration error"
+        ...,
+        ge=0,
+        allow_inf_nan=False,
+        description="Geometric calibration error in pixels",
+    )
+    calibration_error_scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors for geometric calibration error in image axes",
     )
     calibration_date: datetime = Field(
         default_factory=datetime.now, description="Calibration timestamp"
     )
     is_valid: bool = Field(default=True, description="Whether calibration is valid")
+
+    @validator("calibration_error_scale")
+    def validate_calibration_error_scale(
+        cls: type[Any], value: list[float]
+    ) -> list[float]:
+        return _validate_scale_factors(value)
 
 
 class ColorCalibrationModel(BaseModel):
@@ -355,7 +417,7 @@ class ROIModel(BaseModel):
 
     name: str = Field(..., description="ROI name")
     corners: list[Point2DModel] = Field(
-        ..., min_items=3, description="ROI corner points"
+        ..., min_length=3, description="ROI corner points"
     )
     is_active: bool = Field(default=True, description="Whether ROI is active")
     created_at: datetime = Field(
@@ -445,7 +507,7 @@ class ROIRequest(BaseModel):
 
     name: str = Field(..., description="ROI name")
     corners: list[Point2DModel] = Field(
-        ..., min_items=3, description="ROI corner points"
+        ..., min_length=3, description="ROI corner points"
     )
     replace_existing: bool = Field(default=True, description="Replace existing ROI")
 
@@ -574,7 +636,7 @@ class ModelInfoResponse(BaseModel):
 
 
 @validator("corners")
-def validate_corners(cls, v):
+def validate_corners(cls: type[Any], v: list[Point2DModel]) -> list[Point2DModel]:
     """Validate corner points."""
     if len(v) < 3:
         raise ValueError("Must have at least 3 corner points")
@@ -582,7 +644,9 @@ def validate_corners(cls, v):
 
 
 @validator("hsv_lower", "hsv_upper")
-def validate_hsv_values(cls, v):
+def validate_hsv_values(
+    cls: type[Any], v: tuple[int, int, int]
+) -> tuple[int, int, int]:
     """Validate HSV values."""
     if len(v) != 3:
         raise ValueError("HSV values must have exactly 3 components")
@@ -597,7 +661,9 @@ def validate_hsv_values(cls, v):
 
 
 @validator("rgb_reference")
-def validate_rgb_values(cls, v):
+def validate_rgb_values(
+    cls: type[Any], v: tuple[int, int, int]
+) -> tuple[int, int, int]:
     """Validate RGB values."""
     if len(v) != 3:
         raise ValueError("RGB values must have exactly 3 components")
@@ -615,6 +681,7 @@ __all__ = [
     "CueStateEnum",
     # Basic models
     "Point2DModel",
+    "WorldPoint2DModel",
     "BoundingBoxModel",
     "ContourModel",
     # Detection models

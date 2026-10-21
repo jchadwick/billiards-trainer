@@ -2,13 +2,16 @@
  * Comprehensive error handling and connection monitoring service
  */
 
-import { ApiError, isApiError } from './api-client';
-import { ConnectionState } from './websocket-client';
+import { AxiosError } from '../api/axios-client';
+import type { ApiErrorResponse } from '../api/axios-client';
+import type { ConnectionState } from './websocket-client';
+
+type ApiError = AxiosError<ApiErrorResponse>;
+const isApiError = (error: unknown): error is ApiError => error instanceof AxiosError;
 
 export interface ErrorContext {
   component?: string;
   action?: string;
-  userId?: string;
   timestamp: Date;
   url?: string;
   metadata?: Record<string, any>;
@@ -32,12 +35,10 @@ export interface ErrorReport {
 
 export type ErrorType =
   | 'api'
-  | 'auth'
   | 'websocket'
   | 'validation'
   | 'network'
   | 'runtime'
-  | 'permission'
   | 'timeout'
   | 'unknown';
 
@@ -155,14 +156,6 @@ export class ErrorHandlingService {
       component: context.component || 'api-client',
     }, this.getApiErrorSeverity(error));
   }
-
-  // Auth functionality removed - authentication not implemented per specs
-  // reportAuthError(error: AuthError, context: Partial<ErrorContext> = {}): string {
-  //   return this.reportError(error, {
-  //     ...context,
-  //     component: context.component || 'auth-service',
-  //   }, 'high');
-  // }
 
   reportWebSocketError(
     error: any,
@@ -385,8 +378,8 @@ export class ErrorHandlingService {
     const unresolved = Array.from(this.errorReports.values()).filter(e => !e.resolved).length;
 
     const byType: Record<ErrorType, number> = {
-      api: 0, auth: 0, websocket: 0, validation: 0,
-      network: 0, runtime: 0, permission: 0, timeout: 0, unknown: 0
+      api: 0, websocket: 0, validation: 0,
+      network: 0, runtime: 0, timeout: 0, unknown: 0
     };
 
     const bySeverity: Record<ErrorSeverity, number> = {
@@ -490,12 +483,9 @@ export class ErrorHandlingService {
 
   private determineErrorType(error: any): ErrorType {
     if (isApiError(error)) return 'api';
-    // Auth removed - authentication not implemented per specs
-    // if (error instanceof AuthError) return 'auth';
     if (error.name === 'NetworkError') return 'network';
     if (error.name === 'TimeoutError') return 'timeout';
     if (error.name === 'ValidationError') return 'validation';
-    if (error.name === 'PermissionError') return 'permission';
     if (error.message?.includes('WebSocket')) return 'websocket';
     return 'runtime';
   }
@@ -504,10 +494,6 @@ export class ErrorHandlingService {
     if (isApiError(error)) {
       return this.getApiErrorSeverity(error);
     }
-    // Auth removed - authentication not implemented per specs
-    // if (error instanceof AuthError) {
-    //   return 'high';
-    // }
     if (error.name === 'NetworkError') {
       return 'medium';
     }
@@ -515,10 +501,9 @@ export class ErrorHandlingService {
   }
 
   private getApiErrorSeverity(error: ApiError): ErrorSeverity {
-    if (error.status >= 500) return 'high';
-    if (error.status === 401 || error.status === 403) return 'high';
-    if (error.status === 404) return 'medium';
-    if (error.status === 429) return 'medium';
+    if ((error.response?.status ?? 0) >= 500) return 'high';
+    if (error.response?.status === 404) return 'medium';
+    if (error.response?.status === 429) return 'medium';
     return 'low';
   }
 
@@ -544,8 +529,6 @@ export class ErrorHandlingService {
 
   private extractErrorCode(error: any): string | undefined {
     if (isApiError(error)) return error.code;
-    // Auth removed - authentication not implemented per specs
-    // if (error instanceof AuthError) return error.code;
     if (error?.code) return error.code;
     return undefined;
   }
@@ -661,11 +644,6 @@ export function reportError(error: any, context?: Partial<ErrorContext>, severit
 export function reportApiError(error: ApiError, context?: Partial<ErrorContext>): string {
   return errorHandler.reportApiError(error, context);
 }
-
-// Auth functionality removed - authentication not implemented per specs
-// export function reportAuthError(error: AuthError, context?: Partial<ErrorContext>): string {
-//   return errorHandler.reportAuthError(error, context);
-// }
 
 export function withRetry<T>(
   operation: () => Promise<T>,

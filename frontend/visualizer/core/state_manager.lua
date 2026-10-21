@@ -3,6 +3,13 @@
 
 local StateManager = {}
 StateManager.__index = StateManager
+local Coordinates = require("core.coordinates")
+
+local function normalize_record(value, scale, coordinateSpace)
+    if type(value) ~= "table" then return nil end
+    local normalized = Coordinates.normalizeGeometry(value, scale, coordinateSpace)
+    return normalized
+end
 
 function StateManager.new()
     local self = setmetatable({}, StateManager)
@@ -16,28 +23,29 @@ end
 
 -- Update from periodic state message (every 500ms)
 function StateManager:updateFromStateMessage(data)
-    if data.balls then
+    if type(data) ~= "table" then return end
+    if type(data.balls) == "table" then
         self.balls = {}
         for _, ball in ipairs(data.balls) do
-            self.balls[ball.id] = {
-                id = ball.id,
-                position = {x = ball.position[1], y = ball.position[2]},
-                velocity = {x = ball.velocity[1], y = ball.velocity[2]},
-                radius = ball.radius,
-                is_moving = ball.is_moving,
-                number = ball.number,
-                is_cue_ball = ball.is_cue_ball,
-                confidence = ball.confidence
-            }
+            if type(ball) == "table" and ball.id ~= nil then
+                local normalized = normalize_record(
+                    ball, ball.scale,
+                    ball.coordinate_space or data.coordinate_space
+                )
+                if normalized and type(normalized.position) == "table"
+                    and type(normalized.velocity) == "table" then
+                    self.balls[ball.id] = normalized
+                end
+            end
         end
     end
 
-    if data.cue then
-        self.cue = data.cue
+    if data.cue ~= nil then
+        self.cue = normalize_record(data.cue, data.scale, data.coordinate_space)
     end
 
-    if data.table then
-        self.table = data.table
+    if data.table ~= nil then
+        self.table = normalize_record(data.table, data.scale, data.coordinate_space)
     end
 
     self.last_update = love.timer.getTime()
@@ -45,11 +53,18 @@ end
 
 -- Update from immediate motion event
 function StateManager:updateFromMotionMessage(data)
+    if type(data) ~= "table" then return end
     local ball_id = data.ball_id
     if self.balls[ball_id] then
-        self.balls[ball_id].position = {x = data.position[1], y = data.position[2]}
-        self.balls[ball_id].velocity = {x = data.velocity[1], y = data.velocity[2]}
-        self.balls[ball_id].is_moving = data.is_moving
+        local normalized = normalize_record(
+            data, data.scale, data.coordinate_space
+        )
+        if normalized and type(normalized.position) == "table"
+            and type(normalized.velocity) == "table" then
+            self.balls[ball_id].position = normalized.position
+            self.balls[ball_id].velocity = normalized.velocity
+            self.balls[ball_id].is_moving = data.is_moving
+        end
     end
     self.last_update = love.timer.getTime()
 end

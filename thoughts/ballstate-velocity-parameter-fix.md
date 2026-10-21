@@ -1,3 +1,6 @@
+> Historical implementation note. Its referenced manual migration script has
+> been removed; current model and coordinate tests cover this behavior.
+
 # BallState.from_4k() Velocity Parameter Fix
 
 **Date:** 2025-10-22
@@ -70,7 +73,8 @@ This is correct because:
 ## Verification
 
 - ✅ Checked all other uses of `BallState.from_4k()` in the codebase - no similar issues found
-- ✅ Existing test in `backend/test_4k_functionality.py` uses the method correctly
+- ✅ The now-removed manual script had exercised this method; current model and
+  coordinate tests cover the same contract.
 - ✅ The fix aligns with the API design documented in `backend/core/models.py`
 
 ## Related Context

@@ -10,7 +10,7 @@ import { StatusIndicator } from './StatusIndicator';
 import { ProgressBar } from './ProgressBar';
 import { StatCard } from './StatCard';
 import { apiClient } from '../../api/client';
-import type { ComponentHealth, HealthStatus } from '../../types/api';
+import type { ComponentHealth, HealthStatus, HealthResponse } from '../../types/api';
 
 interface HealthTest {
   id: string;
@@ -183,25 +183,9 @@ export const HealthCheck: React.FC = observer(() => {
         progress: 0,
         tests: [
           {
-            id: 'authentication',
-            name: 'Authentication System',
-            description: 'Test user authentication and authorization',
-            category: 'security',
-            status: 'pending',
-            progress: 0,
-          },
-          {
             id: 'ssl-certificates',
             name: 'SSL Certificates',
             description: 'Verify SSL certificate validity and security',
-            category: 'security',
-            status: 'pending',
-            progress: 0,
-          },
-          {
-            id: 'access-controls',
-            name: 'Access Controls',
-            description: 'Test role-based access control implementation',
             category: 'security',
             status: 'pending',
             progress: 0,
@@ -224,7 +208,7 @@ export const HealthCheck: React.FC = observer(() => {
   const loadSystemHealth = async () => {
     try {
       // Fetch real health data from backend with component details
-      const healthResponse = await apiClient.get('/health?include_details=true');
+      const healthResponse = await apiClient.get<HealthResponse>('/health?include_details=true');
 
       // Convert backend component health to frontend format
       const componentHealthArray: ComponentHealth[] = Object.values(healthResponse.components);

@@ -12,8 +12,9 @@ Simplified predictions include:
 
 from typing import Optional
 
-from config import Config, config
+from backend.config import Config, config
 
+from ..constants_4k import PIXELS_PER_METER_REFERENCE
 from ..coordinates import Vector2D
 from ..models import BallState, CueState, GameState
 from ..physics.trajectory import TrajectoryCalculator
@@ -120,8 +121,6 @@ class TrajectoryPredictor:
         vy = self.MEDIUM_SHOT_SPEED * math.sin(angle_rad)
 
         # Return as 4K coordinate vector
-        return Vector2D.from_meters(vx, vy)
-
-
-# Backward compatibility alias
-ShotPredictor = TrajectoryPredictor
+        pixels_per_second_x = vx * PIXELS_PER_METER_REFERENCE
+        pixels_per_second_y = vy * PIXELS_PER_METER_REFERENCE
+        return Vector2D.from_4k(pixels_per_second_x, pixels_per_second_y)

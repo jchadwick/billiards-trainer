@@ -9,33 +9,110 @@ Requirements:
 """
 
 import contextlib
+import importlib
 import logging
+import math
 import queue
 import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Optional
+from types import ModuleType, TracebackType
+from typing import Any, Callable, Optional, Protocol, cast
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-# Kinect v2 dependencies - optional import for graceful fallback
+
+class _CameraParameters(Protocol):
+    """Camera intrinsics exposed by pylibfreenect2."""
+
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+    k1: float
+    k2: float
+    k3: float
+    p1: float
+    p2: float
+
+
+class _RawFrame(Protocol):
+    def asarray(self) -> NDArray[Any]: ...
+
+
+class _FrameSet(Protocol):
+    def __bool__(self) -> bool: ...
+
+    def __contains__(self, frame_type: int) -> bool: ...
+
+    def getFrame(self, frame_type: int) -> _RawFrame: ...
+
+
+class _FrameListener(Protocol):
+    def waitForNewFrame(self, timeout_ms: int) -> _FrameSet | None: ...
+
+    def release(self, frames: _FrameSet) -> None: ...
+
+
+class _KinectDevice(Protocol):
+    def setColorFrameListener(self, listener: _FrameListener) -> None: ...
+
+    def setIrAndDepthFrameListener(self, listener: _FrameListener) -> None: ...
+
+    def start(self) -> None: ...
+
+    def startStreams(self, rgb: bool, depth: bool) -> None: ...
+
+    def getIrCameraParams(self) -> _CameraParameters: ...
+
+    def getColorCameraParams(self) -> _CameraParameters: ...
+
+    def stop(self) -> None: ...
+
+    def close(self) -> None: ...
+
+
+class _Freenect2(Protocol):
+    def enumerateDevices(self) -> int: ...
+
+    def getDeviceSerialNumber(self, index: int) -> str: ...
+
+    def openDevice(self, serial: str) -> _KinectDevice | None: ...
+
+
+class _FrameTypeCodes(Protocol):
+    Color: int
+    Depth: int
+    Ir: int
+
+
+class _Kinect2SDK(Protocol):
+    FrameType: _FrameTypeCodes
+    Freenect2: Callable[[], _Freenect2]
+    SyncMultiFrameListener: Callable[[int], _FrameListener]
+    Registration: Callable[[_CameraParameters, _CameraParameters], object]
+
+
+# Kinect v2 dependencies are optional because this SDK is hardware-specific
+# and unavailable on many development and CI machines. Importing dynamically
+# avoids pretending the optional extension has installed type stubs; the
+# protocol above describes the exact subset consumed by this module.
 try:
-    from pylibfreenect2 import (
-        Frame,
-        FrameType,
-        Freenect2,
-        Registration,
-        SyncMultiFrameListener,
-    )
-
-    KINECT2_AVAILABLE = True
+    _kinect2_module: ModuleType | None = importlib.import_module("pylibfreenect2")
 except ImportError:
-    KINECT2_AVAILABLE = False
+    _kinect2_module = None
 
+KINECT2_AVAILABLE = _kinect2_module is not None
 logger = logging.getLogger(__name__)
+
+
+def _load_kinect2_sdk() -> _Kinect2SDK:
+    if _kinect2_module is None:
+        raise RuntimeError("pylibfreenect2 is not installed")
+    return cast("_Kinect2SDK", _kinect2_module)
 
 
 class Kinect2Status(Enum):
@@ -97,6 +174,7 @@ class Kinect2Capture:
                 - max_depth: Maximum depth in mm (default: 4000)
                 - depth_smoothing: Apply depth smoothing (default: True)
                 - auto_reconnect: Enable automatic reconnection (default: True)
+                - stop_timeout: Maximum time to wait for capture shutdown (default: 5.0)
         """
         if not KINECT2_AVAILABLE:
             raise RuntimeError(
@@ -104,6 +182,7 @@ class Kinect2Capture:
                 "and pylibfreenect2: pip install pylibfreenect2"
             )
 
+        self._sdk = _load_kinect2_sdk()
         self._config = config
         self._enable_color = config.get("enable_color", True)
         self._enable_depth = config.get("enable_depth", True)
@@ -114,18 +193,26 @@ class Kinect2Capture:
         self._max_depth = config.get("max_depth", 4000)  # mm
         self._depth_smoothing = config.get("depth_smoothing", True)
         self._auto_reconnect = config.get("auto_reconnect", True)
+        self._stop_timeout = config.get("stop_timeout", 5.0)
+        if (
+            isinstance(self._stop_timeout, bool)
+            or not isinstance(self._stop_timeout, (int, float))
+            or not math.isfinite(self._stop_timeout)
+            or self._stop_timeout <= 0
+        ):
+            raise ValueError("stop_timeout must be finite and positive")
 
         # Kinect v2 objects
-        self._freenect2: Optional[Freenect2] = None
-        self._device = None
-        self._listener: Optional[SyncMultiFrameListener] = None
-        self._registration: Optional[Registration] = None
+        self._freenect2: _Freenect2 | None = None
+        self._device: _KinectDevice | None = None
+        self._listener: _FrameListener | None = None
+        self._registration: object | None = None
 
         # Capture state
         self._status = Kinect2Status.DISCONNECTED
-        self._capture_thread: Optional[threading.Thread] = None
+        self._capture_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._frame_queue = queue.Queue(maxsize=5)
+        self._frame_queue: queue.Queue[Kinect2Frame] = queue.Queue(maxsize=5)
 
         # Statistics
         self._start_time = time.time()
@@ -133,14 +220,15 @@ class Kinect2Capture:
         self._frames_dropped = 0
         self._last_frame_time = 0.0
         self._error_count = 0
-        self._last_error: Optional[str] = None
+        self._last_error: str | None = None
         self._connection_attempts = 0
 
         # Thread safety
         self._lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
 
         # Callbacks
-        self._status_callback: Optional[Callable[[Kinect2Status], None]] = None
+        self._status_callback: Callable[[Kinect2Status], None] | None = None
 
         logger.info(
             f"Kinect v2 capture initialized - "
@@ -155,16 +243,20 @@ class Kinect2Capture:
     def _update_status(self, status: Kinect2Status) -> None:
         """Update Kinect v2 status and notify callback."""
         with self._lock:
-            if self._status != status:
-                old_status = self._status
-                self._status = status
-                logger.info(f"Kinect v2 status changed: {old_status} -> {status}")
+            self._update_status_unsafe(status)
 
-                if self._status_callback:
-                    try:
-                        self._status_callback(status)
-                    except Exception as e:
-                        logger.error(f"Status callback error: {e}")
+    def _update_status_unsafe(self, status: Kinect2Status) -> None:
+        """Update status when the caller already holds ``_lock``."""
+        if self._status != status:
+            old_status = self._status
+            self._status = status
+            logger.info(f"Kinect v2 status changed: {old_status} -> {status}")
+
+            if self._status_callback:
+                try:
+                    self._status_callback(status)
+                except Exception as e:
+                    logger.error(f"Status callback error: {e}")
 
     def _connect_kinect(self) -> bool:
         """Establish Kinect v2 connection."""
@@ -174,50 +266,43 @@ class Kinect2Capture:
                 f"Connecting to Kinect v2 (attempt {self._connection_attempts})"
             )
 
-            # Initialize Freenect2
-            self._freenect2 = Freenect2()
-
+            self._freenect2 = self._sdk.Freenect2()
             if self._freenect2.enumerateDevices() == 0:
                 raise RuntimeError("No Kinect v2 devices found")
 
             serial = self._freenect2.getDeviceSerialNumber(0)
             logger.info(f"Found Kinect v2 device: {serial}")
 
-            # Open device
             self._device = self._freenect2.openDevice(serial)
+            if self._device is None:
+                raise RuntimeError("Unable to open Kinect v2 device")
 
-            # Configure frame types
             frame_types = 0
             if self._enable_color:
-                frame_types |= FrameType.Color
+                frame_types |= self._sdk.FrameType.Color
             if self._enable_depth:
-                frame_types |= FrameType.Depth
+                frame_types |= self._sdk.FrameType.Depth
             if self._enable_infrared:
-                frame_types |= FrameType.Ir
+                frame_types |= self._sdk.FrameType.Ir
 
-            # Create listener
-            self._listener = SyncMultiFrameListener(frame_types)
+            self._listener = self._sdk.SyncMultiFrameListener(frame_types)
             self._device.setColorFrameListener(self._listener)
             self._device.setIrAndDepthFrameListener(self._listener)
 
-            # Start capture
             if self._enable_color:
                 self._device.start()
             else:
                 self._device.startStreams(rgb=False, depth=True)
 
-            # Setup registration for depth-color alignment
             if self._enable_color and self._enable_depth:
-                self._registration = Registration(
+                self._registration = self._sdk.Registration(
                     self._device.getIrCameraParams(),
                     self._device.getColorCameraParams(),
                 )
 
-            # Test frame capture
             frames = self._listener.waitForNewFrame(timeout_ms=5000)
             if not frames:
                 raise RuntimeError("Failed to capture test frames from Kinect v2")
-
             self._listener.release(frames)
 
             logger.info(
@@ -229,81 +314,60 @@ class Kinect2Capture:
             logger.error(f"Kinect v2 connection failed: {e}")
             self._last_error = str(e)
             self._error_count += 1
-
-            # Clean up
             self._cleanup_device()
             return False
 
     def _cleanup_device(self) -> None:
         """Clean up Kinect v2 resources."""
         try:
-            if self._device:
+            if self._device is not None:
                 self._device.stop()
                 self._device.close()
                 self._device = None
 
-            if self._listener:
-                self._listener = None
-
-            if self._registration:
-                self._registration = None
-
-            if self._freenect2:
-                self._freenect2 = None
-
+            self._listener = None
+            self._registration = None
+            self._freenect2 = None
         except Exception as e:
             logger.error(f"Error during Kinect v2 cleanup: {e}")
 
-    def _process_frames(self, frames) -> Optional[Kinect2Frame]:
+    def _process_frames(self, frames: _FrameSet) -> Optional[Kinect2Frame]:
         """Process raw Kinect v2 frames into usable format."""
         try:
-            color_frame = None
-            depth_frame = None
-            infrared_frame = None
-            depth_range = (0, 0)
+            color_frame: NDArray[Any] | None = None
+            depth_frame: NDArray[Any] | None = None
+            infrared_frame: NDArray[Any] | None = None
+            depth_range: tuple[float, float] = (0.0, 0.0)
 
-            # Extract color frame
-            if self._enable_color and FrameType.Color in frames:
-                color_raw = frames.getFrame(FrameType.Color)
-                color_frame = color_raw.asarray()
-                # Convert BGRX to RGB
-                color_frame = cv2.cvtColor(color_frame, cv2.COLOR_BGRX2RGB)
+            if self._enable_color and self._sdk.FrameType.Color in frames:
+                color_raw = frames.getFrame(self._sdk.FrameType.Color)
+                color_frame = cv2.cvtColor(color_raw.asarray(), cv2.COLOR_BGRA2RGB)
 
-            # Extract depth frame
-            if self._enable_depth and FrameType.Depth in frames:
-                depth_raw = frames.getFrame(FrameType.Depth)
+            if self._enable_depth and self._sdk.FrameType.Depth in frames:
+                depth_raw = frames.getFrame(self._sdk.FrameType.Depth)
                 depth_frame = depth_raw.asarray()
-
-                # Filter depth range
                 depth_frame = np.where(
                     (depth_frame >= self._min_depth) & (depth_frame <= self._max_depth),
                     depth_frame,
                     0,
                 )
 
-                # Apply depth smoothing
                 if self._depth_smoothing:
                     depth_frame = cv2.medianBlur(depth_frame.astype(np.float32), 5)
 
-                # Calculate depth range
                 valid_depth = depth_frame[depth_frame > 0]
                 if len(valid_depth) > 0:
                     depth_range = (float(valid_depth.min()), float(valid_depth.max()))
 
-            # Extract infrared frame
-            if self._enable_infrared and FrameType.Ir in frames:
-                ir_raw = frames.getFrame(FrameType.Ir)
+            if self._enable_infrared and self._sdk.FrameType.Ir in frames:
+                ir_raw = frames.getFrame(self._sdk.FrameType.Ir)
                 infrared_frame = ir_raw.asarray()
-                # Normalize for visualization
                 infrared_frame = (infrared_frame / 65535.0 * 255).astype(np.uint8)
 
-            # Create frame info
-            current_time = time.time()
             self._frames_captured += 1
-
             frame_info = Kinect2FrameInfo(
                 frame_number=self._frames_captured,
-                timestamp=current_time,
+                timestamp=time.time(),
                 color_size=color_frame.shape[:2] if color_frame is not None else (0, 0),
                 depth_size=depth_frame.shape[:2] if depth_frame is not None else (0, 0),
                 has_depth=depth_frame is not None,
@@ -330,7 +394,7 @@ class Kinect2Capture:
 
         while not self._stop_event.is_set():
             try:
-                if not self._device:
+                if self._device is None:
                     if self._auto_reconnect:
                         self._update_status(Kinect2Status.RECONNECTING)
                         if self._connect_kinect():
@@ -342,26 +406,23 @@ class Kinect2Capture:
                         self._update_status(Kinect2Status.ERROR)
                         break
 
-                # Wait for new frames
-                frames = self._listener.waitForNewFrame(timeout_ms=1000)
+                listener = self._listener
+                if listener is None:
+                    raise RuntimeError("Kinect v2 listener is unavailable")
+                frames = listener.waitForNewFrame(timeout_ms=1000)
                 if not frames:
                     logger.warning("Kinect v2 frame timeout")
                     continue
 
-                # Process frames
                 kinect_frame = self._process_frames(frames)
-                self._listener.release(frames)
-
+                listener.release(frames)
                 if kinect_frame is None:
                     continue
 
                 self._last_frame_time = time.time()
-
-                # Add to queue
                 try:
                     self._frame_queue.put_nowait(kinect_frame)
                 except queue.Full:
-                    # Drop oldest frame
                     try:
                         self._frame_queue.get_nowait()
                         self._frames_dropped += 1
@@ -385,60 +446,83 @@ class Kinect2Capture:
 
     def start_capture(self) -> bool:
         """Start Kinect v2 capture."""
-        with self._lock:
-            if self._capture_thread and self._capture_thread.is_alive():
-                logger.warning("Kinect v2 capture already running")
-                return True
+        with self._lifecycle_lock:
+            with self._lock:
+                if self._capture_thread and self._capture_thread.is_alive():
+                    if self._stop_event.is_set():
+                        logger.warning(
+                            "Kinect v2 worker is still stopping; refusing restart"
+                        )
+                        return False
+                    logger.warning("Kinect v2 capture already running")
+                    return True
 
-            self._stop_event.clear()
-            self._update_status(Kinect2Status.CONNECTING)
+                # A naturally ended worker runs its own cleanup before the
+                # thread is considered stopped. Retire its reference before a
+                # new device session is opened.
+                self._capture_thread = None
+                self._stop_event.clear()
+                self._update_status_unsafe(Kinect2Status.CONNECTING)
+                self._start_time = time.time()
+                self._frames_captured = 0
+                self._frames_dropped = 0
+                while not self._frame_queue.empty():
+                    try:
+                        self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        break
 
-            # Reset statistics
-            self._start_time = time.time()
-            self._frames_captured = 0
-            self._frames_dropped = 0
-
-            # Clear frame queue
-            while not self._frame_queue.empty():
-                try:
-                    self._frame_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-            # Connect to Kinect v2
             if not self._connect_kinect():
                 self._update_status(Kinect2Status.ERROR)
                 return False
 
-            # Start capture thread
-            self._capture_thread = threading.Thread(
-                target=self._capture_loop, name="Kinect2Capture", daemon=True
-            )
-            self._capture_thread.start()
-
-            self._update_status(Kinect2Status.CONNECTED)
+            with self._lock:
+                self._capture_thread = threading.Thread(
+                    target=self._capture_worker, name="Kinect2Capture", daemon=True
+                )
+                self._capture_thread.start()
+                self._update_status_unsafe(Kinect2Status.CONNECTED)
             logger.info("Kinect v2 capture started successfully")
             return True
 
+    def _capture_worker(self) -> None:
+        """Own Kinect SDK resources until acquisition has completely stopped."""
+        try:
+            self._capture_loop()
+        finally:
+            self._cleanup_device()
+            self._update_status(Kinect2Status.DISCONNECTED)
+
     def stop_capture(self) -> None:
         """Stop Kinect v2 capture."""
-        with self._lock:
-            if not self._capture_thread or not self._capture_thread.is_alive():
-                logger.info("Kinect v2 capture not running")
-                return
+        with self._lifecycle_lock:
+            with self._lock:
+                capture_thread = self._capture_thread
+                if capture_thread and capture_thread.is_alive():
+                    logger.info("Stopping Kinect v2 capture...")
+                    self._stop_event.set()
+                else:
+                    logger.info("Kinect v2 capture not running")
 
-            logger.info("Stopping Kinect v2 capture...")
-            self._stop_event.set()
+            if capture_thread and capture_thread.is_alive():
+                capture_thread.join(timeout=self._stop_timeout)
+                if capture_thread.is_alive():
+                    with self._lock:
+                        if capture_thread.is_alive():
+                            self._last_error = (
+                                "Kinect worker did not stop before the configured timeout; "
+                                "device resources remain owned until acquisition returns"
+                            )
+                            self._update_status_unsafe(Kinect2Status.ERROR)
+                            logger.warning(self._last_error)
+                            return
 
-            # Wait for capture thread
-            if self._capture_thread:
-                self._capture_thread.join(timeout=5.0)
-                if self._capture_thread.is_alive():
-                    logger.warning("Kinect v2 capture thread did not stop gracefully")
-
-            # Clean up device
+            with self._lock:
+                if self._capture_thread is capture_thread:
+                    self._capture_thread = None
+            # A start failure can leave resources without a worker. Once no
+            # worker owns them, cleanup is safe and callbacks run lock-free.
             self._cleanup_device()
-
             self._update_status(Kinect2Status.DISCONNECTED)
             logger.info("Kinect v2 capture stopped")
 
@@ -451,7 +535,7 @@ class Kinect2Capture:
 
     def get_latest_frame(self) -> Optional[Kinect2Frame]:
         """Get most recent Kinect v2 frame, discarding older ones."""
-        latest = None
+        latest: Kinect2Frame | None = None
         try:
             while True:
                 latest = self._frame_queue.get_nowait()
@@ -470,33 +554,28 @@ class Kinect2Capture:
 
     def get_device_info(self) -> dict[str, Any]:
         """Get Kinect v2 device information."""
-        if not self._device:
+        if self._device is None:
             return {}
 
-        try:
-            return {
-                "device_type": "Microsoft Kinect v2",
-                "color_enabled": self._enable_color,
-                "depth_enabled": self._enable_depth,
-                "infrared_enabled": self._enable_infrared,
-                "depth_range": f"{self._min_depth}-{self._max_depth}mm",
-                "color_resolution": self._color_resolution,
-                "depth_mode": self._depth_mode,
-                "has_registration": self._registration is not None,
-            }
-        except Exception as e:
-            logger.error(f"Error getting Kinect v2 device info: {e}")
-            return {}
+        return {
+            "device_type": "Microsoft Kinect v2",
+            "color_enabled": self._enable_color,
+            "depth_enabled": self._enable_depth,
+            "infrared_enabled": self._enable_infrared,
+            "depth_range": f"{self._min_depth}-{self._max_depth}mm",
+            "color_resolution": self._color_resolution,
+            "depth_mode": self._depth_mode,
+            "has_registration": self._registration is not None,
+        }
 
-    def get_calibration_data(self) -> Optional[dict]:
+    def get_calibration_data(self) -> Optional[dict[str, Any]]:
         """Get Kinect v2 calibration parameters for 3D reconstruction."""
-        if not self._device:
+        if self._device is None:
             return None
 
         try:
             ir_params = self._device.getIrCameraParams()
             color_params = self._device.getColorCameraParams()
-
             return {
                 "ir_camera": {
                     "fx": ir_params.fx,
@@ -528,27 +607,15 @@ class Kinect2Capture:
     def depth_to_3d(
         self, u: int, v: int, depth: float
     ) -> Optional[tuple[float, float, float]]:
-        """Convert depth pixel to 3D world coordinates.
-
-        Args:
-            u, v: Pixel coordinates in depth image
-            depth: Depth value in millimeters
-
-        Returns:
-            (x, y, z) coordinates in millimeters, or None if invalid
-        """
-        if not self._device or depth <= 0:
+        """Convert depth pixel to 3D world coordinates."""
+        if self._device is None or depth <= 0:
             return None
 
         try:
             ir_params = self._device.getIrCameraParams()
-
-            # Convert to normalized coordinates
             x = (u - ir_params.cx) * depth / ir_params.fx
             y = (v - ir_params.cy) * depth / ir_params.fy
-            z = depth
-
-            return (x, y, z)
+            return (x, y, depth)
         except Exception as e:
             logger.error(f"Depth to 3D conversion error: {e}")
             return None
@@ -558,7 +625,12 @@ class Kinect2Capture:
         self.start_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit."""
         self.stop_capture()
 

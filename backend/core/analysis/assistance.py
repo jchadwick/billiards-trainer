@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Optional
 
-from config import Config, config
+from backend.config import Config, config, load_schema_reference
 
 from ..constants_4k import (
     BALL_RADIUS_4K,
@@ -22,7 +22,8 @@ from ..coordinates import Vector2D
 from ..models import BallState, GameState, GameType, ShotType, TableState
 from ..utils.geometry import GeometryUtils
 from .prediction import TrajectoryPredictor
-from .shot import ShotAnalysis, ShotAnalyzer
+from .shot import ShotAnalysis as BasicShotAnalysis
+from .shot import ShotAnalyzer
 
 
 class AssistanceLevel(Enum):
@@ -69,6 +70,24 @@ class PowerRecommendation:
 
 
 @dataclass
+class AssistanceShotAnalysis:
+    """Geometry-backed metrics consumed by the assistance engine.
+
+    The basic ShotAnalyzer intentionally returns only shot type and legality.
+    Assistance derives its additional guidance from that result and calibrated
+    table geometry rather than assuming those metrics are part of its contract.
+    """
+
+    shot_type: ShotType
+    difficulty: float
+    success_probability: float
+    recommended_force: float
+    recommended_aim_point: Vector2D
+    risk_factors: dict[str, float]
+    potential_problems: list[str]
+
+
+@dataclass
 class SafeZone:
     """Safe zone information."""
 
@@ -90,7 +109,7 @@ class TargetRecommendation:
     success_probability: float
     strategic_value: float  # Long-term game value
     reasons: list[str]  # Why this ball is recommended
-    shot_analysis: ShotAnalysis  # Detailed analysis for this target
+    shot_analysis: AssistanceShotAnalysis
     alternative_approaches: list[str]  # Different ways to play this ball
 
 
@@ -133,31 +152,36 @@ class AssistanceEngine:
         self.config = cfg if cfg is not None else config
 
         # Load assistance configuration
-        assistance_config = self.config.get("core.assistance", {})
-
-        # Assistance parameters by skill level
-        level_configs = assistance_config.get("level_configs", {})
+        # The schema defaults are the canonical source for supported runtime
+        # defaults. Merge each level independently so a partial user config can
+        # override selected values without removing required behavior such as
+        # the alternative-target limit.
+        default_assistance_config = (
+            load_schema_reference().get("core", {}).get("assistance", {})
+        )
+        configured_assistance = self.config.get("core.assistance", {})
+        default_level_configs = default_assistance_config.get("level_configs", {})
+        configured_level_configs = configured_assistance.get("level_configs", {})
         self.assistance_configs = {
-            AssistanceLevel.BEGINNER: level_configs.get("beginner", {}),
-            AssistanceLevel.INTERMEDIATE: level_configs.get("intermediate", {}),
-            AssistanceLevel.ADVANCED: level_configs.get("advanced", {}),
-            AssistanceLevel.EXPERT: level_configs.get("expert", {}),
+            level: {
+                **default_level_configs.get(level.value, {}),
+                **configured_level_configs.get(level.value, {}),
+            }
+            for level in AssistanceLevel
         }
 
-        # Player skill tracking with defaults from config
-        player_skills_config = assistance_config.get("player_skills", {})
+        # Player skill defaults use the same canonical schema template and
+        # retain per-user overrides when only part of the section is set.
+        player_skills_config = {
+            **default_assistance_config["player_skills"],
+            **configured_assistance.get("player_skills", {}),
+        }
         self.player_skills = {
-            "aiming_accuracy": player_skills_config.get("default_aiming_accuracy", 0.5),
-            "power_control": player_skills_config.get("default_power_control", 0.5),
-            "strategic_thinking": player_skills_config.get(
-                "default_strategic_thinking", 0.5
-            ),
-            "cue_ball_control": player_skills_config.get(
-                "default_cue_ball_control", 0.5
-            ),
-            "pattern_recognition": player_skills_config.get(
-                "default_pattern_recognition", 0.5
-            ),
+            "aiming_accuracy": player_skills_config["default_aiming_accuracy"],
+            "power_control": player_skills_config["default_power_control"],
+            "strategic_thinking": player_skills_config["default_strategic_thinking"],
+            "cue_ball_control": player_skills_config["default_cue_ball_control"],
+            "pattern_recognition": player_skills_config["default_pattern_recognition"],
         }
 
     def provide_assistance(
@@ -171,7 +195,9 @@ class AssistanceEngine:
 
         # Get target recommendations
         if target_ball:
-            primary_target = self._analyze_specific_target(game_state, target_ball)
+            primary_target: Optional[TargetRecommendation] = (
+                self._analyze_specific_target(game_state, target_ball)
+            )
             alternatives = self._get_alternative_targets(
                 game_state, exclude=[target_ball], max_count=config["max_alternatives"]
             )
@@ -180,7 +206,7 @@ class AssistanceEngine:
             primary_target = all_targets[0] if all_targets else None
             alternatives = all_targets[1 : config["max_alternatives"] + 1]
 
-        if not primary_target:
+        if primary_target is None:
             raise ValueError("No valid targets found")
 
         # Generate aiming guide
@@ -238,26 +264,19 @@ class AssistanceEngine:
         # Find the best pocket for this target ball
         best_pocket = self._find_best_pocket(target_ball, game_state.table)
 
-        # Calculate ghost ball position (where cue ball center should be)
-        ghost_ball_pos = self._calculate_ghost_ball_position(
-            target_ball, best_pocket, target_ball.radius * 2
-        )
-
-        # Calculate aim point (contact point on target ball)
-        direction = Vector2D.from_4k(
-            ghost_ball_pos.x - target_ball.position.x,
-            ghost_ball_pos.y - target_ball.position.y,
+        pocket_direction = Vector2D.from_4k(
+            best_pocket.x - target_ball.position.x,
+            best_pocket.y - target_ball.position.y,
         ).normalize()
 
-        aim_point = Vector2D.from_4k(
-            target_ball.position.x - direction.x * target_ball.radius,
-            target_ball.position.y - direction.y * target_ball.radius,
+        # Aim at the contact point opposite the object's path toward the pocket.
+        return Vector2D.from_4k(
+            target_ball.position.x - pocket_direction.x * target_ball.radius,
+            target_ball.position.y - pocket_direction.y * target_ball.radius,
         )
 
-        return aim_point
-
     def recommend_shot_power(
-        self, game_state: GameState, shot_analysis: ShotAnalysis
+        self, game_state: GameState, shot_analysis: AssistanceShotAnalysis
     ) -> PowerRecommendation:
         """Recommend optimal shot power level."""
         # Base power from shot analysis
@@ -455,7 +474,79 @@ class AssistanceEngine:
         self, game_state: GameState, ball_id: str
     ) -> TargetRecommendation:
         """Analyze a specific target ball and create recommendation."""
-        shot_analysis = self.shot_analyzer.analyze_shot(game_state, ball_id)
+        cue_ball = self._get_cue_ball(game_state)
+        target_ball = self._get_ball_by_id(game_state, ball_id)
+        if cue_ball is None or target_ball is None:
+            raise ValueError("Missing cue ball or target ball")
+
+        basic_analysis: BasicShotAnalysis = self.shot_analyzer.analyze_shot(
+            game_state, ball_id
+        )
+        pocket = self._find_best_pocket(target_ball, game_state.table)
+        pocket_direction = Vector2D.from_4k(
+            pocket.x - target_ball.position.x,
+            pocket.y - target_ball.position.y,
+        ).normalize()
+        recommended_aim_point = Vector2D.from_4k(
+            target_ball.position.x - pocket_direction.x * target_ball.radius,
+            target_ball.position.y - pocket_direction.y * target_ball.radius,
+        )
+
+        cut_angle = self._calculate_cut_angle(
+            cue_ball, target_ball, recommended_aim_point
+        )
+        table_diagonal = math.hypot(game_state.table.width, game_state.table.height)
+        cue_distance = self.geometry_utils.distance_between_vectors(
+            cue_ball.position, target_ball.position
+        )
+        object_distance = self.geometry_utils.distance_between_vectors(
+            target_ball.position, pocket
+        )
+        route_distance = cue_distance + object_distance
+
+        # Normalize distance by the calibrated table diagonal and cut angle by
+        # the geometric grazing-contact limit.
+        distance_difficulty = min(route_distance / table_diagonal, 1.0)
+        angle_difficulty = min(abs(cut_angle) / 90.0, 1.0)
+        difficulty = max(distance_difficulty, angle_difficulty)
+        if basic_analysis.shot_type == ShotType.COMBINATION:
+            thresholds = self.config.get("core.assistance.skill_thresholds", {})
+            difficulty = max(
+                difficulty, float(thresholds.get("difficulty_medium", 0.6))
+            )
+
+        potential_problems = [reason.value for reason in basic_analysis.illegal_reasons]
+        if basic_analysis.shot_type == ShotType.COMBINATION:
+            potential_problems.append("Direct path to the target ball is blocked")
+        if not basic_analysis.is_legal:
+            difficulty = 1.0
+
+        success_probability = (
+            (1.0 - difficulty) * cue_ball.confidence * target_ball.confidence
+        )
+        power_config = self.config.get("core.assistance.power_calculation", {})
+        soft_threshold = float(power_config.get("soft_power_threshold", 8.0))
+        medium_threshold = float(power_config.get("medium_power_threshold", 12.0))
+        route_ratio = min(route_distance / table_diagonal, 1.0)
+        recommended_force = soft_threshold + route_ratio * (
+            medium_threshold - soft_threshold
+        )
+        risk_config = self.config.get("core.assistance.risk_assessment", {})
+        shot_analysis = AssistanceShotAnalysis(
+            shot_type=basic_analysis.shot_type,
+            difficulty=difficulty,
+            success_probability=success_probability,
+            recommended_force=recommended_force,
+            recommended_aim_point=recommended_aim_point,
+            risk_factors={
+                "scratch": float(risk_config.get("default_scratch_risk", 0.1)),
+                "miss": difficulty,
+                "opponent_runout": float(
+                    risk_config.get("default_opponent_runout_risk", 0.3)
+                ),
+            },
+            potential_problems=potential_problems,
+        )
 
         # Calculate priority score based on multiple factors
         priority_score = self._calculate_target_priority(
@@ -505,6 +596,8 @@ class AssistanceEngine:
 
         target_ball = self._get_ball_by_id(game_state, target.ball_id)
         cue_ball = self._get_cue_ball(game_state)
+        if target_ball is None or cue_ball is None:
+            raise ValueError("Target ball or cue ball is no longer available")
 
         # Calculate aiming information
         target_point = target.shot_analysis.recommended_aim_point
@@ -716,16 +809,19 @@ class AssistanceEngine:
         return legal_targets
 
     def _calculate_target_priority(
-        self, game_state: GameState, ball_id: str, shot_analysis: ShotAnalysis
+        self,
+        game_state: GameState,
+        ball_id: str,
+        shot_analysis: AssistanceShotAnalysis,
     ) -> float:
         """Calculate priority score for a target ball."""
         priority = 0.0
 
         # Get priority weights from config
         weights = self.config.get("core.assistance.priority_weights", {})
-        success_weight = weights.get("success_probability", 0.4)
-        difficulty_weight = weights.get("shot_difficulty", 0.3)
-        strategic_weight = weights.get("strategic_value", 0.3)
+        success_weight = float(weights.get("success_probability", 0.4))
+        difficulty_weight = float(weights.get("shot_difficulty", 0.3))
+        strategic_weight = float(weights.get("strategic_value", 0.3))
 
         # Success probability is major factor
         priority += shot_analysis.success_probability * success_weight
@@ -742,33 +838,38 @@ class AssistanceEngine:
         return min(priority, 1.0)
 
     def _calculate_strategic_value(
-        self, game_state: GameState, ball_id: str, shot_analysis: ShotAnalysis
+        self,
+        game_state: GameState,
+        ball_id: str,
+        shot_analysis: AssistanceShotAnalysis,
     ) -> float:
         """Calculate strategic value of targeting this ball."""
         # Get strategic value config
         strategic_config = self.config.get("core.assistance.strategic_value", {})
 
         # Base strategic value
-        value = strategic_config.get("base_value", 0.5)
+        value = float(strategic_config.get("base_value", 0.5))
 
         # In 9-ball, lower numbered balls have higher value
         if game_state.game_type == GameType.NINE_BALL:
             ball = self._get_ball_by_id(game_state, ball_id)
             if ball and ball.number:
                 # Lower numbers are more valuable
-                number_weight = strategic_config.get("nine_ball_number_weight", 0.3)
+                number_weight = float(
+                    strategic_config.get("nine_ball_number_weight", 0.3)
+                )
                 value += (10 - ball.number) / 10 * number_weight
 
         # Consider position for next shot
         # (This would be more sophisticated in a full implementation)
         if shot_analysis.shot_type == ShotType.DIRECT:
-            direct_bonus = strategic_config.get("direct_shot_bonus", 0.2)
+            direct_bonus = float(strategic_config.get("direct_shot_bonus", 0.2))
             value += direct_bonus  # Direct shots often leave better position
 
         return min(value, 1.0)
 
     def _generate_target_reasons(
-        self, shot_analysis: ShotAnalysis, strategic_value: float
+        self, shot_analysis: AssistanceShotAnalysis, strategic_value: float
     ) -> list[str]:
         """Generate reasons why this target is recommended."""
         reasons = []
@@ -865,7 +966,7 @@ class AssistanceEngine:
         return math.degrees(angle)
 
     def _calculate_optimal_spin(
-        self, game_state: GameState, shot_analysis: ShotAnalysis
+        self, game_state: GameState, shot_analysis: AssistanceShotAnalysis
     ) -> Optional[Vector2D]:
         """Calculate optimal spin for the shot."""
         # Get spin recommendations from config
@@ -896,7 +997,10 @@ class AssistanceEngine:
             )
 
     def _generate_power_explanation(
-        self, force: float, power_level: str, shot_analysis: ShotAnalysis
+        self,
+        force: float,
+        power_level: str,
+        shot_analysis: AssistanceShotAnalysis,
     ) -> str:
         """Generate explanation for power recommendation."""
         explanations = {
@@ -949,7 +1053,7 @@ class AssistanceEngine:
     # Safe zone calculation methods
     def _find_defensive_zones(self, game_state: GameState) -> list[SafeZone]:
         """Find zones that make opponent's next shot difficult (4K pixels)."""
-        zones = []
+        zones: list[SafeZone] = []
 
         # Get defensive zone config (4K pixel values)
         defensive_config = self.config.get("core.assistance.safe_zones.defensive", {})
@@ -1059,7 +1163,7 @@ class AssistanceEngine:
             # Find areas with good sight lines to multiple targets
             zone = SafeZone(
                 zone_type=SafeZoneType.POSITION_PLAY,
-                center=Vector2D(
+                center=Vector2D.from_4k(
                     game_state.table.width * x_factor,
                     game_state.table.height * y_factor,
                 ),
@@ -1075,7 +1179,7 @@ class AssistanceEngine:
 
     def _find_cluster_break_zones(self, game_state: GameState) -> list[SafeZone]:
         """Find zones for breaking up ball clusters."""
-        zones = []
+        zones: list[SafeZone] = []
 
         # Find clusters and identify good break-up positions
         # (Simplified implementation)

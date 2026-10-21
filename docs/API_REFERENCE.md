@@ -1,721 +1,182 @@
 # Billiards Trainer API Reference
 
-## Overview
+The running API's OpenAPI document at `/openapi.json` is the authoritative schema for request and response models. The routes below are registered by `backend/api/main.py`; values in these examples follow the current Pydantic transport models.
 
-The Billiards Trainer API provides RESTful endpoints and WebSocket connections for interacting with the billiards training system. This document provides comprehensive API documentation including endpoints, request/response formats, and usage examples.
+## Base URLs
 
-## Base Configuration
+- HTTP: `http://localhost:8000`
+- WebSocket: `ws://localhost:8000/api/v1/websocket/ws`
+- HTTP API prefix: `/api/v1`
 
-- **Base URL**: `http://localhost:8000` (development) or your production domain
-- **API Version**: v1
-- **Content Type**: `application/json`
-- **WebSocket URL**: `ws://localhost:8000/ws`
+## Coordinate contract
 
-## Health and System Status
+The canonical image plane is 3840 × 2160 pixels. Every image-space point or vector is encoded as `{ "x": number, "y": number, "scale": [sx, sy] }`; compute canonical x/y by multiplying the corresponding value by its scale factor. `[1, 1]` is required for values already in canonical space. Omitted scale is invalid. Coordinate magnitude and camera resolution are never used to guess scale.
 
-### Health Check
-Get basic system health status.
-
-```http
-GET /health
-```
-
-**Response:**
 ```json
 {
-  "status": "healthy",
-  "version": "1.0.0",
-  "service": "billiards-trainer",
-  "timestamp": "2024-01-15T10:30:00Z"
+  "x": 100,
+  "y": 50,
+  "scale": [6, 6]
 }
 ```
 
-### System Status
-Get detailed system status including all modules.
+This represents `(600, 300)` canonical pixels. The scale factors map source values into canonical space; when source resolution is needed for another conversion, retain it explicitly. To map canonical coordinates into a frame of size `W × H`, multiply x by `W / 3840` and y by `H / 2160`.
+
+Scale every spatial value, including points on boundaries and bounds. Independent geometry uses independent scale fields:
+
+- Bounding boxes carry scale for the origin and width/height.
+- Vision detections use `radius_scale`, which may be anisotropic and then represents an ellipse. Core/API game-state ball and pocket radii use `radius_scale` and `pocket_radius_scale` respectively and require equal x/y factors because they are circular values.
+- Table width and height use `dimensions_scale` and `dimensions_unit: "canonical_pixels"`.
+- Physical table dimensions and calibration correspondences are separate values marked `unit: "meters"`; they are connected to image points through calibration.
+- Normalized table and projector coordinates are distinct declared spaces and are never interpreted as image pixels.
+
+The default configured `table.playing_area_corners` and `table.marker_dots` are recorded at 640 × 360 and each point carries `[6, 6]`. The config also records that reference resolution. Do not remove per-point scale and reconstruct it from the resolution setting. See [Coordinate Systems](COORDINATE_SYSTEMS.md) for conversion examples and repository-specific fixture conventions.
+
+## Health and readiness
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/health` | Health details |
+| `GET` | `/api/v1/health/ready` | Readiness, including selected rate-limit store availability |
+| `GET` | `/api/v1/health/live` | Liveness |
+| `GET` | `/api/v1/health/version` | Version information |
+| `GET` | `/api/v1/health/metrics` | System and application metrics |
+
+## Configuration
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/config` | Read current configuration |
+| `PUT` | `/api/v1/config/` | Validate/apply a partial configuration update |
+| `POST` | `/api/v1/config/reset` | Restore supported defaults |
+| `POST` | `/api/v1/config/import` | Validate/import configuration data |
+| `GET` | `/api/v1/config/export` | Export current configuration |
+| `GET` | `/api/v1/config/schema` | Read configuration schema and supported defaults |
+| `GET` / `POST` | `/api/v1/config/table/playing-area` | Read/update calibrated playing-area geometry |
+
+Configuration writes validate the merged configuration. `validate_only=true` checks without writing. `force_update=true` may bypass warnings, not schema or validation errors. Playing-area corners and optional marker dots require `x`, `y`, and `scale` for every point.
+
+Example corner update:
 
 ```http
-GET /api/v1/system/status
-```
-
-**Response:**
-```json
-{
-  "system": {
-    "state": "running",
-    "uptime": 3600.5,
-    "startup_time": 1642248600.0
-  },
-  "modules": {
-    "core": {
-      "state": "running",
-      "health": "healthy",
-      "startup_time": 2.1,
-      "restart_count": 0,
-      "metrics": {
-        "total_updates": 1500,
-        "avg_update_time": 0.025
-      }
-    },
-    "vision": {
-      "state": "running",
-      "health": "healthy",
-      "startup_time": 3.2,
-      "restart_count": 0,
-      "metrics": {
-        "fps": 28.5,
-        "frames_processed": 45000,
-        "frames_dropped": 12
-      }
-    }
-  },
-  "health": {
-    "overall_status": "healthy",
-    "performance_score": 0.95
-  },
-  "performance": {
-    "cpu_percent": 45.2,
-    "memory_percent": 62.1,
-    "disk_percent": 35.7
-  },
-  "alerts": []
-}
-```
-
-### Performance Metrics
-Get real-time performance metrics.
-
-```http
-GET /api/v1/system/metrics
-```
-
-**Response:**
-```json
-{
-  "timestamp": "2024-01-15T10:30:00Z",
-  "system": {
-    "cpu_percent": 45.2,
-    "memory_total": 8589934592,
-    "memory_used": 5340405555,
-    "memory_percent": 62.1,
-    "disk_percent": 35.7,
-    "network_sent": 1234567890,
-    "network_received": 9876543210
-  },
-  "application": {
-    "vision_fps": 28.5,
-    "vision_latency": 12.3,
-    "core_update_time": 0.025,
-    "api_requests_per_second": 45.2,
-    "active_connections": 8
-  }
-}
-```
-
-## Configuration Management
-
-### Get Configuration
-Retrieve current system configuration.
-
-```http
-GET /api/v1/config
-```
-
-**Response:**
-```json
-{
-  "system": {
-    "environment": "development",
-    "debug_mode": true,
-    "log_level": "INFO"
-  },
-  "vision": {
-    "camera_device_id": 0,
-    "target_fps": 30,
-    "enable_tracking": true
-  },
-  "core": {
-    "physics_enabled": true,
-    "prediction_enabled": true,
-    "assistance_enabled": true
-  },
-  "api": {
-    "host": "0.0.0.0",
-    "port": 8000,
-    "cors_origins": ["*"]
-  }
-}
-```
-
-### Update Configuration
-Update system configuration.
-
-```http
-PUT /api/v1/config
+POST /api/v1/config/table/playing-area
 Content-Type: application/json
+```
 
+```json
 {
-  "vision": {
-    "target_fps": 60,
-    "enable_tracking": true
-  },
-  "core": {
-    "debug_mode": false
-  }
+  "corners": [
+    {"x": 38, "y": 43, "scale": [6, 6]},
+    {"x": 606, "y": 39, "scale": [6, 6]},
+    {"x": 603, "y": 324, "scale": [6, 6]},
+    {"x": 39, "y": 324, "scale": [6, 6]}
+  ],
+  "marker_dots": [
+    {"x": 182, "y": 182, "scale": [6, 6]},
+    {"x": 459, "y": 181, "scale": [6, 6]}
+  ],
+  "calibration_resolution_width": 640,
+  "calibration_resolution_height": 360
 }
 ```
 
-**Response:**
+## Game state
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/game/state` | Read current game state; accepts `include_events` and `include_trajectories` query flags |
+| `GET` | `/api/v1/game/history` | Read retained state history |
+| `POST` | `/api/v1/game/reset` | Reset game state; game type and table-preservation options are query parameters |
+| `GET` | `/api/v1/game/stats` | Read game statistics |
+| `POST` | `/api/v1/game/export` | Start an export |
+| `GET` | `/api/v1/game/export/{export_id}/download` | Download an export |
+
+The state response uses separate API models for balls, cue, and table. Its spatial fields are scale-aware. `GameStateResponse` has no trajectory field; use the WebSocket trajectory stream for trajectory updates. Example excerpt:
+
 ```json
 {
-  "status": "success",
-  "message": "Configuration updated successfully",
-  "updated_fields": ["vision.target_fps", "core.debug_mode"]
-}
-```
-
-### Reload Configuration
-Reload configuration from files.
-
-```http
-POST /api/v1/config/reload
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Configuration reloaded successfully"
-}
-```
-
-## Game Operations
-
-### Get Game State
-Get current game state.
-
-```http
-GET /api/v1/game/state
-```
-
-**Response:**
-```json
-{
-  "timestamp": 1642248600.0,
-  "game_type": "practice",
+  "frame_number": 42,
   "balls": [
     {
       "id": "cue",
-      "position": {"x": 100.5, "y": 200.3},
-      "velocity": {"x": 0.0, "y": 0.0},
-      "radius": 28.5,
+      "number": 0,
+      "position": {"x": 1920, "y": 1080, "scale": [1, 1]},
+      "velocity": {"x": 0, "y": 0, "scale": [1, 1]},
       "is_cue_ball": true,
       "is_pocketed": false,
-      "number": 0
-    },
-    {
-      "id": "ball_1",
-      "position": {"x": 300.2, "y": 150.7},
-      "velocity": {"x": 0.0, "y": 0.0},
-      "radius": 28.5,
-      "is_cue_ball": false,
-      "is_pocketed": false,
-      "number": 1
+      "confidence": 0.99,
+      "last_update": "2026-10-19T12:00:00Z"
     }
   ],
   "table": {
-    "width": 2540,
-    "height": 1270,
-    "corners": [
-      {"x": 0, "y": 0},
-      {"x": 2540, "y": 0},
-      {"x": 2540, "y": 1270},
-      {"x": 0, "y": 1270}
+    "width": 3200,
+    "height": 1600,
+    "dimensions_scale": [1, 1],
+    "dimensions_unit": "canonical_pixels",
+    "pocket_positions": [
+      {"x": 320, "y": 280, "scale": [1, 1]}
     ],
-    "pockets": [
-      {"x": 0, "y": 0, "type": "corner"},
-      {"x": 1270, "y": 0, "type": "side"},
-      {"x": 2540, "y": 0, "type": "corner"}
-    ]
+    "playing_area_corners": [
+      {"x": 320, "y": 280, "scale": [1, 1]},
+      {"x": 3520, "y": 280, "scale": [1, 1]},
+      {"x": 3520, "y": 1880, "scale": [1, 1]},
+      {"x": 320, "y": 1880, "scale": [1, 1]}
+    ],
+    "pocket_radius": 72,
+    "pocket_radius_scale": [1, 1],
+    "pocket_radius_unit": "canonical_pixels",
+    "real_world_dimensions": {"width": 2.54, "height": 1.27, "unit": "meters"},
+    "surface_friction": 0.2
   }
 }
 ```
 
-### Reset Game
-Reset game to initial state.
-
-```http
-POST /api/v1/game/reset
-Content-Type: application/json
-
-{
-  "game_type": "practice"
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Game reset successfully",
-  "game_type": "practice"
-}
-```
-
-### Analyze Shot
-Analyze current shot setup.
-
-```http
-POST /api/v1/game/analyze
-Content-Type: application/json
-
-{
-  "target_ball": "ball_1",
-  "include_alternatives": true
-}
-```
-
-**Response:**
-```json
-{
-  "analysis": {
-    "shot_type": "straight",
-    "difficulty": 0.3,
-    "success_probability": 0.85,
-    "recommended_force": 0.6,
-    "recommended_angle": 15.5,
-    "contact_point": {"x": 285.2, "y": 142.1}
-  },
-  "trajectory": [
-    {"x": 100.5, "y": 200.3},
-    {"x": 150.2, "y": 180.1},
-    {"x": 200.1, "y": 160.5},
-    {"x": 285.2, "y": 142.1}
-  ],
-  "alternative_shots": [
-    {
-      "shot_type": "bank",
-      "difficulty": 0.7,
-      "success_probability": 0.45
-    }
-  ]
-}
-```
-
-### Calculate Trajectory
-Calculate ball trajectory for given parameters.
-
-```http
-POST /api/v1/game/trajectory
-Content-Type: application/json
-
-{
-  "ball_id": "cue",
-  "initial_velocity": {"x": 50.0, "y": 30.0},
-  "time_limit": 5.0
-}
-```
-
-**Response:**
-```json
-{
-  "trajectory": [
-    {"x": 100.5, "y": 200.3, "timestamp": 0.0},
-    {"x": 150.2, "y": 230.3, "timestamp": 1.0},
-    {"x": 195.1, "y": 257.8, "timestamp": 2.0}
-  ],
-  "final_position": {"x": 350.2, "y": 380.1},
-  "total_time": 4.2,
-  "collisions": [
-    {
-      "timestamp": 2.5,
-      "position": {"x": 220.3, "y": 275.1},
-      "object_type": "ball",
-      "object_id": "ball_3"
-    }
-  ]
-}
-```
-
-### Suggest Shots
-Get shot suggestions based on current state.
-
-```http
-POST /api/v1/game/suggest
-Content-Type: application/json
-
-{
-  "difficulty_filter": 0.5,
-  "shot_type_filter": "straight",
-  "max_suggestions": 3
-}
-```
-
-**Response:**
-```json
-{
-  "suggestions": [
-    {
-      "target_ball": "ball_1",
-      "shot_type": "straight",
-      "difficulty": 0.3,
-      "success_probability": 0.85,
-      "description": "Easy straight shot to corner pocket"
-    },
-    {
-      "target_ball": "ball_5",
-      "shot_type": "cut",
-      "difficulty": 0.4,
-      "success_probability": 0.72,
-      "description": "Medium cut shot to side pocket"
-    }
-  ]
-}
-```
+Ball response position and velocity use `{x, y, scale}`. WebSocket ball-state payloads also include `radius`, `radius_scale`, and `radius_unit`. Table image extents and physical dimensions must remain separate.
 
 ## Calibration
 
-### Camera Calibration
-Perform camera calibration.
+The calibration router is mounted under `/api/v1/vision/calibration`.
 
-```http
-POST /api/v1/calibration/camera
-```
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/vision/calibration/start` | Start calibration; type, force-restart, and timeout are query parameters |
+| `POST` | `/api/v1/vision/calibration/{session_id}/points` | Add a screen/world correspondence |
+| `POST` | `/api/v1/vision/calibration/{session_id}/apply` | Apply completed calibration |
+| `POST` | `/api/v1/vision/calibration/{session_id}/validate` | Validate calibration |
+| `GET` | `/api/v1/vision/calibration/{session_id}` | Read a session |
+| `GET` | `/api/v1/vision/calibration/` | Read current calibration and table corners |
 
-**Response:**
+Calibration point requests pair a scaled image point with an explicitly meter-valued physical point:
+
 ```json
 {
-  "status": "success",
-  "message": "Camera calibration completed",
-  "calibration_data": {
-    "camera_matrix": [[1000, 0, 320], [0, 1000, 240], [0, 0, 1]],
-    "distortion_coefficients": [0.1, -0.2, 0.0, 0.0, 0.0],
-    "reprojection_error": 0.5
-  }
+  "session_id": "cal_20261019_example",
+  "point_id": "table_top_left",
+  "screen_position": {"x": 38, "y": 43, "scale": [6, 6]},
+  "world_position": {"x": -1.27, "y": -0.635, "unit": "meters"},
+  "confidence": 1.0
 }
 ```
 
-### Color Calibration
-Perform automatic color calibration.
+## Vision and video
 
-```http
-POST /api/v1/calibration/colors
-Content-Type: application/json
+Vision operations are mounted under `/api/v1/vision`; video streaming and frame retrieval are under `/api/v1/stream/video`. The exact operation list and schemas are available from the running OpenAPI document. Spatial values returned by vision endpoints must follow the same explicit scale contract above. Video frames additionally include their actual pixel width and height; those frame dimensions describe the image, not a coordinate scale to infer for unrelated payloads.
 
-{
-  "use_current_frame": true
-}
-```
+## WebSocket
 
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Color calibration completed",
-  "color_ranges": {
-    "table_surface": {
-      "hue": [40, 80],
-      "saturation": [50, 255],
-      "value": [50, 200]
-    },
-    "cue_ball": {
-      "hue": [0, 180],
-      "saturation": [0, 30],
-      "value": [200, 255]
-    }
-  }
-}
-```
-
-### Calibration Status
-Get current calibration status.
-
-```http
-GET /api/v1/calibration/status
-```
-
-**Response:**
-```json
-{
-  "camera_calibrated": true,
-  "color_calibrated": true,
-  "geometry_calibrated": false,
-  "last_calibration": "2024-01-15T09:15:00Z",
-  "calibration_quality": {
-    "camera": "good",
-    "colors": "excellent",
-    "geometry": "not_calibrated"
-  }
-}
-```
-
-## Vision System
-
-### Start Vision Capture
-Start camera capture and processing.
-
-```http
-POST /api/v1/vision/start
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Vision capture started"
-}
-```
-
-### Stop Vision Capture
-Stop camera capture and processing.
-
-```http
-POST /api/v1/vision/stop
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Vision capture stopped"
-}
-```
-
-### Vision Statistics
-Get vision processing statistics.
-
-```http
-GET /api/v1/vision/stats
-```
-
-**Response:**
-```json
-{
-  "is_running": true,
-  "frames_processed": 45000,
-  "frames_dropped": 12,
-  "avg_fps": 28.5,
-  "avg_processing_time_ms": 12.3,
-  "detection_accuracy": {
-    "table": 0.95,
-    "balls": 0.89,
-    "cue": 0.76
-  },
-  "uptime_seconds": 3600.5,
-  "camera_connected": true
-}
-```
-
-### Set Region of Interest
-Set region of interest for vision processing.
-
-```http
-POST /api/v1/vision/roi
-Content-Type: application/json
-
-{
-  "corners": [
-    {"x": 100, "y": 50},
-    {"x": 900, "y": 50},
-    {"x": 900, "y": 650},
-    {"x": 100, "y": 650}
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "status": "success",
-  "message": "Region of interest set"
-}
-```
-
-## WebSocket API
-
-### Connection
-Connect to the WebSocket endpoint for real-time updates.
+The application provides `/api/v1/websocket/ws`. Connect and send a subscription message using the protocol schemas in `backend/api/websocket/schemas.py`:
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws');
-
-ws.onopen = function(event) {
-    console.log('Connected to WebSocket');
-};
-
-ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-    handleMessage(data);
-};
+const ws = new WebSocket('ws://localhost:8000/api/v1/websocket/ws');
+ws.onopen = () => ws.send(JSON.stringify({
+  type: 'subscribe',
+  timestamp: new Date().toISOString(),
+  data: {streams: ['state', 'trajectory', 'alert', 'config']}
+}));
 ```
 
-### Message Types
+Messages use an envelope containing `type`, `timestamp`, and `data`. State and trajectory coordinates follow the same scale rules as HTTP. Control notifications and errors retain message ordering. WebSocket video/frame broadcast is disabled; use the HTTP streaming/frame endpoints for video.
 
-#### Subscribe to Updates
-```json
-{
-  "type": "subscribe",
-  "channels": ["game_state", "performance", "alerts"]
-}
-```
+## Errors and request correlation
 
-#### Game State Updates
-```json
-{
-  "type": "game_state_update",
-  "timestamp": 1642248600.0,
-  "data": {
-    "balls": [...],
-    "table": {...}
-  }
-}
-```
-
-#### Performance Metrics
-```json
-{
-  "type": "performance_metrics",
-  "timestamp": 1642248600.0,
-  "data": {
-    "cpu_percent": 45.2,
-    "memory_percent": 62.1,
-    "vision_fps": 28.5
-  }
-}
-```
-
-#### System Alerts
-```json
-{
-  "type": "system_alert",
-  "timestamp": 1642248600.0,
-  "data": {
-    "alert_type": "warning",
-    "source": "vision",
-    "message": "Frame rate below threshold",
-    "threshold": 15.0,
-    "current_value": 12.3
-  }
-}
-```
-
-## Error Handling
-
-### Error Response Format
-All API errors follow a consistent format:
-
-```json
-{
-  "error": {
-    "code": "INVALID_REQUEST",
-    "message": "The request parameters are invalid",
-    "details": {
-      "field": "target_ball",
-      "reason": "Ball ID not found in current game state"
-    },
-    "timestamp": "2024-01-15T10:30:00Z"
-  }
-}
-```
-
-### Common Error Codes
-
-- `INVALID_REQUEST`: Request parameters are invalid
-- `NOT_FOUND`: Requested resource not found
-- `MODULE_UNAVAILABLE`: Required module is not available
-- `CALIBRATION_REQUIRED`: Operation requires calibration
-- `SYSTEM_ERROR`: Internal system error
-- `RATE_LIMITED`: Request rate limit exceeded
-
-### HTTP Status Codes
-
-- `200 OK`: Request successful
-- `201 Created`: Resource created successfully
-- `400 Bad Request`: Invalid request parameters
-- `404 Not Found`: Resource not found
-- `429 Too Many Requests`: Rate limit exceeded
-- `500 Internal Server Error`: Server error
-- `503 Service Unavailable`: Service temporarily unavailable
-
-## Rate Limiting
-
-### Limits
-- API endpoints: 60 requests per minute per IP
-- WebSocket connections: 5 connections per minute per IP
-- Burst allowance: 20 requests for API, 10 for WebSocket
-
-### Rate Limit Headers
-```http
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1642248660
-```
-
-## Examples
-
-### Python Client Example
-```python
-import requests
-import json
-
-# Get system status
-response = requests.get('http://localhost:8000/api/v1/system/status')
-status = response.json()
-print(f"System state: {status['system']['state']}")
-
-# Analyze current shot
-analysis_request = {
-    "target_ball": "ball_1",
-    "include_alternatives": True
-}
-response = requests.post(
-    'http://localhost:8000/api/v1/game/analyze',
-    json=analysis_request
-)
-analysis = response.json()
-print(f"Shot difficulty: {analysis['analysis']['difficulty']}")
-```
-
-### JavaScript WebSocket Example
-```javascript
-const ws = new WebSocket('ws://localhost:8000/ws');
-
-ws.onopen = function() {
-    // Subscribe to game state updates
-    ws.send(JSON.stringify({
-        type: 'subscribe',
-        channels: ['game_state']
-    }));
-};
-
-ws.onmessage = function(event) {
-    const message = JSON.parse(event.data);
-
-    if (message.type === 'game_state_update') {
-        updateGameDisplay(message.data);
-    }
-};
-
-function updateGameDisplay(gameState) {
-    // Update UI with new game state
-    console.log('Balls:', gameState.balls.length);
-}
-```
-
-### cURL Examples
-```bash
-# Get system health
-curl http://localhost:8000/health
-
-# Get detailed system status
-curl http://localhost:8000/api/v1/system/status
-
-# Reset game
-curl -X POST http://localhost:8000/api/v1/game/reset \
-  -H "Content-Type: application/json" \
-  -d '{"game_type": "practice"}'
-
-# Start vision capture
-curl -X POST http://localhost:8000/api/v1/vision/start
-```
-
-This API reference provides comprehensive documentation for all available endpoints and WebSocket communications in the Billiards Trainer system.
+HTTP responses use the registered domain error contracts and normalized framework status handling. Responses include an `X-Request-ID` correlation header; WebSocket connection errors carry the connection request ID. Server failures expose a public error message and correlation ID while diagnostic exception details remain in server logs.

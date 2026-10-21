@@ -1,80 +1,33 @@
-# Testing the Projector Application
+# Testing the Projector Application Locally
 
-## Option 1: Test on Target System (Recommended)
+All projector tests run on one Mac or Linux machine. The application binds its
+test UDP receiver and sender to loopback (`127.0.0.1`); these instructions do
+not use remote login or deployment.
 
-Since LÖVE2D is not installed locally but you have the target system, this is the best approach:
+## Run the native app and a test stream
 
-### Step 1: Install LÖVE2D on Target
-
-```bash
-ssh jchadwick@192.168.1.31
-sudo apt-get update && sudo apt-get install -y love
-```
-
-### Step 2: Deploy Test Files
-
-```bash
-# From your local machine
-cd frontend/projector
-rsync -av test_udp_sender.py jchadwick@192.168.1.31:/opt/billiards-trainer/frontend/projector/
-```
-
-### Step 3: Run Projector on Target
-
-```bash
-# SSH to target
-ssh jchadwick@192.168.1.31
-
-# Run projector in windowed test mode
-cd /opt/billiards-trainer/frontend/projector
-DISPLAY=:0 love . conf_windowed.lua
-```
-
-### Step 4: Send Test Data from Another Terminal
-
-```bash
-# In another terminal, SSH to target
-ssh jchadwick@192.168.1.31
-
-# Run test sender
-cd /opt/billiards-trainer/frontend/projector
-python3 test_udp_sender.py
-
-# Or send a single test message
-python3 test_udp_sender.py single
-```
-
-You should see:
-- Animated green trajectory line moving across the screen
-- Yellow collision markers appearing
-- White dashed aim line rotating
-- Ghost ball indicator (white circle with "8")
-
----
-
-## Option 2: Test Locally (Requires Installing LÖVE2D)
-
-### Install LÖVE2D on macOS
-
-```bash
-brew install --cask love
-```
-
-### Run Projector Locally
+Install LÖVE2D and Python 3 as described in [INSTALL.md](INSTALL.md), then run:
 
 ```bash
 cd frontend/projector
-
-# Run in windowed mode
 love . conf_windowed.lua
 ```
 
-### Send Test Data (in another terminal)
+In another terminal on the same machine, send a continuous test stream:
 
 ```bash
 cd frontend/projector
 python3 test_udp_sender.py
 ```
+
+Or start both locally with the helper script:
+
+```bash
+./test_local.sh 30 0.5
+```
+
+You should see an animated trajectory, collision markers, a rotating aim line,
+and a ghost ball. The local UDP status should show port 9999 as connected.
 
 ---
 
@@ -224,6 +177,25 @@ Billiards Projector Ready
 
 ## Advanced Testing
 
+### Coordinate contract
+
+Run the hardware-free receiver and geometry contract tests from the repository
+root, then run the Python UDP sender checks:
+
+```bash
+lua frontend/projector/test_coordinate_contract.lua
+python -m pytest frontend/projector/test_udp_sender.py frontend/projector/test_chessboard.py -q
+luac -p frontend/projector/core/coordinate_contract.lua
+```
+
+The tests cover nested state points, table corners and pockets, bounds, radii,
+motion vectors, event payloads, chessboard pixel extents, frame dimensions, and
+meter-tagged physical records. Coordinate-bearing packets without their owning
+space and identity scale are rejected before they reach callbacks. Physical
+meter values are checked separately and are never converted as table or
+projector coordinates. UDP payloads do not accept legacy pixel or unscaled
+geometry forms.
+
 ### Test Custom Messages
 
 Create a custom test message:
@@ -236,6 +208,8 @@ msg = {
     "type": "trajectory",
     "timestamp": time.time(),
     "data": {
+        "coordinate_space": "normalized_table",
+        "coordinate_scale": [1, 1],
         "paths": [{
             "points": [
                 {"x": 0.1, "y": 0.1},
@@ -250,21 +224,9 @@ msg = {
 sock.sendto(json.dumps(msg).encode(), ("127.0.0.1", 9999))
 ```
 
-### Monitor Network Traffic
-```bash
-# Watch UDP packets on port 9999
-sudo tcpdump -i lo0 udp port 9999 -A
-```
+## Backend integration status
 
----
-
-## Integration with Backend
-
-Once testing is complete, to integrate with the real backend:
-
-1. Add UDP broadcasting to `backend/api/websocket/broadcaster.py`
-2. Send trajectory data when calculated
-3. Use same message format as test sender
-4. Ensure backend and projector are on same network/machine
-
-See `PROJECTOR_DEPLOYMENT.md` for backend integration code examples.
+The projector currently receives only its custom local UDP message format. A
+production backend publisher and schema adapter are not implemented. The test
+sender verifies the local receiver contract; it is not evidence of live backend
+integration.

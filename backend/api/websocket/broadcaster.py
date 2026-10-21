@@ -5,15 +5,17 @@ import base64
 import contextlib
 import json
 import logging
+import math
 import time
 import zlib
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional, Union
 
 import numpy as np
-from config import config_manager
+
+from backend.config import config
 
 from .handler import websocket_handler
 from .manager import StreamType, websocket_manager
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 class NumpyEncoder(json.JSONEncoder):
     """JSON encoder that handles numpy types."""
 
-    def default(self, obj):
+    def default(self, obj: Any) -> Any:
         if isinstance(obj, (np.integer, np.int32, np.int64)):
             return int(obj)
         elif isinstance(obj, (np.floating, np.float32, np.float64)):
@@ -59,13 +61,8 @@ class BroadcastStats:
     average_latency: float = 0.0
     peak_latency: float = 0.0
     compression_enabled: bool = True
-    frame_metrics: FrameMetrics = None
+    frame_metrics: FrameMetrics = field(default_factory=FrameMetrics)
     validation_failures: int = 0
-
-    def __post_init__(self):
-        """Initialize frame metrics if not provided."""
-        if self.frame_metrics is None:
-            self.frame_metrics = FrameMetrics()
 
 
 class FrameBuffer:
@@ -73,22 +70,22 @@ class FrameBuffer:
 
     def __init__(
         self,
-        max_size: int = None,
-    ):
+        max_size: int | None = None,
+    ) -> None:
         """Initialize frame buffer with maximum size.
 
         Args:
             max_size: Maximum number of frames to store in buffer.
         """
         if max_size is None:
-            max_size = config_manager.get(
+            max_size = config.get(
                 "api.websocket.broadcaster.frame_buffer.max_size", 100
             )
         self.max_size = max_size
-        self.frames = deque(maxlen=max_size)
-        self.frame_times = deque(maxlen=max_size)
+        self.frames: deque[dict[str, Any]] = deque(maxlen=max_size)
+        self.frame_times: deque[float] = deque(maxlen=max_size)
 
-    def add_frame(self, frame_data: dict[str, Any]):
+    def add_frame(self, frame_data: dict[str, Any]) -> None:
         """Add frame to buffer with timestamp."""
         current_time = time.time()
         self.frames.append(frame_data)
@@ -109,10 +106,10 @@ class FrameBuffer:
 
         return (len(self.frame_times) - 1) / time_span
 
-    def cleanup_old_frames(self, max_age_seconds: float = None):
+    def cleanup_old_frames(self, max_age_seconds: float | None = None) -> None:
         """Remove frames older than specified age."""
         if max_age_seconds is None:
-            max_age_seconds = config_manager.get(
+            max_age_seconds = config.get(
                 "api.websocket.broadcaster.frame_buffer.max_age_seconds", 5.0
             )
         current_time = time.time()
@@ -126,32 +123,78 @@ class FrameBuffer:
 class MessageBroadcaster:
     """High-performance WebSocket message broadcaster with streaming optimization."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize message broadcaster with frame buffering and performance tracking."""
         self.frame_buffer = FrameBuffer()
         self.broadcast_stats = BroadcastStats()
-        self.compression_threshold = config_manager.get(
+        self.compression_threshold = config.get(
             "api.websocket.broadcaster.compression.threshold_bytes", 1024
         )
-        self.compression_level = config_manager.get(
+        self.compression_level = config.get(
             "api.websocket.broadcaster.compression.level", 6
         )
-        self.compression_ratio_threshold = config_manager.get(
+        self.compression_ratio_threshold = config.get(
             "api.websocket.broadcaster.compression.ratio_threshold", 0.9
         )
-        frame_queue_size = config_manager.get(
+        frame_queue_size = config.get(
             "api.websocket.broadcaster.frame_queue.max_size", 10
         )
-        self.frame_queue = asyncio.Queue(maxsize=frame_queue_size)
-        self.broadcast_tasks: dict[str, asyncio.Task] = {}
-        self.fps_limiter = defaultdict(lambda: 0.0)  # client_id -> last_frame_time
-        self.sequence_counters = defaultdict(int)  # stream_type -> sequence_number
+        self.frame_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=frame_queue_size
+        )
+        self.broadcast_tasks: dict[str, asyncio.Task[None]] = {}
+        self.fps_limiter: defaultdict[str, float] = defaultdict(
+            lambda: 0.0
+        )  # client_id -> last_frame_time
+        self.sequence_counters: defaultdict[str, int] = defaultdict(
+            int
+        )  # stream_type -> sequence_number
         self.is_streaming = False
         self._last_game_state: Optional[dict[str, Any]] = (
             None  # Track last state to detect changes
         )
 
-    async def start_streaming(self):
+    @staticmethod
+    def _is_scaled_point(point: object) -> bool:
+        """Return whether a point carries finite coordinates and scale factors.
+
+        Trajectory coordinates cross the WebSocket boundary in canonical image
+        space. Requiring the scale on every endpoint and collision prevents a
+        raw frame-space point from being silently treated as canonical.
+        """
+        if not isinstance(point, dict) or not {"x", "y", "scale"}.issubset(point):
+            return False
+
+        def finite_number(value: object) -> Optional[float]:
+            # bool is an int subclass, but is never a meaningful coordinate or
+            # scale. NumPy scalars are accepted because vision/physics may emit
+            # them before JSON serialization.
+            if isinstance(value, (bool, np.bool_)) or not isinstance(
+                value, (int, float, np.integer, np.floating)
+            ):
+                return None
+            try:
+                numeric_value = float(value)
+            except OverflowError:
+                return None
+            return numeric_value if math.isfinite(numeric_value) else None
+
+        x = finite_number(point["x"])
+        y = finite_number(point["y"])
+        scale = point["scale"]
+        return (
+            x is not None
+            and y is not None
+            and isinstance(scale, (list, tuple))
+            and len(scale) == 2
+            and all(
+                (numeric_factor := finite_number(scale_factor)) is not None
+                and numeric_factor > 0
+                for scale_factor in scale
+            )
+        )
+
+    async def start_streaming(self) -> None:
         """Start the broadcasting service."""
         if self.is_streaming:
             return
@@ -168,7 +211,7 @@ class MessageBroadcaster:
 
         logger.info("Message broadcaster started")
 
-    async def stop_streaming(self):
+    async def stop_streaming(self) -> None:
         """Stop the broadcasting service."""
         if not self.is_streaming:
             return
@@ -192,7 +235,7 @@ class MessageBroadcaster:
         format: str = "JPEG",
         quality: int = 85,
         fps: Optional[float] = None,
-    ):
+    ) -> None:
         """Broadcast video frame to all subscribed clients."""
         try:
             # Convert image data to base64
@@ -266,11 +309,13 @@ class MessageBroadcaster:
 
     async def broadcast_game_state(
         self,
-        balls: list[dict[str, Any]],
+        balls: object,
         cue: Optional[dict[str, Any]] = None,
         table: Optional[dict[str, Any]] = None,
         timestamp: Optional[datetime] = None,
-    ):
+        observation_status: Optional[dict[str, Any]] = None,
+        game_type: Optional[str] = None,
+    ) -> None:
         """Broadcast current game state to subscribers with validation.
 
         Args:
@@ -278,6 +323,9 @@ class MessageBroadcaster:
             cue: Optional cue stick information
             table: Optional table information
             timestamp: Optional timestamp for the state
+            observation_status: Phase, map trust and observation freshness from
+                the source vision result
+            game_type: Current game mode from the authoritative core state
 
         Returns:
             None. Logs warnings and returns early if validation fails.
@@ -294,11 +342,6 @@ class MessageBroadcaster:
             logger.warning(
                 f"broadcast_game_state: 'balls' must be a list, got {type(balls).__name__}"
             )
-            self.broadcast_stats.validation_failures += 1
-            return
-
-        if len(balls) == 0:
-            logger.debug("broadcast_game_state: Skipping broadcast - no balls detected")
             self.broadcast_stats.validation_failures += 1
             return
 
@@ -386,11 +429,62 @@ class MessageBroadcaster:
             "timestamp": (timestamp or datetime.now(timezone.utc)).isoformat(),
             "sequence": self._get_next_sequence("state"),
             "ball_count": len(balls),
+            "observation_status": observation_status,
+            "game_type": game_type,
             # Note: coordinate_metadata removed - scale is now mandatory in each Vector2D
         }
+        component_timestamps = (observation_status or {}).get(
+            "component_observation_timestamps"
+        )
+        component_ages = (
+            {
+                name: max(0.0, time.monotonic() - observed_at)
+                for name, observed_at in component_timestamps.items()
+                if isinstance(observed_at, (int, float))
+                and not isinstance(observed_at, bool)
+            }
+            if isinstance(component_timestamps, dict)
+            else {}
+        )
+        websocket_handler.record_performance_audit(
+            "state",
+            {
+                "event_type": "state_published",
+                "stream_sequence": state_data["sequence"],
+                "source_frame_number": (observation_status or {}).get(
+                    "source_frame_number"
+                ),
+                "source_timestamp": (observation_status or {}).get("source_timestamp"),
+                "source_timestamp_kind": (observation_status or {}).get(
+                    "source_timestamp_kind"
+                ),
+                "source_publication_monotonic_ns": (observation_status or {}).get(
+                    "source_publication_monotonic_ns"
+                ),
+                "source_process_id": (observation_status or {}).get(
+                    "source_process_id"
+                ),
+                "vision_instance_id": (observation_status or {}).get(
+                    "vision_instance_id"
+                ),
+                "vision_process_id": (observation_status or {}).get(
+                    "vision_process_id"
+                ),
+                "map_revision": (observation_status or {}).get("map_revision"),
+                "calibration_revision": (observation_status or {}).get(
+                    "calibration_revision"
+                ),
+                "component_observation_status": (observation_status or {}).get(
+                    "component_observation_status"
+                ),
+                "component_age_seconds": component_ages,
+                "ball_count": len(balls),
+                "cue_present": cue is not None,
+            },
+        )
 
         # Check if state has changed before logging
-        state_changed = self._has_state_changed(balls, cue, table)
+        state_changed = self._has_state_changed(balls, cue, table, game_type)
         if state_changed:
             logger.debug(
                 f"Broadcasting game state: {len(balls)} balls, cue={'present' if cue else 'absent'}"
@@ -400,6 +494,7 @@ class MessageBroadcaster:
                 "ball_count": len(balls),
                 "cue_present": cue is not None,
                 "table_present": table is not None,
+                "game_type": game_type,
             }
 
         # Broadcast via WebSocket
@@ -407,11 +502,22 @@ class MessageBroadcaster:
 
     async def broadcast_trajectory(
         self,
-        lines: list[dict[str, Any]],
-        collisions: Optional[list[dict[str, Any]]] = None,
+        lines: object,
+        collisions: object | None = None,
         confidence: float = 1.0,
         calculation_time_ms: float = 0.0,
-    ):
+        *,
+        prediction_status: str = "live",
+        spatial_valid: bool = True,
+        phase: Optional[str] = None,
+        source_frame_number: Optional[int] = None,
+        source_timestamp: Optional[float] = None,
+        source_timestamp_kind: Optional[str] = None,
+        map_revision: Any = None,
+        calibration_revision: Any = None,
+        prediction_settings: Optional[dict[str, Any]] = None,
+        source_observations: Optional[dict[str, Any]] = None,
+    ) -> None:
         """Broadcast trajectory calculations to subscribers with validation.
 
         Args:
@@ -419,6 +525,16 @@ class MessageBroadcaster:
             collisions: Optional list of collision dictionaries
             confidence: Confidence score for the trajectory calculation
             calculation_time_ms: Time taken to calculate the trajectory
+            prediction_status: Lifecycle state of the prediction
+            spatial_valid: Whether the lines remain aligned to calibration
+            phase: Vision scheduler phase when calculated or retained
+            source_frame_number: Source frame sequence used for prediction
+            source_timestamp: Source publication timestamp, not exposure time
+            source_timestamp_kind: Meaning of the source timestamp
+            map_revision: Stable ball-map revision used for calculation
+            calibration_revision: Calibration revision used for calculation
+            prediction_settings: Settings used for the calculation
+            source_observations: Component freshness/provenance metadata
 
         Returns:
             None. Logs warnings and returns early if validation fails.
@@ -438,7 +554,9 @@ class MessageBroadcaster:
             self.broadcast_stats.validation_failures += 1
             return
 
-        # Validate each line is a dict
+        # Validate each line and its endpoints. Lines are geometry, so both
+        # endpoints must state their coordinate scale even when the scale is
+        # the canonical identity pair [1, 1].
         for i, line in enumerate(lines):
             if not isinstance(line, dict):
                 logger.warning(
@@ -446,6 +564,18 @@ class MessageBroadcaster:
                 )
                 self.broadcast_stats.validation_failures += 1
                 return
+
+            for endpoint_name in ("start", "end"):
+                endpoint = line.get(endpoint_name)
+                if not self._is_scaled_point(endpoint):
+                    logger.warning(
+                        "broadcast_trajectory: line at index %s has invalid %s "
+                        "point; expected finite x/y and two positive finite scale factors",
+                        i,
+                        endpoint_name,
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
 
         # Validate collisions parameter if provided
         if collisions is not None:
@@ -465,16 +595,15 @@ class MessageBroadcaster:
                     self.broadcast_stats.validation_failures += 1
                     return
 
-                # Common collision fields to check (if present)
-                if "position" in collision:
-                    position = collision["position"]
-                    if not isinstance(position, (list, tuple)) or len(position) < 2:
-                        logger.warning(
-                            f"broadcast_trajectory: collision at index {i} has invalid position format. "
-                            f"Expected list/tuple with at least 2 elements, got {type(position).__name__} with value {position}"
-                        )
-                        self.broadcast_stats.validation_failures += 1
-                        return
+                position = collision.get("position")
+                if not self._is_scaled_point(position):
+                    logger.warning(
+                        "broadcast_trajectory: collision at index %s has invalid "
+                        "position; expected finite x/y and two positive finite scale factors",
+                        i,
+                    )
+                    self.broadcast_stats.validation_failures += 1
+                    return
 
         trajectory_data = {
             "lines": lines,
@@ -485,7 +614,36 @@ class MessageBroadcaster:
             "sequence": self._get_next_sequence("trajectory"),
             "line_count": len(lines),
             "collision_count": len(collisions or []),
+            "prediction_status": prediction_status,
+            "spatial_valid": spatial_valid,
+            "phase": phase,
+            "source_frame_number": source_frame_number,
+            "source_timestamp": source_timestamp,
+            "source_timestamp_kind": source_timestamp_kind,
+            "map_revision": map_revision,
+            "calibration_revision": calibration_revision,
+            "prediction_settings": prediction_settings or {},
+            "source_observations": source_observations or {},
         }
+        websocket_handler.record_performance_audit(
+            "trajectory",
+            {
+                "event_type": "trajectory_published",
+                "stream_sequence": trajectory_data["sequence"],
+                "source_frame_number": source_frame_number,
+                "source_timestamp": source_timestamp,
+                "source_timestamp_kind": source_timestamp_kind,
+                "source_publication_monotonic_ns": (
+                    (source_observations or {}).get("source_publication_monotonic_ns")
+                ),
+                "map_revision": map_revision,
+                "calibration_revision": calibration_revision,
+                "prediction_status": prediction_status,
+                "spatial_valid": spatial_valid,
+                "line_count": len(lines),
+                "collision_count": len(collisions or []),
+            },
+        )
 
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.TRAJECTORY, trajectory_data)
@@ -497,9 +655,8 @@ class MessageBroadcaster:
         code: str,
         details: Optional[dict[str, Any]] = None,
         target_clients: Optional[list[str]] = None,
-        target_users: Optional[list[str]] = None,
-    ):
-        """Broadcast alert message with targeting options."""
+    ) -> None:
+        """Broadcast an alert or target specific anonymous client connections."""
         alert_data = {
             "level": level,
             "message": message,
@@ -509,10 +666,10 @@ class MessageBroadcaster:
             "sequence": self._get_next_sequence("alert"),
         }
 
-        if target_clients or target_users:
+        if target_clients:
             # Use manager for targeted alerts
             await websocket_manager.send_alert(
-                level, message, code, details, target_clients, target_users
+                level, message, code, details, target_clients
             )
         else:
             # Broadcast to all alert subscribers
@@ -523,7 +680,7 @@ class MessageBroadcaster:
         config_section: str,
         config_data: dict[str, Any],
         change_summary: Optional[str] = None,
-    ):
+    ) -> None:
         """Broadcast configuration updates to subscribers."""
         config_update_data = {
             "section": config_section,
@@ -538,7 +695,7 @@ class MessageBroadcaster:
     async def broadcast_performance_stats(
         self,
         performance_data: dict[str, Any],
-    ):
+    ) -> None:
         """Broadcast vision performance statistics to subscribers.
 
         Args:
@@ -549,7 +706,7 @@ class MessageBroadcaster:
 
     async def send_performance_metrics(
         self, target_clients: Optional[list[str]] = None
-    ):
+    ) -> None:
         """Send performance metrics to specified clients only.
 
         IMPORTANT: Metrics are NO LONGER automatically broadcast to all clients
@@ -642,7 +799,9 @@ class MessageBroadcaster:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-    async def _broadcast_to_stream(self, stream_type: StreamType, data: dict[str, Any]):
+    async def _broadcast_to_stream(
+        self, stream_type: StreamType, data: dict[str, Any]
+    ) -> None:
         """Internal method to broadcast to a stream with performance tracking."""
         start_time = time.time()
 
@@ -671,7 +830,7 @@ class MessageBroadcaster:
             self.broadcast_stats.failed_sends += 1
             logger.error(f"Failed to broadcast to {stream_type.value}: {e}")
 
-    async def _process_frame_queue(self):
+    async def _process_frame_queue(self) -> None:
         """Process queued frames for streaming."""
         while self.is_streaming:
             try:
@@ -692,7 +851,7 @@ class MessageBroadcaster:
                     session = websocket_manager.sessions[client_id]
 
                     # Check FPS limiting
-                    target_fps = config_manager.get(
+                    target_fps = config.get(
                         "api.websocket.broadcaster.fps.default_target_fps", 30.0
                     )
                     if StreamType.FRAME in session.subscription_filters:
@@ -729,12 +888,12 @@ class MessageBroadcaster:
             except Exception as e:
                 logger.error(f"Error in frame processing: {e}")
 
-    async def _cleanup_task(self):
+    async def _cleanup_task(self) -> None:
         """Periodic cleanup of old data."""
-        cleanup_interval = config_manager.get(
+        cleanup_interval = config.get(
             "api.websocket.broadcaster.cleanup.interval_seconds", 30
         )
-        fps_limiter_cleanup_age = config_manager.get(
+        fps_limiter_cleanup_age = config.get(
             "api.websocket.broadcaster.fps.limiter_cleanup_age_seconds", 300
         )
 
@@ -771,6 +930,7 @@ class MessageBroadcaster:
         balls: list[dict[str, Any]],
         cue: Optional[dict[str, Any]],
         table: Optional[dict[str, Any]],
+        game_type: Optional[str] = None,
     ) -> bool:
         """Check if game state has changed since last broadcast."""
         if self._last_game_state is None:
@@ -780,6 +940,7 @@ class MessageBroadcaster:
             "ball_count": len(balls),
             "cue_present": cue is not None,
             "table_present": table is not None,
+            "game_type": game_type,
         }
 
         return current_state != self._last_game_state

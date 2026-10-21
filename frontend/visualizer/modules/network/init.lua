@@ -14,11 +14,13 @@ local Network = {
     -- Network configuration (will be loaded from Config module)
     config = {
         host = "localhost",
-        port = 8080,
+        port = 8000,
+        path = "/api/v1/websocket/ws",
         protocol = "ws",
-        reconnectInterval = 5.0,  -- Seconds between reconnection attempts
+        reconnectInitialDelay = 1.0,  -- Connection manager delays are seconds
+        reconnectMaxDelay = 30.0,
         heartbeatInterval = 30.0,  -- Seconds between heartbeat pings
-        connectionTimeout = 10.0,  -- Seconds before connection timeout
+        heartbeatTimeout = 10.0,  -- Seconds before connection timeout
         autoConnect = false,  -- Auto-connect on init
     },
 
@@ -30,6 +32,31 @@ local Network = {
     messageHandler = nil,  -- Reference to core MessageHandler
 }
 
+--- Build a WebSocket client from the current validated network settings.
+function Network:createWebSocket()
+    local reconnectEnabled = self.config.reconnectEnabled ~= false
+    local wsConfig = {
+        onmessage = function(message) self:handleMessage(message) end,
+        onopen = function() self:onConnect() end,
+        onclose = function(code, reason) self:onDisconnect(reason) end,
+        onerror = function(error) self:onError(error) end,
+        reconnect_enabled = reconnectEnabled,
+        reconnect_delay = self.config.reconnectInitialDelay * 1000,
+        max_reconnect_delay = self.config.reconnectMaxDelay * 1000,
+        max_reconnect_attempts = 0,
+    }
+
+    if self.config.websocket_url then
+        wsConfig.url = self.config.websocket_url
+    else
+        wsConfig.host = self.config.host
+        wsConfig.port = self.config.port
+        wsConfig.path = self.config.path
+    end
+
+    self.websocket = WebSocket.new(wsConfig)
+end
+
 --- Initialize the network module
 -- Sets up WebSocket client and connection state management
 function Network:init()
@@ -39,7 +66,7 @@ function Network:init()
     if _G.Config then
         local config_instance = _G.Config
 
-        -- Get websocket URL (e.g., "ws://localhost:8000/api/v1/ws")
+        -- Get websocket URL (e.g., "ws://localhost:8000/api/v1/websocket/ws")
         local websocket_url = config_instance:get("network.websocket_url")
         if websocket_url then
             -- Store full URL, will be parsed by WebSocket module
@@ -49,8 +76,14 @@ function Network:init()
 
         -- Load other network settings
         self.config.autoConnect = config_instance:get("network.auto_connect") or false
-        self.config.reconnectInterval = config_instance:get("network.reconnect_delay") or 5000
-        self.config.heartbeatInterval = config_instance:get("network.heartbeat_interval") or 30000
+        -- The shared visualizer config stores WebSocket delays in milliseconds;
+        -- Connection uses seconds, so convert once at this boundary.
+        self.config.reconnectInitialDelay =
+            (config_instance:get("network.reconnect_delay") or 1000) / 1000
+        self.config.reconnectMaxDelay =
+            (config_instance:get("network.max_reconnect_delay") or 30000) / 1000
+        self.config.heartbeatInterval =
+            (config_instance:get("network.heartbeat_interval") or 30000) / 1000
 
         print("Network configuration loaded from Config module")
     else
@@ -66,35 +99,20 @@ function Network:init()
     end
 
     -- Initialize connection manager with loaded config
+    local reconnectEnabled = _G.Config
+        and _G.Config:get("network.reconnect_enabled")
+    if reconnectEnabled == nil then reconnectEnabled = true end
     self.connection = Connection.new({
-        reconnectInterval = self.config.reconnectInterval,
+        reconnectInitialDelay = self.config.reconnectInitialDelay,
+        reconnectMaxDelay = self.config.reconnectMaxDelay,
         heartbeatInterval = self.config.heartbeatInterval,
-        connectionTimeout = self.config.connectionTimeout,
-        autoReconnect = _G.Config and _G.Config:get("network.reconnect_enabled") or true,
+        heartbeatTimeout = self.config.heartbeatTimeout,
+        autoReconnect = reconnectEnabled,
     })
 
-    -- Initialize WebSocket client with callbacks
-    local ws_config = {
-        onmessage = function(message) self:handleMessage(message) end,
-        onopen = function() self:onConnect() end,
-        onclose = function(code, reason) self:onDisconnect(reason) end,
-        onerror = function(error) self:onError(error) end,
-        reconnect_enabled = _G.Config and _G.Config:get("network.reconnect_enabled") or true,
-        reconnect_delay = self.config.reconnectInterval or 1000,  -- milliseconds
-        max_reconnect_delay = _G.Config and _G.Config:get("network.max_reconnect_delay") or 30000,
-        max_reconnect_attempts = 0,  -- Unlimited
-    }
-
-    -- Use full URL if available, otherwise use host/port/path
-    if self.config.websocket_url then
-        ws_config.url = self.config.websocket_url
-    else
-        ws_config.host = self.config.host
-        ws_config.port = self.config.port
-        ws_config.path = "/"
-    end
-
-    self.websocket = WebSocket.new(ws_config)
+    -- Initialize WebSocket client from the configured endpoint.
+    self.config.reconnectEnabled = reconnectEnabled
+    self:createWebSocket()
 
     -- Initialize statistics tracking
     self.stats = {
@@ -268,7 +286,7 @@ function Network:onConnect()
     -- Send queued messages
     self:flushMessageQueue()
 
-    -- TODO: Implement connection handshake/authentication
+    -- TODO: Implement the protocol-version handshake; this client uses no credentials
     -- TODO: Send initial state sync request
 end
 
@@ -359,44 +377,54 @@ end
 --- Configure the network module
 -- @param config table Configuration options
 function Network:configure(config)
-    -- Handle websocket_url format (e.g., "ws://localhost:8080")
+    -- Preserve the complete endpoint when an API WebSocket URL changes.
     if config.websocket_url then
-        local protocol, host, port = config.websocket_url:match("^(%w+)://([^:]+):(%d+)$")
-        if protocol and host and port then
-            self.config.protocol = protocol
-            self.config.host = host
-            self.config.port = tonumber(port)
-            print(string.format("Updated WebSocket config: %s://%s:%d", protocol, host, port))
+        local parsed = WebSocket.parseURL(config.websocket_url)
+        if parsed then
+            self.config.websocket_url = config.websocket_url
+            self.config.protocol = "ws"
+            self.config.host = parsed.host
+            self.config.port = parsed.port
+            self.config.path = parsed.path
+            print("Updated WebSocket config: " .. config.websocket_url)
         else
             print("Warning: Invalid websocket_url format: " .. config.websocket_url)
         end
+    elseif config.host or config.port or config.path or config.protocol then
+        -- Host/port/path is the explicit alternative to a complete URL.
+        self.config.websocket_url = nil
     end
 
     -- Handle individual configuration options
     if config.host then self.config.host = config.host end
     if config.port then self.config.port = config.port end
+    if config.path then self.config.path = config.path end
     if config.protocol then self.config.protocol = config.protocol end
-    if config.reconnectInterval then self.config.reconnectInterval = config.reconnectInterval end
+    if config.reconnectInitialDelay then
+        self.config.reconnectInitialDelay = config.reconnectInitialDelay
+    end
+    if config.reconnectMaxDelay then
+        self.config.reconnectMaxDelay = config.reconnectMaxDelay
+    end
     if config.heartbeatInterval then self.config.heartbeatInterval = config.heartbeatInterval end
-    if config.connectionTimeout then self.config.connectionTimeout = config.connectionTimeout end
+    if config.heartbeatTimeout then self.config.heartbeatTimeout = config.heartbeatTimeout end
     if config.autoConnect ~= nil then self.config.autoConnect = config.autoConnect end
 
     -- Reconfigure connection manager if already initialized
     if self.connection then
         self.connection:configure({
-            reconnectInterval = self.config.reconnectInterval,
+            reconnectInitialDelay = self.config.reconnectInitialDelay,
+            reconnectMaxDelay = self.config.reconnectMaxDelay,
             heartbeatInterval = self.config.heartbeatInterval,
-            connectionTimeout = self.config.connectionTimeout,
+            heartbeatTimeout = self.config.heartbeatTimeout,
         })
     end
 
-    -- Note: WebSocket reconfiguration requires reconnection
-    -- If WebSocket is already initialized and connected, we need to disconnect and reconnect
-    if self.websocket and self.websocket:isConnected() then
-        print("Warning: WebSocket configuration changed, reconnection required")
-        self:disconnect()
-        self.websocket = nil
-        -- Re-initialize with new config on next connect() call
+    -- Rebuild the client so endpoint and retry-setting changes apply while
+    -- disconnected, connecting, or already connected.
+    if self.websocket then
+        self.websocket:disconnect()
+        self:createWebSocket()
     end
 
     print("Network configuration updated")

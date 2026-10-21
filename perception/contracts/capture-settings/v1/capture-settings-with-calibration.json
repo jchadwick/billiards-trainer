@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "configuration_revision": 1,
+  "requested": {
+    "device_id": "device-index:0",
+    "backend": "auto",
+    "requested_profile": {
+      "width_px": 1000,
+      "height_px": 500,
+      "frame_rate": {
+        "frames_numerator": 30,
+        "seconds_denominator": 1
+      },
+      "pixel_format": "RGB8"
+    },
+    "expected_negotiated_profile": {
+      "width_px": 1000,
+      "height_px": 500,
+      "frame_rate": {
+        "frames_numerator": 30,
+        "seconds_denominator": 1
+      },
+      "pixel_format": "RGB8"
+    },
+    "camera_profile_id": "camera-profile-v1:21d8400157346e3c2af0451b71faee5dae46eb252508a4db78d61b0aaba94fa6",
+    "image_space": "rectified",
+    "rectification_revision": 2,
+    "calibration_revision": 3,
+    "calibration": {
+      "schema_version": 1,
+      "calibration_revision": 3,
+      "camera_profile_id": "camera-profile-v1:21d8400157346e3c2af0451b71faee5dae46eb252508a4db78d61b0aaba94fa6",
+      "rectification_revision": 2,
+      "image_space": "rectified",
+      "source_width_px": 1000,
+      "source_height_px": 500,
+      "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+      "table_width_mm": 2000.0,
+      "table_height_mm": 1000.0,
+      "pixel_to_table_mm": [
+        [
+          2.125047713540181,
+          0.035984676455781225,
+          -1061.5614222639047
+        ],
+        [
+          -0.06122075982631654,
+          2.2166231098295546,
+          -541.0409880660932
+        ],
+        [
+          8.754572101127949e-06,
+          -0.00015861699172252267,
+          1.0
+        ]
+      ]
+    },
+    "timestamp_semantics": {
+      "kind": "read_completion_only"
+    },
+    "control_requirements": {
+      "manual_exposure": false,
+      "automatic_exposure": true,
+      "gain_control": true
+    },
+    "requested_controls": {
+      "exposure_mode": "auto",
+      "exposure_value": null,
+      "gain": 1.0,
+      "brightness": 0.5,
+      "contrast": 0.5,
+      "saturation": 0.5,
+      "auto_focus": true,
+      "buffer_size": 2
+    },
+    "reconnect_policy": {
+      "enabled": true,
+      "delay_seconds": 1.0,
+      "maximum_attempts": 5,
+      "stop_timeout_seconds": 5.0
+    },
+    "maximum_frame_age_ms": 100,
+    "maximum_rgb_frame_bytes": 25165824,
+    "maximum_aggregate_rgb_frame_bytes": 75497472
+  }
+}

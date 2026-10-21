@@ -1,21 +1,12 @@
 """Logs API endpoints for retrieving application logs."""
 
 import logging
-import os
-from pathlib import Path
 from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 
-try:
-    from ...utils.logging import get_log_directory
-except ImportError:
-    # Fallback for when relative import fails
-    def get_log_directory() -> Path:
-        """Get the configured log directory path."""
-        return Path(os.getenv("LOG_DIR", "logs"))
-
+from backend.utils.logging import get_log_directory
 
 logger = logging.getLogger(__name__)
 

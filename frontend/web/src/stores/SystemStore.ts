@@ -1,4 +1,5 @@
 import { makeAutoObservable, runInAction } from 'mobx';
+import type { MessageType, WebSocketMessage as ApiWebSocketMessage } from '../types/api';
 import type {
   SystemStatus,
   SystemError,
@@ -6,6 +7,7 @@ import type {
   SystemUpdateMessage,
   ActionResult
 } from './types';
+import { createWebSocketClient, WebSocketClient } from '../services/websocket-client';
 
 export class SystemStore {
   // Observable state
@@ -23,17 +25,22 @@ export class SystemStore {
   lastHealthCheck: any = null;
   lastHealthUpdate: Date | null = null;
 
-  private websocket: WebSocket | null = null;
-  private heartbeatInterval: NodeJS.Timeout | null = null;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000; // Start with 1 second
-  private websocketUrl: string | null = null;
+  private websocketClient: WebSocketClient | null = null;
+  private readonly injectedWebSocketClient: WebSocketClient | null;
+  private ownsWebSocketClient = false;
+  private registeredWebSocketClient: WebSocketClient | null = null;
   private messageRouter: ((message: any) => void) | null = null;
 
-  constructor() {
-    makeAutoObservable(this, {}, { autoBind: true });
+  constructor(websocketClient?: WebSocketClient) {
+    this.injectedWebSocketClient = websocketClient ?? null;
+    this.websocketClient = websocketClient ?? null;
+    makeAutoObservable(this, {
+      injectedWebSocketClient: false,
+      websocketClient: false,
+      ownsWebSocketClient: false,
+      registeredWebSocketClient: false,
+      messageRouter: false,
+    } as any, { autoBind: true });
   }
 
   // Computed values
@@ -65,47 +72,18 @@ export class SystemStore {
   async connect(websocketUrl: string): Promise<ActionResult> {
     try {
       this.updateWebSocketStatus('connecting');
-      this.websocketUrl = websocketUrl;
+      this.websocketClient ??= this.injectedWebSocketClient ?? createWebSocketClient({ url: websocketUrl });
+      this.ownsWebSocketClient = this.injectedWebSocketClient === null;
+      this.websocketClient.updateConfig({ url: websocketUrl, autoReconnect: true });
+      this.registerWebSocketHandlers(this.websocketClient);
 
-      // Use API client for WebSocket creation
-      const { apiClient } = await import('../api/client');
-      this.websocket = apiClient.createWebSocket();
-
-      this.websocket.onopen = () => {
-        runInAction(() => {
-          this.status.isConnected = true;
-          this.status.websocketStatus = 'connected';
-          this.reconnectAttempts = 0;
-          this.startHeartbeat();
-          this.addInfo('System', 'Connected to backend successfully');
-        });
-      };
-
-      this.websocket.onmessage = (event) => {
-        this.handleWebSocketMessage(event);
-      };
-
-      this.websocket.onclose = (event) => {
-        runInAction(() => {
-          this.status.isConnected = false;
-          this.status.websocketStatus = 'disconnected';
-          this.stopHeartbeat();
-
-          if (event.wasClean) {
-            this.addInfo('System', 'Connection closed cleanly');
-          } else {
-            this.addError('System', `Connection lost: ${event.reason || 'Unknown reason'}`);
-            this.scheduleReconnect();
-          }
-        });
-      };
-
-      this.websocket.onerror = (error) => {
-        runInAction(() => {
-          this.status.websocketStatus = 'error';
-          this.addError('System', 'WebSocket connection error');
-        });
-      };
+      // System and live state share this transport. The client retains this
+      // subscription and restores it after reconnect without a second socket.
+      this.websocketClient.subscribe(['state']);
+      await this.websocketClient.connect();
+      if (this.websocketClient.isConnected && !this.status.isConnected) {
+        this.handleConnectionStateChange('connected');
+      }
 
       return {
         success: true,
@@ -122,12 +100,7 @@ export class SystemStore {
   }
 
   disconnect(): void {
-    if (this.websocket) {
-      this.websocket.close(1000, 'User requested disconnect');
-      this.websocket = null;
-    }
-    this.stopHeartbeat();
-    this.clearReconnectTimeout();
+    this.websocketClient?.disconnect();
 
     runInAction(() => {
       this.status.isConnected = false;
@@ -137,7 +110,7 @@ export class SystemStore {
   }
 
   async sendMessage(message: WebSocketMessage): Promise<ActionResult> {
-    if (!this.websocket || this.websocket.readyState !== WebSocket.OPEN) {
+    if (!this.websocketClient?.isConnected) {
       return {
         success: false,
         error: 'WebSocket is not connected',
@@ -146,7 +119,14 @@ export class SystemStore {
     }
 
     try {
-      this.websocket.send(JSON.stringify(message));
+      const transportMessage = {
+        ...message,
+        type: message.type as MessageType,
+        timestamp: message.timestamp.toISOString(),
+      };
+      if (!this.websocketClient.send(transportMessage)) {
+        throw new Error('WebSocket message could not be sent');
+      }
       return {
         success: true,
         timestamp: new Date()
@@ -196,80 +176,53 @@ export class SystemStore {
     });
   }
 
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.heartbeatInterval = setInterval(() => {
-      this.sendHeartbeat();
-    }, 30000); // Send heartbeat every 30 seconds
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
-  private sendHeartbeat(): void {
-    const heartbeatMessage: WebSocketMessage = {
-      type: 'heartbeat',
-      timestamp: new Date(),
-      data: { clientTime: Date.now() }
-    };
-
-    this.sendMessage(heartbeatMessage);
-  }
-
-  private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      this.addCritical('System', 'Max reconnection attempts reached');
-      return;
-    }
-
-    this.clearReconnectTimeout();
-
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts); // Exponential backoff
-    this.reconnectAttempts++;
-
-    this.reconnectTimeout = setTimeout(async () => {
-      if (this.status.websocketStatus === 'disconnected' && this.websocketUrl) {
-        this.addInfo('System', `Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-        await this.connect(this.websocketUrl);
-      }
-    }, delay);
-  }
-
-  private clearReconnectTimeout(): void {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-  }
-
   // Public method to set message router
   addMessageRouter = (router: (message: any) => void): void => {
     this.messageRouter = router;
   }
 
-  private handleWebSocketMessage(event: MessageEvent): void {
+  private registerWebSocketHandlers(client: WebSocketClient): void {
+    if (this.registeredWebSocketClient === client) return;
+    if (this.registeredWebSocketClient) {
+      this.registeredWebSocketClient.offAny(this.handleWebSocketMessage);
+      this.registeredWebSocketClient.offConnectionState(this.handleConnectionStateChange);
+    }
+    client.onAny(this.handleWebSocketMessage);
+    client.onConnectionState(this.handleConnectionStateChange);
+    this.registeredWebSocketClient = client;
+  }
+
+  private handleConnectionStateChange(state: string, error?: Error): void {
+    runInAction(() => {
+      this.status.isConnected = state === 'connected';
+      this.status.websocketStatus = state === 'connected'
+        ? 'connected'
+        : state === 'error'
+          ? 'error'
+          : state === 'disconnected'
+            ? 'disconnected'
+            : 'connecting';
+      if (state === 'connected') this.addInfo('System', 'Connected to backend successfully');
+      if (error) this.addError('System', error.message);
+    });
+  }
+
+  private handleWebSocketMessage(message: ApiWebSocketMessage): void {
     try {
-      const message = JSON.parse(event.data) as WebSocketMessage;
+      // Route every valid server message first so other stores can retain
+      // existing payload contracts without owning the transport.
+      this.messageRouter?.(message);
 
-      // First, route message to other stores if router is available
-      if (this.messageRouter) {
-        this.messageRouter(message);
-      }
-
-      // Then handle system-specific messages
-      switch (message.type) {
+      switch (message.type as string) {
         case 'heartbeat_response':
+        case 'pong':
           runInAction(() => {
             this.status.lastHeartbeat = new Date();
           });
           break;
 
         case 'system_update':
-          this.handleSystemUpdate(message as SystemUpdateMessage);
+          this.handleSystemUpdate(message as unknown as SystemUpdateMessage);
           break;
 
         case 'version_info':
@@ -279,13 +232,24 @@ export class SystemStore {
           break;
 
         default:
-          // Unknown message types are logged but not handled
-          console.debug('Unknown WebSocket message type:', message.type);
           break;
       }
     } catch (error) {
       this.addError('System', `Failed to parse WebSocket message: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  }
+
+  /** Detach store callbacks and release the client only when this store owns it. */
+  destroy(): void {
+    if (this.registeredWebSocketClient) {
+      this.registeredWebSocketClient.offAny(this.handleWebSocketMessage);
+      this.registeredWebSocketClient.offConnectionState(this.handleConnectionStateChange);
+      this.registeredWebSocketClient = null;
+    }
+    if (this.ownsWebSocketClient) this.websocketClient?.destroy();
+    this.websocketClient = null;
+    this.status.isConnected = false;
+    this.status.websocketStatus = 'disconnected';
   }
 
   private handleSystemUpdate(message: SystemUpdateMessage): void {
@@ -344,9 +308,10 @@ export class SystemStore {
       const response = await apiClient.getMetrics();
 
       if (response.success && response.data) {
+        const data = response.data;
         // Store metrics data for use by dashboard components
         runInAction(() => {
-          this.lastMetrics = response.data;
+          this.lastMetrics = data;
           this.lastMetricsUpdate = new Date();
         });
         this.addInfo('System', 'Metrics refreshed successfully');
@@ -364,9 +329,10 @@ export class SystemStore {
       const response = await apiClient.getHealth(true, false);
 
       if (response.success && response.data) {
+        const data = response.data;
         runInAction(() => {
-          this.status.backendVersion = response.data.version;
-          this.lastHealthCheck = response.data;
+          this.status.backendVersion = data.version;
+          this.lastHealthCheck = data;
           this.lastHealthUpdate = new Date();
         });
         this.addInfo('System', 'Module status refreshed successfully');
@@ -384,20 +350,21 @@ export class SystemStore {
       const response = await apiClient.getHealth(true, true);
 
       if (response.success && response.data) {
+        const data = response.data;
         // Update internal state
         runInAction(() => {
-          this.status.backendVersion = response.data.version;
-          this.lastHealthCheck = response.data;
+          this.status.backendVersion = data.version;
+          this.lastHealthCheck = data;
           this.lastHealthUpdate = new Date();
         });
 
         return {
-          status: response.data?.status || 'unknown',
-          timestamp: response.data?.timestamp || new Date().toISOString(),
-          uptime: response.data?.uptime || 0,
-          version: response.data?.version || 'unknown',
-          components: response.data?.components || {},
-          metrics: response.data?.metrics
+          status: data?.status || 'unknown',
+          timestamp: data?.timestamp || new Date().toISOString(),
+          uptime: data?.uptime || 0,
+          version: data?.version || 'unknown',
+          components: data?.components || {},
+          metrics: data?.metrics
         };
       } else {
         // Return fallback data based on current connection state
@@ -660,9 +627,4 @@ export class SystemStore {
     }
   }
 
-  // Cleanup method
-  destroy(): void {
-    this.disconnect();
-    this.clearReconnectTimeout();
-  }
 }

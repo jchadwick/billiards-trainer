@@ -3,24 +3,18 @@
 import asyncio
 import logging
 import shutil
-import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
 import numpy as np
-from api.dependencies import ApplicationState, get_app_state
-from api.models.common import ErrorCode
-from api.models.vision_models import ModelInfoResponse, ModelUploadResponse
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
+from backend.api.dependencies import ApplicationState, get_app_state
+from backend.api.middleware.error_handler import CustomHTTPException
+from backend.api.models.vision_models import ModelInfoResponse, ModelUploadResponse
 from backend.vision.detection.yolo_detector import ModelValidationError, YOLODetector
 
 logger = logging.getLogger(__name__)
@@ -174,6 +168,7 @@ async def upload_model(
                 model_name=version_name,
                 validation_results=validation_results,
                 inference_test=inference_test_results,
+                error=None,
             )
 
         except HTTPException:
@@ -238,10 +233,7 @@ async def get_model_info() -> ModelInfoResponse:
 
     except Exception as e:
         logger.error(f"Error getting model info: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get model info: {str(e)}",
-        )
+        raise CustomHTTPException("PROC_001") from e
 
 
 @router.post(
@@ -299,10 +291,7 @@ async def load_model(model_name: str) -> dict[str, Any]:
         success = await asyncio.to_thread(detector.reload_model, str(model_path))
 
         if not success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to load model: {model_name}",
-            )
+            raise CustomHTTPException("PROC_001")
 
         return {
             "success": True,
@@ -315,10 +304,7 @@ async def load_model(model_name: str) -> dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"Error loading model: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to load model: {str(e)}",
-        )
+        raise CustomHTTPException("PROC_001") from e
 
 
 @router.post(
@@ -425,10 +411,7 @@ async def reload_yolo_model(
             # Reload failed but detector handled it gracefully
             (detector.get_model_info() if hasattr(detector, "get_model_info") else {})
 
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to reload model: {request.model_path}. Previous model may still be active.",
-            )
+            raise CustomHTTPException("PROC_001")
 
         # Get updated model info
         new_model_info = (
@@ -455,7 +438,4 @@ async def reload_yolo_model(
         )
     except Exception as e:
         logger.error(f"Unexpected error during model reload: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred during model reload: {str(e)}",
-        )
+        raise CustomHTTPException("PROC_001") from e

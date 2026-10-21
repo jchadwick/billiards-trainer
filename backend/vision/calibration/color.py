@@ -4,13 +4,14 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
-from config import config as config_manager
 from numpy.typing import NDArray
 from sklearn.cluster import KMeans
+
+from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class ColorThresholds:
         """Create from dictionary."""
         return cls(**data)
 
-    def apply_mask(self, hsv_image: NDArray[np.float64]) -> NDArray[np.float64]:
+    def apply_mask(self, hsv_image: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Apply color mask to HSV image."""
         # Handle hue wraparound (red color)
         if self.hue_min > self.hue_max:
@@ -49,12 +50,15 @@ class ColorThresholds:
                 (0, self.saturation_min, self.value_min),
                 (self.hue_max, self.saturation_max, self.value_max),
             )
-            return cv2.bitwise_or(mask1, mask2)
+            return cast("NDArray[np.uint8]", cv2.bitwise_or(mask1, mask2))
         else:
-            return cv2.inRange(
-                hsv_image,
-                (self.hue_min, self.saturation_min, self.value_min),
-                (self.hue_max, self.saturation_max, self.value_max),
+            return cast(
+                "NDArray[np.uint8]",
+                cv2.inRange(
+                    hsv_image,
+                    (self.hue_min, self.saturation_min, self.value_min),
+                    (self.hue_max, self.saturation_max, self.value_max),
+                ),
             )
 
 
@@ -109,11 +113,13 @@ class ColorSample:
         self.label = label
         self.pixels: list[tuple[int, int, int]] = []
 
-    def add_pixels(self, hsv_image: NDArray[np.float64]) -> None:
+    def add_pixels(self, hsv_image: NDArray[np.uint8]) -> None:
         """Extract pixels from ROI."""
         x, y, w, h = self.roi
         roi_pixels = hsv_image[y : y + h, x : x + w].reshape(-1, 3)
-        self.pixels.extend(roi_pixels.tolist())
+        self.pixels.extend(
+            (int(pixel[0]), int(pixel[1]), int(pixel[2])) for pixel in roi_pixels
+        )
 
     def get_statistics(self) -> dict[str, Any]:
         """Get color statistics for collected pixels."""
@@ -168,7 +174,7 @@ class ColorCalibrator:
         self.color_samples: list[ColorSample] = []
 
     def auto_calibrate_table_color(
-        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.float64]] = None
+        self, frame: NDArray[np.uint8], table_mask: Optional[NDArray[np.uint8]] = None
     ) -> ColorThresholds:
         """Auto-detect optimal table color thresholds.
 
@@ -179,7 +185,7 @@ class ColorCalibrator:
         Returns:
             Optimal color thresholds for table
         """
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cast("NDArray[np.uint8]", cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
 
         # If no mask provided, use center region as approximate table area
         if table_mask is None:
@@ -267,7 +273,7 @@ class ColorCalibrator:
         Returns:
             Dictionary mapping ball type to color thresholds
         """
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cast("NDArray[np.uint8]", cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
         ball_thresholds = {}
 
         for ball_type, rois in ball_samples.items():
@@ -484,12 +490,12 @@ class ColorCalibrator:
         selected_colors = {}
         current_selection = None
 
-        def mouse_callback(event, x, y, flags, param):
+        def mouse_callback(event: int, x: int, y: int, flags: int, param: Any) -> None:
             nonlocal current_selection
 
             if event == cv2.EVENT_LBUTTONDOWN:
                 # Get HSV value at clicked point
-                hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+                hsv = cast("NDArray[np.uint8]", cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
                 h, s, v = hsv[y, x]
 
                 current_selection = {
@@ -544,7 +550,7 @@ class ColorCalibrator:
         return selected_colors
 
     def optimize_thresholds(
-        self, frame: NDArray[np.uint8], target_objects: list[dict]
+        self, frame: NDArray[np.uint8], target_objects: list[dict[str, Any]]
     ) -> dict[str, ColorThresholds]:
         """Optimize color thresholds for target objects.
 
@@ -555,7 +561,7 @@ class ColorCalibrator:
         Returns:
             Optimized color thresholds
         """
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hsv = cast("NDArray[np.uint8]", cv2.cvtColor(frame, cv2.COLOR_BGR2HSV))
         optimized_thresholds = {}
 
         for obj in target_objects:
@@ -568,12 +574,16 @@ class ColorCalibrator:
                 continue
 
             # Collect positive pixels
-            positive_pixels = []
+            positive_pixel_regions: list[NDArray[np.uint8]] = []
             for x, y, w, h in positive_samples:
                 roi_pixels = hsv[y : y + h, x : x + w].reshape(-1, 3)
-                positive_pixels.extend(roi_pixels)
+                if roi_pixels.size:
+                    positive_pixel_regions.append(roi_pixels)
 
-            positive_pixels = np.array(positive_pixels)
+            if not positive_pixel_regions:
+                logger.warning("Positive samples contain no pixels for %s", obj_name)
+                continue
+            positive_pixels = np.concatenate(positive_pixel_regions, axis=0)
 
             # Start with initial thresholds based on positive samples
             h_min, h_max = np.percentile(positive_pixels[:, 0], [5, 95])
@@ -582,13 +592,6 @@ class ColorCalibrator:
 
             # Refine using negative samples
             if negative_samples:
-                negative_pixels = []
-                for x, y, w, h in negative_samples:
-                    roi_pixels = hsv[y : y + h, x : x + w].reshape(-1, 3)
-                    negative_pixels.extend(roi_pixels)
-
-                negative_pixels = np.array(negative_pixels)
-
                 # Adjust thresholds to exclude negative samples
                 thresholds = ColorThresholds(
                     int(h_min),
@@ -610,7 +613,7 @@ class ColorCalibrator:
                     false_positives = 0
                     for x, y, w, h in negative_samples:
                         roi_mask = mask[y : y + h, x : x + w]
-                        false_positives += np.sum(roi_mask > 0)
+                        false_positives += int(np.count_nonzero(roi_mask > 0))
 
                     if false_positives == 0:
                         break

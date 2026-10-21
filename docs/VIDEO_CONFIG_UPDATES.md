@@ -1,3 +1,5 @@
+> Historical implementation report: this describes a prior video-configuration migration and its compatibility behavior. Use the current [Configuration Guide](CONFIG.md) and [configuration schema](../backend/config_schema_defaults.json) for supported settings and runtime APIs. The record below is retained for history.
+
 # Video File Configuration Helper Methods
 
 ## Summary

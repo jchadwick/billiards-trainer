@@ -1,0 +1,558 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:billiards-trainer:perception:scene-snapshot:v1",
+  "title": "Billiards perception scene snapshot v1",
+  "description": "Immutable, complete ball-location state with source observation provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "engine_instance_id",
+    "source",
+    "snapshot_revision",
+    "transport_sequence",
+    "update_kind",
+    "published_at",
+    "revisions",
+    "outcome",
+    "reason",
+    "cue",
+    "balls"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "engine_instance_id": { "$ref": "#/$defs/identifier" },
+    "source": { "$ref": "#/$defs/source" },
+    "snapshot_revision": { "$ref": "#/$defs/safeCounter" },
+    "transport_sequence": { "$ref": "#/$defs/safeCounter" },
+    "update_kind": {
+      "enum": ["observation", "annotation", "health"]
+    },
+    "published_at": { "$ref": "#/$defs/timestamp" },
+    "revisions": { "$ref": "#/$defs/revisions" },
+    "outcome": {
+      "enum": ["success", "degraded", "failed", "skipped"]
+    },
+    "reason": {
+      "type": ["string", "null"],
+      "maxLength": 512,
+      "pattern": ".*\\S.*"
+    },
+    "cue": { "$ref": "#/$defs/cue" },
+    "balls": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ball" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "outcome": { "const": "success" } },
+        "required": ["outcome"]
+      },
+      "then": { "properties": { "reason": { "type": "null" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "outcome": { "enum": ["degraded", "failed", "skipped"] }
+        },
+        "required": ["outcome"]
+      },
+      "then": {
+        "properties": {
+          "reason": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "revisions": {
+            "properties": {
+              "calibration_state": { "enum": ["invalid", "unavailable"] }
+            },
+            "required": ["calibration_state"]
+          }
+        },
+        "required": ["revisions"]
+      },
+      "then": {
+        "properties": {
+          "balls": {
+            "items": {
+              "properties": {
+                "measurement": {
+                  "properties": { "table_center_mm": { "type": "null" } }
+                },
+                "estimate": {
+                  "properties": { "table_center_mm": { "type": "null" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "revisions": {
+            "properties": { "calibration_state": { "const": "valid" } },
+            "required": ["calibration_state"]
+          }
+        },
+        "required": ["revisions"]
+      },
+      "then": {
+        "properties": {
+          "revisions": {
+            "properties": { "calibration": { "$ref": "#/$defs/safeCounter" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "revisions": {
+            "properties": { "calibration_state": { "const": "unavailable" } },
+            "required": ["calibration_state"]
+          }
+        },
+        "required": ["revisions"]
+      },
+      "then": {
+        "properties": {
+          "revisions": { "properties": { "calibration": { "type": "null" } } }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f]+$"
+    },
+    "safeCounter": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "timestamp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticks", "unit", "clock", "domain_id", "stage"],
+      "properties": {
+        "ticks": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20,
+          "pattern": "^(0|[1-9][0-9]*)$"
+        },
+        "unit": { "const": "nanoseconds" },
+        "clock": { "enum": ["monotonic", "unix_epoch", "sensor"] },
+        "domain_id": { "$ref": "#/$defs/identifier" },
+        "stage": {
+          "enum": [
+            "exposure",
+            "camera_read_complete",
+            "shared_memory_publication",
+            "frame_arrival",
+            "inference_complete",
+            "snapshot_publication"
+          ]
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "session_id",
+        "frame_id",
+        "timestamp",
+        "width_px",
+        "height_px"
+      ],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/identifier" },
+        "frame_id": { "$ref": "#/$defs/identifier" },
+        "timestamp": { "$ref": "#/$defs/timestamp" },
+        "width_px": { "type": "integer", "minimum": 1 },
+        "height_px": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configuration",
+        "rectification",
+        "calibration",
+        "calibration_state"
+      ],
+      "properties": {
+        "configuration": { "$ref": "#/$defs/safeCounter" },
+        "rectification": { "$ref": "#/$defs/safeCounter" },
+        "calibration": {
+          "oneOf": [{ "$ref": "#/$defs/safeCounter" }, { "type": "null" }]
+        },
+        "calibration_state": { "enum": ["valid", "invalid", "unavailable"] }
+      }
+    },
+    "point2d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "lastObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_id", "frame_id", "timestamp"],
+      "properties": {
+        "session_id": { "$ref": "#/$defs/identifier" },
+        "frame_id": { "$ref": "#/$defs/identifier" },
+        "timestamp": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "cue": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "last_observation",
+            "image_center_px",
+            "image_space",
+            "image_width_px",
+            "image_height_px",
+            "confidence"
+          ],
+          "properties": {
+            "status": { "enum": ["observed", "not_observed", "unavailable"] },
+            "last_observation": {
+              "oneOf": [{ "$ref": "#/$defs/lastObservation" }, { "type": "null" }]
+            },
+            "image_center_px": {
+              "oneOf": [{ "$ref": "#/$defs/point2d" }, { "type": "null" }]
+            },
+            "image_space": {
+              "oneOf": [
+                { "enum": ["raw", "rectified"] },
+                { "type": "null" }
+              ]
+            },
+            "image_width_px": {
+              "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+            },
+            "image_height_px": {
+              "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+            },
+            "confidence": {
+              "oneOf": [
+                { "type": "number", "minimum": 0, "maximum": 1 },
+                { "type": "null" }
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "status": { "const": "observed" } },
+                "required": ["status"]
+              },
+              "then": {
+                "properties": {
+                  "last_observation": { "$ref": "#/$defs/lastObservation" },
+                  "image_center_px": { "$ref": "#/$defs/point2d" },
+                  "image_space": { "enum": ["raw", "rectified"] },
+                  "image_width_px": { "type": "integer", "minimum": 1 },
+                  "image_height_px": { "type": "integer", "minimum": 1 },
+                  "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": { "enum": ["not_observed", "unavailable"] }
+                },
+                "required": ["status"]
+              },
+              "then": {
+                "properties": {
+                  "image_center_px": { "type": "null" },
+                  "confidence": { "type": "null" }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": { "status": { "const": "unavailable" } },
+                "required": ["status"]
+              },
+              "then": {
+                "properties": {
+                  "last_observation": { "type": "null" },
+                  "image_space": { "type": "null" },
+                  "image_width_px": { "type": "null" },
+                  "image_height_px": { "type": "null" }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": { "status": { "const": "not_observed" } },
+                "required": ["status"]
+              },
+              "then": {
+                "properties": {
+                  "last_observation": { "$ref": "#/$defs/lastObservation" },
+                  "image_space": { "enum": ["raw", "rectified"] },
+                  "image_width_px": { "type": "integer", "minimum": 1 },
+                  "image_height_px": { "type": "integer", "minimum": 1 }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_center_px",
+        "image_space",
+        "image_width_px",
+        "image_height_px",
+        "table_center_mm",
+        "detector_confidence",
+        "table_position_uncertainty"
+      ],
+      "properties": {
+        "image_center_px": { "$ref": "#/$defs/point2d" },
+        "image_space": { "enum": ["raw", "rectified"] },
+        "image_width_px": { "type": "integer", "minimum": 1 },
+        "image_height_px": { "type": "integer", "minimum": 1 },
+        "table_center_mm": {
+          "oneOf": [{ "$ref": "#/$defs/point2d" }, { "type": "null" }]
+        },
+        "detector_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "table_position_uncertainty": { "$ref": "#/$defs/uncertainty" }
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "as_of",
+        "image_center_px",
+        "image_space",
+        "image_width_px",
+        "image_height_px",
+        "table_center_mm",
+        "table_position_uncertainty"
+      ],
+      "properties": {
+        "kind": { "enum": ["filtered", "extrapolated"] },
+        "as_of": { "$ref": "#/$defs/timestamp" },
+        "image_center_px": {
+          "oneOf": [{ "$ref": "#/$defs/point2d" }, { "type": "null" }]
+        },
+        "image_space": {
+          "oneOf": [
+            { "enum": ["raw", "rectified"] },
+            { "type": "null" }
+          ]
+        },
+        "image_width_px": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "image_height_px": {
+          "oneOf": [{ "type": "integer", "minimum": 1 }, { "type": "null" }]
+        },
+        "table_center_mm": {
+          "oneOf": [{ "$ref": "#/$defs/point2d" }, { "type": "null" }]
+        },
+        "table_position_uncertainty": { "$ref": "#/$defs/uncertainty" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "image_center_px": { "type": "null" } },
+            "required": ["image_center_px"]
+          },
+          "then": {
+            "properties": {
+              "image_space": { "type": "null" },
+              "image_width_px": { "type": "null" },
+              "image_height_px": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "image_center_px": { "$ref": "#/$defs/point2d" } },
+            "required": ["image_center_px"]
+          },
+          "then": {
+            "properties": {
+              "image_space": { "enum": ["raw", "rectified"] },
+              "image_width_px": { "type": "integer", "minimum": 1 },
+              "image_height_px": { "type": "integer", "minimum": 1 }
+            }
+          }
+        }
+      ]
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "sigma_x_mm", "sigma_y_mm"],
+      "properties": {
+        "status": { "enum": ["available", "unavailable"] },
+        "sigma_x_mm": {
+          "oneOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+        },
+        "sigma_y_mm": {
+          "oneOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "available" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "sigma_x_mm": { "type": "number", "minimum": 0 },
+              "sigma_y_mm": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "unavailable" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "sigma_x_mm": { "type": "null" },
+              "sigma_y_mm": { "type": "null" }
+            }
+          }
+        }
+      ]
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "confidence", "evidence"],
+      "properties": {
+        "number": {
+          "oneOf": [
+            { "type": "integer", "minimum": 1, "maximum": 15 },
+            { "type": "null" }
+          ]
+        },
+        "confidence": {
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "null" }
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "confidence"],
+            "properties": {
+              "source": { "$ref": "#/$defs/identifier" },
+              "confidence": {
+                "oneOf": [
+                  { "type": "number", "minimum": 0, "maximum": 1 },
+                  { "type": "null" }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "number": { "type": "integer" } },
+            "required": ["number"]
+          },
+          "then": {
+            "properties": {
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "evidence": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "number": { "type": "null" } },
+            "required": ["number"]
+          },
+          "then": { "properties": { "confidence": { "type": "null" } } }
+        }
+      ]
+    },
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "track_id",
+        "status",
+        "last_observation",
+        "measurement",
+        "estimate",
+        "identity"
+      ],
+      "properties": {
+        "track_id": { "$ref": "#/$defs/identifier" },
+        "status": { "enum": ["observed", "tracked", "occluded", "lost"] },
+        "last_observation": { "$ref": "#/$defs/lastObservation" },
+        "measurement": {
+          "oneOf": [{ "$ref": "#/$defs/measurement" }, { "type": "null" }]
+        },
+        "estimate": {
+          "oneOf": [{ "$ref": "#/$defs/estimate" }, { "type": "null"}]
+        },
+        "identity": { "$ref": "#/$defs/identity" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "observed" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "measurement": { "$ref": "#/$defs/measurement" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

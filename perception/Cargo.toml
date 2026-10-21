@@ -1,0 +1,64 @@
+[package]
+name = "billiards-perception"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+# Compile-only camera dependency probe. This feature does not register a source
+# factory or select Nokhwa in the live executable.
+camera-nokhwa-build-spike = ["dep:nokhwa"]
+# Synthetic-only GStreamer helper probe; never registered as the live source.
+camera-gstreamer-probe = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
+# DeviceMonitor-based inventory only. This does not construct a source element
+# or open a camera pipeline and is intentionally separate from the synthetic
+# capture probe and the live binary.
+camera-gstreamer-discovery = ["dep:gstreamer"]
+# Opt-in supervised physical source. The feature adds an explicit
+# `gstreamer-physical` choice to the live executable; its normal default stays
+# unavailable, and physical capture also requires a stable discovery selector.
+camera-gstreamer-source = ["camera-gstreamer-probe", "camera-gstreamer-discovery"]
+
+[[bin]]
+name = "billiards-perception-infer"
+path = "src/main.rs"
+
+[[bin]]
+name = "billiards-perception-live"
+path = "src/live_main.rs"
+
+[[bin]]
+name = "billiards-perception-gstreamer-probe"
+path = "src/bin/gstreamer_capture_probe.rs"
+required-features = ["camera-gstreamer-probe"]
+
+[[bin]]
+name = "billiards-perception-camera-discovery"
+path = "src/bin/camera_discovery.rs"
+required-features = ["camera-gstreamer-discovery"]
+
+[[bin]]
+name = "billiards-capture-transport-bench"
+path = "src/bin/capture_transport_bench.rs"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.5.60", features = ["derive"] }
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+nokhwa = {
+    version = "=0.10.11",
+    default-features = false,
+    features = ["input-native"],
+    optional = true,
+}
+gstreamer = { version = "=0.24.4", default-features = false, optional = true }
+gstreamer-app = { version = "=0.24.4", default-features = false, optional = true }
+gstreamer-video = { version = "=0.24.4", default-features = false, optional = true }
+openvino = { version = "=0.11.1", default-features = false, features = ["runtime-linking"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native", "copy-dylibs", "api-31"] }
+serde_json = "1"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+signal-hook = "=0.4.5"
+tempfile = "3"

@@ -18,16 +18,31 @@ by adapter classes in the vision pipeline.
 
 import logging
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Generic,
+    Hashable,
+    Optional,
+    TypeVar,
+    cast,
+)
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.common.models import Ball
+
+_OutcomeT = TypeVar("_OutcomeT")
 
 
 class ModelValidationError(Exception):
@@ -75,6 +90,61 @@ class BallClass(Enum):
     POCKET = 18  # Table pocket
 
 
+class BallDetectionStatus(str, Enum):
+    """Model-independent result status for a ball observation attempt."""
+
+    DETECTIONS = "detections"
+    NO_DETECTIONS = "no_detections"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    FAILED = "failed"
+
+
+class DetectionFailureStage(str, Enum):
+    """Safe, bounded categories for detector failure reporting."""
+
+    INFERENCE = "inference"
+    DECODING = "decoding"
+    CLASSIFICATION = "classification"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class BallDetectionOutcome(Generic[_OutcomeT]):
+    """Status-bearing result of attempting to observe balls in one frame.
+
+    A successful empty list is represented by ``NO_DETECTIONS``. It is distinct
+    from a missing model and from an inference or decoding failure, which is
+    essential when consumers assess observation freshness and detector health.
+    Failure details intentionally contain only a bounded stage category; raw
+    backend exception text can include paths, frame data, or runtime internals.
+    """
+
+    status: BallDetectionStatus
+    detections: tuple[_OutcomeT, ...] = ()
+    failure_stage: DetectionFailureStage | None = None
+
+    def __post_init__(self) -> None:
+        has_detections = bool(self.detections)
+        if (self.status == BallDetectionStatus.DETECTIONS) != has_detections:
+            raise ValueError("detection outcome status does not match its detections")
+        if (self.status == BallDetectionStatus.FAILED) != (
+            self.failure_stage is not None
+        ):
+            raise ValueError("only failed outcomes may include a failure stage")
+
+
+class _ModelUnavailableError(RuntimeError):
+    """Internal signal that no usable inference backend is currently loaded."""
+
+
+class _DetectionBackendFailure(RuntimeError):
+    """Internal failure carrying only a safe inference/decoding stage."""
+
+    def __init__(self, stage: DetectionFailureStage) -> None:
+        super().__init__(stage.value)
+        self.stage = stage
+
+
 @dataclass
 class Detection:
     """Raw detection from YOLO model.
@@ -107,15 +177,8 @@ class TableElements:
 
     table_bbox: Optional[tuple[float, float, float, float]] = None
     table_confidence: float = 0.0
-    pockets: list[Detection] = None
-    rails: list[Detection] = None
-
-    def __post_init__(self):
-        """Initialize empty lists."""
-        if self.pockets is None:
-            self.pockets = []
-        if self.rails is None:
-            self.rails = []
+    pockets: list[Detection] = field(default_factory=list)
+    rails: list[Detection] = field(default_factory=list)
 
 
 class YOLODetector:
@@ -142,7 +205,7 @@ class YOLODetector:
         nms_threshold: float = 0.45,
         auto_fallback: bool = True,
         tpu_device_path: Optional[str] = None,
-        enable_opencv_classification: bool = True,
+        enable_opencv_classification: bool = False,
         min_ball_size: int = 20,
         camera_resolution: tuple[int, int] = (1920, 1080),
     ) -> None:
@@ -157,9 +220,9 @@ class YOLODetector:
             nms_threshold: Non-maximum suppression IoU threshold
             auto_fallback: Automatically fall back to None model if loading fails
             tpu_device_path: Coral TPU device path (e.g., '/dev/bus/usb/001/002', 'usb', 'pcie', or None for auto)
-            enable_opencv_classification: Enable OpenCV-based ball type classification refinement.
-                                         Enabled by default as it provides accurate ball number detection
-                                         even when YOLO detects balls as generic "ball" class.
+            enable_opencv_classification: Enable the experimental OpenCV color/stripe
+                heuristic. It can guess ball numbers, but the configured YOLO model
+                only detects generic balls and does not validate those guesses.
             min_ball_size: Minimum ball size in pixels (width or height) to filter out small detections
                           like markers and noise. Default 20px works well for typical camera setups.
             camera_resolution: Camera resolution (width, height) for scaling pixel-based parameters in
@@ -170,7 +233,7 @@ class YOLODetector:
             RuntimeError: If model loading fails and auto_fallback is False
 
         Note:
-            These defaults (confidence=0.15, enable_opencv_classification=True, min_ball_size=20)
+            These defaults (confidence=0.15, enable_opencv_classification=False, min_ball_size=20)
             are based on extensive testing with the VisionModule and video_debugger tool.
             They provide the best balance of detection recall (catching all balls) while
             maintaining precision (filtering out false positives like markers and shadows).
@@ -183,6 +246,8 @@ class YOLODetector:
         self.enable_opencv_classification = enable_opencv_classification
         self.min_ball_size = min_ball_size
         self.camera_resolution = camera_resolution
+        # Set by VisionModule only during an explicitly enabled audit session.
+        self.audit_profiler: Any | None = None
 
         # Auto-detect best device if not specified or if "auto"
         if device == "auto" or device is None:
@@ -204,17 +269,17 @@ class YOLODetector:
         # TPU-specific state
         self.tpu_available = False
         self.tpu_interpreter: Optional[Any] = None
-        self.tpu_input_details: Optional[list] = None
-        self.tpu_output_details: Optional[list] = None
+        self.tpu_input_details: Optional[list[Any]] = None
+        self.tpu_output_details: Optional[list[Any]] = None
 
         # Thread safety for model hot-swapping
         self._model_lock = threading.RLock()
 
-        # Frame-level detection cache to avoid running YOLO multiple times per frame
-        # This prevents running inference twice (once for balls, once for cue)
-        # Cache key is (buffer_id, content_hash) to prevent false hits from buffer reuse
-        self._detection_cache: dict[tuple[int, int], list[Detection]] = {}
+        # Cache only a caller-identified frame/view. Buffer identity and sampled
+        # pixels are not reliable frame identities when camera memory is reused.
+        self._detection_cache: dict[Hashable, list[Detection]] = {}
         self._cache_lock = threading.Lock()
+        self._inference_model_generation = 0
 
         # OpenCV classifier for ball type refinement
         self._opencv_classifier: Optional[Any] = None
@@ -296,16 +361,27 @@ class YOLODetector:
         """Auto-detect the best available device for inference.
 
         Priority:
-        1. CUDA GPU (if available)
-        2. CoreML (Apple Silicon Mac with ONNX model)
-        3. MPS (Apple Silicon Mac with PyTorch)
-        4. CPU (fallback)
+        1. Native CoreML for a CoreML package on macOS
+        2. CUDA for formats supported by the PyTorch inference path
+        3. CoreML for ONNX on Apple Silicon when the provider is available
+        4. MPS for PyTorch weights on Apple Silicon
+        5. CPU (fallback)
 
         Returns:
             Device string: 'cuda', 'coreml', 'mps', or 'cpu'
         """
         import platform
-        import sys
+
+        # A .mlpackage selects Ultralytics' native CoreML backend from its
+        # format. Reporting MPS or CUDA for this artifact is misleading because
+        # those device arguments are not used by the CoreML predictor.
+        if (
+            self.model_path
+            and Path(self.model_path).suffix.lower() == ".mlpackage"
+            and platform.system() == "Darwin"
+        ):
+            logger.info("CoreML package detected on macOS - using native CoreML")
+            return "coreml"
 
         # Check for CUDA GPU
         try:
@@ -323,7 +399,7 @@ class YOLODetector:
             if self.model_path and self.model_path.endswith(".onnx"):
                 # For ONNX on Apple Silicon, use CoreML execution provider
                 try:
-                    import onnxruntime as ort
+                    ort = cast("Any", import_module("onnxruntime"))
 
                     if "CoreMLExecutionProvider" in ort.get_available_providers():
                         logger.info(
@@ -355,10 +431,14 @@ class YOLODetector:
         """
         try:
             # Try to import pycoral
-            from pycoral.utils import edgetpu
+            edgetpu = import_module("pycoral.utils.edgetpu")
+            list_edge_tpus = cast(
+                "Callable[[], list[dict[str, str]]]",
+                edgetpu.__dict__["list_edge_tpus"],
+            )
 
-            # List available TPU devices
-            devices = edgetpu.list_edge_tpus()
+            # List available TPU devices.
+            devices = list_edge_tpus()
 
             if not devices:
                 logger.info("No Coral Edge TPU devices found")
@@ -428,7 +508,9 @@ class YOLODetector:
                 # Import ultralytics YOLO
                 import os
 
-                from ultralytics import YOLO
+                ultralytics = import_module("ultralytics")
+                # Accessing the lazy module attribute triggers Ultralytics loading.
+                YOLO = cast("Callable[..., Any]", ultralytics.YOLO)
 
                 logger.info(
                     f"Loading YOLO model from {model_path} (format: {self.model_format.value})"
@@ -442,7 +524,7 @@ class YOLODetector:
 
                     # Import onnxruntime to use CoreML directly
                     try:
-                        import onnxruntime as ort
+                        ort = cast("Any", import_module("onnxruntime"))
 
                         available_providers = ort.get_available_providers()
                         if "CoreMLExecutionProvider" in available_providers:
@@ -534,13 +616,11 @@ class YOLODetector:
                         "Could not extract class names from model, using defaults"
                     )
 
-                # Set device
-                if self.device != "cpu" and self.device != "tpu":
-                    # Ultralytics YOLO will auto-detect GPU availability
-                    logger.info(f"Attempting to use device: {self.device}")
-
                 self.model_loaded = True
-                logger.info(f"YOLO model loaded successfully on device: {self.device}")
+                logger.info(
+                    "YOLO model loaded; requested inference device: %s",
+                    self.device,
+                )
 
             except ImportError as e:
                 raise ImportError(
@@ -561,7 +641,10 @@ class YOLODetector:
             RuntimeError: If model loading fails
         """
         try:
-            from pycoral.utils.edgetpu import make_interpreter
+            edgetpu = import_module("pycoral.utils.edgetpu")
+            make_interpreter = cast(
+                "Callable[..., Any]", edgetpu.__dict__["make_interpreter"]
+            )
 
             logger.info(f"Loading Edge TPU model from {model_path}")
 
@@ -618,11 +701,22 @@ class YOLODetector:
             model_path: Path to .mlpackage directory
 
         Raises:
-            ImportError: If ultralytics package not installed
+            ImportError: If Ultralytics or a required model runtime dependency is
+                unavailable
             RuntimeError: If model loading fails
         """
         try:
-            from ultralytics import YOLO
+            ultralytics = import_module("ultralytics")
+        except ImportError as e:
+            raise ImportError(
+                "ultralytics package not installed. "
+                "Install with: pip install ultralytics"
+            ) from e
+
+        try:
+            # Ultralytics exposes YOLO lazily, so it may not exist in the
+            # module dictionary until attribute access resolves the export.
+            YOLO = cast("Callable[..., Any]", ultralytics.YOLO)
 
             logger.info(f"Loading CoreML model from {model_path}")
 
@@ -648,11 +742,10 @@ class YOLODetector:
                 "✓ CoreML model loaded successfully - using native CoreML acceleration"
             )
 
-        except ImportError as e:
-            raise ImportError(
-                "ultralytics package not installed. "
-                "Install with: pip install ultralytics"
-            ) from e
+        except ImportError:
+            # Preserve missing runtime dependencies (for example coremltools)
+            # raised while resolving YOLO or constructing the native model.
+            raise
         except Exception as e:
             raise RuntimeError(f"Failed to load CoreML model: {e}") from e
 
@@ -696,7 +789,7 @@ class YOLODetector:
                 )
                 has_onnx = False
 
-            metadata = {
+            metadata: dict[str, Any] = {
                 "valid": False,
                 "file_size": path.stat().st_size,
                 "error": None,
@@ -833,9 +926,9 @@ class YOLODetector:
             test_frame = np.zeros((640, 640, 3), dtype=np.uint8)
 
             # Run test inference
-            start_time = time.time()
+            start_time = time.perf_counter()
             detections = detector._run_inference(test_frame)
-            inference_time = (time.time() - start_time) * 1000
+            inference_time = (time.perf_counter() - start_time) * 1000
 
             return {
                 "success": True,
@@ -855,95 +948,142 @@ class YOLODetector:
                 "error": error_msg,
             }
 
-    def detect_balls(self, frame: NDArray[np.uint8]) -> list[Detection]:
-        """Detect all balls in the frame.
+    def set_background_frame(self, frame: NDArray[np.uint8]) -> None:
+        """Set the empty-table reference used by OpenCV classification.
+
+        YOLO itself does not subtract a background. When its optional OpenCV
+        classifier is enabled, forward the reference frame to that detector so
+        its motion mask and table geometry remain available to classification.
+        """
+        classifier = self._opencv_classifier
+        if classifier is not None:
+            classifier.set_background_frame(frame)
+
+    def detect_balls(
+        self, frame: NDArray[np.uint8], *, frame_key: Optional[Hashable] = None
+    ) -> list[Detection]:
+        """Compatibility API returning detections or an empty list.
 
         Args:
             frame: Input image in BGR format
+            frame_key: Optional identity for this source-frame/view. Reuse the
+                same key for other detection methods called on the same pixels.
+                A changed frame or crop must use a different key. Calls without
+                a key always run inference and cannot return stale cached data.
 
         Returns:
             List of ball detections (class IDs 0-15 for multi-class models, or class 0 for single-class models)
         """
-        if not self.model_loaded:
-            logger.debug("Model not loaded, returning empty ball detections")
-            return []
+        return list(self.detect_balls_outcome(frame, frame_key=frame_key).detections)
+
+    def detect_balls_outcome(
+        self, frame: NDArray[np.uint8], *, frame_key: Optional[Hashable] = None
+    ) -> BallDetectionOutcome[Detection]:
+        """Detect balls and preserve whether the frame was actually observed.
+
+        ``NO_DETECTIONS`` means a loaded model completed inference and decoding
+        successfully but found no qualifying balls. ``MODEL_UNAVAILABLE`` means
+        no usable backend was loaded. ``FAILED`` means inference or decoding did
+        not complete; ``failure_stage`` reports only a bounded stage category,
+        never raw exception text from the model runtime.
+
+        This API is independent of backend format. The legacy ``detect_balls``
+        method remains a list-returning wrapper and consequently maps the last
+        three statuses to an empty list for compatibility.
+        """
+        if not getattr(self, "model_loaded", False):
+            logger.debug("Model not loaded; ball observation unavailable")
+            return BallDetectionOutcome(BallDetectionStatus.MODEL_UNAVAILABLE)
 
         try:
-            # Run inference (masking already applied upstream in VisionModule)
-            detections = self._run_inference(frame)
+            detections = self._run_inference(frame, frame_key=frame_key)
+            ball_detections = self._filter_ball_detections(detections)
+        except _ModelUnavailableError:
+            return BallDetectionOutcome(BallDetectionStatus.MODEL_UNAVAILABLE)
+        except _DetectionBackendFailure as error:
+            logger.error("Ball detection failed during %s", error.stage.value)
+            return BallDetectionOutcome(
+                BallDetectionStatus.FAILED, failure_stage=error.stage
+            )
+        except Exception as error:
+            # Keep unexpected cache/integration failures observable without
+            # leaking arbitrary exception text or runtime-specific details.
+            logger.error(
+                "Ball detection failed in an unexpected stage (%s)",
+                type(error).__name__,
+            )
+            return BallDetectionOutcome(
+                BallDetectionStatus.FAILED,
+                failure_stage=DetectionFailureStage.UNKNOWN,
+            )
 
-            # Filter for ball classes
-            # Check if we have a simplified 2-class model (ball=0, cue=1) or full multi-class model (0-18)
-            if (
-                "ball" in self.class_names.values()
-                and "cue" in self.class_names.values()
-            ):
-                # Simplified model: class 0 is "ball", class 1 is "cue"
-                ball_detections = [
-                    det
-                    for det in detections
-                    if det.class_name == "ball" or (0 <= det.class_id <= 15)
-                ]
-            else:
-                # Full model: classes 0-15 are individual ball types
-                ball_detections = [det for det in detections if 0 <= det.class_id <= 15]
+        if ball_detections:
+            return BallDetectionOutcome(
+                BallDetectionStatus.DETECTIONS, tuple(ball_detections)
+            )
+        return BallDetectionOutcome(BallDetectionStatus.NO_DETECTIONS)
 
-            # Explicitly filter out cue stick detections to prevent them from being returned as balls
-            # This prevents trajectory lines from being drawn from cue stick positions
+    def _filter_ball_detections(self, detections: list[Detection]) -> list[Detection]:
+        """Apply existing class, cue, and minimum-size filters consistently."""
+        # Check if this is a simplified 2-class model (ball=0, cue=1) or a
+        # full multi-class model (classes 0-18).
+        if "ball" in self.class_names.values() and "cue" in self.class_names.values():
             ball_detections = [
                 det
-                for det in ball_detections
-                if det.class_name.lower() not in ["cue", "cue_stick"]
+                for det in detections
+                if det.class_name == "ball" or (0 <= det.class_id <= 15)
             ]
+        else:
+            ball_detections = [det for det in detections if 0 <= det.class_id <= 15]
 
-            # Filter out small detections (marker dots, noise) based on size
-            # Billiard balls should have a minimum size in pixels
-            # For elongated balls (on edges/in motion), use the larger dimension
-            filtered_detections = []
-            for det in ball_detections:
-                # Check if detection meets minimum size requirement
-                # Use max dimension to handle elongated balls (perspective/motion blur)
-                max_dimension = max(det.width, det.height)
-                min_dimension = min(det.width, det.height)
-
-                # Accept if max dimension meets threshold AND aspect ratio not too extreme
-                # This handles edge balls (slightly elongated) while filtering markers
-                aspect_ratio = (
-                    max_dimension / min_dimension if min_dimension > 0 else 999
+        # Explicitly remove cue detections, then filter marker-sized boxes.
+        ball_detections = [
+            det
+            for det in ball_detections
+            if det.class_name.lower() not in ["cue", "cue_stick"]
+        ]
+        filtered_detections: list[Detection] = []
+        for detection in ball_detections:
+            max_dimension = max(detection.width, detection.height)
+            min_dimension = min(detection.width, detection.height)
+            aspect_ratio = max_dimension / min_dimension if min_dimension > 0 else 999
+            if max_dimension >= self.min_ball_size and aspect_ratio < 3.0:
+                filtered_detections.append(detection)
+            else:
+                logger.debug(
+                    "Filtered out detection: %s size=%.1fx%.1fpx "
+                    "(min=%spx, aspect=%.2f)",
+                    detection.class_name,
+                    detection.width,
+                    detection.height,
+                    self.min_ball_size,
+                    aspect_ratio,
                 )
-                if max_dimension >= self.min_ball_size and aspect_ratio < 3.0:
-                    filtered_detections.append(det)
-                else:
-                    logger.debug(
-                        f"Filtered out detection: {det.class_name} "
-                        f"size={det.width:.1f}x{det.height:.1f}px (min={self.min_ball_size}px, "
-                        f"aspect={aspect_ratio:.2f})"
-                    )
-
-            return filtered_detections
-
-        except Exception as e:
-            logger.error(f"Ball detection failed: {e}")
-            return []
+        return filtered_detections
 
     def detect_balls_with_classification(
-        self, frame: NDArray[np.uint8], min_confidence: float = 0.25
-    ) -> list[Any]:
+        self,
+        frame: NDArray[np.uint8],
+        min_confidence: float = 0.25,
+        *,
+        frame_key: Optional[Hashable] = None,
+        classification_frame: Optional[NDArray[np.uint8]] = None,
+    ) -> list["Ball"]:
         """Detect balls and optionally classify with OpenCV refinement.
 
-        This is the PRIMARY and RECOMMENDED method for ball detection. It provides hybrid
-        YOLO+OpenCV detection that combines the strengths of both approaches:
-        - YOLO provides accurate ball position and size, even in challenging lighting
-        - OpenCV classifier refines ball type/number when enable_opencv_classification=True
-
-        This method works best with the default detector settings:
-        - confidence=0.15: Low threshold captures balls in difficult angles/lighting
-        - enable_opencv_classification=True: Accurate ball number detection
-        - min_ball_size=20: Filters out markers and noise
+        YOLO provides ball position and size. The optional OpenCV classifier
+        guesses ball types and numbers from color and stripe patterns; it is not
+        a trained identity model and should not be treated as authoritative.
 
         Args:
             frame: Input image in BGR format
             min_confidence: Minimum confidence threshold for detections (default 0.25)
+            frame_key: Optional source-frame/view identity shared with other
+                detector calls for the same image.
+            classification_frame: Unmasked source image used for color
+                classification. It must have the same height and width as
+                ``frame`` so detector-pixel boxes remain aligned. If omitted,
+                ``frame`` is used.
 
         Returns:
             List of Ball objects with position and type information
@@ -952,18 +1092,148 @@ class YOLODetector:
             Prefer this method over detect_balls() when you need ball type/number information.
             The hybrid approach provides better accuracy than YOLO-only or OpenCV-only detection.
         """
-        from backend.common.models import Ball
+        return list(
+            self.detect_balls_with_classification_outcome(
+                frame,
+                min_confidence,
+                frame_key=frame_key,
+                classification_frame=classification_frame,
+            ).detections
+        )
 
+    def detect_balls_with_classification_outcome(
+        self,
+        frame: NDArray[np.uint8],
+        min_confidence: float = 0.25,
+        *,
+        frame_key: Optional[Hashable] = None,
+        classification_frame: Optional[NDArray[np.uint8]] = None,
+    ) -> BallDetectionOutcome["Ball"]:
+        """Detect and classify balls while retaining detector and classifier status.
+
+        Inference statuses are preserved unchanged. A successful model result is
+        reported as ``DETECTIONS`` only after conversion and optional color
+        classification completes and yields at least one Ball. Failures during
+        adaptation or classification return ``FAILED`` with the safe
+        ``CLASSIFICATION`` stage; backend exception text is not exposed.
+        """
+        outcome = self._get_classification_source_outcome(frame, frame_key=frame_key)
+        if outcome.status != BallDetectionStatus.DETECTIONS:
+            return BallDetectionOutcome(
+                outcome.status, failure_stage=outcome.failure_stage
+            )
+
+        try:
+            # YOLO boxes are in detector pixels. Use the unmasked source image
+            # for color refinement when it is aligned with the detector input.
+            classification_image = frame
+            if (
+                classification_frame is not None
+                and classification_frame.shape[:2] == frame.shape[:2]
+            ):
+                classification_image = classification_frame
+            elif classification_frame is not None:
+                logger.warning(
+                    "Ignoring classification frame with dimensions that do not "
+                    "match the detector input"
+                )
+
+            crop_padding_ratio = 1.2
+            try:
+                from ...config import config
+
+                crop_padding_ratio = float(
+                    config.get(
+                        "vision.detection.classification_crop_padding_ratio",
+                        crop_padding_ratio,
+                    )
+                )
+            except (ImportError, TypeError, ValueError):
+                logger.debug("Using default ball-classification crop padding")
+            crop_padding_ratio = max(crop_padding_ratio, 1.0)
+
+            profiler = getattr(self, "audit_profiler", None)
+            if profiler is None:
+                balls = self._adapt_and_classify_balls(
+                    list(outcome.detections),
+                    frame,
+                    classification_image,
+                    min_confidence,
+                    crop_padding_ratio,
+                )
+            else:
+                with profiler.span("classification_and_adaptation"):
+                    balls = self._adapt_and_classify_balls(
+                        list(outcome.detections),
+                        frame,
+                        classification_image,
+                        min_confidence,
+                        crop_padding_ratio,
+                    )
+        except Exception as error:
+            logger.error(
+                "Ball adaptation/classification failed (%s)",
+                type(error).__name__,
+            )
+            return BallDetectionOutcome(
+                BallDetectionStatus.FAILED,
+                failure_stage=DetectionFailureStage.CLASSIFICATION,
+            )
+
+        if balls:
+            return BallDetectionOutcome(BallDetectionStatus.DETECTIONS, tuple(balls))
+        return BallDetectionOutcome(BallDetectionStatus.NO_DETECTIONS)
+
+    def _get_classification_source_outcome(
+        self, frame: NDArray[np.uint8], *, frame_key: Optional[Hashable]
+    ) -> BallDetectionOutcome[Detection]:
+        """Use status-aware inference unless a legacy detector method overrides it.
+
+        Integrations have historically replaced or subclassed ``detect_balls``
+        with lightweight implementations. Preserve that extension seam by
+        treating its returned list as a completed observation. Such overrides
+        cannot express model-unavailable versus successful-empty, so exceptions
+        map to ``FAILED/UNKNOWN`` and a returned empty list maps to
+        ``NO_DETECTIONS``.
+        """
+        instance_override = "detect_balls" in self.__dict__
+        class_override = (
+            getattr(type(self), "detect_balls", None) is not YOLODetector.detect_balls
+        )
+        if not instance_override and not class_override:
+            return self.detect_balls_outcome(frame, frame_key=frame_key)
+
+        try:
+            detections = list(self.detect_balls(frame, frame_key=frame_key))
+        except Exception as error:
+            logger.error(
+                "Legacy ball detector override failed (%s)",
+                type(error).__name__,
+            )
+            return BallDetectionOutcome(
+                BallDetectionStatus.FAILED,
+                failure_stage=DetectionFailureStage.UNKNOWN,
+            )
+
+        if detections:
+            return BallDetectionOutcome(
+                BallDetectionStatus.DETECTIONS, tuple(detections)
+            )
+        return BallDetectionOutcome(BallDetectionStatus.NO_DETECTIONS)
+
+    def _adapt_and_classify_balls(
+        self,
+        yolo_detections: list[Detection],
+        frame: NDArray[np.uint8],
+        classification_image: NDArray[np.uint8],
+        min_confidence: float,
+        crop_padding_ratio: float,
+    ) -> list["Ball"]:
+        """Convert model boxes into balls and optionally refine their colors."""
         from .detector_adapter import yolo_detections_to_balls
 
-        # Get YOLO detections (masking already applied upstream in VisionModule)
-        yolo_detections = self.detect_balls(frame)
-
-        if not yolo_detections:
-            return []
-
         # Convert to Ball objects
-        detected_balls = []
+        detected_balls: list[Ball] = []
         for det in yolo_detections:
             # Convert Detection to dict format for adapter
             detection_dict = {
@@ -983,24 +1253,29 @@ class YOLODetector:
             # Optionally refine with OpenCV classification
             for ball in balls:
                 if self._opencv_classifier is not None and det.class_name == "ball":
-                    # Extract ball region for classification (frame already masked upstream)
-                    x, y = ball.position
-                    r = ball.radius
-
-                    # Extract region with 1.2x padding
-                    x1, y1 = max(0, int(x - r * 1.2)), max(0, int(y - r * 1.2))
-                    x2, y2 = min(frame.shape[1], int(x + r * 1.2)), min(
-                        frame.shape[0], int(y + r * 1.2)
+                    # Ball.position/radius are 4K canonical; the detection box
+                    # remains in this input image's pixel coordinates. Crop
+                    # from the detector box to avoid mixing those spaces.
+                    x1, y1, x2, y2 = det.bbox
+                    center_x = (x1 + x2) / 2.0
+                    center_y = (y1 + y2) / 2.0
+                    radius_px = max(x2 - x1, y2 - y1) / 2.0
+                    margin = radius_px * (crop_padding_ratio - 1.0)
+                    crop_x1 = max(0, int(np.floor(x1 - margin)))
+                    crop_y1 = max(0, int(np.floor(y1 - margin)))
+                    crop_x2 = min(
+                        classification_image.shape[1], int(np.ceil(x2 + margin))
                     )
-                    ball_region = frame[y1:y2, x1:x2]
+                    crop_y2 = min(
+                        classification_image.shape[0], int(np.ceil(y2 + margin))
+                    )
+                    ball_region = classification_image[crop_y1:crop_y2, crop_x1:crop_x2]
 
                     if ball_region.size > 0:
-                        # Classify ball type using OpenCV with native 4K region
-                        # At 4K (3840x2160), balls are ~72x72 pixels natively
-                        # No upscaling needed - native 4K quality is excellent for classification
+                        # Radius is kept in the same camera-pixel space as the crop.
                         ball_type, conf, ball_number = (
                             self._opencv_classifier.classify_ball_type(
-                                ball_region, ball.position, r
+                                ball_region, (center_x, center_y), radius_px
                             )
                         )
                         # Update ball with classified type
@@ -1011,18 +1286,22 @@ class YOLODetector:
 
         return detected_balls
 
-    def detect_cue(self, frame: NDArray[np.uint8]) -> Optional[Detection]:
+    def detect_cue(
+        self, frame: NDArray[np.uint8], *, frame_key: Optional[Hashable] = None
+    ) -> Optional[Detection]:
         """Detect cue stick in the frame.
 
         Args:
             frame: Input image in BGR format
+            frame_key: Optional identity for this source-frame/view. Use the
+                same key as ``detect_balls`` to share one inference pass.
 
         Returns:
             Cue stick detection or None if not detected
         """
         import time
 
-        method_start = time.time()
+        method_start = time.perf_counter()
 
         if not self.model_loaded:
             logger.debug("Model not loaded, returning no cue detection")
@@ -1030,12 +1309,12 @@ class YOLODetector:
 
         try:
             # Run inference
-            inference_start = time.time()
-            detections = self._run_inference(frame)
-            inference_time = (time.time() - inference_start) * 1000
+            inference_start = time.perf_counter()
+            detections = self._run_inference(frame, frame_key=frame_key)
+            inference_time = (time.perf_counter() - inference_start) * 1000
 
             # Filter for cue stick class
-            filter_start = time.time()
+            filter_start = time.perf_counter()
             # Check if we have a simplified 2-class model (ball=0, cue=1) or full multi-class model
             if "cue" in self.class_names.values():
                 # Simplified model or full model with "cue" class name
@@ -1049,21 +1328,21 @@ class YOLODetector:
             else:
                 # Full model: class 16 is cue_stick
                 cue_detections = [det for det in detections if det.class_id == 16]
-            filter_time = (time.time() - filter_start) * 1000
+            filter_time = (time.perf_counter() - filter_start) * 1000
 
             # Return highest confidence cue detection
             if cue_detections:
-                sort_start = time.time()
+                sort_start = time.perf_counter()
                 cue_detections.sort(key=lambda d: d.confidence, reverse=True)
                 cue = cue_detections[0]
-                sort_time = (time.time() - sort_start) * 1000
+                sort_time = (time.perf_counter() - sort_start) * 1000
 
                 # Calculate accurate angle from cue region using edge detection
-                angle_start = time.time()
+                angle_start = time.perf_counter()
                 cue.angle = self._estimate_cue_angle(frame, cue)
-                angle_time = (time.time() - angle_start) * 1000
+                angle_time = (time.perf_counter() - angle_start) * 1000
 
-                total_time = (time.time() - method_start) * 1000
+                total_time = (time.perf_counter() - method_start) * 1000
                 logger.debug(
                     f"[PERF] detect_cue timing: total={total_time:.1f}ms "
                     f"(inference={inference_time:.1f}ms, filter={filter_time:.1f}ms, "
@@ -1072,7 +1351,7 @@ class YOLODetector:
 
                 return cue
 
-            total_time = (time.time() - method_start) * 1000
+            total_time = (time.perf_counter() - method_start) * 1000
             logger.debug(f"detect_cue timing: total={total_time:.1f}ms (no cue found)")
             return None
 
@@ -1100,13 +1379,20 @@ class YOLODetector:
         """
         import time
 
-        method_start = time.time()
+        method_start = time.perf_counter()
 
         try:
             # Extract cue region from frame
-            extract_start = time.time()
-            x1, y1, x2, y2 = cue_detection.bbox
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            extract_start = time.perf_counter()
+            bbox_x1, bbox_y1, bbox_x2, bbox_y2 = (
+                float(coordinate) for coordinate in cue_detection.bbox
+            )
+            x1, y1, x2, y2 = (
+                int(bbox_x1),
+                int(bbox_y1),
+                int(bbox_x2),
+                int(bbox_y2),
+            )
 
             # Add some padding to ensure we capture the full cue
             padding = 10
@@ -1116,29 +1402,29 @@ class YOLODetector:
             y2 = min(frame.shape[0], y2 + padding)
 
             cue_region = frame[y1:y2, x1:x2]
-            extract_time = (time.time() - extract_start) * 1000
+            extract_time = (time.perf_counter() - extract_start) * 1000
 
             if cue_region.size == 0:
                 logger.warning("Empty cue region, using fallback angle")
                 return 0.0
 
             # Convert to grayscale
-            gray_start = time.time()
+            gray_start = time.perf_counter()
             gray = cv2.cvtColor(cue_region, cv2.COLOR_BGR2GRAY)
-            gray_time = (time.time() - gray_start) * 1000
+            gray_time = (time.perf_counter() - gray_start) * 1000
 
             # Apply Gaussian blur to reduce noise
-            blur_start = time.time()
+            blur_start = time.perf_counter()
             blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-            blur_time = (time.time() - blur_start) * 1000
+            blur_time = (time.perf_counter() - blur_start) * 1000
 
             # Edge detection
-            canny_start = time.time()
+            canny_start = time.perf_counter()
             edges = cv2.Canny(blurred, 50, 150, apertureSize=3)
-            canny_time = (time.time() - canny_start) * 1000
+            canny_time = (time.perf_counter() - canny_start) * 1000
 
             # Hough Line Transform to find lines
-            hough_start = time.time()
+            hough_start = time.perf_counter()
             lines = cv2.HoughLinesP(
                 edges,
                 rho=1,
@@ -1147,7 +1433,7 @@ class YOLODetector:
                 minLineLength=int(min(cue_region.shape[0], cue_region.shape[1]) * 0.3),
                 maxLineGap=10,
             )
-            hough_time = (time.time() - hough_start) * 1000
+            hough_time = (time.perf_counter() - hough_start) * 1000
 
             if lines is None or len(lines) == 0:
                 # Fallback: use bounding box aspect ratio
@@ -1157,90 +1443,175 @@ class YOLODetector:
                 else:
                     return 90.0  # Vertical
 
-            # Find the longest line that is NOT a rail
-            # Rails are typically perfectly horizontal or vertical, while cue sticks
-            # are almost always at an angle when aiming. Filter out near-horizontal/vertical lines.
-            RAIL_ANGLE_THRESHOLD = (
-                15.0  # degrees - lines within this of 0/90/180/270 are likely rails
+            # A cue can be nearly parallel to a table rail. Estimate the shaft
+            # axis from aligned, collinear Hough fragments instead of rejecting
+            # that orientation and accidentally choosing a shorter hand edge.
+            segments: list[dict[str, Any]] = []
+            for line in np.asarray(lines).reshape(-1, 4):
+                local_x1, local_y1, local_x2, local_y2 = (
+                    float(coordinate) for coordinate in line
+                )
+                start = (local_x1 + x1, local_y1 + y1)
+                end = (local_x2 + x1, local_y2 + y1)
+                dx = end[0] - start[0]
+                dy = end[1] - start[1]
+                length = float(np.hypot(dx, dy))
+                if length == 0:
+                    continue
+                segments.append(
+                    {
+                        "start": start,
+                        "end": end,
+                        "midpoint": ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2),
+                        "length": length,
+                        "angle": float(np.degrees(np.arctan2(dy, dx)) % 180.0),
+                    }
+                )
+
+            if not segments:
+                logger.debug("No usable Hough segments found, using bbox aspect ratio")
+                return 0.0 if cue_detection.width > cue_detection.height else 90.0
+
+            bbox_width = max(1.0, bbox_x2 - bbox_x1)
+            bbox_height = max(1.0, bbox_y2 - bbox_y1)
+            long_extent = max(bbox_width, bbox_height)
+            short_extent = min(bbox_width, bbox_height)
+            # Derive grouping tolerances from the detected cue geometry. This
+            # accommodates different image scales without fixed pixel cutoffs.
+            angle_tolerance = float(np.degrees(np.arctan2(short_extent, long_extent)))
+            collinear_tolerance = short_extent * 0.4
+
+            def angular_distance(first: float, second: float) -> float:
+                return abs((first - second + 90.0) % 180.0 - 90.0)
+
+            best_cluster: list[dict[str, Any]] = []
+            best_score = (-1.0, -1.0, -1)
+            for seed in segments:
+                seed_angle = seed["angle"]
+                radians = np.radians(seed_angle)
+                direction = (float(np.cos(radians)), float(np.sin(radians)))
+                normal = (-direction[1], direction[0])
+                seed_midpoint = seed["midpoint"]
+                cluster = []
+                for segment in segments:
+                    if angular_distance(segment["angle"], seed_angle) > angle_tolerance:
+                        continue
+                    midpoint = segment["midpoint"]
+                    perpendicular_distance = abs(
+                        (midpoint[0] - seed_midpoint[0]) * normal[0]
+                        + (midpoint[1] - seed_midpoint[1]) * normal[1]
+                    )
+                    if perpendicular_distance <= collinear_tolerance:
+                        cluster.append(segment)
+
+                # Score the unique projected span so overlapping Hough fragments
+                # do not outweigh a coherent shaft visible across the bbox.
+                intervals = []
+                for segment in cluster:
+                    projections = [
+                        point[0] * direction[0] + point[1] * direction[1]
+                        for point in (segment["start"], segment["end"])
+                    ]
+                    intervals.append((min(projections), max(projections)))
+                intervals.sort()
+                covered_length = 0.0
+                if intervals:
+                    interval_start, interval_end = intervals[0]
+                    for next_start, next_end in intervals[1:]:
+                        if next_start <= interval_end:
+                            interval_end = max(interval_end, next_end)
+                        else:
+                            covered_length += interval_end - interval_start
+                            interval_start, interval_end = next_start, next_end
+                    covered_length += interval_end - interval_start
+                score = (
+                    covered_length,
+                    sum(item["length"] for item in cluster),
+                    len(cluster),
+                )
+                if score > best_score:
+                    best_score = score
+                    best_cluster = cluster
+
+            if not best_cluster:
+                logger.debug("No coherent cue line found, using bbox aspect ratio")
+                return 0.0 if cue_detection.width > cue_detection.height else 90.0
+
+            # Average line orientation as an undirected axis (modulo 180°), and
+            # use segment midpoints to place the fitted axis before bbox clipping.
+            doubled_angles = np.radians(
+                [2.0 * segment["angle"] for segment in best_cluster]
+            )
+            weights = np.asarray([segment["length"] for segment in best_cluster])
+            angle_rad = 0.5 * float(
+                np.arctan2(
+                    np.sum(np.sin(doubled_angles) * weights),
+                    np.sum(np.cos(doubled_angles) * weights),
+                )
+            )
+            direction = (float(np.cos(angle_rad)), float(np.sin(angle_rad)))
+            total_weight = float(np.sum(weights))
+            line_point = (
+                sum(
+                    segment["midpoint"][0] * segment["length"]
+                    for segment in best_cluster
+                )
+                / total_weight,
+                sum(
+                    segment["midpoint"][1] * segment["length"]
+                    for segment in best_cluster
+                )
+                / total_weight,
             )
 
-            valid_lines = []
-            rail_lines = []
-
-            for line in lines:
-                x1_l, y1_l, x2_l, y2_l = line[0]
-                length = np.sqrt((x2_l - x1_l) ** 2 + (y2_l - y1_l) ** 2)
-
-                # Calculate angle for this line
-                line_angle_rad = np.arctan2(y2_l - y1_l, x2_l - x1_l)
-                line_angle_deg = np.degrees(line_angle_rad)
-                if line_angle_deg < 0:
-                    line_angle_deg += 360
-
-                # Check if line is close to horizontal (0°/180°) or vertical (90°/270°)
-                is_horizontal = (
-                    line_angle_deg < RAIL_ANGLE_THRESHOLD
-                    or line_angle_deg > 360 - RAIL_ANGLE_THRESHOLD
-                    or abs(line_angle_deg - 180) < RAIL_ANGLE_THRESHOLD
-                )
-                is_vertical = (
-                    abs(line_angle_deg - 90) < RAIL_ANGLE_THRESHOLD
-                    or abs(line_angle_deg - 270) < RAIL_ANGLE_THRESHOLD
-                )
-
-                if is_horizontal or is_vertical:
-                    rail_lines.append((x1_l, y1_l, x2_l, y2_l, length, line_angle_deg))
-                else:
-                    valid_lines.append((x1_l, y1_l, x2_l, y2_l, length, line_angle_deg))
-
-            # Prefer valid (non-rail) lines, but fall back to rail lines if no valid lines found
-            lines_to_search = valid_lines if valid_lines else rail_lines
-
-            if not lines_to_search:
-                logger.debug("No valid lines found after filtering")
-                return 0.0
-
-            # Find the longest line from the valid set
-            longest_line = None
-            max_length = 0
-            line_angle_deg = 0
-
-            for line_data in lines_to_search:
-                x1_l, y1_l, x2_l, y2_l, length, angle = line_data
-                if length > max_length:
-                    max_length = length
-                    longest_line = (x1_l, y1_l, x2_l, y2_l)
-                    line_angle_deg = angle
-
-            # Log if we filtered out rail lines
-            if rail_lines and valid_lines:
+            # Extend the fitted shaft axis to the model bbox edges, rather than
+            # exposing a short Hough fragment to downstream cue rendering.
+            intersections = []
+            if abs(direction[0]) > np.finfo(float).eps:
+                for edge_x in (bbox_x1, bbox_x2):
+                    distance = (edge_x - line_point[0]) / direction[0]
+                    edge_y = line_point[1] + distance * direction[1]
+                    if bbox_y1 <= edge_y <= bbox_y2:
+                        intersections.append((edge_x, edge_y))
+            if abs(direction[1]) > np.finfo(float).eps:
+                for edge_y in (bbox_y1, bbox_y2):
+                    distance = (edge_y - line_point[1]) / direction[1]
+                    edge_x = line_point[0] + distance * direction[0]
+                    if bbox_x1 <= edge_x <= bbox_x2:
+                        intersections.append((edge_x, edge_y))
+            if len(intersections) < 2:
                 logger.debug(
-                    f"Filtered out {len(rail_lines)} rail lines, using {len(valid_lines)} valid cue lines"
+                    "Fitted cue line did not cross bbox, using bbox aspect ratio"
                 )
+                return 0.0 if cue_detection.width > cue_detection.height else 90.0
 
-            if longest_line is None:
-                logger.debug("No valid line found, using fallback")
-                return 0.0
+            line_end1, line_end2 = max(
+                (
+                    (first, second)
+                    for index, first in enumerate(intersections)
+                    for second in intersections[index + 1 :]
+                ),
+                key=lambda pair: float(
+                    np.hypot(pair[1][0] - pair[0][0], pair[1][1] - pair[0][1])
+                ),
+            )
+            cue_detection.line_end1 = line_end1
+            cue_detection.line_end2 = line_end2
+            cue_detection.line_center = (
+                (line_end1[0] + line_end2[0]) / 2,
+                (line_end1[1] + line_end2[1]) / 2,
+            )
+            angle_deg = float(
+                np.degrees(
+                    np.arctan2(
+                        line_end2[1] - line_end1[1],
+                        line_end2[0] - line_end1[0],
+                    )
+                )
+                % 360.0
+            )
 
-            # Extract the longest line coordinates
-            x1_l, y1_l, x2_l, y2_l = longest_line
-            angle_deg = line_angle_deg  # Already calculated and normalized above
-
-            # Store the line endpoints in the cue_detection object for orientation correction later
-            # Convert from cue_region coordinates to full frame coordinates
-            line_end1_x = x1_l + x1  # x1 is the region offset
-            line_end1_y = y1_l + y1  # y1 is the region offset
-            line_end2_x = x2_l + x1
-            line_end2_y = y2_l + y1
-            cue_detection.line_end1 = (line_end1_x, line_end1_y)
-            cue_detection.line_end2 = (line_end2_x, line_end2_y)
-
-            # Store the line center in the cue_detection object for positioning
-            line_center_x = (line_end1_x + line_end2_x) / 2
-            line_center_y = (line_end1_y + line_end2_y) / 2
-            cue_detection.line_center = (line_center_x, line_center_y)
-
-            total_time = (time.time() - method_start) * 1000
+            total_time = (time.perf_counter() - method_start) * 1000
             logger.debug(
                 f"[PERF] _estimate_cue_angle timing: total={total_time:.1f}ms "
                 f"(extract={extract_time:.1f}ms, gray={gray_time:.1f}ms, "
@@ -1249,7 +1620,7 @@ class YOLODetector:
                 f"angle={angle_deg:.1f}°, region_size={cue_region.shape[1]}x{cue_region.shape[0]}"
             )
 
-            return angle_deg
+            return float(angle_deg)
 
         except Exception as e:
             logger.error(f"Angle estimation failed: {e}", exc_info=True)
@@ -1300,53 +1671,92 @@ class YOLODetector:
             logger.error(f"Table element detection failed: {e}")
             return TableElements()
 
-    def _run_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
+    def _run_inference(
+        self,
+        frame: NDArray[np.uint8],
+        *,
+        frame_key: Optional[Hashable] = None,
+    ) -> list[Detection]:
         """Run YOLO inference on frame and convert results to Detection objects.
 
-        Uses frame-level caching to avoid running inference multiple times per frame.
-        This prevents wasteful re-inference when detect_balls() and detect_cue() are
-        called separately on the same frame.
+        Uses a single-entry cache only when the caller supplies an explicit key.
+        The key must identify both the source frame and the image view (for example,
+        full frame versus a crop). Calls without a key deliberately bypass caching.
 
         Args:
             frame: Input image in BGR format
+            frame_key: Hashable source-frame/view identity. A key may be reused
+                only while the pixels and view are unchanged.
 
         Returns:
             List of all detections
         """
         if not self.model_loaded:
-            return []
+            raise _ModelUnavailableError("inference backend is not loaded")
 
-        # Generate cache key from frame content to avoid false hits from buffer reuse
-        # Sample a small region of the frame for fast content verification
-        # This prevents camera buffer reuse from returning stale detections
-        h, w = frame.shape[:2]
-        sample_region = frame[h // 2 - 10 : h // 2 + 10, w // 2 - 10 : w // 2 + 10]
-        content_hash = hash(sample_region.tobytes())
-        cache_key = (id(frame.data), content_hash)
+        if frame_key is not None:
+            try:
+                hash(frame_key)
+            except TypeError:
+                logger.warning("Unhashable frame_key; running inference uncached")
+                frame_key = None
 
-        # Check cache first
-        with self._cache_lock:
-            if cache_key in self._detection_cache:
-                logger.debug(
-                    f"[PERF] Using cached YOLO detections (cache hit, key={cache_key[0]})"
+        cache_key = (
+            (getattr(self, "_inference_model_generation", 0), frame_key)
+            if frame_key is not None
+            else None
+        )
+
+        # Keep the cache scoped to exactly one explicit frame/view. Holding the
+        # lock through inference prevents concurrent ball/cue requests for that
+        # same key from launching duplicate model calls. The optional audit span
+        # distinguishes cache-lock wait from the detector's actual service time.
+        profiler = getattr(self, "audit_profiler", None)
+        if profiler is None:
+            with self._cache_lock:
+                return self._run_inference_locked(frame, cache_key)
+
+        with profiler.span("detector_cache_lock_wait"):
+            self._cache_lock.acquire()
+        try:
+            return self._run_inference_locked(frame, cache_key)
+        finally:
+            self._cache_lock.release()
+
+    def _run_inference_locked(
+        self,
+        frame: NDArray[np.uint8],
+        cache_key: tuple[int, Hashable] | None,
+    ) -> list[Detection]:
+        """Run a cache lookup and detector backend while owning its cache lock."""
+        if cache_key is not None and cache_key in self._detection_cache:
+            profiler = getattr(self, "audit_profiler", None)
+            current_frame = profiler.current_frame if profiler is not None else None
+            if current_frame is not None:
+                current_frame.metadata["detector_cache_hits"] = (
+                    current_frame.metadata.get("detector_cache_hits", 0) + 1
                 )
-                return self._detection_cache[cache_key]
-            else:
-                logger.debug(
-                    f"[PERF] Cache miss - running YOLO inference (key={cache_key[0]})"
-                )
+            logger.debug("[PERF] Reusing inference for current frame/view")
+            return list(self._detection_cache[cache_key])
 
-        # Cache miss - run inference
-        if self.model_format == ModelFormat.EDGETPU:
-            detections = self._run_tpu_inference(frame)
+        self._detection_cache.clear()
+        profiler = getattr(self, "audit_profiler", None)
+        if profiler is None:
+            detections = (
+                self._run_tpu_inference(frame)
+                if self.model_format == ModelFormat.EDGETPU
+                else self._run_standard_inference(frame)
+            )
         else:
-            detections = self._run_standard_inference(frame)
+            with profiler.span("detector_backend"):
+                detections = (
+                    self._run_tpu_inference(frame)
+                    if self.model_format == ModelFormat.EDGETPU
+                    else self._run_standard_inference(frame)
+                )
 
-        # Store in cache (keep only last frame to avoid memory growth)
-        with self._cache_lock:
-            self._detection_cache.clear()  # Clear old cache
+        if cache_key is not None:
             self._detection_cache[cache_key] = detections
-
         return detections
 
     def _run_standard_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
@@ -1360,27 +1770,41 @@ class YOLODetector:
         """
         import time
 
-        start_time = time.time()
+        start_time = time.perf_counter()
         inference_start = None
+        profiler = getattr(self, "audit_profiler", None)
+        failure_stage = DetectionFailureStage.INFERENCE
 
         try:
-            # Acquire lock for thread-safe model access during inference
-            with self._model_lock:
-                if not self.model_loaded or self.model is None:
-                    return []
+            if profiler is None:
+                # Acquire lock for thread-safe model access during inference.
+                with self._model_lock:
+                    if not self.model_loaded or self.model is None:
+                        raise _ModelUnavailableError("inference backend is not loaded")
+                    inference_start = time.perf_counter()
+                    results = self._invoke_standard_model(
+                        self.model, frame, self.confidence, self.nms_threshold
+                    )
+            else:
+                # Separate waiting for the shared model lock from the actual
+                # backend call so contention is visible in audit reports.
+                with profiler.span("detector_model_lock_wait"):
+                    self._model_lock.acquire()
+                try:
+                    if not self.model_loaded or self.model is None:
+                        raise _ModelUnavailableError("inference backend is not loaded")
+                    inference_start = time.perf_counter()
+                    with profiler.span("model_execute"):
+                        results = self._invoke_standard_model(
+                            self.model, frame, self.confidence, self.nms_threshold
+                        )
+                finally:
+                    self._model_lock.release()
 
-                # Run YOLO inference - time this specifically
-                # ultralytics YOLO expects BGR format (OpenCV standard)
-                inference_start = time.time()
-                results = self.model(
-                    frame,
-                    conf=self.confidence,
-                    iou=self.nms_threshold,
-                    verbose=False,
-                )
-                inference_time = (time.time() - inference_start) * 1000  # ms
+            inference_time = (time.perf_counter() - inference_start) * 1000  # ms
 
             # Parse results (outside lock - parsing doesn't need model access)
+            failure_stage = DetectionFailureStage.DECODING
             detections = []
 
             # Results is a list (batch processing), we use single image
@@ -1427,7 +1851,7 @@ class YOLODetector:
                         detections.append(detection)
 
             # Update statistics
-            total_time = (time.time() - start_time) * 1000  # ms
+            total_time = (time.perf_counter() - start_time) * 1000  # ms
             self.stats["total_inferences"] += 1
             self.stats["total_detections"] += len(detections)
 
@@ -1446,9 +1870,71 @@ class YOLODetector:
 
             return detections
 
+        except _ModelUnavailableError:
+            raise
+        except _DetectionBackendFailure:
+            raise
         except Exception as e:
-            logger.error(f"YOLO inference failed: {e}")
-            return []
+            logger.error(
+                "YOLO standard %s failed (%s)",
+                failure_stage.value,
+                type(e).__name__,
+            )
+            raise _DetectionBackendFailure(failure_stage) from e
+
+    def _invoke_standard_model(
+        self,
+        model: Callable[..., Any],
+        frame: NDArray[np.uint8],
+        confidence: float,
+        nms_threshold: float,
+    ) -> Any:
+        """Call Ultralytics with the configured device for PyTorch weights.
+
+        Ultralytics selects a device when its predictor is first initialized.
+        The detector's ``device`` setting must therefore be passed at inference
+        time; logging it during model loading does not place the model there.
+        Other formats retain their format-specific backend selection until that
+        backend has explicit placement verification.
+        """
+        kwargs: dict[str, Any] = {
+            "conf": confidence,
+            "iou": nms_threshold,
+            "verbose": False,
+        }
+        if self.model_format == ModelFormat.PYTORCH:
+            kwargs["device"] = self.device
+
+        return model(frame, **kwargs)
+
+    def _get_effective_inference_device(self) -> str | None:
+        """Return an observed PyTorch predictor device when Ultralytics exposes it.
+
+        Keep the configured/requested device separate from runtime evidence. A
+        value that cannot be observed remains unavailable rather than being
+        inferred from the configuration or from provider availability.
+        """
+        if self.model_format != ModelFormat.PYTORCH or self.model is None:
+            return None
+
+        predictor = getattr(self.model, "predictor", None)
+        predictor_device = getattr(predictor, "device", None)
+        return str(predictor_device) if predictor_device is not None else None
+
+    def _get_effective_inference_backend(self) -> str | None:
+        """Return the verified inference backend family when it is observable.
+
+        CoreML packages are loaded through Ultralytics' native CoreML path. This
+        reports the backend family only; CoreML's actual CPU/GPU/Neural Engine
+        partition remains unavailable unless the runtime exposes it.
+        """
+        if not self.model_loaded:
+            return None
+        if self.model_format == ModelFormat.COREML:
+            return "coreml"
+        if self.model_format == ModelFormat.PYTORCH:
+            return "pytorch"
+        return None
 
     def _run_tpu_inference(self, frame: NDArray[np.uint8]) -> list[Detection]:
         """Run Edge TPU inference on frame.
@@ -1461,7 +1947,8 @@ class YOLODetector:
         """
         import time
 
-        start_time = time.time()
+        start_time = time.perf_counter()
+        failure_stage = DetectionFailureStage.INFERENCE
 
         try:
             # Acquire lock for thread-safe TPU access
@@ -1470,8 +1957,9 @@ class YOLODetector:
                     not self.model_loaded
                     or self.tpu_interpreter is None
                     or self.tpu_input_details is None
+                    or self.tpu_output_details is None
                 ):
-                    return []
+                    raise _ModelUnavailableError("TPU inference backend is not loaded")
 
                 # Get input shape from model
                 input_shape = self.tpu_input_details[0]["shape"]
@@ -1513,18 +2001,19 @@ class YOLODetector:
                 # - Bounding boxes (x, y, w, h)
                 # - Confidence scores
                 # - Class IDs
-                outputs = []
+                outputs: list[NDArray[Any]] = []
                 for output_detail in self.tpu_output_details:
                     output = self.tpu_interpreter.get_tensor(output_detail["index"])
                     outputs.append(output)
 
             # Parse TPU output to Detection objects
+            failure_stage = DetectionFailureStage.DECODING
             detections = self._parse_tpu_output(
                 outputs, frame.shape, (input_height, input_width)
             )
 
             # Update statistics
-            inference_time = (time.time() - start_time) * 1000  # ms
+            inference_time = (time.perf_counter() - start_time) * 1000  # ms
             self.stats["total_inferences"] += 1
             self.stats["total_detections"] += len(detections)
 
@@ -1540,13 +2029,17 @@ class YOLODetector:
 
             return detections
 
+        except _ModelUnavailableError:
+            raise
+        except _DetectionBackendFailure:
+            raise
         except Exception as e:
-            logger.error(f"TPU inference failed: {e}")
-            return []
+            logger.error("TPU %s failed (%s)", failure_stage.value, type(e).__name__)
+            raise _DetectionBackendFailure(failure_stage) from e
 
     def _parse_tpu_output(
         self,
-        outputs: list[NDArray],
+        outputs: list[NDArray[Any]],
         original_shape: tuple[int, int, int],
         model_input_shape: tuple[int, int],
     ) -> list[Detection]:
@@ -1560,7 +2053,7 @@ class YOLODetector:
         Returns:
             List of Detection objects
         """
-        detections = []
+        detections: list[Detection] = []
 
         # YOLOv8 Edge TPU output format typically:
         # Output 0: [1, num_predictions, 84] where 84 = 4 (bbox) + 80 (classes)
@@ -1574,7 +2067,10 @@ class YOLODetector:
         # Handle different output formats
         if len(output.shape) == 3:
             # Format: [1, num_predictions, 84] or [1, 84, num_predictions]
-            if output.shape[-1] > output.shape[1]:
+            # Prediction counts are normally much larger than the feature
+            # count. Keep the larger non-batch axis as predictions so both
+            # [1, N, F] and [1, F, N] exports decode to rows of features.
+            if output.shape[1] >= output.shape[2]:
                 # [1, num_predictions, features]
                 predictions = output[0]  # Remove batch dimension
             else:
@@ -1661,17 +2157,29 @@ class YOLODetector:
         detections = sorted(detections, key=lambda d: d.confidence, reverse=True)
 
         # Group detections by class
-        class_groups = {}
+        class_groups: dict[int, list[Detection]] = {}
         for det in detections:
             if det.class_id not in class_groups:
                 class_groups[det.class_id] = []
             class_groups[det.class_id].append(det)
 
         # Apply NMS per class
-        final_detections = []
+        final_detections: list[Detection] = []
         for class_id, class_dets in class_groups.items():
-            # Convert to numpy arrays for IoU calculation
-            boxes = np.array([d.bbox for d in class_dets])
+            # OpenCV NMSBoxes expects (x, y, width, height), while Detection
+            # stores (x1, y1, x2, y2). Passing corners as sizes makes large
+            # image coordinates look like enormous, overlapping boxes.
+            boxes = np.array(
+                [
+                    (
+                        detection.bbox[0],
+                        detection.bbox[1],
+                        detection.bbox[2] - detection.bbox[0],
+                        detection.bbox[3] - detection.bbox[1],
+                    )
+                    for detection in class_dets
+                ]
+            )
             scores = np.array([d.confidence for d in class_dets])
 
             # OpenCV NMS
@@ -1681,9 +2189,9 @@ class YOLODetector:
 
             # Extract kept detections
             if len(indices) > 0:
-                indices = indices.flatten()
-                for idx in indices:
-                    final_detections.append(class_dets[idx])
+                normalized_indices = np.asarray(indices).reshape(-1)
+                for idx in normalized_indices:
+                    final_detections.append(class_dets[int(idx)])
 
         return final_detections
 
@@ -1705,7 +2213,13 @@ class YOLODetector:
             "model_path": str(self.model_path) if self.model_path else None,
             "model_format": self.model_format.value if self.model_format else None,
             "model_loaded": self.model_loaded,
+            # ``device`` remains for API compatibility and means the configured
+            # request. Only ``effective_device`` reports runtime placement, and
+            # it stays null until the PyTorch predictor exposes that evidence.
             "device": self.device,
+            "requested_device": self.device,
+            "effective_device": self._get_effective_inference_device(),
+            "effective_backend": self._get_effective_inference_backend(),
             "confidence_threshold": self.confidence,
             "nms_threshold": self.nms_threshold,
             "fallback_mode": self.stats["fallback_mode"],
@@ -1850,13 +2364,19 @@ class YOLODetector:
                 self._load_model(str(new_model_path))
 
                 # Verify model loaded successfully
-                if not self.model_loaded or self.model is None:
+                loaded_model = cast("Optional[Callable[..., Any]]", self.model)
+                if not self.model_loaded or loaded_model is None:
                     raise RuntimeError("Model loaded but not marked as available")
 
                 # Test model with a dummy inference to ensure it works
                 logger.info("Testing new model with dummy inference")
                 test_frame = np.zeros((640, 640, 3), dtype=np.uint8)
-                _ = self.model(test_frame, conf=0.5, verbose=False)
+                _ = self._invoke_standard_model(
+                    loaded_model,
+                    test_frame,
+                    confidence=0.5,
+                    nms_threshold=self.nms_threshold,
+                )
 
                 # Success! Log the change
                 logger.info(
@@ -1864,6 +2384,11 @@ class YOLODetector:
                 )
                 logger.info(
                     f"Model format: {self.model_format.value if self.model_format else 'unknown'}"
+                )
+
+                # Cached detections are specific to the model that produced them.
+                self._inference_model_generation = (
+                    getattr(self, "_inference_model_generation", 0) + 1
                 )
 
                 # Clear fallback mode if we were in it
@@ -2011,7 +2536,7 @@ def create_detector(
             - confidence: float 0.0-1.0 (default 0.15 for optimal ball detection)
             - nms_threshold: float 0.0-1.0
             - auto_fallback: bool
-            - enable_opencv_classification: bool (default True for hybrid YOLO+OpenCV detection)
+            - enable_opencv_classification: bool (default False; heuristic exact-number guesses)
             - tpu_device_path: str (optional, for TPU)
             - min_ball_size: int (optional, minimum ball size in pixels, default 20)
 
@@ -2019,8 +2544,9 @@ def create_detector(
         Configured YOLODetector instance
 
     Note:
-        Uses working defaults from VisionModule: confidence=0.15, enable_opencv_classification=True.
-        These values are proven to work well for billiards ball detection.
+        Uses conservative defaults from VisionModule: confidence=0.15 and
+        enable_opencv_classification=False. Exact-number guesses remain opt-in
+        because the configured detector model does not predict ball identities.
     """
     if config is None:
         config = {}
@@ -2031,7 +2557,7 @@ def create_detector(
         confidence=config.get("confidence", 0.15),
         nms_threshold=config.get("nms_threshold", 0.45),
         auto_fallback=config.get("auto_fallback", True),
-        enable_opencv_classification=config.get("enable_opencv_classification", True),
+        enable_opencv_classification=config.get("enable_opencv_classification", False),
         tpu_device_path=config.get("tpu_device_path"),
         min_ball_size=config.get("min_ball_size", 20),
     )

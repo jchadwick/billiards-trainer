@@ -1,3 +1,5 @@
+> Historical test report. The captured endpoint and test output describe an earlier API contract. See [current visualizer specifications](SPECS.md) for the supported WebSocket path.
+
 # Visualizer Module Initialization Test Results
 
 ## Test Overview

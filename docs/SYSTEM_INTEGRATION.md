@@ -68,39 +68,14 @@ The Billiards Trainer system is a comprehensive computer vision and AI-powered t
 
 ### Main Entry Point
 
-The system launcher (`backend/system_launcher.py`) provides the primary entry point for starting the complete system.
+The supported application entry point is `backend.main`. It accepts a config-file path; host, port, reload, and log level are read from configuration (with `API_PORT` available as the port override).
 
 ```bash
-# Start full system in development mode
-python system_launcher.py --environment development
-
-# Start production system
-python system_launcher.py --environment production --host 0.0.0.0 --port 8000
-
-# Start with specific modules disabled
-python system_launcher.py --no-projector --no-vision
-
-# Start with debug logging
-python system_launcher.py --debug --log-level DEBUG
+# Start the configured application
+python -m backend.main --config config.json
 ```
 
-### Configuration Options
-
-- `--environment`: Environment mode (development/production/testing)
-- `--debug`: Enable debug mode
-- `--no-vision`: Disable vision module
-- `--no-projector`: Disable projector module
-- `--no-api`: Disable API module
-- `--no-core`: Disable core module
-- `--no-monitoring`: Disable performance monitoring
-- `--no-recovery`: Disable auto-recovery
-- `--health-interval`: Health check interval in seconds
-- `--host`: API server host
-- `--port`: API server port
-- `--workers`: Number of API server workers
-- `--log-level`: Logging level
-- `--log-file`: Log file path
-- `--shutdown-timeout`: Graceful shutdown timeout
+Run exactly one backend process for each table and camera. Each process owns its camera capture, game state, and broadcasts. Multiple tables require separate backend instances, each with its own camera and state. The launcher has no worker-count option; do not run multiple workers for one table.
 
 ## Monitoring and Alerting
 
@@ -222,7 +197,7 @@ sudo systemctl enable billiards-trainer
 
 ### Nginx Configuration
 
-Nginx provides reverse proxy and load balancing:
+Nginx provides reverse proxying for the backend instance:
 - Rate limiting for API endpoints
 - WebSocket proxy support
 - Static file serving
@@ -324,7 +299,7 @@ Automated log rotation is configured via logrotate:
 ### WebSocket Endpoints
 
 #### Real-time Communication
-- `/ws` - Main WebSocket endpoint
+- `/api/v1/websocket/ws` - Main WebSocket endpoint
 - Real-time game state updates
 - Performance metrics streaming
 - Alert notifications
@@ -384,7 +359,7 @@ grep ERROR /opt/billiards-trainer/logs/*.log
 
 1. **Service Isolation**: Run services with minimal privileges
 2. **Network Security**: Configure firewall rules
-3. **Access Control**: Implement authentication and authorization
+3. **Local access**: Keep the single-user API directly accessible to local clients; do not add login or token checks.
 4. **Data Protection**: Encrypt sensitive data
 5. **Audit Logging**: Log security-relevant events
 
@@ -403,7 +378,7 @@ grep ERROR /opt/billiards-trainer/logs/*.log
 1. **Resource Allocation**: Optimize CPU and memory usage
 2. **I/O Performance**: Use SSD storage for logs and data
 3. **Network Optimization**: Tune network buffers and timeouts
-4. **Process Management**: Configure worker processes appropriately
+4. **Process Management**: Run one backend process per table and camera
 
 ### Application Optimization
 

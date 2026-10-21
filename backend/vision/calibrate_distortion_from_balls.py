@@ -24,7 +24,7 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import TypedDict
 
 import cv2
 import numpy as np
@@ -34,6 +34,33 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+class StraightnessMetrics(TypedDict):
+    """Grid-line deviations, measured in source-image pixels."""
+
+    mean_row_deviation: float
+    mean_col_deviation: float
+    max_row_deviation: float
+    max_col_deviation: float
+
+
+class CalibrationValidationMetrics(TypedDict):
+    """Successful calibration validation measurements."""
+
+    original_mean_deviation: float
+    undistorted_mean_deviation: float
+    original_max_deviation: float
+    undistorted_max_deviation: float
+
+
+class CalibrationValidationError(TypedDict):
+    """Validation result returned when there are too few detections."""
+
+    error: str
+
+
+CalibrationValidation = CalibrationValidationMetrics | CalibrationValidationError
 
 
 class BallGridCalibrator:
@@ -48,7 +75,7 @@ class BallGridCalibrator:
         """
         self.min_ball_radius = min_ball_radius
         self.max_ball_radius = max_ball_radius
-        self.debug_images = {}
+        self.debug_images: dict[str, NDArray[np.uint8]] = {}
 
     def detect_balls(
         self, image: NDArray[np.uint8]
@@ -209,15 +236,18 @@ class BallGridCalibrator:
         row_mapping = {old: new for new, (old, _) in enumerate(row_avg_y)}
 
         # Build rows list
-        rows = [[] for _ in range(num_rows)]
+        row_buckets: list[list[NDArray[np.float32]]] = [[] for _ in range(num_rows)]
         for center, row_label in zip(centers_filtered, row_labels_filtered):
             row_idx = row_mapping[row_label]
-            rows[row_idx].append(center)
+            row_buckets[row_idx].append(center)
 
         # Convert to arrays and sort by x-coordinate
-        for i in range(num_rows):
-            rows[i] = np.array(rows[i])
-            rows[i] = rows[i][np.argsort(rows[i][:, 0])]
+        rows = [
+            np.asarray(row, dtype=np.float32)[
+                np.argsort(np.asarray(row, dtype=np.float32)[:, 0])
+            ]
+            for row in row_buckets
+        ]
 
         # Determine number of columns (most common row length)
         row_lengths = [len(row) for row in rows]
@@ -240,17 +270,17 @@ class BallGridCalibrator:
                 # Use x-coordinates to determine column positions
                 if len(row) > 0:
                     # Find expected column positions based on other rows
-                    ref_x_positions = []
+                    ref_x_positions: NDArray[np.float32] | None = None
                     for other_row in rows:
                         if len(other_row) == num_cols:
                             ref_x_positions = other_row[:, 0]
                             break
 
-                    if len(ref_x_positions) > 0:
+                    if ref_x_positions is not None and ref_x_positions.size > 0:
                         # Match each ball to closest reference position
                         for ball in row:
                             distances = np.abs(ref_x_positions - ball[0])
-                            col_idx = np.argmin(distances)
+                            col_idx = int(np.argmin(distances))
                             grid_centers[row_idx, col_idx] = ball
                     else:
                         # No reference - distribute evenly
@@ -283,15 +313,6 @@ class BallGridCalibrator:
             (rows, cols, 2) array of ideal ball positions
         """
         logger.info("Calculating ideal grid positions...")
-
-        # Filter out NaN values for spacing calculation
-        valid_centers = []
-        for r in range(rows):
-            for c in range(cols):
-                if not np.isnan(grid_centers[r, c, 0]):
-                    valid_centers.append(grid_centers[r, c])
-
-        valid_centers = np.array(valid_centers)
 
         # Calculate average spacing
         # Horizontal spacing
@@ -452,8 +473,8 @@ class BallGridCalibrator:
                     f"Extreme distortion values detected: k1={k1:.3f}, k2={k2:.3f}"
                 )
                 logger.warning("Clamping to reasonable range [-0.3, 0.3]")
-                k1 = np.clip(k1, -0.3, 0.3)
-                k2 = np.clip(k2, -0.3, 0.3)
+                k1 = float(np.clip(k1, -0.3, 0.3))
+                k2 = float(np.clip(k2, -0.3, 0.3))
                 D[0], D[1] = k1, k2
 
             # Convert to fisheye-compatible format (4 coefficients)
@@ -461,7 +482,8 @@ class BallGridCalibrator:
             fisheye_dist[0] = D[0]  # k1
             fisheye_dist[1] = D[1]  # k2
 
-            return K, fisheye_dist, rms_error
+            camera_matrix_result = np.asarray(K, dtype=np.float64)
+            return camera_matrix_result, fisheye_dist, float(rms_error)
 
         except Exception as e:
             logger.error(f"Calibration failed: {e}")
@@ -475,7 +497,7 @@ class BallGridCalibrator:
         detected_grid: NDArray[np.float32],
         rows: int,
         cols: int,
-    ) -> dict:
+    ) -> CalibrationValidation:
         """Validate calibration by measuring grid straightness improvement.
 
         Args:
@@ -497,8 +519,9 @@ class BallGridCalibrator:
             camera_matrix, dist_coeffs, (w, h), 1, (w, h)
         )
 
-        undistorted = cv2.undistort(
-            image, camera_matrix, dist_coeffs, None, new_camera_matrix
+        undistorted: NDArray[np.uint8] = np.asarray(
+            cv2.undistort(image, camera_matrix, dist_coeffs, None, new_camera_matrix),
+            dtype=np.uint8,
         )
 
         self.debug_images["undistorted"] = undistorted
@@ -511,26 +534,26 @@ class BallGridCalibrator:
             return {"error": "insufficient_detections"}
 
         # Measure grid straightness before and after
-        def measure_grid_straightness(grid_centers, rows, cols):
+        def measure_grid_straightness(
+            grid_centers: NDArray[np.float32], rows: int, cols: int
+        ) -> StraightnessMetrics:
             """Measure how straight the grid lines are."""
             row_straightness = []
             col_straightness = []
 
             # Check row straightness (should be horizontal)
             for r in range(rows):
-                row_pts = []
+                row_pts: list[NDArray[np.float32]] = []
                 for c in range(cols):
                     if not np.isnan(grid_centers[r, c, 0]):
                         row_pts.append(grid_centers[r, c])
 
                 if len(row_pts) >= 3:
-                    row_pts = np.array(row_pts)
+                    row_points = np.asarray(row_pts, dtype=np.float32)
                     # Fit a line and measure deviation
-                    vx, vy, x0, y0 = cv2.fitLine(
-                        row_pts.astype(np.float32), cv2.DIST_L2, 0, 0.01, 0.01
-                    )
+                    vx, vy, x0, y0 = cv2.fitLine(row_points, cv2.DIST_L2, 0, 0.01, 0.01)
                     # Calculate perpendicular distance from each point to the line
-                    for pt in row_pts:
+                    for pt in row_points:
                         # Distance from point to line
                         d = abs((pt[1] - y0) * vx - (pt[0] - x0) * vy) / np.sqrt(
                             vx**2 + vy**2
@@ -539,17 +562,15 @@ class BallGridCalibrator:
 
             # Check column straightness (should be vertical)
             for c in range(cols):
-                col_pts = []
+                col_pts: list[NDArray[np.float32]] = []
                 for r in range(rows):
                     if not np.isnan(grid_centers[r, c, 0]):
                         col_pts.append(grid_centers[r, c])
 
                 if len(col_pts) >= 3:
-                    col_pts = np.array(col_pts)
-                    vx, vy, x0, y0 = cv2.fitLine(
-                        col_pts.astype(np.float32), cv2.DIST_L2, 0, 0.01, 0.01
-                    )
-                    for pt in col_pts:
+                    col_points = np.asarray(col_pts, dtype=np.float32)
+                    vx, vy, x0, y0 = cv2.fitLine(col_points, cv2.DIST_L2, 0, 0.01, 0.01)
+                    for pt in col_points:
                         d = abs((pt[1] - y0) * vx - (pt[0] - x0) * vy) / np.sqrt(
                             vx**2 + vy**2
                         )
@@ -557,22 +578,23 @@ class BallGridCalibrator:
 
             return {
                 "mean_row_deviation": (
-                    np.mean(row_straightness) if row_straightness else 0
+                    float(np.mean(row_straightness)) if row_straightness else 0.0
                 ),
                 "mean_col_deviation": (
-                    np.mean(col_straightness) if col_straightness else 0
+                    float(np.mean(col_straightness)) if col_straightness else 0.0
                 ),
                 "max_row_deviation": (
-                    np.max(row_straightness) if row_straightness else 0
+                    float(np.max(row_straightness)) if row_straightness else 0.0
                 ),
                 "max_col_deviation": (
-                    np.max(col_straightness) if col_straightness else 0
+                    float(np.max(col_straightness)) if col_straightness else 0.0
                 ),
             }
 
         original_straightness = measure_grid_straightness(detected_grid, rows, cols)
 
         # Try to infer grid from undistorted detections
+        undistorted_straightness: StraightnessMetrics
         try:
             _, _, undistorted_grid = self.infer_grid_structure(balls_undistorted)
             undistorted_straightness = measure_grid_straightness(
@@ -587,7 +609,7 @@ class BallGridCalibrator:
                 "max_col_deviation": float("nan"),
             }
 
-        improvement = {
+        improvement: CalibrationValidationMetrics = {
             "original_mean_deviation": (
                 original_straightness["mean_row_deviation"]
                 + original_straightness["mean_col_deviation"]
@@ -750,7 +772,7 @@ class BallGridCalibrator:
         return vis
 
 
-def main():
+def main() -> int:
     """Main calibration script."""
     parser = argparse.ArgumentParser(
         description="Calibrate camera distortion using ball grid pattern"
@@ -790,11 +812,12 @@ def main():
 
     # Load image
     logger.info(f"Loading image: {args.image}")
-    image = cv2.imread(args.image)
+    loaded_image = cv2.imread(args.image)
 
-    if image is None:
+    if loaded_image is None:
         logger.error(f"Failed to load image: {args.image}")
         return 1
+    image: NDArray[np.uint8] = np.asarray(loaded_image, dtype=np.uint8)
 
     h, w = image.shape[:2]
     logger.info(f"Image resolution: {w}x{h}")

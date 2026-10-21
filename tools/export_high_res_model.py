@@ -1,108 +1,363 @@
 #!/usr/bin/env python3
-"""Export YOLO model with higher resolution for better detection quality.
+"""Export an explicitly selected YOLO model and write lineage metadata.
 
-This script exports your trained YOLO model to ONNX format with a larger
-input size (1280x1280) to preserve detail from your 1280x720 camera.
+Exports are derivatives of an existing PyTorch checkpoint. The JSON manifest
+records provenance and the declared input contract; it does not claim that a
+runtime's preprocessing or decoded detections have passed equivalence tests.
 """
 
-import sys
-from pathlib import Path
+from __future__ import annotations
 
-# Add backend to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
+import argparse
+import hashlib
+import importlib.metadata
+import json
+import platform
+import shutil
+import sys
+import tempfile
+from collections.abc import Mapping
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from ultralytics import YOLO
 
+MANIFEST_SCHEMA_VERSION = 1
+DEFAULT_OUTPUT_DIRECTORY = "models/exports"
+DEFAULT_IMAGE_SIZE = 1280
+SUPPORTED_FORMAT_SUFFIXES = {"onnx": ".onnx", "coreml": ".mlpackage"}
+
+
+def _sha256_file(path: Path) -> str:
+    """Hash a file in bounded chunks so large checkpoints need not be loaded whole."""
+    digest = hashlib.sha256()
+    with path.open("rb") as model_file:
+        for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _artifact_digest(path: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Hash either one model file or each stable, relative package component."""
+    if path.is_file():
+        file_hash = _sha256_file(path)
+        return file_hash, [
+            {"path": path.name, "size_bytes": path.stat().st_size, "sha256": file_hash}
+        ]
+    if not path.is_dir():
+        raise FileNotFoundError(f"Export did not produce an artifact: {path}")
+
+    components = []
+    digest = hashlib.sha256()
+    for component in sorted(item for item in path.rglob("*") if item.is_file()):
+        relative_path = component.relative_to(path).as_posix()
+        component_hash = _sha256_file(component)
+        component_size = component.stat().st_size
+        components.append(
+            {
+                "path": relative_path,
+                "size_bytes": component_size,
+                "sha256": component_hash,
+            }
+        )
+        digest.update(relative_path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(bytes.fromhex(component_hash))
+        digest.update(b"\0")
+
+    if not components:
+        raise ValueError(f"Export package is empty: {path}")
+    return digest.hexdigest(), components
+
+
+def _class_names(model: Any) -> list[dict[str, Any]] | None:
+    """Return model labels in index order without relying on config templates."""
+    names = getattr(model, "names", None)
+    if isinstance(names, Mapping):
+        try:
+            return [
+                {"id": int(class_id), "name": str(name)}
+                for class_id, name in sorted(
+                    names.items(), key=lambda item: int(item[0])
+                )
+            ]
+        except (TypeError, ValueError):
+            return None
+    if isinstance(names, (list, tuple)):
+        return [{"id": index, "name": str(name)} for index, name in enumerate(names)]
+    return None
+
+
+def _package_version(distribution: str) -> str | None:
+    """Read an installed package version without importing optional runtimes."""
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _source_model_metadata(model: Any) -> dict[str, Any]:
+    """Capture labels and task metadata from the loaded checkpoint itself."""
+    core_model = getattr(model, "model", None)
+    stride = getattr(core_model, "stride", None)
+    if stride is not None and hasattr(stride, "tolist"):
+        stride = stride.tolist()
+    elif isinstance(stride, tuple):
+        stride = list(stride)
+
+    return {
+        "task": getattr(model, "task", None),
+        "class_names": _class_names(model),
+        "stride": stride,
+    }
+
+
+def _build_manifest(
+    *,
+    source_model: Path,
+    exported_model: Path,
+    source_metadata: dict[str, Any],
+    model_format: str,
+    image_size: int,
+    simplify: bool,
+) -> dict[str, Any]:
+    """Build a versioned record that separates facts from unverified assumptions."""
+    export_hash, components = _artifact_digest(exported_model)
+    class_names = source_metadata.get("class_names")
+    return {
+        "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source_model": {
+            "path": str(source_model.resolve()),
+            "size_bytes": source_model.stat().st_size,
+            "sha256": _sha256_file(source_model),
+        },
+        "exported_model": {
+            "path": exported_model.name,
+            "format": model_format,
+            "size_bytes": sum(component["size_bytes"] for component in components),
+            "sha256": export_hash,
+            "components": components,
+        },
+        "model": {
+            **source_metadata,
+            "class_count": len(class_names) if class_names is not None else None,
+        },
+        "export": {
+            "input_size": [image_size, image_size],
+            "batch_size": 1,
+            "dynamic_shape": False,
+            "embedded_nms": False,
+            "onnx_simplification": simplify if model_format == "onnx" else None,
+        },
+        "expected_input_contract": {
+            "shape": [1, 3, image_size, image_size],
+            "layout": "NCHW",
+            "color_order": "RGB",
+            "dtype": "float32",
+            "normalization": "[0, 1]",
+            "resize_and_letterbox": (
+                "Runtime adapter responsibility; must be verified against the "
+                "reference preprocessing before equivalence is claimed."
+            ),
+        },
+        "output_contract": {
+            "nms": "not embedded; runtime decoding and thresholds are separate",
+            "tensor_names_and_shapes": "not captured; inspect the exported graph",
+        },
+        "toolchain": {
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "export_device": "cpu",
+            "ultralytics": _package_version("ultralytics"),
+            "torch": _package_version("torch"),
+            "onnxruntime": _package_version("onnxruntime"),
+            "coremltools": _package_version("coremltools"),
+        },
+    }
+
 
 def export_high_res_model(
-    model_path: str,
-    output_dir: str = "models",
-    imgsz: int = 1280,
-    format: str = "onnx"
-):
-    """Export YOLO model with specified input size.
+    model_path: str | Path,
+    output_dir: str | Path = DEFAULT_OUTPUT_DIRECTORY,
+    imgsz: int = DEFAULT_IMAGE_SIZE,
+    format: str = "onnx",
+    simplify: bool = False,
+    overwrite: bool = False,
+) -> str:
+    """Export one explicit PT checkpoint and write a sibling JSON manifest.
+
+    The checkpoint is copied into an output-local staging directory because
+    Ultralytics writes beside its input checkpoint. That keeps generated files
+    in the requested output directory and leaves the source asset untouched.
 
     Args:
-        model_path: Path to .pt model file
-        output_dir: Directory to save exported model
-        imgsz: Input image size (default: 1280)
-        format: Export format (default: onnx)
+        model_path: Explicit source ``.pt`` checkpoint.
+        output_dir: Destination for the exported file/package and its manifest.
+        imgsz: Fixed square model input edge length.
+        format: Supported Ultralytics derivative format (``onnx`` or ``coreml``).
+        simplify: Request graph simplification for ONNX only.
+        overwrite: Replace an existing artifact and manifest only after a
+            successful export.
+
+    Returns:
+        The exported artifact path. Its companion manifest is named
+        ``<artifact-name>.manifest.json``.
     """
-    print(f"Loading model from: {model_path}")
-    model = YOLO(model_path)
+    source = Path(model_path).expanduser()
+    if not source.is_file():
+        raise FileNotFoundError(f"Source model file does not exist: {source}")
+    source = source.resolve()
+    if source.suffix.lower() != ".pt":
+        raise ValueError(f"Source model must be a PyTorch .pt checkpoint: {source}")
+    if isinstance(imgsz, bool) or not isinstance(imgsz, int) or imgsz < 1:
+        raise ValueError("imgsz must be a positive integer")
 
-    print(f"\nExporting to {format.upper()} with input size {imgsz}x{imgsz}...")
-    print("This may take a minute...")
+    model_format = format.lower()
+    if model_format not in SUPPORTED_FORMAT_SUFFIXES:
+        supported = ", ".join(sorted(SUPPORTED_FORMAT_SUFFIXES))
+        raise ValueError(f"Unsupported export format {format!r}; choose {supported}")
 
-    # Export model
-    export_path = model.export(
-        format=format,
-        imgsz=imgsz,
-        optimize=True,  # Optimize for inference
-        simplify=True,  # Simplify ONNX model
+    destination = Path(output_dir).expanduser().resolve()
+    destination.mkdir(parents=True, exist_ok=True)
+    artifact_path = (
+        destination / f"{source.stem}{SUPPORTED_FORMAT_SUFFIXES[model_format]}"
     )
+    manifest_path = destination / f"{artifact_path.name}.manifest.json"
+    if not overwrite and (artifact_path.exists() or manifest_path.exists()):
+        raise FileExistsError(
+            f"Export output already exists: {artifact_path} or {manifest_path}; "
+            "pass overwrite=True to replace it after a successful export"
+        )
+    if model_format == "onnx" and simplify and _package_version("onnxslim") is None:
+        raise ValueError(
+            "ONNX simplification requires the optional onnxslim package; "
+            "install it explicitly or rerun with simplify=False"
+        )
 
-    print(f"\n✓ Model exported successfully!")
-    print(f"  Exported to: {export_path}")
-    print(f"  Input size: {imgsz}x{imgsz}")
+    with tempfile.TemporaryDirectory(
+        prefix=".yolo-export-", dir=destination
+    ) as staging:
+        staged_source = Path(staging) / source.name
+        shutil.copy2(source, staged_source)
+        model = YOLO(str(staged_source))
+        source_metadata = _source_model_metadata(model)
 
-    # Get file size
-    size_mb = Path(export_path).stat().st_size / (1024 * 1024)
-    print(f"  File size: {size_mb:.1f} MB")
+        export_options: dict[str, Any] = {
+            "format": model_format,
+            "imgsz": imgsz,
+            "batch": 1,
+            "device": "cpu",
+            "dynamic": False,
+            "nms": False,
+        }
+        if model_format == "onnx":
+            export_options["simplify"] = simplify
 
-    print(f"\nNext steps:")
-    print(f"1. Update your config to use this model:")
-    print(f'   "yolo_model_path": "{export_path}"')
-    print(f"\n2. Or copy it to replace your current model:")
-    print(f"   cp {export_path} models/yolov8n-pool.onnx")
+        exported_path = Path(model.export(**export_options))
+        if not exported_path.exists():
+            raise FileNotFoundError(
+                f"Ultralytics reported an export that does not exist: {exported_path}"
+            )
+        if exported_path.is_file() and exported_path.stat().st_size == 0:
+            raise ValueError(f"Ultralytics produced an empty export: {exported_path}")
+        if exported_path.is_dir() and not any(
+            component.is_file() for component in exported_path.rglob("*")
+        ):
+            raise ValueError(
+                f"Ultralytics produced an empty export package: {exported_path}"
+            )
 
-    return export_path
+        manifest = _build_manifest(
+            source_model=source,
+            exported_model=exported_path,
+            source_metadata=source_metadata,
+            model_format=model_format,
+            image_size=imgsz,
+            simplify=simplify,
+        )
+        staged_manifest = Path(staging) / manifest_path.name
+        staged_manifest.write_text(
+            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+        # Delay replacement until export and manifest generation both succeed.
+        if overwrite:
+            if artifact_path.is_dir():
+                shutil.rmtree(artifact_path)
+            elif artifact_path.exists():
+                artifact_path.unlink()
+            manifest_path.unlink(missing_ok=True)
+        shutil.move(str(exported_path), str(artifact_path))
+        staged_manifest.replace(manifest_path)
+
+    return str(artifact_path)
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Create the explicit and reproducible exporter command-line interface."""
+    parser = argparse.ArgumentParser(
+        description="Export a selected YOLO PT checkpoint with a lineage manifest."
+    )
+    parser.add_argument(
+        "--model",
+        required=True,
+        type=Path,
+        help="Explicit source .pt checkpoint; no implicit 'latest run' selection.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path(DEFAULT_OUTPUT_DIRECTORY),
+        help=f"Destination for model and manifest (default: {DEFAULT_OUTPUT_DIRECTORY}).",
+    )
+    parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=DEFAULT_IMAGE_SIZE,
+        help=f"Fixed square export input size (default: {DEFAULT_IMAGE_SIZE}).",
+    )
+    parser.add_argument(
+        "--format",
+        choices=sorted(SUPPORTED_FORMAT_SUFFIXES),
+        default="onnx",
+        help="Export format (default: onnx).",
+    )
+    parser.add_argument(
+        "--simplify",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Request ONNX graph simplification (requires onnxslim; default: disabled).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace a previous artifact after the new export succeeds.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the exporter and print the model and manifest paths."""
+    parser = build_argument_parser()
+    arguments = parser.parse_args(argv)
+    try:
+        artifact = export_high_res_model(
+            model_path=arguments.model,
+            output_dir=arguments.output_dir,
+            imgsz=arguments.imgsz,
+            format=arguments.format,
+            simplify=arguments.simplify,
+            overwrite=arguments.overwrite,
+        )
+    except (FileNotFoundError, FileExistsError, ValueError, RuntimeError) as error:
+        parser.error(str(error))
+
+    print(f"Exported model: {artifact}")
+    print(f"Manifest: {artifact}.manifest.json")
+    return 0
 
 
 if __name__ == "__main__":
-    # Find the best model from latest training run
-    import glob
-
-    training_runs = Path("models/training_runs")
-
-    if not training_runs.exists():
-        print("Error: No training runs found in models/training_runs/")
-        sys.exit(1)
-
-    # Get all training runs sorted by version number
-    all_runs = sorted(training_runs.glob("yolov8n_pool_v*"))
-
-    if not all_runs:
-        print("Error: No YOLO training runs found")
-        sys.exit(1)
-
-    print("Available training runs:")
-    for i, run in enumerate(all_runs, 1):
-        best_pt = run / "weights" / "best.pt"
-        if best_pt.exists():
-            size_mb = best_pt.stat().st_size / (1024 * 1024)
-            print(f"  {i}. {run.name} ({size_mb:.1f} MB)")
-
-    # Find the latest run with a valid best.pt
-    latest_run = None
-    best_model = None
-
-    for run in reversed(all_runs):  # Start from newest
-        candidate = run / "weights" / "best.pt"
-        if candidate.exists():
-            latest_run = run
-            best_model = candidate
-            break
-
-    if not best_model:
-        print(f"\nError: No best.pt found in any training run")
-        sys.exit(1)
-
-    print(f"\n→ Using latest model: {latest_run.name}")
-
-    # Export with 1280x1280 input size (matches camera width, square for YOLO)
-    export_high_res_model(
-        model_path=str(best_model),
-        imgsz=1280,
-        format="onnx"
-    )
+    raise SystemExit(main())

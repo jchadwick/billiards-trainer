@@ -79,11 +79,17 @@ Note: Ensure images are appropriately licensed for your use.
 
 For each test image that requires accuracy validation, provide a corresponding JSON file with ground truth data:
 
+All checked-in JSON ground-truth fixtures pair with 3840×2160 PNG images. Their top-level `coordinate_space` is `4k_canonical` and `coordinate_scale` is `[1.0, 1.0]`. This envelope applies to every image-space value in the payload: point centers, bounding-box edges, radii, table corners, and any other boundaries or extents. The identity scale records that fixture values are already in the canonical image plane; it must not be inferred from camera calibration settings. When converting to a frame with another size, scale x values by `frame_width / 3840` and y values by `frame_height / 2160`. A circular radius becomes an x/y ellipse if the target frame uses nonuniform scaling.
+
+The CVAT source file `annotations.xml` retains its native annotation representation. Do not rewrite its coordinates to canonical pixels as part of editing these JSON fixtures.
+
 JSON files follow this schema:
 
 ```json
 {
   "image": "frame.png",
+  "coordinate_space": "4k_canonical",
+  "coordinate_scale": [1.0, 1.0],
   "balls": [
     {
       "id": 1,
@@ -212,6 +218,8 @@ Add new test cases when:
 ```json
 {
   "image": "filename.png",
+  "coordinate_space": "4k_canonical",
+  "coordinate_scale": [1.0, 1.0],
   "balls": [
     {
       "id": 1,

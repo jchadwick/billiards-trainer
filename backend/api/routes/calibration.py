@@ -13,40 +13,41 @@ IMPROVEMENTS MADE:
 - Integration with vision module GeometricCalibrator
 """
 
+import asyncio
+import base64
 import json
 import logging
 import math
-import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
-
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from typing import Any, Optional, cast
 
 import cv2
 import numpy as np
-from api.dependencies import ApplicationState, get_app_state, get_core_module
-from api.models.common import create_success_response
-from api.models.responses import (
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+
+from backend.api.dependencies import ApplicationState, get_app_state, get_core_module
+from backend.api.middleware.error_handler import CustomHTTPException
+from backend.api.models.common import PositionWithScale, create_success_response
+from backend.api.models.requests import (
+    CalibrationPointRequest,
+    CalibrationValidateRequest,
+)
+from backend.api.models.responses import (
     CalibrationApplyResponse,
     CalibrationPointResponse,
     CalibrationSession,
     CalibrationStartResponse,
     CalibrationValidationResponse,
-    CameraCalibrationApplyResponse,
     CameraCalibrationModeResponse,
     CameraCalibrationProcessResponse,
     CameraImageCaptureResponse,
     SuccessResponse,
 )
-from api.routes.stream import get_vision_module
-from core import CoreModule
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-
+from backend.api.routes.stream import get_vision_module
+from backend.core import CoreModule
+from backend.core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
 from backend.vision.calibration.geometry import GeometricCalibrator
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,23 @@ _geometric_calibrator = GeometricCalibrator()
 
 # In-memory storage for calibration sessions (use Redis/database in production)
 _calibration_sessions: dict[str, dict[str, Any]] = {}
+
+
+def _canonical_screen_position(position: PositionWithScale) -> tuple[float, float]:
+    """Convert a source-image point to the canonical 4K pixel plane."""
+    return position.x * position.scale[0], position.y * position.scale[1]
+
+
+def _session_screen_position(point: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a validated, scale-aware transport point from stored session data."""
+    raw_position = point.get("screen_position")
+    if not isinstance(raw_position, dict):
+        return None
+    try:
+        return PositionWithScale.model_validate(raw_position).model_dump()
+    except Exception:
+        logger.warning("Skipping calibration point without valid screen scale")
+        return None
 
 
 class CalibrationMath:
@@ -82,7 +100,10 @@ class CalibrationMath:
                 homography = cv2.getPerspectiveTransform(src_pts, dst_pts)
             else:
                 # For more than 4 points, use findHomography with RANSAC
-                homography, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+                homography_result: Any = cv2.findHomography(
+                    src_pts, dst_pts, cv2.RANSAC, 5.0
+                )
+                homography, _mask = homography_result
                 if homography is None:
                     logger.error("OpenCV findHomography failed to find solution")
                     return None
@@ -103,7 +124,8 @@ class CalibrationMath:
 
     @staticmethod
     def calculate_accuracy(
-        calibration_points: list[dict], test_points: Optional[list[dict]] = None
+        calibration_points: list[dict[str, Any]],
+        test_points: Optional[list[dict[str, Any]]] = None,
     ) -> dict[str, float]:
         """Calculate calibration accuracy metrics using real homography validation."""
         if not calibration_points:
@@ -114,8 +136,9 @@ class CalibrationMath:
             }
 
         # Extract source and destination points for homography calculation
-        src_points = []
-        dst_points = []
+        src_points: list[tuple[float, float]] = []
+        dst_points: list[tuple[float, float]] = []
+        errors: list[float] = []
 
         for point in calibration_points:
             src_points.append((point.get("screen_x", 0), point.get("screen_y", 0)))
@@ -128,10 +151,9 @@ class CalibrationMath:
                 error_metrics = CalibrationMath.calculate_reprojection_error(
                     src_points, dst_points, homography
                 )
-                errors = error_metrics["errors"]
+                errors.extend(cast("list[float]", error_metrics["errors"]))
             else:
                 # Fallback to direct distance calculation if homography fails
-                errors = []
                 for point in calibration_points:
                     error = math.sqrt(
                         (
@@ -148,7 +170,6 @@ class CalibrationMath:
                     errors.append(error)
         else:
             # For less than 4 points, use direct distance calculation
-            errors = []
             for point in calibration_points:
                 error = math.sqrt(
                     (
@@ -186,9 +207,9 @@ class CalibrationMath:
         return {"accuracy": accuracy, "max_error": max_error, "mean_error": mean_error}
 
     @staticmethod
-    def _validate_homography(homography: np.ndarray) -> bool:
+    def _validate_homography(homography: Any) -> bool:
         """Validate that homography matrix is reasonable."""
-        if homography is None or homography.shape != (3, 3):
+        if not isinstance(homography, np.ndarray) or homography.shape != (3, 3):
             return False
 
         # Check determinant to ensure matrix is invertible
@@ -209,7 +230,7 @@ class CalibrationMath:
         src_points: list[tuple[float, float]],
         dst_points: list[tuple[float, float]],
         homography: np.ndarray,
-    ) -> dict[str, float]:
+    ) -> dict[str, Any]:
         """Calculate reprojection error for homography validation."""
         try:
             src_pts = np.array(src_points, dtype=np.float32).reshape(-1, 1, 2)
@@ -324,7 +345,7 @@ async def start_calibration_sequence(
 
         # Create calibration session
         now = datetime.now(timezone.utc)
-        session_data = {
+        session_data: dict[str, Any] = {
             "session_id": session_id,
             "calibration_type": calibration_type,
             "created_at": now,
@@ -403,12 +424,7 @@ async def start_calibration_sequence(
 @router.post("/{session_id}/points", response_model=CalibrationPointResponse)
 async def capture_calibration_point(
     session_id: str,
-    point_id: str,
-    screen_position: list[float],
-    world_position: list[float],
-    confidence: float = Query(
-        1.0, ge=0.0, le=1.0, description="Point detection confidence"
-    ),
+    request: CalibrationPointRequest,
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationPointResponse:
     """Capture calibration reference points (FR-API-010).
@@ -419,19 +435,16 @@ async def capture_calibration_point(
     try:
         # Validate session
         session = validate_calibration_session(session_id, "in_progress")
-
-        # Validate input data
-        if len(screen_position) != 2:
+        if request.session_id != session_id:
             raise HTTPException(
-                status_code=400,
-                detail="Screen position must have exactly 2 coordinates [x, y]",
+                status_code=422,
+                detail="Request session_id must match the calibration session path",
             )
 
-        if len(world_position) != 2:
-            raise HTTPException(
-                status_code=400,
-                detail="World position must have exactly 2 coordinates [x, y]",
-            )
+        point_id = request.point_id
+        screen_position = request.screen_position
+        world_position = request.world_position
+        screen_x, screen_y = _canonical_screen_position(screen_position)
 
         # Check if point already exists
         existing_point = next(
@@ -441,13 +454,13 @@ async def capture_calibration_point(
             logger.warning(f"Updating existing calibration point: {point_id}")
 
         # Validate coordinate ranges (basic sanity checks)
-        if not (0 <= screen_position[0] <= 4000 and 0 <= screen_position[1] <= 4000):
+        if not (0 <= screen_x <= CANONICAL_WIDTH and 0 <= screen_y <= CANONICAL_HEIGHT):
             raise HTTPException(
                 status_code=400,
                 detail="Screen coordinates out of reasonable range",
             )
 
-        if not (-10 <= world_position[0] <= 10 and -10 <= world_position[1] <= 10):
+        if not (-10 <= world_position.x <= 10 and -10 <= world_position.y <= 10):
             raise HTTPException(
                 status_code=400,
                 detail="World coordinates out of reasonable range (meters)",
@@ -456,11 +469,18 @@ async def capture_calibration_point(
         # Create/update point
         point_data = {
             "point_id": point_id,
-            "screen_x": float(screen_position[0]),
-            "screen_y": float(screen_position[1]),
-            "world_x": float(world_position[0]),
-            "world_y": float(world_position[1]),
-            "confidence": confidence,
+            # Homography inputs are canonical pixels; the transport form stays
+            # alongside them so the original image resolution remains explicit.
+            "screen_x": float(screen_x),
+            "screen_y": float(screen_y),
+            "screen_raw_x": float(screen_position.x),
+            "screen_raw_y": float(screen_position.y),
+            "screen_scale": list(screen_position.scale),
+            "screen_position": screen_position.model_dump(),
+            "world_x": float(world_position.x),
+            "world_y": float(world_position.y),
+            "world_position": world_position.model_dump(),
+            "confidence": request.confidence,
             "captured_at": datetime.now(timezone.utc),
             "captured_by": "api",
         }
@@ -492,15 +512,13 @@ async def capture_calibration_point(
                     0.0, 1.0 - (error_metrics["rms_error"] / max_acceptable_error)
                 )
                 point_accuracy = min(
-                    point_accuracy, confidence
+                    point_accuracy, request.confidence
                 )  # Don't exceed detection confidence
             else:
-                point_accuracy = (
-                    confidence * 0.8
-                )  # Reduced confidence if homography fails
+                point_accuracy = request.confidence * 0.8
         else:
             # For first few points, use confidence as baseline
-            point_accuracy = confidence
+            point_accuracy = request.confidence
 
         # Check if calibration is complete
         can_proceed = session["points_captured"] >= session["points_required"]
@@ -681,10 +699,7 @@ async def apply_calibration_transformations(
 @router.post("/{session_id}/validate", response_model=CalibrationValidationResponse)
 async def validate_calibration_accuracy(
     session_id: str,
-    test_points: Optional[list[dict[str, list[float]]]] = None,
-    accuracy_threshold: float = Query(
-        0.9, ge=0.0, le=1.0, description="Required accuracy threshold"
-    ),
+    request: CalibrationValidateRequest,
     core_module: CoreModule = Depends(get_core_module),
 ) -> CalibrationValidationResponse:
     """Validate calibration accuracy (FR-API-012).
@@ -693,6 +708,14 @@ async def validate_calibration_accuracy(
     validation results with recommendations for improvement.
     """
     try:
+        if request.session_id != session_id:
+            raise HTTPException(
+                status_code=422,
+                detail="Request session_id must match the calibration session path",
+            )
+        test_points = request.test_points
+        accuracy_threshold = request.accuracy_threshold
+
         # Validate session
         session = _calibration_sessions.get(session_id)
         if not session:
@@ -708,27 +731,32 @@ async def validate_calibration_accuracy(
             )
 
         # Prepare test points
-        test_points_data = []
+        test_points_data: list[dict[str, Any]] = []
         if test_points:
             for i, point in enumerate(test_points):
-                if "screen" not in point or "world" not in point:
+                screen_x, screen_y = _canonical_screen_position(point.screen)
+                if not (
+                    0 <= screen_x <= CANONICAL_WIDTH
+                    and 0 <= screen_y <= CANONICAL_HEIGHT
+                ):
                     raise HTTPException(
-                        status_code=400,
-                        detail=f"Test point {i} must have 'screen' and 'world' coordinates",
+                        status_code=422,
+                        detail=f"Test point {i} screen position is outside canonical image bounds",
                     )
 
                 test_points_data.append(
                     {
                         "id": f"test_{i}",
-                        "screen_x": point["screen"][0],
-                        "screen_y": point["screen"][1],
-                        "world_x": point["world"][0],
-                        "world_y": point["world"][1],
-                        "expected_x": point["world"][0],
-                        "expected_y": point["world"][1],
-                        "actual_x": point["world"][0]
-                        + (i * 0.1),  # Simulate small error
-                        "actual_y": point["world"][1] + (i * 0.1),
+                        "screen_x": screen_x,
+                        "screen_y": screen_y,
+                        "screen_position": point.screen.model_dump(),
+                        "world_x": point.world.x,
+                        "world_y": point.world.y,
+                        "world_position": point.world.model_dump(),
+                        "expected_x": point.world.x,
+                        "expected_y": point.world.y,
+                        "actual_x": point.world.x + (i * 0.1),  # Simulate small error
+                        "actual_y": point.world.y + (i * 0.1),
                     }
                 )
 
@@ -738,7 +766,7 @@ async def validate_calibration_accuracy(
         )
 
         # Generate test results using real transformation validation
-        test_results = []
+        test_results: list[dict[str, Any]] = []
 
         # Calculate real homography for validation
         src_points = [(p["screen_x"], p["screen_y"]) for p in session["points"]]
@@ -763,9 +791,13 @@ async def validate_calibration_accuracy(
                 test_results.append(
                     {
                         "point_id": point["point_id"],
-                        "screen_position": [point["screen_x"], point["screen_y"]],
-                        "world_position": [point["world_x"], point["world_y"]],
-                        "transformed_position": transformed_pos.tolist(),
+                        "screen_position": _session_screen_position(point),
+                        "world_position": point["world_position"],
+                        "transformed_position": {
+                            "x": float(transformed_pos[0]),
+                            "y": float(transformed_pos[1]),
+                            "unit": "meters",
+                        },
                         "error_pixels": float(error_pixels),
                         "error_mm": float(
                             error_pixels * 0.264583
@@ -778,9 +810,13 @@ async def validate_calibration_accuracy(
                 test_results.append(
                     {
                         "point_id": point["point_id"],
-                        "screen_position": [point["screen_x"], point["screen_y"]],
-                        "world_position": [point["world_x"], point["world_y"]],
-                        "transformed_position": [point["world_x"], point["world_y"]],
+                        "screen_position": _session_screen_position(point),
+                        "world_position": point["world_position"],
+                        "transformed_position": {
+                            "x": point["world_x"],
+                            "y": point["world_y"],
+                            "unit": "meters",
+                        },
                         "error_pixels": 0.0,
                         "error_mm": 0.0,
                     }
@@ -788,16 +824,20 @@ async def validate_calibration_accuracy(
 
         # Add test points results if provided
         if test_points_data:
-            for point in test_points_data:
-                error = abs(point["expected_x"] - point["actual_x"]) + abs(
-                    point["expected_y"] - point["actual_y"]
+            for test_point in test_points_data:
+                error = abs(test_point["expected_x"] - test_point["actual_x"]) + abs(
+                    test_point["expected_y"] - test_point["actual_y"]
                 )
                 test_results.append(
                     {
-                        "point_id": point["id"],
-                        "screen_position": [point["screen_x"], point["screen_y"]],
-                        "world_position": [point["world_x"], point["world_y"]],
-                        "transformed_position": [point["actual_x"], point["actual_y"]],
+                        "point_id": test_point["id"],
+                        "screen_position": test_point["screen_position"],
+                        "world_position": test_point["world_position"],
+                        "transformed_position": {
+                            "x": test_point["actual_x"],
+                            "y": test_point["actual_y"],
+                            "unit": "meters",
+                        },
                         "error_pixels": error
                         * 3.78,  # Convert mm to pixels (approximate)
                         "error_mm": error,
@@ -915,6 +955,13 @@ async def get_current_calibration(
 
         # Get playing area corners from config
         corners = config.get("table.playing_area_corners", [])
+        corners = [
+            PositionWithScale.model_validate(corner).model_dump() for corner in corners
+        ]
+        calibration_resolution = {
+            "width": config.get("table.calibration_resolution_width"),
+            "height": config.get("table.calibration_resolution_height"),
+        }
 
         # Find the most recently applied calibration session
         applied_sessions = [
@@ -939,10 +986,12 @@ async def get_current_calibration(
                     corners
                     if corners
                     else [
-                        [p["screen_x"], p["screen_y"]]
+                        screen_position
                         for p in latest_session.get("points", [])
+                        if (screen_position := _session_screen_position(p)) is not None
                     ]
                 ),
+                "calibration_resolution": calibration_resolution,
                 "transformation_matrix": latest_session.get("transformation_matrix"),
                 "accuracy": latest_session.get("accuracy"),
                 "calibrated_at": latest_session.get(
@@ -958,6 +1007,7 @@ async def get_current_calibration(
             return {
                 "success": True,
                 "corners": corners,
+                "calibration_resolution": calibration_resolution,
                 "transformation_matrix": None,
                 "accuracy": None,
                 "calibrated_at": None,
@@ -970,6 +1020,7 @@ async def get_current_calibration(
         return {
             "success": True,
             "corners": [],
+            "calibration_resolution": calibration_resolution,
             "transformation_matrix": None,
             "accuracy": None,
             "calibrated_at": None,
@@ -1040,7 +1091,7 @@ async def list_calibration_sessions(
 
 
 @router.delete("/{session_id}", response_model=SuccessResponse)
-async def delete_calibration_session(session_id: str) -> SuccessResponse:
+async def delete_calibration_session(session_id: str) -> dict[str, Any]:
     """Delete a calibration session.
 
     Permanently removes a calibration session and all associated data.
@@ -1070,7 +1121,7 @@ async def delete_calibration_session(session_id: str) -> SuccessResponse:
         )
 
 
-async def cleanup_expired_sessions():
+async def cleanup_expired_sessions() -> None:
     """Background task to clean up expired calibration sessions."""
     try:
         now = datetime.now(timezone.utc)
@@ -1106,7 +1157,7 @@ async def cleanup_expired_sessions():
 
 # Startup task to clean up any existing expired sessions
 @router.on_event("startup")
-async def startup_cleanup():
+async def startup_cleanup() -> None:
     """Clean up expired sessions on startup."""
     await cleanup_expired_sessions()
 
@@ -1139,12 +1190,10 @@ async def start_camera_calibration_mode(
     min_images: int = Query(
         10, ge=5, le=50, description="Minimum number of images required"
     ),
-    vision_module: Any = Depends(get_vision_module),
 ) -> CameraCalibrationModeResponse:
     """Start camera fisheye calibration mode.
 
-    Disables fisheye correction temporarily and prepares the system for
-    capturing chessboard calibration images.
+    Prepares the chessboard capture session for collecting calibration images.
 
     Example:
         POST /api/v1/vision/calibration/camera/mode/start?chessboard_cols=9&chessboard_rows=6
@@ -1156,13 +1205,6 @@ async def start_camera_calibration_mode(
                 status_code=409,
                 detail="Camera calibration mode is already active. Stop current session first.",
             )
-
-        # Disable fisheye correction in the camera module
-        if hasattr(vision_module, "enhanced_module"):
-            enhanced = vision_module.enhanced_module
-            if hasattr(enhanced, "config"):
-                enhanced.config.enable_fisheye_correction = False
-                logger.info("Disabled fisheye correction for calibration")
 
         # Initialize calibration session
         _camera_calibration_session["active"] = True
@@ -1234,16 +1276,14 @@ async def capture_camera_calibration_image(
 
         # Get current frame from camera
         frame = None
-        if hasattr(vision_module, "get_frame"):
+        try:
             frame = vision_module.get_frame(processed=False)  # Get raw frame
-        elif hasattr(vision_module, "enhanced_module"):
-            frame = vision_module.enhanced_module.get_frame(processed=False)
+        except Exception as e:
+            logger.error("Failed to capture camera frame for calibration: %s", e)
+            raise CustomHTTPException("CAM_001") from e
 
         if frame is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to capture frame from camera",
-            )
+            raise CustomHTTPException("CAM_001")
 
         # Convert to grayscale for chessboard detection
         if len(frame.shape) == 3:
@@ -1306,7 +1346,7 @@ async def capture_camera_calibration_image(
             _, buffer = cv2.imencode(
                 ".jpg", preview_img, [cv2.IMWRITE_JPEG_QUALITY, 70]
             )
-            image_preview = base64.b64encode(buffer).decode("utf-8")
+            image_preview = base64.b64encode(buffer.tobytes()).decode("utf-8")
 
         return CameraImageCaptureResponse(
             success=True,
@@ -1378,7 +1418,7 @@ async def process_camera_calibration(
         # Prepare calibration data
         object_points = []  # 3D points in real world space
         image_points = []  # 2D points in image plane
-        image_size = None
+        image_size: tuple[int, int] | None = None
 
         for img_data in images:
             object_points.append(pattern_points)
@@ -1388,13 +1428,22 @@ async def process_camera_calibration(
                 h, w = img_data["image"].shape[:2]
                 image_size = (w, h)
 
+        if image_size is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Captured calibration images do not contain valid dimensions",
+            )
+
         logger.info(f"Processing camera calibration with {len(images)} images...")
 
         # Perform fisheye calibration
-        calibration_flags = (
-            cv2.fisheye.CALIB_RECOMPUTE_EXTRINSIC
-            + cv2.fisheye.CALIB_CHECK_COND
-            + cv2.fisheye.CALIB_FIX_SKEW
+        calibration_flags = sum(
+            int(getattr(cv2.fisheye, flag_name))
+            for flag_name in (
+                "CALIB_RECOMPUTE_EXTRINSIC",
+                "CALIB_CHECK_COND",
+                "CALIB_FIX_SKEW",
+            )
         )
 
         # Initialize camera matrix and distortion coefficients
@@ -1408,7 +1457,8 @@ async def process_camera_calibration(
         ]
 
         # Run fisheye calibration
-        rms_error, K, D, rvecs, tvecs = cv2.fisheye.calibrate(
+        fisheye_calibrate = cast("Any", cv2.fisheye.calibrate)
+        rms_error, K, D, rvecs, tvecs = fisheye_calibrate(
             object_points,
             image_points,
             image_size,
@@ -1474,155 +1524,14 @@ async def process_camera_calibration(
         raise
     except Exception as e:
         logger.error(f"Failed to process calibration: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to process calibration images: {e}",
-        )
-
-
-@router.post("/camera/apply", response_model=CameraCalibrationApplyResponse)
-async def apply_camera_calibration(
-    calibration_file: str = Query(
-        "calibration/camera_fisheye.yaml",
-        description="Path to calibration file to load",
-    ),
-    vision_module: Any = Depends(get_vision_module),
-) -> CameraCalibrationApplyResponse:
-    """Apply camera calibration and enable fisheye correction.
-
-    Loads the calibration from file and enables fisheye correction
-    in the EnhancedCameraModule.
-
-    Example:
-        POST /api/v1/vision/calibration/camera/apply
-    """
-    try:
-        # Build full path to calibration file
-        import os
-
-        calibration_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            calibration_file,
-        )
-
-        # Check if calibration file exists
-        if not os.path.exists(calibration_path):
-            raise HTTPException(
-                status_code=404,
-                detail=f"Calibration file not found at {calibration_path}",
-            )
-
-        # Reload calibration in the camera module
-        calibration_loaded = False
-        fisheye_enabled = False
-
-        if hasattr(vision_module, "enhanced_module"):
-            enhanced = vision_module.enhanced_module
-
-            # Update config with calibration file path
-            if hasattr(enhanced, "config"):
-                enhanced.config.calibration_file = calibration_path
-                enhanced.config.enable_fisheye_correction = True
-
-            # Reload calibration maps
-            if hasattr(enhanced, "_load_calibration"):
-                enhanced._load_calibration()
-                calibration_loaded = True
-                fisheye_enabled = enhanced.config.enable_fisheye_correction
-                logger.info(f"Calibration loaded from {calibration_path}")
-
-        if not calibration_loaded:
-            raise HTTPException(
-                status_code=500,
-                detail="Unable to load calibration into camera module",
-            )
-
-        return CameraCalibrationApplyResponse(
-            success=True,
-            calibration_loaded=calibration_loaded,
-            fisheye_correction_enabled=fisheye_enabled,
-            message="Camera calibration applied and fisheye correction enabled",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to apply calibration: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to apply camera calibration: {e}",
-        )
-
-
-@router.post("/camera/auto-calibrate", response_model=CameraCalibrationProcessResponse)
-async def auto_calibrate_from_table(
-    save_to: str = Query(
-        "calibration/camera_fisheye.yaml",
-        description="Path where calibration will be saved",
-    ),
-    table_width: float = Query(
-        2.54,
-        ge=1.0,
-        le=5.0,
-        description="Table width in meters (default 2.54m for 9-foot table)",
-    ),
-    table_height: float = Query(
-        1.27,
-        ge=0.5,
-        le=3.0,
-        description="Table height in meters (default 1.27m for 9-foot table)",
-    ),
-    vision_module: Any = Depends(get_vision_module),
-) -> CameraCalibrationProcessResponse:
-    """Automatically calibrate fisheye distortion using table rectangle detection.
-
-    This endpoint detects the billiards table boundaries and uses the known
-    rectangular geometry to automatically calculate fisheye distortion parameters.
-    No manual chessboard capture required!
-
-    Example:
-        POST /api/v1/vision/calibration/camera/auto-calibrate
-    """
-    try:
-        # Get current frame from camera
-        frame = None
-        if hasattr(vision_module, "get_frame"):
-            frame = vision_module.get_frame(processed=False)  # Get raw frame
-        elif hasattr(vision_module, "enhanced_module"):
-            frame = vision_module.enhanced_module.get_frame(processed=False)
-
-        if frame is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Unable to capture frame from camera",
-            )
-
-        # TableDetector has been removed - automatic fisheye calibration is no longer supported
-        # This endpoint would need to be reimplemented to accept manual corner selection
-        raise HTTPException(
-            status_code=501,
-            detail="Automatic fisheye calibration via table detection has been removed. "
-            "Please use manual corner selection or pre-calibrate the camera using OpenCV's calibration tools.",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to auto-calibrate from table: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unable to automatically calibrate fisheye distortion: {e}",
-        )
+        raise CustomHTTPException("PROC_001") from e
 
 
 @router.post("/camera/mode/stop", response_model=CameraCalibrationModeResponse)
-async def stop_camera_calibration_mode(
-    vision_module: Any = Depends(get_vision_module),
-) -> CameraCalibrationModeResponse:
+async def stop_camera_calibration_mode() -> CameraCalibrationModeResponse:
     """Stop camera calibration mode and clean up resources.
 
     Ends the calibration session and cleans up temporary image data.
-    Re-enables fisheye correction if calibration was applied.
 
     Example:
         POST /api/v1/vision/calibration/camera/mode/stop
@@ -1670,7 +1579,7 @@ async def stop_camera_calibration_mode(
 @router.post("/fisheye/calibrate")
 async def calibrate_fisheye_from_table(
     vision_module: Any = Depends(get_vision_module),
-) -> dict:
+) -> dict[str, Any]:
     """Calibrate fisheye correction using table geometry (Calibration Wizard).
 
     This endpoint:
@@ -1692,9 +1601,8 @@ async def calibrate_fisheye_from_table(
         - rms_error: Calibration quality metric
         - preview_url: URL to view before/after comparison
     """
-    import asyncio
 
-    def _calibrate_fisheye_sync():
+    def _calibrate_fisheye_sync() -> dict[str, Any]:
         """Run fisheye calibration synchronously in thread pool."""
         from pathlib import Path
 
@@ -1705,7 +1613,17 @@ async def calibrate_fisheye_from_table(
 
         try:
             # Step 1: Capture frame at full resolution
-            frame = vision_module.get_frame(processed=False)
+            try:
+                frame = vision_module.get_frame(processed=False)
+            except Exception as e:
+                logger.error(
+                    "Camera frame capture failed for fisheye calibration: %s", e
+                )
+                return {
+                    "success": False,
+                    "error": "Camera unavailable",
+                    "step_failed": "frame_capture",
+                }
 
             if frame is None:
                 return {
@@ -1903,7 +1821,7 @@ async def calibrate_fisheye_from_table(
                 table_dimensions=(2.54, 1.27),  # Standard 9-foot table
             )
 
-            if not success:
+            if not success or params is None:
                 return {
                     "success": False,
                     "error": "Fisheye calibration failed. Table may be too distorted or partially visible.",
@@ -1974,7 +1892,14 @@ async def calibrate_fisheye_from_table(
                     "calibration_date": params.calibration_date,
                 },
                 "rms_error": float(params.calibration_error),
-                "table_corners": table_corners,
+                "table_corners": [
+                    {
+                        "x": x,
+                        "y": y,
+                        "scale": [CANONICAL_WIDTH / w, CANONICAL_HEIGHT / h],
+                    }
+                    for x, y in table_corners
+                ],
                 "calibration_file": str(calib_path),
                 "preview_file": str(preview_path),
                 "message": "Fisheye calibration successful! Restart video stream to apply correction.",
@@ -1982,20 +1907,27 @@ async def calibrate_fisheye_from_table(
 
         except Exception as e:
             logger.error(f"Fisheye calibration failed: {e}", exc_info=True)
-            return {"success": False, "error": str(e), "step_failed": "unknown"}
+            return {
+                "success": False,
+                "error": "Vision calibration processing failed",
+                "step_failed": "processing",
+            }
 
     try:
         # Run calibration in thread pool
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _calibrate_fisheye_sync)
 
-        # Return result directly (both success and failure cases)
+        if not result.get("success"):
+            if result.get("step_failed") == "frame_capture":
+                raise CustomHTTPException("CAM_001")
+            raise CustomHTTPException(
+                "PROC_001", details={"step_failed": result.get("step_failed")}
+            )
         return result
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Fisheye calibration endpoint failed: {e}")
-        return {
-            "success": False,
-            "error": f"Calibration endpoint error: {str(e)}",
-            "step_failed": "endpoint",
-        }
+        raise CustomHTTPException("PROC_001") from e

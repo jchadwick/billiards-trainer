@@ -7,67 +7,26 @@ Provides comprehensive health information including:
 - Graceful shutdown endpoint (FR-API-003)
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Optional
-
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from importlib import import_module
+from typing import Any, Optional, Protocol, cast
 
 try:
-    import psutil
+    _psutil: PsutilModule | None = cast("PsutilModule", import_module("psutil"))
 except ImportError:
-    psutil = None
+    _psutil = None
 
-from api.dependencies import ApplicationState, get_app_state
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
-# Try to import health monitor with fallback
-try:
-    from system.health_monitor import health_monitor
-except (ImportError, TypeError):
-    # Fallback: create a minimal health monitor interface
-    class MockHealthMonitor:
-        """Mock health monitor for environments where the real monitor is unavailable."""
-
-        def get_system_health(self):
-            """Return basic system health status.
-
-            Returns:
-                Mock system health object with minimal data.
-            """
-            return type(
-                "SystemHealth",
-                (object,),
-                {"components": {}, "overall_status": "healthy"},
-            )()
-
-        def get_api_metrics(self):
-            """Return empty API metrics.
-
-            Returns:
-                Empty metrics dictionary.
-            """
-            return {}
-
-        def get_websocket_connection_count(self):
-            """Return zero WebSocket connections.
-
-            Returns:
-                Always returns 0.
-            """
-            return 0
-
-    health_monitor = MockHealthMonitor()
-
-from api.models.responses import (
+from backend.api.dependencies import ApplicationState, get_app_state
+from backend.api.models.responses import (
     CapabilityInfo,
     ComponentHealth,
     HealthResponse,
@@ -76,7 +35,9 @@ from api.models.responses import (
     SystemMetrics,
     VersionResponse,
 )
-from api.shutdown import get_shutdown_progress, shutdown_coordinator
+from backend.api.shutdown import get_shutdown_progress, shutdown_coordinator
+from backend.api.websocket.rate_limit import rate_limiter
+from backend.system.health_monitor import health_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +45,55 @@ router = APIRouter(prefix="/health", tags=["Health & Status"])
 
 # Shutdown state tracking
 _shutdown_scheduled = False
-_shutdown_time: Optional[datetime] = None
+_shutdown_time: datetime | None = None
 
 
-def get_system_metrics() -> Optional[SystemMetrics]:
+class VirtualMemoryStats(Protocol):
+    """Resource fields used from psutil's virtual-memory result."""
+
+    percent: float
+
+
+class DiskUsageStats(Protocol):
+    """Resource fields used from psutil's disk-usage result."""
+
+    used: int
+    total: int
+
+
+class NetworkIOStats(Protocol):
+    """Network counters consumed by the health response."""
+
+    bytes_sent: int
+    bytes_recv: int
+    packets_sent: int
+    packets_recv: int
+
+
+class PsutilModule(Protocol):
+    """Small typed interface for the optional psutil dependency."""
+
+    def cpu_percent(self, interval: float | None = None) -> float: ...
+
+    def virtual_memory(self) -> VirtualMemoryStats: ...
+
+    def disk_usage(self, path: str) -> DiskUsageStats: ...
+
+    def net_io_counters(self) -> NetworkIOStats: ...
+
+
+def _metric_value(metrics: dict[str, Any], name: str) -> float:
+    """Read a numeric health metric, using zero for absent or malformed values."""
+    metric = metrics.get(name)
+    if metric is None:
+        return 0.0
+    value = getattr(metric, "value", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
+
+
+def get_system_metrics() -> SystemMetrics | None:
     """Get current system performance metrics from health monitor."""
     try:
         # Get system health from health monitor
@@ -96,13 +102,13 @@ def get_system_metrics() -> Optional[SystemMetrics]:
 
         if not system_component:
             # Fallback to basic psutil if health monitor doesn't have system data
-            if not psutil:
+            if _psutil is None:
                 return None
 
-            cpu_percent = psutil.cpu_percent(interval=0.1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage("/")
-            net_io = psutil.net_io_counters()
+            cpu_percent = _psutil.cpu_percent(interval=0.1)
+            memory = _psutil.virtual_memory()
+            disk = _psutil.disk_usage("/")
+            net_io = _psutil.net_io_counters()
 
             network_io = {
                 "bytes_sent": float(net_io.bytes_sent),
@@ -114,16 +120,10 @@ def get_system_metrics() -> Optional[SystemMetrics]:
             api_metrics = health_monitor.get_api_metrics()
             websocket_connections = health_monitor.get_websocket_connection_count()
 
-            api_requests_per_second = (
-                api_metrics.get("api_requests_per_second", {}).value
-                if "api_requests_per_second" in api_metrics
-                else 0.0
+            api_requests_per_second = _metric_value(
+                api_metrics, "api_requests_per_second"
             )
-            average_response_time = (
-                api_metrics.get("api_avg_response_time", {}).value
-                if "api_avg_response_time" in api_metrics
-                else 0.0
-            )
+            average_response_time = _metric_value(api_metrics, "api_avg_response_time")
 
             return SystemMetrics(
                 cpu_usage=cpu_percent,
@@ -139,28 +139,14 @@ def get_system_metrics() -> Optional[SystemMetrics]:
         metrics = system_component.metrics
 
         # Get basic system metrics
-        cpu_usage = (
-            metrics.get("cpu_usage", {}).value if "cpu_usage" in metrics else 0.0
-        )
-        memory_usage = (
-            metrics.get("memory_usage", {}).value if "memory_usage" in metrics else 0.0
-        )
-        disk_usage = (
-            metrics.get("disk_usage", {}).value if "disk_usage" in metrics else 0.0
-        )
+        cpu_usage = _metric_value(metrics, "cpu_usage")
+        memory_usage = _metric_value(metrics, "memory_usage")
+        disk_usage = _metric_value(metrics, "disk_usage")
 
         # Network metrics
         network_io = {
-            "bytes_sent": (
-                metrics.get("network_bytes_sent", {}).value
-                if "network_bytes_sent" in metrics
-                else 0.0
-            ),
-            "bytes_recv": (
-                metrics.get("network_bytes_recv", {}).value
-                if "network_bytes_recv" in metrics
-                else 0.0
-            ),
+            "bytes_sent": _metric_value(metrics, "network_bytes_sent"),
+            "bytes_recv": _metric_value(metrics, "network_bytes_recv"),
             "packets_sent": 0.0,  # Not tracked in our health monitor yet
             "packets_recv": 0.0,  # Not tracked in our health monitor yet
         }
@@ -169,16 +155,8 @@ def get_system_metrics() -> Optional[SystemMetrics]:
         api_metrics = health_monitor.get_api_metrics()
         websocket_connections = health_monitor.get_websocket_connection_count()
 
-        api_requests_per_second = (
-            api_metrics.get("api_requests_per_second", {}).value
-            if "api_requests_per_second" in api_metrics
-            else 0.0
-        )
-        average_response_time = (
-            api_metrics.get("api_avg_response_time", {}).value
-            if "api_avg_response_time" in api_metrics
-            else 0.0
-        )
+        api_requests_per_second = _metric_value(api_metrics, "api_requests_per_second")
+        average_response_time = _metric_value(api_metrics, "api_avg_response_time")
 
         return SystemMetrics(
             cpu_usage=cpu_usage,
@@ -214,7 +192,7 @@ async def health_check(
         )
 
         # Base response
-        components = {}
+        components: dict[str, ComponentHealth] = {}
         metrics = None
 
         # Include component details if requested
@@ -248,7 +226,7 @@ async def health_check(
                         component_health.last_check, timezone.utc
                     ),
                     uptime=component_health.uptime,
-                    error_count=component_health.error_count,
+                    errors=list(component_health.warnings),
                 )
 
             # Add fallback components if not monitored by health monitor
@@ -266,6 +244,7 @@ async def health_check(
                         else "Core module unavailable"
                     ),
                     last_check=datetime.now(timezone.utc),
+                    uptime=None,
                 )
 
             if "config" not in components:
@@ -282,6 +261,7 @@ async def health_check(
                         else "Config module unavailable"
                     ),
                     last_check=datetime.now(timezone.utc),
+                    uptime=None,
                 )
 
             if "websocket" not in components:
@@ -298,6 +278,7 @@ async def health_check(
                         else "WebSocket manager unavailable"
                     ),
                     last_check=datetime.now(timezone.utc),
+                    uptime=None,
                 )
 
         # Include metrics if requested
@@ -400,7 +381,7 @@ async def performance_metrics(
 
 async def perform_graceful_shutdown(
     delay: int = 0, force: bool = False, save_state: bool = True
-):
+) -> None:
     """Perform graceful shutdown after delay."""
     global _shutdown_scheduled, _shutdown_time
 
@@ -451,7 +432,7 @@ async def graceful_shutdown(
     ),
     save_state: bool = Query(True, description="Save current state before shutdown"),
 ) -> ShutdownResponse:
-    """Graceful shutdown endpoint (FR-API-003) - Requires admin authentication."""
+    """Schedule graceful shutdown through the directly accessible local API."""
     global _shutdown_scheduled, _shutdown_time
 
     try:
@@ -531,10 +512,12 @@ async def readiness_check(
     app_state: ApplicationState = Depends(get_app_state),
 ) -> dict[str, Any]:
     """Kubernetes-style readiness check - No authentication required."""
+    rate_limit_ready = await rate_limiter.check_readiness()
     components = {
         "core": "healthy" if app_state.core_module else "unavailable",
         "config": "healthy" if app_state.config_module else "unavailable",
         "websocket": "healthy" if app_state.websocket_manager else "unavailable",
+        "rate_limit_store": "healthy" if rate_limit_ready else "unavailable",
     }
 
     all_healthy = all(status == "healthy" for status in components.values())
@@ -553,6 +536,52 @@ async def readiness_check(
         "status": "ready",
         "components": components,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/perception")
+async def perception_runtime_status(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> dict[str, Any]:
+    """Report provider mode and distinguish launch from first localization."""
+    runtime = app_state.perception_runtime
+    if runtime is None:
+        provider = app_state.perception_provider or "unavailable"
+        return {
+            "provider": provider,
+            "mode": "live" if provider == "python" else "unavailable",
+            "process_started": None,
+            "process_running": None,
+            "process_status": "not_applicable",
+            "first_observation_received": None,
+            "source_health": (
+                "python_provider" if provider == "python" else "unavailable"
+            ),
+            "last_observation_age_seconds": None,
+            "source_silence_timeout_seconds": None,
+            "live_camera": provider == "python",
+            "preview": "python_provider" if provider == "python" else "unavailable",
+            "predictions": "python_core" if provider == "python" else "unavailable",
+        }
+
+    status = runtime.status
+    return {
+        "provider": "rust",
+        "mode": status.mode,
+        "process_started": status.process_started,
+        "process_running": status.process_running,
+        "process_return_code": status.process_return_code,
+        "process_status": status.process_status,
+        "first_observation_received": status.first_observation_received,
+        "source_health": status.source_health,
+        "last_observation_age_seconds": status.last_observation_age_seconds,
+        "source_silence_timeout_seconds": status.source_silence_timeout_seconds,
+        "live_camera": status.live_camera,
+        "preview": status.preview,
+        "predictions": status.predictions,
+        "ingress_accepted_snapshots": status.ingress_accepted_snapshots,
+        "ingress_queue_replacements": status.ingress_queue_replacements,
+        "state_snapshots_published": status.state_snapshots_published,
     }
 
 

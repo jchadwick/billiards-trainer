@@ -1,5 +1,10 @@
 {
   "image": "frame_with_cue.png",
+  "coordinate_space": "4k_canonical",
+  "coordinate_scale": [
+    1.0,
+    1.0
+  ],
   "balls": [
     {
       "center": {

@@ -24,7 +24,9 @@ repos:
     hooks:
       - id: black
         language_version: python3
-        args: [--line-length=88]
+        args: [--check, --diff, --line-length=88, backend]
+        pass_filenames: false
+        always_run: true
         files: ^backend/
 
   # Import sorting
@@ -35,9 +37,20 @@ repos:
         args: [--profile=black, --line-length=88]
         files: ^backend/
 
+  # Import smoke test for the complete backend suite. This runs on every commit
+  # because imports can fail even when a change does not touch a test file.
+  - repo: local
+    hooks:
+      - id: pytest-collect-backend
+        name: Collect backend tests
+        entry: python -m pytest --collect-only --no-cov backend/tests
+        language: system
+        pass_filenames: false
+        always_run: true
+
   # Linting with ruff
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.0.285
+    rev: v0.17.1
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]

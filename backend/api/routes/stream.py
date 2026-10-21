@@ -10,24 +10,13 @@ Provides video streaming capabilities including:
 
 import asyncio
 import logging
-
-# Import vision module - ensure backend dir is in path
-import sys
 import time
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional, cast
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
-
-# Import WebSocket broadcaster for real-time frame streaming
-from ..websocket import message_broadcaster
-
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
+from fastapi.responses import Response, StreamingResponse
 
 from backend.streaming.enhanced_camera_module import (
     EnhancedCameraConfig,
@@ -36,14 +25,17 @@ from backend.streaming.enhanced_camera_module import (
 from backend.video.ipc.shared_memory import SharedMemoryFrameReader
 from backend.vision.capture import CameraHealth, CameraStatus
 
-from ..dependencies import ApplicationState, get_app_state, get_config_module
+from ..dependencies import ApplicationState, get_app_state
+
+# Import WebSocket broadcaster for real-time frame streaming
+from ..websocket import message_broadcaster
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stream", tags=["Video Streaming"])
 
 
-def _get_stream_config(app_state: ApplicationState) -> dict:
+def _get_stream_config(app_state: ApplicationState) -> dict[str, Any]:
     """Get stream configuration from config module.
 
     Args:
@@ -57,15 +49,21 @@ def _get_stream_config(app_state: ApplicationState) -> dict:
         logger.debug(
             f"_get_stream_config: got {type(config)} with keys: {list(config.keys()) if isinstance(config, dict) else 'not a dict'}"
         )
-        return config
+        return config if isinstance(config, dict) else {}
     # Return empty dict if config not available - will use defaults
     logger.warning("_get_stream_config: No config module available")
     return {}
 
 
-# Compatibility wrapper to make EnhancedCameraModule work with existing API
+def _viewer_audit_recorder(vision_module: Any) -> Any | None:
+    """Return the audit queue only when viewer interference is enabled."""
+    domains = getattr(vision_module, "audit_domains", {})
+    recorder = getattr(vision_module, "audit_recorder", None)
+    return recorder if recorder is not None and domains.get("viewers", False) else None
+
+
 class CameraModuleAdapter:
-    """Adapter to make EnhancedCameraModule compatible with DirectCameraModule interface."""
+    """Expose the camera operations required by HTTP stream routes."""
 
     def __init__(self, enhanced_module: EnhancedCameraModule):
         """Initialize adapter with enhanced camera module.
@@ -74,13 +72,12 @@ class CameraModuleAdapter:
             enhanced_module: The EnhancedCameraModule instance to wrap
         """
         self._module = enhanced_module
-        self.camera = self  # Self-reference for compatibility
 
     def start_capture(self) -> bool:
         """Start camera capture."""
         return self._module.start_capture()
 
-    def stop_capture(self):
+    def stop_capture(self) -> None:
         """Stop camera capture."""
         self._module.stop_capture()
 
@@ -94,7 +91,7 @@ class CameraModuleAdapter:
             return CameraStatus.CONNECTED
         return CameraStatus.DISCONNECTED
 
-    def get_camera_info(self) -> dict:
+    def get_camera_info(self) -> dict[str, Any]:
         """Get camera information."""
         stats = self._module.get_statistics()
         return {
@@ -164,7 +161,7 @@ class CameraModuleAdapter:
         """
         return self._module.get_frame(processed=not raw)
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, Any]:
         """Get module statistics."""
         stats = self._module.get_statistics()
         return {
@@ -177,7 +174,7 @@ class CameraModuleAdapter:
 
 
 # Global streaming state
-_streaming_clients = set()
+_streaming_clients: set[int] = set()
 _stream_stats = {
     "active_streams": 0,
     "total_frames_served": 0,
@@ -232,177 +229,30 @@ async def get_vision_module(
             flush=True,
         )
 
-        # Get stream configuration
-        stream_config = _get_stream_config(app_state)
-        logger.info(
-            f"[get_vision_module] stream_config keys: {list(stream_config.keys()) if stream_config else 'None'}"
-        )
-        # Use vision.camera.* as fallback source of truth for camera settings
-        camera_cfg = stream_config.get("camera", {})
-        logger.info(
-            f"[get_vision_module] camera_cfg from api.stream (fallback only): {camera_cfg}"
-        )
-        processing_cfg = stream_config.get("processing", {})
-
-        # Check if calibration file exists
-        import os
-
-        calibration_file = processing_cfg.get(
-            "calibration_file", "calibration/camera_fisheye_default.yaml"
-        )
-        calibration_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            calibration_file,
-        )
-        enable_fisheye = processing_cfg.get(
-            "enable_fisheye_correction", True
-        ) and os.path.exists(calibration_path)
-
-        if enable_fisheye:
-            logger.info(f"Found calibration file at {calibration_path}")
-        else:
-            logger.warning(
-                f"Calibration file not found at {calibration_path}, disabling fisheye correction"
-            )
-
-        # Configure enhanced camera from config using the new from_config method
-        # Note: This uses api.stream config section which has different structure
-        # than streaming section. We'll use the streaming config if available,
-        # otherwise fall back to api.stream config for backwards compatibility.
-
-        # Try to load from streaming config first (new structure)
-        if hasattr(app_state, "config_module") and app_state.config_module:
-            try:
-                # First check if streaming config exists and has the right structure
-                streaming_test = app_state.config_module.get("streaming", {})
-                logger.info(f"Streaming config check: {streaming_test}")
-
-                camera_config = EnhancedCameraConfig.from_config(
-                    app_state.config_module
-                )
-                logger.info(
-                    f"Loaded EnhancedCameraConfig from streaming configuration: device_id={camera_config.device_id}, resolution={camera_config.resolution}"
-                )
-
-                # Validate that we got the video file path, not the default
-                if camera_config.device_id == 1 and camera_cfg.get("device_id") != 1:
-                    logger.warning(
-                        f"from_config returned default device_id=1, but api.stream has device_id={camera_cfg.get('device_id')}. Using fallback."
-                    )
-                    raise ValueError("Config mismatch detected, using fallback")
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to load from streaming config: {e}, falling back to manual config"
-                )
-                logger.exception("Full exception:")
-                # Fall back to manual configuration using vision.camera.* as source of truth
-                # Get values from vision.camera.* hierarchy, with api.stream as last resort fallback
-                vision_device_id = app_state.config_module.get(
-                    "vision.camera.device_id", None
-                )
-                vision_resolution = app_state.config_module.get(
-                    "vision.camera.resolution", None
-                )
-                vision_fps = app_state.config_module.get("vision.camera.fps", None)
-                vision_buffer_size = app_state.config_module.get(
-                    "vision.camera.buffer_size", None
-                )
-
-                # Use vision.camera.* values if available, otherwise fall back to api.stream
-                device_id = (
-                    vision_device_id
-                    if vision_device_id is not None
-                    else camera_cfg.get("device_id", 0)
-                )
-                resolution = (
-                    vision_resolution
-                    if vision_resolution is not None
-                    else camera_cfg.get("resolution", [1920, 1080])
-                )
-                fps = (
-                    vision_fps if vision_fps is not None else camera_cfg.get("fps", 30)
-                )
-                buffer_size = (
-                    vision_buffer_size
-                    if vision_buffer_size is not None
-                    else camera_cfg.get("buffer_size", 1)
-                )
-
-                logger.info(
-                    f"Fallback config: device_id={device_id}, type={type(device_id)}, resolution={resolution}, fps={fps}"
-                )
-                camera_config = EnhancedCameraConfig(
-                    device_id=device_id,
-                    resolution=tuple(resolution) if resolution else None,
-                    fps=fps,
-                    enable_fisheye_correction=enable_fisheye,
-                    calibration_file=calibration_path if enable_fisheye else None,
-                    fisheye_alpha=1.0,
-                    enable_table_crop=processing_cfg.get("enable_table_crop", False),
-                    table_crop_hsv_lower=(35, 40, 40),
-                    table_crop_hsv_upper=(85, 255, 255),
-                    table_crop_morphology_kernel_size=5,
-                    table_crop_padding_ratio=0.05,
-                    enable_preprocessing=processing_cfg.get(
-                        "enable_preprocessing", False
-                    ),
-                    brightness=camera_cfg.get("brightness", 0),
-                    contrast=camera_cfg.get("contrast", 1.0),
-                    enable_clahe=processing_cfg.get("enable_clahe", False),
-                    clahe_clip_limit=processing_cfg.get("clahe_clip_limit", 2.0),
-                    clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
-                    default_jpeg_quality=80,
-                    enable_gpu=False,
-                    buffer_size=buffer_size,
-                    startup_timeout_seconds=5.0,
-                    thread_join_timeout_seconds=2.0,
-                )
-        else:
-            # No config module, use hardcoded defaults matching vision.camera.* defaults
-            logger.warning("No config module available, using hardcoded defaults")
-            # Use vision.camera.* default values (matching default.json)
-            device_id = camera_cfg.get(
-                "device_id", 0
-            )  # Match vision.camera.device_id default
-            resolution = camera_cfg.get(
-                "resolution", [1920, 1080]
-            )  # Match vision.camera.resolution default
-            fps = camera_cfg.get("fps", 30)
-            buffer_size = camera_cfg.get("buffer_size", 1)
-            logger.info(
-                f"No config module - device_id={device_id}, type={type(device_id)}, resolution={resolution}, fps={fps}"
-            )
-            camera_config = EnhancedCameraConfig(
-                device_id=device_id,
-                resolution=tuple(resolution) if resolution else None,
-                fps=fps,
-                enable_fisheye_correction=enable_fisheye,
-                calibration_file=calibration_path if enable_fisheye else None,
-                fisheye_alpha=1.0,
-                enable_table_crop=processing_cfg.get("enable_table_crop", False),
-                table_crop_hsv_lower=(35, 40, 40),
-                table_crop_hsv_upper=(85, 255, 255),
-                table_crop_morphology_kernel_size=5,
-                table_crop_padding_ratio=0.05,
-                enable_preprocessing=processing_cfg.get("enable_preprocessing", False),
-                brightness=camera_cfg.get("brightness", 0),
-                contrast=camera_cfg.get("contrast", 1.0),
-                enable_clahe=processing_cfg.get("enable_clahe", False),
-                clahe_clip_limit=processing_cfg.get("clahe_clip_limit", 2.0),
-                clahe_grid_size=processing_cfg.get("clahe_grid_size", 8),
-                default_jpeg_quality=80,
-                enable_gpu=False,
-                buffer_size=buffer_size,
-                startup_timeout_seconds=5.0,
-                thread_join_timeout_seconds=2.0,
-            )
-
         try:
+            # Stream delivery settings live under api.stream. Camera capture
+            # settings belong to EnhancedCameraConfig and vision.camera.
+            stream_config = _get_stream_config(app_state)
+            logger.info(
+                f"[get_vision_module] stream_config keys: {list(stream_config.keys()) if stream_config else 'None'}"
+            )
+            config_module = app_state.config_module
+            if config_module is None:
+                raise RuntimeError("Configuration module is not available")
+
+            camera_config = EnhancedCameraConfig.from_config(config_module)
+            logger.info(
+                "Loaded enhanced camera configuration: device_id=%s, resolution=%s",
+                camera_config.device_id,
+                camera_config.resolution,
+            )
+
             logger.info("[get_vision_module] Initializing EnhancedCameraModule...")
 
             # Define async callback for WebSocket frame broadcasting
-            async def on_frame_captured(frame_data, width, height):
+            async def on_frame_captured(
+                frame_data: np.ndarray, width: int, height: int
+            ) -> None:
                 """Broadcast captured frames to WebSocket clients."""
                 try:
                     quality_cfg = stream_config.get("quality", {})
@@ -435,7 +285,7 @@ async def get_vision_module(
                 f"[get_vision_module] Camera resolution: {enhanced_module.config.resolution}"
             )
 
-            # Wrap in compatibility adapter
+            # Adapt the capture module to the operations used by stream routes.
             setattr(
                 app_state, streaming_module_attr, CameraModuleAdapter(enhanced_module)
             )
@@ -467,7 +317,7 @@ async def get_vision_module(
             )
 
     logger.debug("Using shared camera module instance")
-    return getattr(app_state, streaming_module_attr)
+    return cast("CameraModuleAdapter", getattr(app_state, streaming_module_attr))
 
 
 async def generate_mjpeg_stream(
@@ -477,8 +327,8 @@ async def generate_mjpeg_stream(
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
     raw: bool = False,
-    stream_config: Optional[dict] = None,
-) -> bytes:
+    stream_config: Optional[dict[str, Any]] = None,
+) -> AsyncGenerator[bytes, None]:
     """Generate MJPEG stream from camera frames.
 
     Args:
@@ -493,6 +343,7 @@ async def generate_mjpeg_stream(
         MJPEG frame data
     """
     client_id = id(asyncio.current_task())
+    audit_recorder = _viewer_audit_recorder(vision_module)
     _streaming_clients.add(client_id)
     _stream_stats["active_streams"] = len(_streaming_clients)
 
@@ -503,7 +354,7 @@ async def generate_mjpeg_stream(
     try:
         # Camera should already be started by get_vision_module() lazy init
         logger.debug(f"Checking camera connection status for client {client_id}")
-        if not vision_module.camera.is_connected():
+        if not vision_module.is_connected():
             logger.warning(
                 f"Camera not connected for client {client_id}, this shouldn't happen after lazy init"
             )
@@ -511,7 +362,7 @@ async def generate_mjpeg_stream(
         logger.debug(f"Camera is connected for client {client_id}")
 
         frame_interval = 1.0 / max_fps if max_fps > 0 else 0
-        last_frame_time = 0
+        last_frame_time = 0.0
         frame_count = 0
 
         # Get performance config
@@ -537,9 +388,11 @@ async def generate_mjpeg_stream(
 
                 # Get latest frame from vision module
                 logger.debug(f"Getting frame for client {client_id}")
+                read_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 frame = vision_module.get_frame_for_streaming(
                     scale=default_scale, raw=raw
                 )
+                read_finished_ns = time.perf_counter_ns() if audit_recorder else 0
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(sleep_interval)
@@ -565,7 +418,9 @@ async def generate_mjpeg_stream(
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+                encode_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
+                encode_finished_ns = time.perf_counter_ns() if audit_recorder else 0
 
                 if not success:
                     logger.warning("Failed to encode frame as JPEG")
@@ -574,13 +429,51 @@ async def generate_mjpeg_stream(
 
                 # Format as MJPEG
                 frame_data = buffer.tobytes()
-                yield (
+                chunk = (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n"
                     + f"Content-Length: {len(frame_data)}\r\n\r\n".encode()
                     + frame_data
                     + b"\r\n"
                 )
+                send_started_ns = time.perf_counter_ns() if audit_recorder else 0
+                if audit_recorder is not None:
+                    audit_recorder.record(
+                        {
+                            "event_type": "viewer_frame_encoded",
+                            "domain": "viewers",
+                            "viewer_id": str(client_id),
+                            "frame_number": frame_count,
+                            "frame_dimensions": [
+                                int(frame.shape[1]),
+                                int(frame.shape[0]),
+                            ],
+                            "frame_read_seconds": max(
+                                0, read_finished_ns - read_started_ns
+                            )
+                            / 1e9,
+                            "jpeg_encode_seconds": max(
+                                0, encode_finished_ns - encode_started_ns
+                            )
+                            / 1e9,
+                            "payload_bytes": len(chunk),
+                            "viewer_count": len(_streaming_clients),
+                        }
+                    )
+                yield chunk
+                if audit_recorder is not None:
+                    audit_recorder.record(
+                        {
+                            "event_type": "viewer_send_backpressure",
+                            "domain": "viewers",
+                            "viewer_id": str(client_id),
+                            "frame_number": frame_count,
+                            "send_backpressure_seconds": max(
+                                0, time.perf_counter_ns() - send_started_ns
+                            )
+                            / 1e9,
+                        }
+                    )
 
                 # Update statistics
                 _stream_stats["total_frames_served"] += 1
@@ -786,7 +679,7 @@ async def video_stream_raw(
                 )
 
         # Check camera status
-        camera_status = vision_module.camera.get_status()
+        camera_status = vision_module.get_status()
         if camera_status == CameraStatus.ERROR:
             raise HTTPException(
                 status_code=503,
@@ -839,7 +732,7 @@ async def generate_mjpeg_stream_from_shm(
     app_state: ApplicationState,
     quality: int,
     fps: int,
-) -> bytes:
+) -> AsyncGenerator[bytes, None]:
     """Generate MJPEG stream from shared memory frames.
 
     Each client gets an independent SharedMemoryFrameReader for zero-copy
@@ -856,6 +749,7 @@ async def generate_mjpeg_stream_from_shm(
     """
     client_id = id(asyncio.current_task())
     reader: Optional[SharedMemoryFrameReader] = None
+    audit_recorder = _viewer_audit_recorder(app_state.vision_module)
 
     logger.info(
         f"Starting shared memory stream for client {client_id} (quality={quality}, fps={fps})"
@@ -863,10 +757,13 @@ async def generate_mjpeg_stream_from_shm(
 
     try:
         # Get shared memory configuration
-        shm_name = app_state.config_module.get(
-            "video.shared_memory_name", "billiards_video"
-        )
-        attach_timeout = app_state.config_module.get(
+        config_module = app_state.config_module
+        if config_module is None:
+            raise HTTPException(
+                status_code=503, detail="Configuration module is not available"
+            )
+        shm_name = config_module.get("video.shared_memory_name", "billiards_video")
+        attach_timeout = config_module.get(
             "video.shared_memory_attach_timeout_sec", 5.0
         )
 
@@ -892,7 +789,7 @@ async def generate_mjpeg_stream_from_shm(
         # Frame rate limiting
         frame_delay = 1.0 / fps if fps > 0 else 0
         last_frame_number = -1
-        last_frame_time = 0
+        last_frame_time = 0.0
         frame_count = 0
 
         # Performance config
@@ -920,7 +817,9 @@ async def generate_mjpeg_stream_from_shm(
                     continue
 
                 # Read frame from shared memory (non-blocking, returns None if no new frame)
+                read_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 frame, metadata = reader.read_frame()
+                read_finished_ns = time.perf_counter_ns() if audit_recorder else 0
 
                 if frame is None or (
                     metadata and metadata.frame_number == last_frame_number
@@ -935,7 +834,9 @@ async def generate_mjpeg_stream_from_shm(
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+                encode_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
+                encode_finished_ns = time.perf_counter_ns() if audit_recorder else 0
 
                 if not success:
                     logger.warning(f"Client {client_id} failed to encode frame as JPEG")
@@ -944,13 +845,54 @@ async def generate_mjpeg_stream_from_shm(
 
                 # Format as MJPEG
                 frame_data = buffer.tobytes()
-                yield (
+                chunk = (
                     b"--frame\r\n"
                     b"Content-Type: image/jpeg\r\n"
                     + f"Content-Length: {len(frame_data)}\r\n\r\n".encode()
                     + frame_data
                     + b"\r\n"
                 )
+                send_started_ns = time.perf_counter_ns() if audit_recorder else 0
+                if audit_recorder is not None:
+                    audit_recorder.record(
+                        {
+                            "event_type": "viewer_frame_encoded",
+                            "domain": "viewers",
+                            "viewer_id": str(client_id),
+                            "frame_number": metadata.frame_number if metadata else None,
+                            "source_process_id": (
+                                metadata.writer_pid if metadata else None
+                            ),
+                            "frame_dimensions": [
+                                int(frame.shape[1]),
+                                int(frame.shape[0]),
+                            ],
+                            "frame_read_seconds": max(
+                                0, read_finished_ns - read_started_ns
+                            )
+                            / 1e9,
+                            "jpeg_encode_seconds": max(
+                                0, encode_finished_ns - encode_started_ns
+                            )
+                            / 1e9,
+                            "payload_bytes": len(chunk),
+                            "viewer_count": len(_streaming_clients),
+                        }
+                    )
+                yield chunk
+                if audit_recorder is not None:
+                    audit_recorder.record(
+                        {
+                            "event_type": "viewer_send_backpressure",
+                            "domain": "viewers",
+                            "viewer_id": str(client_id),
+                            "frame_number": metadata.frame_number if metadata else None,
+                            "send_backpressure_seconds": max(
+                                0, time.perf_counter_ns() - send_started_ns
+                            )
+                            / 1e9,
+                        }
+                    )
 
                 # Update statistics
                 _stream_stats["total_frames_served"] += 1
@@ -1141,8 +1083,8 @@ async def stream_status(
             }
 
         # Get camera health
-        camera_health = vision_module.camera.get_health()
-        camera_info = vision_module.camera.get_camera_info()
+        camera_health = vision_module.get_health()
+        camera_info = vision_module.get_camera_info()
         vision_stats = vision_module.get_statistics()
 
         # Calculate streaming statistics
@@ -1154,7 +1096,7 @@ async def stream_status(
         return {
             "camera": {
                 "status": camera_health.status.value,
-                "connected": vision_module.camera.is_connected(),
+                "connected": vision_module.is_connected(),
                 "info": camera_info,
                 "health": {
                     "frames_captured": camera_health.frames_captured,
@@ -1205,12 +1147,12 @@ async def start_video_capture(
         Dictionary containing camera status and information
     """
     try:
-        if vision_module.camera.is_connected():
+        if vision_module.is_connected():
             return {
                 "status": "running",
                 "message": "Video capture is active",
-                "camera_info": vision_module.camera.get_camera_info(),
-                "camera_health": vision_module.camera.get_health().__dict__,
+                "camera_info": vision_module.get_camera_info(),
+                "camera_health": vision_module.get_health().__dict__,
             }
         else:
             return {
@@ -1272,7 +1214,7 @@ async def get_single_frame(
     quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
     width: Optional[int] = Query(None, description="Maximum frame width"),
     height: Optional[int] = Query(None, description="Maximum frame height"),
-):
+) -> Response:
     """Get a single frame from the camera as JPEG.
 
     Captures and returns a single frame from the camera, useful for
@@ -1328,7 +1270,7 @@ async def get_single_frame(
                 )
 
         # Camera should already be started by lazy init
-        if not vision_module.camera.is_connected():
+        if not vision_module.is_connected():
             raise HTTPException(
                 status_code=503,
                 detail="Camera is not connected",
@@ -1367,8 +1309,6 @@ async def get_single_frame(
             )
 
         # Return JPEG data
-        from fastapi.responses import Response
-
         return Response(
             content=buffer.tobytes(),
             media_type="image/jpeg",
@@ -1396,7 +1336,7 @@ async def get_single_frame_raw(
     quality: Optional[int] = Query(None, description="JPEG quality (1-100)"),
     width: Optional[int] = Query(None, description="Maximum frame width"),
     height: Optional[int] = Query(None, description="Maximum frame height"),
-):
+) -> Response:
     """Get a single RAW frame from the camera as JPEG (no fisheye correction).
 
     Captures and returns a single frame from the camera WITHOUT any fisheye
@@ -1452,7 +1392,7 @@ async def get_single_frame_raw(
                 )
 
         # Camera should already be started by lazy init
-        if not vision_module.camera.is_connected():
+        if not vision_module.is_connected():
             raise HTTPException(
                 status_code=503,
                 detail="Camera is not connected",
@@ -1491,8 +1431,6 @@ async def get_single_frame_raw(
             )
 
         # Return JPEG data
-        from fastapi.responses import Response
-
         return Response(
             content=buffer.tobytes(),
             media_type="image/jpeg",

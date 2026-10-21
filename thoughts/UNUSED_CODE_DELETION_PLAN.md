@@ -1,3 +1,8 @@
+> Historical inventory, not the current execution map. Some recommendations
+> below were later implemented and others were superseded. See the completed
+> [pre-release clean sweep](pre-release-legacy-clean-sweep.md) for current
+> dispositions.
+
 # Unused Code Deletion Plan for Backend
 
 **Generated**: 2025-10-29

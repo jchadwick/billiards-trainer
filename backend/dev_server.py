@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Development server script for the Billiards Trainer API."""
 
-import logging
-import os
-import sys
+from __future__ import annotations
 
-# Add the backend directory to Python path
-sys.path.insert(0, os.path.dirname(__file__))
+import logging
+import sys
+from typing import TYPE_CHECKING
+
+# FastAPI inspects postponed endpoint annotations at runtime, so this import is
+# required outside TYPE_CHECKING even though the name is only used as a type.
+from fastapi import WebSocket  # noqa: TC002
 
 # Import config module before setting up logging
 from backend.config import config
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 # Configure logging from config
 log_level = getattr(logging, config.get("development.logging.level", "INFO"))
@@ -22,12 +28,12 @@ logging.basicConfig(level=log_level, format=log_format)
 logger = logging.getLogger(__name__)
 
 
-def create_simple_app():
+def create_simple_app() -> FastAPI:
     """Create a simplified FastAPI application for development."""
     import json
     from datetime import datetime
 
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, WebSocketDisconnect
     from fastapi.middleware.cors import CORSMiddleware
 
     # Get app settings from config
@@ -50,21 +56,21 @@ def create_simple_app():
 
     # Add basic CORS for development from config
     cors_origins = config.get("development.cors.allow_origins", ["*"])
-    cors_credentials = config.get("development.cors.allow_credentials", False)
     cors_methods = config.get("development.cors.allow_methods", ["*"])
     cors_headers = config.get("development.cors.allow_headers", ["*"])
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_credentials=cors_credentials,
+        # The single-user API has no cookie/session authentication contract.
+        allow_credentials=False,
         allow_methods=cors_methods,
         allow_headers=cors_headers,
     )
 
     # Basic health check
     @app.get("/health")
-    def health_check():
+    def health_check() -> dict[str, str]:
         return {
             "status": "healthy",
             "version": app_version,
@@ -73,7 +79,7 @@ def create_simple_app():
 
     # Root endpoint
     @app.get("/")
-    def root():
+    def root() -> dict[str, str]:
         return {
             "message": "Billiards Trainer API (Development)",
             "version": app_version,
@@ -82,8 +88,8 @@ def create_simple_app():
         }
 
     # Simple WebSocket endpoint for development/diagnostic purposes
-    @app.websocket("/ws")
-    async def websocket_endpoint(websocket: WebSocket):
+    @app.websocket("/api/v1/websocket/ws")
+    async def websocket_endpoint(websocket: WebSocket) -> None:
         """Basic WebSocket endpoint for development - echoes messages and sends periodic test events."""
         await websocket.accept()
 
@@ -147,11 +153,11 @@ def create_simple_app():
 
 
 def run_dev_server(
-    host: str = None,
-    port: int = None,
-    reload: bool = None,
-    log_level: str = None,
-):
+    host: str | None = None,
+    port: int | None = None,
+    reload: bool | None = None,
+    log_level: str | None = None,
+) -> None:
     """Run the development server with hot reload."""
     try:
         import uvicorn
@@ -194,13 +200,13 @@ def run_dev_server(
         sys.exit(1)
 
 
-def run_production_app():
+def run_production_app() -> None:
     """Attempt to run the full production application."""
     try:
         logger.info("Attempting to import full application...")
 
         # Try to import the full application
-        from api.main import app
+        from backend.api.main import app
 
         logger.info("✅ Full application imported successfully!")
         logger.info("Starting production-like server...")

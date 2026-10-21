@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "configuration_revision": 1,
+  "request_sha256": "cc97663090d146d1282035ffe7d48c1392a6b0dfafba0fc04e7ff330d65887d8",
+  "outcome": "compatible",
+  "source_report": {
+    "session_id": "capture-session-20261020-1",
+    "device_id": "device-index:0",
+    "device_name": null,
+    "backend_id": "opencv",
+    "requested_profile": {
+      "width_px": 1920,
+      "height_px": 1080,
+      "frame_rate": {"frames_numerator": 30, "seconds_denominator": 1},
+      "pixel_format": "RGB8"
+    },
+    "negotiated_profile": {
+      "width_px": 1920,
+      "height_px": 1080,
+      "frame_rate": {"frames_numerator": 30, "seconds_denominator": 1},
+      "pixel_format": "RGB8"
+    },
+    "capabilities": {
+      "supported_pixel_formats": ["RGB8"],
+      "manual_exposure": "unsupported",
+      "automatic_exposure": "supported",
+      "gain_control": "supported",
+      "source_timestamps": "unknown"
+    },
+    "applied_frame_geometry": {
+      "configuration_revision": 1,
+      "camera_profile_id": "camera-profile-v1:9e44dd64412fbf65beeabd8ff20fca40f0250b03da4f2de5683162a95437fa5b",
+      "image_space": "raw",
+      "rectification_revision": 0
+    },
+    "applied_controls": {
+      "exposure_mode": {"status": "applied", "value": "automatic"},
+      "exposure_value": {"status": "unknown"},
+      "gain": {"status": "applied", "value": 1.0},
+      "brightness": {"status": "unknown"},
+      "contrast": {"status": "unsupported"},
+      "saturation": {"status": "unknown"},
+      "auto_focus": {"status": "applied", "value": true},
+      "buffer_size": {"status": "applied", "value": 2}
+    },
+    "timestamp_semantics": {"kind": "read_completion_only"}
+  },
+  "failure": null
+}

@@ -213,7 +213,7 @@ export function renderCalibrationOverlay({
   }
 
   // Draw dimensions if available
-  if (config.showLabels && calibrationData.dimensions) {
+  if (config.showLabels && calibrationData.dimensions?.unit === 'meters') {
     const { width, height } = calibrationData.dimensions;
     if (corners.length >= 4) {
       // Calculate center for dimension display

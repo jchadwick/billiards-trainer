@@ -15,7 +15,7 @@ STATIC_DIR = Path(__file__).parent.parent.parent / "static" / "debug"
 
 
 @router.get("/ball-detection", response_class=FileResponse)
-async def ball_detection_debug_page():
+async def ball_detection_debug_page() -> FileResponse:
     """Serve the ball detection debug page.
 
     This page:

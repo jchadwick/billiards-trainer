@@ -141,8 +141,8 @@ class KalmanFilter:
         self.P = I_KH @ self.P @ I_KH.T + K @ self.R @ K.T
 
         # Calculate quality metrics
-        self.mahalanobis_distance = np.sqrt(
-            y.T @ np.linalg.inv(self.innovation_covariance) @ y
+        self.mahalanobis_distance = float(
+            np.sqrt(y.T @ np.linalg.inv(self.innovation_covariance) @ y)
         )
 
         # Update tracking metrics
@@ -286,4 +286,4 @@ class KalmanFilter:
         uncertainty_factor = 1.0 / (1.0 + pos_uncertainty / 1000.0)
         score *= uncertainty_factor
 
-        return max(0.0, min(1.0, score))
+        return float(max(0.0, min(1.0, score)))

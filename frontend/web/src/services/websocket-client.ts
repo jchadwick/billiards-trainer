@@ -14,7 +14,6 @@ export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'err
 
 export interface WebSocketConfig {
   url: string;
-  token?: string;
   autoReconnect?: boolean;
   maxReconnectAttempts?: number;
   reconnectDelay?: number;
@@ -42,6 +41,8 @@ export class WebSocketClient {
   private ws: WebSocket | null = null;
   private config: Required<WebSocketConfig>;
   private state: ConnectionState = 'disconnected';
+  private connectPromise: Promise<void> | null = null;
+  private rejectPendingConnect: ((error: Error) => void) | null = null;
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
@@ -50,7 +51,10 @@ export class WebSocketClient {
 
   // Event handlers
   private messageHandlers = new Map<MessageType, Set<MessageHandler>>();
+  private allMessageHandlers = new Set<MessageHandler>();
   private stateHandlers = new Set<ConnectionStateHandler>();
+  /** Desired subscriptions survive reconnects and are replayed after every open. */
+  private subscriptions = new Map<string, Record<string, any> | undefined>();
 
   // Statistics
   private stats: ConnectionStats = {
@@ -91,63 +95,85 @@ export class WebSocketClient {
   // =============================================================================
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.ws && (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)) {
-        resolve();
-        return;
-      }
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
+    if (this.connectPromise) return this.connectPromise;
 
-      this.setState('connecting');
-      this.clearTimers();
+    this.config.autoReconnect = true;
+    this.clearTimers();
+    this.setState('connecting');
 
-      try {
-        // Build WebSocket URL with authentication
-        const url = new URL(this.config.url);
-        if (this.config.token) {
-          url.searchParams.set('token', this.config.token);
-        }
-
-        this.ws = new WebSocket(url.toString());
-
-        // Set connection timeout
-        this.connectionTimer = setTimeout(() => {
-          if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-            this.ws.close();
-            reject(new Error('Connection timeout'));
-          }
-        }, this.config.connectionTimeout);
-
-        this.ws.onopen = () => {
-          this.clearTimers();
-          this.onOpen();
-          resolve();
-        };
-
-        this.ws.onmessage = (event) => {
-          this.onMessage(event);
-        };
-
-        this.ws.onclose = (event) => {
-          this.onClose(event);
-        };
-
-        this.ws.onerror = (event) => {
-          this.onError(event);
-          if (this.state === 'connecting') {
-            reject(new Error('Connection failed'));
-          }
-        };
-
-      } catch (error) {
-        this.setState('error', error as Error);
-        reject(error);
-      }
+    let resolveAttempt!: () => void;
+    let rejectAttempt!: (error: Error) => void;
+    const attempt = new Promise<void>((resolve, reject) => {
+      resolveAttempt = resolve;
+      rejectAttempt = reject;
     });
+    this.connectPromise = attempt;
+    let settled = false;
+    const resolveOnce = () => {
+      if (settled) return;
+      settled = true;
+      if (this.connectPromise === attempt) this.connectPromise = null;
+      this.rejectPendingConnect = null;
+      resolveAttempt();
+    };
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (this.connectPromise === attempt) this.connectPromise = null;
+      this.rejectPendingConnect = null;
+      rejectAttempt(error);
+    };
+    this.rejectPendingConnect = rejectOnce;
+
+    try {
+      this.ws = new WebSocket(this.config.url);
+      const socket = this.ws;
+
+      // A failed attempt may be followed by an automatic reconnect. Settle
+      // every caller waiting for this attempt before scheduling that retry.
+      this.connectionTimer = setTimeout(() => {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+          rejectOnce(new Error('Connection timeout'));
+        }
+      }, this.config.connectionTimeout);
+
+      socket.onopen = () => {
+        if (this.ws !== socket) return;
+        this.clearTimers();
+        this.onOpen();
+        resolveOnce();
+      };
+
+      socket.onmessage = (event) => {
+        if (this.ws === socket) this.onMessage(event);
+      };
+
+      socket.onclose = (event) => {
+        if (this.ws !== socket) return;
+        this.onClose(event);
+        if (!settled) rejectOnce(new Error('Connection closed before opening'));
+      };
+
+      socket.onerror = (event) => {
+        if (this.ws !== socket) return;
+        this.onError(event);
+        if (!settled) rejectOnce(new Error('Connection failed'));
+      };
+    } catch (error) {
+      this.setState('error', error instanceof Error ? error : new Error(String(error)));
+      rejectOnce(error instanceof Error ? error : new Error(String(error)));
+    }
+
+    return attempt;
   }
 
   disconnect(): void {
     this.config.autoReconnect = false;
     this.clearTimers();
+    this.rejectPendingConnect?.(new Error('Connection cancelled'));
+    this.connectPromise = null;
 
     if (this.ws) {
       this.ws.close(1000, 'Client initiated disconnect');
@@ -191,19 +217,27 @@ export class WebSocketClient {
   }
 
   subscribe(streams: string[], filters?: Record<string, any>): boolean {
-    const request: SubscribeRequest = { streams, filters };
-    return this.send({
-      type: 'subscribe',
-      data: request,
+    const filterSnapshot = filters === undefined
+      ? undefined
+      : JSON.parse(this.serialize(filters)) as Record<string, any>;
+    const changedStreams = streams.filter((stream) => {
+      if (!stream) return false;
+      const previous = this.subscriptions.get(stream);
+      const wasSubscribed = this.subscriptions.has(stream);
+      const changed = !wasSubscribed || this.serialize(previous) !== this.serialize(filterSnapshot);
+      this.subscriptions.set(stream, filterSnapshot);
+      return changed;
     });
+    if (changedStreams.length === 0) return this.isConnected;
+    return this.sendSubscription(changedStreams, filterSnapshot);
   }
 
   unsubscribe(streams: string[]): boolean {
-    const request: UnsubscribeRequest = { streams };
-    return this.send({
-      type: 'unsubscribe',
-      data: request,
-    });
+    const removedStreams = streams.filter((stream) => this.subscriptions.delete(stream));
+    if (removedStreams.length === 0) return this.isConnected;
+    if (!this.isConnected) return false;
+    const request: UnsubscribeRequest = { streams: removedStreams };
+    return this.send({ type: 'unsubscribe', data: request });
   }
 
   ping(): boolean {
@@ -222,6 +256,15 @@ export class WebSocketClient {
     if (handlers) {
       handlers.add(handler);
     }
+  }
+
+  /** Register a handler for all valid messages, including legacy server types. */
+  onAny(handler: MessageHandler): void {
+    this.allMessageHandlers.add(handler);
+  }
+
+  offAny(handler: MessageHandler): void {
+    this.allMessageHandlers.delete(handler);
   }
 
   off(messageType: MessageType, handler: MessageHandler): void {
@@ -248,6 +291,10 @@ export class WebSocketClient {
     this.setState('connected');
     this.stats.connected_at = new Date();
     this.reconnectAttempts = 0;
+
+    // Restore stream subscriptions before flushing application messages. A
+    // subscriber therefore never has to coordinate its own reconnect logic.
+    this.replaySubscriptions();
 
     // Send queued messages
     while (this.messageQueue.length > 0) {
@@ -276,10 +323,17 @@ export class WebSocketClient {
       this.stats.bytes_received += event.data.length;
       this.stats.last_ping = new Date();
 
+      this.allMessageHandlers.forEach(handler => {
+        try {
+          handler(data);
+        } catch (error) {
+          console.error(`Error in WebSocket message handler for ${data.type}:`, error);
+        }
+      });
+
       // Handle pong messages
       if (data.type === 'pong') {
         this.handlePong(data);
-        return;
       }
 
       // Dispatch to registered handlers
@@ -332,6 +386,7 @@ export class WebSocketClient {
   }
 
   private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
       console.error('Max reconnection attempts reached');
       this.setState('error', new Error('Max reconnection attempts exceeded'));
@@ -387,6 +442,35 @@ export class WebSocketClient {
     }
   }
 
+  private sendSubscription(streams: string[], filters?: Record<string, any>): boolean {
+    // Subscription intent is already retained in `subscriptions`; queueing this
+    // command as well would send it twice when onOpen replays that intent.
+    if (!this.isConnected) return false;
+    const request: SubscribeRequest = { streams, filters };
+    return this.send({ type: 'subscribe', data: request });
+  }
+
+  private replaySubscriptions(): void {
+    const grouped = new Map<string, { filters: Record<string, any> | undefined; streams: string[] }>();
+    for (const [stream, filters] of this.subscriptions) {
+      const key = this.serialize(filters);
+      const group = grouped.get(key) ?? { filters, streams: [] };
+      group.streams.push(stream);
+      grouped.set(key, group);
+    }
+    for (const { streams, filters } of grouped.values()) {
+      this.sendSubscription(streams, filters);
+    }
+  }
+
+  private serialize(value: unknown): string {
+    if (value === undefined) return 'undefined';
+    if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? String(value);
+    if (Array.isArray(value)) return `[${value.map(item => this.serialize(item)).join(',')}]`;
+    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right));
+    return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${this.serialize(entry)}`).join(',')}}`;
+  }
+
   // =============================================================================
   // Public Accessors
   // =============================================================================
@@ -412,16 +496,6 @@ export class WebSocketClient {
   // Configuration Updates
   // =============================================================================
 
-  updateToken(token: string): void {
-    this.config.token = token;
-
-    // Reconnect if currently connected to use new token
-    if (this.isConnected) {
-      this.disconnect();
-      setTimeout(() => this.connect(), 100);
-    }
-  }
-
   updateConfig(newConfig: Partial<WebSocketConfig>): void {
     this.config = { ...this.config, ...newConfig };
   }
@@ -433,8 +507,10 @@ export class WebSocketClient {
   destroy(): void {
     this.disconnect();
     this.messageHandlers.clear();
+    this.allMessageHandlers.clear();
     this.stateHandlers.clear();
     this.messageQueue.length = 0;
+    this.subscriptions.clear();
   }
 }
 

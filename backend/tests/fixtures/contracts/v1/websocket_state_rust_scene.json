@@ -1,0 +1,67 @@
+{
+  "type": "state",
+  "timestamp": "2026-10-20T12:00:00+00:00",
+  "sequence": 1,
+  "data": {
+    "ball_count": 1,
+    "balls": [
+      {
+        "id": "track-1",
+        "position": { "x": 1882.4, "y": 1024.7, "scale": [1.0, 1.0] },
+        "table_position": {
+          "x": 12.5,
+          "y": -18.25,
+          "unit": "millimeters",
+          "origin": "playing_surface_center"
+        },
+        "radius": 36.0,
+        "radius_scale": [1.0, 1.0],
+        "radius_unit": "canonical_pixels",
+        "radius_source": "legacy_standard_pool_ball_assumption",
+        "confidence": 0.97,
+        "confidence_kind": "detector_observation",
+        "last_observation_confidence": 0.97,
+        "number": null,
+        "type": "unknown",
+        "identity_status": "unknown",
+        "identity_confidence": null,
+        "identity_evidence": [],
+        "is_observed": true,
+        "tracking_status": "observed",
+        "position_kind": "measured",
+        "source_observation": {
+          "engine_instance_id": "engine-rust-stage2-a",
+          "session_id": "replay-session-01",
+          "frame_id": "frame-0001",
+          "timestamp": {
+            "ticks": "1000000000",
+            "unit": "nanoseconds",
+            "clock": "monotonic",
+            "domain_id": "host-clock-a",
+            "stage": "shared_memory_publication"
+          }
+        },
+        "image_space": "raw",
+        "image_width_px": 3840,
+        "image_height_px": 2160
+      }
+    ],
+    "cue": null,
+    "table": null,
+    "game_type": null,
+    "frame_number": 1,
+    "observation_status": {
+      "phase": "rust_scene_observation",
+      "engine_instance_id": "engine-rust-stage2-a",
+      "source_session_id": "replay-session-01",
+      "source_frame_id": "frame-0001",
+      "source_timestamp": "1000000000",
+      "source_timestamp_unit": "nanoseconds",
+      "source_timestamp_kind": "monotonic:host-clock-a:shared_memory_publication",
+      "calibration_revision": null,
+      "ball_positions_status": "observed"
+    },
+    "sequence": 1,
+    "timestamp": "2026-10-20T12:00:00+00:00"
+  }
+}

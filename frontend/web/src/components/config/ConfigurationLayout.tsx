@@ -55,7 +55,7 @@ export const ConfigurationLayout = observer<ConfigurationLayoutProps>(({
           {/* Sidebar Navigation */}
           <div className="lg:col-span-1">
             <Card className="sticky top-6">
-              <CardContent padding="sm">
+              <CardContent className="p-3">
                 <nav className="space-y-1">
                   {sections.map((section) => (
                     <button

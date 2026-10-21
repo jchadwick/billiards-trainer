@@ -12,7 +12,7 @@ import { ProgressBar } from './ProgressBar';
 import { AlertPanel } from './AlertPanel';
 import { apiClient } from '../../api/client';
 import type { Alert } from '../../types/monitoring';
-import type { ComponentHealth, HealthStatus } from '../../types/api';
+import type { ComponentHealth, HealthStatus, HealthResponse, SystemMetrics } from '../../types/api';
 
 interface ModuleInfo {
   id: string;
@@ -36,7 +36,7 @@ interface ModuleInfo {
 }
 
 const generateActionsForModule = (moduleId: string) => {
-  const actions = [
+  const actions: NonNullable<ModuleInfo['actions']> = [
     {
       label: 'View Details',
       action: () => console.log(`Viewing details for ${moduleId}`),
@@ -122,11 +122,11 @@ export const ModuleStatus: React.FC = observer(() => {
   const loadModuleStatus = async () => {
     try {
       // Fetch real health data from backend
-      const healthResponse = await apiClient.get('/health?include_details=true&include_metrics=true');
-      const metricsResponse = await apiClient.get('/health/metrics');
+      const healthResponse = await apiClient.get<HealthResponse>('/health?include_details=true&include_metrics=true');
+      const metricsResponse = await apiClient.get<SystemMetrics>('/health/metrics');
 
       // Convert backend component health to frontend module format
-      const realModules: ModuleInfo[] = Object.entries(healthResponse.components).map(([key, component]: [string, any]) => {
+      const realModules: ModuleInfo[] = Object.entries(healthResponse.components).map(([key, component]) => {
         const moduleMetrics = {
           cpu_usage: Math.random() * 20 + 5, // Default range 5-25%
           memory_usage: Math.random() * 30 + 20, // Default range 20-50%

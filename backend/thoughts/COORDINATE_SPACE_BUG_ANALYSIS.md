@@ -1,4 +1,7 @@
-# Coordinate Space Bug Analysis
+# Historical Coordinate Space Bug Analysis (Superseded)
+
+> **HISTORICAL / SUPERSEDED — not current coordinate guidance.** This analysis assumes core positions are stored in meters, infers camera resolution from context, and includes vectors without scale metadata. Current core spatial state uses scale-aware canonical 3840 × 2160 image pixels; source scale/resolution must be explicit, and physical meter points remain separate. Follow [`docs/COORDINATE_SYSTEMS.md`](../../docs/COORDINATE_SYSTEMS.md). The analysis below is retained only as a record of an earlier investigation.
+
 
 ## Problem Statement
 

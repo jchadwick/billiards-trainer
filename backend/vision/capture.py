@@ -18,34 +18,17 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
+from types import TracebackType
 from typing import Any, Callable, Optional
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from backend.perception.camera_source import is_http_camera_source
+
 # Import Kinect v2 support
 from .kinect2_capture import KINECT2_AVAILABLE, Kinect2Capture, Kinect2Status
-
-# Import configuration types
-try:
-    from ..config.models.schemas import CameraBackend, CameraSettings, ExposureMode
-except ImportError:
-    # Fallback for development/testing
-    from enum import Enum
-
-    class CameraBackend(str, Enum):
-        AUTO = "auto"
-        V4L2 = "v4l2"
-        DSHOW = "dshow"
-        GSTREAMER = "gstreamer"
-        OPENCV = "opencv"
-        KINECT2 = "kinect2"
-
-    class ExposureMode(str, Enum):
-        AUTO = "auto"
-        MANUAL = "manual"
-
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +60,22 @@ class CameraHealth:
 
 @dataclass
 class FrameInfo:
-    """Frame metadata."""
+    """Frame metadata.
+
+    ``timestamp`` is sampled by the software after the frame is retrieved from
+    its backend. OpenCV and the current Kinect adapter do not provide a common
+    sensor-exposure clock, so this value must not be interpreted as exposure
+    time. ``camera_read_seconds`` is a monotonic duration around the backend
+    retrieval operation when the performance audit is enabled.
+    """
 
     frame_number: int
     timestamp: float
     size: tuple[int, int]
     channels: int
+    camera_read_seconds: float | None = None
+    capture_queue_frames_skipped: int = 0
+    capture_queue_depth_after_drain: int | None = None
 
 
 class CameraCapture:
@@ -102,9 +95,12 @@ class CameraCapture:
         Args:
             config: Camera configuration dictionary with keys:
                 - device_id: Camera device index (default: 0) or video file path (str)
+                  An HTTP(S) URI selects an MJPEG network source instead of a device.
                 - backend: Camera backend ("auto", "v4l2", "dshow", "gstreamer", "kinect2")
                 - resolution: Tuple of (width, height) (default: [1920, 1080])
                 - fps: Target frame rate (default: 30)
+                - control_policy: "source_defaults" or "require"; ordinary webcams
+                  keep OS-selected controls unless explicit controls are required
                 - exposure_mode: "auto" or "manual"
                 - exposure_value: Manual exposure value (0.0-1.0)
                 - gain: Camera gain (default: 1.0)
@@ -112,8 +108,7 @@ class CameraCapture:
                 - auto_reconnect: Enable automatic reconnection (default: True)
                 - reconnect_delay: Delay between reconnection attempts in seconds (default: 1.0)
                 - max_reconnect_attempts: Max reconnection attempts (default: 5)
-                - read_timeout: Camera read timeout in seconds (default: 5.0)
-                - stop_timeout: Thread stop timeout in seconds (default: 5.0)
+                - stop_timeout: Maximum time to wait for the capture worker during stop (default: 5.0)
                 - frame_log_interval: Log every Nth frame (default: 30)
                 - fps_tracker_size: FPS calculation window size (default: 10)
                 - frame_sleep_compensation: Sleep compensation for frame rate in seconds (default: 0.001)
@@ -136,27 +131,50 @@ class CameraCapture:
         self._device_id = config.get("device_id", 0)
         self._backend = config.get("backend", "auto")
         self._loop_video = config.get("loop_video", False)
-        self._is_video_file = isinstance(self._device_id, str)
+        self._is_stream_uri = is_http_camera_source(self._device_id)
+        self._is_video_file = (
+            isinstance(self._device_id, str) and not self._is_stream_uri
+        )
+        if isinstance(self._device_id, str) and self._device_id.startswith(
+            "gstreamer-device-v1:"
+        ):
+            raise ValueError(
+                "stable GStreamer selectors require the Rust GStreamer capture adapter"
+            )
 
         # Camera parameters - get from config with fallback to defaults
         self._resolution = tuple(config.get("resolution", [1920, 1080]))
         self._fps = config.get("fps", 30)
+        self._control_policy = config.get("control_policy", "source_defaults")
+        if not isinstance(self._control_policy, str) or self._control_policy not in {
+            "source_defaults",
+            "require",
+        }:
+            raise ValueError("control_policy must be 'source_defaults' or 'require'")
         self._exposure_mode = config.get("exposure_mode", "auto")
         self._exposure_value = config.get("exposure_value")
         self._gain = config.get("gain", 1.0)
         self._buffer_size = config.get("buffer_size", 1)
+        if (
+            isinstance(self._buffer_size, bool)
+            or not isinstance(self._buffer_size, int)
+            or self._buffer_size <= 0
+        ):
+            raise ValueError("buffer_size must be a positive integer")
 
         # Connection parameters
         self._auto_reconnect = config.get("auto_reconnect", True)
         self._reconnect_delay = config.get("reconnect_delay", 1.0)
         self._max_reconnect_attempts = config.get("max_reconnect_attempts", 5)
-        self._read_timeout = config.get("read_timeout", 5.0)
         self._stop_timeout = config.get("stop_timeout", 5.0)
 
         # Performance parameters
         self._frame_log_interval = config.get("frame_log_interval", 30)
         self._fps_tracker_size = config.get("fps_tracker_size", 10)
         self._frame_sleep_compensation = config.get("frame_sleep_compensation", 0.001)
+        self._audit_timing_enabled = bool(
+            config.get("performance_audit_enabled", False)
+        )
 
         # Video frame range parameters
         self._video_start_frame = config.get("video_start_frame", 0)
@@ -182,8 +200,17 @@ class CameraCapture:
         self._kinect2: Optional[Kinect2Capture] = None
         self._status = CameraStatus.DISCONNECTED
         self._capture_thread: Optional[threading.Thread] = None
+        # A timed-out stop cannot cancel a native OpenCV/Kinect read. In that
+        # case the capture worker remains the sole owner and releases the
+        # source itself after the read returns and the worker exits.
+        self._deferred_source_release = False
         self._stop_event = threading.Event()
-        self._frame_queue = queue.Queue(maxsize=self._buffer_size)
+        # Network streams are freshness-first: retain only the newest frame if
+        # downstream inference falls behind, regardless of the local-camera
+        # queue setting.
+        self._frame_queue: queue.Queue[tuple[NDArray[Any], FrameInfo]] = queue.Queue(
+            maxsize=1 if self._is_stream_uri else self._buffer_size
+        )
         self._use_kinect2 = self._backend == "kinect2"
 
         # Health monitoring
@@ -194,15 +221,22 @@ class CameraCapture:
         self._error_count = 0
         self._last_error: Optional[str] = None
         self._connection_attempts = 0
-        self._fps_tracker = []
+        self._fps_tracker: list[float] = []
 
         # Thread safety
         self._lock = threading.Lock()
+        # Serialize external start/stop calls without holding the state lock
+        # across backend startup, worker joins, or native resource release.
+        self._lifecycle_lock = threading.Lock()
 
         # Callbacks
         self._status_callback: Optional[Callable[[CameraStatus], None]] = None
 
-        source_type = "video file" if self._is_video_file else "camera device"
+        source_type = (
+            "uStreamer MJPEG source"
+            if self._is_stream_uri
+            else "video file" if self._is_video_file else "camera device"
+        )
         log_msg = (
             f"Camera capture initialized with {source_type}={self._device_id}, "
             f"backend={self._backend}, resolution={self._resolution}"
@@ -256,6 +290,16 @@ class CameraCapture:
             logger.warning("Cannot configure camera - capture not opened")
             return False
 
+        if self._is_stream_uri:
+            # Resolution, frame rate and camera controls belong to the process
+            # that owns the physical camera (uStreamer). Buffer reduction is
+            # best-effort because several OpenCV backends ignore this property.
+            try:
+                self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception:
+                logger.debug("Stream backend does not expose a buffer-size control")
+            return True
+
         # Video files don't need configuration - use their native settings
         if self._is_video_file:
             logger.info("Skipping configuration for video file - using native settings")
@@ -276,18 +320,22 @@ class CameraCapture:
             logger.debug(f"Setting camera buffer size to {self._buffer_size}")
             self._cap.set(cv2.CAP_PROP_BUFFERSIZE, self._buffer_size)
 
-            # Configure exposure
-            if self._exposure_mode == "auto":
-                logger.debug("Setting auto exposure mode")
-                self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
-            elif self._exposure_mode == "manual" and self._exposure_value is not None:
-                logger.debug(f"Setting manual exposure to {self._exposure_value}")
-                self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
-                self._cap.set(cv2.CAP_PROP_EXPOSURE, self._exposure_value)
+            # Driver defaults keep ordinary webcams usable across platforms
+            # where OpenCV may not expose portable control readbacks. Explicit
+            # controls remain an opt-in policy and are still written here.
+            if self._control_policy == "require":
+                if self._exposure_mode == "auto":
+                    logger.debug("Setting auto exposure mode")
+                    self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+                elif (
+                    self._exposure_mode == "manual" and self._exposure_value is not None
+                ):
+                    logger.debug(f"Setting manual exposure to {self._exposure_value}")
+                    self._cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
+                    self._cap.set(cv2.CAP_PROP_EXPOSURE, self._exposure_value)
 
-            # Set gain
-            logger.debug(f"Setting camera gain to {self._gain}")
-            self._cap.set(cv2.CAP_PROP_GAIN, self._gain)
+                logger.debug(f"Setting camera gain to {self._gain}")
+                self._cap.set(cv2.CAP_PROP_GAIN, self._gain)
 
             # Verify settings
             actual_width = self._cap.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -327,12 +375,13 @@ class CameraCapture:
                 "auto_reconnect": kinect2_config.get(
                     "auto_reconnect", self._auto_reconnect
                 ),
+                "stop_timeout": self._stop_timeout,
             }
 
             self._kinect2 = Kinect2Capture(kinect_config)
 
             # Set up status callback to mirror to main status
-            def kinect_status_callback(kinect_status: Kinect2Status):
+            def kinect_status_callback(kinect_status: Kinect2Status) -> None:
                 if kinect_status == Kinect2Status.CONNECTED:
                     self._update_status(CameraStatus.CONNECTED)
                 elif kinect_status == Kinect2Status.DISCONNECTED:
@@ -370,7 +419,10 @@ class CameraCapture:
                 return self._connect_kinect2()
 
             # Handle regular camera connection
-            backend = self._get_opencv_backend()
+            # A URI is a network source, not a V4L2/DirectShow device. Let
+            # OpenCV choose its available HTTP/MJPEG backend independently of
+            # the local camera backend setting.
+            backend = cv2.CAP_ANY if self._is_stream_uri else self._get_opencv_backend()
 
             logger.info(
                 f"Connecting to camera device_id={self._device_id} with backend={self._backend} (OpenCV backend code: {backend})"
@@ -398,43 +450,13 @@ class CameraCapture:
                 actual_frame = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
                 logger.info(f"Video positioned at frame {actual_frame}")
 
-            logger.info("Camera configured, testing frame capture...")
-            # Test frame capture (with timeout for cameras, direct for video files)
-            if self._is_video_file:
-                # Video files don't need timeout - they're not blocking
-                ret, frame = self._cap.read()
-                if not ret or frame is None:
-                    logger.error(
-                        f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
-                    )
-                    raise RuntimeError("Failed to capture test frame from video file")
-            else:
-                # Real cameras may block, so use timeout
-                import concurrent.futures
-
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(self._cap.read)
-                    try:
-                        ret, frame = future.result(timeout=self._read_timeout)
-                    except concurrent.futures.TimeoutError:
-                        logger.error(
-                            f"Frame capture timed out after {self._read_timeout} seconds"
-                        )
-                        raise RuntimeError(
-                            "Camera read timeout - camera may be in use or misconfigured"
-                        )
-
-                if not ret or frame is None:
-                    logger.error(
-                        f"Test frame capture failed: ret={ret}, frame={'None' if frame is None else 'available'}"
-                    )
-                    raise RuntimeError("Failed to capture test frame")
-
+            # Do not probe with a separate read thread here. Native camera
+            # reads are not cancellable by Python futures, so a timed-out
+            # startup probe can outlive its owner and race both release and
+            # restart. The capture worker owns every read and measures the
+            # first frame on the same path as all later frames.
             logger.info(
-                f"Test frame captured successfully: shape={frame.shape}, dtype={frame.dtype}"
-            )
-            logger.info(
-                f"Camera connected successfully (attempt {self._connection_attempts})"
+                f"Camera opened and configured successfully (attempt {self._connection_attempts})"
             )
             return True
 
@@ -442,13 +464,38 @@ class CameraCapture:
             logger.error(f"Camera connection failed: {e}", exc_info=True)
             self._last_error = str(e)
             self._error_count += 1
-
+            # Startup no longer launches a separate probe reader, so ordinary
+            # connection failures have no outstanding native reader.
             if self._cap:
                 logger.debug("Releasing failed camera capture")
                 self._cap.release()
                 self._cap = None
 
             return False
+
+    def _capture_worker(self) -> None:
+        """Run acquisition and honor deferred cleanup after a stop timeout.
+
+        OpenCV and Kinect native reads cannot be cancelled safely from another
+        thread. If the caller's join deadline expires, it leaves the source
+        attached to this worker. Cleanup here happens only after the blocking
+        read has returned and the loop no longer touches the device. The
+        ``stop_timeout`` setting bounds the caller's wait; it cannot guarantee
+        cancellation of a backend-native read.
+        """
+        try:
+            self._capture_loop()
+        finally:
+            with self._lock:
+                if self._deferred_source_release:
+                    source = self._take_source_unsafe()
+                else:
+                    source = (None, None)
+            if source[0] is not None or source[1] is not None:
+                self._release_source(source)
+                with self._lock:
+                    self._deferred_source_release = False
+                    self._update_status_unsafe(CameraStatus.DISCONNECTED)
 
     def _capture_loop(self) -> None:
         """Main capture loop running in separate thread."""
@@ -492,15 +539,31 @@ class CameraCapture:
                             break
 
                 # Capture frame
-                current_time = time.time()
-                frame = None
+                frame: NDArray[Any] | None = None
+                frame_timestamp: float | None = None
+                camera_read_seconds: float | None = None
+                camera_read_started_ns = 0
+                camera_read_finished_ns = 0
 
                 if self._use_kinect2:
                     # Get frame from Kinect v2
                     logger.debug("Attempting to get Kinect v2 frame")
-                    kinect_frame = self._kinect2.get_latest_frame()
+                    kinect_capture = self._kinect2
+                    if kinect_capture is None:
+                        self._update_status(CameraStatus.ERROR)
+                        continue
+                    if self._audit_timing_enabled:
+                        camera_read_started_ns = time.perf_counter_ns()
+                    kinect_frame = kinect_capture.get_latest_frame()
+                    if self._audit_timing_enabled:
+                        camera_read_finished_ns = time.perf_counter_ns()
+                        camera_read_seconds = (
+                            max(0, camera_read_finished_ns - camera_read_started_ns)
+                            / 1e9
+                        )
                     if kinect_frame and kinect_frame.color is not None:
                         frame = kinect_frame.color
+                        frame_timestamp = time.time()
                         # Convert RGB to BGR for OpenCV compatibility
                         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                         logger.debug(f"Kinect v2 frame captured: shape={frame.shape}")
@@ -518,16 +581,20 @@ class CameraCapture:
                 else:
                     # Get frame from regular camera or video file
                     logger.debug("Attempting to read frame from camera/video")
+                    capture = self._cap
+                    if capture is None:
+                        self._update_status(CameraStatus.ERROR)
+                        continue
 
                     # Check if we've reached the end frame for video files
                     if self._is_video_file and self._video_end_frame is not None:
-                        current_frame_pos = int(self._cap.get(cv2.CAP_PROP_POS_FRAMES))
+                        current_frame_pos = int(capture.get(cv2.CAP_PROP_POS_FRAMES))
                         if current_frame_pos >= self._video_end_frame:
                             if self._loop_video:
                                 logger.info(
                                     f"Reached end frame {self._video_end_frame}, looping to frame {self._video_start_frame}..."
                                 )
-                                self._cap.set(
+                                capture.set(
                                     cv2.CAP_PROP_POS_FRAMES, self._video_start_frame
                                 )
                                 continue
@@ -535,9 +602,29 @@ class CameraCapture:
                                 logger.info(
                                     f"Reached end frame {self._video_end_frame}"
                                 )
+                                self._update_status(CameraStatus.DISCONNECTED)
                                 break
 
-                    ret, frame = self._cap.read()
+                    if self._audit_timing_enabled:
+                        camera_read_started_ns = time.perf_counter_ns()
+                    ret, frame = capture.read()
+                    if self._audit_timing_enabled:
+                        camera_read_finished_ns = time.perf_counter_ns()
+                        camera_read_seconds = (
+                            max(
+                                0,
+                                camera_read_finished_ns - camera_read_started_ns,
+                            )
+                            / 1e9
+                        )
+                    if ret and frame is not None:
+                        frame_timestamp = time.time()
+
+                    # A native read may only return after stop has timed out.
+                    # Do not publish that frame or transition back to CONNECTED.
+                    if self._stop_event.is_set():
+                        break
+
                     if not ret or frame is None:
                         # Check if this is end of video file
                         if self._is_video_file:
@@ -545,12 +632,13 @@ class CameraCapture:
                                 logger.info(
                                     f"End of video reached, looping to frame {self._video_start_frame}..."
                                 )
-                                self._cap.set(
+                                capture.set(
                                     cv2.CAP_PROP_POS_FRAMES, self._video_start_frame
                                 )
                                 continue
                             else:
                                 logger.info("End of video reached")
+                                self._update_status(CameraStatus.DISCONNECTED)
                                 break
 
                         logger.warning(
@@ -564,6 +652,7 @@ class CameraCapture:
                             time.sleep(self._reconnect_delay)
                             continue
                         else:
+                            self._update_status(CameraStatus.ERROR)
                             break
 
                     frame_count += 1
@@ -573,6 +662,18 @@ class CameraCapture:
                         logger.debug(
                             f"Frame captured successfully: shape={frame.shape}, count={frame_count}"
                         )
+
+                # The timestamp is software retrieval time, not exposure time.
+                # Take it after the possibly blocking backend read completes.
+                current_time = (
+                    frame_timestamp if frame_timestamp is not None else time.time()
+                )
+
+                # A transient read failure may leave the device open. Restore
+                # connected health when a later real frame proves acquisition
+                # has resumed instead of leaving consumers stuck in reconnecting.
+                if self._status != CameraStatus.CONNECTED:
+                    self._update_status(CameraStatus.CONNECTED)
 
                 # Update statistics
                 self._frames_captured += 1
@@ -589,6 +690,7 @@ class CameraCapture:
                     timestamp=current_time,
                     size=(frame.shape[1], frame.shape[0]),
                     channels=frame.shape[2] if len(frame.shape) > 2 else 1,
+                    camera_read_seconds=camera_read_seconds,
                 )
 
                 try:
@@ -607,6 +709,8 @@ class CameraCapture:
                     time.sleep(max(0, 1.0 / self._fps - self._frame_sleep_compensation))
 
             except Exception as e:
+                if self._stop_event.is_set():
+                    break
                 logger.error(f"Capture loop error: {e}")
                 self._last_error = str(e)
                 self._error_count += 1
@@ -620,6 +724,31 @@ class CameraCapture:
 
         logger.info("Camera capture loop ended")
 
+    def _take_source_unsafe(
+        self,
+    ) -> tuple[Optional[cv2.VideoCapture], Optional[Kinect2Capture]]:
+        """Detach the source references while holding the camera state lock."""
+        camera, kinect = self._cap, self._kinect2
+        self._cap = None
+        self._kinect2 = None
+        return camera, kinect
+
+    @staticmethod
+    def _release_source(
+        source: tuple[Optional[cv2.VideoCapture], Optional[Kinect2Capture]],
+    ) -> None:
+        """Release detached backend resources without holding the state lock.
+
+        Callers must first establish that no capture worker is using the
+        source. Native cleanup can invoke callbacks or block, so it must stay
+        outside the state lock.
+        """
+        camera, kinect = source
+        if kinect is not None:
+            kinect.stop_capture()
+        if camera is not None:
+            camera.release()
+
     def start_capture(self) -> bool:
         """Start camera capture.
 
@@ -627,75 +756,101 @@ class CameraCapture:
             True if capture started successfully, False otherwise
         """
         logger.info("start_capture called")
-        with self._lock:
-            if self._capture_thread and self._capture_thread.is_alive():
-                logger.warning("Capture already running")
-                return True
+        with self._lifecycle_lock:
+            with self._lock:
+                if self._capture_thread and self._capture_thread.is_alive():
+                    if self._stop_event.is_set():
+                        logger.warning(
+                            "Capture worker is still stopping; refusing overlapping restart"
+                        )
+                        return False
+                    logger.warning("Capture already running")
+                    return True
 
-            logger.info("Clearing stop event and updating status to CONNECTING")
-            self._stop_event.clear()
-            self._update_status_unsafe(CameraStatus.CONNECTING)
+                # A worker can end naturally at replay EOF or after an
+                # unrecoverable source error. Detach its source here and
+                # release it below, outside the status lock.
+                if self._capture_thread is not None:
+                    self._capture_thread = None
+                previous_source = self._take_source_unsafe()
 
-            # Reset statistics
-            logger.debug("Resetting capture statistics")
-            self._start_time = time.time()
-            self._frames_captured = 0
-            self._frames_dropped = 0
-            self._fps_tracker.clear()
+                logger.info("Clearing stop event and updating status to CONNECTING")
+                self._stop_event.clear()
+                self._update_status_unsafe(CameraStatus.CONNECTING)
 
-            # Clear frame queue
-            logger.debug("Clearing frame queue")
-            while not self._frame_queue.empty():
-                try:
-                    self._frame_queue.get_nowait()
-                except queue.Empty:
-                    break
+                # Reset statistics and the bounded frame queue for the new
+                # capture session.
+                self._start_time = time.time()
+                self._frames_captured = 0
+                self._frames_dropped = 0
+                self._fps_tracker.clear()
+                while not self._frame_queue.empty():
+                    try:
+                        self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        break
 
-            # Connect camera
+            self._release_source(previous_source)
+
+            # Backend startup can block or call status callbacks. Do not hold
+            # the state lock while opening/configuring the source.
             logger.info("Attempting to connect to camera")
             if not self._connect_camera():
                 logger.error("Camera connection failed")
-                self._update_status_unsafe(CameraStatus.ERROR)
+                self._update_status(CameraStatus.ERROR)
                 return False
 
             logger.info("Camera connected, starting capture thread")
-            # Start capture thread
-            self._capture_thread = threading.Thread(
-                target=self._capture_loop, name="CameraCapture", daemon=True
-            )
-            self._capture_thread.start()
-
-            self._update_status_unsafe(CameraStatus.CONNECTED)
+            with self._lock:
+                self._capture_thread = threading.Thread(
+                    target=self._capture_worker, name="CameraCapture", daemon=True
+                )
+                self._capture_thread.start()
+                self._update_status_unsafe(CameraStatus.CONNECTED)
             logger.info("Camera capture started successfully")
             return True
 
     def stop_capture(self) -> None:
         """Stop camera capture."""
-        with self._lock:
-            if not self._capture_thread or not self._capture_thread.is_alive():
-                logger.info("Capture not running")
-                return
+        # Never hold the state lock while joining: the worker can need it to
+        # publish a final status transition before it exits. Also release the
+        # source if the worker ended naturally (for example, at replay EOF).
+        with self._lifecycle_lock:
+            with self._lock:
+                capture_thread = self._capture_thread
+                if capture_thread and capture_thread.is_alive():
+                    logger.info("Stopping camera capture...")
+                    self._stop_event.set()
+                else:
+                    logger.info("Capture not running")
 
-            logger.info("Stopping camera capture...")
-            self._stop_event.set()
-
-            # Wait for capture thread to finish
-            if self._capture_thread:
-                self._capture_thread.join(timeout=self._stop_timeout)
-                if self._capture_thread.is_alive():
+            # Join outside the state lock so worker status callbacks can finish.
+            if capture_thread and capture_thread.is_alive():
+                capture_thread.join(timeout=self._stop_timeout)
+                if capture_thread.is_alive():
                     logger.warning(
-                        f"Capture thread did not stop gracefully after {self._stop_timeout}s timeout"
+                        f"Capture thread remains the source owner after {self._stop_timeout}s stop timeout"
                     )
+                    with self._lock:
+                        # Recheck after acquiring the lock: the worker may have
+                        # completed between the first liveness check and here.
+                        if capture_thread.is_alive():
+                            self._deferred_source_release = True
+                            self._last_error = (
+                                "Capture worker did not stop before the configured timeout; "
+                                "the source remains owned until its native read returns"
+                            )
+                            self._update_status_unsafe(CameraStatus.ERROR)
+                            return
 
-            # Release camera resources
-            if self._use_kinect2 and self._kinect2:
-                self._kinect2.stop_capture()
-                self._kinect2 = None
-            elif self._cap:
-                self._cap.release()
-                self._cap = None
+            with self._lock:
+                source = self._take_source_unsafe()
+                if self._capture_thread is capture_thread:
+                    self._capture_thread = None
+                self._deferred_source_release = False
 
-            self._update_status_unsafe(CameraStatus.DISCONNECTED)
+            self._release_source(source)
+            self._update_status(CameraStatus.DISCONNECTED)
             logger.info("Camera capture stopped")
 
     def get_frame(self) -> Optional[tuple[np.ndarray, FrameInfo]]:
@@ -716,10 +871,17 @@ class CameraCapture:
             Tuple of (frame, frame_info) if available, None otherwise
         """
         latest = None
+        skipped_frames = 0
         try:
             while True:
-                latest = self._frame_queue.get_nowait()
+                next_frame = self._frame_queue.get_nowait()
+                if latest is not None:
+                    skipped_frames += 1
+                latest = next_frame
         except queue.Empty:
+            if latest is not None:
+                latest[1].capture_queue_frames_skipped = skipped_frames
+                latest[1].capture_queue_depth_after_drain = self._frame_queue.qsize()
             return latest
 
     def is_connected(self) -> bool:
@@ -894,7 +1056,7 @@ class CameraCapture:
 
         return self._kinect2.depth_to_3d(u, v, depth)
 
-    def get_kinect_calibration(self) -> Optional[dict]:
+    def get_kinect_calibration(self) -> Optional[dict[str, Any]]:
         """Get Kinect v2 calibration parameters for 3D reconstruction.
 
         Returns:
@@ -910,7 +1072,12 @@ class CameraCapture:
         self.start_capture()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit."""
         self.stop_capture()
 

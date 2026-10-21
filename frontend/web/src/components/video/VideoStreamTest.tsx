@@ -218,7 +218,6 @@ export const VideoStreamTest: React.FC<VideoStreamTestProps> = ({
       <div className="flex-1">
         <LiveView
           autoConnect={!testMode}
-          baseUrl="http://localhost:8000"
         />
       </div>
     </div>

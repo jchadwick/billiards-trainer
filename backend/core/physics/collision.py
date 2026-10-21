@@ -228,7 +228,7 @@ class CollisionDetector:
         )
 
     def detect_cushion_collision(
-        self, ball: BallState, table: TableState, dt: float
+        self, ball: BallState, table: Optional[TableState], dt: float
     ) -> Optional[CollisionResult]:
         """Detect collision with table cushions.
 
@@ -1028,7 +1028,7 @@ class CollisionOptimizer:
     def __init__(self) -> None:
         """Initialize collision optimizer."""
         self.spatial_grid_size = 100.0  # mm
-        self.spatial_grid: dict = {}
+        self.spatial_grid: dict[tuple[int, int], list[int]] = {}
 
     def build_spatial_grid(self, balls: list[BallState]) -> None:
         """Build spatial partitioning grid for efficient collision detection.
@@ -1071,7 +1071,7 @@ class CollisionOptimizer:
         grid_x = int(ball.position.x / self.spatial_grid_size)
         grid_y = int(ball.position.y / self.spatial_grid_size)
 
-        candidates = set()
+        candidates: set[int] = set()
 
         # Check surrounding cells
         for dx in range(-1, 2):

@@ -1,3 +1,5 @@
+> Historical implementation report. Current endpoint configuration is maintained in `frontend/visualizer/config/default.json`; this report records the original implementation state.
+
 # WebSocket Client Implementation Summary
 
 ## Implementation Complete

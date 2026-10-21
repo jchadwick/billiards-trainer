@@ -10,39 +10,43 @@ Provides comprehensive configuration management including:
 import hashlib
 import json
 import logging
-import sys
 from datetime import datetime, timezone
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Protocol, cast
 
-# Ensure backend directory is in Python path for imports
-backend_dir = Path(__file__).parent.parent.parent.resolve()
-if str(backend_dir) not in sys.path:
-    sys.path.insert(0, str(backend_dir))
-
-import yaml
-from api.dependencies import get_config_module
-from api.models.common import create_success_response
-from api.models.responses import (
-    ConfigExportResponse,
-    ConfigResponse,
-    ConfigUpdateResponse,
-    SuccessResponse,
-)
-from config import Config, config
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Body,
-    Depends,
-    File,
-    HTTPException,
-    Query,
-)
+from fastapi import APIRouter, Depends, File, HTTPException, Query
 from fastapi import Request as FastAPIRequest
 from fastapi import UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+
+from backend.api.dependencies import get_config_module
+from backend.api.models.common import PositionWithScale, create_success_response
+from backend.api.models.responses import (
+    ConfigExportResponse,
+    ConfigResponse,
+    ConfigUpdateResponse,
+)
+from backend.api.models.responses import (
+    ConfigValidationError as APIConfigValidationError,
+)
+from backend.api.models.responses import SuccessResponse
+from backend.config import Config, ConfigValidationError
+from backend.config import get_configuration_schema as build_configuration_schema
+from backend.config import load_schema_reference, validate_configuration
+from backend.core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+
+
+class _YamlLibrary(Protocol):
+    """Typed surface used from PyYAML without relying on external stubs."""
+
+    def safe_load(self, stream: str) -> Any: ...
+
+    def dump(self, data: Any, **kwargs: Any) -> str: ...
+
+
+yaml = cast("_YamlLibrary", import_module("yaml"))
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,56 @@ def validate_config_section(section: str, allowed_sections: list[str]) -> str:
     return section
 
 
+def _configuration_sections() -> list[str]:
+    """Return sections from the same runtime defaults used by validation."""
+    return list(load_schema_reference())
+
+
+def _normalize_section_update(
+    config_data: dict[str, Any], section: Optional[str]
+) -> dict[str, Any]:
+    if not section:
+        return config_data
+    if len(config_data) == 1 and section in config_data:
+        value = config_data[section]
+        if not isinstance(value, dict):
+            raise HTTPException(
+                status_code=422, detail="Section update must be an object"
+            )
+        return {section: value}
+    return {section: config_data}
+
+
+def _restart_required(updated_fields: list[str]) -> bool:
+    restart_prefixes = (
+        "perception.",
+        "vision.",
+        "core.",
+        "integration.",
+        "camera.",
+        "cue.",
+        "projector.",
+        "api.server.",
+        "api.network.",
+        "api.middleware.",
+        "api.rate_limiting.",
+        "api.websocket.",
+        "streaming.",
+    )
+    return any(field.startswith(restart_prefixes) for field in updated_fields)
+
+
+def _validation_detail(errors: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"message": "Configuration validation failed", "errors": errors}
+
+
+def _response_validation_errors(
+    errors: list[dict[str, Any]],
+) -> list[APIConfigValidationError]:
+    """Map store validation records into the documented response schema."""
+    return [APIConfigValidationError(**error) for error in errors]
+
+
 @router.get("", response_model=ConfigResponse)
 async def get_configuration(
     section: Optional[str] = Query(
@@ -78,36 +132,18 @@ async def get_configuration(
     with optional metadata inclusion.
     """
     try:
-        # Get available configuration sections
-        available_sections = [
-            "system",
-            "camera",
-            "vision",
-            "projector",
-            "api",
-            "logging",
-        ]
+        available_sections = _configuration_sections()
 
         if section:
             validate_config_section(section, available_sections)
 
-        # Retrieve configuration
-        if hasattr(config_module, "get_configuration"):
-            config_data = await config_module.get_configuration()
-        else:
-            # Fallback for basic configuration access
-            config_data = getattr(config_module, "_data", {})
+        config_data = config_module.get_all()
 
         # Filter by section if requested
         if section:
-            if isinstance(config_data, dict):
-                config_values = {section: config_data.get(section, {})}
-            else:
-                config_values = {section: getattr(config_data, section, {})}
+            config_values = {section: config_data.get(section, {})}
         else:
-            config_values = (
-                config_data if isinstance(config_data, dict) else config_data.__dict__
-            )
+            config_values = config_data
 
         # Build response
         timestamp = datetime.now(timezone.utc)
@@ -147,97 +183,59 @@ async def update_configuration(
     Supports partial updates, validation-only mode, and forced updates.
     """
     try:
-        available_sections = [
-            "system",
-            "camera",
-            "vision",
-            "projector",
-            "api",
-            "logging",
-        ]
+        available_sections = _configuration_sections()
 
         if section:
             validate_config_section(section, available_sections)
 
-        # Validate configuration data
-        validation_errors = []
-        warnings = []
-        updated_fields = []
-
-        # Basic validation (would be more comprehensive in production)
         if not config_data:
-            validation_errors.append(
-                {
-                    "field": "config_data",
-                    "message": "Configuration data cannot be empty",
-                    "current_value": config_data,
-                    "expected_type": "dict",
-                }
+            raise HTTPException(
+                status_code=422, detail="Configuration data cannot be empty"
             )
 
-        # Simulate field validation
-        for key, value in config_data.items():
-            updated_fields.append(key)
-
-            # Example validation rules
-            if key == "camera" and isinstance(value, dict):
-                if "fps" in value and not isinstance(value["fps"], int):
-                    validation_errors.append(
-                        {
-                            "field": "camera.fps",
-                            "message": "FPS must be an integer",
-                            "current_value": value["fps"],
-                            "expected_type": "int",
-                        }
-                    )
-                elif "fps" in value and value["fps"] > 60:
-                    warnings.append(
-                        f"High FPS value ({value['fps']}) may impact performance"
-                    )
+        updates = _normalize_section_update(config_data, section)
+        current = config_module.get_all()
+        validation_errors, warnings = validate_configuration(updates, baseline=current)
 
         # If validation-only mode, return validation results
         if validate_only:
             return ConfigUpdateResponse(
                 success=len(validation_errors) == 0,
                 updated_fields=[],
-                validation_errors=validation_errors,
+                validation_errors=_response_validation_errors(validation_errors),
                 warnings=warnings,
                 rollback_available=False,
                 restart_required=False,
-            )
-
-        # Check if we should proceed with warnings
-        if warnings and not force_update:
-            raise HTTPException(
-                status_code=400,
-                detail="Configuration has warnings. Use force_update=true to proceed",
             )
 
         # Stop if validation errors exist
         if validation_errors:
             raise HTTPException(
                 status_code=422,
-                detail="Configuration validation failed. Configuration contains validation errors",
+                detail=_validation_detail(validation_errors),
+            )
+
+        # Warnings can only be bypassed after all errors are clear.
+        if warnings and not force_update:
+            raise HTTPException(
+                status_code=400,
+                detail="Configuration has warnings. Use force_update=true to proceed",
             )
 
         # Apply configuration update
         try:
-            if hasattr(config_module, "update_configuration"):
-                await config_module.update_configuration(config_data)
-            else:
-                # Fallback for basic configuration update
-                for key, value in config_data.items():
-                    setattr(config_module, key, value)
-        except Exception as e:
+            updated_fields = config_module.apply_updates(updates)
+        except ConfigValidationError as exc:
+            raise HTTPException(
+                status_code=422, detail=_validation_detail(exc.errors)
+            ) from exc
+        except Exception:
             raise HTTPException(
                 status_code=500,
-                detail=f"Configuration update failed. Failed to apply configuration changes: {str(e)}",
+                detail="Configuration update failed. Changes were not persisted.",
             )
 
-        # Determine if restart is required
-        restart_required = any(
-            field in ["camera", "projector", "api"] for field in updated_fields
-        )
+        restart_required = _restart_required(updated_fields)
 
         logger.info(f"Configuration updated: {updated_fields}")
 
@@ -270,7 +268,7 @@ async def reset_configuration(
         None, description="Specific sections to reset"
     ),
     config_module: Config = Depends(get_config_module),
-) -> SuccessResponse:
+) -> dict[str, Any]:
     """Reset configuration to defaults (FR-API-007).
 
     Supports full reset or section-specific reset.
@@ -282,32 +280,37 @@ async def reset_configuration(
                 detail="Configuration reset must be explicitly confirmed",
             )
 
-        available_sections = [
-            "system",
-            "camera",
-            "vision",
-            "projector",
-            "api",
-            "logging",
-        ]
+        available_sections = _configuration_sections()
 
         if reset_type == "section" and sections:
             for section in sections:
                 validate_config_section(section, available_sections)
 
-        # Perform reset
+        # Reset through the same validated atomic store operation used by
+        # updates and imports. The existing `user` mode historically reset the
+        # complete store because configuration has no user-only namespace.
         try:
-            if hasattr(config_module, "reset_to_defaults"):
-                await config_module.reset_to_defaults()
+            defaults = load_schema_reference()
+            if reset_type == "section":
+                if not sections:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="At least one section is required for a section reset",
+                    )
+                replacement = config_module.get_all()
+                for name in sections:
+                    replacement[name] = defaults[name]
+                config_module.replace_configuration(replacement)
             else:
-                # Fallback implementation
-                logger.warning("Configuration module doesn't support reset_to_defaults")
+                config_module.replace_configuration(defaults)
 
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Configuration reset failed. Failed to reset configuration: {str(e)}",
-            )
+                detail="Configuration reset failed. Changes were not persisted.",
+            ) from e
 
         logger.warning("Configuration reset performed")
 
@@ -338,8 +341,11 @@ async def import_configuration(
         "replace", pattern="^(replace|merge)$", description="Import strategy"
     ),
     validate_only: bool = Query(False, description="Only validate without importing"),
+    force_update: bool = Query(
+        False, description="Proceed when validation reports warnings"
+    ),
     config_module: Config = Depends(get_config_module),
-) -> SuccessResponse:
+) -> dict[str, Any]:
     """Import configuration from file (FR-API-008).
 
     Supports JSON and YAML formats with merge or replace strategies.
@@ -378,44 +384,51 @@ async def import_configuration(
                 detail="Invalid configuration structure. Configuration must be a JSON/YAML object",
             )
 
-        # If validation-only mode, just return validation results
-        if validate_only:
-            # Perform validation without applying
-            validation_errors = []
-            # Add actual validation logic here
+        # Exports add this transport-only envelope; it is not a runtime key.
+        config_data.pop("_metadata", None)
+        current = config_module.get_all()
+        validation_base = current if merge_strategy == "merge" else {}
+        validation_errors, warnings = validate_configuration(
+            config_data, baseline=validation_base
+        )
 
+        if validate_only:
             return create_success_response(
                 "Configuration file validation completed",
                 {
-                    "is_valid": len(validation_errors) == 0,
+                    "is_valid": not validation_errors,
                     "validation_errors": validation_errors,
+                    "warnings": warnings,
                     "sections_found": list(config_data.keys()),
                 },
             )
 
-        # Apply configuration based on merge strategy
+        if validation_errors:
+            raise HTTPException(
+                status_code=422, detail=_validation_detail(validation_errors)
+            )
+        if warnings and not force_update:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Configuration has warnings. Use force_update=true to proceed",
+                    "warnings": warnings,
+                },
+            )
+
         try:
             if merge_strategy == "replace":
-                # Replace entire configuration
-                if hasattr(config_module, "replace_configuration"):
-                    await config_module.replace_configuration(config_data)
-                else:
-                    # Fallback
-                    for key, value in config_data.items():
-                        setattr(config_module, key, value)
+                imported_fields = config_module.replace_configuration(config_data)
             else:  # merge
-                # Merge with existing configuration
-                if hasattr(config_module, "update_configuration"):
-                    await config_module.update_configuration(config_data)
-                else:
-                    # Fallback
-                    for key, value in config_data.items():
-                        setattr(config_module, key, value)
-
-        except Exception as e:
+                imported_fields = config_module.apply_updates(config_data)
+        except ConfigValidationError as exc:
+            raise HTTPException(
+                status_code=422, detail=_validation_detail(exc.errors)
+            ) from exc
+        except Exception:
             raise HTTPException(
                 status_code=500,
-                detail=f"Configuration import failed. Failed to import configuration: {str(e)}",
+                detail="Configuration import failed. Changes were not persisted.",
             )
 
         logger.info(f"Configuration imported from file {file.filename}")
@@ -427,6 +440,8 @@ async def import_configuration(
                 "format": file_extension,
                 "merge_strategy": merge_strategy,
                 "sections_imported": list(config_data.keys()),
+                "updated_fields": imported_fields,
+                "warnings": warnings,
             },
         )
 
@@ -455,30 +470,13 @@ async def export_configuration(
     Supports JSON and YAML formats with selective section export.
     """
     try:
-        available_sections = [
-            "system",
-            "camera",
-            "vision",
-            "projector",
-            "api",
-            "logging",
-        ]
+        available_sections = _configuration_sections()
 
         if sections:
             for section in sections:
                 validate_config_section(section, available_sections)
 
-        # Get configuration data
-        if hasattr(config_module, "get_configuration"):
-            config_data = await config_module.get_configuration()
-        else:
-            config_data = getattr(config_module, "_data", {})
-
-        # Convert to dict if needed
-        if not isinstance(config_data, dict):
-            config_data = (
-                config_data.__dict__ if hasattr(config_data, "__dict__") else {}
-            )
+        config_data = config_module.get_all()
 
         # Filter sections if specified
         if sections:
@@ -581,52 +579,9 @@ async def get_configuration_schema(
     Returns JSON Schema for configuration structure.
     """
     try:
-        # Return basic schema structure (would be more comprehensive in production)
-        schema = {
-            "type": "object",
-            "properties": {
-                "system": {
-                    "type": "object",
-                    "properties": {
-                        "debug": {"type": "boolean"},
-                        "log_level": {
-                            "type": "string",
-                            "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
-                        },
-                    },
-                },
-                "camera": {
-                    "type": "object",
-                    "properties": {
-                        "device_id": {"type": "integer", "minimum": 0},
-                        "resolution": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "minItems": 2,
-                            "maxItems": 2,
-                        },
-                        "fps": {"type": "integer", "minimum": 1, "maximum": 60},
-                    },
-                },
-                "vision": {
-                    "type": "object",
-                    "properties": {
-                        "sensitivity": {
-                            "type": "number",
-                            "minimum": 0.0,
-                            "maximum": 1.0,
-                        }
-                    },
-                },
-            },
-        }
-
         if section:
-            available_sections = list(schema["properties"].keys())
-            validate_config_section(section, available_sections)
-            return schema["properties"][section]
-
-        return schema
+            validate_config_section(section, _configuration_sections())
+        return build_configuration_schema(section)
 
     except HTTPException:
         raise
@@ -638,22 +593,22 @@ async def get_configuration_schema(
         )
 
 
-class Corner(BaseModel):
-    """A single corner point."""
+class Corner(PositionWithScale):
+    """A table corner in its source image space with scale-to-4K metadata."""
 
-    x: float
-    y: float
+    model_config = ConfigDict(extra="forbid")
 
 
-class MarkerDot(BaseModel):
-    """A table marker dot position (for masking)."""
+class MarkerDot(PositionWithScale):
+    """A table marker dot in its source image space with explicit scale."""
 
-    x: float
-    y: float
+    model_config = ConfigDict(extra="forbid")
 
 
 class PlayingAreaCornersRequest(BaseModel):
     """Request model for setting playing area corners."""
+
+    model_config = ConfigDict(extra="forbid")
 
     corners: list[Corner] = Field(
         ...,
@@ -667,19 +622,44 @@ class PlayingAreaCornersRequest(BaseModel):
     )
     calibration_resolution_width: int | None = Field(
         default=None,
+        gt=0,
         description="Width of the video resolution used during calibration (for coordinate scaling)",
     )
     calibration_resolution_height: int | None = Field(
         default=None,
+        gt=0,
         description="Height of the video resolution used during calibration (for coordinate scaling)",
     )
+
+    @model_validator(mode="after")
+    def validate_declared_scale(self) -> "PlayingAreaCornersRequest":
+        """Keep scale metadata consistent with the declared source resolution."""
+        width = self.calibration_resolution_width
+        height = self.calibration_resolution_height
+        if (width is None) != (height is None):
+            raise ValueError(
+                "Calibration resolution width and height must be provided together"
+            )
+        if width is None or height is None:
+            return self
+
+        expected_scale = (CANONICAL_WIDTH / width, CANONICAL_HEIGHT / height)
+        for point in [*self.corners, *(self.marker_dots or [])]:
+            if any(
+                abs(actual - expected) > 1e-6
+                for actual, expected in zip(point.scale, expected_scale)
+            ):
+                raise ValueError(
+                    "Point scale must map the declared calibration resolution to canonical 4K"
+                )
+        return self
 
 
 @router.post("/table/playing-area")
 async def set_playing_area_corners(
     request: FastAPIRequest,
     config_module: Config = Depends(get_config_module),
-) -> dict:
+) -> dict[str, Any]:
     """Set the playing area corner points for table calibration.
 
     Saves the corners to the config file for persistence.
@@ -695,71 +675,84 @@ async def set_playing_area_corners(
         HTTPException: If save fails or validation fails
     """
     try:
-        # Parse JSON body
-        body = await request.json()
-        corners = body.get("corners", [])
-        marker_dots = body.get("marker_dots", [])
-        calibration_resolution_width = body.get("calibration_resolution_width")
-        calibration_resolution_height = body.get("calibration_resolution_height")
-
-        # Validate corners data
-        if not corners:
-            raise HTTPException(
-                status_code=400,
-                detail="No corners provided in request body",
-            )
-
-        if len(corners) != 4:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Expected 4 corners, got {len(corners)}",
-            )
-
-        # Validate each corner has x and y
-        for i, corner in enumerate(corners):
-            if not isinstance(corner, dict):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Corner {i} must be an object with x and y properties",
-                )
-            if "x" not in corner or "y" not in corner:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Corner {i} missing x or y coordinate",
-                )
-
-        # Validate marker dots if provided
-        if marker_dots:
-            for i, dot in enumerate(marker_dots):
-                if not isinstance(dot, dict):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Marker dot {i} must be an object with x and y properties",
-                    )
-                if "x" not in dot or "y" not in dot:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Marker dot {i} missing x or y coordinate",
-                    )
-
-        # Save to config file
         try:
-            config_module.set("table.playing_area_corners", corners)
-            config_module.set("table.marker_dots", marker_dots)
-            if calibration_resolution_width is not None:
-                config_module.set(
-                    "table.calibration_resolution_width", calibration_resolution_width
+            payload = PlayingAreaCornersRequest.model_validate(await request.json())
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422, detail=exc.errors(include_context=False)
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=400, detail="Malformed JSON request body"
+            ) from exc
+
+        corners = [point.model_dump() for point in payload.corners]
+        marker_dots = (
+            [point.model_dump() for point in payload.marker_dots]
+            if payload.marker_dots is not None
+            else None
+        )
+        calibration_resolution_width = payload.calibration_resolution_width
+        calibration_resolution_height = payload.calibration_resolution_height
+        baseline = config_module.get_all()
+        table_baseline = baseline.get("table", {})
+        effective_width = calibration_resolution_width or table_baseline.get(
+            "calibration_resolution_width"
+        )
+        effective_height = calibration_resolution_height or table_baseline.get(
+            "calibration_resolution_height"
+        )
+        if effective_width is not None or effective_height is not None:
+            merged_payload = payload.model_dump()
+            if payload.marker_dots is None:
+                merged_payload["marker_dots"] = table_baseline.get("marker_dots")
+            merged_payload["calibration_resolution_width"] = effective_width
+            merged_payload["calibration_resolution_height"] = effective_height
+            try:
+                PlayingAreaCornersRequest.model_validate(merged_payload)
+            except ValidationError as exc:
+                raise HTTPException(
+                    status_code=422, detail=exc.errors(include_context=False)
+                ) from exc
+
+        updates: dict[str, Any] = {"table": {"playing_area_corners": corners}}
+        if marker_dots is not None:
+            updates["table"]["marker_dots"] = marker_dots
+        if calibration_resolution_width is not None:
+            updates["table"][
+                "calibration_resolution_width"
+            ] = calibration_resolution_width
+        if calibration_resolution_height is not None:
+            updates["table"][
+                "calibration_resolution_height"
+            ] = calibration_resolution_height
+
+        try:
+            validation_errors, _ = validate_configuration(updates, baseline=baseline)
+            if validation_errors:
+                raise HTTPException(
+                    status_code=422, detail=_validation_detail(validation_errors)
                 )
-            if calibration_resolution_height is not None:
-                config_module.set(
-                    "table.calibration_resolution_height", calibration_resolution_height
-                )
+            config_module.apply_updates(updates)
+        except ConfigValidationError as exc:
+            raise HTTPException(
+                status_code=422, detail=_validation_detail(exc.errors)
+            ) from exc
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to save playing area configuration: {e}",
-            )
+                detail="Failed to persist playing area configuration.",
+            ) from e
 
+        marker_dots = config_module.get("table.marker_dots", [])
+        calibration_resolution_width = config_module.get(
+            "table.calibration_resolution_width"
+        )
+        calibration_resolution_height = config_module.get(
+            "table.calibration_resolution_height"
+        )
         logger.info(f"Playing area corners saved to config: {corners}")
         logger.info(f"Table marker dots saved to config: {marker_dots}")
         logger.info(
@@ -803,6 +796,12 @@ async def get_playing_area_corners(
         # Get playing area corners and marker dots from configuration
         playing_area_corners = config_module.get("table.playing_area_corners", [])
         marker_dots = config_module.get("table.marker_dots", [])
+        calibration_resolution_width = config_module.get(
+            "table.calibration_resolution_width"
+        )
+        calibration_resolution_height = config_module.get(
+            "table.calibration_resolution_height"
+        )
 
         return {
             "success": True,
@@ -811,6 +810,8 @@ async def get_playing_area_corners(
             "calibrated": len(playing_area_corners) == 4,
             "marker_dots": marker_dots,
             "marker_dots_count": len(marker_dots),
+            "calibration_resolution_width": calibration_resolution_width,
+            "calibration_resolution_height": calibration_resolution_height,
         }
 
     except Exception as e:

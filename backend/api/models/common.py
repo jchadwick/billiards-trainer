@@ -1,11 +1,56 @@
 """Common models and utilities for API endpoints."""
 
+import math
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, validator
+
+CANONICAL_4K_SCALE = (1.0, 1.0)
+CANONICAL_PIXEL_UNIT: Literal["canonical_pixels"] = "canonical_pixels"
+METERS_UNIT: Literal["meters"] = "meters"
+
+
+def validate_positive_scale_pair(value: Any, field_name: str = "Scale") -> list[float]:
+    """Validate scale metadata before Pydantic can coerce invalid values.
+
+    Image geometry scales map a supplied extent to canonical 4K pixels. Requiring
+    a concrete pair of positive, finite numbers here keeps the same contract for
+    positions, radii, and table dimensions, while rejecting booleans and strings
+    that Pydantic's normal ``float`` coercion would otherwise accept.
+    """
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(f"{field_name} must contain exactly [scale_x, scale_y]")
+    if any(
+        isinstance(factor, bool)
+        or not isinstance(factor, (int, float))
+        or not math.isfinite(factor)
+        or factor <= 0
+        for factor in value
+    ):
+        raise ValueError(f"{field_name} factors must be positive finite numbers")
+    return [float(factor) for factor in value]
+
+
+class RealWorldDimensions(BaseModel):
+    """Physical table extents, kept separate from canonical pixel geometry."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    width: float = Field(..., gt=0.0, allow_inf_nan=False)
+    height: float = Field(..., gt=0.0, allow_inf_nan=False)
+    unit: Literal["meters"] = Field(..., description="Physical dimension unit")
+
+    @field_validator("width", "height", mode="before")
+    @classmethod
+    def validate_finite_numeric_dimension(cls, value: Any) -> Any:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("Physical dimensions must be numeric")
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("Physical dimensions must be positive and finite")
+        return value
 
 
 class ApiVersion(str, Enum):
@@ -25,8 +70,6 @@ class StatusCode(int, Enum):
 
     # Client error codes
     BAD_REQUEST = 400
-    UNAUTHORIZED = 401
-    FORBIDDEN = 403
     NOT_FOUND = 404
     METHOD_NOT_ALLOWED = 405
     CONFLICT = 409
@@ -42,11 +85,6 @@ class StatusCode(int, Enum):
 
 class ErrorCode(str, Enum):
     """Application-specific error codes."""
-
-    # Authentication/Authorization
-    AUTH_INVALID_CREDENTIALS = "AUTH_001"
-    AUTH_TOKEN_EXPIRED = "AUTH_002"
-    AUTH_INSUFFICIENT_PERMISSIONS = "AUTH_003"
 
     # Validation
     VALIDATION_INVALID_FORMAT = "VAL_001"
@@ -71,7 +109,7 @@ class ErrorCode(str, Enum):
     PROJECTOR_CALIBRATION_FAILED = "PROJ_002"
 
     # Processing errors
-    VISION_PROCESSING_FAILED = "VIS_001"
+    VISION_PROCESSING_FAILED = "PROC_001"
     CALIBRATION_FAILED = "CAL_001"
     CALIBRATION_INCOMPLETE = "CAL_002"
     CALIBRATION_EXPIRED = "CAL_003"
@@ -111,6 +149,13 @@ class ValidationResult(BaseModel):
         default_factory=dict, description="Field-specific errors"
     )
 
+    def add_error(self, message: str, field: Optional[str] = None) -> None:
+        """Record a validation failure and optionally associate it with a field."""
+        self.is_valid = False
+        self.errors.append(message)
+        if field is not None:
+            self.field_errors.setdefault(field, []).append(message)
+
 
 class PaginationRequest(BaseModel):
     """Pagination parameters for list endpoints."""
@@ -121,7 +166,7 @@ class PaginationRequest(BaseModel):
     sort_order: str = Field("asc", description="Sort order", pattern="^(asc|desc)$")
 
     @validator("sort_by")
-    def validate_sort_field(cls, v):
+    def validate_sort_field(cls: type[Any], v: Optional[str]) -> Optional[str]:
         if v and not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", v):
             raise ValueError("Sort field must be a valid identifier")
         return v
@@ -145,62 +190,86 @@ class TimeRange(BaseModel):
     end: datetime = Field(..., description="End time")
 
     @validator("end")
-    def validate_time_range(cls, v, values):
+    def validate_time_range(
+        cls: type[Any], v: datetime, values: dict[str, Any]
+    ) -> datetime:
         if "start" in values and v <= values["start"]:
             raise ValueError("End time must be after start time")
         return v
 
 
-class Coordinate2D(BaseModel):
-    """2D coordinate representation."""
-
-    x: float = Field(..., description="X coordinate")
-    y: float = Field(..., description="Y coordinate")
-
-
 class PositionWithScale(BaseModel):
     """2D position with mandatory scale metadata.
 
-    This is the new standard format for all position/velocity data in the API.
-    The scale metadata indicates the coordinate space and allows proper conversion
-    between different resolution contexts (e.g., 1080p to 4K).
+    This is the standard format for image-space positions and displacement
+    vectors in API payloads. ``scale`` contains the factors that multiply the
+    supplied ``x`` and ``y`` values to produce canonical 4K pixel coordinates.
+    Physical table-plane points use a separate meter-unit model.
 
     Format:
         {
             "x": float,          # X coordinate value
             "y": float,          # Y coordinate value
-            "scale": [sx, sy]    # Scale factors [x_scale, y_scale]
+            "scale": [sx, sy]    # Multiply x/y by these to get canonical 4K pixels
         }
 
     The deprecated array format [x, y] without scale should not be used.
     """
 
-    x: float = Field(..., description="X coordinate value")
-    y: float = Field(..., description="Y coordinate value")
+    x: float = Field(..., description="X coordinate value", allow_inf_nan=False)
+    y: float = Field(..., description="Y coordinate value", allow_inf_nan=False)
     scale: list[float] = Field(
         ...,
         min_length=2,
         max_length=2,
-        description="Scale factors [x_scale, y_scale] indicating coordinate space",
+        description="Factors multiplying x and y to produce canonical 4K pixels",
     )
 
-    @validator("scale")
-    def validate_scale(cls, v):
-        """Validate that scale factors are positive."""
-        if len(v) != 2:
-            raise ValueError("Scale must have exactly 2 values [x_scale, y_scale]")
-        if v[0] <= 0 or v[1] <= 0:
-            raise ValueError(f"Scale factors must be positive, got {v}")
-        return v
+    @validator("scale", pre=True)
+    def validate_scale(cls: type[Any], v: Any) -> list[float]:
+        """Validate scale without accepting coerced booleans or strings."""
+        return validate_positive_scale_pair(v)
+
+
+class Coordinate2D(PositionWithScale):
+    """Coordinate whose scale maps its values into canonical 4K pixels.
+
+    This model intentionally requires scale metadata. A bare pair of numbers
+    cannot identify whether it came from a camera frame, a normalized table map,
+    or canonical coordinates.
+    """
+
+
+class WorldPoint2DModel(BaseModel):
+    """Physical table-plane point expressed in meters, not scaled pixels."""
+
+    x: float = Field(..., description="X coordinate in meters", allow_inf_nan=False)
+    y: float = Field(..., description="Y coordinate in meters", allow_inf_nan=False)
+    unit: Literal["meters"] = Field(..., description="World-coordinate unit")
 
 
 class BoundingBox(BaseModel):
-    """Bounding box representation."""
+    """Pixel bounding box with scale-to-4K metadata for every edge and extent."""
 
-    x: float = Field(..., description="Left edge X coordinate")
-    y: float = Field(..., description="Top edge Y coordinate")
-    width: float = Field(..., description="Box width", gt=0)
-    height: float = Field(..., description="Box height", gt=0)
+    x: float = Field(..., description="Left edge X coordinate", allow_inf_nan=False)
+    y: float = Field(..., description="Top edge Y coordinate", allow_inf_nan=False)
+    width: float = Field(..., description="Box width", gt=0, allow_inf_nan=False)
+    height: float = Field(..., description="Box height", gt=0, allow_inf_nan=False)
+    scale: list[float] = Field(
+        ...,
+        min_length=2,
+        max_length=2,
+        description="Scale factors mapping box coordinates and extents to canonical 4K pixels",
+    )
+
+    @validator("scale")
+    def validate_scale(cls: type[Any], v: list[float]) -> list[float]:
+        """Require finite positive scale factors for both box axes."""
+        if len(v) != 2:
+            raise ValueError("Scale must have exactly 2 values [x_scale, y_scale]")
+        if not all(math.isfinite(factor) and factor > 0 for factor in v):
+            raise ValueError(f"Scale factors must be positive and finite, got {v}")
+        return v
 
 
 class ColorProfile(BaseModel):
@@ -208,17 +277,17 @@ class ColorProfile(BaseModel):
 
     name: str = Field(..., description="Profile name")
     hue_range: list[int] = Field(
-        ..., description="HSV hue range [min, max]", min_items=2, max_items=2
+        ..., description="HSV hue range [min, max]", min_length=2, max_length=2
     )
     saturation_range: list[int] = Field(
-        ..., description="HSV saturation range [min, max]", min_items=2, max_items=2
+        ..., description="HSV saturation range [min, max]", min_length=2, max_length=2
     )
     value_range: list[int] = Field(
-        ..., description="HSV value range [min, max]", min_items=2, max_items=2
+        ..., description="HSV value range [min, max]", min_length=2, max_length=2
     )
 
     @validator("hue_range", "saturation_range", "value_range")
-    def validate_ranges(cls, v):
+    def validate_ranges(cls: type[Any], v: list[int]) -> list[int]:
         if len(v) != 2:
             raise ValueError("Range must have exactly 2 values [min, max]")
         if v[0] >= v[1]:

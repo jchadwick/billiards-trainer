@@ -51,6 +51,7 @@ python tools/benchmark_detectors.py \
 | `--yolo-model` | No | Path to YOLO model file (.pt or .onnx) |
 | `--frames` | No | Number of frames to test (default: all frames) |
 | `--ground-truth` | No | Path to ground truth annotations JSON |
+| `--opencv-config` | No | Detector JSON config with explicit pixel source resolution and scale (defaults to `example_opencv_config.json`) |
 | `--visualize` | No | Generate side-by-side comparison visualizations |
 | `--output-dir` | No | Directory to save visualization frames (default: benchmark_output) |
 | `--results-json` | No | Path to save JSON results (default: models/benchmark_results.json) |
@@ -59,25 +60,54 @@ python tools/benchmark_detectors.py \
 
 ## Ground Truth Format
 
-Ground truth annotations should be in JSON format:
+Ground truth must declare the coordinate space, source resolution, and scale to
+4K canonical pixels. The frame annotations are converted to the actual video
+frame size before matching. Legacy frame-only JSON is rejected because its
+pixel resolution cannot be inferred safely.
 
 ```json
 {
-  "0": [
+  "coordinate_space": "pixel",
+  "source_resolution": [640, 360],
+  "coordinate_scale": [6.0, 6.0],
+  "frames": {
+   "0": [
     {"x": 320.5, "y": 240.2, "radius": 20.1, "type": "cue"},
     {"x": 450.3, "y": 280.7, "radius": 19.8, "type": "solid"}
-  ],
-  "1": [
+   ],
+   "1": [
     {"x": 321.1, "y": 241.5, "radius": 20.0, "type": "cue"},
     {"x": 455.2, "y": 282.3, "radius": 19.9, "type": "solid"}
-  ]
+   ]
+  }
 }
 ```
 
 Where:
-- Keys are frame numbers (as strings)
-- Values are arrays of ball annotations
-- Each annotation has: `x`, `y`, `radius`, and optionally `type`
+- `coordinate_space` is `pixel` or `4k_canonical`
+- `source_resolution` is `[width, height]` in pixels
+- `coordinate_scale` is the explicit X/Y factor from the source pixels to 4K
+  canonical pixels; it must agree with the declared resolution
+- `frames` maps frame numbers to arrays of ball annotations
+- Each annotation has: `x`, `y`, `radius`, and optionally `type`, paired `width`/`height` extents, and bounds
+- Optional `bounds` carry `left`, `top`, `right`, and `bottom` source-pixel edges;
+  the benchmark scales all four edges as points
+
+`example_ground_truth.json` is illustrative data explicitly declared at
+640×360. For your own annotations, use the resolution at which the coordinates
+were authored. The benchmark scales X/Y independently for centers and edges;
+the scalar ball radius follows the runtime model's canonical X-axis radius
+convention.
+
+## OpenCV Pixel Settings
+
+The benchmark loads `example_opencv_config.json` by default. Pixel thresholds
+are nested under `size_constraints` and the file declares their source
+resolution and canonical scale. Radius thresholds and `performance.roi_margin`
+are converted to the first decoded video frame's dimensions before constructing
+the detector. Supply `--opencv-config` to use another file with the same
+metadata. Videos whose frame size changes mid-stream are rejected so a detector
+cannot silently use thresholds from a different resolution.
 
 ## Output Files
 

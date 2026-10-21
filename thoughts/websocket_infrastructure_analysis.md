@@ -1,5 +1,13 @@
 # WebSocket Infrastructure Analysis Report
 
+> Historical analysis from an earlier implementation. It contains obsolete
+> references to authentication tokens, user identities and permission sets;
+> those are not part of the current anonymous WebSocket contract. Use the
+> current [WebSocket tests](../backend/tests/integration/test_websocket_subscriptions.py)
+> and [unauthenticated transport decision](../docs/architecture/decisions/0028-epoch-scoped-unauthenticated-scene-transport.md)
+> for current behavior. This note is retained as history, not implementation
+> guidance.
+
 ## Executive Summary
 
 The backend implements a comprehensive WebSocket infrastructure with the following key components:

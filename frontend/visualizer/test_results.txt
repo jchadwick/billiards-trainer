@@ -1,3 +1,6 @@
+Historical visualizer test output from a pre-migration run. The WebSocket URL
+below was removed; use the canonical route and current Lua tests instead.
+
 Starting visualizer initialization tests...
 
 Running tests with LOVE2D...

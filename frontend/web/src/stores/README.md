@@ -10,7 +10,6 @@ The state management system is built around MobX and provides reactive state man
 - **GameStore** - Game state, ball tracking, shot history
 - **VisionStore** - Camera management, detection, calibration
 - **ConfigStore** - Application configuration and user preferences
-- **AuthStore** - Authentication and user management
 - **UIStore** - UI state, modals, notifications, loading states
 
 ## Architecture
@@ -21,7 +20,6 @@ RootStore
 ├── GameStore (game state, balls, table)
 ├── VisionStore (camera, detection, calibration)
 ├── ConfigStore (settings, profiles)
-├── AuthStore (authentication, users)
 └── UIStore (UI state, notifications)
 ```
 
@@ -32,11 +30,10 @@ RootStore
 The stores are automatically initialized in `main.tsx` and available throughout the application via React context:
 
 ```tsx
-import { useGameStore, useAuth, useNotifications } from './stores';
+import { useGameStore, useNotifications } from './stores';
 
 function MyComponent() {
   const gameStore = useGameStore();
-  const { isAuthenticated, user } = useAuth();
   const { showSuccess } = useNotifications();
 
   // Your component logic here
@@ -82,7 +79,7 @@ const SystemHealth = observer(() => {
       </div>
 
       {!status.isConnected && (
-        <button onClick={() => connect('ws://localhost:8080/ws')}>
+        <button onClick={() => connect('ws://localhost:8000/api/v1/websocket/ws')}>
           Connect to Backend
         </button>
       )}
@@ -345,72 +342,6 @@ const SettingsPanel = observer(() => {
 });
 ```
 
-### AuthStore Examples
-
-```tsx
-import { useAuth } from './stores';
-
-// Login form
-const LoginForm = observer(() => {
-  const { login, isLoading, error } = useAuth();
-  const [credentials, setCredentials] = useState({ username: '', password: '' });
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const result = await login(credentials);
-    if (result.success) {
-      console.log('Login successful');
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="login-form">
-      <h3>Login</h3>
-
-      {error && <div className="error">{error}</div>}
-
-      <input
-        type="text"
-        placeholder="Username"
-        value={credentials.username}
-        onChange={(e) => setCredentials(prev => ({ ...prev, username: e.target.value }))}
-      />
-
-      <input
-        type="password"
-        placeholder="Password"
-        value={credentials.password}
-        onChange={(e) => setCredentials(prev => ({ ...prev, password: e.target.value }))}
-      />
-
-      <button type="submit" disabled={isLoading}>
-        {isLoading ? 'Logging in...' : 'Login'}
-      </button>
-    </form>
-  );
-});
-
-// User profile
-const UserProfile = observer(() => {
-  const { isAuthenticated, user, logout } = useAuth();
-
-  if (!isAuthenticated || !user) {
-    return <div>Not logged in</div>;
-  }
-
-  return (
-    <div className="user-profile">
-      <h3>Welcome, {user.username}</h3>
-      <p>Email: {user.email}</p>
-      <p>Roles: {user.roles.join(', ')}</p>
-      <p>Last login: {user.lastLogin.toLocaleString()}</p>
-
-      <button onClick={logout}>Logout</button>
-    </div>
-  );
-});
-```
-
 ### UIStore Examples
 
 ```tsx
@@ -625,7 +556,6 @@ In development mode, several debugging tools are available:
 __MOBX_DEBUG__.inspect()          // Inspect all store states
 __MOBX_DEBUG__.reset()            // Reset all stores
 __MOBX_DEBUG__.export()           // Export current state
-__MOBX_DEBUG__.simulate.login()   // Simulate user login
 __MOBX_DEBUG__.simulate.gameStart() // Simulate game start
 __MOBX_DEBUG__.trace()            // Start MobX tracing
 
@@ -687,34 +617,6 @@ get activeBalls(): Ball[] {
 const getActiveBalls = () => {
   return balls.filter(ball => !ball.isPocketed);
 };
-```
-
-### 4. Handle Async Operations Properly
-
-```tsx
-// ✅ Good
-async login(credentials: LoginCredentials): Promise<ActionResult> {
-  runInAction(() => {
-    this.isLoggingIn = true;
-    this.loginError = null;
-  });
-
-  try {
-    const result = await api.login(credentials);
-    runInAction(() => {
-      this.user = result.user;
-      this.isAuthenticated = true;
-      this.isLoggingIn = false;
-    });
-    return { success: true };
-  } catch (error) {
-    runInAction(() => {
-      this.loginError = error.message;
-      this.isLoggingIn = false;
-    });
-    return { success: false, error: error.message };
-  }
-}
 ```
 
 ## Testing

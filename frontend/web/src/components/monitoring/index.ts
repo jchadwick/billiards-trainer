@@ -15,5 +15,5 @@ export { StatCard } from './StatCard';
 export { AlertPanel } from './AlertPanel';
 
 // Types
-export type { MetricPoint } from './MetricsChart';
-export type { Alert } from './AlertPanel';
+export type { MetricPoint } from '../../types/monitoring';
+export type { Alert } from '../../types/monitoring';

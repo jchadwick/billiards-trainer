@@ -17,9 +17,16 @@ import {
   type PositionWithScale,
   type StatusData,
   type TableData,
+  type TablePocketData,
   type TrajectoryData,
   type WebSocketMessage,
 } from "../types/api";
+import {
+  normalizeImageExtentToCanonical,
+  normalizeImageLengthToCanonical,
+  normalizeImagePointToCanonical,
+  normalizeTablePixelExtentsToCanonical,
+} from "../utils/coordinates";
 
 export interface DataProcessingOptions {
   frameProcessing?: {
@@ -43,6 +50,12 @@ export interface DataProcessingOptions {
   };
 }
 
+type ResolvedDataProcessingOptions = {
+  frameProcessing: Required<NonNullable<DataProcessingOptions["frameProcessing"]>>;
+  stateProcessing: Required<NonNullable<DataProcessingOptions["stateProcessing"]>>;
+  trajectoryProcessing: Required<NonNullable<DataProcessingOptions["trajectoryProcessing"]>>;
+};
+
 export interface ProcessedFrameData {
   imageUrl: string;
   originalData: FrameData;
@@ -64,12 +77,12 @@ export interface ProcessedGameState {
   changesSinceLastFrame: string[];
 }
 
-// Position type for new dict format with scale metadata
-// Scale is a [width, height] tuple indicating the coordinate space (e.g., [1920, 1080] or [3840, 2160])
+// Processed positions are always canonical 4K pixels. Their scale is therefore
+// identity; source-to-canonical scaling happens once at the input boundary.
 export interface Position2D {
   x: number;
   y: number;
-  scale?: [number, number]; // Coordinate space metadata as [width, height]
+  scale: [1, 1];
 }
 
 export interface ProcessedBallData extends BallData {
@@ -77,6 +90,8 @@ export interface ProcessedBallData extends BallData {
   predictedPosition?: Position2D;
   movementDirection?: number; // angle in degrees
   speed?: number;
+  radiusX?: number;
+  radiusY?: number;
   isMoving: boolean;
   hasPositionChanged: boolean;
 }
@@ -141,28 +156,158 @@ export interface ProcessedAlert {
 // =============================================================================
 
 /**
- * Convert position from array or object format to Position2D object
- * Handles both legacy [x, y] format and new {x, y, scale?} format
- * PositionWithScale from API is compatible with Position2D
+ * Convert a transport point into the frontend's canonical image plane. Array
+ * compatibility is intentionally omitted here because state messages do not
+ * carry a frame resolution from which an unscaled legacy point could be read.
  */
-function toPosition2D(pos: [number, number] | PositionWithScale | Position2D): Position2D {
-  if (Array.isArray(pos)) {
-    // Legacy array format [x, y] - no scale information
-    return { x: pos[0], y: pos[1] };
+function toPosition2D(pos: PositionWithScale | Position2D): Position2D {
+  const normalized = normalizeImagePointToCanonical(pos);
+  if (!normalized) {
+    throw new RangeError("Image point is missing finite coordinates or valid scale metadata");
   }
-  // New object format {x, y, scale?} - PositionWithScale or Position2D
-  return pos as Position2D;
+  return { ...normalized, scale: [1, 1] };
 }
 
-/**
- * Extract x, y coordinates from Position2D (ignoring scale metadata for now)
- */
-function getXY(pos: Position2D): {x: number, y: number} {
-  return { x: pos.x, y: pos.y };
+function physicalDimensions(
+  dimensions: unknown,
+): TableData["dimensions"] | undefined {
+  if (!dimensions || typeof dimensions !== "object") return undefined;
+  const value = dimensions as Record<string, unknown>;
+  if (
+    value.unit !== "meters" ||
+    typeof value.width !== "number" || !Number.isFinite(value.width) || value.width <= 0 ||
+    typeof value.height !== "number" || !Number.isFinite(value.height) || value.height <= 0
+  ) return undefined;
+  return { width: value.width, height: value.height, unit: "meters" };
+}
+
+function normalizeTableData(table: TableData): TableData {
+  const sourcePockets: Array<PositionWithScale | TablePocketData> = table.pockets?.length
+    ? table.pockets
+    : (table.pocket_positions ?? []).map((position) => ({
+      position,
+      radius: table.pocket_radius,
+      radius_scale: table.pocket_radius_scale,
+      radius_unit: table.pocket_radius_unit,
+    }));
+  const pockets = (sourcePockets ?? []).map((pocket) => {
+    if (pocket && typeof pocket === "object" && "position" in pocket) {
+      const position = toPosition2D(pocket.position);
+      const radiusUnit = pocket.radius_unit ?? table.pocket_radius_unit;
+      const supportsRadiusUnit = radiusUnit === undefined || radiusUnit === "canonical_pixels";
+      const radiusScale = pocket.radius_scale ?? (
+        radiusUnit === "canonical_pixels"
+          ? table.pocket_radius_scale ?? [1, 1]
+          : pocket.position.scale
+      );
+      const radius = pocket.radius === undefined || !supportsRadiusUnit
+        ? undefined
+        : normalizeImageExtentToCanonical(pocket.radius, radiusScale);
+      return {
+        ...pocket,
+        position,
+        radius: radius ? Math.sqrt(radius.x * radius.y) : undefined,
+        radius_unit: radius ? "canonical_pixels" as const : undefined,
+        radius_scale: radius ? [1, 1] as [number, number] : undefined,
+        radius_extent: radius ? { x: radius.x, y: radius.y, scale: [1, 1] as [1, 1] } : undefined,
+      };
+    }
+    return toPosition2D(pocket as PositionWithScale);
+  });
+  const corners = (table.playing_area_corners ?? table.corners ?? [])
+    .map((corner) => toPosition2D(corner));
+
+  const rails = table.rails?.map((rail) => {
+    if (Array.isArray(rail)) return rail.map((point) => toPosition2D(point as PositionWithScale));
+    const segment = rail as Record<string, unknown>;
+    if (segment.start && segment.end) {
+      return {
+        ...segment,
+        start: toPosition2D(segment.start as PositionWithScale),
+        end: toPosition2D(segment.end as PositionWithScale),
+      };
+    }
+    throw new RangeError("Table rail is missing scaled endpoints");
+  });
+
+  const pixelExtents = normalizeTablePixelExtentsToCanonical(table);
+  const dimensions = physicalDimensions(table.real_world_dimensions) ??
+    physicalDimensions(table.dimensions);
+  const pocketRadiusUnit = table.pocket_radius_unit;
+  const supportsPocketRadiusUnit =
+    pocketRadiusUnit === undefined || pocketRadiusUnit === "canonical_pixels";
+  const firstPocket = sourcePockets[0];
+  const firstPocketPosition = firstPocket && typeof firstPocket === "object" && "position" in firstPocket
+    ? firstPocket.position
+    : firstPocket as PositionWithScale | undefined;
+  const pocketRadiusScale = table.pocket_radius_scale ?? (
+    pocketRadiusUnit === "canonical_pixels"
+      ? [1, 1]
+      : firstPocketPosition?.scale
+  );
+  const pocketRadius = table.pocket_radius === undefined || !supportsPocketRadiusUnit
+    ? undefined
+    : normalizeImageExtentToCanonical(table.pocket_radius, pocketRadiusScale);
+
+  return {
+    ...table,
+    corners,
+    playing_area_corners: corners,
+    pockets,
+    rails,
+    width: pixelExtents.width,
+    width_scale: pixelExtents.width === undefined ? undefined : [1, 1],
+    height: pixelExtents.height,
+    height_scale: pixelExtents.height === undefined ? undefined : [1, 1],
+    dimensions_scale: pixelExtents.width === undefined && pixelExtents.height === undefined
+      ? undefined
+      : [1, 1],
+    dimensions_unit: pixelExtents.width === undefined && pixelExtents.height === undefined
+      ? undefined
+      : "canonical_pixels",
+    dimensions,
+    real_world_dimensions: dimensions,
+    pocket_radius: pocketRadius ? Math.sqrt(pocketRadius.x * pocketRadius.y) : undefined,
+    pocket_radius_scale: pocketRadius ? [1, 1] : undefined,
+    pocket_radius_unit: pocketRadius ? "canonical_pixels" : undefined,
+  };
+}
+
+function normalizeCueData(cue: CueData): CueData {
+  const primaryPosition = cue.tip_position ?? cue.position;
+  if (!primaryPosition) throw new RangeError("Cue is missing scaled image position");
+  const position = toPosition2D(primaryPosition);
+  const tip = cue.tip_position ? toPosition2D(cue.tip_position) : position;
+  const butt = cue.butt_position
+    ? toPosition2D(cue.butt_position)
+    : cue.position && cue.tip_position
+      ? toPosition2D(cue.position)
+      : undefined;
+  const angleRadians = cue.angle * Math.PI / 180;
+  const inputScale = cue.length_scale ?? primaryPosition.scale;
+  const normalizedLength = cue.length === undefined
+    ? undefined
+    : normalizeImageLengthToCanonical(cue.length, inputScale, angleRadians);
+  if (cue.length !== undefined && normalizedLength === null) {
+    throw new RangeError("Cue length is invalid or missing scale metadata");
+  }
+  const endpointLength = butt
+    ? Math.hypot(tip.x - butt.x, tip.y - butt.y)
+    : undefined;
+  const length = endpointLength ?? normalizedLength ?? undefined;
+
+  return {
+    ...cue,
+    position,
+    tip_position: tip,
+    butt_position: butt,
+    length,
+    length_scale: length === undefined ? undefined : [1, 1],
+  };
 }
 
 export class DataProcessingService {
-  private options: Required<DataProcessingOptions>;
+  private options: ResolvedDataProcessingOptions;
   private lastGameState: ProcessedGameState | null = null;
   private gameStateHistory: ProcessedGameState[] = [];
   private frameBuffer: Map<string, ProcessedFrameData> = new Map();
@@ -344,7 +489,7 @@ export class DataProcessingService {
     // Cleanup old frames
     if (this.frameBuffer.size > 10) {
       const oldestKey = this.frameBuffer.keys().next().value;
-      this.frameBuffer.delete(oldestKey);
+      if (oldestKey !== undefined) this.frameBuffer.delete(oldestKey);
     }
 
     // Notify handlers
@@ -424,13 +569,33 @@ export class DataProcessingService {
   ): ProcessedGameState {
     const previousState = this.lastGameState;
     const changesSinceLastFrame: string[] = [];
+    const normalizedTable = stateData.table
+      ? normalizeTableData(stateData.table)
+      : undefined;
+    const normalizedCue = stateData.cue
+      ? normalizeCueData(stateData.cue)
+      : undefined;
 
     // Process balls with smoothing and prediction
     const processedBalls = stateData.balls.map((ball) => {
+      if (ball.radius_unit !== undefined && ball.radius_unit !== "canonical_pixels") {
+        return null;
+      }
       const prevBall = previousState?.balls.find((b) => b.id === ball.id);
 
-      // Convert positions to Position2D format
+      // Convert all source pixel geometry once, before comparisons or derived
+      // velocities. Previous processed state is already canonical `[1, 1]`.
       const currentPos = toPosition2D(ball.position);
+      const velocity = ball.velocity
+        ? toPosition2D(ball.velocity)
+        : { x: 0, y: 0, scale: [1, 1] as [1, 1] };
+      const radiusScale = ball.radius_scale ?? (
+        ball.radius_unit === "canonical_pixels" ? [1, 1] : ball.position.scale
+      );
+      const radius = ball.radius_extent
+        ? normalizeImagePointToCanonical(ball.radius_extent)
+        : normalizeImageExtentToCanonical(ball.radius, radiusScale);
+      if (!radius) return null;
       let interpolatedPosition: Position2D | undefined;
       let predictedPosition: Position2D | undefined;
       let isMoving = false;
@@ -464,19 +629,23 @@ export class DataProcessingService {
           };
 
           // Predict future position
-          if (ball.velocity) {
-            const velocity = toPosition2D(ball.velocity);
-            predictedPosition = {
-              x: currentPos.x + velocity.x * 2, // 2 frames ahead
-              y: currentPos.y + velocity.y * 2,
-              scale: currentPos.scale, // Preserve scale metadata
-            };
-          }
+          predictedPosition = {
+            x: currentPos.x + velocity.x * 2, // 2 frames ahead
+            y: currentPos.y + velocity.y * 2,
+            scale: [1, 1],
+          };
         }
       }
 
       return {
         ...ball,
+        position: currentPos,
+        velocity,
+        radius: Math.sqrt(radius.x * radius.y),
+        radius_scale: [1, 1],
+        radius_extent: { x: radius.x, y: radius.y, scale: [1, 1] },
+        radiusX: radius.x,
+        radiusY: radius.y,
         interpolatedPosition,
         predictedPosition,
         movementDirection,
@@ -484,20 +653,20 @@ export class DataProcessingService {
         isMoving,
         hasPositionChanged,
       } as ProcessedBallData;
-    });
+    }).filter((ball): ball is ProcessedBallData => ball !== null);
 
     // Process cue data
     let processedCue: ProcessedCueData | undefined;
-    if (stateData.cue) {
+    if (normalizedCue) {
       processedCue = {
-        ...stateData.cue,
+        ...normalizedCue,
         // Add trajectory prediction logic here
         predictedTrajectory: this.calculateCueTrajectory(
-          stateData.cue,
-          stateData.table
+          normalizedCue,
+          normalizedTable
         ),
         aimingAccuracy: this.calculateAimingAccuracy(
-          stateData.cue,
+          normalizedCue,
           processedBalls
         ),
       };
@@ -505,11 +674,13 @@ export class DataProcessingService {
 
     // Process table data
     let processedTable: ProcessedTableData | undefined;
-    if (stateData.table) {
+    if (normalizedTable) {
+      const centerPoint = this.calculateTableCenter(normalizedTable);
+      const bounds = this.calculateTableBounds(normalizedTable);
       processedTable = {
-        ...stateData.table,
-        centerPoint: this.calculateTableCenter(stateData.table),
-        bounds: this.calculateTableBounds(stateData.table),
+        ...normalizedTable,
+        ...(centerPoint ? { centerPoint } : {}),
+        ...(bounds ? { bounds } : {}),
       };
     }
 
@@ -520,7 +691,7 @@ export class DataProcessingService {
         ? ballConfidences.reduce((a, b) => a + b, 0) / ballConfidences.length
         : 0;
 
-    const cueConfidence = stateData.cue?.confidence || 1;
+    const cueConfidence = normalizedCue?.confidence || 1;
     const overallConfidence = (avgBallConfidence + cueConfidence) / 2;
 
     return {
@@ -544,13 +715,15 @@ export class DataProcessingService {
     const points: Position2D[] = [];
     const angleRad = (cue.angle * Math.PI) / 180;
     const distance = cue.length || 100;
-    const cuePos = toPosition2D(cue.position);
+    const anchor = cue.tip_position ?? cue.position;
+    if (!anchor) throw new RangeError("Cue trajectory requires a scaled anchor point");
+    const cuePos = toPosition2D(anchor);
 
     for (let i = 0; i <= 10; i++) {
       const factor = (i / 10) * distance;
       const x = cuePos.x + Math.cos(angleRad) * factor;
       const y = cuePos.y + Math.sin(angleRad) * factor;
-      points.push({ x, y, scale: cuePos.scale });
+      points.push({ x, y, scale: [1, 1] });
     }
 
     return points;
@@ -568,7 +741,9 @@ export class DataProcessingService {
     // Calculate if cue is aimed at any ball
     const angleRad = (cue.angle * Math.PI) / 180;
     const aimDirection = { x: Math.cos(angleRad), y: Math.sin(angleRad) };
-    const cuePos = toPosition2D(cue.position);
+    const anchor = cue.tip_position ?? cue.position;
+    if (!anchor) throw new RangeError("Aiming accuracy requires a scaled cue point");
+    const cuePos = toPosition2D(anchor);
 
     let bestAccuracy = 0;
     balls.forEach((ball) => {
@@ -580,6 +755,7 @@ export class DataProcessingService {
         y: ballPos.y - cuePos.y,
       };
       const distance = Math.sqrt(toBall.x * toBall.x + toBall.y * toBall.y);
+      if (distance === 0) return;
       const normalized = { x: toBall.x / distance, y: toBall.y / distance };
 
       const dotProduct =
@@ -594,15 +770,14 @@ export class DataProcessingService {
     return bestAccuracy;
   }
 
-  private calculateTableCenter(table: TableData): Position2D {
+  private calculateTableCenter(table: TableData): Position2D | undefined {
     // Convert corners to Position2D and calculate center
-    const corners = table.corners.map(toPosition2D);
+    const corners = (table.playing_area_corners ?? table.corners ?? []).map(toPosition2D);
+    if (corners.length < 4) return undefined;
     const avgX = corners.reduce((sum, corner) => sum + corner.x, 0) / corners.length;
     const avgY = corners.reduce((sum, corner) => sum + corner.y, 0) / corners.length;
 
-    // Use scale from first corner if available
-    const scale = corners[0]?.scale;
-    return { x: avgX, y: avgY, scale };
+    return { x: avgX, y: avgY, scale: [1, 1] };
   }
 
   private calculateTableBounds(table: TableData): {
@@ -610,9 +785,10 @@ export class DataProcessingService {
     maxX: number;
     minY: number;
     maxY: number;
-  } {
+  } | undefined {
     // Convert corners to Position2D and calculate bounds
-    const corners = table.corners.map(toPosition2D);
+    const corners = (table.playing_area_corners ?? table.corners ?? []).map(toPosition2D);
+    if (corners.length < 4) return undefined;
     const xs = corners.map((corner) => corner.x);
     const ys = corners.map((corner) => corner.y);
 
@@ -665,7 +841,7 @@ export class DataProcessingService {
     // Process collision predictions with Position2D format
     const collisionPredictions = trajectoryData.collisions.map((collision) => ({
       position: toPosition2D(collision.position),
-      ballId: collision.ball_id || '',
+      ballId: collision.ball2_id || '',
       probability: Math.min(1, collision.angle / 90), // Simplified probability
       timeToCollision: collision.time_to_collision || 0,
     }));

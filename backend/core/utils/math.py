@@ -10,7 +10,7 @@ proper coordinate space tracking. See constants_4k.py for canonical dimensions.
 import math
 from typing import Callable, Optional
 
-from config import Config, config
+from backend.config import Config, config
 
 from ..coordinates import Vector2D
 

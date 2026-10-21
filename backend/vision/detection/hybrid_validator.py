@@ -16,7 +16,7 @@ Implements requirements:
 import logging
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TypedDict, cast
 
 import cv2
 import numpy as np
@@ -27,6 +27,16 @@ from backend.common.models import Ball
 from ..models import BallType
 
 logger = logging.getLogger(__name__)
+
+
+class RefinementStats(TypedDict):
+    """Counters and rolling accuracy for ball-position refinement."""
+
+    total_refinements: int
+    successful_refinements: int
+    failed_refinements: int
+    fallback_to_yolo: int
+    avg_refinement_distance: float
 
 
 @dataclass
@@ -104,7 +114,7 @@ class BallPositionRefiner:
         self.min_confidence_for_refinement = min_confidence_for_refinement
 
         # Statistics tracking
-        self.stats = {
+        self.stats: RefinementStats = {
             "total_refinements": 0,
             "successful_refinements": 0,
             "failed_refinements": 0,
@@ -140,6 +150,12 @@ class BallPositionRefiner:
             return yolo_ball
 
         try:
+            frame_geometry = self._ball_geometry_in_frame(yolo_ball, frame)
+            if frame_geometry is None:
+                self.stats["failed_refinements"] += 1
+                return yolo_ball
+            frame_position, frame_radius = frame_geometry
+
             # Extract ROI around YOLO detection
             roi, roi_offset = self._extract_roi(yolo_ball, frame)
             if roi is None or roi.size == 0:
@@ -152,14 +168,14 @@ class BallPositionRefiner:
 
             # Attempt Hough circle detection for precise center
             refined_center, refined_radius = self._detect_precise_circle(
-                preprocessed, yolo_ball.radius
+                preprocessed, frame_radius
             )
 
             if refined_center is None:
                 logger.debug("Hough circle detection failed, trying edge-based method")
                 # Fallback to edge-based center detection
                 refined_center, refined_radius = self._detect_center_from_edges(
-                    preprocessed, yolo_ball.radius
+                    preprocessed, frame_radius
                 )
 
             if refined_center is None:
@@ -173,8 +189,8 @@ class BallPositionRefiner:
 
             # Validate refined position is not too far from YOLO detection
             distance = math.sqrt(
-                (refined_x - yolo_ball.position[0]) ** 2
-                + (refined_y - yolo_ball.position[1]) ** 2
+                (refined_x - frame_position[0]) ** 2
+                + (refined_y - frame_position[1]) ** 2
             )
 
             if distance > self.max_refinement_distance:
@@ -193,11 +209,30 @@ class BallPositionRefiner:
                 refined_x, refined_y = subpix_center
 
             # Create refined ball with updated position
+            refined_radius = (
+                refined_radius if refined_radius is not None else frame_radius
+            )
+            frame_resolution = (int(frame.shape[1]), int(frame.shape[0]))
+            if yolo_ball.coordinate_space == "4k_canonical":
+                from ...core.resolution_converter import ResolutionConverter
+
+                position = ResolutionConverter.scale_to_4k(
+                    refined_x, refined_y, frame_resolution
+                )
+                radius = ResolutionConverter.scale_distance_to_4k(
+                    refined_radius, frame_resolution
+                )
+                source_resolution = frame_resolution
+            else:
+                source_resolution = yolo_ball.source_resolution or frame_resolution
+                scale_x = source_resolution[0] / float(frame_resolution[0])
+                scale_y = source_resolution[1] / float(frame_resolution[1])
+                position = (refined_x * scale_x, refined_y * scale_y)
+                radius = refined_radius * scale_x
+
             refined_ball = Ball(
-                position=(refined_x, refined_y),
-                radius=(
-                    refined_radius if refined_radius is not None else yolo_ball.radius
-                ),
+                position=position,
+                radius=radius,
                 ball_type=yolo_ball.ball_type,
                 number=yolo_ball.number,
                 confidence=yolo_ball.confidence,
@@ -212,6 +247,8 @@ class BallPositionRefiner:
                 occlusion_state=yolo_ball.occlusion_state,
                 predicted_position=yolo_ball.predicted_position,
                 position_history=yolo_ball.position_history.copy(),
+                coordinate_space=yolo_ball.coordinate_space,
+                source_resolution=source_resolution,
             )
 
             # Update statistics
@@ -247,8 +284,11 @@ class BallPositionRefiner:
             Tuple of (ROI image, (x_offset, y_offset)) or (None, (0, 0)) if extraction fails
         """
         # Calculate ROI bounds with margin (2x radius for good context)
-        margin = int(ball.radius * 2)
-        x, y = ball.position
+        geometry = self._ball_geometry_in_frame(ball, frame)
+        if geometry is None:
+            return None, (0, 0)
+        (x, y), radius = geometry
+        margin = int(radius * 2)
         x1 = max(0, int(x - margin))
         y1 = max(0, int(y - margin))
         x2 = min(frame.shape[1], int(x + margin))
@@ -266,6 +306,42 @@ class BallPositionRefiner:
             return None, (0, 0)
 
         return roi, (x1, y1)
+
+    @staticmethod
+    def _ball_geometry_in_frame(
+        ball: Ball, frame: NDArray[np.uint8]
+    ) -> Optional[tuple[tuple[float, float], float]]:
+        """Express ball position and radius in the refinement frame's pixels.
+
+        YOLO adapters return canonical geometry while OpenCV works in the
+        detector input image. Pixel detections may also originate from a
+        resized view, so convert them from their recorded source resolution.
+        """
+        from ...core.resolution_converter import ResolutionConverter
+
+        frame_resolution = (int(frame.shape[1]), int(frame.shape[0]))
+        if min(frame_resolution) <= 0:
+            return None
+        if ball.coordinate_space == "4k_canonical":
+            return (
+                ResolutionConverter.scale_from_4k(
+                    ball.position[0], ball.position[1], frame_resolution
+                ),
+                ResolutionConverter.scale_distance_from_4k(
+                    ball.radius, frame_resolution
+                ),
+            )
+        if ball.coordinate_space == "pixel":
+            source_resolution = ball.source_resolution or frame_resolution
+            if min(source_resolution) <= 0:
+                return None
+            scale_x = frame_resolution[0] / float(source_resolution[0])
+            scale_y = frame_resolution[1] / float(source_resolution[1])
+            return (
+                (ball.position[0] * scale_x, ball.position[1] * scale_y),
+                ball.radius * scale_x,
+            )
+        return None
 
     def _preprocess_roi(self, roi: NDArray[np.uint8]) -> NDArray[np.uint8]:
         """Preprocess ROI to enhance circle detection.
@@ -290,7 +366,7 @@ class BallPositionRefiner:
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(filtered)
 
-        return enhanced
+        return cast("NDArray[np.uint8]", enhanced)
 
     def _detect_precise_circle(
         self, preprocessed: NDArray[np.uint8], expected_radius: float
@@ -443,13 +519,13 @@ class BallPositionRefiner:
             logger.debug(f"Sub-pixel refinement failed: {e}")
             return None
 
-    def get_statistics(self) -> dict:
+    def get_statistics(self) -> dict[str, float | int]:
         """Get refinement statistics.
 
         Returns:
             Dictionary of refinement statistics
         """
-        stats = self.stats.copy()
+        stats = cast("dict[str, float | int]", self.stats.copy())
 
         # Calculate success rate
         if stats["total_refinements"] > 0:
@@ -737,14 +813,14 @@ def _extract_number_features(
             return None, 0.0
 
         # Filter contours
-        number_contours = []
+        number_contours: list[NDArray[np.int32]] = []
         for contour in contours:
             area = cv2.contourArea(contour)
             if 50 < area < 500:
                 x, y, w, h = cv2.boundingRect(contour)
                 aspect_ratio = float(w) / h if h > 0 else 0.0
                 if 0.3 < aspect_ratio < 2.0:
-                    number_contours.append(contour)
+                    number_contours.append(np.asarray(contour, dtype=np.int32))
 
         if not number_contours:
             return None, 0.0
@@ -782,11 +858,11 @@ def _preprocess_for_number_recognition(
         blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
     )
 
-    return binary
+    return cast("NDArray[np.uint8]", binary)
 
 
 def _analyze_contour_for_number(
-    contour: NDArray[np.float64], ball_type: BallType
+    contour: NDArray[np.int32], ball_type: BallType
 ) -> Optional[int]:
     """Analyze contour shape to infer ball number using heuristics."""
     area = cv2.contourArea(contour)
@@ -803,7 +879,7 @@ def _analyze_contour_for_number(
     aspect_ratio = float(w) / h if h > 0 else 0
 
     # Heuristic classification (same as balls.py)
-    if ball_type == BallType.SOLID:
+    if ball_type.is_solid:
         if compactness > 0.7:
             return 6
         elif aspect_ratio < 0.5:
@@ -812,7 +888,7 @@ def _analyze_contour_for_number(
             return 4
         else:
             return 2
-    elif ball_type == BallType.STRIPE:
+    elif ball_type.is_stripe:
         if compactness > 0.7:
             return 9
         elif aspect_ratio < 0.5:

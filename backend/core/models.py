@@ -38,13 +38,38 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional, Union
 
-# Import Vector2D from coordinates module
-try:
-    # Try absolute import first (for when used as package)
-    from backend.core.coordinates import Vector2D
-except ImportError:
-    # Fall back to relative import (for direct module usage)
-    from .coordinates import Vector2D
+from .constants_4k import (
+    BALL_MASS_KG,
+    BALL_RADIUS_4K,
+    CUSHION_HEIGHT_METERS,
+    POCKET_RADIUS_4K,
+    STANDARD_CUE_LENGTH_METERS,
+    STANDARD_CUE_TIP_RADIUS_METERS,
+)
+
+# Import Vector2D from the canonical package path.
+from .coordinates import Vector2D
+
+
+def _finite_number(value: Any, description: str) -> float:
+    """Return a finite numeric field, rejecting strings and booleans."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{description} must be a finite number")
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        raise ValueError(f"{description} must be a finite number")
+    return numeric_value
+
+
+def _positive_scale_pair(value: Any, description: str) -> tuple[float, float]:
+    """Validate scale metadata shared by extents, radii, and bounds."""
+    if not isinstance(value, (tuple, list)) or len(value) != 2:
+        raise ValueError(f"{description} must contain two scale factors")
+    scale_x = _finite_number(value[0], description)
+    scale_y = _finite_number(value[1], description)
+    if scale_x <= 0 or scale_y <= 0:
+        raise ValueError(f"{description} factors must be positive")
+    return scale_x, scale_y
 
 
 class ShotType(Enum):
@@ -90,29 +115,45 @@ class BallState:
     id: str
     position: Vector2D
     velocity: Vector2D = field(default_factory=Vector2D.zero)
-    radius: float = (
-        36.0  # Ball radius in 4K pixels (BALL_RADIUS_4K = 36 pixels, 72px diameter)
-    )
-    mass: float = 0.17  # kg, standard pool ball mass (physical property, not spatial)
-    spin: Vector2D = field(default_factory=Vector2D.zero)  # Top/back/side spin
+    radius: float = BALL_RADIUS_4K  # Canonical 4K pixels
+    mass: float = BALL_MASS_KG  # kg, physical property, not spatial
+    spin: Optional[Vector2D] = field(
+        default_factory=Vector2D.zero
+    )  # Top/back/side spin
     is_cue_ball: bool = False
     is_pocketed: bool = False
     number: Optional[int] = None
     confidence: float = 1.0  # Detection confidence [0.0-1.0]
+    # False when the position came from a tracker prediction without a match
+    # in the latest observation. Older payloads default to observed.
+    is_observed: bool = True
     last_update: float = field(default_factory=lambda: datetime.now().timestamp())
+    radius_scale: tuple[float, float] = (1.0, 1.0)
 
     def __post_init__(self) -> None:
         """Validate ball state after initialization."""
-        if self.radius <= 0:
+        # Physics stores every spatial quantity in canonical 4K pixels. Keep the
+        # scale-aware source representation on Vector2D at external boundaries,
+        # then normalize here before a BallState can enter mutable game state.
+        self.position = self.position.to_4k_canonical()
+        # Keep malformed input representable long enough for StateValidator to
+        # diagnose or correct a missing velocity. Valid
+        # velocities are normalized before physics consumes the state.
+        if self.velocity is not None:
+            self.velocity = self.velocity.to_4k_canonical()
+        radius_scale = _positive_scale_pair(self.radius_scale, "Ball radius scale")
+        if not math.isclose(radius_scale[0], radius_scale[1], rel_tol=1e-6):
+            raise ValueError("Circular ball radius cannot use anisotropic scaling")
+        self.radius = _finite_number(self.radius, "Ball radius") * radius_scale[0]
+        self.radius_scale = (1.0, 1.0)
+        if not math.isfinite(self.radius) or self.radius <= 0:
             raise ValueError("Ball radius must be positive")
+        self.mass = _finite_number(self.mass, "Ball mass")
         if self.mass <= 0:
             raise ValueError("Ball mass must be positive")
+        self.confidence = _finite_number(self.confidence, "Ball confidence")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Confidence must be between 0.0 and 1.0")
-        # Handle legacy last_seen field from older serialized data
-        # Check in __dict__ to avoid AttributeError
-        if "last_seen" in self.__dict__ and self.__dict__["last_seen"] is not None:
-            self.last_update = self.__dict__["last_seen"]
 
     def kinetic_energy(self) -> float:
         """Calculate the kinetic energy of the ball."""
@@ -133,10 +174,7 @@ class BallState:
 
     def distance_to(self, other: "BallState") -> float:
         """Calculate distance to another ball's center."""
-        # Simple approach - always use raw distance calculation to avoid type issues
-        dx = self.position.x - other.position.x
-        dy = self.position.y - other.position.y
-        return (dx * dx + dy * dy) ** 0.5
+        return self.position.distance_to(other.position)
 
     def is_touching(self, other: "BallState", tolerance: float = 0.001) -> bool:
         """Check if this ball is touching another ball."""
@@ -163,10 +201,14 @@ class BallState:
         )
 
         # Copy spin preserving scale metadata
-        spin = Vector2D(
-            self.spin.x,
-            self.spin.y,
-            scale=self.spin.scale,
+        spin = (
+            Vector2D(
+                self.spin.x,
+                self.spin.y,
+                scale=self.spin.scale,
+            )
+            if self.spin is not None
+            else None
         )
 
         return BallState(
@@ -180,6 +222,7 @@ class BallState:
             is_pocketed=self.is_pocketed,
             number=self.number,
             confidence=self.confidence,
+            is_observed=self.is_observed,
             last_update=self.last_update,
         )
 
@@ -193,12 +236,16 @@ class BallState:
             "position": self.position.to_dict(),
             "velocity": self.velocity.to_dict(),
             "radius": self.radius,
+            "radius_scale": list(self.radius_scale),
+            "radius_unit": "canonical_pixels",
             "mass": self.mass,
+            "mass_unit": "kg",
             "spin": self.spin.to_dict() if self.spin is not None else None,
             "is_cue_ball": self.is_cue_ball,
             "is_pocketed": self.is_pocketed,
             "number": self.number,
             "confidence": self.confidence,
+            "is_observed": self.is_observed,
             "last_update": self.last_update,
         }
 
@@ -208,34 +255,56 @@ class BallState:
 
         Automatically deserializes Vector2D with coordinate metadata when present.
         """
-        # Parse position (Vector2D.from_dict handles metadata automatically)
+        if "last_seen" in data:
+            raise ValueError("Ball timestamps must use last_update")
+        # Parse source geometry with its required scale, then let BallState
+        # normalize all spatial values to canonical 4K coordinates.
         position = Vector2D.from_dict(data["position"])
 
-        # Parse velocity
-        velocity_data = data.get("velocity", {"x": 0, "y": 0})
-        velocity = Vector2D.from_dict(velocity_data)
+        # A serialized physical state is complete: callers that need a zero
+        # velocity should serialize it explicitly instead of relying on a
+        # schema-era default.
+        velocity = Vector2D.from_dict(data["velocity"])
 
         # Parse spin
-        spin_data = data.get("spin", {"x": 0, "y": 0})
-        spin = Vector2D.from_dict(spin_data)
+        spin_data = data.get("spin")
+        spin = (
+            Vector2D.from_dict(spin_data)
+            if spin_data is not None
+            else Vector2D.from_4k(0, 0)
+        )
+
+        if data.get("mass_unit") != "kg":
+            raise ValueError("Ball mass must use kg")
+        if "radius_scale" not in data:
+            raise ValueError("Ball radius scale metadata is required")
+        if data.get("radius_unit") != "canonical_pixels":
+            raise ValueError("Ball radius must use canonical_pixels")
 
         return cls(
             id=data["id"],
             position=position,
             velocity=velocity,
-            radius=data.get("radius", 36.0),  # Default to 4K pixels (BALL_RADIUS_4K)
-            mass=data.get("mass", 0.17),
+            radius=data["radius"],
+            mass=data["mass"],
             spin=spin,
             is_cue_ball=data.get("is_cue_ball", False),
             is_pocketed=data.get("is_pocketed", False),
             number=data.get("number"),
             confidence=data.get("confidence", 1.0),
-            last_update=data.get("last_update", datetime.now().timestamp()),
+            is_observed=data.get("is_observed", True),
+            last_update=data["last_update"],
+            radius_scale=data["radius_scale"],
         )
 
     @classmethod
     def from_4k(
-        cls, id: str, x: float, y: float, number: Optional[int] = None, **kwargs
+        cls,
+        id: str,
+        x: float,
+        y: float,
+        number: Optional[int] = None,
+        **kwargs: Any,
     ) -> "BallState":
         """Create ball from 4K canonical coordinates.
 
@@ -261,7 +330,7 @@ class BallState:
         y: float,
         resolution: tuple[int, int],
         number: Optional[int] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> "BallState":
         """Create ball from any resolution coordinates.
 
@@ -278,6 +347,12 @@ class BallState:
         """
         position = Vector2D.from_resolution(x, y, resolution)
         velocity = kwargs.pop("velocity", Vector2D.from_4k(0, 0))
+        if "radius" in kwargs and "radius_scale" not in kwargs:
+            from .resolution_converter import ResolutionConverter
+
+            kwargs["radius_scale"] = ResolutionConverter.calculate_scale_to_4k(
+                resolution
+            )
         return cls(id=id, position=position, velocity=velocity, number=number, **kwargs)
 
 
@@ -290,57 +365,91 @@ class TableState:
     ball physics.
     """
 
-    width: float  # 4K pixels (3200) or legacy meters (2.54)
-    height: float  # 4K pixels (1600) or legacy meters (1.27)
+    width: float  # Canonical 4K pixel extent along the table's X axis
+    height: float  # Canonical 4K pixel extent along the table's Y axis
     pocket_positions: list[Vector2D]
-    pocket_radius: float = (
-        0.0635  # Standard pocket radius in meters (legacy) or pixels (4K)
-    )
+    pocket_radius: float = POCKET_RADIUS_4K  # Canonical 4K pixels
     cushion_elasticity: float = 0.85  # Coefficient of restitution
     surface_friction: float = 0.2  # Rolling friction coefficient
     surface_slope: float = 0.0  # Surface slope in degrees
-    cushion_height: float = (
-        0.064  # Height of cushions in meters (converted from rail_height)
-    )
+    cushion_height: float = CUSHION_HEIGHT_METERS
     playing_area_corners: Optional[list[Vector2D]] = (
         None  # Calibrated playing area corners (top-left, top-right, bottom-right, bottom-left)
     )
+    dimensions_scale: tuple[float, float] = (1.0, 1.0)
+    pocket_radius_scale: tuple[float, float] = (1.0, 1.0)
+    real_width_meters: Optional[float] = None
+    real_height_meters: Optional[float] = None
 
     def __post_init__(self) -> None:
-        """Validate table state after initialization and handle legacy fields."""
-        # Convert legacy mm measurements to meters if needed
-        # NEW LOGIC: Don't convert 4K pixel values
-        # 4K table dimensions are 3200×1600 (pixels)
-        # Legacy meter values are 2.54×1.27 (< 10)
-        # Legacy mm values are 2540×1270 (100-3000 range)
-        # If EITHER dimension is >= 3000, assume we're in 4K pixel space (don't convert)
-        # Otherwise, if in mm range (100-3000), convert to meters
-        is_4k_pixels = self.width >= 3000 or self.height >= 1500
+        """Normalize pixel geometry and validate physical measurements.
 
-        if not is_4k_pixels:
-            if 100 <= self.width < 3000:  # mm range
-                self.width = self.width / 1000.0
-            if 100 <= self.height < 3000:  # mm range
-                self.height = self.height / 1000.0
+        Width, height, pocket radius, and all point geometry are pixel values.
+        Real-world table dimensions and cushion height remain explicit SI values;
+        no magnitude-based unit guessing is performed.
+        """
+        dimensions_scale = _positive_scale_pair(
+            self.dimensions_scale, "Table dimensions scale"
+        )
+        self.width = _finite_number(self.width, "Table width") * dimensions_scale[0]
+        self.height = _finite_number(self.height, "Table height") * dimensions_scale[1]
+        self.dimensions_scale = (1.0, 1.0)
 
-        # Handle legacy rail_height field from older serialized data
-        # Check in __dict__ to avoid AttributeError
-        if "rail_height" in self.__dict__ and self.__dict__["rail_height"] > 0:
-            rail_height_value = self.__dict__["rail_height"]
-            self.cushion_height = (
-                rail_height_value / 1000.0
-                if rail_height_value > 1
-                else rail_height_value
-            )
+        radius_scale = _positive_scale_pair(
+            self.pocket_radius_scale, "Pocket radius scale"
+        )
+        if not math.isclose(radius_scale[0], radius_scale[1], rel_tol=1e-6):
+            raise ValueError("Circular pocket radius cannot use anisotropic scaling")
+        self.pocket_radius = (
+            _finite_number(self.pocket_radius, "Pocket radius") * radius_scale[0]
+        )
+        self.pocket_radius_scale = (1.0, 1.0)
 
+        if not math.isfinite(self.width) or not math.isfinite(self.height):
+            raise ValueError("Table dimensions must be finite")
         if self.width <= 0 or self.height <= 0:
             raise ValueError("Table dimensions must be positive")
         if self.pocket_radius <= 0:
             raise ValueError("Pocket radius must be positive")
+        if self.real_width_meters is not None:
+            self.real_width_meters = _finite_number(
+                self.real_width_meters, "Real table width in meters"
+            )
+            if self.real_width_meters <= 0:
+                raise ValueError("Real table width must be positive meters")
+        if self.real_height_meters is not None:
+            self.real_height_meters = _finite_number(
+                self.real_height_meters, "Real table height in meters"
+            )
+            if self.real_height_meters <= 0:
+                raise ValueError("Real table height must be positive meters")
+        if (self.real_width_meters is None) != (self.real_height_meters is None):
+            raise ValueError("Both real table dimensions must be provided together")
+        self.pocket_positions = [
+            point.to_4k_canonical() for point in self.pocket_positions
+        ]
+        if self.playing_area_corners is not None:
+            if len(self.playing_area_corners) != 4:
+                raise ValueError("Playing area must have exactly four corners")
+            self.playing_area_corners = [
+                point.to_4k_canonical() for point in self.playing_area_corners
+            ]
+        self.cushion_elasticity = _finite_number(
+            self.cushion_elasticity, "Cushion elasticity"
+        )
         if not 0.0 <= self.cushion_elasticity <= 1.0:
             raise ValueError("Cushion elasticity must be between 0.0 and 1.0")
+        self.surface_friction = _finite_number(
+            self.surface_friction, "Surface friction"
+        )
         if self.surface_friction < 0:
             raise ValueError("Surface friction must be non-negative")
+        self.surface_slope = _finite_number(self.surface_slope, "Surface slope")
+        self.cushion_height = _finite_number(
+            self.cushion_height, "Cushion height in meters"
+        )
+        if self.cushion_height <= 0:
+            raise ValueError("Cushion height must be positive meters")
         if len(self.pocket_positions) != 6:
             raise ValueError("Table must have exactly 6 pockets")
 
@@ -348,18 +457,17 @@ class TableState:
         self, point: Vector2D, tolerance: float = 0.0
     ) -> tuple[bool, Optional[int]]:
         """Check if a point is in any pocket and return pocket index if found."""
+        canonical_point = point.to_4k_canonical()
         effective_radius = self.pocket_radius + tolerance
         for i, pocket_pos in enumerate(self.pocket_positions):
-            # Calculate distance manually
-            dx = point.x - pocket_pos.x
-            dy = point.y - pocket_pos.y
-            distance = (dx * dx + dy * dy) ** 0.5
+            distance = canonical_point.distance_to(pocket_pos)
             if distance <= effective_radius:
                 return True, i
         return False, None
 
     def is_point_on_table(self, point: Vector2D, ball_radius: float = 0.0) -> bool:
         """Check if a point (with optional ball radius) is within table bounds."""
+        point = point.to_4k_canonical()
         # Use playing area if available, otherwise fall back to rectangle bounds
         if self.playing_area_corners and len(self.playing_area_corners) == 4:
             return self.is_point_in_playing_area(point, ball_radius)
@@ -373,49 +481,47 @@ class TableState:
     def is_point_in_playing_area(self, point: Vector2D, margin: float = 0.0) -> bool:
         """Check if a point is within the calibrated playing area using polygon containment.
 
-        Uses ray casting algorithm to determine if point is inside the playing area polygon.
+        ``margin`` is a canonical-pixel distance from every playing-area edge. For
+        a ball center, passing its canonical radius checks that the entire ball
+        remains inside the convex calibrated polygon.
         """
+        point = point.to_4k_canonical()
+        margin = _finite_number(margin, "Playing-area margin")
+        if margin < 0:
+            raise ValueError("Playing-area margin must be non-negative")
         if not self.playing_area_corners or len(self.playing_area_corners) != 4:
-            # Fall back to rectangle check
+            # Dimensions and margin are both canonical pixels here.
             return (
                 margin <= point.x <= self.width - margin
                 and margin <= point.y <= self.height - margin
             )
 
-        # Apply margin by shrinking the polygon slightly
-        corners = self.playing_area_corners
-        if margin > 0:
-            # Calculate centroid
-            cx = sum(c.x for c in corners) / 4
-            cy = sum(c.y for c in corners) / 4
-            # Shrink each corner towards centroid
-            corners = [
-                Vector2D(
-                    c.x
-                    + (cx - c.x)
-                    * (margin / c.distance_to(Vector2D(cx, cy, scale=c.scale))),
-                    c.y
-                    + (cy - c.y)
-                    * (margin / c.distance_to(Vector2D(cx, cy, scale=c.scale))),
-                    scale=c.scale,
-                )
-                for c in corners
-            ]
+        corners = [corner.to_4k_canonical() for corner in self.playing_area_corners]
+        signed_area_twice = sum(
+            corners[index].x * corners[(index + 1) % len(corners)].y
+            - corners[(index + 1) % len(corners)].x * corners[index].y
+            for index in range(len(corners))
+        )
+        if signed_area_twice == 0:
+            return False
+        orientation = 1.0 if signed_area_twice > 0 else -1.0
 
-        # Ray casting algorithm
-        inside = False
-        j = len(corners) - 1
-        for i in range(len(corners)):
-            if ((corners[i].y > point.y) != (corners[j].y > point.y)) and (
-                point.x
-                < (corners[j].x - corners[i].x)
-                * (point.y - corners[i].y)
-                / (corners[j].y - corners[i].y)
-                + corners[i].x
-            ):
-                inside = not inside
-            j = i
-        return inside
+        # The calibrated playing area is a convex quadrilateral. Signed
+        # perpendicular distance to each edge gives a true inward margin,
+        # unlike shrinking vertices toward a centroid (which is not a fixed
+        # pixel distance and fails for skewed or rotated rectangles).
+        for index, start in enumerate(corners):
+            end = corners[(index + 1) % len(corners)]
+            edge_x = end.x - start.x
+            edge_y = end.y - start.y
+            edge_length = math.hypot(edge_x, edge_y)
+            if edge_length == 0:
+                return False
+            cross = edge_x * (point.y - start.y) - edge_y * (point.x - start.x)
+            inward_distance = orientation * cross / edge_length
+            if inward_distance < margin:
+                return False
+        return True
 
     def get_closest_cushion(self, point: Vector2D) -> tuple[str, float, Vector2D]:
         """Get the closest cushion to a point.
@@ -424,11 +530,22 @@ class TableState:
             Tuple of (cushion_name, distance, normal_vector)
         """
         # Calculate distances to each cushion
+        point = point.to_4k_canonical()
+        if self.playing_area_corners:
+            canonical_corners = [
+                corner.to_4k_canonical() for corner in self.playing_area_corners
+            ]
+            x_values = [corner.x for corner in canonical_corners]
+            y_values = [corner.y for corner in canonical_corners]
+            left, right = min(x_values), max(x_values)
+            top, bottom = min(y_values), max(y_values)
+        else:
+            left, top, right, bottom = 0.0, 0.0, self.width, self.height
         distances = {
-            "top": self.height - point.y,
-            "bottom": point.y,
-            "left": point.x,
-            "right": self.width - point.x,
+            "top": point.y - top,
+            "bottom": bottom - point.y,
+            "left": point.x - left,
+            "right": right - point.x,
         }
 
         # Find closest cushion
@@ -448,7 +565,7 @@ class TableState:
     def scale_playing_area_corners(
         self, from_width: float, from_height: float, to_width: float, to_height: float
     ) -> None:
-        """Scale playing area corners from one resolution to another.
+        """Re-express playing-area corners at another image resolution.
 
         Args:
             from_width: Source resolution width
@@ -458,12 +575,13 @@ class TableState:
         """
         if not self.playing_area_corners or len(self.playing_area_corners) != 4:
             return
-
-        scale_x = to_width / from_width
-        scale_y = to_height / from_height
-
+        dimensions = (from_width, from_height, to_width, to_height)
+        if not all(math.isfinite(value) and value > 0 for value in dimensions):
+            raise ValueError("Source and target dimensions must be positive")
+        if any(not float(value).is_integer() for value in (to_width, to_height)):
+            raise ValueError("Target resolution dimensions must be whole pixels")
         self.playing_area_corners = [
-            Vector2D(corner.x * scale_x, corner.y * scale_y, scale=corner.scale)
+            corner.to_4k_canonical().to_resolution((int(to_width), int(to_height)))
             for corner in self.playing_area_corners
         ]
 
@@ -472,12 +590,27 @@ class TableState:
         return {
             "width": self.width,
             "height": self.height,
+            "dimensions_scale": list(self.dimensions_scale),
+            "dimensions_unit": "canonical_pixels",
             "pocket_positions": [p.to_dict() for p in self.pocket_positions],
             "pocket_radius": self.pocket_radius,
+            "pocket_radius_scale": list(self.pocket_radius_scale),
+            "pocket_radius_unit": "canonical_pixels",
+            "real_world_dimensions": (
+                {
+                    "width": self.real_width_meters,
+                    "height": self.real_height_meters,
+                    "unit": "meters",
+                }
+                if self.real_width_meters is not None
+                and self.real_height_meters is not None
+                else None
+            ),
             "cushion_elasticity": self.cushion_elasticity,
             "surface_friction": self.surface_friction,
             "surface_slope": self.surface_slope,
             "cushion_height": self.cushion_height,
+            "cushion_height_unit": "meters",
             "playing_area_corners": (
                 [p.to_dict() for p in self.playing_area_corners]
                 if self.playing_area_corners
@@ -487,20 +620,150 @@ class TableState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "TableState":
-        """Create from dictionary."""
+        """Create from a scale-aware table dictionary.
+
+        Point geometry and pixel extents must carry scale metadata or an
+        explicit pixel source resolution. The only accepted coordinate spaces
+        are the canonical 4K plane and source pixels.
+        """
+        deprecated_fields = {
+            "rail_height",
+            "real_width_meters",
+            "real_height_meters",
+        }.intersection(data)
+        if deprecated_fields:
+            names = ", ".join(sorted(deprecated_fields))
+            raise ValueError(f"Unsupported legacy table fields: {names}")
         playing_area = data.get("playing_area_corners")
+        width_scale = data.get("width_scale")
+        height_scale = data.get("height_scale")
+        raw_dimensions_scale = data.get("dimensions_scale")
+        dimensions_scale: tuple[float, float]
+        dimensions_unit = data.get("dimensions_unit")
+        if dimensions_unit not in {None, "canonical_pixels", "pixels"}:
+            raise ValueError("Table dimensions must use pixel units")
+        source_resolution = data.get("source_resolution")
+        coordinate_space = data.get("coordinate_space")
+        if source_resolution is not None:
+            from .resolution_converter import ResolutionConverter
+
+            source_resolution = tuple(source_resolution)
+            ResolutionConverter.calculate_scale_to_4k(source_resolution)
+        if coordinate_space is not None and coordinate_space not in {
+            "4k_canonical",
+            "pixel",
+        }:
+            raise ValueError(
+                f"Unsupported table coordinate space: {coordinate_space!r}"
+            )
+        pixel_space = coordinate_space == "pixel"
+
+        def parse_point(point_data: dict[str, Any]) -> Vector2D:
+            """Apply only explicitly declared point or table source geometry."""
+            if not isinstance(point_data, dict):
+                raise ValueError("Table points must be scale-aware coordinate mappings")
+            point = dict(point_data)
+            if "scale" not in point and "source_resolution" not in point:
+                if source_resolution is not None and pixel_space:
+                    point["source_resolution"] = source_resolution
+                elif coordinate_space is not None:
+                    point["coordinate_space"] = coordinate_space
+            return Vector2D.from_dict(point)
+
+        if dimensions_unit == "pixels" and (
+            not pixel_space
+            or (
+                raw_dimensions_scale is None
+                and width_scale is None
+                and height_scale is None
+                and source_resolution is None
+            )
+        ):
+            raise ValueError(
+                "Pixel table dimensions require pixel space and explicit scale or source resolution"
+            )
+        if (
+            raw_dimensions_scale is None
+            and width_scale is None
+            and height_scale is None
+            and dimensions_unit == "pixels"
+            and pixel_space
+            and source_resolution is not None
+        ):
+            from .resolution_converter import ResolutionConverter
+
+            width_scale = height_scale = ResolutionConverter.calculate_scale_to_4k(
+                tuple(source_resolution)
+            )
+        if (
+            raw_dimensions_scale is None
+            and width_scale is not None
+            and height_scale is not None
+        ):
+            width_factors = width_scale
+            height_factors = height_scale
+            width_factors = _positive_scale_pair(width_factors, "Table width scale")
+            height_factors = _positive_scale_pair(height_factors, "Table height scale")
+            dimensions_scale = _positive_scale_pair(
+                (width_factors[0], height_factors[1]),
+                "Table dimensions scale",
+            )
+        elif raw_dimensions_scale is None:
+            raise ValueError("Table dimensions scale metadata is required")
+        else:
+            dimensions_scale = _positive_scale_pair(
+                raw_dimensions_scale, "Table dimensions scale"
+            )
+        pocket_radius_unit = data.get("pocket_radius_unit")
+        if pocket_radius_unit not in {None, "canonical_pixels", "pixels"}:
+            raise ValueError("Pocket radius must use pixel units")
+        pocket_radius_scale = data.get("pocket_radius_scale")
+        if pocket_radius_scale is None:
+            if (
+                pocket_radius_unit != "pixels"
+                or not pixel_space
+                or source_resolution is None
+            ):
+                raise ValueError("Pocket radius scale metadata is required")
+            from .resolution_converter import ResolutionConverter
+
+            pocket_radius_scale = ResolutionConverter.calculate_scale_to_4k(
+                tuple(source_resolution)
+            )
+        if data.get("cushion_height_unit", "meters") != "meters":
+            raise ValueError("Cushion height must use meters")
+        cushion_height = data.get("cushion_height", CUSHION_HEIGHT_METERS)
+        real_dimensions = data.get("real_world_dimensions")
+        if isinstance(real_dimensions, dict):
+            if real_dimensions.get("unit") != "meters":
+                raise ValueError("Real table dimensions must use meters")
+            real_width = real_dimensions.get("width")
+            real_height = real_dimensions.get("height")
+        elif real_dimensions is not None:
+            if data.get("real_world_dimensions_unit") != "meters":
+                raise ValueError(
+                    "Real table dimensions require an explicit meters unit"
+                )
+            real_width, real_height = real_dimensions
+        else:
+            real_width = None
+            real_height = None
         return cls(
             width=data["width"],
             height=data["height"],
-            pocket_positions=[Vector2D.from_dict(p) for p in data["pocket_positions"]],
-            pocket_radius=data.get("pocket_radius", 0.0635),
+            pocket_positions=[parse_point(p) for p in data["pocket_positions"]],
+            pocket_radius=data.get("pocket_radius", POCKET_RADIUS_4K),
             cushion_elasticity=data.get("cushion_elasticity", 0.85),
             surface_friction=data.get("surface_friction", 0.2),
             surface_slope=data.get("surface_slope", 0.0),
-            cushion_height=data.get("cushion_height", 0.064),
+            cushion_height=cushion_height,
             playing_area_corners=(
-                [Vector2D.from_dict(p) for p in playing_area] if playing_area else None
+                [parse_point(p) for p in playing_area] if playing_area else None
             ),
+            dimensions_scale=dimensions_scale,
+            pocket_radius_scale=pocket_radius_scale,
+            real_width_meters=real_width,
+            real_height_meters=real_height,
         )
 
     @classmethod
@@ -523,11 +786,26 @@ class TableState:
         Returns:
             TableState with dimensions in 4K canonical coordinates
         """
-        _ = table_dimensions_real  # Reserved for future use - currently calculate from corners
-        from .constants_4k import CANONICAL_RESOLUTION
         from .resolution_converter import ResolutionConverter
 
-        # Transform corners from camera pixels to 4K canonical
+        if len(table_corners_pixel) != 4:
+            raise ValueError("Calibration requires exactly four table corners")
+        if len(camera_resolution) != 2 or any(
+            value <= 0 for value in camera_resolution
+        ):
+            raise ValueError("Camera resolution must contain positive width and height")
+        if table_dimensions_real is not None:
+            if len(table_dimensions_real) != 2:
+                raise ValueError("Real table dimensions must be a width/height pair")
+            real_width, real_height = (
+                _finite_number(value, "Real table dimension in meters")
+                for value in table_dimensions_real
+            )
+            if real_width <= 0 or real_height <= 0:
+                raise ValueError("Real table dimensions must be positive meters")
+            table_dimensions_real = (real_width, real_height)
+
+        # Transform corners from camera pixels to canonical 4K.
         corners_4k = []
         for corner in table_corners_pixel:
             x_4k, y_4k = ResolutionConverter.scale_to_4k(
@@ -572,18 +850,27 @@ class TableState:
             height=height_4k,
             pocket_positions=pockets,
             playing_area_corners=corners_4k,
+            pocket_radius=POCKET_RADIUS_4K,
+            real_width_meters=(
+                table_dimensions_real[0] if table_dimensions_real else None
+            ),
+            real_height_meters=(
+                table_dimensions_real[1] if table_dimensions_real else None
+            ),
         )
 
-    def calculate_pixels_per_meter(self) -> tuple[float, float]:
+    def calculate_pixels_per_meter(self) -> Optional[tuple[float, float]]:
         """Calculate pixels per meter for this table.
 
         Returns:
             Tuple of (pixels_per_meter_width, pixels_per_meter_height)
         """
-        # This requires physical dimensions, which should be stored
-        # For now, return a reasonable default based on standard 9ft table
-        # TODO: Store physical dimensions in TableState
-        return (self.width / 2.54, self.height / 1.27)
+        if self.real_width_meters is None or self.real_height_meters is None:
+            return None
+        return (
+            self.width / self.real_width_meters,
+            self.height / self.real_height_meters,
+        )
 
 
 @dataclass
@@ -599,18 +886,35 @@ class CueState:
     elevation: float = 0.0  # degrees above horizontal
     estimated_force: float = 0.0  # Newtons
     impact_point: Optional[Vector2D] = None  # Impact point on cue ball surface
-    length: float = 1.47  # Standard cue length in meters
-    tip_radius: float = 0.006  # Cue tip radius in meters
-    is_visible: bool = False  # Legacy field for compatibility
+    butt_position: Optional[Vector2D] = (
+        None  # Measured cue butt endpoint in image space
+    )
+    length: float = STANDARD_CUE_LENGTH_METERS
+    tip_radius: float = STANDARD_CUE_TIP_RADIUS_METERS
+    # Current detection visibility state, preserved in game-state and API payloads.
+    is_visible: bool = False
     confidence: float = 1.0  # Detection confidence [0.0-1.0]
     last_update: float = field(default_factory=lambda: datetime.now().timestamp())
 
     def __post_init__(self) -> None:
         """Validate cue state after initialization."""
+        self.tip_position = self.tip_position.to_4k_canonical()
+        if self.impact_point is not None:
+            self.impact_point = self.impact_point.to_4k_canonical()
+        if self.butt_position is not None:
+            self.butt_position = self.butt_position.to_4k_canonical()
+        self.length = _finite_number(self.length, "Cue length in meters")
         if self.length <= 0:
             raise ValueError("Cue length must be positive")
+        self.tip_radius = _finite_number(self.tip_radius, "Cue tip radius in meters")
         if self.tip_radius <= 0:
             raise ValueError("Cue tip radius must be positive")
+        self.angle = _finite_number(self.angle, "Cue angle")
+        self.elevation = _finite_number(self.elevation, "Cue elevation")
+        self.estimated_force = _finite_number(
+            self.estimated_force, "Estimated cue force"
+        )
+        self.confidence = _finite_number(self.confidence, "Cue confidence")
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("Confidence must be between 0.0 and 1.0")
 
@@ -639,25 +943,39 @@ class CueState:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
+        data = {
             "tip_position": self.tip_position.to_dict(),
             "angle": self.angle,
             "elevation": self.elevation,
             "estimated_force": self.estimated_force,
             "impact_point": self.impact_point.to_dict() if self.impact_point else None,
             "length": self.length,
+            "length_unit": "meters",
             "tip_radius": self.tip_radius,
+            "tip_radius_unit": "meters",
             "is_visible": self.is_visible,
             "confidence": self.confidence,
             "last_update": self.last_update,
         }
+        if self.butt_position is not None:
+            data["butt_position"] = self.butt_position.to_dict()
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CueState":
         """Create from dictionary."""
+        if any(key in data for key in ("tip_x", "tip_y", "impact_x", "impact_y")):
+            raise ValueError("Cue coordinates must use nested scale-aware points")
+        if data.get("length_unit", "meters") != "meters":
+            raise ValueError("Cue length must use meters")
+        if data.get("tip_radius_unit", "meters") != "meters":
+            raise ValueError("Cue tip radius must use meters")
         impact_point = None
         if data.get("impact_point"):
             impact_point = Vector2D.from_dict(data["impact_point"])
+        butt_position = None
+        if data.get("butt_position") is not None:
+            butt_position = Vector2D.from_dict(data["butt_position"])
 
         return cls(
             tip_position=Vector2D.from_dict(data["tip_position"]),
@@ -665,8 +983,9 @@ class CueState:
             elevation=data.get("elevation", 0.0),
             estimated_force=data.get("estimated_force", 0.0),
             impact_point=impact_point,
-            length=data.get("length", 1.47),
-            tip_radius=data.get("tip_radius", 0.006),
+            butt_position=butt_position,
+            length=data.get("length", STANDARD_CUE_LENGTH_METERS),
+            tip_radius=data.get("tip_radius", STANDARD_CUE_TIP_RADIUS_METERS),
             is_visible=data.get("is_visible", False),
             confidence=data.get("confidence", 1.0),
             last_update=data.get("last_update", datetime.now().timestamp()),
@@ -674,7 +993,11 @@ class CueState:
 
     @classmethod
     def from_4k(
-        cls, tip_x: float, tip_y: float, angle: float = 0.0, **kwargs
+        cls,
+        tip_x: float,
+        tip_y: float,
+        angle: float = 0.0,
+        **kwargs: Any,
     ) -> "CueState":
         """Create cue from 4K canonical coordinates.
 
@@ -697,7 +1020,7 @@ class CueState:
         tip_y: float,
         resolution: tuple[int, int],
         angle: float = 0.0,
-        **kwargs,
+        **kwargs: Any,
     ) -> "CueState":
         """Create cue from any resolution coordinates.
 
@@ -760,26 +1083,87 @@ class CoordinateMetadata:
         None  # (width, height) e.g., (1920, 1080)
     )
 
-    # Table playing area bounds in camera pixels
+    # Bounds are always serialized in canonical 4K pixels. The scale field
+    # converts incoming source-pixel bounds to that canonical space.
     table_bounds: Optional[tuple[float, float, float, float]] = (
         None  # (min_x, min_y, max_x, max_y)
     )
+    table_bounds_scale: Optional[tuple[float, float]] = None
 
     # Coordinate space description
-    coordinate_space: str = (
-        "world_meters"  # "world_meters", "camera_pixels", "normalized"
-    )
+    coordinate_space: str = "4k_canonical"
 
     # Scale factor for pixel to meter conversion (if applicable)
     pixels_per_meter: Optional[float] = None
 
+    def __post_init__(self) -> None:
+        """Validate and normalize any bounds to canonical pixel coordinates."""
+        if self.camera_resolution is not None:
+            from .resolution_converter import ResolutionConverter
+
+            ResolutionConverter.calculate_scale_to_4k(self.camera_resolution)
+        if self.pixels_per_meter is not None:
+            self.pixels_per_meter = _finite_number(
+                self.pixels_per_meter, "Pixels per meter"
+            )
+            if self.pixels_per_meter <= 0:
+                raise ValueError("Pixels per meter must be positive")
+        supported_spaces = {
+            "4k_canonical",
+            "pixel",
+        }
+        if self.coordinate_space not in supported_spaces:
+            raise ValueError(
+                f"Unsupported table-bound coordinate space: {self.coordinate_space!r}"
+            )
+        scale = self.table_bounds_scale
+        if scale is None:
+            if self.table_bounds is None:
+                scale = (1.0, 1.0)
+            elif (
+                self.coordinate_space == "pixel" and self.camera_resolution is not None
+            ):
+                from .resolution_converter import ResolutionConverter
+
+                scale = ResolutionConverter.calculate_scale_to_4k(
+                    self.camera_resolution
+                )
+            else:
+                raise ValueError(
+                    "Table bounds require explicit scale metadata or pixel space with camera resolution"
+                )
+        scale_x, scale_y = _positive_scale_pair(scale, "Table bounds scale")
+        if self.table_bounds is not None:
+            if len(self.table_bounds) != 4:
+                raise ValueError("Table bounds must contain min_x, min_y, max_x, max_y")
+            bounds = tuple(
+                _finite_number(value, "Table bound") for value in self.table_bounds
+            )
+            self.table_bounds = (
+                bounds[0] * scale_x,
+                bounds[1] * scale_y,
+                bounds[2] * scale_x,
+                bounds[3] * scale_y,
+            )
+            if not all(math.isfinite(value) for value in self.table_bounds):
+                raise ValueError("Scaled table bounds must be finite")
+            if (
+                self.table_bounds[0] > self.table_bounds[2]
+                or self.table_bounds[1] > self.table_bounds[3]
+            ):
+                raise ValueError("Table bounds minimums must not exceed maximums")
+        self.table_bounds_scale = (1.0, 1.0)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
+        bounds_scale = self.table_bounds_scale or (1.0, 1.0)
         return {
             "camera_resolution": (
                 list(self.camera_resolution) if self.camera_resolution else None
             ),
             "table_bounds": list(self.table_bounds) if self.table_bounds else None,
+            "table_bounds_scale": list(bounds_scale),
+            "table_bounds_unit": "canonical_pixels",
             "coordinate_space": self.coordinate_space,
             "pixels_per_meter": self.pixels_per_meter,
         }
@@ -794,11 +1178,42 @@ class CoordinateMetadata:
         table_bounds = data.get("table_bounds")
         if table_bounds and isinstance(table_bounds, list):
             table_bounds = tuple(table_bounds)
+        coordinate_space = data.get("coordinate_space", "4k_canonical")
+        bounds_unit = data.get("table_bounds_unit")
+        bounds_scale = data.get("table_bounds_scale")
+        if table_bounds is not None:
+            if "coordinate_space" not in data:
+                raise ValueError("Table bounds require a declared coordinate space")
+            if coordinate_space not in {
+                "4k_canonical",
+                "pixel",
+            }:
+                raise ValueError(
+                    f"Unsupported table-bound coordinate space: {coordinate_space!r}"
+                )
+            if bounds_unit not in {None, "canonical_pixels", "pixels"}:
+                raise ValueError("Table bounds must use pixel units")
+            if (
+                bounds_scale is None
+                and bounds_unit == "pixels"
+                and coordinate_space == "pixel"
+                and camera_res is not None
+            ):
+                from .resolution_converter import ResolutionConverter
+
+                bounds_scale = ResolutionConverter.calculate_scale_to_4k(camera_res)
+            elif bounds_scale is None:
+                raise ValueError(
+                    "Table bounds require scale metadata or a source resolution"
+                )
+        else:
+            bounds_scale = (1.0, 1.0)
 
         return cls(
             camera_resolution=camera_res,
             table_bounds=table_bounds,
-            coordinate_space=data.get("coordinate_space", "world_meters"),
+            table_bounds_scale=tuple(bounds_scale),
+            coordinate_space=coordinate_space,
             pixels_per_meter=data.get("pixels_per_meter"),
         )
 
@@ -810,9 +1225,10 @@ class GameState:
     Represents the entire state of the billiards game at a specific point in time,
     including all balls, table configuration, game rules, and metadata.
 
-    Ball positions are stored in world meters (canonical coordinate system).
-    The coordinate_metadata field provides information about the source resolution
-    and coordinate transformations for clients that need to convert positions.
+    Spatial geometry is stored in canonical 4K pixels. Real-world measurements
+    such as table dimensions, cue length, ball mass, and cushion height retain
+    their explicit SI units in their own fields. Coordinate metadata records the
+    source camera resolution and carries canonical, scaled table bounds.
     """
 
     timestamp: float
@@ -1538,8 +1954,3 @@ def create_standard_ball_set() -> list[BallState]:
         balls.append(ball)
 
     return balls
-
-
-# Backward compatibility aliases
-Table = TableState
-Ball = BallState

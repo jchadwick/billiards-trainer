@@ -1,3 +1,5 @@
+> Historical implementation report. Its status notes predate the current network module. See `frontend/visualizer/modules/network/WEBSOCKET_README.md` and `frontend/visualizer/config/default.json` for current details.
+
 # Network Module Implementation Summary
 
 ## Overview
@@ -128,7 +130,7 @@ The following items are documented in code but not yet implemented:
 - Message priority queue
 - Message acknowledgment/confirmation
 - Retry logic for failed sends
-- Connection handshake/authentication
+- Protocol-version handshake (without credentials)
 - Bandwidth monitoring
 - Latency tracking
 - Message rate limiting

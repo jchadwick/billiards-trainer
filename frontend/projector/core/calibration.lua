@@ -1,14 +1,23 @@
 -- Calibration Module
 -- Handles perspective transformation and calibration for projector alignment
 
+local CoordinateContract = require "core.coordinate_contract"
+
+local function defaultCorners()
+    return {
+        {x = 0.1, y = 0.1},
+        {x = 0.9, y = 0.1},
+        {x = 0.9, y = 0.9},
+        {x = 0.1, y = 0.9}
+    }
+end
+
 local Calibration = {
-    -- Calibration corners (in normalized 0-1 coordinates)
-    corners = {
-        {x = 0.1, y = 0.1},    -- Top-left
-        {x = 0.9, y = 0.1},    -- Top-right
-        {x = 0.9, y = 0.9},    -- Bottom-right
-        {x = 0.1, y = 0.9}     -- Bottom-left
-    },
+    -- The four output boundary corners are always normalized projector points.
+    -- Their enclosing coordinate metadata is persisted with the calibration.
+    coordinate_space = "normalized_projector",
+    coordinate_scale = {1, 1},
+    corners = defaultCorners(),
 
     -- Source rectangle (table dimensions in world units)
     sourceRect = {
@@ -49,7 +58,14 @@ function Calibration:load()
         local contents = love.filesystem.read(self.saveFile)
         if contents then
             local success, data = pcall(json.decode, contents)
-            if success and data and data.corners then
+            local valid = success
+                and type(data) == "table"
+                and CoordinateContract.validateProjectorCorners(
+                    data.corners,
+                    data.coordinate_space,
+                    data.coordinate_scale
+                )
+            if valid then
                 self.corners = data.corners
                 self:calculateTransform()
                 print("Calibration loaded from " .. self.saveFile)
@@ -59,6 +75,7 @@ function Calibration:load()
     end
 
     -- Use default calibration
+    self.corners = defaultCorners()
     self:calculateTransform()
     print("Using default calibration")
     return false
@@ -67,8 +84,19 @@ end
 -- Save calibration to file
 function Calibration:save()
     local json = require("lib.json")
+    local valid, validationError = CoordinateContract.validateProjectorCorners(
+        self.corners,
+        self.coordinate_space,
+        self.coordinate_scale
+    )
+    if not valid then
+        print("Calibration was not saved: " .. validationError)
+        return false
+    end
 
     local data = {
+        coordinate_space = self.coordinate_space,
+        coordinate_scale = self.coordinate_scale,
         corners = self.corners,
         timestamp = os.time()
     }
@@ -87,6 +115,16 @@ end
 
 -- Calculate perspective transformation
 function Calibration:calculateTransform()
+    local valid = CoordinateContract.validateProjectorCorners(
+        self.corners,
+        self.coordinate_space,
+        self.coordinate_scale
+    )
+    if not valid then
+        self.transformMatrix = nil
+        return false
+    end
+
     -- For now, we'll use a simple linear transformation
     -- In a full implementation, this would calculate a proper perspective matrix
 
@@ -108,6 +146,7 @@ function Calibration:calculateTransform()
     self.transformMatrix:scale(width * sw, height * sh)
 
     self.isDirty = false
+    return true
 end
 
 -- Get the transformation for rendering
@@ -120,8 +159,16 @@ end
 
 -- Transform a point from world to screen coordinates
 function Calibration:transform(worldX, worldY)
-    if not self.transformMatrix then
-        self:calculateTransform()
+    if not CoordinateContract.isUnitCoordinate(worldX)
+        or not CoordinateContract.isUnitCoordinate(worldY) then
+        return nil, nil
+    end
+
+    if not self.transformMatrix or self.isDirty then
+        local calculated = self:calculateTransform()
+        if not calculated then
+            return nil, nil
+        end
     end
 
     local sw, sh = love.graphics.getDimensions()
@@ -135,7 +182,13 @@ end
 
 -- Adjust selected corner
 function Calibration:adjustCorner(dx, dy)
+    if not CoordinateContract.isFiniteNumber(dx) or not CoordinateContract.isFiniteNumber(dy) then
+        return false
+    end
     local sw, sh = love.graphics.getDimensions()
+    if not CoordinateContract.isFiniteNumber(sw) or not CoordinateContract.isFiniteNumber(sh) or sw <= 0 or sh <= 0 then
+        return false
+    end
     self.corners[self.selectedCorner].x = self.corners[self.selectedCorner].x + (dx / sw)
     self.corners[self.selectedCorner].y = self.corners[self.selectedCorner].y + (dy / sh)
 
@@ -144,6 +197,7 @@ function Calibration:adjustCorner(dx, dy)
     self.corners[self.selectedCorner].y = math.max(0, math.min(1, self.corners[self.selectedCorner].y))
 
     self.isDirty = true
+    return true
 end
 
 -- Select next corner
@@ -153,7 +207,13 @@ end
 
 -- Select corner by position
 function Calibration:selectCorner(x, y)
+    if not CoordinateContract.isFiniteNumber(x) or not CoordinateContract.isFiniteNumber(y) then
+        return false
+    end
     local sw, sh = love.graphics.getDimensions()
+    if not CoordinateContract.isFiniteNumber(sw) or not CoordinateContract.isFiniteNumber(sh) or sw <= 0 or sh <= 0 then
+        return false
+    end
     local minDist = math.huge
     local selected = self.selectedCorner
 
@@ -169,29 +229,28 @@ function Calibration:selectCorner(x, y)
     end
 
     self.selectedCorner = selected
+    return true
 end
 
 -- Drag corner to position
 function Calibration:dragCorner(x, y)
+    if not CoordinateContract.isFiniteNumber(x) or not CoordinateContract.isFiniteNumber(y) then
+        return false
+    end
     local sw, sh = love.graphics.getDimensions()
-    self.corners[self.selectedCorner].x = x / sw
-    self.corners[self.selectedCorner].y = y / sh
-
-    -- Clamp to screen bounds
-    self.corners[self.selectedCorner].x = math.max(0, math.min(1, self.corners[self.selectedCorner].x))
-    self.corners[self.selectedCorner].y = math.max(0, math.min(1, self.corners[self.selectedCorner].y))
+    if not CoordinateContract.isFiniteNumber(sw) or not CoordinateContract.isFiniteNumber(sh) or sw <= 0 or sh <= 0 then
+        return false
+    end
+    self.corners[self.selectedCorner].x = math.max(0, math.min(1, x / sw))
+    self.corners[self.selectedCorner].y = math.max(0, math.min(1, y / sh))
 
     self.isDirty = true
+    return true
 end
 
 -- Reset calibration to default
 function Calibration:reset()
-    self.corners = {
-        {x = 0.1, y = 0.1},
-        {x = 0.9, y = 0.1},
-        {x = 0.9, y = 0.9},
-        {x = 0.1, y = 0.9}
-    }
+    self.corners = defaultCorners()
     self.isDirty = true
 end
 

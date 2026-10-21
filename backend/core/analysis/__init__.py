@@ -1,11 +1,12 @@
 """Analysis module exports."""
 
-from .prediction import ShotPredictor, TrajectoryPredictor
+from .assistance import AssistanceEngine
+from .prediction import TrajectoryPredictor
 from .shot import IllegalShotReason, ShotAnalysis, ShotAnalyzer
 
 __all__ = [
+    "AssistanceEngine",
     "TrajectoryPredictor",
-    "ShotPredictor",  # Backward compatibility alias
     "ShotAnalyzer",
     "ShotAnalysis",
     "IllegalShotReason",

@@ -8,6 +8,7 @@ import { ConnectionStore } from "./ConnectionStore";
 import { VideoStore } from "./VideoStore";
 import axiosClient from "../api/axios-client";
 import type { PersistedState } from "./types";
+import { createWebSocketClient, type WebSocketClient } from "../services/websocket-client";
 
 export class RootStore {
   // Core stores
@@ -18,20 +19,28 @@ export class RootStore {
   ui: UIStore;
   connection: ConnectionStore;
   videoStore: VideoStore;
+  /** One transport is shared by system state and live/video consumers. */
+  private readonly websocketClient: WebSocketClient;
+  private storeConnectionsSetup = false;
 
   // Store initialization state
   isInitialized: boolean = false;
   initializationError: string | null = null;
 
   constructor() {
+    this.websocketClient = createWebSocketClient({
+      url: axiosClient.getWebSocketUrl("/api/v1/websocket/ws"),
+      autoReconnect: true,
+    });
+
     // Initialize all stores
-    this.system = new SystemStore();
+    this.system = new SystemStore(this.websocketClient);
     this.game = new GameStore();
     this.vision = new VisionStore();
     this.config = new ConfigStore();
     this.ui = new UIStore();
     this.connection = new ConnectionStore();
-    this.videoStore = new VideoStore();
+    this.videoStore = new VideoStore(this.websocketClient);
 
     makeAutoObservable(this, {
       system: false,
@@ -41,7 +50,9 @@ export class RootStore {
       ui: false,
       connection: false,
       videoStore: false,
-    });
+      websocketClient: false,
+      storeConnectionsSetup: false,
+    } as any);
 
     // Initialize the root store
     this.initialize();
@@ -72,11 +83,12 @@ export class RootStore {
       // Load persisted state
       await this.loadPersistedState();
 
-      // Initialize stores in dependency order
-      await this.initializeStores();
-
-      // Set up store connections and event handlers
+      // Register all consumers before opening the shared socket so no early
+      // state messages are lost and subscriptions are restored by the client.
       this.setupStoreConnections();
+
+      // Initialize stores in dependency order, including the one shared socket.
+      await this.initializeStores();
 
       this.isInitialized = true;
       this.ui.showInfo(
@@ -99,10 +111,13 @@ export class RootStore {
     this.ui.applyTheme(theme);
 
     // Connect using centralized WebSocket base URL from axios client
-    await this.system.connect(axiosClient.getWsBaseURL());
+    await this.system.connect(axiosClient.getWebSocketUrl("/api/v1/websocket/ws"));
   }
 
   private setupStoreConnections(): void {
+    if (this.storeConnectionsSetup) return;
+    this.storeConnectionsSetup = true;
+
     // Set up WebSocket message routing
     this.setupWebSocketMessageHandlers();
 
@@ -115,7 +130,7 @@ export class RootStore {
     // We'll add a custom message router that hooks into the WebSocket connection
 
     // Add a message router function to handle cross-store communication
-    this.system.addMessageRouter = (message: any) => {
+    this.system.addMessageRouter((message: any) => {
       try {
         // Route messages to appropriate stores based on type
         switch (message.type) {
@@ -173,7 +188,7 @@ export class RootStore {
       } catch (error) {
         console.error("Error routing WebSocket message:", error);
       }
-    };
+    });
   }
 
   private setupMobXReactions(): void {
@@ -188,7 +203,6 @@ export class RootStore {
           }
         );
 
-        // Auth removed - no need for auth-based connection management
 
         // React to config changes and mark them as dirty
         reaction(
@@ -289,7 +303,9 @@ export class RootStore {
       await this.savePersistedState();
 
       // Cleanup all stores
+      this.videoStore.dispose();
       this.system.destroy();
+      this.websocketClient.destroy();
       this.vision.destroy();
       this.ui.destroy();
 
@@ -343,13 +359,17 @@ export class RootStore {
           store.destroy();
         }
       });
+      this.videoStore.dispose();
 
       // Recreate stores
-      this.system = new SystemStore();
+      this.websocketClient.disconnect();
+      this.system = new SystemStore(this.websocketClient);
       this.game = new GameStore();
       this.vision = new VisionStore();
       this.config = new ConfigStore();
       this.ui = new UIStore();
+      this.videoStore = new VideoStore(this.websocketClient);
+      this.storeConnectionsSetup = false;
 
       this.isInitialized = false;
       this.initializationError = null;

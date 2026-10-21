@@ -7,23 +7,6 @@ export interface ConnectionState {
   error?: string
 }
 
-export interface User {
-  id: string
-  name: string
-  email?: string
-  preferences: UserPreferences
-}
-
-export interface UserPreferences {
-  theme: 'light' | 'dark' | 'system'
-  language: string
-  notifications: {
-    enabled: boolean
-    sound: boolean
-    desktop: boolean
-  }
-}
-
 export interface Notification {
   id: string
   type: 'info' | 'success' | 'warning' | 'error'

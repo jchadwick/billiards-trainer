@@ -71,6 +71,8 @@ BALL_DIAMETER_MM = 57.15  # millimeters
 BALL_RADIUS_4K = 36  # pixels in 4K (half of 72px diameter)
 BALL_DIAMETER_4K = 72  # pixels in 4K
 BALL_MASS_KG = 0.17  # Mass in kilograms (not spatial - kept in SI units)
+STANDARD_CUE_LENGTH_METERS = 1.47
+STANDARD_CUE_TIP_RADIUS_METERS = 0.006
 
 
 # ============================================================================
@@ -89,6 +91,7 @@ POCKET_RADIUS_4K = 72  # pixels in 4K (approximate)
 # Standard cushion width: ~38.1mm (1.5 inches)
 CUSHION_WIDTH_MM = 38.1  # millimeters
 CUSHION_WIDTH_4K = 48  # pixels in 4K
+CUSHION_HEIGHT_METERS = 0.064
 
 
 # ============================================================================
@@ -211,11 +214,14 @@ __all__ = [
     "BALL_DIAMETER_4K",
     "BALL_DIAMETER_MM",
     "BALL_MASS_KG",
+    "STANDARD_CUE_LENGTH_METERS",
+    "STANDARD_CUE_TIP_RADIUS_METERS",
     # Pocket dimensions
     "POCKET_RADIUS_4K",
     "POCKET_DIAMETER_MM",
     # Cushion dimensions
     "CUSHION_WIDTH_4K",
+    "CUSHION_HEIGHT_METERS",
     "CUSHION_WIDTH_MM",
     # Physical reference dimensions
     "PHYSICAL_TABLE_WIDTH_MM",

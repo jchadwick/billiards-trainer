@@ -10,7 +10,6 @@ from .handler import WebSocketConnection, WebSocketHandler, websocket_handler
 from .manager import (
     ClientSession,
     ConnectionState,
-    StreamType,
     SubscriptionFilter,
     WebSocketManager,
     websocket_manager,
@@ -35,11 +34,17 @@ from .schemas import (  # Base message types; Data structures; Client request sc
     PingRequest,
     PongResponse,
     QualityLevel,
+    RailSegmentData,
+    SourceObservationData,
+    SourceObservationTimestamp,
     StatusData,
     StatusRequest,
+    StreamType,
     SubscribedResponse,
     SubscribeRequest,
     TableData,
+    TableDimensionsData,
+    TablePositionData,
     TrajectoryData,
     TrajectoryLine,
     UnsubscribedResponse,
@@ -102,6 +107,8 @@ __all__ = [
     "BallData",
     "CueData",
     "TableData",
+    "RailSegmentData",
+    "TableDimensionsData",
     "GameStateData",
     "TrajectoryLine",
     "CollisionData",
@@ -113,6 +120,9 @@ __all__ = [
     "ErrorData",
     "MetricsData",
     "SubscribeRequest",
+    "SourceObservationData",
+    "SourceObservationTimestamp",
+    "TablePositionData",
     "UnsubscribeRequest",
     "PingRequest",
     "StatusRequest",
@@ -154,12 +164,9 @@ async def shutdown_websocket_system() -> None:
     # Stop the message broadcaster
     await message_broadcaster.stop_streaming()
 
-    # Stop the WebSocket handler monitoring
-    await websocket_handler.stop_monitoring()
-
-    # Disconnect all active connections
-    active_connections = list(websocket_handler.connections.keys())
-    for client_id in active_connections:
-        await websocket_handler.disconnect(client_id)
+    # Drain active connections and cleanup tasks already claimed by slow-client
+    # handling. Claimed connections are no longer in ``connections`` while
+    # their close handshakes and manager cleanup may still be running.
+    await websocket_handler.shutdown()
 
     print("WebSocket system shutdown completed")

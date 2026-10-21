@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "engine_instance_id": "engine-a7c31",
+  "source": {
+    "session_id": "camera-run-20261020-01",
+    "frame_id": "frame-1042",
+    "timestamp": {
+      "ticks": "912345670000",
+      "unit": "nanoseconds",
+      "clock": "monotonic",
+      "domain_id": "host-clock-probe-pending",
+      "stage": "shared_memory_publication"
+    },
+    "width_px": 3840,
+    "height_px": 2160
+  },
+  "snapshot_revision": 2,
+  "transport_sequence": 3,
+  "update_kind": "annotation",
+  "published_at": {
+    "ticks": "912500000000",
+    "unit": "nanoseconds",
+    "clock": "monotonic",
+    "domain_id": "host-clock-probe-pending",
+    "stage": "snapshot_publication"
+  },
+  "revisions": {
+    "configuration": 4,
+    "rectification": 2,
+    "calibration": 3,
+    "calibration_state": "valid"
+  },
+  "outcome": "success",
+  "reason": null,
+  "cue": {
+    "status": "unavailable",
+    "last_observation": null,
+    "image_center_px": null,
+    "image_space": null,
+    "image_width_px": null,
+    "image_height_px": null,
+    "confidence": null
+  },
+  "balls": [
+    {
+      "track_id": "track-0001",
+      "status": "tracked",
+      "last_observation": {
+        "session_id": "camera-run-20261020-01",
+        "frame_id": "frame-1042",
+        "timestamp": {
+          "ticks": "912345670000",
+          "unit": "nanoseconds",
+          "clock": "monotonic",
+          "domain_id": "host-clock-probe-pending",
+          "stage": "shared_memory_publication"
+        }
+      },
+      "measurement": {
+        "image_center_px": { "x": 1882.4, "y": 1024.7 },
+        "image_space": "raw",
+        "image_width_px": 3840,
+        "image_height_px": 2160,
+        "table_center_mm": { "x": 742.1, "y": 384.6 },
+        "detector_confidence": 0.97,
+        "table_position_uncertainty": {
+          "status": "unavailable",
+          "sigma_x_mm": null,
+          "sigma_y_mm": null
+        }
+      },
+      "estimate": null,
+      "identity": {
+        "number": 8,
+        "confidence": 0.91,
+        "evidence": [{ "source": "number_classifier", "confidence": 0.91 }]
+      }
+    }
+  ]
+}

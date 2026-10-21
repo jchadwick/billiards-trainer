@@ -11,7 +11,7 @@ export interface AnnouncementRegionProps {
   className?: string
   level?: 'polite' | 'assertive'
   atomic?: boolean
-  relevant?: 'additions' | 'removals' | 'text' | 'all'
+  relevant?: React.AriaAttributes['aria-relevant']
   clearDelay?: number
 }
 
@@ -26,7 +26,7 @@ export const AnnouncementRegion: React.FC<AnnouncementRegionProps> = ({
   clearDelay = 5000,
 }) => {
   const { announcements, liveRegionMode, clearAnnouncements } = useAccessibility()
-  const clearTimeoutRef = useRef<NodeJS.Timeout>()
+  const clearTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   // Auto-clear announcements after delay
   useEffect(() => {
@@ -87,7 +87,7 @@ export const StatusRegion: React.FC<StatusRegionProps> = ({
   clearAfter = 3000,
 }) => {
   const [currentStatus, setCurrentStatus] = useState(status)
-  const clearTimeoutRef = useRef<NodeJS.Timeout>()
+  const clearTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   useEffect(() => {
     setCurrentStatus(status)
@@ -140,7 +140,7 @@ export const AlertRegion: React.FC<AlertRegionProps> = ({
   clearAfter = 5000,
 }) => {
   const [currentAlert, setCurrentAlert] = useState(alert)
-  const clearTimeoutRef = useRef<NodeJS.Timeout>()
+  const clearTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   useEffect(() => {
     setCurrentAlert(alert)
@@ -378,7 +378,7 @@ export const GameStatusRegion: React.FC<GameStatusRegionProps> = ({
  */
 export function useAnnouncementRegion(level: 'polite' | 'assertive' = 'polite') {
   const [announcement, setAnnouncement] = useState('')
-  const timeoutRef = useRef<NodeJS.Timeout>()
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   const announce = useCallback((message: string, clearAfter: number = 3000) => {
     setAnnouncement(message)

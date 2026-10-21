@@ -6,7 +6,7 @@ import re
 from typing import Any, Optional, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -479,21 +479,6 @@ class ColorValidator(BaseValidator):
 
 
 # Pre-configured validators for common use cases
-USERNAME_VALIDATOR = StringValidator(
-    min_length=3,
-    max_length=50,
-    pattern=r"^[a-zA-Z0-9_.-]+$",
-    forbidden_patterns=[r"admin", r"root", r"system"],
-    error_code="VAL_003",
-)
-
-PASSWORD_VALIDATOR = StringValidator(
-    min_length=8,
-    max_length=128,
-    pattern=r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]",
-    error_code="VAL_003",
-)
-
 COORDINATE_VALIDATOR = CoordinateValidator(
     min_x=0,
     max_x=1920,  # Assuming HD resolution
@@ -561,7 +546,7 @@ def validate_request_data(
     return sanitized_data
 
 
-def sanitize_string_input(value: str, max_length: int = 1000) -> str:
+def sanitize_string_input(value: Any, max_length: int = 1000) -> str:
     """Sanitize string input for security.
 
     Args:
@@ -591,7 +576,7 @@ def validate_file_upload(
     filename: str,
     content_type: str,
     file_size: int,
-    allowed_extensions: list[str] = None,
+    allowed_extensions: Optional[list[str]] = None,
     max_size: int = 10 * 1024 * 1024,  # 10MB default
 ) -> ValidationResult:
     """Validate file upload parameters.

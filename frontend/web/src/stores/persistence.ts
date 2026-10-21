@@ -95,7 +95,7 @@ export class PersistenceManager {
         console.warn(
           `Persisted state version mismatch. Expected: ${this.version}, Found: ${persisted.version}`
         );
-        this.migrateState(persisted);
+        this.clearPersistedState();
         return false;
       }
 
@@ -243,15 +243,6 @@ export class PersistenceManager {
       (state.config === undefined || typeof state.config === 'object') &&
       (state.ui === undefined || typeof state.ui === 'object')
     );
-  }
-
-  /**
-   * Migrate state from older versions
-   */
-  private migrateState(oldState: any): void {
-    console.log('State migration not implemented for version:', oldState.version);
-    // Clear old state to avoid conflicts
-    this.clearPersistedState();
   }
 
   /**

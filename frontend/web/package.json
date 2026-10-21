@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "vite --port 3000",
     "start": "vite --port 3000",
-    "build": "vite build && tsc --noEmit || true",
-    "build:strict": "vite build && tsc",
+    "build": "tsc --noEmit && vite build",
+    "build:strict": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "serve": "vite preview",
     "test": "vitest run"
@@ -25,7 +25,8 @@
     "react": "^19.0.0",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.0.0",
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.17",
+    "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.1",

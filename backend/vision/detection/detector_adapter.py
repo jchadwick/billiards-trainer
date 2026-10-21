@@ -31,11 +31,12 @@ import math
 from typing import Any, Optional, Union
 
 import numpy as np
-from core.resolution_converter import ResolutionConverter
 from numpy.typing import NDArray
 
 from backend.common.models import Ball
+from backend.core.resolution_converter import ResolutionConverter
 
+from ..coordinates import playing_area_to_canonical
 from ..models import BallType, CueState, CueStick
 
 logger = logging.getLogger(__name__)
@@ -58,13 +59,13 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
     - "ball" -> (BallType.UNKNOWN, None) - generic ball, needs further classification
     - "cue" or "ball_0" -> (BallType.CUE, None)
     - "eight" or "ball_8" -> (BallType.EIGHT, 8)
-    - "solid_1", "stripe_9", "ball_1", "ball_9" -> (BallType.OTHER, None) - all numbered balls
+    - "solid_1", "stripe_9", "ball_1", "ball_9" -> (BallType.UNKNOWN, None) - all numbered balls
 
     Args:
         class_name: YOLO class name string
 
     Returns:
-        Tuple of (BallType, ball_number) - ball_number is always None for OTHER type
+        Tuple of (BallType, ball_number) - ball_number is always None for UNKNOWN type
     """
     class_name_lower = class_name.lower().strip()
 
@@ -80,21 +81,21 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
     if "eight" in class_name_lower or class_name_lower in ["8ball", "ball_8"]:
         return BallType.EIGHT, 8
 
-    # Handle "solid_N" format - now maps to OTHER
+    # Handle "solid_N" format - now maps to UNKNOWN
     if class_name_lower.startswith("solid_"):
         try:
             number = int(class_name_lower.split("_")[1])
             if 1 <= number <= 7:
-                return BallType.OTHER, None  # No longer track specific numbers
+                return BallType.UNKNOWN, None  # No longer track specific numbers
         except (ValueError, IndexError):
             pass
 
-    # Handle "stripe_N" format - now maps to OTHER
+    # Handle "stripe_N" format - now maps to UNKNOWN
     if class_name_lower.startswith("stripe_"):
         try:
             number = int(class_name_lower.split("_")[1])
             if 9 <= number <= 15:
-                return BallType.OTHER, None  # No longer track specific numbers
+                return BallType.UNKNOWN, None  # No longer track specific numbers
         except (ValueError, IndexError):
             pass
 
@@ -106,8 +107,8 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
                 return BallType.CUE, None
             elif number == 8:
                 return BallType.EIGHT, 8
-            elif 1 <= number <= 15:  # All other numbered balls -> OTHER
-                return BallType.OTHER, None
+            elif 1 <= number <= 15:  # All other numbered balls -> UNKNOWN
+                return BallType.UNKNOWN, None
         except (ValueError, IndexError):
             pass
 
@@ -122,13 +123,31 @@ def parse_ball_class_name(class_name: str) -> tuple[BallType, Optional[int]]:
                 return BallType.CUE, None
             elif number == 8:
                 return BallType.EIGHT, 8
-            elif 1 <= number <= 15:  # All other numbered balls -> OTHER
-                return BallType.OTHER, None
+            elif 1 <= number <= 15:  # All other numbered balls -> UNKNOWN
+                return BallType.UNKNOWN, None
         except ValueError:
             pass
 
     logger.warning(f"Unknown ball class name: {class_name}, defaulting to UNKNOWN")
     return BallType.UNKNOWN, None
+
+
+def canonical_point_to_source_pixels(
+    point: tuple[float, float], source_resolution: tuple[int, int]
+) -> tuple[float, float]:
+    """Convert a 4K canonical point back to pixels in its source image.
+
+    ``Ball.position`` and ``CueStick.tip_position`` are canonical coordinates,
+    while image processing and calibration filters operate in camera pixels.
+    ``source_resolution`` must describe the image from which the canonical point
+    was produced, rather than a later display or processing resolution.
+    """
+    width, height = source_resolution
+    if width <= 0 or height <= 0:
+        raise ValueError("Source resolution dimensions must be positive")
+    return ResolutionConverter.scale_from_4k(
+        float(point[0]), float(point[1]), source_resolution
+    )
 
 
 def map_class_id_to_ball_type(
@@ -146,7 +165,7 @@ def map_class_id_to_ball_type(
         class_names: Optional list of class names (index = class_id)
 
     Returns:
-        Tuple of (BallType, ball_number) - ball_number is always None for OTHER type
+        Tuple of (BallType, ball_number) - ball_number is always None for UNKNOWN type
     """
     # If class names provided, use them
     if class_names and 0 <= class_id < len(class_names):
@@ -159,7 +178,7 @@ def map_class_id_to_ball_type(
     elif class_id == 8:
         return BallType.EIGHT, 8
     elif 1 <= class_id <= 15:
-        return BallType.OTHER, None  # All other numbered balls
+        return BallType.UNKNOWN, None  # All other numbered balls
     else:
         logger.warning(f"Unknown class ID: {class_id}, defaulting to UNKNOWN")
         return BallType.UNKNOWN, None
@@ -592,7 +611,6 @@ def yolo_to_cue(
             length=length_4k,
             confidence=float(confidence),
             state=CueState.AIMING,  # Default state, will be determined by motion analysis
-            is_aiming=True,
             tip_velocity=(0.0, 0.0),  # Will be calculated by tracking
             angular_velocity=0.0,
             coordinate_space="4k_canonical",  # Converted to 4K canonical coordinates
@@ -643,170 +661,141 @@ def yolo_cue_to_cue_stick(
         - angle pointing from tip toward table center
     """
     try:
-        # Check confidence
-        if detection.confidence < min_confidence:
+        confidence = float(detection.confidence)
+        if not math.isfinite(confidence) or confidence < min_confidence:
             return None
 
-        # Extract tip position (in camera pixels)
-        # Use line_center if available (more accurate from Hough line detection)
-        if hasattr(detection, "line_center") and detection.line_center:
-            tip_position_px = detection.line_center
-        else:
-            tip_position_px = detection.center
+        source_resolution = (int(image_shape[1]), int(image_shape[0]))
+        if min(source_resolution) <= 0:
+            raise ValueError("Cue image dimensions must be positive")
 
-        # Convert tip position to 4K canonical coordinates
-        source_resolution = (
-            image_shape[1],
-            image_shape[0],
-        )  # (width, height) from (height, width)
-        tip_x_4k, tip_y_4k = ResolutionConverter.scale_to_4k(
-            tip_position_px[0], tip_position_px[1], source_resolution
-        )
+        def canonical_point(point: Any) -> tuple[float, float]:
+            if (
+                not isinstance(point, (tuple, list))
+                or len(point) != 2
+                or any(not math.isfinite(float(value)) for value in point)
+            ):
+                raise ValueError("Cue endpoint must contain two finite coordinates")
+            return ResolutionConverter.scale_to_4k(
+                float(point[0]), float(point[1]), source_resolution
+            )
 
-        # Calculate angle pointing FROM rail-end TOWARD table-end
-        # The cue originates from the rail (farther from center) and points toward the table (nearer to center)
+        # Prefer endpoints measured from the cue shaft. When line detection is
+        # unavailable, estimate its endpoints from the oriented detection box.
+        endpoint1 = getattr(detection, "line_end1", None)
+        endpoint2 = getattr(detection, "line_end2", None)
+        if endpoint1 is None or endpoint2 is None:
+            x1, y1, x2, y2 = map(float, detection.bbox)
+            width_px, height_px = x2 - x1, y2 - y1
+            length_px = max(width_px, height_px)
+            if length_px <= 0:
+                return None
+            center = getattr(detection, "line_center", None) or getattr(
+                detection, "center", None
+            )
+            if (
+                not isinstance(center, (tuple, list))
+                or len(center) != 2
+                or any(not math.isfinite(float(value)) for value in center)
+            ):
+                center = ((x1 + x2) / 2, (y1 + y2) / 2)
+            detected_angle = math.radians(float(getattr(detection, "angle", 0.0)))
+            axis_x, axis_y = math.cos(detected_angle), math.sin(detected_angle)
+            half_length = length_px / 2
+            center_x, center_y = float(center[0]), float(center[1])
+            endpoint1 = (
+                center_x - half_length * axis_x,
+                center_y - half_length * axis_y,
+            )
+            endpoint2 = (
+                center_x + half_length * axis_x,
+                center_y + half_length * axis_y,
+            )
+
+        endpoint1_4k = canonical_point(endpoint1)
+        endpoint2_4k = canonical_point(endpoint2)
+        dx = endpoint2_4k[0] - endpoint1_4k[0]
+        dy = endpoint2_4k[1] - endpoint1_4k[1]
+        length_4k = math.hypot(dx, dy)
+        if not math.isfinite(length_4k) or length_4k <= 0:
+            return None
+
+        # Resolve which end is the cue tip against the configured table center.
+        # Coordinates are canonicalized before measuring either distance or angle,
+        # so non-square source scales cannot distort the cue geometry.
         try:
             from ...config import config
 
-            # Get playing area corners in calibration resolution
             playing_area = config.get("table.playing_area_corners", [])
-            calib_width = config.get("table.calibration_resolution_width", 640)
-            calib_height = config.get("table.calibration_resolution_height", 360)
-
-            if playing_area and len(playing_area) == 4:
-                # Calculate table center in calibration resolution
-                center_x_calib = sum(c["x"] for c in playing_area) / 4
-                center_y_calib = sum(c["y"] for c in playing_area) / 4
-
-                # Scale center to 4K canonical
-                center_x_4k, center_y_4k = ResolutionConverter.scale_to_4k(
-                    center_x_calib, center_y_calib, (calib_width, calib_height)
-                )
-
-                # Get the cue's two endpoints
-                # Use line endpoints if available from detection
-                if (
-                    hasattr(detection, "line_end1")
-                    and hasattr(detection, "line_end2")
-                    and detection.line_end1
-                    and detection.line_end2
-                ):
-                    # Convert endpoints to 4K canonical
-                    end1_x_4k, end1_y_4k = ResolutionConverter.scale_to_4k(
-                        detection.line_end1[0],
-                        detection.line_end1[1],
-                        source_resolution,
-                    )
-                    end2_x_4k, end2_y_4k = ResolutionConverter.scale_to_4k(
-                        detection.line_end2[0],
-                        detection.line_end2[1],
-                        source_resolution,
-                    )
-                else:
-                    # Calculate endpoints from bbox and detected angle
-                    detected_angle = (
-                        detection.angle if hasattr(detection, "angle") else 0.0
-                    )
-                    angle_rad = math.radians(detected_angle)
-
-                    # Length is already calculated below, but we need it here
-                    x1_px, y1_px, x2_px, y2_px = detection.bbox
-                    width_px = x2_px - x1_px
-                    height_px = y2_px - y1_px
-                    length_px = max(width_px, height_px)
-                    half_length_px = length_px / 2
-
-                    # Calculate endpoints in camera pixels
-                    end1_x_px = tip_position_px[0] - half_length_px * math.cos(
-                        angle_rad
-                    )
-                    end1_y_px = tip_position_px[1] - half_length_px * math.sin(
-                        angle_rad
-                    )
-                    end2_x_px = tip_position_px[0] + half_length_px * math.cos(
-                        angle_rad
-                    )
-                    end2_y_px = tip_position_px[1] + half_length_px * math.sin(
-                        angle_rad
-                    )
-
-                    # Convert to 4K canonical
-                    end1_x_4k, end1_y_4k = ResolutionConverter.scale_to_4k(
-                        end1_x_px, end1_y_px, source_resolution
-                    )
-                    end2_x_4k, end2_y_4k = ResolutionConverter.scale_to_4k(
-                        end2_x_px, end2_y_px, source_resolution
-                    )
-
-                # Calculate distance from each end to table center
-                dist1_sq = (end1_x_4k - center_x_4k) ** 2 + (
-                    end1_y_4k - center_y_4k
-                ) ** 2
-                dist2_sq = (end2_x_4k - center_x_4k) ** 2 + (
-                    end2_y_4k - center_y_4k
-                ) ** 2
-
-                # Determine which end is closer to center (table-end) and which is farther (rail-end)
-                if dist1_sq < dist2_sq:
-                    # end1 is closer to center (table-end), end2 is on rail
-                    # Angle points FROM end2 TO end1
-                    angle_rad = math.atan2(end1_y_4k - end2_y_4k, end1_x_4k - end2_x_4k)
-                    table_end = (end1_x_4k, end1_y_4k)
-                    rail_end = (end2_x_4k, end2_y_4k)
-                else:
-                    # end2 is closer to center (table-end), end1 is on rail
-                    # Angle points FROM end1 TO end2
-                    angle_rad = math.atan2(end2_y_4k - end1_y_4k, end2_x_4k - end1_x_4k)
-                    table_end = (end2_x_4k, end2_y_4k)
-                    rail_end = (end1_x_4k, end1_y_4k)
-
-                # Convert to degrees
-                angle = math.degrees(angle_rad)
-
-                logger.debug(
-                    f"Cue angle calculated: rail_end=({rail_end[0]:.1f}, {rail_end[1]:.1f}), "
-                    f"table_end=({table_end[0]:.1f}, {table_end[1]:.1f}), "
-                    f"center=({center_x_4k:.1f}, {center_y_4k:.1f}), angle={angle:.1f}°"
-                )
-            else:
-                # Fallback: use detection angle if available
-                angle = detection.angle if hasattr(detection, "angle") else 0.0
-                logger.warning(
-                    "Playing area not configured, using detection angle as fallback"
-                )
-        except Exception as e:
-            # Fallback: use detection angle
-            angle = detection.angle if hasattr(detection, "angle") else 0.0
+        except Exception as error:
+            playing_area = []
             logger.warning(
-                f"Failed to calculate angle from table center: {e}, using fallback"
+                "Unable to read configured table geometry for cue orientation: %s",
+                error,
+            )
+        if playing_area and len(playing_area) == 4:
+            try:
+                corners = playing_area_to_canonical(playing_area)
+            except (TypeError, ValueError, KeyError) as error:
+                logger.warning(
+                    "Invalid configured table geometry for cue orientation: %s",
+                    error,
+                )
+                corners = []
+        else:
+            corners = []
+
+        if len(corners) == 4:
+            center_x = sum(point[0] for point in corners) / len(corners)
+            center_y = sum(point[1] for point in corners) / len(corners)
+            dist1_sq = (endpoint1_4k[0] - center_x) ** 2 + (
+                endpoint1_4k[1] - center_y
+            ) ** 2
+            dist2_sq = (endpoint2_4k[0] - center_x) ** 2 + (
+                endpoint2_4k[1] - center_y
+            ) ** 2
+            tip_position_4k, butt_position_4k = (
+                (endpoint1_4k, endpoint2_4k)
+                if dist1_sq <= dist2_sq
+                else (endpoint2_4k, endpoint1_4k)
+            )
+        else:
+            # If calibration is absent, preserve the detector's direction as a
+            # useful fallback; configured table geometry remains authoritative.
+            detected_angle_degrees = float(getattr(detection, "angle", 0.0))
+            detected_angle = math.radians(detected_angle_degrees)
+            direction = (math.cos(detected_angle), math.sin(detected_angle))
+            fallback_angle = detected_angle_degrees
+            tip_position_4k, butt_position_4k = (
+                (endpoint2_4k, endpoint1_4k)
+                if dx * direction[0] + dy * direction[1] >= 0
+                else (endpoint1_4k, endpoint2_4k)
+            )
+            logger.warning(
+                "Playing area is not configured; cue tip orientation uses detector angle"
             )
 
-        # Calculate length from bbox (in camera pixels)
-        x1, y1, x2, y2 = detection.bbox
-        width = x2 - x1
-        height = y2 - y1
-        length_px = max(width, height)
-
-        # Convert length to 4K canonical
-        length_4k = ResolutionConverter.scale_distance_to_4k(
-            length_px, source_resolution
+        tip_x, tip_y = tip_position_4k
+        butt_x, butt_y = butt_position_4k
+        angle = (
+            fallback_angle
+            if len(corners) != 4
+            else math.degrees(math.atan2(tip_y - butt_y, tip_x - butt_x))
         )
+        measured_length = math.hypot(tip_x - butt_x, tip_y - butt_y)
 
-        # Create CueStick object with 4K canonical coordinates
-        cue = CueStick(
-            tip_position=(tip_x_4k, tip_y_4k),
+        return CueStick(
+            tip_position=tip_position_4k,
+            butt_position=butt_position_4k,
             angle=angle,
-            length=length_4k,
-            confidence=float(detection.confidence),
-            state=CueState.AIMING,  # Default state, will be determined by motion analysis
-            is_aiming=True,
-            tip_velocity=(0.0, 0.0),  # Will be calculated by tracking
+            length=measured_length,
+            confidence=confidence,
+            state=CueState.AIMING,
+            tip_velocity=(0.0, 0.0),
             angular_velocity=0.0,
-            coordinate_space="4k_canonical",  # Converted to 4K canonical coordinates
+            coordinate_space="4k_canonical",
             source_resolution=source_resolution,
         )
-
-        return cue
 
     except Exception as e:
         logger.error(

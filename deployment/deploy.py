@@ -3,6 +3,8 @@
 
 import argparse
 import asyncio
+import copy
+import json
 import logging
 import os
 import shutil
@@ -10,14 +12,102 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def build_production_configuration(
+    source_configuration: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive production settings from the supported application configuration."""
+    production_configuration = copy.deepcopy(source_configuration)
+    api_configuration = production_configuration.setdefault("api", {})
+    server_configuration = api_configuration.setdefault("server", {})
+    network_configuration = api_configuration.get("network")
+    if "workers" in server_configuration or (
+        isinstance(network_configuration, dict) and "workers" in network_configuration
+    ):
+        raise ValueError(
+            "api worker-count settings are unsupported; run one backend process per table"
+        )
+    server_configuration.update({"host": "0.0.0.0", "port": 8000, "reload": False})
+    rate_limit_configuration = api_configuration.setdefault("rate_limiting", {})
+    rate_limit_configuration.setdefault("store", "memory")
+    rate_limit_configuration.setdefault("store_timeout_seconds", 2.0)
+    rate_limit_configuration.setdefault("window_seconds", 60)
+    rate_limit_configuration.setdefault("websocket_connections_per_ip", 10)
+    rate_limit_configuration.setdefault("trusted_proxies", [])
+    return production_configuration
+
+
+def build_systemd_exec_start(target_dir: Path) -> str:
+    """Return the configured single-process app launcher for systemd."""
+    return (
+        f"{target_dir}/venv/bin/python -m backend.main "
+        f"--config {target_dir}/config/production.json"
+    )
+
+
+def build_nginx_websocket_locations() -> str:
+    """Return the proxy location for the supported WebSocket endpoint."""
+    paths = ("/api/v1/websocket/ws",)
+    blocks = []
+    for path in paths:
+        blocks.append(
+            f"""    location = {path} {{
+        limit_req zone=websocket burst=10 nodelay;
+
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }}"""
+        )
+    return "\n\n".join(blocks)
+
+
+def build_nginx_configuration(target_dir: Path) -> str:
+    """Build the generated reverse-proxy configuration for a deployment."""
+    return f"""
+limit_req_zone $binary_remote_addr zone=websocket:10m rate=5r/s;
+
+server {{
+    listen 80;
+    server_name _;
+
+    location / {{
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+
+{build_nginx_websocket_locations()}
+
+    location /static/ {{
+        alias {target_dir}/static/;
+        expires 30d;
+    }}
+
+    location /health {{
+        proxy_pass http://127.0.0.1:8000/api/v1/health;
+        access_log off;
+    }}
+}}
+"""
 
 
 class DeploymentManager:
@@ -73,9 +163,6 @@ class DeploymentManager:
 
             # Set up systemd services
             await self._setup_services()
-
-            # Run database migrations (if applicable)
-            await self._run_migrations()
 
             # Start services
             await self._start_services()
@@ -160,7 +247,7 @@ class DeploymentManager:
                 logger.warning(f"Low memory: {memory_gb:.1f}GB")
 
             # Check disk space (minimum 10GB free)
-            disk_free_gb = psutil.disk_usage('/').free / (1024**3)
+            disk_free_gb = psutil.disk_usage("/").free / (1024**3)
             if disk_free_gb < 10:
                 logger.warning(f"Low disk space: {disk_free_gb:.1f}GB")
 
@@ -174,10 +261,12 @@ class DeploymentManager:
         try:
             import socket
 
-            ports = [8000, 8001, 8080]  # API, WebSocket, Nginx
+            # The API and WebSocket share the API listener; Nginx listens on
+            # port 80 as the external reverse proxy.
+            ports = [8000, 80]
             for port in ports:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    result = sock.connect_ex(('localhost', port))
+                    result = sock.connect_ex(("localhost", port))
                     if result == 0:
                         logger.warning(f"Port {port} is in use")
 
@@ -200,18 +289,21 @@ class DeploymentManager:
 
             # Generate backup name with timestamp
             import datetime
+
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_name = f"backup_{timestamp}"
             backup_path = self.backup_dir / backup_name
 
             # Copy current deployment
-            shutil.copytree(self.target_dir, backup_path, ignore=shutil.ignore_patterns("backups"))
+            shutil.copytree(
+                self.target_dir, backup_path, ignore=shutil.ignore_patterns("backups")
+            )
 
             # Compress backup
             archive_path = f"{backup_path}.tar.gz"
-            subprocess.run([
-                "tar", "-czf", archive_path, "-C", str(self.backup_dir), backup_name
-            ])
+            subprocess.run(
+                ["tar", "-czf", archive_path, "-C", str(self.backup_dir), backup_name]
+            )
 
             # Remove uncompressed backup
             shutil.rmtree(backup_path)
@@ -246,9 +338,11 @@ class DeploymentManager:
 
             services = ["billiards-trainer", "nginx"]
             for service in services:
-                result = subprocess.run([
-                    "sudo", "systemctl", "stop", service
-                ], capture_output=True, text=True)
+                result = subprocess.run(
+                    ["sudo", "systemctl", "stop", service],
+                    capture_output=True,
+                    text=True,
+                )
 
                 if result.returncode == 0:
                     logger.info(f"Stopped service: {service}")
@@ -284,8 +378,9 @@ class DeploymentManager:
 
             shutil.copytree(source_deployment, target_deployment, dirs_exist_ok=True)
 
-            # Set permissions
-            subprocess.run(["chmod", "+x", str(self.target_dir / "backend" / "system_launcher.py")])
+            # Match the actual configured launcher instead of the removed
+            # backend/system_launcher.py path.
+            subprocess.run(["chmod", "+x", str(target_backend / "main.py")])
 
             logger.info("Code deployment completed")
 
@@ -303,47 +398,39 @@ class DeploymentManager:
                 "python3-venv",
                 "python3-dev",
                 "nginx",
-                "redis-server",
                 "libopencv-dev",
-                "python3-opencv"
+                "python3-opencv",
             ]
 
-            subprocess.run([
-                "sudo", "apt-get", "update"
-            ], check=True)
+            subprocess.run(["sudo", "apt-get", "update"], check=True)
 
-            subprocess.run([
-                "sudo", "apt-get", "install", "-y"
-            ] + system_packages, check=True)
+            subprocess.run(
+                ["sudo", "apt-get", "install", "-y"] + system_packages, check=True
+            )
 
             # Create virtual environment
             venv_path = self.target_dir / "venv"
             if not venv_path.exists():
-                subprocess.run([
-                    "python3", "-m", "venv", str(venv_path)
-                ], check=True)
+                subprocess.run(["python3", "-m", "venv", str(venv_path)], check=True)
 
             # Install Python packages
             pip_path = venv_path / "bin" / "pip"
             requirements_file = self.source_dir / "requirements.txt"
 
             if requirements_file.exists():
-                subprocess.run([
-                    str(pip_path), "install", "-r", str(requirements_file)
-                ], check=True)
+                subprocess.run(
+                    [str(pip_path), "install", "-r", str(requirements_file)], check=True
+                )
 
             # Install additional production packages
             production_packages = [
                 "uvicorn[standard]",
                 "gunicorn",
                 "psutil",
-                "redis",
-                "prometheus-client"
+                "prometheus-client",
             ]
 
-            subprocess.run([
-                str(pip_path), "install"
-            ] + production_packages, check=True)
+            subprocess.run([str(pip_path), "install"] + production_packages, check=True)
 
             logger.info("Dependencies installed")
 
@@ -360,31 +447,17 @@ class DeploymentManager:
             config_dir.mkdir(exist_ok=True)
 
             # Create production configuration
-            production_config = {
-                "environment": "production",
-                "debug": False,
-                "api": {
-                    "host": "0.0.0.0",
-                    "port": 8000,
-                    "workers": 4
-                },
-                "logging": {
-                    "level": "INFO",
-                    "file": str(self.target_dir / "logs" / "billiards-trainer.log")
-                },
-                "monitoring": {
-                    "enabled": True,
-                    "prometheus_port": 9090
-                },
-                "security": {
-                    "cors_origins": ["http://localhost:3000"],
-                    "rate_limiting": True
-                }
-            }
+            source_configuration_path = self.source_dir / "config.json"
+            with source_configuration_path.open(encoding="utf-8") as source_file:
+                source_configuration = json.load(source_file)
+            production_config = build_production_configuration(source_configuration)
+            production_config.setdefault("logging", {})["level"] = "INFO"
+            production_config["logging"]["file"] = str(
+                self.target_dir / "logs" / "billiards-trainer.log"
+            )
 
-            import json
             config_file = config_dir / "production.json"
-            with open(config_file, 'w') as f:
+            with open(config_file, "w") as f:
                 json.dump(production_config, f, indent=2)
 
             # Create nginx configuration
@@ -402,44 +475,10 @@ class DeploymentManager:
 
     async def _create_nginx_config(self) -> None:
         """Create nginx configuration."""
-        nginx_config = f"""
-server {{
-    listen 80;
-    server_name _;
-
-    location / {{
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-
-    location /ws {{
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-
-    location /static/ {{
-        alias {self.target_dir}/static/;
-        expires 30d;
-    }}
-
-    location /health {{
-        proxy_pass http://127.0.0.1:8000/health;
-        access_log off;
-    }}
-}}
-"""
+        nginx_config = build_nginx_configuration(self.target_dir)
 
         nginx_file = Path("/etc/nginx/sites-available/billiards-trainer")
-        with open(nginx_file, 'w') as f:
+        with open(nginx_file, "w") as f:
             f.write(nginx_config)
 
         # Enable site
@@ -465,8 +504,11 @@ User=billiards
 Group=billiards
 WorkingDirectory={self.target_dir}
 Environment=PATH={self.target_dir}/venv/bin
-Environment=PYTHONPATH={self.target_dir}/backend
-ExecStart={self.target_dir}/venv/bin/python {self.target_dir}/backend/system_launcher.py --environment production
+Environment=PYTHONPATH={self.target_dir}
+Environment=BILLIARDS_ENV=production
+Environment=BILLIARDS_CONFIG={self.target_dir}/config/production.json
+EnvironmentFile=-/etc/billiards-trainer.env
+ExecStart={build_systemd_exec_start(self.target_dir)}
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -477,30 +519,21 @@ WantedBy=multi-user.target
 """
 
             service_file = Path("/etc/systemd/system/billiards-trainer.service")
-            with open(service_file, 'w') as f:
+            with open(service_file, "w") as f:
                 f.write(service_config)
 
             # Reload systemd
             subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)
 
             # Enable service
-            subprocess.run(["sudo", "systemctl", "enable", "billiards-trainer"], check=True)
+            subprocess.run(
+                ["sudo", "systemctl", "enable", "billiards-trainer"], check=True
+            )
 
             logger.info("Systemd services configured")
 
         except Exception as e:
             logger.error(f"Service setup failed: {e}")
-            raise
-
-    async def _run_migrations(self) -> None:
-        """Run database migrations if applicable."""
-        try:
-            logger.info("Running migrations...")
-            # Add database migration logic here if needed
-            logger.info("Migrations completed")
-
-        except Exception as e:
-            logger.error(f"Migration failed: {e}")
             raise
 
     async def _start_services(self) -> None:
@@ -510,9 +543,7 @@ WantedBy=multi-user.target
 
             services = ["nginx", "billiards-trainer"]
             for service in services:
-                subprocess.run([
-                    "sudo", "systemctl", "start", service
-                ], check=True)
+                subprocess.run(["sudo", "systemctl", "start", service], check=True)
 
                 logger.info(f"Started service: {service}")
 
@@ -529,9 +560,11 @@ WantedBy=multi-user.target
             await asyncio.sleep(10)
 
             # Check service status
-            result = subprocess.run([
-                "systemctl", "is-active", "billiards-trainer"
-            ], capture_output=True, text=True)
+            result = subprocess.run(
+                ["systemctl", "is-active", "billiards-trainer"],
+                capture_output=True,
+                text=True,
+            )
 
             if result.stdout.strip() != "active":
                 logger.error("Billiards Trainer service is not active")
@@ -539,8 +572,11 @@ WantedBy=multi-user.target
 
             # Check API endpoint
             import urllib.request
+
             try:
-                with urllib.request.urlopen("http://localhost/health", timeout=10) as response:
+                with urllib.request.urlopen(
+                    "http://localhost/health", timeout=10
+                ) as response:
                     if response.status != 200:
                         logger.error(f"Health check failed: {response.status}")
                         return False
@@ -573,9 +609,10 @@ WantedBy=multi-user.target
             latest_backup = max(backup_files, key=lambda p: p.stat().st_mtime)
 
             # Extract backup
-            subprocess.run([
-                "tar", "-xzf", str(latest_backup), "-C", str(self.target_dir.parent)
-            ], check=True)
+            subprocess.run(
+                ["tar", "-xzf", str(latest_backup), "-C", str(self.target_dir.parent)],
+                check=True,
+            )
 
             # Restart services
             await self._start_services()
@@ -586,26 +623,21 @@ WantedBy=multi-user.target
             logger.error(f"Rollback failed: {e}")
 
 
-async def main():
+async def main() -> None:
     """Main deployment function."""
     parser = argparse.ArgumentParser(description="Billiards Trainer Deployment Script")
 
-    parser.add_argument(
-        "target_dir",
-        help="Target deployment directory"
-    )
+    parser.add_argument("target_dir", help="Target deployment directory")
 
     parser.add_argument(
         "--environment",
         choices=["production", "staging"],
         default="production",
-        help="Deployment environment"
+        help="Deployment environment",
     )
 
     parser.add_argument(
-        "--skip-backup",
-        action="store_true",
-        help="Skip backup creation"
+        "--skip-backup", action="store_true", help="Skip backup creation"
     )
 
     args = parser.parse_args()

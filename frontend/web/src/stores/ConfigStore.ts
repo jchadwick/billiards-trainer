@@ -581,21 +581,22 @@ export class ConfigStore {
       const response = await apiClient.getConfiguration();
 
       if (response.success && response.data) {
+        const data = response.data;
         runInAction(() => {
           // Merge backend config with local config
-          if (response.data.values) {
+          if (data.values) {
             // Update individual sections if they exist in backend
-            if (response.data.values.camera) {
-              Object.assign(this.config.camera, response.data.values.camera);
+            if (data.values.camera) {
+              Object.assign(this.config.camera, data.values.camera);
             }
-            if (response.data.values.detection) {
-              Object.assign(this.config.detection, response.data.values.detection);
+            if (data.values.detection) {
+              Object.assign(this.config.detection, data.values.detection);
             }
-            if (response.data.values.game) {
-              Object.assign(this.config.game, response.data.values.game);
+            if (data.values.game) {
+              Object.assign(this.config.game, data.values.game);
             }
-            if (response.data.values.ui) {
-              Object.assign(this.config.ui, response.data.values.ui);
+            if (data.values.ui) {
+              Object.assign(this.config.ui, data.values.ui);
             }
             // Note: Profiles are now managed client-side only, not synced from backend
           }
@@ -672,68 +673,4 @@ export class ConfigStore {
     }
   }
 
-  async exportToFile(format: 'json' | 'yaml' = 'json'): Promise<ActionResult> {
-    try {
-      const { apiClient } = await import('../api/client');
-      const response = await apiClient.exportConfiguration(format);
-
-      if (response.success && response.data) {
-        // Create and trigger download
-        const dataStr = format === 'json'
-          ? JSON.stringify(response.data.data, null, 2)
-          : JSON.stringify(response.data.data); // Would need yaml library for proper YAML export
-
-        const dataBlob = new Blob([dataStr], { type: `application/${format}` });
-        const url = URL.createObjectURL(dataBlob);
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `billiards-config-${new Date().toISOString().split('T')[0]}.${format}`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-
-        return {
-          success: true,
-          data: { format, size: response.data.size },
-          timestamp: new Date()
-        };
-      } else {
-        throw new Error(response.error || 'Failed to export configuration');
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to export configuration',
-        timestamp: new Date()
-      };
-    }
-  }
-
-  async importFromFile(file: File, mergeStrategy: 'replace' | 'merge' = 'merge'): Promise<ActionResult> {
-    try {
-      const { apiClient } = await import('../api/client');
-      const response = await apiClient.importConfiguration(file, mergeStrategy);
-
-      if (response.success) {
-        // Reload configuration from backend to get the updated values
-        await this.loadFromBackend();
-
-        return {
-          success: true,
-          data: response.data,
-          timestamp: new Date()
-        };
-      } else {
-        throw new Error(response.error || 'Failed to import configuration');
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to import configuration',
-        timestamp: new Date()
-      };
-    }
-  }
 }

@@ -1,6 +1,6 @@
 -- Billiards Visualizer Main Entry Point
--- Data-driven visualizer that receives all game state via WebSocket from backend
--- Displays video feed + AR overlays (no direct camera access)
+-- Data-driven visualizer for backend state and trajectory updates.
+-- Backend WebSocket video delivery is disabled; this app does not receive camera frames.
 
 local StateManager = require("core.state_manager")
 local MessageHandler = require("core.message_handler")
@@ -13,30 +13,12 @@ local DebugHUD = require("modules.debug_hud.init")
 -- Global references for easy access (will be set to instances after initialization)
 _G.Network = Network
 
--- Legacy CONFIG for backward compatibility
--- Real configuration is in _G.Config (core/config.lua)
-local CONFIG = {
-    debug = function() return _G.Config and _G.Config:get("debug_hud.enabled") or true end,
-    showFPS = function() return _G.Config and _G.Config:get("debug_hud.sections.performance") or true end,
-    backgroundColor = function()
-        local bg = _G.Config and _G.Config:get("display.background_color") or {0.1, 0.1, 0.1}
-        return bg
-    end,
-    showHUD = function() return _G.Config and _G.Config:get("debug_hud.enabled") or true end,
-    calibrationMode = false  -- Runtime toggle, not from config
-}
-
--- Calculate contrasting text color
-local TEXT_COLOR = {1, 1, 1, 0.9}  -- White text on dark background
-local TEXT_COLOR_SUCCESS = {0, 1, 0, 0.9}  -- Bright green
-local TEXT_COLOR_ERROR = {1, 0, 0, 0.9}  -- Red
-local TEXT_COLOR_WARNING = {1, 1, 0, 0.9}  -- Yellow
-
 -- State
 local state = {
     stateManager = nil,
     messageHandler = nil,
     debugHUD = nil,
+    calibrationMode = false,
     lastError = nil,
     connectionStatus = {
         websocket = false,
@@ -47,7 +29,7 @@ local state = {
 
 function love.load()
     print("Billiards Visualizer Starting...")
-    print("This is a data-driven visualizer - all data comes from backend via WebSocket")
+    print("This visualizer receives game state and trajectories from the backend via WebSocket")
 
     -- Initialize configuration
     _G.Config = Config.get_instance()
@@ -63,7 +45,7 @@ function love.load()
     })
 
     -- Set background color
-    love.graphics.setBackgroundColor(CONFIG.backgroundColor())
+    love.graphics.setBackgroundColor(_G.Config:get("display.background_color"))
 
     -- Initialize core systems
     local success, err = pcall(function()
@@ -163,7 +145,7 @@ function love.draw()
     -- Wrap everything in pcall to catch errors
     local success, err = pcall(function()
         -- Clear screen
-        love.graphics.clear(CONFIG.backgroundColor())
+        love.graphics.clear(_G.Config:get("display.background_color"))
 
         -- Draw trajectory overlays
         if state.trajectoryModule then
@@ -180,7 +162,7 @@ function love.draw()
     end
 
     -- Draw calibration overlay (if in calibration mode)
-    if CONFIG.calibrationMode and _G.Calibration then
+    if state.calibrationMode and _G.Calibration then
         _G.Calibration:drawOverlay()
     end
 
@@ -188,13 +170,6 @@ function love.draw()
     if state.debugHUD and state.debugHUD.config.enabled then
         state.debugHUD:draw()
     end
-end
-
--- Legacy drawHUD function (replaced by DebugHUD module)
--- Kept for reference, but no longer used
-function drawHUD()
-    -- This function is now handled by the DebugHUD module
-    -- See modules/debug_hud/init.lua
 end
 
 function love.keypressed(key)
@@ -218,12 +193,12 @@ function love.keypressed(key)
 
     -- Toggle calibration mode
     if key == "f3" then
-        CONFIG.calibrationMode = not CONFIG.calibrationMode
-        print("Calibration mode " .. (CONFIG.calibrationMode and "enabled" or "disabled"))
+        state.calibrationMode = not state.calibrationMode
+        print("Calibration mode " .. (state.calibrationMode and "enabled" or "disabled"))
     end
 
     -- Calibration controls (only in calibration mode)
-    if CONFIG.calibrationMode and _G.Calibration then
+    if state.calibrationMode and _G.Calibration then
         if key == "up" then
             _G.Calibration:adjustCorner(0, -1)
         elseif key == "down" then

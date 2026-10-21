@@ -313,7 +313,7 @@ end
 --[[
   Generate a high-contrast color based on table felt color.
 
-  Public wrapper that accepts table parameter for compatibility.
+  Accepts an RGB table, matching the public color module interface.
   Generates a color with complementary hue and ensures 4.5:1 contrast ratio.
 
   @param baseColorRGB table Base color (table felt) as {r, g, b} in [0-1]
@@ -343,7 +343,7 @@ end
 --[[
   Generate a complementary color with adjustments for visibility.
 
-  Public wrapper that accepts table parameter for compatibility.
+  Accepts an RGB table, matching the public color module interface.
   Uses 180° hue rotation with adjustments for contrast.
 
   @param baseColorRGB table Base color as {r, g, b} in [0-1]

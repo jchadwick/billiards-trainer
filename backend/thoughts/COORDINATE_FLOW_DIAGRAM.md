@@ -1,4 +1,7 @@
-# Coordinate Transformation Flow Diagram
+# Historical Coordinate Transformation Flow Diagram (Superseded)
+
+> **HISTORICAL / SUPERSEDED — not current coordinate guidance.** The flows below describe an earlier meter-based core model and guess at source camera resolution. Current core spatial state uses scale-aware canonical 3840 × 2160 image pixels; source scale/resolution must be explicit, and physical meter points remain separate. Follow [`docs/COORDINATE_SYSTEMS.md`](../../docs/COORDINATE_SYSTEMS.md). These diagrams are retained only as a record of an earlier investigation.
+
 
 ## Current (BROKEN) Flow
 

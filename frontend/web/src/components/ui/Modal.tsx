@@ -111,12 +111,13 @@ export const Modal = observer<ModalProps>(({
 export interface ConfirmModalProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   title: string
   message: string
   confirmText?: string
   cancelText?: string
   type?: 'danger' | 'warning' | 'info'
+  loading?: boolean
 }
 
 export const ConfirmModal = observer<ConfirmModalProps>(({
@@ -128,9 +129,10 @@ export const ConfirmModal = observer<ConfirmModalProps>(({
   confirmText = 'Confirm',
   cancelText = 'Cancel',
   type = 'info',
+  loading = false,
 }) => {
-  const handleConfirm = () => {
-    onConfirm()
+  const handleConfirm = async () => {
+    await onConfirm()
     onClose()
   }
 
@@ -144,10 +146,10 @@ export const ConfirmModal = observer<ConfirmModalProps>(({
       size="sm"
       footer={
         <div className="flex justify-end space-x-3">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>
             {cancelText}
           </Button>
-          <Button variant={confirmVariant} onClick={handleConfirm}>
+          <Button variant={confirmVariant} onClick={handleConfirm} loading={loading} disabled={loading}>
             {confirmText}
           </Button>
         </div>

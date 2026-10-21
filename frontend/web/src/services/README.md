@@ -8,9 +8,9 @@ This directory contains the comprehensive WebSocket and REST API client integrat
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   React App     │    │   MobX Stores    │    │  API Services   │
 │                 │◄──►│                  │◄──►│                 │
-│ - Components    │    │ - AuthStore      │    │ - ApiClient     │
+│ - Components    │    │ - GameStore      │    │ - ApiClient     │
 │ - Routes        │    │ - GameStateStore │    │ - WebSocketClient│
-│ - UI Elements   │    │ - ConfigStore    │    │ - AuthService   │
+│ - UI Elements   │    │ - ConfigStore    │    │ - WebSocketClient│
 └─────────────────┘    │ - SystemStore    │    │ - DataProcessor │
                        │ - UIStore        │    │ - ErrorHandler  │
                        └──────────────────┘    └─────────────────┘
@@ -22,7 +22,7 @@ This directory contains the comprehensive WebSocket and REST API client integrat
                        │                  │    │                 │
                        │ - Store Factory  │    │ - REST API      │
                        │ - Store Context  │    │ - WebSocket     │
-                       │ - Global State   │    │ - Authentication│
+                       │ - Global State   │    │ - State Streaming│
                        └──────────────────┘    └─────────────────┘
 ```
 
@@ -38,7 +38,6 @@ The high-level service that orchestrates all API interactions.
 - Request caching and deduplication
 - Loading state management
 - Error handling and retry logic
-- Authentication integration
 - Connection monitoring
 
 **Usage:**
@@ -48,13 +47,10 @@ import { createApiService } from "./services/api-service";
 
 const apiService = createApiService({
   apiBaseUrl: "http://localhost:8000",
-  wsBaseUrl: "ws://localhost:8000/ws",
+  wsBaseUrl: "ws://localhost:8000/api/v1/websocket/ws",
   enableCaching: true,
   autoConnectWebSocket: true,
 });
-
-// Authentication
-await apiService.login({ username: "user", password: "pass" });
 
 // Real-time data
 apiService.onGameStateData((state) => {
@@ -84,8 +80,7 @@ Advanced WebSocket client with auto-reconnection and message handling.
 import { createWebSocketClient } from "./services/websocket-client";
 
 const wsClient = createWebSocketClient({
-  url: "ws://localhost:8000/ws",
-  token: "jwt-token",
+  url: "ws://localhost:8000/api/v1/websocket/ws",
   autoReconnect: true,
   maxReconnectAttempts: 10,
 });
@@ -102,11 +97,10 @@ wsClient.on("frame", (message) => {
 
 ### 3. REST API Client (`api-client.ts`)
 
-Comprehensive REST API client with authentication and error handling.
+REST API client with request handling and error reporting.
 
 **Features:**
 
-- Automatic token management and refresh
 - Request/response interceptors
 - Retry logic with exponential backoff
 - Request timeout handling
@@ -117,9 +111,6 @@ Comprehensive REST API client with authentication and error handling.
 
 ```typescript
 import { apiClient } from "./services/api-client";
-
-// Set authentication
-apiClient.setAuthToken("jwt-token");
 
 // Make API calls
 const config = await apiClient.getConfig();
@@ -135,43 +126,7 @@ try {
 }
 ```
 
-### 4. Authentication Service (`auth-service.ts`)
-
-Complete authentication and session management.
-
-**Features:**
-
-- JWT token management
-- Automatic token refresh
-- Session persistence
-- Activity tracking
-- Role-based permissions
-- Logout handling
-
-**Usage:**
-
-```typescript
-import { createAuthService } from "./services/auth-service";
-
-const authService = createAuthService(apiClient, {
-  persistAuth: true,
-  autoRefresh: true,
-  inactivityTimeout: 3600,
-});
-
-// Login
-const user = await authService.login({
-  username: "admin",
-  password: "password",
-});
-
-// Check permissions
-if (authService.hasPermission("config:write")) {
-  // User can modify configuration
-}
-```
-
-### 5. Data Processing Service (`data-handlers.ts`)
+### 4. Data Processing Service (`data-handlers.ts`)
 
 Real-time data processing and transformation.
 
@@ -251,7 +206,6 @@ const result = await errorHandler.withRetry(() => {
 ```typescript
 // Root store that contains all other stores
 interface RootStore {
-  authStore: AuthStore; // Authentication state
   gameStateStore: GameStateStore; // Real-time game data
   configStore: ConfigStore; // Configuration management
   calibrationStore: CalibrationStore; // Calibration process
@@ -267,25 +221,12 @@ import { observer } from 'mobx-react-lite';
 import { useStore } from './stores';
 
 const GameView = observer(() => {
-  const { gameStateStore, authStore } = useStore();
+  const { gameStateStore } = useStore();
 
   // Reactive data access
   const currentState = gameStateStore.currentState;
-  const isAuthenticated = authStore.isAuthenticated;
-
-  // Actions
-  const handleLogin = async () => {
-    await authStore.login({ username, password });
-  };
-
   return (
-    <div>
-      {isAuthenticated ? (
-        <GameDisplay state={currentState} />
-      ) : (
-        <LoginForm onLogin={handleLogin} />
-      )}
-    </div>
+    <GameDisplay state={currentState} />
   );
 });
 ```
@@ -310,7 +251,7 @@ VITE_DEBUG_MODE=false
 const config = {
   // API Service
   apiBaseUrl: "http://localhost:8000",
-  wsBaseUrl: "ws://localhost:8000/ws",
+  wsBaseUrl: "ws://localhost:8000/api/v1/websocket/ws",
   enableCaching: true,
   cacheTimeout: 300000,
   autoConnectWebSocket: true,
@@ -321,12 +262,6 @@ const config = {
   reconnectDelay: 1000,
   maxReconnectDelay: 30000,
   heartbeatInterval: 30000,
-
-  // Authentication
-  persistAuth: true,
-  autoRefresh: true,
-  refreshThreshold: 300,
-  inactivityTimeout: 3600,
 
   // Data Processing
   frameProcessing: {
@@ -352,14 +287,6 @@ try {
 } catch (error) {
   if (isApiError(error)) {
     switch (error.status) {
-      case 401:
-        // Redirect to login
-        authStore.logout();
-        break;
-      case 403:
-        // Show permission error
-        uiStore.showError("Insufficient permissions");
-        break;
       case 422:
         // Show validation errors
         showValidationErrors(error.details);
@@ -508,7 +435,6 @@ if (import.meta.env.DEV) {
 
 ### Production Configuration
 
-- Enable authentication persistence
 - Set appropriate cache timeouts
 - Configure retry limits
 - Enable error reporting
@@ -519,7 +445,6 @@ if (import.meta.env.DEV) {
 - Use HTTPS/WSS in production
 - Validate all user inputs
 - Implement rate limiting
-- Secure token storage
 - Regular security audits
 
 ## Support and Maintenance
@@ -529,14 +454,12 @@ if (import.meta.env.DEV) {
 - Connection health metrics
 - Error rates and types
 - Performance statistics
-- User activity tracking
 
 ### Troubleshooting
 
 1. Check browser console for errors
 2. Verify network connectivity
-3. Validate authentication tokens
-4. Review WebSocket connection state
-5. Check API service health
+3. Review WebSocket connection state
+4. Check API service health
 
 For additional support, see the main project documentation or contact the development team.

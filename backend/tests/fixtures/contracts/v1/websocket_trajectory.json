@@ -1,0 +1,42 @@
+{
+  "type": "trajectory",
+  "timestamp": "2025-01-01T00:00:00+00:00",
+  "sequence": 1,
+  "data": {
+    "lines": [
+      {
+        "start": {"x": 100.0, "y": 200.0, "scale": [1.0, 1.0]},
+        "end": {"x": 300.0, "y": 200.0, "scale": [1.0, 1.0]},
+        "type": "primary"
+      },
+      {
+        "start": {"x": 300.0, "y": 200.0, "scale": [1.0, 1.0]},
+        "end": {"x": 280.0, "y": 180.0, "scale": [1.0, 1.0]},
+        "type": "reflection"
+      }
+    ],
+    "collisions": [
+      {
+        "type": "ball",
+        "ball_ids": [1, 2],
+        "position": {"x": 280.0, "y": 200.0, "scale": [1.0, 1.0]}
+      }
+    ],
+    "confidence": 0.9,
+    "calculation_time_ms": 2.5,
+    "timestamp": "2025-01-01T00:00:00+00:00",
+    "sequence": 1,
+    "line_count": 2,
+    "collision_count": 1,
+    "prediction_status": "live",
+    "spatial_valid": true,
+    "phase": "motion",
+    "source_frame_number": 42,
+    "source_timestamp": 1735689600.0,
+    "source_timestamp_kind": "replay_publication",
+    "map_revision": "map-7",
+    "calibration_revision": "calibration-3",
+    "prediction_settings": {"max_bounces": 2},
+    "source_observations": {}
+  }
+}

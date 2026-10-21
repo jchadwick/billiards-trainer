@@ -1,0 +1,102 @@
+name: Rust Perception Checks
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "perception/**"
+      - "backend/perception/**"
+      - "backend/config.py"
+      - "backend/config_schema_defaults.json"
+      - "backend/tests/unit/test_capture_configuration.py"
+      - "backend/tests/unit/test_capture_acknowledgement.py"
+      - "backend/tests/unit/test_rust_live_supervisor.py"
+      - "backend/tests/unit/test_scene_snapshot_ingress.py"
+      - "backend/tests/unit/test_perception_scene_contract.py"
+      - "backend/tests/unit/test_perception_detection_batch_contract.py"
+      - ".github/workflows/perception.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "perception/**"
+      - "backend/perception/**"
+      - "backend/config.py"
+      - "backend/config_schema_defaults.json"
+      - "backend/tests/unit/test_capture_configuration.py"
+      - "backend/tests/unit/test_capture_acknowledgement.py"
+      - "backend/tests/unit/test_rust_live_supervisor.py"
+      - "backend/tests/unit/test_scene_snapshot_ingress.py"
+      - "backend/tests/unit/test_perception_scene_contract.py"
+      - "backend/tests/unit/test_perception_detection_batch_contract.py"
+      - ".github/workflows/perception.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: rust-perception-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust checks (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    defaults:
+      run:
+        working-directory: perception
+    steps:
+      - name: Fetch public source without credentials
+        working-directory: ${{ github.workspace }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          fi
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.1
+        with:
+          components: clippy, rustfmt
+
+      - name: Install Linux native camera build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes clang libclang-dev libudev-dev pkg-config libssl-dev linux-libc-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base
+
+      - name: Install macOS GStreamer development/runtime package
+        if: runner.os == 'macOS'
+        run: brew install gstreamer
+
+      - name: Check opt-in Nokhwa native backend build
+        run: cargo check --locked --all-targets --features camera-nokhwa-build-spike
+
+      - name: Test opt-in GStreamer camera probes
+        run: cargo test --locked --all-targets --features camera-gstreamer-probe,camera-gstreamer-discovery
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run strict Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run unit, contract, and fixture inference tests
+        run: cargo test --locked --all-targets
+
+      - name: Build optimized inference executable
+        run: cargo build --locked --release --bin billiards-perception-infer
+
+      - name: Build optimized live-runtime executable
+        run: cargo build --locked --release --bin billiards-perception-live

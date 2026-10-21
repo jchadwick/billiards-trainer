@@ -224,7 +224,7 @@ These features ensure the projected visuals align correctly with the physical ta
 The visualizer receives real-time updates via WebSocket. Messages are JSON-encoded.
 
 ### WebSocket Configuration
-- **Default endpoint**: `ws://[api-host]:8000/api/v1/game/state/ws`
+- **Default endpoint**: `ws://[api-host]:8000/api/v1/websocket/ws`
 - **Message encoding**: UTF-8 JSON (text frames)
 - **Reconnection**: Automatic with exponential backoff
 - **Heartbeat**: Ping/pong every 30 seconds
@@ -251,17 +251,32 @@ The visualizer receives real-time updates via WebSocket. Messages are JSON-encod
     "balls": [
       {
         "id": "ball_001",        // Unique persistent ID
-        "position": [100, 200],  // [x, y] coordinates
-        "velocity": [0, 0],      // [vx, vy]
+        "position": {"x": 100, "y": 200, "scale": [2, 2]},
+        "velocity": {"x": 0, "y": 0, "scale": [2, 2]},
         "is_moving": false,
         "number": 1,             // Optional: ball number (1-15) or null
         "is_cue_ball": false
       }
     ],
     "cue": { /* cue stick data */ },
-    "table": { /* table geometry */ }
+    "table": {
+      "width": 2.1,              // Physical table width in meters
+      "height": 1.05,            // Physical table height in meters
+      "playing_area_corners": [  // Image points; each has its own scale
+        {"x": 10, "y": 20, "scale": [2, 2]},
+        {"x": 30, "y": 20, "scale": [2, 2]},
+        {"x": 30, "y": 40, "scale": [2, 2]},
+        {"x": 10, "y": 40, "scale": [2, 2]}
+      ]
+    }
   }
 }
+
+Image point and vector scales convert each raw component to the backend's
+canonical 3840 x 2160 pixel plane. The visualizer applies that factor once at
+message ingestion. A canonical point uses `scale: [1, 1]`; missing, non-finite,
+or non-positive scale factors are rejected. Table widths, heights, and other
+measurements explicitly marked in meters remain physical values.
 
 // Motion event - immediate update when ball starts moving
 {
@@ -270,8 +285,8 @@ The visualizer receives real-time updates via WebSocket. Messages are JSON-encod
   "sequence": 101,
   "data": {
     "ball_id": "ball_001",     // Which ball is moving
-    "position": [105, 205],
-    "velocity": [10.5, 5.2],
+    "position": {"x": 105, "y": 205, "scale": [2, 2]},
+    "velocity": {"x": 10.5, "y": 5.2, "scale": [2, 2]},
     "is_moving": true,
     "number": 1                // Optional
   }
@@ -285,12 +300,14 @@ The visualizer receives real-time updates via WebSocket. Messages are JSON-encod
   "data": {
     "lines": [
       {
-        "start": [100, 200],
-        "end": [300, 400],
+        "start": {"x": 100, "y": 200, "scale": [1, 1]},
+        "end": {"x": 300, "y": 400, "scale": [1, 1]},
         "type": "primary|reflection|collision"
       }
     ],
-    "collisions": [ /* collision data */ ]
+    "collisions": [
+      {"position": {"x": 300, "y": 400, "scale": [1, 1]}, "type": "ball"}
+    ]
   }
 }
 
@@ -315,7 +332,7 @@ The visualizer uses a JSON configuration file:
 ```json
 {
   "network": {
-    "websocket_url": "ws://localhost:8000/api/v1/game/state/ws",
+    "websocket_url": "ws://localhost:8000/api/v1/websocket/ws",
     "reconnect": true,
     "reconnect_delay": 1000,
     "max_reconnect_delay": 30000

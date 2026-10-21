@@ -146,55 +146,14 @@ The simplified three-type approach provides 95%+ accuracy vs 70% with four-type 
 
 ### Module Interface
 
+`CueStick` is defined in `backend.vision.models`. Its detection state is the `CueState` enum; there is no `is_aiming` field. Cue position and pixel extents use `coordinate_space` and `source_resolution`; tip, butt, shaft, velocity, length, and width are normalized together. The shared `Ball` detection model is defined in `backend.common.models` and is distinct from core physics `BallState`. Table corners, rails, playing-area boundaries, extents, and pocket geometry share the table coordinate space and source resolution. See [Coordinate Systems](../../docs/COORDINATE_SYSTEMS.md) for the repository-wide scale contract.
+
 ```python
-from typing import List, Optional, Tuple, Dict, Any
-from dataclasses import dataclass
+from typing import Dict, List, Tuple, Any, Optional
 import numpy as np
-from enum import Enum
 
-class BallType(Enum):
-    CUE = "cue"
-    EIGHT = "eight"
-    OTHER = "other"  # All other balls (1-7, 9-15) - simplified classification for reliability
-
-@dataclass
-class Ball:
-    """Detected ball information"""
-    position: Tuple[float, float]  # (x, y) in pixels
-    radius: float  # pixels
-    ball_type: BallType  # Only three types: cue, eight, other (simplified classification)
-    number: Optional[int]  # Deprecated - no longer used for specific ball numbers
-    confidence: float  # 0.0-1.0 detection confidence
-    velocity: Tuple[float, float]  # (vx, vy) pixels/second
-    is_moving: bool
-
-@dataclass
-class CueStick:
-    """Detected cue stick information"""
-    tip_position: Tuple[float, float]
-    angle: float  # degrees from horizontal
-    length: float  # pixels
-    is_aiming: bool
-    confidence: float
-
-@dataclass
-class Table:
-    """Detected table information"""
-    corners: List[Tuple[float, float]]  # 4 corners
-    pockets: List[Tuple[float, float]]  # 6 pockets
-    width: float  # pixels
-    height: float  # pixels
-    surface_color: Tuple[int, int, int]  # Average HSV
-
-@dataclass
-class DetectionResult:
-    """Complete frame detection results"""
-    frame_number: int
-    timestamp: float
-    balls: List[Ball]
-    cue: Optional[CueStick]
-    table: Table
-    processing_time: float  # milliseconds
+from backend.common.models import Ball
+from backend.vision.models import CueState, CueStick, Table, DetectionResult
 
 class VisionModule:
     """Main vision processing interface"""
@@ -217,10 +176,6 @@ class VisionModule:
 
     def get_current_frame(self) -> np.ndarray:
         """Get latest captured frame"""
-        pass
-
-    def calibrate_camera(self) -> bool:
-        """Perform camera calibration"""
         pass
 
     def calibrate_colors(self, sample_image: np.ndarray) -> Dict:

@@ -3,9 +3,30 @@ import { observer } from "mobx-react-lite";
 import { Card, CardContent, Button } from "../../ui";
 import { apiClient } from "../../../api/client";
 import type { CalibrationData } from "../../../types/video";
+import {
+  CANONICAL_IMAGE_SIZE,
+  canonicalToImagePoint,
+  normalizeImagePointToCanonical,
+} from "../../../utils/coordinates";
 
 const CALIBRATION_CANVAS_WIDTH = 640;
 const CALIBRATION_CANVAS_HEIGHT = 360;
+const CALIBRATION_CANVAS_SIZE = {
+  width: CALIBRATION_CANVAS_WIDTH,
+  height: CALIBRATION_CANVAS_HEIGHT,
+};
+
+function toCalibrationCanvasPoint(point: unknown, sourceResolution?: { width: number; height: number }) {
+  const canonical = normalizeImagePointToCanonical(point, sourceResolution);
+  return canonical ? canonicalToImagePoint(canonical, CALIBRATION_CANVAS_SIZE) : null;
+}
+
+function calibrationCanvasScale(): [number, number] {
+  return [
+    CANONICAL_IMAGE_SIZE.width / CALIBRATION_CANVAS_WIDTH,
+    CANONICAL_IMAGE_SIZE.height / CALIBRATION_CANVAS_HEIGHT,
+  ];
+}
 
 // Types for calibration workflow
 interface Point {
@@ -47,7 +68,7 @@ const VideoFeedCanvas: React.FC<{
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | undefined>(undefined);
   const [streamConnected, setStreamConnected] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
@@ -74,15 +95,18 @@ const VideoFeedCanvas: React.FC<{
 
     // Draw saved calibration overlay in magenta/purple (if exists)
     if (savedCalibrationData && savedCalibrationData.isValid && savedCalibrationData.corners.length >= 4) {
+      const savedPoints = savedCalibrationData.corners
+        .map((corner) => canonicalToImagePoint(corner.screenPosition, { width, height }))
+        .filter((point): point is { x: number; y: number } => point !== null);
+      if (savedPoints.length >= 4) {
       // Draw saved calibration boundary lines
       ctx.strokeStyle = "#d946ef"; // Magenta
       ctx.lineWidth = 2;
       ctx.setLineDash([8, 4]); // Dashed line
 
       ctx.beginPath();
-      savedCalibrationData.corners.forEach((corner, index) => {
-        const x = corner.screenPosition.x;
-        const y = corner.screenPosition.y;
+      savedPoints.forEach((point, index) => {
+        const { x, y } = point;
         if (index === 0) {
           ctx.moveTo(x, y);
         } else {
@@ -94,9 +118,8 @@ const VideoFeedCanvas: React.FC<{
       ctx.setLineDash([]); // Reset dash pattern
 
       // Draw saved calibration corner points
-      savedCalibrationData.corners.forEach((corner, index) => {
-        const x = corner.screenPosition.x;
-        const y = corner.screenPosition.y;
+      savedPoints.forEach((point, index) => {
+        const { x, y } = point;
 
         // Outer glow
         ctx.fillStyle = "rgba(217, 70, 239, 0.3)"; // Magenta with transparency
@@ -137,6 +160,7 @@ const VideoFeedCanvas: React.FC<{
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillText("✓ Saved Calibration", 18, 25);
+      }
     }
 
     // Draw calibration points overlay if visible (new points being set)
@@ -399,31 +423,43 @@ const PlayingAreaCalibrationStep: React.FC<{
         const response = await apiClient.getPlayingArea();
         if (response.success && response.data) {
           setExistingCalibration(response.data);
+          const sourceWidth = response.data.calibration_resolution_width ?? response.data.resolution?.width;
+          const sourceHeight = response.data.calibration_resolution_height ?? response.data.resolution?.height;
+          const sourceResolution = Number.isFinite(sourceWidth) && sourceWidth > 0 &&
+            Number.isFinite(sourceHeight) && sourceHeight > 0
+            ? { width: sourceWidth, height: sourceHeight }
+            : undefined;
 
           // If corners exist, load them into points
           if (response.data.corners && response.data.corners.length === 4) {
-            const loadedPoints: Point[] = response.data.corners.map(
-              (corner: { x: number; y: number }, index: number) => ({
-                x: corner.x,
-                y: corner.y,
-                id: `corner_${index}`,
-                screenX: corner.x,
-                screenY: corner.y,
-                worldX: 0,
-                worldY: 0,
-              })
+            const loadedPoints: Point[] = response.data.corners.flatMap(
+              (corner: unknown, index: number) => {
+                const canvasPoint = toCalibrationCanvasPoint(corner, sourceResolution);
+                return canvasPoint ? [{
+                  x: canvasPoint.x,
+                  y: canvasPoint.y,
+                  id: `corner_${index}`,
+                  screenX: canvasPoint.x,
+                  screenY: canvasPoint.y,
+                  worldX: 0,
+                  worldY: 0,
+                }] : [];
+              }
             );
-            setPoints(loadedPoints);
+            if (loadedPoints.length === 4) setPoints(loadedPoints);
           }
 
           // If marker dots exist, load them
           if (response.data.marker_dots && Array.isArray(response.data.marker_dots)) {
-            const loadedMarkerDots: MarkerDot[] = response.data.marker_dots.map(
-              (dot: { x: number; y: number }, index: number) => ({
-                id: `marker_${index}_${Date.now()}`,
-                x: dot.x,
-                y: dot.y,
-              })
+            const loadedMarkerDots: MarkerDot[] = response.data.marker_dots.flatMap(
+              (dot: unknown, index: number) => {
+                const canvasPoint = toCalibrationCanvasPoint(dot, sourceResolution);
+                return canvasPoint ? [{
+                  id: `marker_${index}_${Date.now()}`,
+                  x: canvasPoint.x,
+                  y: canvasPoint.y,
+                }] : [];
+              }
             );
             setMarkerDots(loadedMarkerDots);
           }
@@ -433,28 +469,40 @@ const PlayingAreaCalibrationStep: React.FC<{
         const calibrationResponse = await apiClient.getCalibrationData();
         if (calibrationResponse.success && calibrationResponse.data) {
           const apiData = calibrationResponse.data;
+          const calibrationWidth = apiData.source_resolution?.[0] ?? apiData.calibration_resolution_width;
+          const calibrationHeight = apiData.source_resolution?.[1] ?? apiData.calibration_resolution_height;
+          const sourceResolution = Number.isFinite(calibrationWidth) && calibrationWidth > 0 &&
+            Number.isFinite(calibrationHeight) && calibrationHeight > 0
+            ? { width: calibrationWidth, height: calibrationHeight }
+            : undefined;
 
           // Convert API calibration data to CalibrationData format
           const calibrationData: CalibrationData = {
-            corners: (apiData.corners || []).map((corner: any, index: number) => ({
-              id: `corner-${index}`,
-              screenPosition: {
-                x: Array.isArray(corner) ? corner[0] : corner.x,
-                y: Array.isArray(corner) ? corner[1] : corner.y,
-              },
-              worldPosition: {
-                x: Array.isArray(corner) ? corner[0] : corner.x,
-                y: Array.isArray(corner) ? corner[1] : corner.y,
-              },
-              timestamp: Date.now(),
-              confidence: apiData.accuracy || 1.0,
-            })),
+            corners: (apiData.corners || []).flatMap((corner: unknown, index: number) => {
+              const record = corner && typeof corner === "object" && !Array.isArray(corner)
+                ? corner as Record<string, unknown>
+                : {};
+              const imagePoint = normalizeImagePointToCanonical(
+                record.image_point ?? corner,
+                sourceResolution,
+              );
+              return imagePoint ? [{
+                id: `corner-${index}`,
+                screenPosition: imagePoint,
+                timestamp: Date.now(),
+                confidence: apiData.accuracy || 1.0,
+              }] : [];
+            }),
             transformationMatrix: apiData.transformation_matrix,
             calibratedAt: apiData.calibrated_at ? new Date(apiData.calibrated_at).getTime() : Date.now(),
             accuracy: apiData.accuracy,
             isValid: apiData.is_valid !== false && (apiData.corners || []).length >= 4,
             tableType: apiData.table_type,
-            dimensions: apiData.dimensions,
+            dimensions: apiData.dimensions && {
+              width: apiData.dimensions.width,
+              height: apiData.dimensions.height,
+              ...(apiData.dimensions.unit === "meters" ? { unit: "meters" as const } : {}),
+            },
           };
 
           setSavedCalibrationData(calibrationData);
@@ -568,9 +616,11 @@ const PlayingAreaCalibrationStep: React.FC<{
 
     setIsApplying(true);
     try {
-      // Report the calibration canvas dimensions; backend scales to physical resolution.
+      // The wire points remain in the calibration canvas frame and carry the
+      // explicit multiplier into the shared canonical image plane.
       const calibration_resolution_width = CALIBRATION_CANVAS_WIDTH;
       const calibration_resolution_height = CALIBRATION_CANVAS_HEIGHT;
+      const scale = calibrationCanvasScale();
 
       console.log(`Saving calibration with resolution: ${calibration_resolution_width}x${calibration_resolution_height}`);
 
@@ -579,10 +629,12 @@ const PlayingAreaCalibrationStep: React.FC<{
         corners: points.map((p) => ({
           x: p.screenX,
           y: p.screenY,
+          scale,
         })),
         marker_dots: markerDots.map((dot) => ({
           x: dot.x,
           y: dot.y,
+          scale,
         })),
         calibration_resolution_width,
         calibration_resolution_height,

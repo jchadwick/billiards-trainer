@@ -2,6 +2,120 @@
 -- Renders ball trajectories, collisions, and aiming guides
 
 local Colors = require("modules.colors.init")
+local Coordinates = require("core.coordinates")
+
+local function world_point(point, fallbackScale, fallbackSpace)
+    if type(point) ~= "table" or point.coordinate_scale ~= nil
+        or point.units ~= nil then
+        return nil
+    end
+    local x = point.x
+    local y = point.y
+    local unit = point.unit
+    local space = point.coordinate_space or fallbackSpace
+    if unit == "normalized_projector" or unit == "normalized_table" then
+        space = space or unit
+    end
+    if unit == "meter" or unit == "meters" or space == "world_meters" then
+        if (space ~= nil and space ~= "world_meters")
+            or not Coordinates.isFiniteNumber(x) or not Coordinates.isFiniteNumber(y) then
+            return nil
+        end
+        local copy = {}
+        for key, value in pairs(point) do copy[key] = value end
+        copy.x = x
+        copy.y = y
+        copy.unit = "meters"
+        return copy
+    end
+
+    if space == "normalized_projector" or space == "normalized_table" then
+        local scale = point.scale or fallbackScale
+        if not Coordinates.validScale(scale) or scale[1] ~= 1 or scale[2] ~= 1
+            or not Coordinates.isFiniteNumber(x) or not Coordinates.isFiniteNumber(y)
+            or (unit ~= nil and unit ~= space) then
+            return nil
+        end
+        local copy = {}
+        for key, value in pairs(point) do copy[key] = value end
+        copy.x = x
+        copy.y = y
+        copy.scale = {1, 1}
+        copy.unit = space
+        copy.coordinate_space = space
+        return copy
+    end
+    return nil
+end
+
+local function normalize_point(point, fallbackScale, fallbackSpace)
+    if type(point) == "table" and type(point.position) == "table" then
+        if point.coordinate_scale ~= nil or point.units ~= nil then return nil end
+        fallbackScale = point.scale or fallbackScale
+        fallbackSpace = point.coordinate_space or fallbackSpace
+        point = point.position
+    end
+    return world_point(point, fallbackScale, fallbackSpace)
+        or Coordinates.toCanonicalPoint(point, fallbackScale, fallbackSpace)
+end
+
+local function normalized_line(line, data)
+    if type(line) ~= "table" or line.coordinate_scale ~= nil
+        or line.units ~= nil then
+        return nil
+    end
+    local scale = line.scale or data.scale
+    local space = line.coordinate_space or data.coordinate_space
+    local startPoint = normalize_point(line.start, scale, space)
+    local endPoint = normalize_point(line["end"], scale, space)
+    if not startPoint or not endPoint then return nil end
+    return {
+        points = {startPoint, endPoint},
+        ballType = line.type or "primary",
+        timestamp = love.timer.getTime(),
+        confidence = line.confidence or 1.0
+    }
+end
+
+local function normalize_collision(collision, data)
+    if type(collision) ~= "table" or type(collision.position) ~= "table"
+        or collision.coordinate_scale ~= nil or collision.units ~= nil then
+        return nil
+    end
+    local collisionScale = collision.scale or data.scale
+    local collisionSpace = collision.coordinate_space or data.coordinate_space
+    local point = normalize_point(collision.position, collisionScale, collisionSpace)
+    if not point then return nil end
+    return {
+        position = point,
+        type = collision.type or "ball",
+        timestamp = love.timer.getTime()
+    }
+end
+
+local function project_point(point, calibration)
+    if point.unit == "normalized_projector" or point.unit == "normalized_table" then
+        if not Coordinates.validScale(point.scale)
+            or point.scale[1] ~= 1 or point.scale[2] ~= 1 then
+            return nil, nil
+        end
+        return calibration:transform(point.x, point.y)
+    end
+    if point.unit == "meters" then
+        local stateManager = _G.StateManager
+        local tableState = stateManager and stateManager:getTable()
+        local u, v = Coordinates.toPhysicalTablePlane(point, tableState)
+        if not u then return nil, nil end
+        return calibration:transform(u, v)
+    end
+    local stateManager = _G.StateManager
+    local tableState = stateManager and stateManager:getTable()
+    local u, v = Coordinates.toTablePlane(
+        point, tableState and tableState.playing_area_corners
+    )
+    if not u then return nil, nil end
+    return calibration:transform(u, v)
+end
 
 local Trajectory = {
     name = "trajectory",
@@ -11,13 +125,11 @@ local Trajectory = {
     -- Trajectory data
     paths = {},
     collisions = {},
-    ghostBalls = {},
     aimLine = nil,
 
     -- Visual settings
     fadeTime = 2.0,  -- Time for trajectory to fade out
     lineWidth = 3,
-    showGhostBalls = true,
     showCollisionMarkers = true,
     showSpinIndicators = true,
 
@@ -25,6 +137,10 @@ local Trajectory = {
     -- Falls back to hardcoded cyan if color module not available
     colors = nil  -- Will be set by init()
 }
+
+-- Keep the coordinate boundary directly testable without a renderer or LÖVE
+-- window; production drawing uses the same function below.
+Trajectory.projectPoint = project_point
 
 -- Initialize module
 function Trajectory:init()
@@ -44,7 +160,7 @@ function Trajectory:init()
     print("Trajectory module initialized")
 end
 
--- Handle incoming messages
+-- Handle the optional aiming overlay message path.
 function Trajectory:onMessage(messageType, data)
     if messageType == "trajectory" then
         self:updateTrajectory(data)
@@ -59,74 +175,59 @@ end
 
 -- Update trajectory data
 function Trajectory:updateTrajectory(data)
-    if not data then return end
+    if type(data) ~= "table" then return end
 
     -- Store new trajectory
     self.paths = {}
+    self.collisions = {}
+    if data.coordinate_scale ~= nil or data.units ~= nil then return end
 
-    if data.paths then
-        for _, path in ipairs(data.paths) do
-            table.insert(self.paths, {
-                points = path.points or {},
-                ballType = path.ballType or "cue",
-                timestamp = love.timer.getTime(),
-                confidence = path.confidence or 1.0
-            })
+    if type(data.lines) == "table" then
+        -- The backend contract contains independently tagged scaled segments.
+        for _, line in ipairs(data.lines) do
+            local normalized = normalized_line(line, data)
+            if normalized then table.insert(self.paths, normalized) end
         end
     end
 
     -- Update collisions
-    if data.collisions then
-        self.collisions = {}
+    if type(data.collisions) == "table" then
         for _, collision in ipairs(data.collisions) do
-            table.insert(self.collisions, {
-                x = collision.x,
-                y = collision.y,
-                type = collision.type,  -- "ball", "cushion", "pocket"
-                timestamp = love.timer.getTime()
-            })
+            local normalized = normalize_collision(collision, data)
+            if normalized then table.insert(self.collisions, normalized) end
         end
     end
-
-    -- Update ghost balls
-    if data.ghostBalls then
-        self.ghostBalls = data.ghostBalls
-    end
 end
 
--- Add a collision marker
 function Trajectory:addCollision(data)
-    if not data or not data.x or not data.y then return end
-
-    table.insert(self.collisions, {
-        x = data.x,
-        y = data.y,
-        type = data.type or "ball",
-        timestamp = love.timer.getTime()
-    })
+    local normalized = normalize_collision(data, {})
+    if normalized then table.insert(self.collisions, normalized) end
 end
 
--- Update aim line
 function Trajectory:updateAimLine(data)
     if not data then
         self.aimLine = nil
         return
     end
-
-    self.aimLine = {
-        x1 = data.x1,
-        y1 = data.y1,
-        x2 = data.x2,
-        y2 = data.y2,
+    if data.coordinate_scale ~= nil or data.units ~= nil then
+        self.aimLine = nil
+        return
+    end
+    local scale = data.scale
+    local space = data.coordinate_space
+    local point1 = normalize_point(data.start, scale, space)
+    local point2 = normalize_point(data.finish or data["end"], scale, space)
+    self.aimLine = point1 and point2 and {
+        start = point1,
+        finish = point2,
         timestamp = love.timer.getTime()
-    }
+    } or nil
 end
 
 -- Clear all trajectories
 function Trajectory:clear()
     self.paths = {}
     self.collisions = {}
-    self.ghostBalls = {}
     self.aimLine = nil
 end
 
@@ -148,7 +249,6 @@ function Trajectory:update(dt)
         end
     end
 
-    -- Remove old aim line
     if self.aimLine and currentTime - self.aimLine.timestamp > self.fadeTime then
         self.aimLine = nil
     end
@@ -164,21 +264,20 @@ function Trajectory:draw()
         return
     end
 
-    -- Draw aim line
     if self.aimLine then
         local alpha = 1.0 - (currentTime - self.aimLine.timestamp) / self.fadeTime
         if alpha > 0 then
-            local x1, y1 = Calibration:transform(self.aimLine.x1, self.aimLine.y1)
-            local x2, y2 = Calibration:transform(self.aimLine.x2, self.aimLine.y2)
-
-            local color = {
-                self.colors.aimLine[1],
-                self.colors.aimLine[2],
-                self.colors.aimLine[3],
-                self.colors.aimLine[4] * alpha
-            }
-
-            Renderer:drawDashedLine(x1, y1, x2, y2, 20, 10, color)
+            local x1, y1 = project_point(self.aimLine.start, Calibration)
+            local x2, y2 = project_point(self.aimLine.finish, Calibration)
+            if x1 and y1 and x2 and y2 then
+                local color = {
+                    self.colors.aimLine[1],
+                    self.colors.aimLine[2],
+                    self.colors.aimLine[3],
+                    self.colors.aimLine[4] * alpha
+                }
+                Renderer:drawDashedLine(x1, y1, x2, y2, 20, 10, color)
+            end
         end
     end
 
@@ -189,7 +288,11 @@ function Trajectory:draw()
             -- Transform points to screen coordinates
             local screenPoints = {}
             for _, point in ipairs(path.points) do
-                local x, y = Calibration:transform(point.x, point.y)
+                local x, y = project_point(point, Calibration)
+                if not x or not y then
+                    screenPoints = {}
+                    break
+                end
                 table.insert(screenPoints, {x = x, y = y})
             end
 
@@ -217,8 +320,9 @@ function Trajectory:draw()
         for _, collision in ipairs(self.collisions) do
             local alpha = 1.0 - (currentTime - collision.timestamp) / self.fadeTime
             if alpha > 0 then
-                local x, y = Calibration:transform(collision.x, collision.y)
+            local x, y = project_point(collision.position, Calibration)
 
+            if x and y then
                 local color = {
                     self.colors.collision[1],
                     self.colors.collision[2],
@@ -226,7 +330,8 @@ function Trajectory:draw()
                     self.colors.collision[4] * alpha
                 }
 
-                -- Draw collision circle
+                -- Marker sizes are projector UI sizes; all transported positions
+                -- were scaled before reaching this rendering boundary.
                 love.graphics.setColor(color)
                 love.graphics.circle("line", x, y, 10)
 
@@ -238,20 +343,7 @@ function Trajectory:draw()
                 elseif collision.type == "pocket" then
                     love.graphics.circle("line", x, y, 15)
                 end
-            end
-        end
-    end
-
-    -- Draw ghost balls
-    if self.showGhostBalls then
-        for _, ghost in ipairs(self.ghostBalls) do
-            local x, y = Calibration:transform(ghost.x, ghost.y)
-            Renderer:drawCircle(x, y, ghost.radius or 10, self.colors.ghost, false)
-
-            -- Draw ghost ball number if provided
-            if ghost.number then
-                love.graphics.setColor(self.colors.ghost)
-                love.graphics.print(tostring(ghost.number), x - 5, y - 7)
+                end
             end
         end
     end
@@ -270,7 +362,6 @@ end
 function Trajectory:configure(config)
     if config.fadeTime then self.fadeTime = config.fadeTime end
     if config.lineWidth then self.lineWidth = config.lineWidth end
-    if config.showGhostBalls ~= nil then self.showGhostBalls = config.showGhostBalls end
     if config.showCollisionMarkers ~= nil then self.showCollisionMarkers = config.showCollisionMarkers end
     if config.colors then
         for key, color in pairs(config.colors) do

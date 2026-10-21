@@ -5,9 +5,12 @@ Usage:
     python backend/tools/quick_perf_check.py
 """
 
+from __future__ import annotations
+
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,13 +23,13 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
 
-def check_device_config():
+def check_device_config() -> dict[str, Any]:
     """Check device configuration and acceleration."""
     logger.info("=" * 60)
     logger.info("DEVICE CONFIGURATION CHECK")
     logger.info("=" * 60)
 
-    results = {}
+    results: dict[str, Any] = {}
 
     # Check PyTorch/MPS
     try:
@@ -64,7 +67,7 @@ def check_device_config():
 
     # Check config
     try:
-        from config import config
+        from backend.config import config
 
         yolo_device = config.get("vision.detection.yolo_device", "auto")
         yolo_model = config.get("vision.detection.yolo_model_path", "unknown")
@@ -105,15 +108,15 @@ def check_device_config():
     return results
 
 
-def test_yolo_inference():
+def test_yolo_inference() -> dict[str, float | bool] | None:
     """Test YOLO inference speed."""
     logger.info("\n" + "=" * 60)
     logger.info("YOLO INFERENCE SPEED TEST")
     logger.info("=" * 60)
 
     try:
-        from config import config
-        from vision.detection.yolo_detector import YOLODetector
+        from backend.config import config
+        from backend.vision.detection.yolo_detector import YOLODetector
 
         model_path = config.get("vision.detection.yolo_model_path")
         device = config.get("vision.detection.yolo_device", "auto")
@@ -208,15 +211,15 @@ def test_yolo_inference():
         return None
 
 
-def test_full_pipeline():
+def test_full_pipeline() -> dict[str, float | bool] | None:
     """Test full vision pipeline."""
     logger.info("\n" + "=" * 60)
     logger.info("FULL PIPELINE SPEED TEST")
     logger.info("=" * 60)
 
     try:
-        from config import config
-        from vision import VisionModule
+        from backend.config import config
+        from backend.vision import VisionModule
 
         logger.info("\nInitializing vision module...")
         vision = VisionModule(config={})
@@ -301,7 +304,7 @@ def test_full_pipeline():
         return None
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     logger.info("\n")
     logger.info("#" * 60)

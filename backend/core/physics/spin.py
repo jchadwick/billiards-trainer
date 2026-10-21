@@ -471,7 +471,7 @@ class SpinCalculator:
             config: Configuration parameters
         """
         self.physics = SpinPhysics(config)
-        self.spin_states: dict[str, Vector2D] = {}  # Track spin for each ball
+        self.spin_states: dict[str, SpinState] = {}  # Track spin for each ball
 
     def apply_english(
         self,

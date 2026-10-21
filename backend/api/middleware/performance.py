@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import gc
+import importlib
 import logging
 import threading
 import time
@@ -10,12 +11,62 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from statistics import mean, median
-from typing import Any, Callable, Optional
+from typing import Any, Optional, Protocol, cast
 
-import psutil
 from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel, Field
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.types import ASGIApp
+
+
+class _MemoryInfo(Protocol):
+    rss: int
+
+
+class _VirtualMemoryStats(Protocol):
+    percent: float
+    available: int
+
+
+class _DiskUsageStats(Protocol):
+    used: int
+    total: int
+    free: int
+
+
+class _NetworkIOStats(Protocol):
+    bytes_sent: int
+    bytes_recv: int
+    packets_sent: int
+    packets_recv: int
+
+
+class _Process(Protocol):
+    def cpu_percent(self) -> float: ...
+
+    def memory_info(self) -> _MemoryInfo: ...
+
+    def num_threads(self) -> int: ...
+
+    def num_fds(self) -> int: ...
+
+
+class _Psutil(Protocol):
+    def Process(self) -> _Process: ...
+
+    def cpu_percent(self) -> float: ...
+
+    def virtual_memory(self) -> _VirtualMemoryStats: ...
+
+    def disk_usage(self, path: str) -> _DiskUsageStats: ...
+
+    def net_io_counters(self) -> _NetworkIOStats: ...
+
+
+# psutil does not ship type information in every supported installation. Keep
+# the optional runtime dependency dynamically loaded and describe only the
+# small interface this collector consumes.
+psutil = cast("_Psutil", importlib.import_module("psutil"))
 
 
 @dataclass
@@ -224,7 +275,7 @@ class PerformanceMonitor:
         """Start background system monitoring."""
         if self.config.enable_system_metrics:
 
-            def monitor_system():
+            def monitor_system() -> None:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 loop.run_until_complete(self._system_monitoring_loop())
@@ -376,7 +427,7 @@ class PerformanceMonitor:
         total_requests = len(recent_metrics)
         error_count = len([m for m in recent_metrics if m.error])
 
-        summary = {
+        summary: dict[str, Any] = {
             "overview": {
                 "total_requests": total_requests,
                 "error_count": error_count,
@@ -404,7 +455,7 @@ class PerformanceMonitor:
         # Add percentiles
         if durations:
             sorted_durations = sorted(durations)
-            percentiles = {}
+            percentiles: dict[str, float] = {}
             for p in self.config.response_time_percentiles:
                 index = int((p / 100) * len(sorted_durations)) - 1
                 index = max(0, min(index, len(sorted_durations) - 1))
@@ -484,14 +535,18 @@ class PerformanceMonitor:
 class PerformanceMiddleware(BaseHTTPMiddleware):
     """Middleware for performance monitoring."""
 
-    def __init__(self, app, config: Optional[PerformanceConfig] = None):
+    def __init__(
+        self, app: ASGIApp, config: Optional[PerformanceConfig] = None
+    ) -> None:
         """Initialize performance middleware."""
         super().__init__(app)
         self.config = config or PerformanceConfig()
         self.monitor = PerformanceMonitor(self.config)
         self.logger = logging.getLogger("api.performance")
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
         """Process request with performance monitoring."""
         if not self.config.enable_monitoring:
             return await call_next(request)

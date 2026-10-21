@@ -4,13 +4,14 @@ import logging
 import traceback
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,15 @@ class ErrorResponse(BaseModel):
 
 
 # Error code mappings from SPECS.md
-ERROR_CODES = {
+class ErrorCodeDetails(TypedDict):
+    """Status and safe public message for a registered API error code."""
+
+    status: int
+    message: str
+
+
+ERROR_CODES: dict[str, ErrorCodeDetails] = {
     # Client errors (4xx)
-    "AUTH_001": {"status": 401, "message": "Invalid credentials"},
-    "AUTH_002": {"status": 401, "message": "Token expired"},
-    "AUTH_003": {"status": 403, "message": "Insufficient permissions"},
     "VAL_001": {"status": 400, "message": "Invalid request format"},
     "VAL_002": {"status": 400, "message": "Missing required parameter"},
     "VAL_003": {"status": 400, "message": "Parameter out of range"},
@@ -46,6 +51,7 @@ ERROR_CODES = {
     "RATE_001": {"status": 429, "message": "Rate limit exceeded"},
     # Server errors (5xx)
     "SYS_001": {"status": 500, "message": "Internal server error"},
+    "SYS_002": {"status": 503, "message": "Service unavailable"},
     "CAM_001": {"status": 503, "message": "Camera unavailable"},
     "PROC_001": {"status": 503, "message": "Vision processing failed"},
     "WS_001": {"status": 503, "message": "WebSocket service unavailable"},
@@ -118,7 +124,7 @@ class ErrorHandler:
         """Initialize error handler with configuration."""
         self.config = config
         self.error_count = 0
-        self.last_errors = []  # Keep track of recent errors for monitoring
+        self.last_errors: list[dict[str, Any]] = []
 
     def format_error_response(
         self,
@@ -173,7 +179,7 @@ class ErrorHandler:
         if not self.config.log_errors:
             return
 
-        context = {
+        context: dict[str, Any] = {
             "error_type": type(error).__name__,
             "error_message": str(error),
             "request_id": request_id,
@@ -228,10 +234,12 @@ class ErrorHandler:
         return sanitized
 
     def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP from request."""
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
+        """Return the direct peer address for logs.
+
+        Forwarded address headers are client-controlled unless a configured
+        trusted-proxy resolver validates them. This handler has no such trust
+        configuration, so it deliberately avoids using X-Forwarded-For.
+        """
         return request.client.host if request.client else "unknown"
 
     def _track_error(self, error: Exception, context: dict[str, Any]) -> None:
@@ -257,7 +265,7 @@ class ErrorHandler:
             if (datetime.utcnow() - err["timestamp"]).total_seconds() < 3600
         ]
 
-        error_types = {}
+        error_types: dict[str, int] = {}
         for error in recent_errors:
             error_type = error["error_type"]
             error_types[error_type] = error_types.get(error_type, 0) + 1
@@ -278,7 +286,7 @@ def get_request_id(request: Request) -> str:
     """Get or generate request ID for correlation."""
     # Check if request ID was set by tracing middleware
     request_id = getattr(request.state, "request_id", None)
-    if request_id:
+    if isinstance(request_id, str) and request_id:
         return request_id
 
     # Generate new request ID
@@ -287,25 +295,30 @@ def get_request_id(request: Request) -> str:
     return request_id
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     """Handle HTTP exceptions."""
     request_id = get_request_id(request)
 
     # Handle custom HTTP exceptions
     if isinstance(exc, CustomHTTPException):
+        error_info = ERROR_CODES[exc.error_code]
+        message = error_info["message"] if exc.status_code >= 500 else str(exc.detail)
+        details = exc.error_details if exc.status_code < 500 else None
         error_response = (
             _error_handler.format_error_response(
                 error_code=exc.error_code,
-                message=exc.detail,
-                details=exc.error_details,
+                message=message,
+                details=details,
                 request=request,
                 request_id=request_id,
             )
             if _error_handler
             else ErrorResponse(
                 error=exc.error_code,
-                message=exc.detail,
-                details=exc.error_details,
+                message=message,
+                details=details,
                 request_id=request_id,
             )
         )
@@ -313,36 +326,43 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         # Map status codes to error codes
         status_code_mapping = {
             400: "VAL_001",
-            401: "AUTH_001",
-            403: "AUTH_003",
             404: "RES_001",
+            409: "GAME_002",
+            422: "VAL_001",
             429: "RATE_001",
             500: "SYS_001",
-            503: "SYS_001",
+            502: "NET_001",
+            503: "SYS_002",
+            504: "NET_002",
         }
 
         error_code = status_code_mapping.get(exc.status_code, "SYS_001")
+        message = (
+            ERROR_CODES[error_code]["message"]
+            if exc.status_code >= 500
+            else str(exc.detail)
+        )
         error_response = (
             _error_handler.format_error_response(
                 error_code=error_code,
-                message=exc.detail,
+                message=message,
                 request=request,
                 request_id=request_id,
             )
             if _error_handler
-            else ErrorResponse(
-                error=error_code, message=exc.detail, request_id=request_id
-            )
+            else ErrorResponse(error=error_code, message=message, request_id=request_id)
         )
 
     # Log the error
     if _error_handler:
         _error_handler.log_error(exc, request, request_id)
 
+    headers = dict(exc.headers or {})
+    headers["X-Request-ID"] = request_id
     return JSONResponse(
         status_code=exc.status_code,
         content=error_response.model_dump(mode="json"),
-        headers={"X-Request-ID": request_id},
+        headers=headers,
     )
 
 
@@ -353,7 +373,7 @@ async def validation_exception_handler(
     request_id = get_request_id(request)
 
     # Format validation errors
-    error_details = {"validation_errors": []}
+    error_details: dict[str, Any] = {"validation_errors": []}
 
     for error in exc.errors():
         error_details["validation_errors"].append(
@@ -397,22 +417,17 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
     """Handle all other exceptions."""
     request_id = get_request_id(request)
 
-    # Determine error code based on exception type
-    error_code = "SYS_001"  # Default to internal server error
-
-    # Map specific exception types to error codes
-    if "camera" in str(exc).lower() or "cv2" in str(exc).lower():
-        error_code = "CAM_001"
-    elif "vision" in str(exc).lower() or "processing" in str(exc).lower():
-        error_code = "PROC_001"
-    elif "websocket" in str(exc).lower():
-        error_code = "WS_001"
-    elif "timeout" in str(exc).lower():
+    # Domain errors are raised by routes as registered CustomHTTPException
+    # values. Only typed transport errors are inferred here; arbitrary error
+    # messages are never inspected or returned to clients.
+    if isinstance(exc, TimeoutError):
         error_code = "NET_002"
+    elif isinstance(exc, ConnectionError):
+        error_code = "NET_001"
+    else:
+        error_code = "SYS_001"
 
     error_details = {"exception_type": type(exc).__name__}
-    if _error_handler and _error_handler.config.include_traceback:
-        error_details["traceback"] = traceback.format_exc()
 
     error_response = (
         _error_handler.format_error_response(
@@ -453,18 +468,38 @@ def setup_error_handling(
         app: FastAPI application instance
         config: Error handler configuration
     """
+    global _error_handler
+
     if config is None:
         config = ErrorHandlerConfig()
 
     _error_handler = ErrorHandler(config)
 
     # Register exception handlers
-    app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(HTTPException, _http_exception_handler_adapter)
+    app.add_exception_handler(StarletteHTTPException, _http_exception_handler_adapter)
+    app.add_exception_handler(
+        RequestValidationError, _validation_exception_handler_adapter
+    )
     app.add_exception_handler(Exception, general_exception_handler)
 
     logger.info("Error handling middleware configured")
+
+
+async def _http_exception_handler_adapter(request: Request, exc: Exception) -> Response:
+    """Bridge Starlette's broad handler type to the HTTP exception handler."""
+    if isinstance(exc, StarletteHTTPException):
+        return await http_exception_handler(request, exc)
+    return await general_exception_handler(request, exc)
+
+
+async def _validation_exception_handler_adapter(
+    request: Request, exc: Exception
+) -> Response:
+    """Bridge Starlette's broad handler type to the validation handler."""
+    if isinstance(exc, RequestValidationError):
+        return await validation_exception_handler(request, exc)
+    return await general_exception_handler(request, exc)
 
 
 def get_error_handler() -> Optional[ErrorHandler]:
