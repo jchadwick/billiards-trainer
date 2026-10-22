@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Fast, Python-independent checks for the supported Rust and browser runtime.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
+
+git -c core.whitespace=cr-at-eol diff --cached --check
+staged_paths="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [[ -z "${staged_paths}" ]]; then
+  exit 0
+fi
+
+rust_changed=0
+web_changed=0
+shell_changed=0
+while IFS= read -r path; do
+  case "${path}" in
+    perception/Cargo.toml|perception/Cargo.lock|perception/src/*.rs|perception/src/**/*.rs)
+      rust_changed=1
+      ;;
+    frontend/web/src/*|frontend/web/package.json|frontend/web/package-lock.json|frontend/web/tsconfig*.json)
+      web_changed=1
+      ;;
+    *.sh|.githooks/*)
+      shell_changed=1
+      bash -n -- "${path}"
+      ;;
+  esac
+done <<< "${staged_paths}"
+
+if ((rust_changed)); then
+  make format-check
+  make lint-rust
+  make test-rust
+fi
+
+if ((web_changed)); then
+  make lint-web
+  make test-web
+fi
+
+if ((shell_changed)); then
+  echo "Staged shell scripts pass bash syntax checks."
+fi

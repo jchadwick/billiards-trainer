@@ -14,7 +14,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-dev install-python-tools python-venv test test-all test-rust test-web test-python lint lint-rust lint-web lint-python format format-rust format-python format-check config-check config-example clean run docker build deploy deploy-clean logs docs docs-python docs-serve
+.PHONY: help install dev install-dev install-python-tools python-venv setup-git-hooks test test-all test-rust test-web test-python lint lint-rust lint-web lint-python format format-rust format-python format-check config-check config-example clean run docker build deploy deploy-clean logs docs docs-python docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -94,14 +94,9 @@ setup-dirs: ## Create necessary directories
 	@touch $(LOGS_DIR)/.gitkeep $(DATA_DIR)/.gitkeep $(TEMP_DIR)/.gitkeep
 	@echo "$(GREEN)Directories created!$(RESET)"
 
-setup-git-hooks: ## Setup git pre-commit hooks
-	@echo "$(BLUE)Setting up git hooks...$(RESET)"
-	@if command -v pre-commit >/dev/null 2>&1; then \
-		pre-commit install; \
-		echo "$(GREEN)Git hooks installed!$(RESET)"; \
-	else \
-		echo "$(YELLOW)pre-commit not found. Install with: pip install pre-commit$(RESET)"; \
-	fi
+setup-git-hooks: ## Configure the repository's Python-free shell commit hook
+	@git config --local core.hooksPath "$$(git rev-parse --show-toplevel)/.githooks"
+	@echo "$(GREEN)Python-free Git commit checks are enabled.$(RESET)"
 
 # ===== Code Quality =====
 

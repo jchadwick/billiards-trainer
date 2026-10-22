@@ -7,7 +7,6 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/**"
-      - ".pre-commit-config.yaml"
       - "pyproject.toml"
       - "requirements.txt"
   pull_request:
@@ -15,7 +14,6 @@ on:
     paths:
       - "backend/**"
       - ".github/workflows/**"
-      - ".pre-commit-config.yaml"
       - "pyproject.toml"
       - "requirements.txt"
 
