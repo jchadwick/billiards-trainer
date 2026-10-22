@@ -10,12 +10,16 @@ from backend.api.main import create_app
 from backend.api.models.common import ErrorCode as HttpErrorCode
 from backend.api.models.common import StatusCode as HttpStatusCode
 from backend.api.utils import validators
-from backend.dev_server import create_simple_app
+import backend.dev_server
 
 
 def test_openapi_and_cors_expose_no_client_authentication_contract() -> None:
-    for app in (create_app(), create_simple_app()):
-        _assert_no_authentication_contract(app)
+    _assert_no_authentication_contract(create_app())
+
+
+def test_retired_python_development_module_exposes_no_asgi_app_factory() -> None:
+    """The old echo server must not be launchable as an ASGI factory."""
+    assert not hasattr(backend.dev_server, "create_simple_app")
 
 
 def test_production_http_route_ignores_credential_looking_headers() -> None:

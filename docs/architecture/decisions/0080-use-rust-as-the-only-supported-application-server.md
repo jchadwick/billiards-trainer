@@ -24,10 +24,11 @@ entry point for development, installation, and deployment. `make run` starts
 the Rust server with live capture; `make run-api` starts the Rust gateway
 without live capture. The Python compatibility API may supervise Rust only;
 Python perception selection is rejected, and the compatibility module exports
-no default ASGI application object. Python route factories are retained for
-in-process contract tests only. Their command-line launchers must fail clearly
-and direct users to the Rust commands; they must not start Uvicorn, FastAPI,
-camera capture, or any other supported application service.
+no default ASGI application object. Its single route factory is retained for
+in-process contract tests only. The retired development-server module exposes
+no ASGI factory. Python command-line launchers must fail clearly and direct
+users to the Rust commands; they must not start Uvicorn, FastAPI, camera
+capture, or any other supported application service.
 
 Keep Python tools that prepare or evaluate data, train or inspect models, and
 compare runtime behavior off the deployed machine. Keep the browser as the
