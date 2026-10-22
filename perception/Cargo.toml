@@ -54,6 +54,10 @@ required-features = ["camera-gstreamer-discovery"]
 name = "billiards-capture-transport-bench"
 path = "src/bin/capture_transport_bench.rs"
 
+[[bin]]
+name = "billiards-perception-receive-detection-batches"
+path = "src/bin/detection_batch_receiver.rs"
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }

@@ -1950,3 +1950,12 @@ legacy tests isolated from the shipped Rust server. The direct camera demo now
 exits with a migration hint without opening a camera. Remaining Python work
 includes offline qualification/evaluation tools and reference modules; those
 require separate replacement or retirement decisions.
+
+**Python batch-receiver retirement (2026-10-22):** the substantial
+`backend/tools/receive_detection_batches.py` development receiver is replaced
+by a standalone Rust command in the perception crate. It keeps the framed
+detection-batch contract, loopback-only single-producer behavior, bounded
+receipt details, JSONL payloads, and versioned JSON report. Its contract and
+real-socket tests now run in Rust; shared schema fixtures and the model
+equivalence scorer remain Python as independent compatibility/evaluation
+tools. Simple build and test wrappers remain shell/Make tooling.

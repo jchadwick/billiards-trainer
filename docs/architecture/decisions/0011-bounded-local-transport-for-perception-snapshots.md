@@ -144,8 +144,9 @@ The Rust prototype validates four-byte big-endian framing, short reads and
 writes, consecutive messages, truncated headers/bodies, zero-length rejection,
 and oversize rejection before body allocation. Its recorded-image executable
 can synchronously send length-framed JSON to a loopback receiver with explicit
-message, connect, write, and session-time limits. The Python receiver checks
-the shared schema and records local receipt timing/order/gaps. A real-model ten-image
+message, connect, write, and session-time limits. The initial Python receiver
+checked the shared schema and recorded local receipt timing/order/gaps; the
+current receiver is Rust. A real-model ten-image
 replay delivered all 10 batches and 73 detections; all 73 matched the Python PT
 reference, with 0.0325 px maximum center difference. In the latest repeat,
 receiver inter-arrival p50/p95/p99 was 92.128/94.518/94.518 ms, which describes this unpaced static
@@ -158,7 +159,7 @@ queue, a slow receiver can stall static replay, and reconnect, stale-kernel-
 buffer, control independence, slow-reader isolation, and live freshness are
 not implemented for the detection-batch replay path. Keep this ADR proposed
 until the scene sender and live provider boundary are integrated and qualified.
-See the [batch replay receiver](../../../backend/tools/receive_detection_batches.py), [Rust batch loopback test](../../../perception/src/inference/runtime.rs), [batch receiver tests](../../../backend/tests/unit/test_detection_batch_receiver.py), and [latest batch smoke evidence](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md).
+See the [Rust batch replay receiver](../../../perception/src/detection_batch_receiver.rs), [Rust batch loopback tests](../../../perception/tests/detection_batch_receiver.rs), the [Rust producer loopback test](../../../perception/src/inference/runtime.rs), and [latest batch smoke evidence](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md).
 
 ### Retired authenticated prototype evidence (historical, removed by ADR-0025)
 

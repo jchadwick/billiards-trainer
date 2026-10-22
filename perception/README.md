@@ -212,11 +212,11 @@ synchronous replay tools and can delay the measured consumer.
 Optional detection-batch v1 output publishes one complete record per image.
 Use `--detection-batches-jsonl PATH` for an artifact or
 `--detection-batches-tcp 127.0.0.1:PORT` for a synchronous framed connection to
-the headless receiver in `backend/tools/receive_detection_batches.py`. Both
-require `--engine-instance-id ID` and `--source-session-id ID`. The TCP mode
-also requires explicit maximum-message, connect-timeout, and write-timeout
-arguments; the receiver requires the expected count, frame limit, deadlines,
-and a new JSONL output path.
+the standalone Rust receiver binary. Both require `--engine-instance-id ID`
+and `--source-session-id ID`. The TCP mode also requires explicit
+maximum-message, connect-timeout, and write-timeout arguments; the receiver
+requires the expected count, frame limit, deadlines, and a new JSONL output
+path.
 
 For an experimental tracked-scene replay, add `--scene-snapshots-jsonl PATH`
 or the `--scene-snapshots-tcp 127.0.0.1:PORT` destination and
@@ -298,16 +298,21 @@ operator-facing receiver command has not been added yet.
 `mean_encode_enqueue_ms` measures serialization plus bounded queue submission,
 not socket delivery.
 
-TCP replay example, with the receiver started first:
+Build the Rust receiver once, then run it before the replay producer:
 
 ```bash
-uv run --project . python backend/tools/receive_detection_batches.py \\
+cargo build --release --manifest-path perception/Cargo.toml \\
+  --bin billiards-perception-receive-detection-batches
+
+perception/target/release/billiards-perception-receive-detection-batches \\
   --bind-address 127.0.0.1:9000 \\
   --expected-batches 10 \\
+  --maximum-batches 10000 \\
   --maximum-message-bytes 16777216 \\
   --accept-timeout-ms 30000 \\
   --session-timeout-ms 120000 \\
   --read-timeout-ms 5000 \\
+  --maximum-detail-records 10000 \\
   --batches-jsonl /tmp/received-batches.jsonl \\
   --output-json /tmp/receiver-report.json
 
@@ -340,9 +345,10 @@ delivery, while `summed_image_pipeline_ms` covers image decode, preprocessing,
 inference, and decode/NMS only. This is a recorded-replay check, not a live
 camera pipeline.
 
-The detection-batch receiver binds to loopback and accepts one producer
-connection. It uses no credentials and does not implement bounded asynchronous
-queues or reconnection.
+The Rust detection-batch receiver binds to loopback and accepts one producer
+connection. Its message, expected-batch, and receipt-detail limits are
+configurable and bounded. It does not implement producer authentication,
+asynchronous queues, or reconnection.
 Unpaced still images preserve
 `source.timestamp: null`; paced replay publishes synthetic `frame_arrival`
 timestamps from the Rust monotonic domain. Frame IDs follow original input

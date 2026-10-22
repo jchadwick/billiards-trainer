@@ -19,6 +19,7 @@ pub mod capture_transport_benchmark;
 pub mod configuration_authority;
 mod configuration_http;
 pub mod detection_batch;
+pub mod detection_batch_receiver;
 pub mod frame_preview;
 pub mod framing;
 pub mod game_session;

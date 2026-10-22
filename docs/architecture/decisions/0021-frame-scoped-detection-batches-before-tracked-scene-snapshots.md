@@ -93,12 +93,15 @@ for Stage 2 receiver and accuracy tests.
   length-framed TCP to a loopback receiver, with an explicit frame limit and
   connect/write deadlines. The socket mode is synchronous unpaced replay and
   is not the production asynchronous transport.
-- The Python headless receiver validates each payload against the shared
-  schema, records local monotonic receipt time, ordering, duplicate/missing
-  sequence counts and bounded detail records, and writes the original JSON
-  payloads to JSONL for the retained scorer. It binds to loopback and accepts
-  one producer connection; it does not authenticate the producer.
-- A real-model ten-image CPU replay delivered 10 ordered, complete batches and
+- The initial Stage 2 qualification used a Python headless receiver to validate
+  the shared schema, record local monotonic receipts and sequence metrics, and
+  preserve payloads for the scorer. That receiver was replaced by the Rust
+  receiver while retaining the same loopback, single-producer contract.
+- Rust receiver tests exercise the shared batch fixtures, payload preservation,
+  identity/schema failures, sequence gaps and duplicates, bounded details,
+  slow-read timeouts, loopback enforcement, and the command's real socket and
+  output-file flow. The receiver remains unauthenticated under ADR-0025.
+- A historical real-model ten-image CPU replay delivered 10 ordered, complete batches and
   73 detections through Rust TCP to the Python receiver. The existing
   cross-runtime scorer matched all 73 against Python PT with no unmatched
   detections and 0.0325 px maximum center difference. Receiver inter-arrival
@@ -147,4 +150,4 @@ those decisions. See the [migration plan](../../../thoughts/rust-perception-migr
 the [detection-batch contract](../../../perception/contracts/detection-batch/v1/README.md),
 and its [shared schema](../../../perception/contracts/detection-batch/v1/detection-batch.schema.json).
 
-The implementation is in [Rust types and semantic validation](../../../perception/src/detection_batch.rs), [Rust framing](../../../perception/src/framing.rs), [Rust replay exporter and TCP sink](../../../perception/src/inference/runtime.rs), [Python receiver](../../../backend/tools/receive_detection_batches.py), [Python receiver tests](../../../backend/tests/unit/test_detection_batch_receiver.py), [Python schema tests](../../../backend/tests/unit/test_perception_detection_batch_contract.py), and the [Python equivalence tool](../../../tools/test_backend_equivalence.py). The shared fixtures validate and round-trip in Rust; Python validates the fixtures and received real-model records. Rust tests, strict Clippy, focused Python tests, Ruff, Black, and mypy pass. See the [loopback replay report](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md), [received-batch equivalence result](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/equivalence/equivalence-20261020T150209.339109Z.md), and [paced replay report](../../../thoughts/performance-audits/paced-latest-frame-smoke-20261020-r2/report.md). Live capture, TCP receiver freshness under paced output, bounded asynchronous delivery, reconnect freshness, Linux qualification, temporal/physical accuracy, and production freshness remain open. Authentication is explicitly excluded by ADR-0025.
+The implementation is in [Rust types and semantic validation](../../../perception/src/detection_batch.rs), [Rust framing](../../../perception/src/framing.rs), [Rust replay exporter and TCP sink](../../../perception/src/inference/runtime.rs), [Rust receiver](../../../perception/src/detection_batch_receiver.rs), [Rust receiver command](../../../perception/src/bin/detection_batch_receiver.rs), and [Rust receiver tests](../../../perception/tests/detection_batch_receiver.rs). Shared fixtures also remain covered by the [Python schema tests](../../../backend/tests/unit/test_perception_detection_batch_contract.py) and [Python equivalence tool](../../../tools/test_backend_equivalence.py), which provide an independent compatibility oracle. See the [loopback replay report](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md), [received-batch equivalence result](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/equivalence/equivalence-20261020T150209.339109Z.md), and [paced replay report](../../../thoughts/performance-audits/paced-latest-frame-smoke-20261020-r2/report.md). Live capture, TCP receiver freshness under paced output, bounded asynchronous delivery, reconnect freshness, Linux qualification, temporal/physical accuracy, and production freshness remain open. Authentication is explicitly excluded by ADR-0025.

@@ -60,9 +60,9 @@ python tools/test_backend_equivalence.py backend/vision/test_data \
 required. `--candidate-batches-jsonl` requires `--candidate-result`, because the
 aggregate report supplies source paths, encoded-image hashes, model lineage and
 settings that do not belong in the frame-scoped batch contract. The JSONL may
-come directly from the Rust file sink or from
-`backend/tools/receive_detection_batches.py` after framed loopback TCP
-delivery. The tool checks every JSONL line against the shared detection-batch
+come directly from the Rust file sink or from the Rust
+`billiards-perception-receive-detection-batches` command after framed loopback
+TCP delivery. The tool checks every JSONL line against the shared detection-batch
 v1 JSON Schema, then checks sequence ordering, run/session identity, model
 hashes, class map, detector settings, timestamp order, source dimensions, and
 detection geometry before joining detections to the aggregate report. The
