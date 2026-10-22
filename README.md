@@ -32,8 +32,9 @@ qualification are tracked separately.
 ## Run locally
 
 Install the Rust toolchain, Node.js, and the GStreamer development/runtime
-components needed by the selected camera or stream source. Prepare `config.json`
-with the Rust live model paths and capture settings, then run:
+components needed by the selected camera or stream source. Run `./setup.sh` to
+fetch Rust dependencies and install the locked browser dependencies. Prepare
+`config.json` with the Rust live model paths and capture settings, then run:
 
 ```bash
 make run

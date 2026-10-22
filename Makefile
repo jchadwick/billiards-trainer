@@ -5,7 +5,7 @@
 # Usage:
 #   make help          Show this help message
 #   make install       Install the project and dependencies
-#   make dev           Setup development environment
+#   make dev           Setup the Rust and browser development environment
 #   make test          Run tests
 #   make lint          Run linting tools
 #   make format        Format code
@@ -14,15 +14,15 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev test lint format clean run docker build deploy deploy-clean logs
+.PHONY: help install dev install-dev install-python-tools python-venv test test-all test-rust test-web test-python lint lint-rust lint-web lint-python format format-rust format-python format-check config-check config-example clean run docker build deploy deploy-clean logs docs docs-python docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
 
-# Python is retained for development, tests, and model tooling; the app server is Rust.
-PYTHON := python3
-PIP := pip
-VENV_DIR := venv
+# The supported application runtime is Rust. Python remains available only for
+# offline model/evaluation workflows and the compatibility test suite.
+PYTHON_VENV_DIR ?= .venv
+PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
 BACKEND_DIR := backend
 RUST_MANIFEST := perception/Cargo.toml
 RUST_FEATURES ?= camera-gstreamer-source
@@ -32,16 +32,9 @@ RUST_SCENE_BIND ?= 127.0.0.1
 RUST_SCENE_PORT ?= 49321
 RUST_CONFIG ?= config.json
 RUST_SERVER_ARGS ?=
-CONFIG_DIR := config
 LOGS_DIR := logs
 DATA_DIR := data
 TEMP_DIR := temp
-
-# Use venv if it exists
-ifneq ($(wildcard $(VENV_DIR)/bin/python),)
-	PYTHON := $(VENV_DIR)/bin/python
-	PIP := $(VENV_DIR)/bin/pip
-endif
 
 # Colors for output
 RED := \033[0;31m
@@ -65,27 +58,29 @@ help: ## Show this help message
 install: build ## Build the Rust server and browser client; no Python app runtime is installed
 	@echo "$(GREEN)Rust application and browser client built successfully.$(RESET)"
 
-install-dev: venv ## Install development dependencies
-	@echo "$(BLUE)Installing development dependencies...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[python-tooling,dev,test,docs,performance]"
-	@echo "$(GREEN)Development dependencies installed!$(RESET)"
+install-dev: install-python-tools ## Compatibility alias for installing retained Python tools
 
-venv: ## Create virtual environment
-	@echo "$(BLUE)Creating virtual environment...$(RESET)"
-	@if [ ! -d $(VENV_DIR) ]; then \
-		python3 -m venv $(VENV_DIR); \
-		echo "$(GREEN)Virtual environment created in $(VENV_DIR)$(RESET)"; \
-		echo "$(YELLOW)Activate with: source $(VENV_DIR)/bin/activate$(RESET)"; \
+install-python-tools: python-venv ## Install retained Python evaluation and model-tool dependencies
+	@$(PYTHON_VENV_DIR)/bin/python -m pip install --upgrade pip
+	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev,test,docs,performance]"
+	@echo "$(GREEN)Python evaluation and model-tool dependencies installed.$(RESET)"
+
+python-venv: ## Create the optional Python tooling environment
+	@echo "$(BLUE)Creating optional Python tooling environment...$(RESET)"
+	@if [ ! -x "$(PYTHON_VENV_DIR)/bin/python" ]; then \
+		python3 -m venv "$(PYTHON_VENV_DIR)"; \
+		echo "$(GREEN)Python tooling environment created in $(PYTHON_VENV_DIR)$(RESET)"; \
 	else \
-		echo "$(GREEN)Virtual environment already exists$(RESET)"; \
+		echo "$(GREEN)Python tooling environment already exists$(RESET)"; \
 	fi
 
-dev: venv setup-dirs ## Setup complete development environment
-	@echo "$(BLUE)Installing development dependencies...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[python-tooling,dev,test,docs,performance]"
-	@echo "$(GREEN)Development environment setup complete!$(RESET)"
-	@echo "$(YELLOW)Activate the virtual environment:$(RESET)"
-	@echo "  source $(VENV_DIR)/bin/activate"
+dev: setup-dirs ## Setup Rust and browser development dependencies without Python
+	@command -v cargo >/dev/null || { echo "cargo is required; install the Rust toolchain first."; exit 1; }
+	@command -v npm >/dev/null || { echo "npm is required; install Node.js first."; exit 1; }
+	cargo fetch --locked --manifest-path $(RUST_MANIFEST)
+	cd frontend/web && npm ci
+	@bash scripts/verify-development-setup.sh
+	@echo "$(GREEN)Rust and browser development environment is ready.$(RESET)"
 
 setup-dirs: ## Create necessary directories
 	@echo "$(BLUE)Creating project directories...$(RESET)"
@@ -104,69 +99,80 @@ setup-git-hooks: ## Setup git pre-commit hooks
 
 # ===== Code Quality =====
 
-lint: ## Run all linting tools
-	@echo "$(BLUE)Running linting tools...$(RESET)"
-	@echo "$(CYAN)Running ruff...$(RESET)"
-	ruff check $(BACKEND_DIR)
-	@echo "$(CYAN)Running mypy...$(RESET)"
-	mypy $(BACKEND_DIR)
-	@echo "$(GREEN)Linting complete!$(RESET)"
+lint: lint-rust lint-web ## Check Rust and browser code quality
 
-format: ## Format code with black and isort
-	@echo "$(BLUE)Formatting code...$(RESET)"
-	@echo "$(CYAN)Running black...$(RESET)"
-	black $(BACKEND_DIR)
-	@echo "$(CYAN)Running isort...$(RESET)"
-	isort $(BACKEND_DIR)
-	@echo "$(GREEN)Code formatting complete!$(RESET)"
+lint-rust: ## Run strict Rust lint checks
+	cargo clippy --locked --manifest-path $(RUST_MANIFEST) --all-targets -- -D warnings
 
-format-check: ## Check code formatting without making changes
-	@echo "$(BLUE)Checking code formatting...$(RESET)"
-	black --check $(BACKEND_DIR)
-	isort --check-only $(BACKEND_DIR)
-	@echo "$(GREEN)Format check complete!$(RESET)"
+lint-web: ## Type-check the browser application
+	cd frontend/web && npm run typecheck
+
+lint-python: ## Lint retained Python compatibility and offline tooling
+	$(PYTHON) -m ruff check $(BACKEND_DIR)
+	$(PYTHON) -m mypy $(BACKEND_DIR)
+
+format: format-rust ## Format Rust source
+
+format-rust: ## Format Rust source
+	cargo fmt --manifest-path $(RUST_MANIFEST) --all
+
+format-python: ## Format retained Python compatibility and offline tooling
+	$(PYTHON) -m black $(BACKEND_DIR)
+	$(PYTHON) -m isort $(BACKEND_DIR)
+
+format-check: ## Check Rust source formatting
+	cargo fmt --manifest-path $(RUST_MANIFEST) --all -- --check
 
 fix: format lint ## Fix code formatting and run linting
 
 # ===== Testing =====
 
-test: ## Run all tests
-	@echo "$(BLUE)Running tests...$(RESET)"
-	pytest
+test: test-rust test-web ## Run Rust runtime and browser tests
 
-test-unit: ## Run unit tests only
+test-all: test test-python ## Run Rust, browser, and retained Python compatibility tests
+
+test-rust: ## Run Rust unit, contract, and fixture tests
+	cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
+
+test-web: ## Run browser client tests
+	cd frontend/web && npm test
+
+test-python: ## Run retained Python compatibility and model-tool tests
+	$(PYTHON) -m pytest
+
+test-unit: ## Run retained Python unit tests only
 	@echo "$(BLUE)Running unit tests...$(RESET)"
-	pytest -m "unit"
+	$(PYTHON) -m pytest -m "unit"
 
 test-integration: ## Run integration tests only
 	@echo "$(BLUE)Running integration tests...$(RESET)"
-	pytest -m "integration"
+	$(PYTHON) -m pytest -m "integration"
 
 test-vision: ## Run computer vision tests
 	@echo "$(BLUE)Running vision tests...$(RESET)"
-	pytest -m "vision"
+	$(PYTHON) -m pytest -m "vision"
 
 test-api: ## Run API tests
 	@echo "$(BLUE)Running API tests...$(RESET)"
-	pytest -m "api"
+	$(PYTHON) -m pytest -m "api"
 
 test-hardware: ## Run hardware tests (requires camera/projector)
 	@echo "$(YELLOW)Running hardware tests (requires camera/projector)...$(RESET)"
-	pytest -m "hardware"
+	$(PYTHON) -m pytest -m "hardware"
 
 test-coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(RESET)"
-	pytest --cov=backend --cov-report=html --cov-report=term-missing
+	$(PYTHON) -m pytest --cov=backend --cov-report=html --cov-report=term-missing
 
 test-fast: ## Run fast tests only (exclude slow tests)
 	@echo "$(BLUE)Running fast tests...$(RESET)"
-	pytest -m "not slow"
+	$(PYTHON) -m pytest -m "not slow"
 
 # ===== Build =====
 
 build-frontend: ## Build the frontend web app
 	@echo "$(BLUE)Building frontend...$(RESET)"
-	cd frontend/web && npm install && npm run build
+	cd frontend/web && npm ci && npm run build
 	@echo "$(GREEN)Frontend built to backend/static/$(RESET)"
 
 build-rust: ## Build Rust server and live perception binaries
@@ -261,14 +267,20 @@ profile: ## Run with performance profiling
 
 config-check: ## Validate configuration files
 	@echo "$(BLUE)Checking configuration files...$(RESET)"
-	@if [ -f .env ]; then echo "$(GREEN).env file found$(RESET)"; else echo "$(RED).env file missing$(RESET)"; fi
-	@if [ -f $(CONFIG_DIR)/logging.yaml ]; then echo "$(GREEN)Logging config found$(RESET)"; else echo "$(RED)Logging config missing$(RESET)"; fi
-	@$(PYTHON) -c "import yaml; yaml.safe_load(open('$(CONFIG_DIR)/logging.yaml'))" && echo "$(GREEN)Logging config is valid$(RESET)" || echo "$(RED)Logging config is invalid$(RESET)"
+	@node -e 'JSON.parse(require("node:fs").readFileSync("$(RUST_CONFIG)", "utf8"));' \
+		&& echo "$(GREEN)Rust configuration JSON is valid$(RESET)"
+	@temporary_store=$$(mktemp -d) && trap 'rm -rf "$$temporary_store"' EXIT && \
+		node --input-type=module -e 'import fs from "node:fs"; const data=JSON.parse(fs.readFileSync("$(RUST_CONFIG)", "utf8")); process.stdout.write(JSON.stringify({protocol_version:1,operation:"validate",merge:false,data})+"\n");' | \
+		cargo run --quiet --manifest-path $(RUST_MANIFEST) --bin billiards-perception-config -- --config "$$temporary_store/validation.json" | \
+		node --input-type=module -e 'let raw=""; for await (const chunk of process.stdin) raw += chunk; const result=JSON.parse(raw); if (!result.ok || !result.valid) { console.error(JSON.stringify(result.validation_errors ?? result.error)); process.exit(1); } console.log("Rust configuration schema and runtime rules are valid");'
 
 config-example: ## Create example configuration files
 	@echo "$(BLUE)Creating example configuration files...$(RESET)"
-	@cp .env .env.example
-	@echo "$(GREEN).env.example created$(RESET)"
+	@if [ -e "$(RUST_CONFIG)" ]; then \
+		echo "$(RED)$(RUST_CONFIG) already exists; refusing to overwrite it$(RESET)"; exit 1; \
+	fi
+	@cp perception/contracts/configuration/v1/defaults.json "$(RUST_CONFIG)"
+	@echo "$(GREEN)Created $(RUST_CONFIG) from the Rust-owned configuration defaults$(RESET)"
 
 # ===== Cleanup =====
 
@@ -366,63 +378,59 @@ docker-clean: ## Remove all containers, volumes, and images
 
 # ===== Utilities =====
 
-deps-update: ## Update dependencies
-	@echo "$(BLUE)Updating dependencies...$(RESET)"
-	$(PIP) install --upgrade pip
-	$(PIP) install --upgrade -r backend/requirements.txt
-	@echo "$(GREEN)Dependencies updated!$(RESET)"
+deps-update: ## Update Rust and browser dependency lockfiles
+	cargo update --manifest-path $(RUST_MANIFEST)
+	cd frontend/web && npm update
 
-deps-check: ## Check for outdated dependencies
-	@echo "$(BLUE)Checking for outdated dependencies...$(RESET)"
-	$(PIP) list --outdated
+deps-check: ## Check locked Rust dependencies and browser package updates
+	cargo metadata --locked --manifest-path $(RUST_MANIFEST) --no-deps >/dev/null
+	cd frontend/web && npm outdated
 
-security-check: ## Run security checks
-	@echo "$(BLUE)Running security checks...$(RESET)"
-	@if command -v safety >/dev/null 2>&1; then \
-		safety check; \
+security-check: ## Audit Rust and browser dependencies
+	@if command -v cargo-audit >/dev/null 2>&1; then \
+		cd perception && cargo audit; \
 	else \
-		echo "$(YELLOW)safety not installed. Install with: pip install safety$(RESET)"; \
+		echo "$(YELLOW)cargo-audit is unavailable; install it to audit Rust dependencies.$(RESET)"; \
 	fi
+	cd frontend/web && npm audit --audit-level=high
 
-check-env: ## Check environment setup
+check-env: ## Check Rust, Node.js, npm, and camera build prerequisites
 	@echo "$(BLUE)Environment Check:$(RESET)"
-	@echo "Python version: $$($(PYTHON) --version)"
-	@echo "Pip version: $$($(PIP) --version)"
-	@echo "Virtual environment: $$(if [ -n "$$VIRTUAL_ENV" ]; then echo "Active ($$VIRTUAL_ENV)"; else echo "Not active"; fi)"
-	@echo "Environment: $$(if [ -f .env ]; then grep ENVIRONMENT .env || echo "Not set"; else echo ".env not found"; fi)"
+	@cargo --version
+	@rustc --version
+	@node --version
+	@npm --version
+	@if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0; then \
+		echo "$(GREEN)GStreamer development libraries are available$(RESET)"; \
+	else \
+		echo "$(YELLOW)GStreamer development libraries are required for the default camera-enabled build$(RESET)"; \
+	fi
 
 # ===== Quick Start =====
 
 quickstart: ## Quick setup for new developers
 	@echo "$(CYAN)Welcome to Billiards Trainer!$(RESET)"
 	@echo "$(BLUE)Setting up development environment...$(RESET)"
-	make dev
+	$(MAKE) dev
 	@echo ""
 	@echo "$(GREEN)Setup complete! Next steps:$(RESET)"
-	@echo "  1. $(YELLOW)source venv/bin/activate$(RESET)  # Activate virtual environment"
-	@echo "  2. $(YELLOW)make run$(RESET)                  # Run the application"
-	@echo "  3. $(YELLOW)make test$(RESET)                 # Run tests"
+	@echo "  1. $(YELLOW)make run$(RESET)                  # Run the Rust application"
+	@echo "  2. $(YELLOW)make test$(RESET)                 # Run Rust and browser tests"
+	@echo "  3. $(YELLOW)make test-python$(RESET)          # Optional retained Python checks"
 	@echo ""
 	@echo "$(CYAN)Available commands: make help$(RESET)"
 
 # ===== Documentation =====
 
-docs: ## Generate documentation
-	@echo "$(BLUE)Generating documentation...$(RESET)"
-	@if command -v sphinx-build >/dev/null 2>&1; then \
-		sphinx-build -b html docs docs/_build/html; \
-		echo "$(GREEN)Documentation generated in docs/_build/html$(RESET)"; \
-	else \
-		echo "$(YELLOW)Sphinx not installed. Install with: pip install sphinx$(RESET)"; \
-	fi
+docs: ## Generate Rust API documentation
+	cargo doc --locked --manifest-path $(RUST_MANIFEST) --no-deps
 
-docs-serve: ## Serve documentation locally
-	@echo "$(BLUE)Serving documentation at http://localhost:8080$(RESET)"
-	@if [ -d docs/_build/html ]; then \
-		$(PYTHON) -m http.server 8080 --directory docs/_build/html; \
-	else \
-		echo "$(RED)Documentation not built. Run 'make docs' first.$(RESET)"; \
-	fi
+docs-python: ## Generate the retained Sphinx documentation site
+	sphinx-build -b html docs docs/_build/html
+
+docs-serve: docs ## Serve generated Rust API documentation locally
+	@echo "$(BLUE)Serving Rust API documentation at http://localhost:8080$(RESET)"
+	cd perception/target/doc && npx --yes http-server -p 8080
 
 # ===== Deployment =====
 

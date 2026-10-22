@@ -1,174 +1,69 @@
-# Getting Started with Billiards Trainer
+# Getting Started
 
-Dead simple setup guide. Clone, run setup, start coding.
-
-## Quick Start (Ubuntu)
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/jchadwick/billiards-trainer.git
-cd billiards-trainer
-
-# 2. Run setup script (installs everything)
-./setup.sh
-
-# 3. Activate environment and run
-source venv/bin/activate
-make run
-```
-
-Done. Application running at http://localhost:8000
+Billiards Trainer runs its supported server, camera capture, and live-state
+delivery in Rust. The browser client remains a standard HTML, CSS, and
+JavaScript application built from `frontend/web`.
 
 ## Prerequisites
 
-- Ubuntu 20.04+ (or compatible Linux)
-- sudo access
-- Internet connection
+- Rust toolchain with Cargo
+- Node.js and npm
+- GNU Make
+- GStreamer development and runtime packages for the default camera-enabled
+  Rust build
 
-That's it. The setup script handles everything else.
+Install the prerequisites with your operating system's package manager. The
+setup script does not install system packages or create a Python environment.
 
-## What Gets Installed
+## Setup and run
 
-The `setup.sh` script automatically installs:
-- Python 3.9+ and pip
-- Node.js 20.x and npm
-- Docker and Docker Compose
-- System libraries (OpenCV, OpenGL, SDL, etc.)
-- Python dependencies (FastAPI, OpenCV, NumPy, etc.)
-- Node.js dependencies (React, TanStack Router, etc.)
-- Creates virtual environment
-- Sets up camera/video permissions
-- Creates required directories
-- Generates .env configuration
-
-## Running the Application
-
-### Option 1: Direct (Development)
-```bash
-source venv/bin/activate
-make run
-```
-
-API available at:
-- Main API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- WebSocket: ws://localhost:8000/api/v1/websocket/ws
-
-### Option 2: Docker (Production)
-```bash
-docker-compose up -d
-```
-
-The Compose file starts one backend process for one table. It serves the API
-and WebSocket on port 8000. A compatible detector model must be available in
-`./models` (or set `MODEL_DIRECTORY` to its directory); configure the model
-path in `config.json` before starting the container.
-
-## Configuration
-
-Edit `.env` file for your setup:
-
-```bash
-# Required: Generate secure keys
-
-# Generate with:
-openssl rand -hex 32
-
-# Camera settings
-CAMERA_INDEX=0           # 0=built-in, 1+=external
-CAMERA_WIDTH=1920
-CAMERA_HEIGHT=1080
-
-# Projector settings
-PROJECTOR_DISPLAY_INDEX=1
-PROJECTOR_WIDTH=1920
-PROJECTOR_HEIGHT=1080
-```
-
-## Useful Commands
-
-```bash
-# Development
-make help              # Show all commands
-make run               # Run application
-make test              # Run tests
-make lint              # Check code quality
-make format            # Format code
-
-# Logs
-make logs              # View logs
-make logs-error        # View error logs
-make monitor           # Live log monitoring
-
-# Docker
-docker-compose up -d            # Start all services
-docker-compose down             # Stop all services
-docker-compose logs -f backend  # View backend logs
-docker-compose restart backend  # Restart backend
-
-# Verification
-curl http://localhost:8000/api/v1/health  # Check health
-make test-fast                             # Quick test
-```
-
-## Troubleshooting
-
-### "Permission denied" on camera
-```bash
-sudo usermod -aG video $USER
-# Log out and back in
-```
-
-### "Cannot connect to Docker daemon"
-```bash
-sudo systemctl start docker
-sudo usermod -aG docker $USER
-# Log out and back in
-```
-
-### "Module 'backend' not found"
-```bash
-source venv/bin/activate
-pip install -e .
-```
-
-### Port already in use
-Edit `.env` and change:
-```bash
-API_PORT=8080
-```
-
-### Re-run setup
 ```bash
 ./setup.sh
 ```
 
-## Project Structure
+The script fetches Rust dependencies, installs the locked browser dependencies,
+and checks the development toolchain. Prepare `config.json` with the verified
+model paths and capture settings, then run:
 
-```
-billiards-trainer/
-├── backend/              # Python backend
-│   ├── api/             # FastAPI app
-│   ├── vision/          # Computer vision
-│   ├── projector/       # Rendering
-│   ├── physics/         # Physics engine
-│   └── core/            # Core utilities
-├── frontend/web/        # React frontend
-├── config/              # Configuration
-├── setup.sh             # Setup script
-├── Makefile             # Commands
-└── .env                 # Environment config
+```bash
+make test
+make run
 ```
 
-## Next Steps
+The local Rust gateway serves the browser application at
+`http://127.0.0.1:8001`. `make run-api` starts the gateway without live capture;
+`make run-frontend` starts the separate Vite development server.
 
-1. Edit `.env` with your settings
-2. Read `PLAN.md` for implementation details
-3. Run `make test` to verify everything works
-4. Start developing!
+## Retained Python tooling
 
-## Key URLs
+Python is not part of the supported server runtime. The repository keeps Python
+for offline model training/export, annotations, and compatibility/evaluation
+tests. Those tools are opt-in:
 
-- API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
-- WebSocket: ws://localhost:8000/api/v1/websocket/ws
+```bash
+make install-python-tools
+make test-python
+make lint-python
+make format-python
+```
+
+The retained Python test suite is also run by its dedicated CI workflow. Rust
+and browser tests remain runnable without a Python environment.
+
+## Useful commands
+
+```bash
+make help              # Show available targets
+make dev               # Fetch Rust and browser dependencies
+make build             # Build the browser client and Rust application
+make test              # Run Rust and browser tests
+make test-all          # Also run retained Python compatibility tests
+make lint              # Check Rust and browser code
+make format            # Format Rust code
+make run               # Run the Rust server with live capture
+make run-api           # Run the Rust gateway without live capture
+```
+
+See [the runtime README](../README.md), [Rust perception notes](../perception/README.md),
+and [architecture decisions](architecture/README.md) for model, camera, and
+qualification details.
