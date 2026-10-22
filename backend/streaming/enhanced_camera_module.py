@@ -11,12 +11,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 import cv2
 import numpy as np
 
-from backend.config import Config, config
+if TYPE_CHECKING:
+    from backend.config import Config
 from backend.perception.camera_source import resolve_configured_camera_source
 from backend.vision.calibration.camera import CameraCalibrator
 
@@ -708,53 +709,12 @@ class EnhancedCameraModule:
         }
 
 
-# Example usage for single-application architecture
 if __name__ == "__main__":
-    # Example 1: Load from configuration system
-    from ..config import Config, config
+    import sys
 
-    camera_config = EnhancedCameraConfig.from_config(config)
-    camera = EnhancedCameraModule(camera_config)
-
-    if camera.start_capture():
-        print("Camera started successfully")
-
-        # For vision processing - get processed frames
-        vision_frame = camera.get_frame(processed=True)
-
-        # For web streaming - get JPEG bytes (uses default quality from config)
-        stream_data = camera.get_frame_for_streaming(max_width=1280)
-
-        print(f"Statistics: {camera.get_statistics()}")
-
-    camera.stop_capture()
-
-    # Example 2: Manual configuration (for testing/debugging)
-    manual_config = EnhancedCameraConfig(
-        device_id=0,
-        resolution=(1920, 1080),
-        fps=30,
-        loop_video=True,
-        enable_fisheye_correction=True,
-        calibration_file="calibration/camera.yaml",
-        fisheye_alpha=1.0,
-        enable_table_crop=False,
-        table_crop_hsv_lower=(35, 40, 40),
-        table_crop_hsv_upper=(85, 255, 255),
-        table_crop_morphology_kernel_size=5,
-        table_crop_padding_ratio=0.05,
-        enable_preprocessing=True,
-        brightness=10.0,
-        contrast=1.2,
-        enable_clahe=True,
-        clahe_clip_limit=2.0,
-        clahe_grid_size=8,
-        default_jpeg_quality=80,
-        enable_gpu=False,
-        buffer_size=1,
-        startup_timeout_seconds=5.0,
-        thread_join_timeout_seconds=2.0,
+    print(
+        "Python camera capture is retired. Use 'make run' to start the Rust "
+        "camera and perception runtime.",
+        file=sys.stderr,
     )
-
-    manual_camera = EnhancedCameraModule(manual_config)
-    # ... use manual_camera ...
+    raise SystemExit(2)

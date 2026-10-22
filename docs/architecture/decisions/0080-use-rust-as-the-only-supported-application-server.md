@@ -78,10 +78,11 @@ runtime.
 ## Verification
 
 - Unit tests assert `python -m backend.main`,
-  `python -m backend.dev_server`, and `python -m backend.video` exit with status
-  2 and direct users to the Rust Make targets without starting a listener or
-  camera process; provider tests reject Python perception, and deployment
-  tests assert no runtime ASGI application or factory can be imported.
+  `python -m backend.dev_server`, `python -m backend.video`, and
+  `python -m backend.streaming.enhanced_camera_module` exit with status 2 and
+  direct users to the Rust Make targets without starting a listener or camera
+  process; provider tests reject Python perception, and deployment tests
+  assert no runtime ASGI application or factory can be imported.
 - Rust and browser suites pass; Python compatibility tests use the ASGI fixture
   under `backend/tests/support` without exposing a Python runtime factory.
 - Docker CI builds the repository-root Rust image at the actual `runtime`

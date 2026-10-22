@@ -1946,6 +1946,7 @@ longer assembles or exports a FastAPI application factory. The old route
 assembly now exists only in `backend/tests/support/compat_api.py` for
 in-process contract tests; the former minimal development ASGI server has also
 been removed. This closes the normal Uvicorn factory entrypoint while keeping
-legacy tests isolated from the shipped Rust server. Remaining Python work
-includes the direct camera demo and offline qualification/evaluation tools;
-those require separate replacement or retirement decisions.
+legacy tests isolated from the shipped Rust server. The direct camera demo now
+exits with a migration hint without opening a camera. Remaining Python work
+includes offline qualification/evaluation tools and reference modules; those
+require separate replacement or retirement decisions.

@@ -65,9 +65,10 @@ def test_legacy_python_nginx_deployment_paths_are_retired():
         ("backend.main", ("make run", "make run-api")),
         ("backend.dev_server", ("make run", "make run-api")),
         ("backend.video", ("make run",)),
+        ("backend.streaming.enhanced_camera_module", ("make run",)),
     ],
 )
-def test_python_application_server_launchers_are_retired(module, rust_commands):
+def test_python_server_and_camera_launchers_are_retired(module, rust_commands):
     result = subprocess.run(
         [sys.executable, "-m", module],
         capture_output=True,
