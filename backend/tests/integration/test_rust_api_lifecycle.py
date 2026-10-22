@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from backend.api import main
 from backend.config import load_schema_reference
+from backend.tests.support.compat_api import create_compatibility_app
 
 SCENE_FIXTURE = (
     Path(__file__).parents[3]
@@ -144,7 +145,7 @@ def test_configured_rust_replay_reaches_http_and_unauthenticated_websocket(
         exit_signal_path=child_exit_signal,
     )
     replay_config["source_silence_timeout_seconds"] = 1.0
-    app = main.create_app(
+    app = create_compatibility_app(
         {
             "perception": {
                 "provider": "rust",
@@ -313,7 +314,7 @@ def test_real_rust_model_replay_reaches_anonymous_http_and_websocket_clients(
                 replay_directory / f"frame-{frame_number:03d}{replay_input.suffix}",
             )
         replay_config["input_path"] = str(replay_directory)
-    app = main.create_app(
+    app = create_compatibility_app(
         {
             "perception": {
                 "provider": "rust",

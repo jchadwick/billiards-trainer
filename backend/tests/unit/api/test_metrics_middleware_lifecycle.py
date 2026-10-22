@@ -3,9 +3,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
 from backend.api.middleware.metrics import MetricsConfig, MetricsMiddleware
 from backend.system.health_monitor import health_monitor
+from backend.tests.support.compat_api import create_compatibility_app
 
 
 def test_create_app_registers_configured_metrics_middleware_and_records_request(
@@ -20,7 +20,7 @@ def test_create_app_registers_configured_metrics_middleware_and_records_request(
             (response_time, success)
         ),
     )
-    app = create_app(
+    app = create_compatibility_app(
         {
             "development_mode": True,
             "api": {
@@ -62,7 +62,7 @@ def test_create_app_registers_configured_metrics_middleware_and_records_request(
 
 def test_create_app_uses_metrics_defaults_when_configuration_is_absent() -> None:
     """The configured middleware stack constructs metrics defaults as needed."""
-    app = create_app({"development_mode": True})
+    app = create_compatibility_app({"development_mode": True})
 
     metrics_middleware = next(
         middleware

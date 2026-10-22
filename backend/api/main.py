@@ -1,4 +1,4 @@
-"""FastAPI application setup and configuration."""
+"""Retired API lifecycle compatibility reference and configuration helpers."""
 
 import copy
 import logging
@@ -12,11 +12,6 @@ from typing import Any, AsyncGenerator, Optional, Protocol, cast
 from backend.config import Config
 
 Config.bootstrap_from_environment()
-
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from backend.config import config
 from backend.perception.provider import (
@@ -42,18 +37,6 @@ from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsConfig, MetricsMiddleware
 from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
-from .routes import calibration
-from .routes import config as config_routes
-from .routes import (
-    debug,
-    diagnostics,
-    game,
-    health,
-    logs,
-    stream,
-    vision,
-    vision_performance,
-)
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
     initialize_websocket_system,
@@ -62,8 +45,7 @@ from .websocket import (
     websocket_handler,
     websocket_manager,
 )
-from .websocket.endpoints import websocket_router
-from .websocket.rate_limit import RateLimitUnavailable, rate_limiter
+from .websocket.rate_limit import rate_limiter
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -321,7 +303,7 @@ async def _register_shutdown_functions(app_state: ApplicationState) -> None:
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
     """Application lifecycle management."""
     # Startup
     logger.info("Starting up Billiards Trainer API...")
@@ -461,11 +443,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         app_state.scene_state_publisher = None
         app_state.game_session_authority = None
 
-        # Stop integration service first
-        if app_state.integration_service:
-            logger.info("Stopping integration service...")
-            await app_state.integration_service.stop()
-
         # Stop health monitoring
         await cast("_HealthMonitorLifecycle", health_monitor).stop_monitoring()
 
@@ -478,167 +455,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.exception("Error closing WebSocket rate-limit store")
 
-        if app_state.vision_module:
-            # Vision module cleanup
-            try:
-                app_state.vision_module.close()
-            except Exception as e:
-                logger.error(f"Error stopping vision module: {e}")
         websocket_handler.configure_performance_audit()
 
         app_state.is_healthy = False
         logger.info("Billiards Trainer API shutdown complete")
-
-
-def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
-    """Create the legacy ASGI fixture used by offline compatibility tests.
-
-    The supported application server is ``billiards-server``. This factory is
-    retained only for in-process contract tests and is not a runtime entrypoint.
-    """
-    # Create FastAPI app with lifecycle management
-    app = FastAPI(
-        title="Billiards Trainer API",
-        description="RESTful API and WebSocket server for billiards training system",
-        version="1.0.0",
-        lifespan=lifespan,
-        docs_url="/docs",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
-    )
-    app.state.runtime_config = _RuntimeConfiguration(config, config_override or {})
-
-    # Determine if running in development mode
-    import os
-
-    development_mode = (
-        config_override.get("development_mode", False)
-        if config_override
-        else os.getenv("ENVIRONMENT", "production").lower() == "development"
-        or os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
-    )
-
-    # Get middleware configuration
-    middleware_config = get_middleware_config(development_mode, config_override)
-
-    # Add CORS middleware first - must be before other middleware for WebSocket support
-    # Configure allowed origins from environment or config
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Frame-Preview-Descriptor", "X-Frame-Preview-Schema"],
-    )
-
-    # Add middleware in reverse order (last added = first executed)
-    # This ensures proper execution order for request/response processing
-
-    # 1. Health metrics tracking (last - measures everything)
-    metrics_config = MetricsConfig(**middleware_config["metrics"])
-    app.add_middleware(MetricsMiddleware, config=metrics_config)
-
-    # 2. Performance monitoring (last - measures everything)
-    setup_performance_monitoring(app, middleware_config["performance"])
-
-    # 3. Request tracing and correlation IDs
-    setup_tracing_middleware(app, middleware_config["tracing"])
-
-    # 4. Request/response logging
-    setup_logging_middleware(app, middleware_config["logging"])
-
-    # 5. Error handling (handles errors from subsequent middleware)
-    setup_error_handling(app, middleware_config["error_handler"])
-
-    # Middleware setup complete
-
-    # Include routers with API prefix
-    app.include_router(health.router, prefix="/api/v1")
-    app.include_router(config_routes.router, prefix="/api/v1")
-    app.include_router(calibration.router, prefix="/api/v1/vision")
-    app.include_router(vision.router, prefix="/api/v1/vision")
-    app.include_router(vision_performance.router, prefix="/api/v1")
-    app.include_router(game.router, prefix="/api/v1")
-    app.include_router(stream.router, prefix="/api/v1")
-    app.include_router(diagnostics.router, prefix="/api/v1")
-    app.include_router(logs.router, prefix="/api/v1")
-    app.include_router(debug.router, prefix="/api/v1")
-
-    # Include WebSocket management endpoints
-    app.include_router(websocket_router, prefix="/api/v1/websocket")
-
-    # API root endpoint
-    @app.get("/api")
-    async def api_root() -> dict[str, Any]:
-        return {
-            "message": "Billiards Trainer API",
-            "version": "1.0.0",
-            "status": "healthy" if app_state.is_healthy else "unhealthy",
-            "docs": "/docs",
-        }
-
-    # Serve static files for the frontend with SPA fallback
-    static_dir = Path(__file__).parent.parent / "static"
-    if static_dir.exists():
-        # Mount static files but not at root to avoid conflicts
-        app.mount(
-            "/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets"
-        )
-
-        # Serve individual static files
-        @app.get("/favicon.ico")
-        async def favicon() -> FileResponse:
-            return FileResponse(static_dir / "favicon.ico")
-
-        @app.get("/manifest.json")
-        async def manifest() -> FileResponse:
-            return FileResponse(static_dir / "manifest.json")
-
-        @app.get("/robots.txt")
-        async def robots() -> FileResponse:
-            return FileResponse(static_dir / "robots.txt")
-
-        @app.get("/logo{size}.png")
-        async def logo(size: int) -> FileResponse:
-            return FileResponse(static_dir / f"logo{size}.png")
-
-        # SPA fallback - serve index.html for non-API frontend routes
-        # Register specific frontend routes instead of catch-all
-        @app.get("/")
-        async def spa_root() -> FileResponse:
-            """Serve index.html for root/dashboard route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        @app.get("/live")
-        async def spa_live() -> FileResponse:
-            """Serve index.html for live view route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        @app.get("/calibration")
-        async def spa_calibration() -> FileResponse:
-            """Serve index.html for calibration route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        @app.get("/configuration")
-        async def spa_configuration() -> FileResponse:
-            """Serve index.html for configuration route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        @app.get("/system-management")
-        async def spa_system_management() -> FileResponse:
-            """Serve index.html for system management route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        @app.get("/diagnostics")
-        async def spa_diagnostics() -> FileResponse:
-            """Serve index.html for diagnostics route."""
-            return FileResponse(str(static_dir / "index.html"))
-
-        # No else needed - if static dir doesn't exist, routes just won't be registered
-
-    return app
 
 
 # Dependency injection functions are now in dependencies module

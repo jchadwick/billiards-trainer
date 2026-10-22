@@ -22,13 +22,14 @@ remains HTML, JavaScript, and CSS as required by ADR-0066.
 The Rust `billiards-server` binary is the only supported application server
 entry point for development, installation, and deployment. `make run` starts
 the Rust server with live capture; `make run-api` starts the Rust gateway
-without live capture. The Python compatibility API may supervise Rust only;
-Python perception selection is rejected, and the compatibility module exports
-no default ASGI application object. Its single route factory is retained for
-in-process contract tests only. The retired development-server module exposes
-no ASGI factory. Python command-line launchers must fail clearly and direct
-users to the Rust commands; they must not start Uvicorn, FastAPI, camera
-capture, or any other supported application service.
+without live capture. The Python compatibility lifecycle may supervise Rust
+only; Python perception selection is rejected. Runtime modules export no
+default ASGI application or factory. Legacy FastAPI route assembly lives under
+`backend/tests/support` for in-process contract tests, outside the runtime
+package boundary. The retired development-server module exposes no ASGI
+factory. Python command-line launchers must fail clearly and direct users to
+the Rust commands; they must not start Uvicorn, FastAPI, camera capture, or any
+other supported application service.
 
 Keep Python tools that prepare or evaluate data, train or inspect models, and
 compare runtime behavior off the deployed machine. Keep the browser as the
@@ -79,10 +80,10 @@ runtime.
 - Unit tests assert `python -m backend.main`,
   `python -m backend.dev_server`, and `python -m backend.video` exit with status
   2 and direct users to the Rust Make targets without starting a listener or
-  camera process; provider tests reject Python perception and assert there is
-  no module-level FastAPI application object.
-- Rust and browser suites pass; Python compatibility tests still import the
-  reference app factory without exposing a Python server command.
+  camera process; provider tests reject Python perception, and deployment
+  tests assert no runtime ASGI application or factory can be imported.
+- Rust and browser suites pass; Python compatibility tests use the ASGI fixture
+  under `backend/tests/support` without exposing a Python runtime factory.
 - Docker CI builds the repository-root Rust image at the actual `runtime`
   stage, and its image contents and entrypoint contain no Python service.
 - Local distribution and systemd artifacts continue to execute

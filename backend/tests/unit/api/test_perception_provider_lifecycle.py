@@ -10,6 +10,7 @@ import pytest
 
 from backend.api import main
 from backend.perception.provider import PerceptionProviderError
+from backend.tests.support.compat_api import create_compatibility_app
 
 
 def test_python_provider_fails_before_starting_services(
@@ -27,7 +28,7 @@ def test_python_provider_fails_before_starting_services(
     monkeypatch.setattr(main.rate_limiter, "initialize", initialize_rate_limiter)
 
     async def enter_lifespan() -> None:
-        async with main.lifespan(main.create_app()):
+        async with main.lifespan(create_compatibility_app()):
             pytest.fail("retired Python provider unexpectedly entered lifespan")
 
     with pytest.raises(PerceptionProviderError, match="must be 'rust'"):
@@ -42,11 +43,16 @@ def test_compatibility_api_has_no_default_asgi_server_instance() -> None:
     assert not hasattr(main, "app")
 
 
+def test_compatibility_api_does_not_export_an_asgi_factory() -> None:
+    """Python API routing can only be assembled from test support."""
+    assert not hasattr(main, "create_app")
+
+
 def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Replay mode starts its own publisher without constructing Python vision."""
-    app = main.create_app(
+    app = create_compatibility_app(
         {
             "perception": {"provider": "rust", "mode": "recorded_replay"},
         }

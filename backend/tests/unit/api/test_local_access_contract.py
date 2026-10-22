@@ -6,15 +6,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
-from backend.api.main import create_app
+import backend.dev_server
 from backend.api.models.common import ErrorCode as HttpErrorCode
 from backend.api.models.common import StatusCode as HttpStatusCode
 from backend.api.utils import validators
-import backend.dev_server
+from backend.tests.support.compat_api import create_compatibility_app
 
 
 def test_openapi_and_cors_expose_no_client_authentication_contract() -> None:
-    _assert_no_authentication_contract(create_app())
+    _assert_no_authentication_contract(create_compatibility_app())
 
 
 def test_retired_python_development_module_exposes_no_asgi_app_factory() -> None:
@@ -24,7 +24,7 @@ def test_retired_python_development_module_exposes_no_asgi_app_factory() -> None
 
 def test_production_http_route_ignores_credential_looking_headers() -> None:
     """Authentication-looking headers do not gate the anonymous local API."""
-    client = TestClient(create_app())
+    client = TestClient(create_compatibility_app())
     anonymous = client.get("/api")
     with_credential_like_headers = client.get(
         "/api",

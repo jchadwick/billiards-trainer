@@ -1940,3 +1940,12 @@ ASGI `app`; its factory remains for in-process contract tests. The retained
 backend suite passes 3,159 tests with two model-dependent skips at 80.24%
 coverage. This closes the Python perception selection path but does not remove
 the offline Python compatibility modules or development/model tools.
+
+**Python ASGI entrypoint retirement (2026-10-22):** the Rust runtime module no
+longer assembles or exports a FastAPI application factory. The old route
+assembly now exists only in `backend/tests/support/compat_api.py` for
+in-process contract tests; the former minimal development ASGI server has also
+been removed. This closes the normal Uvicorn factory entrypoint while keeping
+legacy tests isolated from the shipped Rust server. Remaining Python work
+includes the direct camera demo and offline qualification/evaluation tools;
+those require separate replacement or retirement decisions.

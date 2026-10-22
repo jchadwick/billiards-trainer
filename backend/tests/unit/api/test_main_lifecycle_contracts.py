@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from backend.api import main as api_main
 from backend.api.dependencies import ApplicationState
 from backend.perception.provider import PerceptionProvider, PerceptionProviderError
+from backend.tests.support.compat_api import create_compatibility_app
 
 
 class _HealthMonitorStub:
@@ -221,7 +222,7 @@ async def test_rust_replay_lifespan_uses_one_publisher_and_closes_supervisor(
         "SceneSnapshotStatePublisher",
         lambda broadcaster: publisher,
     )
-    app = api_main.create_app(
+    app = create_compatibility_app(
         {
             "development_mode": True,
             "perception": {"mode": "recorded_replay"},
@@ -275,7 +276,7 @@ async def test_rust_live_lifespan_starts_only_rust_perception_and_closes_supervi
         api_main, "SceneSnapshotStatePublisher", lambda _broadcaster: publisher
     )
     monkeypatch.setattr("backend.vision.VisionModule", Mock())
-    app = api_main.create_app({"perception": {"provider": "rust", "mode": "live"}})
+    app = create_compatibility_app({"perception": {"provider": "rust", "mode": "live"}})
 
     async with api_main.lifespan(app):
         assert state.is_healthy
@@ -324,7 +325,7 @@ async def test_replay_without_first_observation_fails_startup_and_runs_cleanup(
     )
     monkeypatch.setattr(api_main, "RustReplaySupervisor", ReplaySupervisorStub)
     monkeypatch.setattr(api_main, "SceneSnapshotStatePublisher", lambda _b: object())
-    app = api_main.create_app(
+    app = create_compatibility_app(
         {
             "development_mode": True,
             "perception": {"mode": "recorded_replay"},
@@ -355,7 +356,7 @@ async def test_provider_preflight_failure_does_not_start_services(
             PerceptionProviderError("invalid provider selection")
         ),
     )
-    app = api_main.create_app()
+    app = create_compatibility_app()
 
     with pytest.raises(PerceptionProviderError, match="invalid provider selection"):
         async with api_main.lifespan(app):

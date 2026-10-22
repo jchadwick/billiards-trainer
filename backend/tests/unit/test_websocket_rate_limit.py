@@ -21,6 +21,7 @@ from backend.api.websocket.rate_limit import (
     RedisRateLimitStore,
     resolve_client_ip,
 )
+from backend.tests.support.compat_api import create_compatibility_app
 
 
 class FakeRedis:
@@ -206,7 +207,7 @@ async def test_endpoint_generates_and_passes_its_own_request_id(monkeypatch):
 
 
 def test_application_registers_only_the_canonical_websocket_route():
-    app = api_main.create_app()
+    app = create_compatibility_app()
 
     def has_websocket_route(path: str) -> bool:
         scope = {
