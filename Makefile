@@ -26,6 +26,12 @@ PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/
 BACKEND_DIR := backend
 RUST_MANIFEST := perception/Cargo.toml
 RUST_FEATURES ?= camera-gstreamer-source
+# Keep `cargo test` artifacts separate from the binaries that `make run` and
+# the Rust live supervisor launch from `perception/target/debug`. Cargo shares
+# executable paths across feature sets inside one target directory, so a
+# default-feature test build must not replace the camera-enabled runtime while
+# it is running.
+RUST_TEST_TARGET_DIR ?= $(CURDIR)/perception/target/test
 RUST_HTTP_BIND ?= 127.0.0.1
 RUST_HTTP_PORT ?= 8001
 RUST_SCENE_BIND ?= 127.0.0.1
@@ -132,7 +138,7 @@ test: test-rust test-web ## Run Rust runtime and browser tests
 test-all: test test-python ## Run Rust, browser, and retained Python compatibility tests
 
 test-rust: ## Run Rust unit, contract, and fixture tests
-	cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
+	CARGO_TARGET_DIR="$(RUST_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
 
 test-web: ## Run browser client tests
 	cd frontend/web && npm test
