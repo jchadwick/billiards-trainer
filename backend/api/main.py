@@ -1,10 +1,9 @@
 """FastAPI application setup and configuration."""
 
-import asyncio
 import copy
 import logging
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional, Protocol, cast
 
@@ -20,7 +19,6 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import config
-from backend.integration_service import IntegrationService
 from backend.perception.provider import (
     PerceptionProvider,
     PerceptionProviderError,
@@ -336,8 +334,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     app_state.scene_state_publisher = None
     app_state.game_session_authority = None
     app_state.perception_runtime = None
-    app_state.performance_broadcast_task = None
-    audit_runtime_task: asyncio.Task[None] | None = None
     runtime_config = getattr(_app.state, "runtime_config", config)
 
     try:
@@ -373,105 +369,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Start WebSocket system services
         await initialize_websocket_system()
 
-        if selected_provider is PerceptionProvider.PYTHON:
-            # Keep the legacy Python game-domain runtime confined to the
-            # selected Python provider. Rust runs never instantiate a second
-            # domain engine behind the same service process.
-            from backend.core import CoreModule, CoreModuleConfig
-
-            logger.info("Initializing Python core module...")
-            core_config = CoreModuleConfig(
-                physics_enabled=True,
-                prediction_enabled=True,
-                assistance_enabled=True,
-                async_processing=True,
-                debug_mode=runtime_config.get("system.debug", False),
-            )
-            app_state.core_module = CoreModule(core_config)
-
-            logger.info("Initializing Python vision module for live integration...")
-            from backend.vision import VisionModule
-
-            app_state.vision_module = VisionModule()
-            audit_recorder = app_state.vision_module.audit_recorder
-            websocket_handler.configure_performance_audit(
-                recorder=audit_recorder,
-                domains=app_state.vision_module.audit_domains,
-            )
-            if audit_recorder is not None:
-                resource_interval = float(
-                    runtime_config.get(
-                        "performance_audit.resource_sample_interval_seconds", 1.0
-                    )
-                )
-                audit_domain = next(
-                    (
-                        domain
-                        for domain in ("state", "trajectory", "viewers")
-                        if app_state.vision_module.audit_domains.get(domain, False)
-                    ),
-                    "state",
-                )
-
-                async def sample_event_loop_health() -> None:
-                    """Record event-loop delay and task pressure only during audits."""
-                    loop = asyncio.get_running_loop()
-                    while True:
-                        expected = loop.time() + resource_interval
-                        await asyncio.sleep(resource_interval)
-                        actual = loop.time()
-                        audit_recorder.record(
-                            {
-                                "event_type": "api_event_loop_sample",
-                                "domain": audit_domain,
-                                "event_loop_lag_seconds": max(0.0, actual - expected),
-                                "outstanding_tasks": sum(
-                                    not task.done() for task in asyncio.all_tasks()
-                                ),
-                            }
-                        )
-
-                audit_runtime_task = asyncio.create_task(
-                    sample_event_loop_health(), name="performance-audit-event-loop"
-                )
-
-            logger.info("Initializing Python integration service...")
-            app_state.integration_service = IntegrationService(
-                vision_module=app_state.vision_module,
-                core_module=app_state.core_module,
-                message_broadcaster=app_state.message_broadcaster,
-                config_module=app_state.config_module,
-            )
-            await app_state.integration_service.start()
-            logger.info("Python Vision→Core→Broadcast flow active")
-
-            async def broadcast_performance_stats_loop() -> None:
-                """Background task to broadcast vision profiler samples."""
-                while True:
-                    try:
-                        await asyncio.sleep(0.5)
-                        if app_state.vision_module and getattr(
-                            app_state.vision_module, "profiler", None
-                        ):
-                            perf_stats = (
-                                app_state.vision_module.profiler.get_realtime_status()
-                            )
-                            await message_broadcaster.broadcast_performance_stats(
-                                perf_stats
-                            )
-                    except asyncio.CancelledError:
-                        break
-                    except Exception:
-                        logger.exception("Error broadcasting performance stats")
-                        await asyncio.sleep(0.5)
-
-            app_state.performance_broadcast_task = asyncio.create_task(
-                broadcast_performance_stats_loop()
-            )
-        elif runtime_config.get("perception.mode", "live") == "live":
-            # Rust live capture is the only publisher in this branch. Starting
-            # Python vision or integration would create a competing camera and
-            # potentially mix state from two owners.
+        if runtime_config.get("perception.mode", "live") == "live":
+            # Rust owns the sole capture and localization publisher.
             websocket_handler.configure_performance_audit()
             publisher = SceneSnapshotStatePublisher(message_broadcaster)
             app_state.scene_state_publisher = publisher
@@ -488,11 +387,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 )
             logger.info(
                 "Rust live capture published its first localization; "
-                "Python vision and integration remain stopped"
+                "no secondary perception publisher was started"
             )
         else:
-            # Recorded replay is the only publisher in this branch. Starting
-            # Python vision or integration would create a competing state stream.
+            # Recorded replay is the only publisher in this branch.
             websocket_handler.configure_performance_audit()
             publisher = SceneSnapshotStatePublisher(message_broadcaster)
             app_state.scene_state_publisher = publisher
@@ -553,19 +451,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         # Shutdown
         logger.info("Shutting down Billiards Trainer API...")
 
-        if audit_runtime_task is not None:
-            audit_runtime_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await audit_runtime_task
-
-        # Stop performance stats broadcasting task
-        if app_state.performance_broadcast_task is not None:
-            logger.info("Stopping performance stats broadcasting task...")
-            app_state.performance_broadcast_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await app_state.performance_broadcast_task
-            app_state.performance_broadcast_task = None
-
         if app_state.perception_runtime is not None:
             logger.info("Stopping supervised Rust perception...")
             try:
@@ -606,7 +491,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
-    """Create and configure FastAPI application."""
+    """Create the legacy ASGI fixture used by offline compatibility tests.
+
+    The supported application server is ``billiards-server``. This factory is
+    retained only for in-process contract tests and is not a runtime entrypoint.
+    """
     # Create FastAPI app with lifecycle management
     app = FastAPI(
         title="Billiards Trainer API",
@@ -753,7 +642,3 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
 
 
 # Dependency injection functions are now in dependencies module
-
-
-# Create the application instance
-app = create_app({"development_mode": True})

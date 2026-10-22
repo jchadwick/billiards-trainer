@@ -10,28 +10,24 @@
 
 The local development, Docker Compose, systemd, and distribution paths now
 build or launch `billiards-server`, which serves the browser bundle and owns
-the application runtime. The packaged target does not contain Python. However,
-`backend.main`, `backend.dev_server`, and `backend.video` still launch Python
-services from source, and several guides still describe those commands as
-supported application startup. That makes it unclear whether the Rust
-migration is complete and permits a second server or camera owner to be
-mistaken for the product runtime.
-
-Python API modules remain useful as differential references and compatibility
-fixtures in the offline test suite. Removing those modules or their Python
-testing dependencies now would be a separate migration with broader impact on
-the acceptance harness. The browser remains HTML, JavaScript, and CSS as
-required by ADR-0066.
+the application runtime. The packaged target does not contain Python. Source
+still contains retired Python API and perception implementations for offline
+compatibility tests. If those paths can be selected from configuration or
+exposed as a default ASGI application, a developer could start a competing
+server or camera owner and mistake it for the product runtime. The browser
+remains HTML, JavaScript, and CSS as required by ADR-0066.
 
 ## Decision
 
 The Rust `billiards-server` binary is the only supported application server
 entry point for development, installation, and deployment. `make run` starts
 the Rust server with live capture; `make run-api` starts the Rust gateway
-without live capture. Python application modules remain importable only as
-offline compatibility references and test fixtures. Their command-line
-launchers must fail clearly and direct users to the Rust commands; they must
-not start Uvicorn, FastAPI, camera capture, or any other application service.
+without live capture. The Python compatibility API may supervise Rust only;
+Python perception selection is rejected, and the compatibility module exports
+no default ASGI application object. Python route factories are retained for
+in-process contract tests only. Their command-line launchers must fail clearly
+and direct users to the Rust commands; they must not start Uvicorn, FastAPI,
+camera capture, or any other supported application service.
 
 Keep Python tools that prepare or evaluate data, train or inspect models, and
 compare runtime behavior off the deployed machine. Keep the browser as the
@@ -82,7 +78,8 @@ runtime.
 - Unit tests assert `python -m backend.main`,
   `python -m backend.dev_server`, and `python -m backend.video` exit with status
   2 and direct users to the Rust Make targets without starting a listener or
-  camera process.
+  camera process; provider tests reject Python perception and assert there is
+  no module-level FastAPI application object.
 - Rust and browser suites pass; Python compatibility tests still import the
   reference app factory without exposing a Python server command.
 - Docker CI builds the repository-root Rust image at the actual `runtime`

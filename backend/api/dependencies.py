@@ -11,8 +11,6 @@ from backend.config import Config, config
 from .websocket.manager import WebSocketManager, websocket_manager
 
 if TYPE_CHECKING:
-    import asyncio
-
     from backend.core import CoreModule
 
 
@@ -36,7 +34,6 @@ class ApplicationState:
         self.game_session_authority: Any | None = None
         self.perception_provider: str | None = None
         self.perception_runtime: Any | None = None
-        self.performance_broadcast_task: asyncio.Task[None] | None = None
         self.startup_time: float | None = None
         self.is_healthy: bool = False
         self.vision_module: Any | None = None  # Will be VisionModule when imported

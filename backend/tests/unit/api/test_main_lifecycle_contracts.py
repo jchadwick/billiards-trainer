@@ -187,75 +187,6 @@ def test_middleware_configuration_uses_environment_specific_and_nested_values() 
 
 
 @pytest.mark.asyncio
-async def test_python_lifespan_registers_services_and_closes_them(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    state, health, shutdown_names = _install_lifecycle_stubs(monkeypatch)
-    lifecycle_events: list[str] = []
-
-    class CoreStub:
-        def __init__(self, _configuration: Any) -> None:
-            lifecycle_events.append("core-created")
-
-    class VisionStub:
-        audit_recorder = None
-        audit_domains: dict[str, bool] = {}
-        profiler = None
-
-        def close(self) -> None:
-            lifecycle_events.append("vision-closed")
-
-    class IntegrationStub:
-        def __init__(self, **_kwargs: Any) -> None:
-            lifecycle_events.append("integration-created")
-
-        async def start(self) -> None:
-            lifecycle_events.append("integration-started")
-
-        async def stop(self) -> None:
-            lifecycle_events.append("integration-stopped")
-
-    import backend.vision as vision_package
-
-    monkeypatch.setattr("backend.core.CoreModule", CoreStub)
-    monkeypatch.setattr(vision_package, "VisionModule", VisionStub)
-    monkeypatch.setattr(api_main, "IntegrationService", IntegrationStub)
-    monkeypatch.setattr(
-        api_main,
-        "message_broadcaster",
-        SimpleNamespace(broadcast_performance_stats=AsyncMock()),
-    )
-    app = api_main.create_app(
-        {
-            "development_mode": True,
-            "perception": {"provider": "python", "mode": "live"},
-            "api": {"health_monitor": {"check_interval": 0.25}},
-        }
-    )
-
-    async with api_main.lifespan(app):
-        assert state.is_healthy
-        assert state.perception_provider == PerceptionProvider.PYTHON.value
-        assert state.vision_module is not None
-        assert state.integration_service is not None
-        assert health.started_with == 0.25
-        assert health.registered is not None
-        assert health.registered["integration_service"] is state.integration_service
-
-    assert not state.is_healthy
-    assert state.performance_broadcast_task is None
-    assert lifecycle_events == [
-        "core-created",
-        "integration-created",
-        "integration-started",
-        "integration-stopped",
-        "vision-closed",
-    ]
-    assert shutdown_names == ["websocket", "core", "config", "vision"]
-    health.stop_monitoring.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_rust_replay_lifespan_uses_one_publisher_and_closes_supervisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -344,7 +275,6 @@ async def test_rust_live_lifespan_starts_only_rust_perception_and_closes_supervi
         api_main, "SceneSnapshotStatePublisher", lambda _broadcaster: publisher
     )
     monkeypatch.setattr("backend.vision.VisionModule", Mock())
-    monkeypatch.setattr(api_main, "IntegrationService", Mock())
     app = api_main.create_app({"perception": {"provider": "rust", "mode": "live"}})
 
     async with api_main.lifespan(app):

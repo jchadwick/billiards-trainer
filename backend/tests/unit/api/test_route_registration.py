@@ -1,6 +1,8 @@
 """Tests for canonical API route registration."""
 
-from backend.api.main import app
+from backend.api.main import create_app
+
+app = create_app()
 
 
 def test_unimplemented_module_lifecycle_routes_are_not_registered() -> None:

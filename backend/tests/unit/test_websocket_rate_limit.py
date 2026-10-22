@@ -206,18 +206,20 @@ async def test_endpoint_generates_and_passes_its_own_request_id(monkeypatch):
 
 
 def test_application_registers_only_the_canonical_websocket_route():
+    app = api_main.create_app()
+
     def has_websocket_route(path: str) -> bool:
         scope = {
             "type": "websocket",
             "path": path,
             "root_path": "",
-            "app": api_main.app,
+            "app": app,
             "endpoint": None,
-            "router": api_main.app.router,
+            "router": app.router,
         }
         return any(
             route.matches(scope)[0] is Match.FULL
-            for route in api_main.app.routes
+            for route in app.routes
             if hasattr(route, "matches")
         )
 

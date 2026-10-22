@@ -15,9 +15,8 @@ class ConfigurationReader(Protocol):
 
 
 class PerceptionProvider(str, Enum):
-    """Perception engines that may be selected by validated configuration."""
+    """The only perception engine accepted by the compatibility API."""
 
-    PYTHON = "python"
     RUST = "rust"
 
 
@@ -30,9 +29,8 @@ def require_api_provider(
 ) -> PerceptionProvider:
     """Resolve the selected mode before starting any perception path.
 
-    Rust is the default runtime. Python remains selectable only for migration
-    comparisons and legacy tests; each mode has a strict supervisor and
-    configuration, and no selection silently falls back.
+    The Python compatibility API may supervise Rust perception for contract
+    tests, but it may never start the retired Python perception pipeline.
     """
     configuration_defaults = load_schema_reference()
     perception_defaults = configuration_defaults.get("perception")
@@ -48,15 +46,11 @@ def require_api_provider(
 
     configured_value = configuration.get("perception.provider", default_provider)
     if not isinstance(configured_value, str):
-        raise PerceptionProviderError(
-            "perception.provider must be either 'python' or 'rust'"
-        )
+        raise PerceptionProviderError("perception.provider must be 'rust'")
     try:
         provider = PerceptionProvider(configured_value)
     except ValueError as error:
-        raise PerceptionProviderError(
-            "perception.provider must be either 'python' or 'rust'"
-        ) from error
+        raise PerceptionProviderError("perception.provider must be 'rust'") from error
 
     default_mode = perception_defaults.get("mode")
     if not isinstance(default_mode, str):
@@ -67,9 +61,5 @@ def require_api_provider(
     if configured_mode not in {"live", "recorded_replay"}:
         raise PerceptionProviderError(
             "perception.mode must be either 'live' or 'recorded_replay'"
-        )
-    if provider is PerceptionProvider.PYTHON and configured_mode != "live":
-        raise PerceptionProviderError(
-            "the Python provider supports only perception.mode='live'"
         )
     return provider

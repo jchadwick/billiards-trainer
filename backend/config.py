@@ -294,7 +294,7 @@ _ENUM_VALUES: dict[str, tuple[str, ...]] = {
     "vision.camera.control_policy": ("source_defaults", "require"),
     "api.rate_limiting.store": ("memory", "redis"),
     "integration.trajectory_quality": ("low", "medium", "high", "ultra"),
-    "perception.provider": ("python", "rust"),
+    "perception.provider": ("rust",),
     "perception.mode": ("live", "recorded_replay"),
     "perception.rust_replay.provider": ("cpu", "auto", "openvino"),
     "perception.rust_live.provider": ("cpu", "auto", "openvino"),

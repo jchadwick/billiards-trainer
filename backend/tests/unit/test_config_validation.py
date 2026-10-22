@@ -287,9 +287,11 @@ def test_perception_provider_configuration_is_explicit_and_validated() -> None:
         == "source_defaults"
     )
 
-    for provider in ("python", "rust"):
-        errors, _ = validate_configuration({"perception": {"provider": provider}})
-        assert errors == []
+    errors, _ = validate_configuration({"perception": {"provider": "rust"}})
+    assert errors == []
+
+    errors, _ = validate_configuration({"perception": {"provider": "python"}})
+    assert {error["field"] for error in errors} == {"perception.provider"}
 
     for mode in ("live", "recorded_replay"):
         errors, _ = validate_configuration({"perception": {"mode": mode}})
@@ -904,14 +906,12 @@ def test_supported_integration_settings_can_be_updated(
         {"integration": {"target_fps": 25}},
         {"vision": {"detection": {"yolo_confidence": 0.5}}},
         {"vision": {"processing": {"target_fps": 25}}},
-        {"perception": {"provider": "python"}},
         {"core": {"physics": {"time_step": 0.002}}},
     ],
     ids=[
         "integration",
         "vision-detection",
         "vision-processing",
-        "perception-provider",
         "core-physics",
     ],
 )

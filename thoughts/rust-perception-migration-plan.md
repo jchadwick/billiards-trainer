@@ -1931,3 +1931,12 @@ coverage, above the 80% threshold. ADR validation and scoped Ruff, Black,
 isort, and mypy checks pass. The earlier 54.96% coverage checkpoint above is
 historical; this newer result clears that shortfall, while the two skipped
 real-model checks remain unqualified.
+
+**Python perception-provider retirement (2026-10-22):** the FastAPI
+compatibility path now accepts Rust perception only; configuration rejects
+`perception.provider=python`, and the former Python Core/Vision/Integration
+lifecycle is removed. The compatibility module no longer exports a default
+ASGI `app`; its factory remains for in-process contract tests. The retained
+backend suite passes 3,159 tests with two model-dependent skips at 80.24%
+coverage. This closes the Python perception selection path but does not remove
+the offline Python compatibility modules or development/model tools.

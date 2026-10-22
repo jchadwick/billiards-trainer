@@ -12,7 +12,7 @@ from backend.api import main
 from backend.perception.provider import PerceptionProviderError
 
 
-def test_invalid_python_mode_fails_before_starting_services(
+def test_python_provider_fails_before_starting_services(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -20,21 +20,26 @@ def test_invalid_python_mode_fails_before_starting_services(
         "get",
         lambda key, default=None: {
             "perception.provider": "python",
-            "perception.mode": "recorded_replay",
+            "perception.mode": "live",
         }.get(key, default),
     )
     initialize_rate_limiter = AsyncMock(return_value=True)
     monkeypatch.setattr(main.rate_limiter, "initialize", initialize_rate_limiter)
 
     async def enter_lifespan() -> None:
-        async with main.lifespan(main.app):
-            pytest.fail("unsupported Rust provider unexpectedly entered lifespan")
+        async with main.lifespan(main.create_app()):
+            pytest.fail("retired Python provider unexpectedly entered lifespan")
 
-    with pytest.raises(PerceptionProviderError, match="supports only"):
+    with pytest.raises(PerceptionProviderError, match="must be 'rust'"):
         asyncio.run(enter_lifespan())
 
     assert initialize_rate_limiter.await_count == 0
     assert main.app_state.is_healthy is False
+
+
+def test_compatibility_api_has_no_default_asgi_server_instance() -> None:
+    """Python API routes are test fixtures, never an implicit server entrypoint."""
+    assert not hasattr(main, "app")
 
 
 def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
@@ -63,11 +68,7 @@ def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
     monkeypatch.setattr(main, "SceneSnapshotStatePublisher", publisher_factory)
 
     vision_factory = Mock(side_effect=AssertionError("Python vision must stay off"))
-    integration_factory = Mock(
-        side_effect=AssertionError("Python integration must stay off")
-    )
     monkeypatch.setattr("backend.vision.VisionModule", vision_factory)
-    monkeypatch.setattr(main, "IntegrationService", integration_factory)
 
     initialize_rate_limiter = AsyncMock(return_value=True)
     close_rate_limiter = AsyncMock()
@@ -108,5 +109,4 @@ def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
     assert initialize_rate_limiter.await_count == 1
     assert close_rate_limiter.await_count == 1
     vision_factory.assert_not_called()
-    integration_factory.assert_not_called()
     health_monitor.register_components.assert_called_once()
