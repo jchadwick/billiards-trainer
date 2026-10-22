@@ -434,7 +434,7 @@ docs-serve: docs ## Serve generated Rust API documentation locally
 
 # ===== Deployment =====
 
-deploy: build-frontend ## Build production distribution package
+deploy: ## Build production distribution package using the Rust shell bundler
 	@bash scripts/deploy/build-dist.sh
 
 deploy-clean: ## Clean deployment artifacts

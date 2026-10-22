@@ -8,7 +8,9 @@ tradeoffs and validation obligations behind consequential choices.
 
 ## Status and scope
 
-ADRs 0001–0008 and 0020–0021 are accepted decisions. ADR-0010 is accepted for the
+ADRs 0001–0004, 0006–0008 and 0020–0021 are accepted decisions. ADR-0005 is
+superseded for the supported Rust runtime by ADR-0081; its offline Python
+reference behavior remains. ADR-0010 is accepted for the
 v1 scene-snapshot semantics; ADR-0013 is accepted for the v1 calibrated table
 coordinate contract; ADR-0023 is superseded by ADR-0024, which accepts the
 shared scene read model with Core-independent localization and calibration-gated
@@ -38,6 +40,13 @@ Ball-number classification remains excluded because it is nonfunctional.
 ADR-0080 makes the Rust gateway the only supported application server entry
 point across development and deployment; Python API modules remain available
 only as offline compatibility references and test fixtures.
+ADR-0081 removes the obsolete Python/Nginx deployment path and makes direct
+Rust delivery the only supported HTTP, WebSocket, and static-client topology.
+The Rust gateway retains global bounded WebSocket admission and delivery but
+does not currently enforce the legacy per-IP attempt quota; revisit that bound
+before expanding beyond the trusted local-network deployment assumption.
+ADR-0005's Python rate-limiter design remains historical for the offline
+reference suite and is superseded for supported-runtime enforcement by ADR-0081.
 ADR-0076 extends replay-v2 to accept the versioned Rust public-state envelope
 while preserving raw snapshot compatibility and receiver-local freshness.
 ADRs 0009 and 0014
@@ -224,6 +233,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0078](decisions/0078-serve-the-prebuilt-browser-client-from-the-rust-gateway.md) | Serve the prebuilt browser client from the Rust gateway | Accepted | Rust static delivery | Safe asset delivery and SPA routing pass; the live-only client and configured remote MJPEG viewer work on Mac, while Rust-owned physical-camera video remains open |
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
+| [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and
@@ -243,7 +253,7 @@ WebSocket use the same scene read model.
 | [0002](decisions/0002-background-trajectory-prediction.md) | Preserve detached inputs, bounded pending work, lifecycle and shutdown; strengthen absolute freshness through 0010. |
 | [0003](decisions/0003-bounded-websocket-delivery.md) | Retain bounded client and ordered control delivery; ADR-0052 tightens replaceable perception messages to latest-value best effort. |
 | [0004](decisions/0004-validated-config-updates.md) | Retain validation and atomic persistence; 0014 adds the process application/acknowledgement boundary. |
-| [0005](decisions/0005-distributed-rate-limiter.md) | Retain admission rules and one table owner. Provider selection is not multi-worker camera ownership. |
+| [0005](decisions/0005-distributed-rate-limiter.md) | Historical offline Python reference policy; ADR-0081 supersedes its per-IP enforcement for the supported Rust runtime, which retains global bounded WebSocket admission. |
 | [0006](decisions/0006-api-model-and-error-contracts.md) | Retain transport/domain separation; 0010/0013 add observation evidence and compatibility mapping. |
 | [0007](decisions/0007-explicit-coordinate-scaling-contract.md) | Retain legacy canonical-pixel/scale contracts. ADR-0013 introduces physical authority for the new perception model; record any actual scope supersession explicitly. |
 | [0008](decisions/0008-opt-in-performance-audit.md) | Retain default-off bounded instrumentation and accuracy-first verification; 0017/0018 require actual backend provenance and credible overhead/cutover evidence. |

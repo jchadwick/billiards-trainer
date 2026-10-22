@@ -1,12 +1,16 @@
 # ADR-0005: Fail-closed WebSocket connection rate limiting
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-18
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0081 for enforcement in the supported Rust runtime; offline Python reference behavior remains
 
 ## Context
+
+> Historical scope: this implementation and its Python Redis/memory-store
+> requirements apply only to the retained offline Python reference. The
+> supported Rust runtime uses the direct gateway contract in ADR-0081.
 
 The WebSocket endpoint limits connection attempts by client IP. The original
 implementation kept an unbounded, process-local dictionary, trusted forwarded
@@ -90,7 +94,6 @@ Any direct client could spoof a forwarded address and bypass per-IP controls.
   parameters before importing the optional Redis client.
 - Address resolution tests cover trusted proxy chains and spoofed headers from
   untrusted peers.
-- Deployment tests verify the generated config uses one worker and the service
-  starts the real `backend.main` launcher with proxy-header rewriting disabled.
-- Gated Redis fakes verify initialization, readiness, and admission deadlines
-  fail closed; Nginx tests verify the canonical WebSocket route.
+- Python reference tests continue to cover bounded stores, trusted proxy
+  address resolution, expiry, capacity, Redis failure, and admission deadlines.
+  They do not assert that the supported Rust runtime provides this policy.

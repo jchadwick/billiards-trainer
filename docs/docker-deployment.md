@@ -9,6 +9,10 @@ caches, or coverage reports.
 
 ## Local use
 
+The Rust gateway serves the API, WebSocket stream, and built browser client from
+one process. No separate Nginx frontend or reverse proxy is part of the
+supported deployment.
+
 Build and start the backend with Docker Compose:
 
 ```bash

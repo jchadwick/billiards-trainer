@@ -28,9 +28,10 @@ make deploy
 ```
 
 This creates a `dist/` directory in the current checkout. Install and run that
-bundle on the same machine using its `setup_config.sh` and `run.sh` scripts.
-The project does not copy the bundle to another host or provide remote process
-control.
+bundle on the same machine with `./dist/run.sh`. The script starts the Rust
+gateway, which also serves the built browser client; it does not start an
+Nginx service. The project does not copy the bundle to another host or provide
+remote process control.
 
 ## Projector
 
