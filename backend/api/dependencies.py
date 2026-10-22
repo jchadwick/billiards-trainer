@@ -31,6 +31,9 @@ class ApplicationState:
         # same defensive scene snapshot that the publisher sends to WebSocket.
         # Keeping this optional preserves the Python-only response path.
         self.scene_state_publisher: Any | None = None
+        # Rust owns game-session metadata in Rust live/replay modes. The
+        # transitional gateway keeps only a client to that authority.
+        self.game_session_authority: Any | None = None
         self.perception_provider: str | None = None
         self.perception_runtime: Any | None = None
         self.performance_broadcast_task: asyncio.Task[None] | None = None

@@ -37,8 +37,8 @@ class ConfigStub:
         raise AssertionError(f"Unexpected configuration key: {key}")
 
 
-def test_missing_provider_setting_keeps_python_as_the_live_default() -> None:
-    assert require_api_provider(ConfigStub()) is PerceptionProvider.PYTHON
+def test_missing_provider_setting_uses_the_rust_live_default() -> None:
+    assert require_api_provider(ConfigStub()) is PerceptionProvider.RUST
 
 
 def test_explicit_python_provider_is_supported() -> None:
@@ -47,16 +47,26 @@ def test_explicit_python_provider_is_supported() -> None:
     assert require_api_provider(configuration) is PerceptionProvider.PYTHON
 
 
-def test_rust_provider_requires_explicit_recorded_replay_mode() -> None:
+def test_rust_provider_supports_live_and_explicit_recorded_replay_modes() -> None:
     configuration = ConfigStub("rust", configured=True)
-
-    with pytest.raises(PerceptionProviderError, match="recorded-input replay"):
-        require_api_provider(configuration)
+    assert require_api_provider(configuration) is PerceptionProvider.RUST
 
     replay_configuration = ConfigStub(
         "rust", configured=True, mode="recorded_replay", mode_configured=True
     )
     assert require_api_provider(replay_configuration) is PerceptionProvider.RUST
+
+
+def test_python_provider_rejects_recorded_replay_mode() -> None:
+    configuration = ConfigStub(
+        "python",
+        configured=True,
+        mode="recorded_replay",
+        mode_configured=True,
+    )
+
+    with pytest.raises(PerceptionProviderError, match="supports only"):
+        require_api_provider(configuration)
 
 
 @pytest.mark.parametrize("provider", [None, 12, "automatic"])

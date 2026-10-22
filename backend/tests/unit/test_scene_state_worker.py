@@ -6,16 +6,26 @@ import asyncio
 import copy
 import json
 import struct
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from backend.perception.scene_ingress import SceneIngressConfig, SceneSnapshotIngress
+from backend.perception.scene_ingress import (
+    ReceivedSceneSnapshot,
+    SceneIngressConfig,
+    SceneSnapshotIngress,
+)
 from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
 from backend.perception.scene_state_worker import SceneSnapshotStateWorker
 
 SCENE_FIXTURE = (
     Path(__file__).resolve().parents[3]
     / "perception/contracts/v1/scene-rust-tracked-success.json"
+)
+PUBLIC_STATE_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "perception/contracts/public-state/number-8.json"
 )
 
 
@@ -58,6 +68,29 @@ def _annotation(sequence: int) -> dict[str, Any]:
         {"source": "test_classifier", "confidence": 0.85}
     ]
     return value
+
+
+def _native_delivery() -> dict[str, Any]:
+    fixture = json.loads(PUBLIC_STATE_FIXTURE.read_text(encoding="utf-8"))
+    scene = fixture["scene"]
+    payload = fixture["expected"]
+    payload["observation_status"].update(
+        freshness_status="fresh", localization_age_ns="0"
+    )
+    return {
+        "delivery_type": "billiards_public_state_delivery",
+        "delivery_schema_version": 1,
+        "source_snapshot": scene,
+        "current_state": {
+            "payload": payload,
+            "epoch": 1,
+            "updated_monotonic_ns": 1_000_000,
+            "localization_received_monotonic_ns": 1_000_000,
+            "localization_age_ns": 0,
+            "ball_age_ns": {ball["id"]: 0 for ball in payload["balls"]},
+            "freshness": "fresh",
+        },
+    }
 
 
 def _frame(message: dict[str, Any]) -> bytes:
@@ -436,10 +469,16 @@ def test_worker_propagates_paired_ingress_receipt_to_scene_read_model() -> None:
             def __init__(self) -> None:
                 self.inner = SceneSnapshotStatePublisher(Broadcaster())
                 self.received_at = None
+                self.received_monotonic_ns = None
 
-            async def publish(self, snapshot, *, received_at):
+            async def publish(self, snapshot, *, received_at, received_monotonic_ns):
                 self.received_at = received_at
-                return await self.inner.publish(snapshot, received_at=received_at)
+                self.received_monotonic_ns = received_monotonic_ns
+                return await self.inner.publish(
+                    snapshot,
+                    received_at=received_at,
+                    received_monotonic_ns=received_monotonic_ns,
+                )
 
             async def publish_health(self, snapshot):
                 return await self.inner.publish_health(snapshot)
@@ -460,6 +499,7 @@ def test_worker_propagates_paired_ingress_receipt_to_scene_read_model() -> None:
             read_model = publisher.inner.read_model
             assert read_model is not None
             assert publisher.received_at is not None
+            assert publisher.received_monotonic_ns is not None
             assert read_model.localization_received_at == publisher.received_at
             assert (
                 read_model.ball_localization_received_at["track-1"]
@@ -475,3 +515,61 @@ def test_worker_propagates_paired_ingress_receipt_to_scene_read_model() -> None:
     assert received_at.tzinfo is not None
     assert received_at.utcoffset() is not None
     assert read_model.updated_at >= received_at
+
+
+def test_worker_routes_native_public_state_to_gateway_without_scene_readaptation() -> (
+    None
+):
+    async def run() -> tuple[Any, list[dict[str, Any]]]:
+        event = _native_delivery()
+        scene = event["source_snapshot"]
+        received_at = datetime.now(timezone.utc)
+        received = ReceivedSceneSnapshot(
+            payload=json.dumps(event, separators=(",", ":")).encode("utf-8"),
+            received_monotonic_ns=time.monotonic_ns(),
+            received_at=received_at,
+            payload_sha256="0" * 64,
+            peer_address=("127.0.0.1", 12345),
+            connection_id="native-state-worker-test",
+        )
+
+        class QueueIngress:
+            def __init__(self) -> None:
+                self.queue: asyncio.Queue[ReceivedSceneSnapshot] = asyncio.Queue()
+                self.queue.put_nowait(received)
+
+            async def start(self) -> None:
+                return None
+
+            async def receive_latest(self) -> ReceivedSceneSnapshot:
+                return await self.queue.get()
+
+            async def close(self) -> None:
+                return None
+
+        class Broadcaster:
+            def __init__(self) -> None:
+                self.states: list[dict[str, Any]] = []
+
+            async def broadcast_game_state(self, **kwargs: Any) -> None:
+                self.states.append(kwargs)
+
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+        worker = SceneSnapshotStateWorker(
+            QueueIngress(), publisher, source_silence_timeout_seconds=1.0
+        )
+        await worker.start()
+        await _wait_until(lambda: worker.stats.published == 1)
+        stats = worker.stats
+        await worker.close()
+        assert publisher.read_model is not None
+        assert publisher.read_model.payload.balls[0]["number"] == 8
+        assert scene["source"]["frame_id"] == "frame-0001"
+        return stats, broadcaster.states
+
+    stats, states = asyncio.run(run())
+    assert stats.published == 1
+    assert stats.health_updates_published == 0
+    assert len(states) == 1
+    assert states[0]["balls"][0]["number"] == 8

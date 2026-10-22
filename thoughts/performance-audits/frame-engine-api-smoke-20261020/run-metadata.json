@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "run_id": "frame-engine-api-smoke-20261020",
+  "purpose": "Integration smoke for the reusable in-memory Rust frame inference path; not a performance qualification",
+  "revision": {
+    "git_head": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "dirty_worktree": true
+  },
+  "host": {
+    "platform": "macOS 26.6.2",
+    "architecture": "arm64",
+    "hardware": "Apple M4 Max"
+  },
+  "runtime": {
+    "rustc": "1.99.1",
+    "onnx_runtime_binding": "ort 2.0.0-rc.15",
+    "requested_provider": "cpu",
+    "observed_providers": [
+      "CPUExecutionProvider"
+    ],
+    "provider_node_count": 214
+  },
+  "input": {
+    "path": "backend/vision/test_data",
+    "workload": "ten unpaced 3840x2160 recorded PNG/JPEG stills",
+    "image_hashes_in": "audit-report.json"
+  },
+  "model": {
+    "source_checkpoint": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "temporary_onnx_sha256": "e4db94c3f1ecd9445134485e65b7536daf67904db6b87442a25641daa4dd161c",
+    "export_manifest": "billiards-yolov8n.onnx.manifest.json"
+  },
+  "configuration": {
+    "image_size": 1280,
+    "confidence": 0.4,
+    "iou": 0.45,
+    "max_detections": 300,
+    "paced_replay_fps": null
+  },
+  "comparison": {
+    "matched_detections": 73,
+    "unmatched_detections": 0,
+    "maximum_center_difference_px": 0.03251198245689458,
+    "equivalence_report": "equivalence-20261020T173017.052279Z.json"
+  },
+  "mean_stage_ms_over_10_samples": {
+    "image_decode": 39.6503043,
+    "preprocess": 9.5669333,
+    "inference": 41.0141333,
+    "decode_and_nms": 0.0884251,
+    "complete_image_pipeline": 90.319796
+  },
+  "limitations": [
+    "Ten unpaced still-image samples do not establish tail latency, camera freshness, or production throughput.",
+    "No camera capture, physical Linux device, temporal labels, or calibrated position accuracy was measured.",
+    "The model classes remain generic cue and ball and do not establish numbered-ball identity."
+  ],
+  "artifacts": [
+    "audit-report.json",
+    "detection-batches.jsonl",
+    "billiards-yolov8n.onnx.manifest.json",
+    "equivalence-20261020T173017.052279Z.json",
+    "equivalence-20261020T173017.052279Z.md",
+    "report.md"
+  ]
+}

@@ -60,9 +60,9 @@ describe('retained frontend contracts', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('uses the API video stream when no runtime viewer URI is configured', async () => {
+  it('does not proxy video through the API when no direct viewer URI is configured', async () => {
     const createSocket = vi.spyOn(apiClient, 'createWebSocket');
-    vi.spyOn(apiClient, 'getVideoStreamUrl').mockReturnValue('http://configured.test/api/v1/stream/video');
+    const getApiVideoUrl = vi.spyOn(apiClient, 'getVideoStreamUrl');
     vi.spyOn(apiClient, 'getConfiguration').mockResolvedValue({
       success: true,
       data: { values: { api: { stream: { viewer_url: null } } } },
@@ -79,10 +79,11 @@ describe('retained frontend contracts', () => {
     view.rerender(<LiveView />);
     expect(createSocket).not.toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByAltText('Video stream').getAttribute('src')).toBe(
-        'http://configured.test/api/v1/stream/video',
-      );
+      expect(screen.getByText(/Direct camera stream unavailable/).textContent)
+        .toContain('Direct camera stream unavailable');
     });
+    expect(screen.queryByAltText('Video stream')).toBeNull();
+    expect(getApiVideoUrl).not.toHaveBeenCalled();
     view.rerender(<LiveView autoConnect={false} />);
     expect(createSocket).not.toHaveBeenCalled();
     expect(screen.getByAltText('Video stream').hasAttribute('src')).toBe(false);

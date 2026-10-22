@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -435,6 +436,7 @@ class SubscriptionManager:
             and stream_type in self.subscriptions[client_id]
         ):
             self.subscriptions[client_id][stream_type].active = False
+            self._update_active_subscriptions()
             logger.info(f"Paused subscription for {client_id}/{stream_type.value}")
 
     async def resume_subscription(
@@ -446,6 +448,7 @@ class SubscriptionManager:
             and stream_type in self.subscriptions[client_id]
         ):
             self.subscriptions[client_id][stream_type].active = True
+            self._update_active_subscriptions()
             logger.info(f"Resumed subscription for {client_id}/{stream_type.value}")
 
     def _should_sample_message(
@@ -455,17 +458,18 @@ class SubscriptionManager:
         if subscription.sample_rate >= 1.0:
             return True
 
-        # Get current sample counter
+        # Use a fractional phase accumulator instead of a long block threshold.
+        # The old counter/modulo comparison delivered half-rate streams in large
+        # bursts followed by equally long gaps, which makes a live view stale
+        # even when its average message rate appears correct.
         counter = self.sample_counters[client_id][stream_type]
-        self.sample_counters[client_id][stream_type] = (
-            counter + 1
-        ) % 1000000  # Prevent overflow
+        self.sample_counters[client_id][stream_type] = counter + 1
 
-        # Calculate if this message should be sampled
-        threshold = subscription.sample_rate * 1000000
-        sample_point = (counter + subscription.sample_offset * 1000000) % 1000000
-
-        return sample_point < threshold
+        offset = subscription.sample_offset
+        if not isinstance(offset, (int, float)) or not math.isfinite(offset):
+            offset = 0.0
+        phase = (counter * subscription.sample_rate + offset) % 1.0
+        return phase < subscription.sample_rate
 
     async def _apply_filters(
         self, data: dict[str, Any], subscription: StreamSubscription

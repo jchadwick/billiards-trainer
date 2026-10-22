@@ -6,10 +6,12 @@
 //! readiness exchange both succeed. Timeout and failure states retain the
 //! coordinator so callers can explicitly stop and confirm source release.
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
+use crate::calibration::ValidatedTableCalibrationV1;
 use crate::capture::{
     CaptureFrameReceiver, CaptureOwnerDisposition, CaptureOwnerStatus, CapturePreflightStatus,
     CapturePreflightWait, CaptureReceiveOutcome, CaptureRuntimeCoordinator, CaptureRuntimeWait,
@@ -20,6 +22,7 @@ use crate::capture_pipeline::{
     Rgb8FrameDetector,
 };
 use crate::capture_settings_wire::{parse_capture_settings_json, ResolvedCaptureSettings};
+use crate::frame_preview::LatestCapturedFrameSlot;
 use crate::live_audit::LiveAuditRecorder;
 use crate::scene_transport::SceneTransportStats;
 use crate::tracking::TrackingConfigV1;
@@ -94,6 +97,8 @@ impl<D: Rgb8FrameDetector> LiveCaptureRuntime<D> {
             tracking,
             pipeline_config,
             None,
+            None,
+            None,
             source_factory,
         )
     }
@@ -120,6 +125,8 @@ impl<D: Rgb8FrameDetector> LiveCaptureRuntime<D> {
             tracking,
             pipeline_config,
             None,
+            None,
+            None,
             source_factory,
         )
     }
@@ -143,10 +150,72 @@ impl<D: Rgb8FrameDetector> LiveCaptureRuntime<D> {
             tracking,
             pipeline_config,
             audit,
+            None,
+            None,
             source_factory,
         )
     }
 
+    /// Start a live capture session with a latest-captured-frame preview slot.
+    /// The slot is populated by the capture publisher before the inference
+    /// receiver, and is bound only after source preflight accepts the request.
+    // These are independent runtime inputs with their existing public ownership.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with_session_id_audit_and_frame_preview<F: CaptureSourceFactory>(
+        exact_request_json: &str,
+        session_id: impl Into<String>,
+        detector: D,
+        tracking: TrackingConfigV1,
+        pipeline_config: CapturePipelineConfig,
+        audit: Option<LiveAuditRecorder>,
+        frame_preview: Arc<LatestCapturedFrameSlot>,
+        source_factory: F,
+    ) -> Result<Self> {
+        Self::start_with_identity(
+            exact_request_json,
+            Some(session_id.into()),
+            detector,
+            tracking,
+            pipeline_config,
+            audit,
+            Some(frame_preview),
+            None,
+            source_factory,
+        )
+    }
+
+    /// Start with a Rust-owned durable calibration snapshot. The exact request
+    /// JSON is still parsed and hashed unchanged; only its in-memory effective
+    /// calibration state is replaced before source preflight and pipeline
+    /// validation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_with_session_id_audit_frame_preview_and_calibration<F: CaptureSourceFactory>(
+        exact_request_json: &str,
+        session_id: impl Into<String>,
+        detector: D,
+        tracking: TrackingConfigV1,
+        pipeline_config: CapturePipelineConfig,
+        audit: Option<LiveAuditRecorder>,
+        frame_preview: Arc<LatestCapturedFrameSlot>,
+        calibration_revision: u64,
+        calibration: Option<ValidatedTableCalibrationV1>,
+        source_factory: F,
+    ) -> Result<Self> {
+        Self::start_with_identity(
+            exact_request_json,
+            Some(session_id.into()),
+            detector,
+            tracking,
+            pipeline_config,
+            audit,
+            Some(frame_preview),
+            Some((calibration_revision, calibration)),
+            source_factory,
+        )
+    }
+
+    // Keep audit and preview independently optional while sharing startup logic.
+    #[allow(clippy::too_many_arguments)]
     fn start_with_identity<F: CaptureSourceFactory>(
         exact_request_json: &str,
         requested_session_id: Option<String>,
@@ -154,10 +223,18 @@ impl<D: Rgb8FrameDetector> LiveCaptureRuntime<D> {
         tracking: TrackingConfigV1,
         pipeline_config: CapturePipelineConfig,
         audit: Option<LiveAuditRecorder>,
+        frame_preview: Option<Arc<LatestCapturedFrameSlot>>,
+        calibration_store_state: Option<(u64, Option<ValidatedTableCalibrationV1>)>,
         source_factory: F,
     ) -> Result<Self> {
-        let settings = parse_capture_settings_json(exact_request_json)
+        let mut settings = parse_capture_settings_json(exact_request_json)
             .context("invalid exact Python capture-settings request")?;
+        if let Some((revision, calibration)) = calibration_store_state {
+            settings
+                .expected
+                .apply_calibration_store_state(revision, calibration)
+                .context("Rust-owned calibration store state does not match the capture context")?;
+        }
 
         // Establish the pipeline clock origin and its bounded scene writer
         // before the capture worker is permitted to open its source.
@@ -177,13 +254,25 @@ impl<D: Rgb8FrameDetector> LiveCaptureRuntime<D> {
             settings.expected.aggregate_frame_limit(),
         )
         .context("failed to configure live capture frame budgets")?;
-        let session_id = match requested_session_id {
-            Some(session_id) => coordinator.start_preflighted_with_session_id(
+        let session_id = match (requested_session_id, frame_preview) {
+            (Some(session_id), Some(preview)) => coordinator
+                .start_preflighted_with_session_id_and_frame_preview(
+                    settings.expected.clone(),
+                    session_id,
+                    preview,
+                    source_factory,
+                ),
+            (Some(session_id), None) => coordinator.start_preflighted_with_session_id(
                 settings.expected.clone(),
                 session_id,
                 source_factory,
             ),
-            None => coordinator.start_preflighted(settings.expected.clone(), source_factory),
+            (None, Some(_)) => {
+                bail!("frame preview requires an explicit capture session identity")
+            }
+            (None, None) => {
+                coordinator.start_preflighted(settings.expected.clone(), source_factory)
+            }
         }
         .context("failed to start the live capture source")?;
 

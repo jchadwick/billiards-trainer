@@ -109,3 +109,37 @@ before/after validation.
   subscriber isolation.
 - The configured formatting, lint, typing, backend test, and coverage gates are
   required before implementation is complete.
+
+## Implementation progress (2026-10-21)
+
+The bounded API, vision, and video-process collectors, deterministic nested
+frame spans, headless receipt audit, and repeatable report exporter are
+implemented. High-frequency state detail is selected deterministically before
+event allocation and timing; 10% sampling retains exact unique-observation
+counts and forces lifecycle/correctness anomalies through the bounded queue.
+The video queue-retrieval interval is explicitly unavailable because frame
+identity is only known after the nonblocking read. Viewer detail is selected
+deterministically by source writer/frame before JPEG and send timing; only the
+small read clocks needed to discover that identity run on unsampled frames.
+The headless collector bounds source-identity history and reports evictions.
+Trajectory timing summaries include successful, failed, stale, and
+publication-failed outcomes while retaining separate outcome counts. Resource
+probe failures are nonfatal and clear stale values. The end-to-end replay test
+now traverses detection, integration conversion, Core update, state publication,
+WebSocket send, and client receipt.
+
+The local M4 Max matched 3×30-second screen passed the configured overhead
+comparison: 24.55 unique observations/s with instrumentation off versus
+25.07/s with sampled state audit, and 61.83 ms versus 60.39 ms p95
+publication-to-client receipt. Both exporters reported no dropped or failed
+records. The Linux saved-image cadence screen processed 120/120 frames at 3 FPS
+with no pending replacements; this does not establish temporal accuracy or
+camera-mode support. These short runs qualify the sampler directionally, not
+the default 3×120-second overhead gate, the 20-minute memory bound, detector
+accuracy, or target-camera behavior.
+
+The latest repository run passed 1,750 tests with two model-dependent skips.
+Ruff, Black, strict mypy, Rust formatting, Rust lint, the Rust tests, and all 51
+ADR validations pass. Pytest still exits nonzero because total coverage is
+56.48%, below the configured 80% gate; the coverage shortfall remains an open
+repository-wide acceptance item.

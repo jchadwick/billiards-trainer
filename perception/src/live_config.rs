@@ -532,6 +532,59 @@ impl ExpectedCaptureSettings {
         self.calibration.as_ref()
     }
 
+    /// Replace request-carried calibration with the Rust-owned durable store
+    /// state while leaving the exact request digest unchanged. A never-written
+    /// store is represented by revision zero; a cleared store retains its
+    /// tombstone revision with no active bundle.
+    /// This is used only when the live runtime has explicitly enabled the
+    /// calibration store.
+    pub fn apply_calibration_store_state(
+        &mut self,
+        calibration_revision: u64,
+        calibration: Option<ValidatedTableCalibrationV1>,
+    ) -> Result<(), CapturePreflightError> {
+        validate_revision(calibration_revision, "calibration_revision")?;
+        if let Some(bundle) = &calibration {
+            if bundle.calibration_revision() != calibration_revision {
+                return Err(CapturePreflightError::CalibrationMismatch(
+                    "stored calibration revision differs from its bundle",
+                ));
+            }
+            if bundle.camera_profile_id() != self.camera_profile_id {
+                return Err(CapturePreflightError::CalibrationMismatch(
+                    "stored calibration profile differs from the capture request",
+                ));
+            }
+            if bundle.rectification_revision() != self.rectification_revision {
+                return Err(CapturePreflightError::CalibrationMismatch(
+                    "stored calibration rectification differs from the capture request",
+                ));
+            }
+            if bundle.image_space() != self.image_space {
+                return Err(CapturePreflightError::CalibrationMismatch(
+                    "stored calibration image space differs from the capture request",
+                ));
+            }
+            let expected_dimensions = self
+                .output_frame_geometry
+                .map(|geometry| (geometry.width_px(), geometry.height_px()))
+                .unwrap_or_else(|| {
+                    (
+                        self.expected_negotiated_profile.width_px(),
+                        self.expected_negotiated_profile.height_px(),
+                    )
+                });
+            if bundle.source_dimensions_px() != expected_dimensions {
+                return Err(CapturePreflightError::CalibrationMismatch(
+                    "stored calibration dimensions differ from emitted RGB8 geometry",
+                ));
+            }
+        }
+        self.calibration_revision = calibration_revision;
+        self.calibration = calibration;
+        Ok(())
+    }
+
     pub fn timestamp_semantics(&self) -> &CaptureTimestampSemantics {
         &self.timestamp_semantics
     }

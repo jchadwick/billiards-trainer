@@ -1,7 +1,6 @@
 """Message broadcaster for efficient WebSocket data streaming with performance optimization."""
 
 import asyncio
-import base64
 import contextlib
 import json
 import logging
@@ -42,6 +41,7 @@ class NumpyEncoder(json.JSONEncoder):
 class FrameMetrics:
     """Frame streaming performance metrics."""
 
+    frames_received: int = 0
     frames_sent: int = 0
     bytes_sent: int = 0
     compression_ratio: float = 0.0
@@ -66,7 +66,7 @@ class BroadcastStats:
 
 
 class FrameBuffer:
-    """Circular buffer for frame data with automatic cleanup."""
+    """Circular buffer for lightweight frame metadata with automatic cleanup."""
 
     def __init__(
         self,
@@ -86,13 +86,13 @@ class FrameBuffer:
         self.frame_times: deque[float] = deque(maxlen=max_size)
 
     def add_frame(self, frame_data: dict[str, Any]) -> None:
-        """Add frame to buffer with timestamp."""
+        """Add frame metadata to the buffer with a local receipt timestamp."""
         current_time = time.time()
         self.frames.append(frame_data)
         self.frame_times.append(current_time)
 
     def get_latest_frame(self) -> Optional[dict[str, Any]]:
-        """Get the most recent frame."""
+        """Get the most recent frame metadata, if any."""
         return self.frames[-1] if self.frames else None
 
     def get_frame_rate(self) -> float:
@@ -236,70 +236,29 @@ class MessageBroadcaster:
         quality: int = 85,
         fps: Optional[float] = None,
     ) -> None:
-        """Broadcast video frame to all subscribed clients."""
+        """Record frame cadence without encoding a disabled WebSocket payload.
+
+        The browser video path uses the dedicated HTTP stream. WebSocket frame
+        delivery is intentionally disabled, so JPEG encoding, compression,
+        base64 conversion, and retaining image payloads here only block the
+        event loop that publishes state. Keep lightweight metadata for existing
+        frame-rate telemetry; frames_sent and bytes_sent stay at zero.
+        """
         try:
-            # Convert image data to base64
-            if isinstance(image_data, np.ndarray):
-                # Assume it's an OpenCV image (BGR format)
-                import cv2
-
-                encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-                _, encoded_img = cv2.imencode(".jpg", image_data, encode_param)
-                image_bytes = encoded_img.tobytes()
-            else:
-                image_bytes = image_data
-
-            # Compress if enabled and data is large enough
-            compressed = False
-            if len(image_bytes) > self.compression_threshold:
-                try:
-                    compressed_data = zlib.compress(
-                        image_bytes, level=self.compression_level
-                    )
-                    if (
-                        len(compressed_data)
-                        < len(image_bytes) * self.compression_ratio_threshold
-                    ):
-                        image_bytes = compressed_data
-                        compressed = True
-                        self.broadcast_stats.frame_metrics.compression_ratio = len(
-                            compressed_data
-                        ) / len(image_bytes)
-                except Exception as e:
-                    logger.warning(f"Frame compression failed: {e}")
-
-            # Encode to base64
-            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-
+            # ``image_data`` stays in the signature for callback/API
+            # compatibility, but must not be copied or retained until a real
+            # WebSocket video transport is enabled.
             frame_data = {
-                "image": image_base64,
                 "width": width,
                 "height": height,
                 "format": format.lower(),
                 "quality": quality,
-                "compressed": compressed,
                 "fps": fps or self.frame_buffer.get_frame_rate(),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "sequence": self._get_next_sequence("frame"),
-                "size_bytes": len(image_bytes),
             }
-
-            # Add to frame buffer
             self.frame_buffer.add_frame(frame_data)
-
-            # DISABLED: Frame broadcasting via WebSocket to prevent browser crashes from large base64 images
-            # Frames are still buffered for internal metrics and potential future use
-            # If you need frame streaming, implement a separate optimized endpoint (e.g., MJPEG stream)
-            # if self.is_streaming and not self.frame_queue.full():
-            #     try:
-            #         self.frame_queue.put_nowait(frame_data)
-            #     except asyncio.QueueFull:
-            #         self.broadcast_stats.frame_metrics.dropped_frames += 1
-            #         logger.warning("Frame queue full, dropping frame")
-
-            # Update metrics
-            self.broadcast_stats.frame_metrics.frames_sent += 1
-            self.broadcast_stats.frame_metrics.bytes_sent += len(image_bytes)
+            self.broadcast_stats.frame_metrics.frames_received += 1
             self.broadcast_stats.frame_metrics.actual_fps = (
                 self.frame_buffer.get_frame_rate()
             )
@@ -433,55 +392,59 @@ class MessageBroadcaster:
             "game_type": game_type,
             # Note: coordinate_metadata removed - scale is now mandatory in each Vector2D
         }
-        component_timestamps = (observation_status or {}).get(
-            "component_observation_timestamps"
-        )
-        component_ages = (
-            {
-                name: max(0.0, time.monotonic() - observed_at)
-                for name, observed_at in component_timestamps.items()
-                if isinstance(observed_at, (int, float))
-                and not isinstance(observed_at, bool)
-            }
-            if isinstance(component_timestamps, dict)
-            else {}
-        )
-        websocket_handler.record_performance_audit(
-            "state",
-            {
-                "event_type": "state_published",
-                "stream_sequence": state_data["sequence"],
-                "source_frame_number": (observation_status or {}).get(
-                    "source_frame_number"
-                ),
-                "source_timestamp": (observation_status or {}).get("source_timestamp"),
-                "source_timestamp_kind": (observation_status or {}).get(
-                    "source_timestamp_kind"
-                ),
-                "source_publication_monotonic_ns": (observation_status or {}).get(
-                    "source_publication_monotonic_ns"
-                ),
-                "source_process_id": (observation_status or {}).get(
-                    "source_process_id"
-                ),
-                "vision_instance_id": (observation_status or {}).get(
-                    "vision_instance_id"
-                ),
-                "vision_process_id": (observation_status or {}).get(
-                    "vision_process_id"
-                ),
-                "map_revision": (observation_status or {}).get("map_revision"),
-                "calibration_revision": (observation_status or {}).get(
-                    "calibration_revision"
-                ),
-                "component_observation_status": (observation_status or {}).get(
-                    "component_observation_status"
-                ),
-                "component_age_seconds": component_ages,
-                "ball_count": len(balls),
-                "cue_present": cue is not None,
-            },
-        )
+        state_audit_identity = (observation_status or {}).get("source_frame_number")
+        if websocket_handler.select_performance_audit_detail(
+            "state", state_audit_identity, category="state_published"
+        ):
+            component_timestamps = (observation_status or {}).get(
+                "component_observation_timestamps"
+            )
+            component_ages = (
+                {
+                    name: max(0.0, time.monotonic() - observed_at)
+                    for name, observed_at in component_timestamps.items()
+                    if isinstance(observed_at, (int, float))
+                    and not isinstance(observed_at, bool)
+                }
+                if isinstance(component_timestamps, dict)
+                else {}
+            )
+            websocket_handler.record_performance_audit(
+                "state",
+                {
+                    "event_type": "state_published",
+                    "stream_sequence": state_data["sequence"],
+                    "source_frame_number": state_audit_identity,
+                    "source_timestamp": (observation_status or {}).get(
+                        "source_timestamp"
+                    ),
+                    "source_timestamp_kind": (observation_status or {}).get(
+                        "source_timestamp_kind"
+                    ),
+                    "source_publication_monotonic_ns": (observation_status or {}).get(
+                        "source_publication_monotonic_ns"
+                    ),
+                    "source_process_id": (observation_status or {}).get(
+                        "source_process_id"
+                    ),
+                    "vision_instance_id": (observation_status or {}).get(
+                        "vision_instance_id"
+                    ),
+                    "vision_process_id": (observation_status or {}).get(
+                        "vision_process_id"
+                    ),
+                    "map_revision": (observation_status or {}).get("map_revision"),
+                    "calibration_revision": (observation_status or {}).get(
+                        "calibration_revision"
+                    ),
+                    "component_observation_status": (observation_status or {}).get(
+                        "component_observation_status"
+                    ),
+                    "component_age_seconds": component_ages,
+                    "ball_count": len(balls),
+                    "cue_present": cue is not None,
+                },
+            )
 
         # Check if state has changed before logging
         state_changed = self._has_state_changed(balls, cue, table, game_type)
@@ -625,25 +588,30 @@ class MessageBroadcaster:
             "prediction_settings": prediction_settings or {},
             "source_observations": source_observations or {},
         }
-        websocket_handler.record_performance_audit(
-            "trajectory",
-            {
-                "event_type": "trajectory_published",
-                "stream_sequence": trajectory_data["sequence"],
-                "source_frame_number": source_frame_number,
-                "source_timestamp": source_timestamp,
-                "source_timestamp_kind": source_timestamp_kind,
-                "source_publication_monotonic_ns": (
-                    (source_observations or {}).get("source_publication_monotonic_ns")
-                ),
-                "map_revision": map_revision,
-                "calibration_revision": calibration_revision,
-                "prediction_status": prediction_status,
-                "spatial_valid": spatial_valid,
-                "line_count": len(lines),
-                "collision_count": len(collisions or []),
-            },
-        )
+        if websocket_handler.select_performance_audit_detail(
+            "trajectory", source_frame_number, category="trajectory_published"
+        ):
+            websocket_handler.record_performance_audit(
+                "trajectory",
+                {
+                    "event_type": "trajectory_published",
+                    "stream_sequence": trajectory_data["sequence"],
+                    "source_frame_number": source_frame_number,
+                    "source_timestamp": source_timestamp,
+                    "source_timestamp_kind": source_timestamp_kind,
+                    "source_publication_monotonic_ns": (
+                        (source_observations or {}).get(
+                            "source_publication_monotonic_ns"
+                        )
+                    ),
+                    "map_revision": map_revision,
+                    "calibration_revision": calibration_revision,
+                    "prediction_status": prediction_status,
+                    "spatial_valid": spatial_valid,
+                    "line_count": len(lines),
+                    "collision_count": len(collisions or []),
+                },
+            )
 
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.TRAJECTORY, trajectory_data)
@@ -724,6 +692,7 @@ class MessageBroadcaster:
                 "compression_enabled": self.broadcast_stats.compression_enabled,
             },
             "frame_metrics": {
+                "frames_received": self.broadcast_stats.frame_metrics.frames_received,
                 "frames_sent": self.broadcast_stats.frame_metrics.frames_sent,
                 "bytes_sent": self.broadcast_stats.frame_metrics.bytes_sent,
                 "compression_ratio": self.broadcast_stats.frame_metrics.compression_ratio,
@@ -787,6 +756,7 @@ class MessageBroadcaster:
                 "compression_enabled": self.broadcast_stats.compression_enabled,
             },
             "frame_metrics": {
+                "frames_received": self.broadcast_stats.frame_metrics.frames_received,
                 "frames_sent": self.broadcast_stats.frame_metrics.frames_sent,
                 "bytes_sent": self.broadcast_stats.frame_metrics.bytes_sent,
                 "compression_ratio": self.broadcast_stats.frame_metrics.compression_ratio,

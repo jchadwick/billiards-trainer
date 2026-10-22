@@ -9,14 +9,17 @@ use std::io::{ErrorKind, Read};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::calibration_store::{CalibrationCaptureContextV1, CalibrationStore};
 use crate::capture::{CaptureReceiveOutcome, CaptureRuntimeWait, CaptureSourceFactory};
 use crate::capture_pipeline::{
     AppliedCaptureCalibration, CapturePipelineConfig, CapturePipelineOutcome,
 };
 use crate::capture_runtime::{LiveCaptureLifecycle, LiveCaptureRuntime};
 use crate::capture_settings_wire::parse_capture_settings_json;
+use crate::frame_preview::{FramePreviewConfig, FramePreviewServer, LatestCapturedFrameSlot};
 use crate::inference::{FrameInferenceEngine, FrameInferenceOptions, ProviderSelection};
 use crate::live_audit::{LiveAuditConfig, LiveAuditExporter, LiveAuditShutdownSummary};
 use crate::tracking::TrackingConfigV1;
@@ -56,6 +59,9 @@ pub struct LiveApplicationSettings {
     pub poll_interval: Duration,
     pub graceful_stop_timeout: Duration,
     pub capture_settings_maximum_bytes: usize,
+    /// Optional loopback-only current-frame preview. `None` creates no slot,
+    /// listener, or preview workers.
+    pub frame_preview: Option<FramePreviewConfig>,
 }
 
 /// Read a one-shot capture request without allocating beyond its configured
@@ -173,8 +179,16 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         None => None,
     };
 
-    let resolved = parse_capture_settings_json(exact_capture_settings_json)
+    let mut resolved = parse_capture_settings_json(exact_capture_settings_json)
         .context("invalid capture settings request")?;
+    if let Some(store) = settings
+        .frame_preview
+        .as_ref()
+        .and_then(|config| config.calibration_control.as_ref())
+        .map(|config| &config.store)
+    {
+        install_calibration_store_state(&mut resolved, store);
+    }
     let expected = &resolved.expected;
     ensure!(
         expected.image_space() == settings.source_image_space,
@@ -245,6 +259,35 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     )
     .context("invalid live tracking configuration")?;
 
+    // Preview is opt-in. Its slot and server do not participate in capture
+    // readiness, and no client request is needed for camera startup. The slot
+    // is bound to the accepted source report by the capture-owner thread.
+    let engine_instance_id = settings.engine_instance_id.clone();
+    let capture_session_id = settings.source_session_id.clone();
+    let calibration_store_enabled = settings
+        .frame_preview
+        .as_ref()
+        .is_some_and(|config| config.calibration_control.is_some());
+    let (frame_preview_slot, _frame_preview_server) = match settings.frame_preview {
+        Some(config) => {
+            let slot = Arc::new(
+                LatestCapturedFrameSlot::new(engine_instance_id.clone())
+                    .context("invalid frame-preview engine identity")?,
+            );
+            let server = FramePreviewServer::bind(config, Arc::clone(&slot))
+                .context("failed to bind the loopback frame-preview listener")?;
+            let readiness =
+                server.readiness_record(engine_instance_id.clone(), capture_session_id.clone());
+            eprintln!(
+                "frame_preview_ready={}",
+                serde_json::to_string(&readiness)
+                    .context("failed to serialize frame-preview readiness")?
+            );
+            (Some(slot), Some(server))
+        }
+        None => (None, None),
+    };
+
     let pipeline = CapturePipelineConfig {
         engine_instance_id: settings.engine_instance_id,
         capture_configuration_revision: resolved.configuration_revision,
@@ -255,15 +298,43 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     };
 
     let audit_recorder = audit_exporter.as_ref().map(LiveAuditExporter::recorder);
-    let mut runtime = LiveCaptureRuntime::start_with_session_id_and_audit(
-        exact_capture_settings_json,
-        settings.source_session_id,
-        detector,
-        tracking,
-        pipeline,
-        audit_recorder,
-        source_factory,
-    )
+    let mut runtime = match (frame_preview_slot, calibration_store_enabled) {
+        (Some(preview_slot), true) => {
+            LiveCaptureRuntime::start_with_session_id_audit_frame_preview_and_calibration(
+                exact_capture_settings_json,
+                settings.source_session_id,
+                detector,
+                tracking,
+                pipeline,
+                audit_recorder,
+                preview_slot,
+                expected.calibration_revision(),
+                expected.calibration().cloned(),
+                source_factory,
+            )
+        }
+        (Some(preview_slot), false) => {
+            LiveCaptureRuntime::start_with_session_id_audit_and_frame_preview(
+                exact_capture_settings_json,
+                settings.source_session_id,
+                detector,
+                tracking,
+                pipeline,
+                audit_recorder,
+                preview_slot,
+                source_factory,
+            )
+        }
+        (None, _) => LiveCaptureRuntime::start_with_session_id_and_audit(
+            exact_capture_settings_json,
+            settings.source_session_id,
+            detector,
+            tracking,
+            pipeline,
+            audit_recorder,
+            source_factory,
+        ),
+    }
     .context("failed to start Rust live capture runtime")?;
 
     let session_result = run_ready_session(
@@ -300,6 +371,87 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
             "{session_error:#}; additionally, live source shutdown failed: {stop_error:#}"
         )),
     }
+}
+
+/// Load the Rust-owned store before model/capture startup. An unavailable,
+/// malformed, or incompatible calibration disables physical coordinates but
+/// leaves image inference and ball detection available. Capture request bytes
+/// and their digest remain unchanged for the source readiness acknowledgement.
+fn install_calibration_store_state(
+    resolved: &mut crate::capture_settings_wire::ResolvedCaptureSettings,
+    store: &CalibrationStore,
+) {
+    let loaded = match store.load() {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            eprintln!("calibration_store_load_failed={error}");
+            let _ = resolved.expected.apply_calibration_store_state(0, None);
+            return;
+        }
+    };
+    let store_revision = loaded.revision.unwrap_or(0);
+    let Some(calibration) = loaded.calibration else {
+        // Keep a clear tombstone's revision visible, even though the active
+        // pipeline has no calibration bundle.
+        let _ = resolved
+            .expected
+            .apply_calibration_store_state(store_revision, None);
+        return;
+    };
+    let Some(binding) = loaded.binding_context.as_ref() else {
+        eprintln!("calibration_store_bundle_inactive=missing_capture_binding");
+        let _ = resolved
+            .expected
+            .apply_calibration_store_state(store_revision, None);
+        return;
+    };
+    if !binding_matches_request(binding, &resolved.expected) {
+        eprintln!("calibration_store_bundle_inactive=capture_context_mismatch");
+        let _ = resolved
+            .expected
+            .apply_calibration_store_state(store_revision, None);
+        return;
+    }
+    let validated = match calibration.into_validated() {
+        Ok(calibration) => calibration,
+        Err(error) => {
+            eprintln!("calibration_store_bundle_inactive=invalid_bundle:{error}");
+            let _ = resolved
+                .expected
+                .apply_calibration_store_state(store_revision, None);
+            return;
+        }
+    };
+    if let Err(error) = resolved
+        .expected
+        .apply_calibration_store_state(store_revision, Some(validated))
+    {
+        eprintln!("calibration_store_bundle_inactive={error}");
+        let _ = resolved
+            .expected
+            .apply_calibration_store_state(store_revision, None);
+    }
+}
+
+fn binding_matches_request(
+    binding: &CalibrationCaptureContextV1,
+    expected: &crate::live_config::ExpectedCaptureSettings,
+) -> bool {
+    let (width_px, height_px) = expected
+        .output_frame_geometry()
+        .map(|geometry| (geometry.width_px(), geometry.height_px()))
+        .unwrap_or_else(|| {
+            (
+                expected.expected_negotiated_profile().width_px(),
+                expected.expected_negotiated_profile().height_px(),
+            )
+        });
+    binding.configuration_revision == expected.configuration_revision()
+        && binding.camera_profile_id == expected.camera_profile_id()
+        && binding.image_space == expected.image_space()
+        && binding.source_width_px == width_px
+        && binding.source_height_px == height_px
+        && binding.rectification_revision == expected.rectification_revision()
 }
 
 fn batch_image_space(image_space: ImageSpace) -> crate::detection_batch::ImageSpace {
@@ -345,6 +497,103 @@ fn warmup_rgb8_dimensions(expected: &crate::live_config::ExpectedCaptureSettings
             let profile = expected.expected_negotiated_profile();
             (profile.width_px(), profile.height_px())
         })
+}
+
+#[cfg(test)]
+mod calibration_store_tests {
+    use std::time::Duration;
+
+    use crate::calibration::{ImagePointPx, TableCalibrationSolverInput};
+    use crate::calibration_store::{CalibrationCaptureContextV1, CalibrationStore};
+    use crate::capture_settings_wire::parse_capture_settings_json;
+    use crate::ImageSpace;
+
+    use super::{binding_matches_request, install_calibration_store_state};
+
+    const CAPTURE_SETTINGS: &str =
+        include_str!("../contracts/capture-settings/v3/capture-settings-default.json");
+
+    #[test]
+    fn saved_binding_activates_on_a_matching_later_process_and_tombstone_stays_visible() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = CalibrationStore::new(
+            directory.path().join("table-calibration.json"),
+            Duration::from_millis(100),
+            64 * 1024,
+        )
+        .unwrap();
+        let mut resolved = parse_capture_settings_json(CAPTURE_SETTINGS).unwrap();
+        let request_digest = resolved.request_sha256.clone();
+        let expected = &resolved.expected;
+        let geometry = expected.output_frame_geometry().unwrap();
+        let context = CalibrationCaptureContextV1 {
+            engine_instance_id: "previous-engine".to_owned(),
+            capture_session_id: "previous-session".to_owned(),
+            source_frame_id: "previous-frame".to_owned(),
+            configuration_revision: expected.configuration_revision(),
+            camera_profile_id: expected.camera_profile_id().to_owned(),
+            image_space: expected.image_space(),
+            source_width_px: geometry.width_px(),
+            source_height_px: geometry.height_px(),
+            calibration_revision: expected.calibration_revision(),
+            rectification_revision: expected.rectification_revision(),
+        };
+        let solver_input = TableCalibrationSolverInput {
+            calibration_revision: 0,
+            camera_profile_id: context.camera_profile_id.clone(),
+            rectification_revision: context.rectification_revision,
+            image_space: context.image_space,
+            source_width_px: context.source_width_px,
+            source_height_px: context.source_height_px,
+            table_width_mm: 2000.0,
+            table_height_mm: 1000.0,
+            corners_px: [
+                ImagePointPx {
+                    x_px: 100.0,
+                    y_px: 100.0,
+                },
+                ImagePointPx {
+                    x_px: f64::from(context.source_width_px - 100),
+                    y_px: 100.0,
+                },
+                ImagePointPx {
+                    x_px: f64::from(context.source_width_px - 100),
+                    y_px: f64::from(context.source_height_px - 100),
+                },
+                ImagePointPx {
+                    x_px: 100.0,
+                    y_px: f64::from(context.source_height_px - 100),
+                },
+            ],
+        };
+        let saved = store
+            .save_with_context(None, solver_input, Some(context.clone()))
+            .unwrap();
+        // Process/session/frame IDs describe the source image; the next
+        // process reuses calibration only when stable capture geometry agrees.
+        assert!(binding_matches_request(&context, &resolved.expected));
+        install_calibration_store_state(&mut resolved, &store);
+        assert_eq!(resolved.request_sha256, request_digest);
+        assert_eq!(resolved.expected.calibration_revision(), 1);
+        assert_eq!(
+            resolved
+                .expected
+                .calibration()
+                .unwrap()
+                .calibration_revision(),
+            1
+        );
+
+        let mut incompatible = context.clone();
+        incompatible.configuration_revision += 1;
+        assert!(!binding_matches_request(&incompatible, &resolved.expected));
+
+        store.clear(saved.revision).unwrap();
+        install_calibration_store_state(&mut resolved, &store);
+        assert_eq!(resolved.expected.calibration_revision(), 2);
+        assert!(resolved.expected.calibration().is_none());
+        assert!(matches!(resolved.expected.image_space(), ImageSpace::Raw));
+    }
 }
 
 fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector>(
@@ -444,6 +693,7 @@ pub fn scene_transport_config(
     SceneTransportConfig {
         address,
         maximum_message_bytes,
+        public_state_delivery_enabled: true,
         connect_timeout,
         write_timeout,
         reconnect_initial_delay,

@@ -1081,29 +1081,65 @@ class GameStateManager:
             with open(filepath, "rb") as f:
                 save_data = pickle.load(f)
 
-            with self._lock:
-                self._current_state = save_data["current_state"]
-                self._state_history = deque(
-                    save_data["state_history"], maxlen=self._state_history.maxlen
-                )
-                self._frame_counter = save_data["frame_counter"]
-                self._start_time = save_data["start_time"]
+            if not isinstance(save_data, dict):
+                raise ValueError("save root must be a mapping")
 
-                # Rebuild ball position tracking
-                if self._current_state:
-                    self._last_ball_positions = {
-                        ball.id: ball.position for ball in self._current_state.balls
-                    }
+            # Decode and validate every saved field before mutating live state.
+            # A corrupt save must not leave a new current state paired with old
+            # history, counters, or cached positions.
+            current_state = save_data["current_state"]
+            saved_history = save_data["state_history"]
+            frame_counter = save_data["frame_counter"]
+            start_time = save_data["start_time"]
+            if current_state is not None and not isinstance(current_state, GameState):
+                raise ValueError("current_state has an unsupported type")
+            if not isinstance(saved_history, (list, tuple, deque)) or any(
+                not isinstance(state, GameState) for state in saved_history
+            ):
+                raise ValueError("state_history has an unsupported shape")
+            if (
+                isinstance(frame_counter, bool)
+                or not isinstance(frame_counter, int)
+                or frame_counter < 0
+            ):
+                raise ValueError("frame_counter must be a non-negative integer")
+            if (
+                isinstance(start_time, bool)
+                or not isinstance(start_time, (int, float))
+                or not math.isfinite(start_time)
+            ):
+                raise ValueError("start_time must be finite")
 
-            self._event_manager.emit_event(
-                "state_loaded",
-                {"filepath": str(filepath), "frame_number": self._frame_counter},
+            restored_history = deque(saved_history, maxlen=self._state_history.maxlen)
+            restored_ball_positions = (
+                {ball.id: ball.position for ball in current_state.balls}
+                if current_state is not None
+                else {}
             )
-
-            logger.info(f"State loaded from {filepath}")
-
-        except (pickle.PickleError, KeyError) as e:
+        except (
+            pickle.PickleError,
+            EOFError,
+            AttributeError,
+            ImportError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as e:
             raise ValueError(f"Corrupted state file: {e}")
+
+        with self._lock:
+            self._current_state = current_state
+            self._state_history = restored_history
+            self._frame_counter = frame_counter
+            self._start_time = float(start_time)
+            self._last_ball_positions = restored_ball_positions
+
+        self._event_manager.emit_event(
+            "state_loaded",
+            {"filepath": str(filepath), "frame_number": self._frame_counter},
+        )
+
+        logger.info(f"State loaded from {filepath}")
 
     def export_state_json(self, filepath: Path) -> None:
         """Export current state as JSON for debugging."""

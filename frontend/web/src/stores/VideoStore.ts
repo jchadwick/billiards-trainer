@@ -110,6 +110,10 @@ export class VideoStore {
   observedBallTrails: ObservedBallTrail[] = [];
   latestObservationStatus: GameStateData["observation_status"] | null = null;
   private latestObservationIdentity: string | null = null;
+  private latestStateEpochIdentity: string | null = null;
+  private latestStateTransportSequence: number | null = null;
+  private latestStateSnapshotRevision: number | null = null;
+  private latestStateSourceFrameNumber: number | null = null;
   private pendingObservedTrailGaps = new Set<string>();
 
   // Stream URL and connection
@@ -693,10 +697,28 @@ export class VideoStore {
     const gameState = message.data as GameStateData;
     const observationStatus = gameState.observation_status;
     const sourceIdentity = observationStatus?.observation_identity;
-    const trailIdentity =
-      sourceIdentity?.engine_instance_id && sourceIdentity.session_id
-        ? `${sourceIdentity.engine_instance_id}\u0000${sourceIdentity.session_id}`
-        : null;
+    const producerEngineId = sourceIdentity?.engine_instance_id
+      ?? observationStatus?.engine_instance_id
+      ?? observationStatus?.vision_instance_id;
+    const reportedSessionId = sourceIdentity?.session_id
+      ?? observationStatus?.source_session_id
+      ?? observationStatus?.source_process_id;
+    const producerSessionId = typeof reportedSessionId === 'string'
+      || typeof reportedSessionId === 'number'
+      ? String(reportedSessionId)
+      : undefined;
+    if (
+      !this.acceptStateObservation(
+        observationStatus,
+        gameState.frame_number,
+        producerEngineId,
+        producerSessionId,
+      )
+    ) return;
+    const trailIdentity = typeof producerEngineId === 'string'
+      && producerSessionId !== undefined
+      ? `${producerEngineId}\u0000${producerSessionId}`
+      : null;
     if (trailIdentity !== null && trailIdentity !== this.latestObservationIdentity) {
       // Track IDs are only unique within an engine/session. A restarted source
       // may reuse the same ID and reset its timestamp or frame counter.
@@ -839,6 +861,59 @@ export class VideoStore {
       this.latestGameState = gameState;
       this.setCurrentFrame(detectionFrame);
     });
+  }
+
+  /**
+   * Reject out-of-order states only when the producer epoch and ordering
+   * watermark are explicit. A producer restart creates a new sequence space;
+   * legacy payloads without comparable provenance keep their existing contract.
+   */
+  private acceptStateObservation(
+    status: GameStateData["observation_status"],
+    frameNumber?: number,
+    engineId?: unknown,
+    sessionId?: string,
+  ): boolean {
+    if (typeof engineId !== "string" || typeof sessionId !== "string") return true;
+
+    const epochIdentity = `${engineId}\u0000${sessionId}`;
+    if (epochIdentity !== this.latestStateEpochIdentity) {
+      this.latestStateEpochIdentity = epochIdentity;
+      this.latestStateTransportSequence = null;
+      this.latestStateSnapshotRevision = null;
+      this.latestStateSourceFrameNumber = null;
+    }
+
+    const transportSequence = status?.transport_sequence;
+    if (typeof transportSequence === "number" && Number.isSafeInteger(transportSequence)) {
+      if (
+        this.latestStateTransportSequence !== null
+        && transportSequence <= this.latestStateTransportSequence
+      ) return false;
+      this.latestStateTransportSequence = transportSequence;
+      return true;
+    }
+
+    const snapshotRevision = status?.observation_identity?.snapshot_revision
+      ?? status?.snapshot_revision;
+    if (typeof snapshotRevision === "number" && Number.isSafeInteger(snapshotRevision)) {
+      if (
+        this.latestStateSnapshotRevision !== null
+        && snapshotRevision <= this.latestStateSnapshotRevision
+      ) return false;
+      this.latestStateSnapshotRevision = snapshotRevision;
+      return true;
+    }
+
+    const sourceFrameNumber = status?.source_frame_number ?? frameNumber;
+    if (typeof sourceFrameNumber === "number" && Number.isSafeInteger(sourceFrameNumber)) {
+      if (
+        this.latestStateSourceFrameNumber !== null
+        && sourceFrameNumber < this.latestStateSourceFrameNumber
+      ) return false;
+      this.latestStateSourceFrameNumber = sourceFrameNumber;
+    }
+    return true;
   }
 
   private normalizeCue(cueData: CueData): CueStick | null {

@@ -1,5 +1,6 @@
 """Correctness tests for opt-in performance timing and event export."""
 
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -7,10 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 import backend.performance_audit as performance_audit
+import backend.vision.performance_profiler as performance_profiler
 from backend.performance_audit import (
     AsyncAuditRecorder,
+    AuditResourceSampler,
     audit_domains_from_config,
     audit_enabled_from_config,
+    deterministic_audit_sample,
     monotonic_clock_domain_id,
 )
 from backend.vision.performance_profiler import PerformanceProfiler
@@ -19,8 +23,10 @@ from backend.vision.performance_profiler import PerformanceProfiler
 class ManualClock:
     def __init__(self) -> None:
         self.value = 0
+        self.calls = 0
 
     def __call__(self) -> int:
+        self.calls += 1
         return self.value
 
 
@@ -61,6 +67,158 @@ def test_nested_spans_use_wall_time_and_exclusive_stage_costs() -> None:
         )
     finally:
         profiler.close()
+
+
+def test_same_thread_nested_frames_keep_each_span_bound_to_its_frame() -> None:
+    clock = ManualClock()
+    profiler = PerformanceProfiler(
+        history_size=4,
+        resource_sample_interval_seconds=10,
+        clock_ns=clock,
+    )
+    try:
+        profiler.start_frame(11)
+        outer_frame = profiler.current_frame
+        assert outer_frame is not None
+        with profiler.span("outer_work"):
+            profiler.start_frame(12)
+            inner_frame = profiler.current_frame
+            assert inner_frame is not None
+            with profiler.span("inner_work"):
+                clock.value += 2_000_000
+            clock.value += 1_000_000
+            profiler.end_frame()
+            assert profiler.current_frame is outer_frame
+            clock.value += 3_000_000
+        clock.value += 4_000_000
+        profiler.end_frame()
+
+        completed = {frame.frame_number: frame for frame in profiler.recent_timings}
+        assert completed[11].total_time == pytest.approx(0.010)
+        assert completed[11].inclusive_stages == {"outer_work": pytest.approx(0.006)}
+        assert completed[12].total_time == pytest.approx(0.003)
+        assert completed[12].inclusive_stages == {"inner_work": pytest.approx(0.002)}
+    finally:
+        profiler.close()
+
+
+def test_resource_provider_failure_is_nonfatal_and_clears_stale_metrics(
+    monkeypatch,
+) -> None:
+    events: list[dict[str, object]] = []
+
+    def unavailable_process() -> None:
+        raise OSError("process metrics unavailable")
+
+    monkeypatch.setattr(performance_profiler.psutil, "Process", unavailable_process)
+    profiler = PerformanceProfiler(
+        resource_sample_interval_seconds=0.005,
+        event_sink=events.append,
+    )
+    deadline = time.monotonic() + 1
+    try:
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.005)
+        status = profiler.get_realtime_status()
+        assert status["resource_measurement_status"] == "unavailable"
+        assert status["cpu_percent"] is None
+        assert status["memory_mb"] is None
+        assert events
+        assert events[0]["resource_measurement_status"] == "unavailable"
+        assert isinstance(events[0]["sampled_monotonic_ns"], int)
+        assert events[0]["cpu_percent"] is None
+    finally:
+        profiler.close()
+
+
+def test_runtime_resource_failure_replaces_the_previous_sample_with_unavailable():
+    class TwoSamplesThenStop:
+        def __init__(self) -> None:
+            self._results = iter((False, False, True))
+
+        def wait(self, _timeout: float) -> bool:
+            return next(self._results)
+
+        def set(self) -> None:
+            return None
+
+    cpu_calls = 0
+
+    def cpu_percent(interval: float | None = None) -> float:
+        nonlocal cpu_calls
+        cpu_calls += 1
+        if cpu_calls == 1:
+            return 35.0
+        raise OSError("process metrics became unavailable")
+
+    events: list[dict[str, object]] = []
+    profiler = PerformanceProfiler(
+        resource_sample_interval_seconds=10,
+        event_sink=events.append,
+    )
+    profiler._sampler_stop.set()
+    profiler._sampler.join(timeout=1)
+    profiler._process = SimpleNamespace(
+        cpu_percent=cpu_percent,
+        memory_info=lambda: SimpleNamespace(rss=64 * 1024 * 1024),
+        cpu_times=lambda: SimpleNamespace(user=1.0, system=0.5),
+    )
+    profiler._sampler_stop = TwoSamplesThenStop()
+    try:
+        profiler._sample_resources()
+
+        assert events[0]["resource_measurement_status"] == "available"
+        assert events[0]["cpu_percent"] == 35.0
+        assert events[1]["resource_measurement_status"] == "unavailable"
+        assert events[1]["cpu_percent"] is None
+        assert events[1]["resident_memory_bytes"] is None
+        status = profiler.get_realtime_status()
+        assert status["resource_measurement_status"] == "unavailable"
+        assert status["cpu_percent"] is None
+        assert status["memory_mb"] is None
+    finally:
+        profiler.close()
+
+
+def test_audit_resource_sampler_timestamps_unavailable_startup_samples(
+    monkeypatch, tmp_path
+) -> None:
+    events: list[dict[str, object]] = []
+
+    def unavailable_process() -> None:
+        raise OSError("process metrics unavailable")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "psutil",
+        SimpleNamespace(Process=unavailable_process),
+    )
+    recorder = AsyncAuditRecorder(
+        tmp_path / "audit.jsonl",
+        writer=events.append,
+    )
+    sampler = AuditResourceSampler(recorder, interval_seconds=0.005)
+    deadline = time.monotonic() + 1
+    try:
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.005)
+    finally:
+        sampler.close()
+        recorder.close(timeout_seconds=1)
+
+    samples = [
+        event
+        for event in events
+        if event.get("event_type") == "process_resource_sample"
+    ]
+    assert samples
+    assert all(
+        sample["resource_measurement_status"] == "unavailable"
+        and isinstance(sample["sampled_monotonic_ns"], int)
+        and sample["cpu_percent"] is None
+        and sample["resident_memory_bytes"] is None
+        for sample in samples
+    )
 
 
 def test_frame_event_exports_queue_depth_with_stage_timings() -> None:
@@ -115,6 +273,123 @@ def test_incomplete_stage_closes_at_frame_boundary_and_history_is_bounded() -> N
         assert profiler.total_frames == 3
     finally:
         profiler.close()
+
+
+def test_detailed_frame_sampling_skips_unsampled_context_and_reports_exact_counts() -> (
+    None
+):
+    clock = ManualClock()
+    events: list[dict[str, object]] = []
+    profiler = PerformanceProfiler(
+        history_size=2,
+        resource_sample_interval_seconds=10,
+        clock_ns=clock,
+        event_sink=events.append,
+        detailed_sample_rate=0.25,
+    )
+    selected_frame = next(
+        frame_number
+        for frame_number in range(100)
+        if deterministic_audit_sample(frame_number, 0.25)
+    )
+    unsampled_frame = next(
+        frame_number
+        for frame_number in range(100)
+        if not deterministic_audit_sample(frame_number, 0.25)
+    )
+    try:
+        assert profiler.start_frame(unsampled_frame) is False
+        # Find a frame that is deterministically outside this run's sample.
+        # Unselected frames avoid FrameTimings, stage dictionaries, and span
+        # objects while retaining their exact completion count.
+        with profiler.span("unsampled_stage"):
+            clock.value += 2_000_000
+        profiler.end_frame(frame_status="failed")
+        assert profiler.current_frame is None
+        assert clock.calls == 0
+
+        assert profiler.start_frame(selected_frame)
+        assert profiler.current_frame is not None
+        with profiler.span("model_execute"):
+            clock.value += 12_000_000
+        profiler.end_frame(frame_status="complete")
+        # A selected frame has start/end timestamps plus the stage span's
+        # start/end clocks; only the two frame-boundary reads remain unsampled.
+        assert clock.calls == 4
+
+        assert profiler.total_frames == 2
+        assert profiler.detailed_frames == 1
+        assert profiler.sampled_out_frames == 1
+        assert profiler.failed_frames == 1
+        assert [frame.frame_number for frame in profiler.recent_timings] == [
+            selected_frame
+        ]
+        assert events[0]["event_type"] == "vision_frame_complete"
+        assert events[0]["frame_number"] == selected_frame
+    finally:
+        profiler.close()
+
+    summary_events = [
+        event
+        for event in events
+        if event["event_type"] == "vision_frame_sampling_summary"
+    ]
+    assert len(summary_events) == 1
+    assert summary_events[0]["processed_frames"] == 2
+    assert summary_events[0]["failed_frames"] == 1
+    assert summary_events[0]["detailed_frames"] == 1
+    assert summary_events[0]["sampled_out_frames"] == 1
+
+
+def test_frame_sampling_is_deterministic_and_approximately_matches_rate() -> None:
+    decisions = [
+        deterministic_audit_sample(frame_number, 0.1) for frame_number in range(10_000)
+    ]
+    assert decisions == [
+        deterministic_audit_sample(frame_number, 0.1) for frame_number in range(10_000)
+    ]
+    assert sum(decisions) == pytest.approx(1000, abs=100)
+
+
+def test_event_detail_sampling_is_deterministic_and_reports_counts() -> None:
+    recorder = AsyncAuditRecorder("unused.jsonl", writer=lambda _event: None)
+    try:
+        expected = [
+            deterministic_audit_sample(frame_number, 0.2) for frame_number in range(100)
+        ]
+        actual = [
+            recorder.select_detail_sample(
+                "state", frame_number, 0.2, category="published"
+            )
+            for frame_number in range(100)
+        ]
+        assert actual == expected
+        assert recorder.status()["detailed_sampling"] == {
+            "state.published": {
+                "candidates": 100,
+                "selected": sum(expected),
+                "sampled_out": 100 - sum(expected),
+            }
+        }
+    finally:
+        recorder.close(timeout_seconds=1)
+
+
+def test_event_detail_sampling_rejects_invalid_rates() -> None:
+    recorder = AsyncAuditRecorder("unused.jsonl", writer=lambda _event: None)
+    try:
+        with pytest.raises(ValueError, match="detail sample rate"):
+            recorder.select_detail_sample("state", 1, 0)
+    finally:
+        recorder.close(timeout_seconds=1)
+
+
+def test_detailed_frame_sample_rate_must_be_within_zero_and_one() -> None:
+    with pytest.raises(ValueError, match="detailed sample rate"):
+        PerformanceProfiler(
+            detailed_sample_rate=0,
+            resource_sample_interval_seconds=10,
+        )
 
 
 def test_exception_closes_nested_spans_and_preserves_frame_timing() -> None:
@@ -197,6 +472,23 @@ def test_async_recorder_drops_when_full_and_reports_export_errors() -> None:
         time.sleep(0.005)
     assert failures.status()["export_errors"] == 1
     failures.close(timeout_seconds=1)
+
+
+def test_recorder_keeps_forced_anomalies_outside_probabilistic_sampling() -> None:
+    written: list[dict[str, object]] = []
+    recorder = AsyncAuditRecorder(
+        "unused.jsonl",
+        sample_rate=0.000001,
+        writer=written.append,
+    )
+    try:
+        assert recorder.record({"event_type": "vision_frame_failed"}, force_keep=True)
+    finally:
+        recorder.close(timeout_seconds=1)
+
+    assert len(written) == 1
+    assert written[0]["event_type"] == "vision_frame_failed"
+    assert recorder.status()["sampled_out_events"] == 0
 
 
 def test_close_is_bounded_and_exporter_exits_after_slow_writer_recovers() -> None:

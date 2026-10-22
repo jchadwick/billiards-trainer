@@ -8,6 +8,7 @@ All spatial measurements are in 4K pixels (3840×2160).
 Velocities are in pixels/second.
 """
 
+import copy
 import logging
 import math
 from dataclasses import dataclass, field
@@ -15,7 +16,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from ..constants_4k import BALL_RADIUS_4K, POCKET_RADIUS_4K
+from ..constants_4k import BALL_MASS_KG, BALL_RADIUS_4K
 from ..coordinates import Vector2D
 from ..models import BallState, GameState, TableState
 
@@ -177,7 +178,9 @@ class ErrorCorrector:
         Returns:
             Corrected game state
         """
-        corrected_state = state.copy()
+        # Validation errors may include malformed mutable model values; preserve
+        # those values so the selected correction can repair them in the copy.
+        corrected_state = copy.deepcopy(state)
         corrections_applied = []
 
         # Parse errors and apply appropriate corrections
@@ -191,8 +194,12 @@ class ErrorCorrector:
 
         # Update statistics
         for correction in corrections_applied:
-            self.correction_history.append(correction)
-            self.stats.add_correction(correction)
+            # Some public correction helpers record their own work. Parser paths
+            # can return those same records so they also appear in the correction
+            # event without counting or storing them twice.
+            if all(correction is not recorded for recorded in self.correction_history):
+                self.correction_history.append(correction)
+                self.stats.add_correction(correction)
 
             if self.logger:
                 self.logger.info(
@@ -337,7 +344,10 @@ class ErrorCorrector:
         corrections = []
 
         for ball in balls:
-            corrected_ball = ball.copy()
+            # BallState.copy() reconstructs through validation. Error correction
+            # must preserve malformed legacy values long enough to repair them,
+            # including None or non-finite velocity components.
+            corrected_ball = copy.deepcopy(ball)
             original_velocity = corrected_ball.__dict__.get("velocity")
 
             # Check for invalid velocities
@@ -405,15 +415,18 @@ class ErrorCorrector:
         Returns:
             Corrected game state
         """
-        corrected_state = state.copy()
+        # A physics repair starts from potentially invalid mutable state. The
+        # model's public copy method validates by reconstruction and therefore
+        # rejects the very mass/radius/confidence values this method repairs.
+        corrected_state = copy.deepcopy(state)
         corrections = []
 
         for _i, ball in enumerate(corrected_state.balls):
-            original_ball = ball.copy()
+            original_ball = copy.deepcopy(ball)
 
             # Fix invalid mass
-            if ball.mass <= 0:
-                ball.mass = 0.17  # Standard pool ball mass
+            if not math.isfinite(ball.mass) or ball.mass <= 0:
+                ball.mass = BALL_MASS_KG
 
                 record = CorrectionRecord(
                     timestamp=datetime.now().timestamp(),
@@ -428,7 +441,7 @@ class ErrorCorrector:
                 corrections.append(record)
 
             # Fix invalid radius
-            if ball.radius <= 0:
+            if not math.isfinite(ball.radius) or ball.radius <= 0:
                 ball.radius = BALL_RADIUS_4K  # Standard pool ball radius in 4K pixels
 
                 record = CorrectionRecord(
@@ -444,8 +457,13 @@ class ErrorCorrector:
                 corrections.append(record)
 
             # Fix invalid confidence
-            if not 0.0 <= ball.confidence <= 1.0:
-                ball.confidence = max(0.0, min(1.0, ball.confidence))
+            if not math.isfinite(ball.confidence) or not 0.0 <= ball.confidence <= 1.0:
+                if not math.isfinite(ball.confidence):
+                    # Non-finite confidence carries no useful evidence; keep the
+                    # corrected observation but mark its confidence as unavailable.
+                    ball.confidence = 0.0
+                else:
+                    ball.confidence = max(0.0, min(1.0, ball.confidence))
 
                 record = CorrectionRecord(
                     timestamp=datetime.now().timestamp(),
@@ -729,7 +747,9 @@ class ErrorCorrector:
                     corrections.append(record)
         else:
             # General overlap correction - check all balls
+            history_start = len(self.correction_history)
             state.balls = self.correct_overlapping_balls(state.balls)
+            corrections.extend(self.correction_history[history_start:])
 
         return corrections
 
@@ -789,23 +809,12 @@ class ErrorCorrector:
 
         if ball_id:
             ball = state.get_ball_by_id(ball_id)
-            if ball and self._should_apply_correction(ball_id):
-                original_velocity = ball.velocity
+            if ball:
+                history_start = len(self.correction_history)
                 corrected_balls = self.correct_invalid_velocities([ball])
                 if corrected_balls:
                     ball.velocity = corrected_balls[0].velocity
-
-                    record = CorrectionRecord(
-                        timestamp=datetime.now().timestamp(),
-                        correction_type=CorrectionType.INVALID_VELOCITY,
-                        ball_id=ball_id,
-                        description=f"Corrected excessive velocity for ball {ball_id}",
-                        original_value=f"({original_velocity.x:.3f}, {original_velocity.y:.3f})",
-                        corrected_value=f"({ball.velocity.x:.3f}, {ball.velocity.y:.3f})",
-                        confidence=ball.confidence,
-                        severity="medium",
-                    )
-                    corrections.append(record)
+                    corrections.extend(self.correction_history[history_start:])
 
         return corrections
 

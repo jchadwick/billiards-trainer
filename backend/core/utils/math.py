@@ -429,23 +429,14 @@ class MathUtils:
         if MathUtils.approximately_zero(total_mass):
             return v1, v2
 
-        # Conservation of momentum
-        momentum_transfer = 2 * (m1 * v1 + m2 * v2) / total_mass
-
-        # Apply restitution
+        # Solve the one-dimensional momentum and restitution equations. The
+        # relative velocity after impact is ``-restitution`` times the
+        # relative velocity before impact; both equations hold for unequal
+        # masses as well as the equal-mass velocity-swap case.
+        total_momentum = m1 * v1 + m2 * v2
         relative_velocity = v1 - v2
-        impulse = restitution * relative_velocity
-
-        v1_new = (
-            v1
-            - (m2 / total_mass) * (momentum_transfer - 2 * v1)
-            - (m2 / total_mass) * impulse
-        )
-        v2_new = (
-            v2
-            + (m1 / total_mass) * (momentum_transfer - 2 * v2)
-            + (m1 / total_mass) * impulse
-        )
+        v1_new = (total_momentum - m2 * restitution * relative_velocity) / total_mass
+        v2_new = (total_momentum + m1 * restitution * relative_velocity) / total_mass
 
         return v1_new, v2_new
 

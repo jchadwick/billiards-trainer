@@ -1,5 +1,12 @@
 Welcome to your new TanStack app!
 
+## Current application scope
+
+The active application currently exposes only the live table view at `/live`.
+The root path redirects there, and removed feature paths display a notice. The
+browser client remains HTML, JavaScript, and CSS; Rust serves its built assets
+and provides the state WebSocket.
+
 # Getting Started
 
 To run this application:
@@ -14,7 +21,7 @@ npm run start
 To build this application for production:
 
 ```bash
-VITE_API_BASE_URL=http://127.0.0.1:8000 npm run build
+npm run build
 ```
 
 The build checks TypeScript before bundling and exits unsuccessfully if either step fails.
@@ -31,8 +38,12 @@ VITE_API_BASE_URL=http://127.0.0.1:8000 npm run test
 npm run typecheck
 ```
 
-`VITE_API_BASE_URL` configures both HTTP and WebSocket destinations. The
-runtime `api.stream.viewer_url` setting may point directly to a browser-reachable
+`VITE_API_BASE_URL` optionally configures both HTTP and WebSocket destinations.
+When omitted, a prebuilt client uses the origin that served it, which keeps
+bundles portable when the Rust gateway serves both the UI and API. Set the
+variable for split frontend/backend development (for example, Vite on port 3000
+and a backend on port 8000). The runtime `api.stream.viewer_url` setting may
+point directly to a browser-reachable
 HTTP(S) MJPEG stream; if unset, Live View uses the API video route. The
 application uses anonymous transport; browser cookies and authentication
 headers are not required.

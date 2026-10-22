@@ -1,12 +1,17 @@
 # ADR-0014: Python-owned revisioned configuration and calibration
 
-- Status: proposed
+- Status: superseded
 - Date: 2026-10-19
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0056 (permanent Python configuration/calibration authority)
 
 ## Context
+
+Historical proposal: ADR-0056 moves configuration and calibration authority to
+Rust while allowing the Python HTTP service to retain route adapters. The
+revision and acknowledgment rationale below remains relevant to that gateway
+contract.
 
 The project has validated atomic configuration persistence, existing calibration
 routes/screens, and stored assets worth retaining. Splitting perception into a

@@ -24,8 +24,11 @@ use crate::detection_batch::{
 };
 use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext};
 use crate::inference::{FrameInferenceEngine, FrameInferenceOutput, FrameInferenceTimings};
-use crate::live_audit::{LiveAuditFrame, LiveAuditObservationOutcome, LiveAuditRecorder};
+use crate::live_audit::{
+    LiveAuditFrame, LiveAuditInferenceTimings, LiveAuditObservationOutcome, LiveAuditRecorder,
+};
 use crate::live_config::{CaptureSessionCompatibility, ExpectedCaptureSettings};
+use crate::public_state_lifecycle::{PublicStateDeliveryV1, SceneStateLifecycle};
 use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
 use crate::{
@@ -257,6 +260,10 @@ pub struct CaptureScenePipeline<D: Rgb8FrameDetector> {
     /// Optional side-channel recorder; `None` creates no audit worker or queue.
     audit: Option<LiveAuditRecorder>,
     config: CapturePipelineConfig,
+    /// Present only for live producer configurations whose gateway consumes
+    /// Rust-owned public-state events. Replay retains the raw scene v1 wire.
+    state_lifecycle: Option<SceneStateLifecycle>,
+    state_lifecycle_session_id: Option<String>,
     /// Compatibility with the opened source session. This does not prove
     /// application of settings absent from the source report.
     preflight_binding: Option<CaptureSessionCompatibility>,
@@ -310,6 +317,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         let tracking_camera_profile_id = tracking.camera_profile_id().to_owned();
         let tracking_configuration_revision = tracking.configuration_revision();
         let tracking_rectification_revision = tracking.rectification_revision();
+        let state_lifecycle = config
+            .scene_transport
+            .public_state_delivery_enabled
+            .then(SceneStateLifecycle::default);
         let tracker = SceneTrackerV1::new(tracking);
         let writer = LatestSceneWriter::start_with_audit(config.scene_transport, audit.clone())?;
         Ok(Self {
@@ -318,6 +329,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             writer,
             audit,
             config,
+            state_lifecycle,
+            state_lifecycle_session_id: None,
             preflight_binding: None,
             live_startup_required: false,
             tracking_camera_profile_id,
@@ -594,7 +607,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         };
         if age > self.config.maximum_frame_age {
             self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
-            self.audit_skip(frame, None, CaptureSkipReason::StaleAfterInference);
+            self.audit_stale_after_inference(
+                frame,
+                inference.timings,
+                parent_record_read_complete_to_inference_start_ms,
+                age,
+            );
             return Ok(CapturePipelineOutcome::Skipped(
                 CaptureSkipReason::StaleAfterInference,
             ));
@@ -673,10 +691,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         };
         let association_capacity_evictions = tracked_scene.association_capacity_evictions;
         let scene = tracked_scene.snapshot;
-        let tracking_state_ms =
+        let mut tracking_state_ms =
             tracking_started.map(|started| started.elapsed().as_secs_f64() * 1_000.0);
         let serialization_started = self.audit.as_ref().map(|_| Instant::now());
-        let payload = match encode_scene_snapshot_v1(&scene) {
+        let raw_payload = match encode_scene_snapshot_v1(&scene) {
             Ok(payload) => payload,
             Err(error) => {
                 self.stats.scene_processing_failures =
@@ -690,7 +708,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error).context("captured scene failed schema validation");
             }
         };
-        let scene_serialization_ms =
+        let mut scene_serialization_ms =
             serialization_started.map(|started| started.elapsed().as_secs_f64() * 1_000.0);
         let age = match frame_age(frame.host_read_completed_at(), Instant::now()) {
             Ok(age) => age,
@@ -716,6 +734,45 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             ));
         }
 
+        let payload = if let Some(lifecycle) = self.state_lifecycle.as_mut() {
+            let state_assembly_started = self.audit.as_ref().map(|_| Instant::now());
+            let session_id = &scene.source.session_id;
+            if self.state_lifecycle_session_id.as_deref() != Some(session_id) {
+                lifecycle
+                    .activate_source(&scene.engine_instance_id, session_id)
+                    .context("failed to activate Rust public-state producer epoch")?;
+                self.state_lifecycle_session_id = Some(session_id.clone());
+            }
+            let received_ns =
+                monotonic_elapsed_ns(self.clock_origin, frame.host_read_completed_at())?;
+            let now = Instant::now();
+            let now_ns = monotonic_elapsed_ns(self.clock_origin, now)?;
+            lifecycle
+                .ingest(&scene, received_ns, now_ns, None, None)
+                .context("Rust public-state lifecycle rejected a captured scene")?;
+            let current_state = lifecycle
+                .current(now_ns)
+                .context("failed to read current Rust public state")?;
+            if let Some(started) = state_assembly_started {
+                if let Some(stage_ms) = tracking_state_ms.as_mut() {
+                    *stage_ms += started.elapsed().as_secs_f64() * 1_000.0;
+                }
+            }
+            let envelope_serialization_started = self.audit.as_ref().map(|_| Instant::now());
+            let event = PublicStateDeliveryV1::new(&scene, current_state.as_ref());
+            let event_payload = serde_json::to_vec(&event)
+                .context("failed to serialize Rust public-state delivery v1")?;
+            if let (Some(total_ms), Some(started)) = (
+                scene_serialization_ms.as_mut(),
+                envelope_serialization_started,
+            ) {
+                *total_ms += started.elapsed().as_secs_f64() * 1_000.0;
+            }
+            event_payload
+        } else {
+            raw_payload
+        };
+
         let next_batch_sequence = match self.next_batch_sequence.checked_add(1) {
             Some(sequence) => sequence,
             None => {
@@ -729,11 +786,16 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             }
         };
         let queue_submit_started = self.audit.as_ref().map(|_| Instant::now());
-        if let Err(error) = self.writer.submit_with_frame_id(
+        let freshness_deadline = frame
+            .host_read_completed_at()
+            .checked_add(self.config.maximum_frame_age)
+            .context("captured frame freshness deadline cannot be represented")?;
+        if let Err(error) = self.writer.submit_live_with_frame_id_and_deadline(
             scene.transport_sequence,
             &scene.engine_instance_id,
             &scene.source.session_id,
             &scene.source.frame_id,
+            freshness_deadline,
             payload,
         ) {
             self.stats.publication_failures = self.stats.publication_failures.saturating_add(1);
@@ -797,6 +859,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                     outcome: "degraded",
                     stage: "track_association",
                     reason: &reason,
+                    inference_timings: None,
                 });
             }
             audit.record_frame(LiveAuditFrame {
@@ -820,6 +883,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 preprocess_ms: inference.timings.preprocess_ms,
                 inference_ms: inference.timings.inference_ms,
                 decode_and_nms_ms: inference.timings.decode_and_nms_ms,
+                engine_total_ms: inference.timings.engine_total_ms,
                 calibration_ms,
                 tracking_state_ms,
                 scene_serialization_ms,
@@ -900,6 +964,29 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         self.audit_observation(frame, transport_sequence, "skipped", stage, reason);
     }
 
+    fn audit_stale_after_inference(
+        &self,
+        frame: &RgbFrameEnvelope,
+        inference: FrameInferenceTimings,
+        parent_record_read_complete_to_inference_start_ms: f64,
+        age: Duration,
+    ) {
+        self.audit_observation_with_inference_timings(
+            frame,
+            None,
+            "skipped",
+            "freshness_check",
+            "stale_after_inference",
+            Some(LiveAuditInferenceTimings {
+                capture_timing: frame.capture_timing(),
+                parent_record_read_complete_to_inference_start_ms,
+                inference,
+                parent_record_read_complete_to_inference_complete_ms: age.as_secs_f64() * 1_000.0,
+                maximum_frame_age_ms: self.config.maximum_frame_age.as_secs_f64() * 1_000.0,
+            }),
+        );
+    }
+
     fn audit_rejection(&self, frame: &RgbFrameEnvelope, rejection: &CaptureFrameRejection) {
         let reason = match rejection {
             CaptureFrameRejection::SourceSessionMismatch { .. } => "source_session_mismatch",
@@ -929,6 +1016,25 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         stage: &'static str,
         reason: &'static str,
     ) {
+        self.audit_observation_with_inference_timings(
+            frame,
+            transport_sequence,
+            outcome,
+            stage,
+            reason,
+            None,
+        );
+    }
+
+    fn audit_observation_with_inference_timings(
+        &self,
+        frame: &RgbFrameEnvelope,
+        transport_sequence: Option<u64>,
+        outcome: &'static str,
+        stage: &'static str,
+        reason: &'static str,
+        inference_timings: Option<LiveAuditInferenceTimings>,
+    ) {
         let Some(audit) = self.audit.as_ref() else {
             return;
         };
@@ -950,6 +1056,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             outcome,
             stage,
             reason,
+            inference_timings,
         });
     }
 
@@ -1127,6 +1234,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     }
 }
 
+fn monotonic_elapsed_ns(origin: Instant, at: Instant) -> Result<u128> {
+    at.checked_duration_since(origin)
+        .map(|duration| duration.as_nanos())
+        .context("monotonic timestamp predates the capture pipeline clock origin")
+}
+
 fn validate_config(config: &CapturePipelineConfig, tracking: &TrackingConfigV1) -> Result<()> {
     ensure!(
         !config.engine_instance_id.is_empty()
@@ -1214,6 +1327,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    use std::thread;
     use std::time::{Duration, Instant};
 
     use crate::calibration::{TableCalibrationV1, ValidatedTableCalibrationV1};
@@ -1232,6 +1346,7 @@ mod tests {
     use crate::scene_transport::SceneTransportConfig;
     use crate::tracking::TrackingConfigV1;
     use crate::{Outcome, UpdateKind};
+    use serde_json::{json, Value};
 
     use super::{
         AppliedCaptureCalibration, CapturePipelineConfig, CapturePipelineOutcome,
@@ -1358,6 +1473,22 @@ mod tests {
         maximum_frame_age: Duration,
         maximum_message_bytes: usize,
     ) -> CaptureScenePipeline<FakeDetector> {
+        pipeline_with_delivery(
+            detector,
+            maximum_frame_age,
+            maximum_message_bytes,
+            false,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
+        )
+    }
+
+    fn pipeline_with_delivery(
+        detector: FakeDetector,
+        maximum_frame_age: Duration,
+        maximum_message_bytes: usize,
+        public_state_delivery_enabled: bool,
+        address: SocketAddr,
+    ) -> CaptureScenePipeline<FakeDetector> {
         let tracking = TrackingConfigV1::new(
             1,
             Some(0),
@@ -1382,8 +1513,9 @@ mod tests {
                 maximum_frame_age,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
-                    address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
+                    address,
                     maximum_message_bytes,
+                    public_state_delivery_enabled,
                     connect_timeout: Duration::from_millis(20),
                     write_timeout: Duration::from_millis(20),
                     reconnect_initial_delay: Duration::from_millis(20),
@@ -1425,6 +1557,7 @@ mod tests {
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
                     maximum_message_bytes: 16 * 1024,
+                    public_state_delivery_enabled: false,
                     connect_timeout: Duration::from_millis(20),
                     write_timeout: Duration::from_millis(20),
                     reconnect_initial_delay: Duration::from_millis(20),
@@ -1464,6 +1597,66 @@ mod tests {
             frame_limit,
         )
         .unwrap()
+    }
+
+    fn read_transport_frame(stream: &mut impl Read) -> Vec<u8> {
+        let mut header = [0_u8; 4];
+        stream.read_exact(&mut header).unwrap();
+        let mut payload = vec![0; u32::from_be_bytes(header) as usize];
+        stream.read_exact(&mut payload).unwrap();
+        payload
+    }
+
+    #[test]
+    fn live_public_state_delivery_contains_rust_lifecycle_and_unchanged_raw_scene() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let hello: Value = serde_json::from_slice(&read_transport_frame(&mut stream)).unwrap();
+            assert_eq!(hello["protocol_version"], 2);
+            let ready = serde_json::to_vec(&json!({
+                "type": "ready",
+                "protocol_version": 2,
+                "last_transport_sequence": null
+            }))
+            .unwrap();
+            crate::framing::write_framed_message(&mut stream, &ready, 64 * 1024).unwrap();
+            serde_json::from_slice::<Value>(&read_transport_frame(&mut stream)).unwrap()
+        });
+
+        let calls = Arc::new(AtomicU64::new(0));
+        let mut pipeline = pipeline_with_delivery(
+            detector(Arc::clone(&calls), false, vec![detection()]),
+            Duration::from_secs(1),
+            64 * 1024,
+            true,
+            address,
+        );
+        let outcome = pipeline
+            .process(&frame(
+                "native-state-frame",
+                Some(1_000_000),
+                Instant::now(),
+            ))
+            .unwrap();
+        assert!(matches!(outcome, CapturePipelineOutcome::Published(_)));
+        let event = receiver.join().unwrap();
+        assert_eq!(event["delivery_type"], "billiards_public_state_delivery");
+        assert_eq!(event["delivery_schema_version"], 1);
+        assert_eq!(event["source_snapshot"]["schema_version"], 1);
+        assert_eq!(
+            event["source_snapshot"]["source"]["frame_id"],
+            "native-state-frame"
+        );
+        assert_eq!(event["current_state"]["freshness"], "fresh");
+        assert_eq!(event["current_state"]["epoch"], 1);
+        assert_eq!(
+            event["current_state"]["payload"]["balls"][0]["id"],
+            "track-1"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        pipeline.shutdown();
     }
 
     #[test]
@@ -1552,6 +1745,7 @@ mod tests {
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
                     maximum_message_bytes: 16 * 1024,
+                    public_state_delivery_enabled: false,
                     connect_timeout: Duration::from_millis(20),
                     write_timeout: Duration::from_millis(20),
                     reconnect_initial_delay: Duration::from_millis(20),
@@ -1659,6 +1853,7 @@ mod tests {
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
                     maximum_message_bytes: 16 * 1024,
+                    public_state_delivery_enabled: false,
                     connect_timeout: Duration::from_millis(20),
                     write_timeout: Duration::from_millis(20),
                     reconnect_initial_delay: Duration::from_millis(20),
@@ -1718,6 +1913,7 @@ mod tests {
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
                     maximum_message_bytes: 16 * 1024,
+                    public_state_delivery_enabled: false,
                     connect_timeout: Duration::from_millis(20),
                     write_timeout: Duration::from_millis(20),
                     reconnect_initial_delay: Duration::from_millis(20),
@@ -1903,6 +2099,23 @@ mod tests {
         assert_eq!(records[3]["reason"], "stale_before_inference");
         assert_eq!(records[4]["frame_id"], "stale-after-inference");
         assert_eq!(records[4]["reason"], "stale_after_inference");
+        assert_eq!(records[4]["schema_version"], 3);
+        assert_eq!(records[4]["transport_sequence"], serde_json::Value::Null);
+        assert_eq!(
+            records[4]["source_timestamp"]["stage"],
+            "shared_memory_publication"
+        );
+        assert_eq!(records[4]["inference_timings_ms"]["preprocess"], 1.0);
+        assert_eq!(records[4]["inference_timings_ms"]["inference"], 2.0);
+        assert_eq!(records[4]["inference_timings_ms"]["decode_and_nms"], 0.5);
+        assert_eq!(records[4]["inference_timings_ms"]["engine_total"], 3.5);
+        assert!(records[4]["inference_timings_ms"]
+            ["parent_record_read_complete_to_inference_complete"]
+            .as_f64()
+            .is_some_and(|age_ms| age_ms >= 20.0));
+        assert_eq!(records[4]["inference_timings_ms"]["maximum_frame_age"], 1.0);
+        assert!(records[4]["inference_timings_ms"]["parent_framed_record_read"].is_null());
+        assert!(records[4].get("detections").is_none());
         assert_eq!(records[5]["frame_id"], "scene-failure");
         assert_eq!(records[5]["outcome"], "failed");
         assert_eq!(records[5]["stage"], "batch_assembly");
@@ -1960,6 +2173,7 @@ mod tests {
             scene_transport: SceneTransportConfig {
                 address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
                 maximum_message_bytes: 16 * 1024,
+                public_state_delivery_enabled: false,
                 connect_timeout: Duration::from_millis(20),
                 write_timeout: Duration::from_millis(20),
                 reconnect_initial_delay: Duration::from_millis(20),

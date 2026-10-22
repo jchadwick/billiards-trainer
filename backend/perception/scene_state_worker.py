@@ -157,8 +157,30 @@ class SceneSnapshotStateWorker:
             snapshot = received.snapshot
             self._latest_transport_sequence = snapshot.get("transport_sequence")
             try:
+                public_state_delivery = received.public_state_delivery
+                if public_state_delivery is not None:
+                    outcome = await self._publisher.publish_native_state(
+                        public_state_delivery,
+                        received_at=received.received_at,
+                        received_monotonic_ns=received.received_monotonic_ns,
+                    )
+                    if outcome == "localization":
+                        self._published += 1
+                        self._first_observation_published.set()
+                        self._last_successful_observation_monotonic_ns = (
+                            received.received_monotonic_ns
+                        )
+                        self._source_silence_notified = False
+                    elif outcome == "health":
+                        self._health_updates_published += 1
+                    else:
+                        self._ignored_non_observations += 1
+                    continue
+
                 published = await self._publisher.publish(
-                    snapshot, received_at=received.received_at
+                    snapshot,
+                    received_at=received.received_at,
+                    received_monotonic_ns=received.received_monotonic_ns,
                 )
                 if not published:
                     health_published = await self._publisher.publish_health(snapshot)

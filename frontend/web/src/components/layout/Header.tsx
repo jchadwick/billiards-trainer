@@ -156,7 +156,9 @@ export const Header = observer<HeaderProps>(({ className = "" }) => {
                       : "text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 dark:text-secondary-300 dark:hover:bg-secondary-700 dark:hover:text-secondary-100"
                   } ${item.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                   onClick={
-                    item.disabled ? (e) => e.preventDefault() : undefined
+                    item.disabled
+                      ? (e: React.MouseEvent<HTMLAnchorElement>) => e.preventDefault()
+                      : undefined
                   }
                   aria-disabled={item.disabled}
                   aria-current={isActive ? "page" : undefined}
@@ -228,7 +230,7 @@ export const Header = observer<HeaderProps>(({ className = "" }) => {
                       ? "bg-primary-100 text-primary-900 dark:bg-primary-900 dark:text-primary-100"
                       : "text-secondary-700 hover:bg-secondary-100 hover:text-secondary-900 dark:text-secondary-300 dark:hover:bg-secondary-700 dark:hover:text-secondary-100"
                   } ${item.disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-                  onClick={(e) => {
+                  onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
                     if (item.disabled) {
                       e.preventDefault();
                     } else {

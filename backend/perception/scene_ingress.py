@@ -2,13 +2,15 @@
 
 The ingress is deliberately passive until :meth:`SceneSnapshotIngress.start`
 is called. A recorded producer uses the v2 identity-scoped handshake; a live
-producer can be required to use v3 and present the request-bound capture-session
-acknowledgement before it receives ``ready``. Both send complete scene-snapshot
-v1 records using the shared four-byte big-endian framing contract. Producer
-IDs are provenance already present in scenes; they do not authenticate a
-process. The endpoint is restricted to loopback and one active connection. A
-single pending slot keeps consumers on the newest state when Core or another
-optional consumer falls behind.
+producer is required to use v3 and present the request-bound capture-session
+acknowledgement before it receives ``ready``. A configured native public-state
+producer may use v2 for replay or the strict v3 handshake for live capture. Both
+send complete scene-snapshot v1 records (or the explicitly enabled native
+delivery envelope containing one) using the shared four-byte big-endian framing
+contract. Producer IDs are provenance already present in scenes; they do not
+authenticate a process. The endpoint is restricted to loopback and one active
+connection. A single pending slot keeps consumers on the newest state when Core
+or another optional consumer falls behind.
 
 Receipt timestamps use this Python process's monotonic clock. The module does
 not subtract producer timestamps or claim cross-process one-way latency.
@@ -50,6 +52,10 @@ _SCENE_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2]
     / "perception/contracts/v1/scene-snapshot.schema.json"
 )
+_PUBLIC_STATE_DELIVERY_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "perception/contracts/public-state/public-state-delivery-v1.schema.json"
+)
 _CAPTURE_ACK_FIXTURE_ROOT = (
     Path(__file__).resolve().parents[2] / "perception/contracts/capture-session-ack"
 )
@@ -76,6 +82,7 @@ class SceneIngressConfig:
     maximum_message_bytes: int
     read_timeout_seconds: float
     capture_settings: CaptureSettingsSnapshot | None = None
+    accept_public_state_delivery: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.bind_address, str):
@@ -115,6 +122,16 @@ class SceneIngressConfig:
         ):
             raise ValueError(
                 "capture settings must be a validated v1, v2, or v3 request snapshot"
+            )
+        if not isinstance(self.accept_public_state_delivery, bool):
+            raise ValueError("public-state delivery selection must be boolean")
+        if (
+            self.accept_public_state_delivery
+            and self.capture_settings is not None
+            and not isinstance(self.capture_settings, CaptureSettingsSnapshotV3)
+        ):
+            raise ValueError(
+                "Rust public-state live delivery requires capture-settings v3"
             )
         hello_size = len(
             json.dumps(
@@ -208,6 +225,21 @@ class ReceivedSceneSnapshot:
         value = json.loads(self.payload)
         if not isinstance(value, dict):  # protected by schema validation
             raise SceneIngressError("validated scene snapshot is not an object")
+        if value.get("delivery_type") == "billiards_public_state_delivery":
+            snapshot = value.get("source_snapshot")
+            if not isinstance(snapshot, dict):  # protected by delivery validation
+                raise SceneIngressError("delivery source snapshot is not an object")
+            return snapshot
+        return value
+
+    @property
+    def public_state_delivery(self) -> dict[str, Any] | None:
+        """Return a validated native-state envelope when one was delivered."""
+        value = json.loads(self.payload)
+        if not isinstance(value, dict):
+            raise SceneIngressError("validated scene frame is not an object")
+        if value.get("delivery_type") != "billiards_public_state_delivery":
+            return None
         return value
 
 
@@ -231,6 +263,87 @@ class SceneIngressStats:
     producer_identity: tuple[str, str] | None
 
 
+@dataclass(frozen=True)
+class SceneIngressTransportAuditSummary:
+    """Opt-in bounded aggregate measurements for one qualification window."""
+
+    status: str
+    accepted_snapshots: int
+    payload_bytes_total: int
+    payload_bytes_minimum: int | None
+    payload_bytes_mean: float | None
+    payload_bytes_maximum: int | None
+    sequence_gaps: int
+    queue_capacity: int
+    queue_depth_high_water: int
+    queue_depth_zero_before_enqueue: int
+    queue_depth_one_before_enqueue: int
+    queue_replacements: int
+    queue_replacement_fraction: float | None
+
+
+class _SceneIngressTransportAudit:
+    """Accumulate scalar transport evidence without retaining frame history."""
+
+    def __init__(self, queue_capacity: int) -> None:
+        self._queue_capacity = queue_capacity
+        self._accepted_snapshots = 0
+        self._payload_bytes_total = 0
+        self._payload_bytes_minimum: int | None = None
+        self._payload_bytes_maximum: int | None = None
+        self._sequence_gaps = 0
+        self._queue_depth_high_water = 0
+        self._queue_depth_zero_before_enqueue = 0
+        self._queue_depth_one_before_enqueue = 0
+        self._queue_replacements = 0
+
+    def record(
+        self, *, payload_bytes: int, queue_depth_before_enqueue: int, sequence_gaps: int
+    ) -> None:
+        self._accepted_snapshots += 1
+        self._payload_bytes_total += payload_bytes
+        self._payload_bytes_minimum = (
+            payload_bytes
+            if self._payload_bytes_minimum is None
+            else min(self._payload_bytes_minimum, payload_bytes)
+        )
+        self._payload_bytes_maximum = (
+            payload_bytes
+            if self._payload_bytes_maximum is None
+            else max(self._payload_bytes_maximum, payload_bytes)
+        )
+        self._sequence_gaps += sequence_gaps
+        if queue_depth_before_enqueue == 0:
+            self._queue_depth_zero_before_enqueue += 1
+        elif queue_depth_before_enqueue == 1:
+            self._queue_depth_one_before_enqueue += 1
+            self._queue_replacements += 1
+        self._queue_depth_high_water = max(
+            self._queue_depth_high_water,
+            min(self._queue_capacity, queue_depth_before_enqueue + 1),
+        )
+
+    def summary(self) -> SceneIngressTransportAuditSummary:
+        count = self._accepted_snapshots
+        return SceneIngressTransportAuditSummary(
+            status="available" if count else "unavailable",
+            accepted_snapshots=count,
+            payload_bytes_total=self._payload_bytes_total,
+            payload_bytes_minimum=self._payload_bytes_minimum,
+            payload_bytes_mean=(self._payload_bytes_total / count if count else None),
+            payload_bytes_maximum=self._payload_bytes_maximum,
+            sequence_gaps=self._sequence_gaps,
+            queue_capacity=self._queue_capacity,
+            queue_depth_high_water=self._queue_depth_high_water,
+            queue_depth_zero_before_enqueue=self._queue_depth_zero_before_enqueue,
+            queue_depth_one_before_enqueue=self._queue_depth_one_before_enqueue,
+            queue_replacements=self._queue_replacements,
+            queue_replacement_fraction=(
+                self._queue_replacements / count if count else None
+            ),
+        )
+
+
 class SceneSnapshotIngress:
     """Receive one loopback scene producer with latest-only buffering."""
 
@@ -239,10 +352,18 @@ class SceneSnapshotIngress:
         schema = json.loads(_SCENE_SCHEMA_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         self._validator = Draft202012Validator(schema)
+        self._public_state_validator: Draft202012Validator | None = None
+        if settings.accept_public_state_delivery:
+            delivery_schema = json.loads(
+                _PUBLIC_STATE_DELIVERY_SCHEMA_PATH.read_text(encoding="utf-8")
+            )
+            Draft202012Validator.check_schema(delivery_schema)
+            self._public_state_validator = Draft202012Validator(delivery_schema)
 
         self._server: asyncio.AbstractServer | None = None
         self._bound_address: tuple[str, int] | None = None
         self._latest: asyncio.Queue[ReceivedSceneSnapshot] = asyncio.Queue(maxsize=1)
+        self._transport_audit: _SceneIngressTransportAudit | None = None
         self._active_writer: asyncio.StreamWriter | None = None
         self._client_tasks: set[asyncio.Task[None]] = set()
         self._closed = False
@@ -293,6 +414,34 @@ class SceneSnapshotIngress:
             last_transport_sequence=self._last_sequence,
             producer_identity=self._accepted_identity,
         )
+
+    def enable_transport_audit(self) -> None:
+        """Begin bounded aggregate transport measurement for the next window."""
+        if self._transport_audit is not None:
+            raise RuntimeError("scene ingress transport audit is already enabled")
+        self._transport_audit = _SceneIngressTransportAudit(self._latest.maxsize)
+
+    def finish_transport_audit(self) -> SceneIngressTransportAuditSummary:
+        """Return the current aggregate and disable transport measurement."""
+        audit = self._transport_audit
+        self._transport_audit = None
+        if audit is None:
+            return SceneIngressTransportAuditSummary(
+                status="disabled",
+                accepted_snapshots=0,
+                payload_bytes_total=0,
+                payload_bytes_minimum=None,
+                payload_bytes_mean=None,
+                payload_bytes_maximum=None,
+                sequence_gaps=0,
+                queue_capacity=self._latest.maxsize,
+                queue_depth_high_water=0,
+                queue_depth_zero_before_enqueue=0,
+                queue_depth_one_before_enqueue=0,
+                queue_replacements=0,
+                queue_replacement_fraction=None,
+            )
+        return audit.summary()
 
     @property
     def capture_session_acknowledgement(
@@ -609,7 +758,25 @@ class SceneSnapshotIngress:
             raise SceneIngressError("scene frame is not valid JSON") from exc
         if not isinstance(scene, dict):
             raise SceneIngressError("scene frame must contain a JSON object")
-        self._validator.validate(scene)
+        delivery: dict[str, Any] | None = None
+        if scene.get("delivery_type") == "billiards_public_state_delivery":
+            if self._public_state_validator is None:
+                raise SceneIngressError(
+                    "Rust public-state delivery is not enabled for this producer"
+                )
+            self._public_state_validator.validate(scene)
+            delivery = scene
+            raw_scene = delivery.get("source_snapshot")
+            if not isinstance(raw_scene, dict):
+                raise SceneIngressError("delivery source snapshot must be an object")
+            self._validator.validate(raw_scene)
+            scene = raw_scene
+        else:
+            if self._public_state_validator is not None:
+                raise SceneIngressError(
+                    "Rust producer sent raw scene v1 without its required public-state delivery"
+                )
+            self._validator.validate(scene)
 
         identity = (scene["engine_instance_id"], scene["source"]["session_id"])
         if identity != self._identity:
@@ -678,10 +845,18 @@ class SceneSnapshotIngress:
             peer_address=peer_address,
             connection_id=connection_id,
         )
+        audit = self._transport_audit
+        queue_depth_before_enqueue = self._latest.qsize() if audit is not None else 0
         if self._latest.full():
             self._latest.get_nowait()
             self._queue_replacements += 1
         self._latest.put_nowait(received)
+        if audit is not None:
+            audit.record(
+                payload_bytes=len(payload),
+                queue_depth_before_enqueue=queue_depth_before_enqueue,
+                sequence_gaps=sequence_gap,
+            )
         self._accepted_identity = identity
         if observation_timestamp is not None:
             self._last_observation = observation

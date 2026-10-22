@@ -35,9 +35,15 @@ class _OutboundMessage:
     payload: str
     replaceable_key: str | None = None
     enqueued_monotonic_ns: int | None = None
+    created_monotonic_ns: int | None = None
     message_type: str | None = None
     stream_sequence: Any = None
+    source_observation_age_seconds: float | None = None
+    source_observation_age_applies: bool = False
+    source_publication_monotonic_ns: int | None = None
+    source_publication_tick_applies: bool = False
     audit_domain: str | None = None
+    audit_sampled: bool = False
 
 
 class WebSocketConnection:
@@ -75,7 +81,13 @@ class WebSocketConnection:
         self.outbound_idle.set()
         self.closed_event = asyncio.Event()
         self.writer_task: asyncio.Task[None] | None = None
+        # A connection represents one current state stream. Keep only its
+        # latest comparable source watermark so late work from the same
+        # producer epoch cannot replace a newer localization.
+        self.state_source_epoch: tuple[tuple[str, str], ...] | None = None
+        self.state_source_frame_number: int | None = None
         self.dropped_updates = 0
+        self.expired_updates = 0
         self.send_timeouts = 0
         self.control_queue_overflows = 0
         self.max_outbound_queue_depth = 0
@@ -129,6 +141,7 @@ class WebSocketConnection:
             "control_queue_depth": self.control_queue_depth,
             "max_outbound_queue_depth": self.max_outbound_queue_depth,
             "dropped_updates": self.dropped_updates,
+            "expired_updates": self.expired_updates,
             "send_timeouts": self.send_timeouts,
             "control_queue_overflows": self.control_queue_overflows,
         }
@@ -154,8 +167,18 @@ class WebSocketHandler:
         self.send_timeout_seconds = self._positive_float_setting(
             "api.websocket.delivery.send_timeout_seconds", 5.0
         )
+        self.max_state_observation_age_seconds = self._positive_float_setting(
+            "perception.freshness.maximum_observation_age_seconds", 0.5
+        )
+        self.max_replaceable_message_age_seconds = self._positive_float_setting(
+            "api.websocket.delivery.max_replaceable_message_age_seconds", 0.25
+        )
+        self.replaceable_send_timeout_seconds = self._positive_float_setting(
+            "api.websocket.delivery.replaceable_send_timeout_seconds", 0.5
+        )
         self.delivery_metrics = {
             "dropped_updates": 0,
+            "expired_updates": 0,
             "send_timeouts": 0,
             "disconnected_slow_clients": 0,
             "control_queue_overflows": 0,
@@ -166,23 +189,56 @@ class WebSocketHandler:
         self._manager_override = manager
         self._audit_recorder: Any = None
         self._audit_domains: dict[str, bool] = {}
+        self._audit_detail_sample_rate = self._sample_rate_setting(
+            "performance_audit.detailed_event_sample_rate", 0.05
+        )
 
     def configure_performance_audit(
         self, recorder: Any = None, domains: dict[str, bool] | None = None
     ) -> None:
         """Attach optional non-blocking transport instrumentation."""
+        # The global handler can be constructed while importing the ASGI app,
+        # before backend.main selects its --config file. Refresh this setting
+        # at activation so a selected runtime configuration controls sampling.
+        self._audit_detail_sample_rate = self._sample_rate_setting(
+            "performance_audit.detailed_event_sample_rate", 0.05
+        )
         self._audit_recorder = recorder
         self._audit_domains = dict(domains or {})
 
-    def _record_delivery_event(self, event: dict[str, Any]) -> None:
+    def _record_delivery_event(
+        self, event: dict[str, Any], *, force_keep: bool = False
+    ) -> None:
         """Enqueue transport events only when an audit session is active."""
         if self._audit_recorder is not None:
-            self._audit_recorder.record(event)
+            self._audit_recorder.record(event, force_keep=force_keep)
 
-    def record_performance_audit(self, domain: str, event: dict[str, Any]) -> None:
+    def select_performance_audit_detail(
+        self, domain: str, identity: int | str | None, *, category: str
+    ) -> bool:
+        """Select detail before callers allocate event fields or timing spans."""
+        if not self._audit_domains.get(domain, False):
+            return False
+        selector = getattr(self._audit_recorder, "select_detail_sample", None)
+        if not callable(selector):
+            return self._audit_recorder is not None
+        return bool(
+            selector(
+                domain,
+                identity,
+                self._audit_detail_sample_rate,
+                category=category,
+            )
+        )
+
+    def record_performance_audit(
+        self, domain: str, event: dict[str, Any], *, force_keep: bool = False
+    ) -> None:
         """Record an event for an independently enabled audit domain."""
         if self._audit_domains.get(domain, False):
-            self._record_delivery_event({"domain": domain, **event})
+            self._record_delivery_event(
+                {"domain": domain, **event}, force_keep=force_keep
+            )
 
     def _get_manager(self) -> Any:
         """Return the subscription manager used by this handler."""
@@ -209,6 +265,15 @@ class WebSocketHandler:
             return default
         value = float(value)
         return value if value > 0 and math.isfinite(value) else default
+
+    @staticmethod
+    def _sample_rate_setting(key: str, default: float) -> float:
+        """Read a validated probability, with a safe fallback for test hosts."""
+        value = config.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return default
+        value = float(value)
+        return value if 0 < value <= 1 and math.isfinite(value) else default
 
     def _ensure_writer(self, connection: WebSocketConnection) -> None:
         """Start the connection's supervised writer if it is not already active."""
@@ -246,6 +311,183 @@ class WebSocketHandler:
             return message_type.lower()
         return None
 
+    @staticmethod
+    def _observation_freshness(
+        message: dict[str, Any],
+    ) -> tuple[float | None, bool]:
+        """Extract source age without treating cached health as a new sample.
+
+        Source age is a duration reported by the producer/gateway and has
+        already crossed the source timestamp's clock boundary. Cached and
+        source-silence states are useful health updates, but their old position
+        data must not be judged as a newly observed localization here.
+        """
+        data = message.get("data")
+        if not isinstance(data, dict):
+            return None, False
+        observation = data.get("observation_status")
+        if not isinstance(observation, dict):
+            return None, False
+        age = observation.get("frame_publication_age_seconds")
+        age_seconds: float | None = None
+        if not isinstance(age, bool) and isinstance(age, (int, float)):
+            try:
+                numeric_age = float(age)
+            except (OverflowError, ValueError):
+                numeric_age = None
+            if (
+                numeric_age is not None
+                and math.isfinite(numeric_age)
+                and numeric_age >= 0
+            ):
+                age_seconds = numeric_age
+        cached_or_silent = observation.get(
+            "freshness_status"
+        ) == "source_silent" or observation.get("ball_positions_status") in {
+            "cached",
+            "unavailable",
+        }
+        return age_seconds, not cached_or_silent
+
+    @staticmethod
+    def _python_publication_tick(
+        message: dict[str, Any], *, observation_age_applies: bool
+    ) -> tuple[bool, int | None]:
+        """Return a same-host Python publication tick when this is a live sample.
+
+        Python vision states carry ``vision_instance_id`` and publish a
+        ``perf_counter_ns`` tick from the shared-memory frame reader. The Rust
+        scene adapter instead supplies an age measured at snapshot publication;
+        its clock domain cannot be compared with this process and therefore
+        keeps the separate local queue-age check.
+        """
+        if not observation_age_applies or message.get("type") != "state":
+            return False, None
+        data = message.get("data")
+        if not isinstance(data, dict):
+            return False, None
+        observation = data.get("observation_status")
+        if not isinstance(observation, dict):
+            return False, None
+        tick_is_expected = (
+            "vision_instance_id" in observation
+            or "source_publication_monotonic_ns" in observation
+        )
+        if not tick_is_expected:
+            return False, None
+        tick = observation.get("source_publication_monotonic_ns")
+        if isinstance(tick, bool) or not isinstance(tick, int) or tick <= 0:
+            return True, None
+        return True, tick
+
+    @staticmethod
+    def _state_source_order(
+        message: dict[str, Any],
+    ) -> tuple[tuple[tuple[str, str], ...], int] | None:
+        """Extract a source epoch and integer frame watermark when comparable.
+
+        Publication sequence numbers are deliberately excluded: a delayed
+        inference result can have a newer publication sequence while referring
+        to an older camera frame. Rust frame IDs may be decimal strings; other
+        opaque IDs are not ordered here.
+        """
+        if message.get("type") != "state":
+            return None
+        data = message.get("data")
+        if not isinstance(data, dict):
+            return None
+        observation = data.get("observation_status")
+        if not isinstance(observation, dict):
+            return None
+
+        epoch_fields = (
+            "vision_instance_id",
+            "engine_instance_id",
+            "source_process_id",
+            "source_session_id",
+        )
+        epoch: list[tuple[str, str]] = []
+        for field in epoch_fields:
+            value = observation.get(field)
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                continue
+            normalized = str(value).strip()
+            if normalized:
+                epoch.append((field, normalized))
+        if not epoch:
+            identity = observation.get("observation_identity")
+            if isinstance(identity, dict):
+                for field in ("engine_instance_id", "session_id"):
+                    value = identity.get(field)
+                    if isinstance(value, str) and value.strip():
+                        epoch.append((field, value.strip()))
+        if not epoch:
+            return None
+
+        frame_candidates = [
+            observation.get("source_frame_number"),
+            data.get("source_frame_number"),
+            observation.get("source_frame_id"),
+        ]
+        identity = observation.get("observation_identity")
+        if isinstance(identity, dict):
+            frame_candidates.append(identity.get("frame_id"))
+        for value in frame_candidates:
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int) and value >= 0:
+                return tuple(epoch), value
+            if isinstance(value, str) and value.isdecimal():
+                try:
+                    return tuple(epoch), int(value)
+                except ValueError:
+                    # Extremely long decimal IDs are opaque rather than
+                    # comparable; continue to another documented identity.
+                    continue
+        return None
+
+    @staticmethod
+    def _refresh_serialized_state_age(payload: str, age_seconds: float) -> str:
+        """Update the client-visible source age at the final delivery boundary."""
+        message = json.loads(payload)
+        data = message.get("data")
+        observation = data.get("observation_status") if isinstance(data, dict) else None
+        if not isinstance(observation, dict):
+            raise ValueError("state observation status is unavailable")
+        observation["frame_publication_age_seconds"] = age_seconds
+        return json.dumps(message)
+
+    def _record_expired_update(
+        self,
+        connection: WebSocketConnection,
+        *,
+        message_type: str | None,
+        stream_sequence: Any,
+        audit_domain: str | None,
+        reason: str,
+        age_seconds: float | None,
+        source_observation_age_seconds: float | None,
+    ) -> None:
+        """Count and optionally audit an intentional stale-update drop."""
+        connection.dropped_updates += 1
+        connection.expired_updates += 1
+        self.delivery_metrics["dropped_updates"] += 1
+        self.delivery_metrics["expired_updates"] += 1
+        if audit_domain is not None:
+            self._record_delivery_event(
+                {
+                    "event_type": "websocket_update_dropped",
+                    "domain": audit_domain,
+                    "message_type": message_type,
+                    "client_id": connection.client_id,
+                    "dropped_stream_sequence": stream_sequence,
+                    "reason": reason,
+                    "queue_age_seconds": age_seconds,
+                    "source_observation_age_seconds": source_observation_age_seconds,
+                },
+                force_keep=True,
+            )
+
     def _error_message(self, client_id: str, code: str, message: str) -> dict[str, Any]:
         """Build a safe protocol error correlated with its connection request."""
         data: dict[str, Any] = {"code": code, "message": message}
@@ -260,6 +502,7 @@ class WebSocketHandler:
     ) -> bool:
         """Add a message without waiting for socket I/O; return false on overflow."""
         replaceable_key = self._replaceable_key(message)
+        created_monotonic_ns = time.monotonic_ns() if replaceable_key else None
         message_copy = dict(message)
         message_copy.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         message_copy.setdefault("sequence", connection.message_count)
@@ -279,18 +522,106 @@ class WebSocketHandler:
             audit_domain = "trajectory"
         else:
             audit_domain = None
-        serialize_started_ns = time.perf_counter_ns() if audit_domain is not None else 0
+        source_observation_age_seconds, source_observation_age_applies = (
+            self._observation_freshness(message_copy)
+            if replaceable_key is not None
+            else (None, False)
+        )
+        source_publication_tick_applies, source_publication_monotonic_ns = (
+            self._python_publication_tick(
+                message_copy,
+                observation_age_applies=(
+                    replaceable_key == "state" and source_observation_age_applies
+                ),
+            )
+        )
+        source_order = (
+            self._state_source_order(message_copy)
+            if replaceable_key == "state"
+            else None
+        )
+        if source_order is not None:
+            source_epoch, source_frame_number = source_order
+            if (
+                source_epoch == connection.state_source_epoch
+                and connection.state_source_frame_number is not None
+                and source_frame_number < connection.state_source_frame_number
+            ):
+                connection.dropped_updates += 1
+                self.delivery_metrics["dropped_updates"] += 1
+                if audit_domain is not None:
+                    self._record_delivery_event(
+                        {
+                            "event_type": "websocket_state_out_of_order_dropped",
+                            "domain": audit_domain,
+                            "message_type": message_type,
+                            "client_id": connection.client_id,
+                            "dropped_stream_sequence": stream_sequence,
+                            "source_frame_number": source_frame_number,
+                            "latest_source_frame_number": (
+                                connection.state_source_frame_number
+                            ),
+                            "producer_epoch": source_epoch,
+                            "reason": "older_source_observation",
+                        },
+                        force_keep=True,
+                    )
+                return True
+        if (
+            replaceable_key == "state"
+            and source_observation_age_applies
+            and source_observation_age_seconds is not None
+            and source_observation_age_seconds >= self.max_state_observation_age_seconds
+        ):
+            self._record_expired_update(
+                connection,
+                message_type=(message_type if isinstance(message_type, str) else None),
+                stream_sequence=stream_sequence,
+                audit_domain=audit_domain,
+                reason="state_observation_age_exceeded",
+                age_seconds=0.0,
+                source_observation_age_seconds=source_observation_age_seconds,
+            )
+            return True
+        audit_identity: int | str | None = None
+        if isinstance(message_data, dict):
+            observation_status = message_data.get("observation_status")
+            candidate_identity = message_data.get("source_frame_number")
+            if candidate_identity is None and isinstance(observation_status, dict):
+                candidate_identity = observation_status.get("source_frame_number")
+            if candidate_identity is None:
+                candidate_identity = message_data.get("sequence")
+            if isinstance(candidate_identity, (int, str)) and not isinstance(
+                candidate_identity, bool
+            ):
+                audit_identity = candidate_identity
+        audit_sampled = (
+            self.select_performance_audit_detail(
+                audit_domain, audit_identity, category="websocket_message"
+            )
+            if audit_domain is not None
+            else False
+        )
+        serialize_started_ns = time.perf_counter_ns() if audit_sampled else None
         serialized = json.dumps(message_copy)
-        serialized_ns = time.perf_counter_ns() if audit_domain is not None else 0
+        serialized_ns = time.perf_counter_ns() if audit_sampled else None
         outbound = _OutboundMessage(
             payload=serialized,
             replaceable_key=replaceable_key,
-            enqueued_monotonic_ns=serialized_ns or None,
+            enqueued_monotonic_ns=serialized_ns,
+            created_monotonic_ns=created_monotonic_ns,
             message_type=message_type if isinstance(message_type, str) else None,
             stream_sequence=stream_sequence,
+            source_observation_age_seconds=source_observation_age_seconds,
+            source_observation_age_applies=source_observation_age_applies,
+            source_publication_monotonic_ns=source_publication_monotonic_ns,
+            source_publication_tick_applies=source_publication_tick_applies,
             audit_domain=audit_domain,
+            audit_sampled=audit_sampled,
         )
-        if audit_domain is not None:
+        if audit_sampled and audit_domain is not None:
+            assert serialize_started_ns is not None
+            assert serialized_ns is not None
             self._record_delivery_event(
                 {
                     "event_type": "websocket_message_serialized",
@@ -322,11 +653,35 @@ class WebSocketHandler:
                             "dropped_stream_sequence": existing.stream_sequence,
                             "replacement_stream_sequence": stream_sequence,
                             "queue_depth": len(connection.outbound_messages),
-                        }
+                        },
+                        force_keep=True,
                     )
                 existing.payload = outbound.payload
                 existing.enqueued_monotonic_ns = outbound.enqueued_monotonic_ns
+                existing.created_monotonic_ns = outbound.created_monotonic_ns
                 existing.stream_sequence = outbound.stream_sequence
+                existing.source_observation_age_seconds = (
+                    outbound.source_observation_age_seconds
+                )
+                existing.source_observation_age_applies = (
+                    outbound.source_observation_age_applies
+                )
+                existing.source_publication_monotonic_ns = (
+                    outbound.source_publication_monotonic_ns
+                )
+                existing.source_publication_tick_applies = (
+                    outbound.source_publication_tick_applies
+                )
+                existing.message_type = outbound.message_type
+                existing.audit_domain = outbound.audit_domain
+                existing.audit_sampled = outbound.audit_sampled
+                if source_order is not None:
+                    # Equal watermarks are accepted intentionally: a health
+                    # or stale refresh may describe this same observation.
+                    (
+                        connection.state_source_epoch,
+                        connection.state_source_frame_number,
+                    ) = source_order
                 connection.dropped_updates += 1
                 self.delivery_metrics["dropped_updates"] += 1
                 return True
@@ -358,7 +713,8 @@ class WebSocketHandler:
                             "replacement_stream_sequence": stream_sequence,
                             "reason": "replaceable_queue_capacity",
                             "queue_depth": len(connection.outbound_messages),
-                        }
+                        },
+                        force_keep=True,
                     )
                 oldest_key = oldest.replaceable_key
                 if oldest_key is not None:
@@ -371,10 +727,27 @@ class WebSocketHandler:
             if connection.control_queue_depth >= self.control_queue_capacity:
                 connection.control_queue_overflows += 1
                 self.delivery_metrics["control_queue_overflows"] += 1
+                if audit_domain is not None:
+                    self._record_delivery_event(
+                        {
+                            "event_type": "websocket_control_queue_overflow",
+                            "domain": audit_domain,
+                            "message_type": message_type,
+                            "client_id": connection.client_id,
+                            "stream_sequence": stream_sequence,
+                            "queue_depth": connection.control_queue_depth,
+                            "queue_capacity": self.control_queue_capacity,
+                        },
+                        force_keep=True,
+                    )
                 return False
             connection.control_queue_depth += 1
 
         connection.outbound_messages.append(outbound)
+        if source_order is not None:
+            connection.state_source_epoch, connection.state_source_frame_number = (
+                source_order
+            )
         connection.max_outbound_queue_depth = max(
             connection.max_outbound_queue_depth, len(connection.outbound_messages)
         )
@@ -398,17 +771,161 @@ class WebSocketHandler:
                 else:
                     connection.replaceable_messages.pop(outbound.replaceable_key, None)
 
+                delivery_payload = outbound.payload
+                replaceable_age_remaining = math.inf
+                queue_age_seconds = 0.0
+                if outbound.replaceable_key is not None:
+                    now_monotonic_ns = time.monotonic_ns()
+                    queue_age_seconds = (
+                        max(
+                            0,
+                            now_monotonic_ns
+                            - (
+                                outbound.created_monotonic_ns
+                                if outbound.created_monotonic_ns is not None
+                                else now_monotonic_ns
+                            ),
+                        )
+                        / 1e9
+                    )
+                    if queue_age_seconds >= self.max_replaceable_message_age_seconds:
+                        self._record_expired_update(
+                            connection,
+                            message_type=outbound.message_type,
+                            stream_sequence=outbound.stream_sequence,
+                            audit_domain=outbound.audit_domain,
+                            reason="replaceable_queue_age_exceeded",
+                            age_seconds=queue_age_seconds,
+                            source_observation_age_seconds=(
+                                outbound.source_observation_age_seconds
+                            ),
+                        )
+                        continue
+                    replaceable_age_remaining = (
+                        self.max_replaceable_message_age_seconds - queue_age_seconds
+                    )
+
+                source_age_remaining = math.inf
+                if (
+                    outbound.replaceable_key == "state"
+                    and outbound.source_observation_age_applies
+                ):
+                    if outbound.source_publication_tick_applies:
+                        now_publication_clock_ns = time.perf_counter_ns()
+                        source_tick = outbound.source_publication_monotonic_ns
+                        if (
+                            source_tick is None
+                            or source_tick <= 0
+                            or now_publication_clock_ns < source_tick
+                        ):
+                            self._record_expired_update(
+                                connection,
+                                message_type=outbound.message_type,
+                                stream_sequence=outbound.stream_sequence,
+                                audit_domain=outbound.audit_domain,
+                                reason="state_source_publication_timestamp_unavailable",
+                                age_seconds=queue_age_seconds,
+                                source_observation_age_seconds=None,
+                            )
+                            continue
+
+                        source_age_seconds = (
+                            now_publication_clock_ns - source_tick
+                        ) / 1e9
+                        if (
+                            not math.isfinite(source_age_seconds)
+                            or source_age_seconds
+                            >= self.max_state_observation_age_seconds
+                        ):
+                            self._record_expired_update(
+                                connection,
+                                message_type=outbound.message_type,
+                                stream_sequence=outbound.stream_sequence,
+                                audit_domain=outbound.audit_domain,
+                                reason="state_observation_age_exceeded",
+                                age_seconds=queue_age_seconds,
+                                source_observation_age_seconds=source_age_seconds,
+                            )
+                            continue
+
+                        source_age_remaining = (
+                            self.max_state_observation_age_seconds - source_age_seconds
+                        )
+                        try:
+                            delivery_payload = self._refresh_serialized_state_age(
+                                outbound.payload, source_age_seconds
+                            )
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            self._record_expired_update(
+                                connection,
+                                message_type=outbound.message_type,
+                                stream_sequence=outbound.stream_sequence,
+                                audit_domain=outbound.audit_domain,
+                                reason="state_source_publication_timestamp_unavailable",
+                                age_seconds=queue_age_seconds,
+                                source_observation_age_seconds=source_age_seconds,
+                            )
+                            continue
+                        outbound.source_observation_age_seconds = source_age_seconds
+                    elif outbound.source_observation_age_seconds is not None:
+                        # Rust's source age uses a separate clock domain. Add
+                        # only elapsed queue residence measured on this host.
+                        source_age_seconds = (
+                            outbound.source_observation_age_seconds + queue_age_seconds
+                        )
+                        source_age_remaining = (
+                            self.max_state_observation_age_seconds - source_age_seconds
+                        )
+                        if source_age_remaining <= 0:
+                            self._record_expired_update(
+                                connection,
+                                message_type=outbound.message_type,
+                                stream_sequence=outbound.stream_sequence,
+                                audit_domain=outbound.audit_domain,
+                                reason="state_observation_age_exceeded",
+                                age_seconds=queue_age_seconds,
+                                source_observation_age_seconds=source_age_seconds,
+                            )
+                            continue
+
+                # A write timeout is bounded by both the configured slow-client
+                # limit and the remaining freshness lifetime. This limits how
+                # long the app waits for ASGI; it cannot retract bytes already
+                # accepted by the server, kernel, TCP buffers, or a remote peer.
+                write_timeout = (
+                    self.replaceable_send_timeout_seconds
+                    if outbound.replaceable_key is not None
+                    else self.send_timeout_seconds
+                )
+                write_timeout = min(write_timeout, replaceable_age_remaining)
+                if outbound.replaceable_key == "state":
+                    write_timeout = min(write_timeout, source_age_remaining)
+                if write_timeout <= 0:
+                    self._record_expired_update(
+                        connection,
+                        message_type=outbound.message_type,
+                        stream_sequence=outbound.stream_sequence,
+                        audit_domain=outbound.audit_domain,
+                        reason="state_observation_age_exceeded",
+                        age_seconds=queue_age_seconds,
+                        source_observation_age_seconds=(
+                            outbound.source_observation_age_seconds
+                        ),
+                    )
+                    continue
+
                 send_started_ns = (
-                    time.perf_counter_ns() if outbound.audit_domain is not None else 0
+                    time.perf_counter_ns() if outbound.audit_sampled else None
                 )
                 try:
                     await asyncio.wait_for(
-                        connection.websocket.send_text(outbound.payload),
-                        timeout=self.send_timeout_seconds,
+                        connection.websocket.send_text(delivery_payload),
+                        timeout=write_timeout,
                     )
-                    payload_bytes = len(outbound.payload.encode())
+                    payload_bytes = len(delivery_payload.encode())
                     connection.bytes_sent += payload_bytes
-                    if outbound.audit_domain is not None:
+                    if outbound.audit_sampled and outbound.audit_domain is not None:
+                        assert send_started_ns is not None
                         self._record_delivery_event(
                             {
                                 "event_type": "websocket_delivery_complete",
@@ -421,7 +938,8 @@ class WebSocketHandler:
                                     send_started_ns
                                     - (
                                         outbound.enqueued_monotonic_ns
-                                        or send_started_ns
+                                        if outbound.enqueued_monotonic_ns is not None
+                                        else send_started_ns
                                     ),
                                 )
                                 / 1e9,
@@ -433,6 +951,18 @@ class WebSocketHandler:
                             }
                         )
                 except asyncio.TimeoutError:
+                    if outbound.audit_domain is not None:
+                        self._record_delivery_event(
+                            {
+                                "event_type": "websocket_send_timeout",
+                                "domain": outbound.audit_domain,
+                                "message_type": outbound.message_type,
+                                "stream_sequence": outbound.stream_sequence,
+                                "client_id": connection.client_id,
+                                "queue_depth": len(connection.outbound_messages),
+                            },
+                            force_keep=True,
+                        )
                     connection.send_timeouts += 1
                     self.delivery_metrics["send_timeouts"] += 1
                     logger.warning(

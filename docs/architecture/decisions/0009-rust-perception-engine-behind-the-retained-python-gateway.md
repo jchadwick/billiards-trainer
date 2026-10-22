@@ -1,12 +1,17 @@
 # ADR-0009: Rust perception engine behind the retained Python gateway
 
-- Status: proposed
+- Status: superseded
 - Date: 2026-10-19
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0056 (gateway/domain ownership boundary)
 
 ## Context
+
+Historical proposal: ADR-0056 supersedes permanent Python ownership of
+perception and application-domain behavior while retaining the Python service
+as an HTTP/WebSocket gateway. The contract and staged-rollout rationale below
+stays relevant; this is no longer the steady-state ownership boundary.
 
 The requested product priority is accurate, fresh ball locations, followed by
 number recognition, then cue/prediction/training enrichment. The current Python

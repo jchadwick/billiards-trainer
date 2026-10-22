@@ -1,0 +1,4590 @@
+{
+  "schema_version": 3,
+  "audit_run_id": "20261021-151341-a0226100",
+  "created_at": "2026-10-21T15:15:42.578394-04:00",
+  "websocket_url": "ws://127.0.0.1:8000/api/v1/websocket/ws",
+  "scenario": "state-audit-only-sampled",
+  "scenario_label": "state-audit-only-sampled",
+  "video_url": null,
+  "metadata": {
+    "revision": "127255103e7cd117f727a0842770ec079c15a87a",
+    "dirty_worktree_sha256": "c887768b7663373c931210a1e5d4b9889a47e9d443bb584195688b16a83d4343",
+    "dirty_worktree_files": [
+      "backend/api/websocket/broadcaster.py",
+      "backend/api/websocket/handler.py",
+      "backend/config.py",
+      "backend/config_schema_defaults.json",
+      "backend/integration_service.py",
+      "backend/perception/rust_live_supervisor.py",
+      "backend/perception/scene_ingress.py",
+      "backend/performance_audit.py",
+      "backend/tests/integration/test_pipeline_replay.py",
+      "backend/tests/integration/test_websocket_delivery.py",
+      "backend/tests/unit/test_config_validation.py",
+      "backend/tests/unit/test_integration_observation_freshness.py",
+      "backend/tests/unit/test_performance_audit.py",
+      "backend/tests/unit/test_performance_audit_collector.py",
+      "backend/tests/unit/test_rust_live_supervisor.py",
+      "backend/tests/unit/test_scene_snapshot_ingress.py",
+      "backend/tools/collect_performance_audit.py",
+      "backend/video/process.py",
+      "backend/vision/__init__.py",
+      "backend/vision/performance_profiler.py",
+      "docs/PERFORMANCE_AUDIT.md",
+      "docs/architecture/decisions/0047-measure-rust-scene-transport-at-the-python-receiver.md"
+    ],
+    "host": "mbp-m4max-14.local",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "processor": "arm",
+    "hardware": {
+      "logical_cpu_count": 14,
+      "physical_cpu_count": 14,
+      "system_memory_bytes": 38654705664
+    },
+    "python": "3.11.14",
+    "model": {
+      "configured_path": "/Users/jchadwick/repos/jchadwick/billiards-model/v2/billiards-yolov8n.pt",
+      "exists": true,
+      "sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e"
+    },
+    "configured_video_input": {
+      "path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/test_data/demo3.mp4",
+      "exists": true,
+      "sha256": "0329ca2aa917f968bf4f0f55c51fd5af67124c90ec1dc8eede7674c013c8a555"
+    },
+    "effective_configuration": {
+      "performance_audit": {
+        "enabled": false,
+        "state_enabled": true,
+        "trajectory_enabled": false,
+        "viewers_enabled": false,
+        "warmup_seconds": 30,
+        "measured_seconds": 120,
+        "repetitions": 3,
+        "soak_seconds": 1200,
+        "sample_rate": 1.0,
+        "history_size": 10000,
+        "event_queue_capacity": 2048,
+        "event_export_limit": 200000,
+        "export_drain_timeout_seconds": 5.0,
+        "resource_sample_interval_seconds": 1.0,
+        "latency_reference_budget_ms": 50.0,
+        "instrumentation_overhead_budget_percent": 2.0,
+        "output_directory": "thoughts/performance-audits",
+        "detailed_frame_sample_rate": 0.1,
+        "detailed_event_sample_rate": 0.1
+      },
+      "camera": {
+        "device_id": 0,
+        "backend": "auto",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "fps": 30,
+        "control_policy": "source_defaults",
+        "exposure_mode": "auto",
+        "exposure_value": null,
+        "gain": 1.0,
+        "brightness": 0.5,
+        "contrast": 0.5,
+        "saturation": 0.5,
+        "buffer_size": 2,
+        "auto_focus": true,
+        "video_file_path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/test_data/demo3.mp4",
+        "loop_video": true,
+        "video_start_frame": 0,
+        "video_end_frame": null,
+        "auto_reconnect": true,
+        "reconnect_delay": 1.0,
+        "max_reconnect_attempts": 5,
+        "frame_log_interval": 30,
+        "fps_tracker_size": 10,
+        "frame_sleep_compensation": 0.001,
+        "stop_timeout": 5.0
+      },
+      "detection": {
+        "detection_backend": "yolo",
+        "yolo_model_path": "/Users/jchadwick/repos/jchadwick/billiards-model/v2/billiards-yolov8n.pt",
+        "yolo_confidence": 0.4,
+        "yolo_nms_threshold": 0.45,
+        "yolo_device": "auto",
+        "enable_ball_detection": true,
+        "enable_opencv_classification": false,
+        "use_opencv_validation": true,
+        "max_balls_on_table": 16,
+        "marker_filtering": {
+          "enabled": true,
+          "mask_radius_px": 15
+        },
+        "save_mask_visualization": true,
+        "enable_boundary_masking": true
+      },
+      "processing": {
+        "use_gpu": true,
+        "enable_tracking": true,
+        "tracking_max_distance": 50,
+        "frame_skip": 0,
+        "roi_enabled": false,
+        "video_file_cache_frames": 10,
+        "video_playback_speed": 1.0,
+        "target_fps": 30,
+        "enable_threading": true,
+        "max_frame_queue_size": 5,
+        "capture_frame_interval_ms": 1,
+        "processing_queue_timeout_sec": 0.1,
+        "processing_error_retry_delay_sec": 0.01,
+        "capture_error_retry_delay_sec": 0.1,
+        "thread_shutdown_timeout_sec": 5.0,
+        "source_restart_sequence_reset_threshold": 5,
+        "source_restart_sequence_drop_threshold": 60,
+        "motion_monitor": {
+          "enabled": true,
+          "difference_threshold": 20,
+          "active_motion_fraction_threshold": 0.003,
+          "persistent_change_fraction_threshold": 0.005,
+          "minimum_region_area_px": 12,
+          "minimum_region_area_fraction": 0.0002,
+          "likely_occlusion_min_area_fraction": 0.008,
+          "likely_occlusion_max_area_fraction": 0.4,
+          "illumination_median_delta_threshold": 12.0,
+          "illumination_contrast_change_threshold": 0.2,
+          "candidate_neighborhood_radius_scale": 1.8,
+          "minimum_candidate_radius_px": 2.0,
+          "max_changed_regions": 32,
+          "normalize_illumination": true
+        },
+        "phase_scheduler": {
+          "enabled": false,
+          "quiet_dwell_seconds": 0.8,
+          "limited_motion_quiet_dwell_seconds": 0.35,
+          "many_moving_exit_quiet_dwell_seconds": 0.8,
+          "many_moving_enter_count": 4,
+          "many_moving_exit_count": 2,
+          "many_moving_enter_dwell_seconds": 0.0,
+          "consistent_full_observations_required": 3,
+          "ball_position_tolerance_px": 6.0,
+          "minimum_ball_confidence": 0.5,
+          "minimum_detected_balls": 1,
+          "cue_implies_aiming": true,
+          "maximum_motion_observation_gap_seconds": 0.35,
+          "maximum_ball_observation_gap_seconds": 1.0,
+          "actual_path_history_max_points": 120,
+          "ball_crop_margin_fraction": 0.08,
+          "ball_detection_crop": {
+            "RECOVERING": false,
+            "IDLE": false,
+            "AIMING": false,
+            "LIMITED_MOTION": false,
+            "MANY_MOVING": false
+          },
+          "maximum_observation_age_seconds": 0.5,
+          "maximum_cue_age_seconds": 0.25,
+          "motion_enter_fraction_threshold": 0.003,
+          "motion_exit_fraction_threshold": 0.001,
+          "processing_max_dimension": {
+            "RECOVERING": null,
+            "IDLE": null,
+            "AIMING": null,
+            "LIMITED_MOTION": null,
+            "MANY_MOVING": null
+          },
+          "intervals_seconds": {
+            "RECOVERING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.1,
+              "cue_detection": 0.25,
+              "detailed_tracking": 0.0
+            },
+            "IDLE": {
+              "motion_monitor": 0.1,
+              "ball_map_verification": 0.75,
+              "cue_detection": 1.0,
+              "detailed_tracking": 0.0
+            },
+            "AIMING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.5,
+              "cue_detection": 0.05,
+              "detailed_tracking": 0.0
+            },
+            "LIMITED_MOTION": {
+              "motion_monitor": 0.03,
+              "ball_map_verification": 0.1,
+              "cue_detection": 0.1,
+              "detailed_tracking": 0.033
+            },
+            "MANY_MOVING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.0,
+              "cue_detection": 0.0,
+              "detailed_tracking": 0.0
+            }
+          }
+        }
+      },
+      "vision_performance": {
+        "enable_profiling": false,
+        "profile_log_interval": 30,
+        "profile_history_size": 100
+      },
+      "video": {
+        "shared_memory_name": "billiards_video",
+        "shared_memory_attach_timeout_sec": 5.0,
+        "enable_distortion_correction": true,
+        "calibration_file_path": "backend/calibration_data/camera/camera_params.yaml",
+        "process": {
+          "shutdown_timeout": 10.0,
+          "main_loop_sleep": 0.001
+        }
+      },
+      "calibration": {
+        "playing_area_corners": [
+          {
+            "x": 38,
+            "y": 43,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 606,
+            "y": 39,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 603,
+            "y": 324,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 39,
+            "y": 324,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          }
+        ],
+        "marker_dots": [
+          {
+            "x": 182,
+            "y": 182,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 459,
+            "y": 181,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          }
+        ],
+        "calibration_resolution_width": 640,
+        "calibration_resolution_height": 360
+      },
+      "websocket_delivery": {
+        "replaceable_queue_capacity": 32,
+        "control_queue_capacity": 32,
+        "send_timeout_seconds": 5.0,
+        "aggregation_buffer_capacity": 32
+      },
+      "stream_quality": {
+        "default_jpeg_quality": 80,
+        "websocket_jpeg_quality": 75,
+        "single_frame_jpeg_quality": 90,
+        "min_jpeg_quality": 1,
+        "max_jpeg_quality": 100
+      }
+    },
+    "runtime_measurement_capabilities": {
+      "cpu_percent": "psutil process sample when supported",
+      "resident_memory_bytes": "RSS sample; allocation counts unavailable",
+      "accelerator_metrics": "unavailable unless separately exposed by the detector backend",
+      "browser_render_and_physical_display_latency": "not measured"
+    },
+    "configuration_note": "Sensitive or unrelated settings are omitted."
+  },
+  "repetitions": [
+    {
+      "duration_seconds": 30.000172791,
+      "state_messages_received": 767,
+      "state_messages_per_second": 25.566519411184814,
+      "unique_source_observations": 767,
+      "unique_observations_per_second": 25.566519411184814,
+      "repeated_source_observations": 0,
+      "uncorrelated_state_messages": 0,
+      "complete_state_messages": 767,
+      "incomplete_state_messages": 0,
+      "source_sequence_gaps": 28,
+      "source_sequence_restarts": 0,
+      "source_out_of_order_messages": 0,
+      "stream_sequence_gaps": 0,
+      "stream_sequence_duplicates": 0,
+      "stream_sequence_out_of_order_messages": 0,
+      "source_publication_wall_age_estimate_ms": {
+        "count": 767,
+        "sample_limit": 10000,
+        "p50": 43.39289665222168,
+        "p95": 61.608076095581055,
+        "p99": 67.48008728027344
+      },
+      "source_publication_to_client_receipt_ms": {
+        "count": 767,
+        "sample_limit": 10000,
+        "p50": 43.391209,
+        "p95": 61.605208,
+        "p99": 67.477458
+      },
+      "client_latency_sample_count": 767,
+      "component_observation_status_counts": {},
+      "accuracy_evidence": "unavailable for unannotated live streams",
+      "trajectory_messages_received": 0,
+      "trajectory_messages_per_second": 0.0,
+      "incomplete_trajectory_messages": 0,
+      "trajectory_sequence_gaps": 0,
+      "trajectory_sequence_duplicates": 0,
+      "trajectory_sequence_out_of_order_messages": 0,
+      "trajectory_unique_source_observations": 0,
+      "trajectory_repeated_source_observations": 0,
+      "trajectory_source_sequence_gaps": 0,
+      "trajectory_source_out_of_order_messages": 0,
+      "trajectory_invalidated_or_spatially_invalid_messages": 0,
+      "trajectory_source_publication_wall_age_estimate_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "trajectory_source_publication_to_client_receipt_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "repetition": 1,
+      "streams": [
+        "state"
+      ],
+      "warmup_seconds": 10.0,
+      "requested_measured_seconds": 30.0,
+      "subscriber_delay_ms": 0.0,
+      "server_application_pings_answered": 0,
+      "client_application_heartbeats_sent": 1,
+      "measurement_started_monotonic_ns": 2499435152307125,
+      "measurement_ended_monotonic_ns": 2499465152479916,
+      "start_wall_time": "2026-10-21T15:13:51.631397-04:00",
+      "video_viewer": null,
+      "server_audit_domains": {
+        "state": true,
+        "trajectory": false,
+        "viewers": false
+      },
+      "server_host_id": "mbp-m4max-14.local",
+      "collector_host_id": "mbp-m4max-14.local",
+      "server_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "collector_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "monotonic_clocks_comparable": true,
+      "server_audit_run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+      "server_event_export": {
+        "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+        "process_id": 48667,
+        "host_id": "mbp-m4max-14.local",
+        "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+        "clock_implementation": "mach_absolute_time()",
+        "accepted_events": 975,
+        "written_events": 975,
+        "dropped_events": 0,
+        "sampled_out_events": 0,
+        "detailed_sampling": {
+          "state.integration_vision_poll": {
+            "candidates": 1358,
+            "selected": 138,
+            "sampled_out": 1220
+          },
+          "state.integration_observation_processed": {
+            "candidates": 1164,
+            "selected": 120,
+            "sampled_out": 1044
+          },
+          "state.state_publication_enqueued": {
+            "candidates": 1164,
+            "selected": 120,
+            "sampled_out": 1044
+          },
+          "state.state_published": {
+            "candidates": 1164,
+            "selected": 120,
+            "sampled_out": 1044
+          },
+          "state.integration_observation_duplicate": {
+            "candidates": 152,
+            "selected": 18,
+            "sampled_out": 134
+          },
+          "state.websocket_message": {
+            "candidates": 1024,
+            "selected": 102,
+            "sampled_out": 922
+          }
+        },
+        "export_limit_dropped_events": 0,
+        "export_errors": 0,
+        "queue_depth": 0,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "max_exported_events": 200000,
+        "worker_alive": true,
+        "closed": false
+      },
+      "server_profiler_frame_count_before": 148,
+      "server_profiler_frame_count_after": 1205,
+      "server_profiler_sampling_after": {
+        "configured_detailed_sample_rate": 0.1,
+        "processed_frames": 1205,
+        "failed_frames": 0,
+        "detailed_frames": 125,
+        "sampled_out_frames": 1080,
+        "retained_detailed_frames": 125,
+        "history_capacity": 10000
+      },
+      "server_profiler_measurement": "post-window process totals, including warm-up; unavailable when state audit is disabled",
+      "collector_settings": {
+        "history_size": 10000,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "event_export_limit": 200000,
+        "heartbeat_interval_seconds": 20.0
+      },
+      "server_measurements": {
+        "vision": {
+          "frame_records": 76,
+          "unique_source_observations_processed": 76,
+          "duplicate_or_reused_frame_records": 0,
+          "component_observation_status_counts": {},
+          "service_time_seconds": {
+            "count": 76,
+            "p50": 0.023371792,
+            "p95": 0.029691667,
+            "p99": 0.031182208,
+            "mean": 0.023765010447368423
+          },
+          "queue_wait_seconds": {
+            "count": 76,
+            "p50": 2.4541281163692474e-05,
+            "p95": 4.037516191601753e-05,
+            "p99": 0.0004325001500546932,
+            "mean": 3.1121142551695046e-05
+          },
+          "shared_memory_read_copy_seconds": {
+            "count": 76,
+            "p50": 0.000401875,
+            "p95": 0.000835875,
+            "p99": 0.00132825,
+            "mean": 0.00045604117105263155
+          },
+          "stage_timings_seconds": {
+            "queue_wait": {
+              "inclusive": {
+                "count": 76,
+                "p50": 2.4541281163692474e-05,
+                "p95": 4.037516191601753e-05,
+                "p99": 0.0004325001500546932,
+                "mean": 3.1121142551695046e-05
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 2.4541281163692474e-05,
+                "p95": 4.037516191601753e-05,
+                "p99": 0.0004325001500546932,
+                "mean": 3.1121142551695046e-05
+              }
+            },
+            "masking": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.000455208,
+                "p95": 0.001307083,
+                "p99": 0.001612542,
+                "mean": 0.0005251283421052632
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.000455208,
+                "p95": 0.001307083,
+                "p99": 0.001612542,
+                "mean": 0.0005251283421052632
+              }
+            },
+            "preprocessing": {
+              "inclusive": {
+                "count": 76,
+                "p50": 1.208e-06,
+                "p95": 2e-06,
+                "p99": 3.584e-06,
+                "mean": 1.2822631578947373e-06
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 1.208e-06,
+                "p95": 2e-06,
+                "p99": 3.584e-06,
+                "mean": 1.2822631578947373e-06
+              }
+            },
+            "detector_cache_lock_wait": {
+              "inclusive": {
+                "count": 76,
+                "p50": 2.875e-06,
+                "p95": 4.292e-06,
+                "p99": 6.25e-06,
+                "mean": 2.9796447368421044e-06
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 2.875e-06,
+                "p95": 4.292e-06,
+                "p99": 6.25e-06,
+                "mean": 2.9796447368421044e-06
+              }
+            },
+            "detector_model_lock_wait": {
+              "inclusive": {
+                "count": 76,
+                "p50": 1.333e-06,
+                "p95": 1.75e-06,
+                "p99": 3.625e-06,
+                "mean": 1.3755e-06
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 1.333e-06,
+                "p95": 1.75e-06,
+                "p99": 3.625e-06,
+                "mean": 1.3755e-06
+              }
+            },
+            "model_execute": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.011409583,
+                "p95": 0.01703275,
+                "p99": 0.018627458,
+                "mean": 0.011738931407894735
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.011409583,
+                "p95": 0.01703275,
+                "p99": 0.018627458,
+                "mean": 0.011738931407894735
+              }
+            },
+            "detector_backend": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.019090333,
+                "p95": 0.02458025,
+                "p99": 0.026481084,
+                "mean": 0.01915764255263157
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.007301875,
+                "p95": 0.009827999,
+                "p99": 0.011119916,
+                "mean": 0.007417335644736842
+              }
+            },
+            "classification_and_adaptation": {
+              "inclusive": {
+                "count": 76,
+                "p50": 8.6542e-05,
+                "p95": 0.000129666,
+                "p99": 0.0001735,
+                "mean": 9.15838684210526e-05
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 8.6542e-05,
+                "p95": 0.000129666,
+                "p99": 0.0001735,
+                "mean": 9.15838684210526e-05
+              }
+            },
+            "detector_inference": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.019240333,
+                "p95": 0.024724083,
+                "p99": 0.026624583,
+                "mean": 0.01931236072368421
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 5.8794e-05,
+                "p95": 7.9167e-05,
+                "p99": 0.000100584,
+                "mean": 6.15816710526316e-05
+              }
+            },
+            "postprocessing": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.000526125,
+                "p95": 0.000647083,
+                "p99": 0.000752833,
+                "mean": 0.0005388228815789475
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.000526125,
+                "p95": 0.000647083,
+                "p99": 0.000752833,
+                "mean": 0.0005388228815789475
+              }
+            },
+            "tracking": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.001947459,
+                "p95": 0.003925584,
+                "p99": 0.004403917,
+                "mean": 0.0021328388815789467
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.001947459,
+                "p95": 0.003925584,
+                "p99": 0.004403917,
+                "mean": 0.0021328388815789467
+              }
+            },
+            "ball_detection": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.021536375,
+                "p95": 0.027574959,
+                "p99": 0.029181417,
+                "mean": 0.022004720381578947
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 1.8667e-05,
+                "p95": 2.6751e-05,
+                "p99": 3.8751e-05,
+                "mean": 1.9415631578947364e-05
+              }
+            },
+            "cue_detection": {
+              "inclusive": {
+                "count": 76,
+                "p50": 0.001006333,
+                "p95": 0.002667875,
+                "p99": 0.004723875,
+                "mean": 0.0011955065789473686
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 0.001004833,
+                "p95": 0.002666584,
+                "p99": 0.004722458,
+                "mean": 0.0011940795657894734
+              }
+            },
+            "result_building": {
+              "inclusive": {
+                "count": 76,
+                "p50": 2.1791e-05,
+                "p95": 2.7959e-05,
+                "p99": 7.4542e-05,
+                "mean": 2.328344736842105e-05
+              },
+              "exclusive": {
+                "count": 76,
+                "p50": 2.1791e-05,
+                "p95": 2.7959e-05,
+                "p99": 7.4542e-05,
+                "mean": 2.328344736842105e-05
+              }
+            }
+          },
+          "exclusive_stage_work_ranked": [
+            {
+              "stage": "model_execute",
+              "total_exclusive_seconds": 0.8921587869999998,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.011409583,
+                "p95": 0.01703275,
+                "p99": 0.018627458,
+                "mean": 0.011738931407894735
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.011409583,
+                "p95": 0.01703275,
+                "p99": 0.018627458,
+                "mean": 0.011738931407894735
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.4936522261341928
+            },
+            {
+              "stage": "detector_backend",
+              "total_exclusive_seconds": 0.563717509,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.007301875,
+                "p95": 0.009827999,
+                "p99": 0.011119916,
+                "mean": 0.007417335644736842
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.019090333,
+                "p95": 0.02458025,
+                "p99": 0.026481084,
+                "mean": 0.01915764255263157
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.3119180209662295
+            },
+            {
+              "stage": "tracking",
+              "total_exclusive_seconds": 0.16209575499999995,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.001947459,
+                "p95": 0.003925584,
+                "p99": 0.004403917,
+                "mean": 0.0021328388815789467
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.001947459,
+                "p95": 0.003925584,
+                "p99": 0.004403917,
+                "mean": 0.0021328388815789467
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.08969135479988576
+            },
+            {
+              "stage": "cue_detection",
+              "total_exclusive_seconds": 0.09075004699999999,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.001004833,
+                "p95": 0.002666584,
+                "p99": 0.004722458,
+                "mean": 0.0011940795657894734
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.001006333,
+                "p95": 0.002667875,
+                "p99": 0.004723875,
+                "mean": 0.0011955065789473686
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.05021411364895588
+            },
+            {
+              "stage": "postprocessing",
+              "total_exclusive_seconds": 0.040950539000000015,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.000526125,
+                "p95": 0.000647083,
+                "p99": 0.000752833,
+                "mean": 0.0005388228815789475
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.000526125,
+                "p95": 0.000647083,
+                "p99": 0.000752833,
+                "mean": 0.0005388228815789475
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.02265888654946924
+            },
+            {
+              "stage": "masking",
+              "total_exclusive_seconds": 0.039909754000000006,
+              "exclusive": {
+                "count": 76,
+                "p50": 0.000455208,
+                "p95": 0.001307083,
+                "p99": 0.001612542,
+                "mean": 0.0005251283421052632
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.000455208,
+                "p95": 0.001307083,
+                "p99": 0.001612542,
+                "mean": 0.0005251283421052632
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.022082995979692134
+            },
+            {
+              "stage": "classification_and_adaptation",
+              "total_exclusive_seconds": 0.006960373999999998,
+              "exclusive": {
+                "count": 76,
+                "p50": 8.6542e-05,
+                "p95": 0.000129666,
+                "p99": 0.0001735,
+                "mean": 9.15838684210526e-05
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 8.6542e-05,
+                "p95": 0.000129666,
+                "p99": 0.0001735,
+                "mean": 9.15838684210526e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0038513369703845734
+            },
+            {
+              "stage": "detector_inference",
+              "total_exclusive_seconds": 0.004680207000000001,
+              "exclusive": {
+                "count": 76,
+                "p50": 5.8794e-05,
+                "p95": 7.9167e-05,
+                "p99": 0.000100584,
+                "mean": 6.15816710526316e-05
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.019240333,
+                "p95": 0.024724083,
+                "p99": 0.026624583,
+                "mean": 0.01931236072368421
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.00258966748742994
+            },
+            {
+              "stage": "queue_wait",
+              "total_exclusive_seconds": 0.0023652068339288235,
+              "exclusive": {
+                "count": 76,
+                "p50": 2.4541281163692474e-05,
+                "p95": 4.037516191601753e-05,
+                "p99": 0.0004325001500546932,
+                "mean": 3.1121142551695046e-05
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 2.4541281163692474e-05,
+                "p95": 4.037516191601753e-05,
+                "p99": 0.0004325001500546932,
+                "mean": 3.1121142551695046e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.001308724002778633
+            },
+            {
+              "stage": "result_building",
+              "total_exclusive_seconds": 0.0017695419999999998,
+              "exclusive": {
+                "count": 76,
+                "p50": 2.1791e-05,
+                "p95": 2.7959e-05,
+                "p99": 7.4542e-05,
+                "mean": 2.328344736842105e-05
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 2.1791e-05,
+                "p95": 2.7959e-05,
+                "p99": 7.4542e-05,
+                "mean": 2.328344736842105e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0009791287832016295
+            },
+            {
+              "stage": "ball_detection",
+              "total_exclusive_seconds": 0.0014755879999999997,
+              "exclusive": {
+                "count": 76,
+                "p50": 1.8667e-05,
+                "p95": 2.6751e-05,
+                "p99": 3.8751e-05,
+                "mean": 1.9415631578947364e-05
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 0.021536375,
+                "p95": 0.027574959,
+                "p99": 0.029181417,
+                "mean": 0.022004720381578947
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.000816477191808347
+            },
+            {
+              "stage": "detector_cache_lock_wait",
+              "total_exclusive_seconds": 0.00022645299999999994,
+              "exclusive": {
+                "count": 76,
+                "p50": 2.875e-06,
+                "p95": 4.292e-06,
+                "p99": 6.25e-06,
+                "mean": 2.9796447368421044e-06
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 2.875e-06,
+                "p95": 4.292e-06,
+                "p99": 6.25e-06,
+                "mean": 2.9796447368421044e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.00012530171668282447
+            },
+            {
+              "stage": "detector_model_lock_wait",
+              "total_exclusive_seconds": 0.000104538,
+              "exclusive": {
+                "count": 76,
+                "p50": 1.333e-06,
+                "p95": 1.75e-06,
+                "p99": 3.625e-06,
+                "mean": 1.3755e-06
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 1.333e-06,
+                "p95": 1.75e-06,
+                "p99": 3.625e-06,
+                "mean": 1.3755e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 5.784330902478266e-05
+            },
+            {
+              "stage": "preprocessing",
+              "total_exclusive_seconds": 9.745200000000003e-05,
+              "exclusive": {
+                "count": 76,
+                "p50": 1.208e-06,
+                "p95": 2e-06,
+                "p99": 3.584e-06,
+                "mean": 1.2822631578947373e-06
+              },
+              "inclusive": {
+                "count": 76,
+                "p50": 1.208e-06,
+                "p95": 2e-06,
+                "p99": 3.584e-06,
+                "mean": 1.2822631578947373e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 5.3922460264048686e-05
+            }
+          ],
+          "source_frames_rejected_stale_or_out_of_order": 0,
+          "source_restarts": 0,
+          "vision_queue_drops": 0,
+          "vision_queue_depth_after_drop_max": null,
+          "processing_queue_depth": {
+            "count": 76,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "processing_queue_depth_max": 0.0
+        },
+        "integration": {
+          "processed_observations": 72,
+          "unique_source_observations": 72,
+          "rejected_observations": 0,
+          "coordinate_conversion_seconds": {
+            "count": 72,
+            "p50": 0.000107334,
+            "p95": 0.000168166,
+            "p99": 0.000222667,
+            "mean": 0.00011620541666666665
+          },
+          "core_update_seconds": {
+            "count": 72,
+            "p50": 0.000652834,
+            "p95": 0.001021916,
+            "p99": 0.003377875,
+            "mean": 0.000751809638888889
+          },
+          "integration_lock_wait_seconds": {
+            "count": 72,
+            "p50": 1.708e-06,
+            "p95": 2.708e-06,
+            "p99": 6.792e-06,
+            "mean": 1.8686388888888889e-06
+          }
+        },
+        "state_delivery": {
+          "published_messages": 72,
+          "unique_source_observations_published": 72,
+          "repeated_source_observation_publications": 0,
+          "serialization_seconds": {
+            "count": 72,
+            "p50": 0.00012775,
+            "p95": 0.00016875,
+            "p99": 0.000212917,
+            "mean": 0.0001346597499999999
+          },
+          "source_publication_to_state_ms": {
+            "count": 72,
+            "p50": 41.390542,
+            "p95": 58.195708,
+            "p99": 65.210375,
+            "mean": 41.945017958333324
+          },
+          "outbound_queue_wait_seconds": {
+            "count": 72,
+            "p50": 6.8875e-05,
+            "p95": 0.000407042,
+            "p99": 0.001001875,
+            "mean": 0.00011393809722222221
+          },
+          "outbound_queue_depth_before_enqueue": {
+            "count": 72,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "coalesced_updates": 0,
+          "dropped_updates": 0,
+          "socket_send_seconds": {
+            "count": 72,
+            "p50": 0.000752458,
+            "p95": 0.002362334,
+            "p99": 0.002652791,
+            "mean": 0.001064925333333333
+          },
+          "payload_bytes": {
+            "count": 72,
+            "p50": 10579.0,
+            "p95": 11662.0,
+            "p99": 14649.0,
+            "mean": 10582.930555555555
+          }
+        },
+        "video_capture": {
+          "camera_read_seconds": {
+            "count": 75,
+            "p50": 0.001402708,
+            "p95": 0.001796041,
+            "p99": 0.00665025,
+            "mean": 0.001501537826666667
+          },
+          "camera_frame_queue_retrieval_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "undistortion_seconds": {
+            "count": 75,
+            "p50": 2.042e-06,
+            "p95": 3.75e-06,
+            "p99": 7.75e-06,
+            "mean": 2.257813333333334e-06
+          },
+          "shared_memory_publication_seconds": {
+            "count": 75,
+            "p50": 0.0007585,
+            "p95": 0.001006,
+            "p99": 0.001875333,
+            "mean": 0.0007983311333333331
+          },
+          "camera_capture_queue_frames_skipped": 0.0,
+          "camera_total_dropped_frames_last": 0.0
+        },
+        "trajectory": {
+          "published_messages": 0,
+          "requests_coalesced": 0,
+          "predictions_discarded_stale": 0,
+          "prediction_queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "calculator_lock_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "executor_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "physics_compute_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "resources": {
+          "cpu_percent": {
+            "count": 59,
+            "p50": 75.3,
+            "p95": 80.2,
+            "p99": 81.1,
+            "mean": 62.996610169491525
+          },
+          "process_cpu_time_seconds": {
+            "count": 59,
+            "first": 10.755064575999999,
+            "last": 44.197573376,
+            "delta": 33.4425088
+          },
+          "resident_memory_bytes": {
+            "count": 59,
+            "first": 883326976.0,
+            "last": 597868544.0,
+            "minimum": 596475904.0,
+            "maximum": 891535360.0
+          },
+          "event_loop_lag_seconds": {
+            "count": 30,
+            "p50": 0.0010000001639127731,
+            "p95": 0.0020000003278255463,
+            "p99": 0.003999999724328518,
+            "mean": 0.0009333333310981591
+          },
+          "outstanding_tasks": {
+            "count": 30,
+            "p50": 13.0,
+            "p95": 13.0,
+            "p99": 13.0,
+            "mean": 13.0
+          },
+          "by_process": {
+            "mbp-m4max-14.local:48667": {
+              "sample_count": 29,
+              "cpu_percent": {
+                "count": 29,
+                "p50": 49.4,
+                "p95": 54.4,
+                "p99": 55.2,
+                "mean": 47.796551724137935
+              },
+              "cpu_time_seconds": {
+                "first": 10.755064575999999,
+                "last": 24.204930559999998,
+                "delta": 13.449865983999999
+              },
+              "resident_memory_bytes": {
+                "first": 883326976,
+                "last": 756088832,
+                "minimum": 627834880,
+                "maximum": 891535360,
+                "change_first_to_last": -127238144,
+                "observed_span_seconds": 28.114010667,
+                "change_bytes_per_second": -4525791.268527586
+              },
+              "event_export_status": {
+                "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+                "process_id": 48667,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 975,
+                "written_events": 975,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.integration_vision_poll": {
+                    "candidates": 1358,
+                    "selected": 138,
+                    "sampled_out": 1220
+                  },
+                  "state.integration_observation_processed": {
+                    "candidates": 1164,
+                    "selected": 120,
+                    "sampled_out": 1044
+                  },
+                  "state.state_publication_enqueued": {
+                    "candidates": 1164,
+                    "selected": 120,
+                    "sampled_out": 1044
+                  },
+                  "state.state_published": {
+                    "candidates": 1164,
+                    "selected": 120,
+                    "sampled_out": 1044
+                  },
+                  "state.integration_observation_duplicate": {
+                    "candidates": 152,
+                    "selected": 18,
+                    "sampled_out": 134
+                  },
+                  "state.websocket_message": {
+                    "candidates": 1024,
+                    "selected": 102,
+                    "sampled_out": 922
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            },
+            "mbp-m4max-14.local:48539": {
+              "sample_count": 30,
+              "cpu_percent": {
+                "count": 30,
+                "p50": 77.4,
+                "p95": 80.5,
+                "p99": 81.1,
+                "mean": 77.69000000000001
+              },
+              "cpu_time_seconds": {
+                "first": 21.611403327999998,
+                "last": 44.197573376,
+                "delta": 22.586170048000003
+              },
+              "resident_memory_bytes": {
+                "first": 659718144,
+                "last": 597868544,
+                "minimum": 596475904,
+                "maximum": 660799488,
+                "change_first_to_last": -61849600,
+                "observed_span_seconds": 29.096855458,
+                "change_bytes_per_second": -2125645.504521171
+              },
+              "event_export_status": {
+                "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+                "process_id": 48539,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 201,
+                "written_events": 201,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.video_frame_published": {
+                    "candidates": 1455,
+                    "selected": 147,
+                    "sampled_out": 1308
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            }
+          },
+          "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+          "allocation_counts": "unavailable; RSS is a process memory proxy"
+        },
+        "viewers": {
+          "encoded_frames": 0,
+          "jpeg_encode_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "frame_read_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "send_backpressure_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        }
+      },
+      "server_measurement_status": "same_clock_domain_window_available"
+    },
+    {
+      "duration_seconds": 30.000298167,
+      "state_messages_received": 718,
+      "state_messages_per_second": 23.93309546469082,
+      "unique_source_observations": 718,
+      "unique_observations_per_second": 23.93309546469082,
+      "repeated_source_observations": 0,
+      "uncorrelated_state_messages": 0,
+      "complete_state_messages": 718,
+      "incomplete_state_messages": 0,
+      "source_sequence_gaps": 49,
+      "source_sequence_restarts": 0,
+      "source_out_of_order_messages": 0,
+      "stream_sequence_gaps": 0,
+      "stream_sequence_duplicates": 0,
+      "stream_sequence_out_of_order_messages": 0,
+      "source_publication_wall_age_estimate_ms": {
+        "count": 718,
+        "sample_limit": 10000,
+        "p50": 40.593862533569336,
+        "p95": 60.49394607543945,
+        "p99": 139.34731483459473
+      },
+      "source_publication_to_client_receipt_ms": {
+        "count": 718,
+        "sample_limit": 10000,
+        "p50": 40.574708,
+        "p95": 60.492375,
+        "p99": 139.326625
+      },
+      "client_latency_sample_count": 718,
+      "component_observation_status_counts": {},
+      "accuracy_evidence": "unavailable for unannotated live streams",
+      "trajectory_messages_received": 0,
+      "trajectory_messages_per_second": 0.0,
+      "incomplete_trajectory_messages": 0,
+      "trajectory_sequence_gaps": 0,
+      "trajectory_sequence_duplicates": 0,
+      "trajectory_sequence_out_of_order_messages": 0,
+      "trajectory_unique_source_observations": 0,
+      "trajectory_repeated_source_observations": 0,
+      "trajectory_source_sequence_gaps": 0,
+      "trajectory_source_out_of_order_messages": 0,
+      "trajectory_invalidated_or_spatially_invalid_messages": 0,
+      "trajectory_source_publication_wall_age_estimate_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "trajectory_source_publication_to_client_receipt_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "repetition": 2,
+      "streams": [
+        "state"
+      ],
+      "warmup_seconds": 10.0,
+      "requested_measured_seconds": 30.0,
+      "subscriber_delay_ms": 0.0,
+      "server_application_pings_answered": 1,
+      "client_application_heartbeats_sent": 1,
+      "measurement_started_monotonic_ns": 2499475168660958,
+      "measurement_ended_monotonic_ns": 2499505168959125,
+      "start_wall_time": "2026-10-21T15:14:31.647932-04:00",
+      "video_viewer": null,
+      "server_audit_domains": {
+        "state": true,
+        "trajectory": false,
+        "viewers": false
+      },
+      "server_host_id": "mbp-m4max-14.local",
+      "collector_host_id": "mbp-m4max-14.local",
+      "server_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "collector_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "monotonic_clocks_comparable": true,
+      "server_audit_run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+      "server_event_export": {
+        "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+        "process_id": 48667,
+        "host_id": "mbp-m4max-14.local",
+        "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+        "clock_implementation": "mach_absolute_time()",
+        "accepted_events": 1961,
+        "written_events": 1961,
+        "dropped_events": 0,
+        "sampled_out_events": 0,
+        "detailed_sampling": {
+          "state.integration_vision_poll": {
+            "candidates": 2499,
+            "selected": 277,
+            "sampled_out": 2222
+          },
+          "state.integration_observation_processed": {
+            "candidates": 2130,
+            "selected": 240,
+            "sampled_out": 1890
+          },
+          "state.state_publication_enqueued": {
+            "candidates": 2130,
+            "selected": 240,
+            "sampled_out": 1890
+          },
+          "state.state_published": {
+            "candidates": 2130,
+            "selected": 240,
+            "sampled_out": 1890
+          },
+          "state.integration_observation_duplicate": {
+            "candidates": 327,
+            "selected": 36,
+            "sampled_out": 291
+          },
+          "state.websocket_message": {
+            "candidates": 1990,
+            "selected": 222,
+            "sampled_out": 1768
+          }
+        },
+        "export_limit_dropped_events": 0,
+        "export_errors": 0,
+        "queue_depth": 0,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "max_exported_events": 200000,
+        "worker_alive": true,
+        "closed": false
+      },
+      "server_profiler_frame_count_before": 1205,
+      "server_profiler_frame_count_after": 2199,
+      "server_profiler_sampling_after": {
+        "configured_detailed_sample_rate": 0.1,
+        "processed_frames": 2199,
+        "failed_frames": 0,
+        "detailed_frames": 250,
+        "sampled_out_frames": 1949,
+        "retained_detailed_frames": 250,
+        "history_capacity": 10000
+      },
+      "server_profiler_measurement": "post-window process totals, including warm-up; unavailable when state audit is disabled",
+      "collector_settings": {
+        "history_size": 10000,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "event_export_limit": 200000,
+        "heartbeat_interval_seconds": 20.0
+      },
+      "server_measurements": {
+        "vision": {
+          "frame_records": 92,
+          "unique_source_observations_processed": 92,
+          "duplicate_or_reused_frame_records": 0,
+          "component_observation_status_counts": {},
+          "service_time_seconds": {
+            "count": 92,
+            "p50": 0.021839375,
+            "p95": 0.030519292,
+            "p99": 0.071190167,
+            "mean": 0.022997805250000006
+          },
+          "queue_wait_seconds": {
+            "count": 92,
+            "p50": 2.4250242859125137e-05,
+            "p95": 4.2667146772146225e-05,
+            "p99": 0.03176612500101328,
+            "mean": 0.0006444185577413958
+          },
+          "shared_memory_read_copy_seconds": {
+            "count": 92,
+            "p50": 0.000411792,
+            "p95": 0.000719458,
+            "p99": 0.001535167,
+            "mean": 0.00046762542391304355
+          },
+          "stage_timings_seconds": {
+            "queue_wait": {
+              "inclusive": {
+                "count": 92,
+                "p50": 2.4250242859125137e-05,
+                "p95": 4.2667146772146225e-05,
+                "p99": 0.03176612500101328,
+                "mean": 0.0006444185577413958
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 2.4250242859125137e-05,
+                "p95": 4.2667146772146225e-05,
+                "p99": 0.03176612500101328,
+                "mean": 0.0006444185577413958
+              }
+            },
+            "masking": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000482625,
+                "p95": 0.000729625,
+                "p99": 0.0015275,
+                "mean": 0.0005259411956521739
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000482625,
+                "p95": 0.000729625,
+                "p99": 0.0015275,
+                "mean": 0.0005259411956521739
+              }
+            },
+            "preprocessing": {
+              "inclusive": {
+                "count": 92,
+                "p50": 1.209e-06,
+                "p95": 1.542e-06,
+                "p99": 3.125e-06,
+                "mean": 1.2590760869565217e-06
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 1.209e-06,
+                "p95": 1.542e-06,
+                "p99": 3.125e-06,
+                "mean": 1.2590760869565217e-06
+              }
+            },
+            "detector_cache_lock_wait": {
+              "inclusive": {
+                "count": 92,
+                "p50": 2.876e-06,
+                "p95": 4.126e-06,
+                "p99": 2.0083e-05,
+                "mean": 3.2265652173913035e-06
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 2.876e-06,
+                "p95": 4.126e-06,
+                "p99": 2.0083e-05,
+                "mean": 3.2265652173913035e-06
+              }
+            },
+            "detector_model_lock_wait": {
+              "inclusive": {
+                "count": 92,
+                "p50": 1.333e-06,
+                "p95": 3.083e-06,
+                "p99": 1.7917e-05,
+                "mean": 1.6341086956521745e-06
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 1.333e-06,
+                "p95": 3.083e-06,
+                "p99": 1.7917e-05,
+                "mean": 1.6341086956521745e-06
+              }
+            },
+            "model_execute": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.01124675,
+                "p95": 0.016310416,
+                "p99": 0.043743333,
+                "mean": 0.01174989264130434
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.01124675,
+                "p95": 0.016310416,
+                "p99": 0.043743333,
+                "mean": 0.01174989264130434
+              }
+            },
+            "detector_backend": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.017832,
+                "p95": 0.02522275,
+                "p99": 0.060001417,
+                "mean": 0.018940435663043476
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.006808875,
+                "p95": 0.010986125,
+                "p99": 0.016252334,
+                "mean": 0.007188908913043479
+              }
+            },
+            "classification_and_adaptation": {
+              "inclusive": {
+                "count": 92,
+                "p50": 8.65e-05,
+                "p95": 0.000155292,
+                "p99": 0.000242042,
+                "mean": 9.50896956521739e-05
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 8.65e-05,
+                "p95": 0.000155292,
+                "p99": 0.000242042,
+                "mean": 9.50896956521739e-05
+              }
+            },
+            "detector_inference": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.018002333,
+                "p95": 0.025358709,
+                "p99": 0.060234875,
+                "mean": 0.019102591978260874
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 6.1042e-05,
+                "p95": 9.8375e-05,
+                "p99": 0.000130084,
+                "mean": 6.53708804347826e-05
+              }
+            },
+            "postprocessing": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000485375,
+                "p95": 0.000737458,
+                "p99": 0.001178958,
+                "mean": 0.0005176282173913044
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000485375,
+                "p95": 0.000737458,
+                "p99": 0.001178958,
+                "mean": 0.0005176282173913044
+              }
+            },
+            "tracking": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.001581917,
+                "p95": 0.0029605,
+                "p99": 0.003696375,
+                "mean": 0.001754725576086957
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.001581917,
+                "p95": 0.0029605,
+                "p99": 0.003696375,
+                "mean": 0.001754725576086957
+              }
+            },
+            "ball_detection": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.020483084,
+                "p95": 0.027240375,
+                "p99": 0.062993917,
+                "mean": 0.02139659646739131
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 1.8958e-05,
+                "p95": 3.5832e-05,
+                "p99": 4.7918e-05,
+                "mean": 2.039161956521739e-05
+              }
+            },
+            "cue_detection": {
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000522917,
+                "p95": 0.003897459,
+                "p99": 0.007458917,
+                "mean": 0.00103376625
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000521209,
+                "p95": 0.0038955,
+                "p99": 0.007456584,
+                "mean": 0.0010322354239130436
+              }
+            },
+            "result_building": {
+              "inclusive": {
+                "count": 92,
+                "p50": 2.2417e-05,
+                "p95": 2.8375e-05,
+                "p99": 0.000104,
+                "mean": 2.3633586956521732e-05
+              },
+              "exclusive": {
+                "count": 92,
+                "p50": 2.2417e-05,
+                "p95": 2.8375e-05,
+                "p99": 0.000104,
+                "mean": 2.3633586956521732e-05
+              }
+            }
+          },
+          "exclusive_stage_work_ranked": [
+            {
+              "stage": "model_execute",
+              "total_exclusive_seconds": 1.0809901229999994,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.01124675,
+                "p95": 0.016310416,
+                "p99": 0.043743333,
+                "mean": 0.01174989264130434
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.01124675,
+                "p95": 0.016310416,
+                "p99": 0.043743333,
+                "mean": 0.01174989264130434
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.4973635096163417
+            },
+            {
+              "stage": "detector_backend",
+              "total_exclusive_seconds": 0.6613796200000001,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.006808875,
+                "p95": 0.010986125,
+                "p99": 0.016252334,
+                "mean": 0.007188908913043479
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.017832,
+                "p95": 0.02522275,
+                "p99": 0.060001417,
+                "mean": 0.018940435663043476
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.30430073503263877
+            },
+            {
+              "stage": "tracking",
+              "total_exclusive_seconds": 0.16143475300000004,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.001581917,
+                "p95": 0.0029605,
+                "p99": 0.003696375,
+                "mean": 0.001754725576086957
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.001581917,
+                "p95": 0.0029605,
+                "p99": 0.003696375,
+                "mean": 0.001754725576086957
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.07427612298926371
+            },
+            {
+              "stage": "cue_detection",
+              "total_exclusive_seconds": 0.09496565900000002,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000521209,
+                "p95": 0.0038955,
+                "p99": 0.007456584,
+                "mean": 0.0010322354239130436
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000522917,
+                "p95": 0.003897459,
+                "p99": 0.007458917,
+                "mean": 0.00103376625
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.04369369566688331
+            },
+            {
+              "stage": "queue_wait",
+              "total_exclusive_seconds": 0.059286507312208414,
+              "exclusive": {
+                "count": 92,
+                "p50": 2.4250242859125137e-05,
+                "p95": 4.2667146772146225e-05,
+                "p99": 0.03176612500101328,
+                "mean": 0.0006444185577413958
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 2.4250242859125137e-05,
+                "p95": 4.2667146772146225e-05,
+                "p99": 0.03176612500101328,
+                "mean": 0.0006444185577413958
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.027277719492812512
+            },
+            {
+              "stage": "masking",
+              "total_exclusive_seconds": 0.04838658999999999,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000482625,
+                "p95": 0.000729625,
+                "p99": 0.0015275,
+                "mean": 0.0005259411956521739
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000482625,
+                "p95": 0.000729625,
+                "p99": 0.0015275,
+                "mean": 0.0005259411956521739
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.022262668001053504
+            },
+            {
+              "stage": "postprocessing",
+              "total_exclusive_seconds": 0.047621796,
+              "exclusive": {
+                "count": 92,
+                "p50": 0.000485375,
+                "p95": 0.000737458,
+                "p99": 0.001178958,
+                "mean": 0.0005176282173913044
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.000485375,
+                "p95": 0.000737458,
+                "p99": 0.001178958,
+                "mean": 0.0005176282173913044
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.02191078631418122
+            },
+            {
+              "stage": "classification_and_adaptation",
+              "total_exclusive_seconds": 0.008748251999999998,
+              "exclusive": {
+                "count": 92,
+                "p50": 8.65e-05,
+                "p95": 0.000155292,
+                "p99": 0.000242042,
+                "mean": 9.50896956521739e-05
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 8.65e-05,
+                "p95": 0.000155292,
+                "p99": 0.000242042,
+                "mean": 9.50896956521739e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.004025070373125122
+            },
+            {
+              "stage": "detector_inference",
+              "total_exclusive_seconds": 0.006014120999999999,
+              "exclusive": {
+                "count": 92,
+                "p50": 6.1042e-05,
+                "p95": 9.8375e-05,
+                "p99": 0.000130084,
+                "mean": 6.53708804347826e-05
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.018002333,
+                "p95": 0.025358709,
+                "p99": 0.060234875,
+                "mean": 0.019102591978260874
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0027670968163113767
+            },
+            {
+              "stage": "result_building",
+              "total_exclusive_seconds": 0.0021742899999999993,
+              "exclusive": {
+                "count": 92,
+                "p50": 2.2417e-05,
+                "p95": 2.8375e-05,
+                "p99": 0.000104,
+                "mean": 2.3633586956521732e-05
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 2.2417e-05,
+                "p95": 2.8375e-05,
+                "p99": 0.000104,
+                "mean": 2.3633586956521732e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0010003907365245333
+            },
+            {
+              "stage": "ball_detection",
+              "total_exclusive_seconds": 0.001876029,
+              "exclusive": {
+                "count": 92,
+                "p50": 1.8958e-05,
+                "p95": 3.5832e-05,
+                "p99": 4.7918e-05,
+                "mean": 2.039161956521739e-05
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 0.020483084,
+                "p95": 0.027240375,
+                "p99": 0.062993917,
+                "mean": 0.02139659646739131
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0008631608631099734
+            },
+            {
+              "stage": "detector_cache_lock_wait",
+              "total_exclusive_seconds": 0.00029684399999999994,
+              "exclusive": {
+                "count": 92,
+                "p50": 2.876e-06,
+                "p95": 4.126e-06,
+                "p99": 2.0083e-05,
+                "mean": 3.2265652173913035e-06
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 2.876e-06,
+                "p95": 4.126e-06,
+                "p99": 2.0083e-05,
+                "mean": 3.2265652173913035e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.00013657791177482698
+            },
+            {
+              "stage": "detector_model_lock_wait",
+              "total_exclusive_seconds": 0.00015033800000000005,
+              "exclusive": {
+                "count": 92,
+                "p50": 1.333e-06,
+                "p95": 3.083e-06,
+                "p99": 1.7917e-05,
+                "mean": 1.6341086956521745e-06
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 1.333e-06,
+                "p95": 3.083e-06,
+                "p99": 1.7917e-05,
+                "mean": 1.6341086956521745e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 6.917050740592349e-05
+            },
+            {
+              "stage": "preprocessing",
+              "total_exclusive_seconds": 0.000115835,
+              "exclusive": {
+                "count": 92,
+                "p50": 1.209e-06,
+                "p95": 1.542e-06,
+                "p99": 3.125e-06,
+                "mean": 1.2590760869565217e-06
+              },
+              "inclusive": {
+                "count": 92,
+                "p50": 1.209e-06,
+                "p95": 1.542e-06,
+                "p99": 3.125e-06,
+                "mean": 1.2590760869565217e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 5.3295678573382276e-05
+            }
+          ],
+          "source_frames_rejected_stale_or_out_of_order": 0,
+          "source_restarts": 0,
+          "vision_queue_drops": 22,
+          "vision_queue_depth_after_drop_max": 4.0,
+          "processing_queue_depth": {
+            "count": 92,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "processing_queue_depth_max": 0.0
+        },
+        "integration": {
+          "processed_observations": 89,
+          "unique_source_observations": 89,
+          "rejected_observations": 0,
+          "coordinate_conversion_seconds": {
+            "count": 89,
+            "p50": 0.00010775,
+            "p95": 0.0001665,
+            "p99": 0.000286583,
+            "mean": 0.00011428651685393259
+          },
+          "core_update_seconds": {
+            "count": 89,
+            "p50": 0.000677834,
+            "p95": 0.001748375,
+            "p99": 0.009151708,
+            "mean": 0.000874505640449438
+          },
+          "integration_lock_wait_seconds": {
+            "count": 89,
+            "p50": 1.792e-06,
+            "p95": 2.667e-06,
+            "p99": 5.5e-06,
+            "mean": 1.9615617977528084e-06
+          }
+        },
+        "state_delivery": {
+          "published_messages": 89,
+          "unique_source_observations_published": 89,
+          "repeated_source_observation_publications": 0,
+          "serialization_seconds": {
+            "count": 89,
+            "p50": 0.00013175,
+            "p95": 0.000184041,
+            "p99": 0.000878459,
+            "mean": 0.00014613110112359547
+          },
+          "source_publication_to_state_ms": {
+            "count": 89,
+            "p50": 40.274416,
+            "p95": 59.439917,
+            "p99": 88.611209,
+            "mean": 40.809272494382036
+          },
+          "outbound_queue_wait_seconds": {
+            "count": 89,
+            "p50": 4.7084e-05,
+            "p95": 0.000164584,
+            "p99": 0.001517791,
+            "mean": 0.0001013717865168539
+          },
+          "outbound_queue_depth_before_enqueue": {
+            "count": 89,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "coalesced_updates": 0,
+          "dropped_updates": 0,
+          "socket_send_seconds": {
+            "count": 89,
+            "p50": 0.000464291,
+            "p95": 0.002339833,
+            "p99": 0.003683,
+            "mean": 0.0007871094157303372
+          },
+          "payload_bytes": {
+            "count": 89,
+            "p50": 9049.0,
+            "p95": 10048.0,
+            "p99": 10643.0,
+            "mean": 9061.573033707866
+          }
+        },
+        "video_capture": {
+          "camera_read_seconds": {
+            "count": 96,
+            "p50": 0.001525042,
+            "p95": 0.0035515,
+            "p99": 0.01280125,
+            "mean": 0.001922114645833333
+          },
+          "camera_frame_queue_retrieval_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "undistortion_seconds": {
+            "count": 96,
+            "p50": 2.375e-06,
+            "p95": 4.875e-06,
+            "p99": 3.3959e-05,
+            "mean": 3.010833333333333e-06
+          },
+          "shared_memory_publication_seconds": {
+            "count": 96,
+            "p50": 0.000788583,
+            "p95": 0.001928875,
+            "p99": 0.007927541,
+            "mean": 0.0009881901249999996
+          },
+          "camera_capture_queue_frames_skipped": 0.0,
+          "camera_total_dropped_frames_last": 0.0
+        },
+        "trajectory": {
+          "published_messages": 0,
+          "requests_coalesced": 0,
+          "predictions_discarded_stale": 0,
+          "prediction_queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "calculator_lock_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "executor_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "physics_compute_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "resources": {
+          "cpu_percent": {
+            "count": 60,
+            "p50": 61.9,
+            "p95": 88.8,
+            "p99": 106.8,
+            "mean": 61.71500000000002
+          },
+          "process_cpu_time_seconds": {
+            "count": 60,
+            "first": 29.176867328,
+            "last": 76.4250432,
+            "delta": 47.248175872000004
+          },
+          "resident_memory_bytes": {
+            "count": 60,
+            "first": 720027648.0,
+            "last": 596000768.0,
+            "minimum": 582057984.0,
+            "maximum": 809009152.0
+          },
+          "event_loop_lag_seconds": {
+            "count": 30,
+            "p50": 0.0010000001639127731,
+            "p95": 0.0019999993965029716,
+            "p99": 0.07499999925494194,
+            "mean": 0.003266666643321514
+          },
+          "outstanding_tasks": {
+            "count": 30,
+            "p50": 13.0,
+            "p95": 13.0,
+            "p99": 13.0,
+            "mean": 13.0
+          },
+          "by_process": {
+            "mbp-m4max-14.local:48667": {
+              "sample_count": 30,
+              "cpu_percent": {
+                "count": 30,
+                "p50": 42.3,
+                "p95": 57.9,
+                "p99": 61.9,
+                "mean": 42.75
+              },
+              "cpu_time_seconds": {
+                "first": 29.176867328,
+                "last": 41.60585728,
+                "delta": 12.428989952000002
+              },
+              "resident_memory_bytes": {
+                "first": 720027648,
+                "last": 604913664,
+                "minimum": 582057984,
+                "maximum": 809009152,
+                "change_first_to_last": -115113984,
+                "observed_span_seconds": 29.113885708,
+                "change_bytes_per_second": -3953920.3098667325
+              },
+              "event_export_status": {
+                "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+                "process_id": 48667,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 1961,
+                "written_events": 1961,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.integration_vision_poll": {
+                    "candidates": 2499,
+                    "selected": 277,
+                    "sampled_out": 2222
+                  },
+                  "state.integration_observation_processed": {
+                    "candidates": 2130,
+                    "selected": 240,
+                    "sampled_out": 1890
+                  },
+                  "state.state_publication_enqueued": {
+                    "candidates": 2130,
+                    "selected": 240,
+                    "sampled_out": 1890
+                  },
+                  "state.state_published": {
+                    "candidates": 2130,
+                    "selected": 240,
+                    "sampled_out": 1890
+                  },
+                  "state.integration_observation_duplicate": {
+                    "candidates": 327,
+                    "selected": 36,
+                    "sampled_out": 291
+                  },
+                  "state.websocket_message": {
+                    "candidates": 1990,
+                    "selected": 222,
+                    "sampled_out": 1768
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            },
+            "mbp-m4max-14.local:48539": {
+              "sample_count": 30,
+              "cpu_percent": {
+                "count": 30,
+                "p50": 78.2,
+                "p95": 91.2,
+                "p99": 106.8,
+                "mean": 80.68
+              },
+              "cpu_time_seconds": {
+                "first": 52.91430579199999,
+                "last": 76.4250432,
+                "delta": 23.51073740800001
+              },
+              "resident_memory_bytes": {
+                "first": 596639744,
+                "last": 596000768,
+                "minimum": 596000768,
+                "maximum": 597655552,
+                "change_first_to_last": -638976,
+                "observed_span_seconds": 29.155032541,
+                "change_bytes_per_second": -21916.490715674005
+              },
+              "event_export_status": {
+                "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+                "process_id": 48539,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 370,
+                "written_events": 370,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.video_frame_published": {
+                    "candidates": 2486,
+                    "selected": 276,
+                    "sampled_out": 2210
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            }
+          },
+          "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+          "allocation_counts": "unavailable; RSS is a process memory proxy"
+        },
+        "viewers": {
+          "encoded_frames": 0,
+          "jpeg_encode_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "frame_read_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "send_backpressure_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        }
+      },
+      "server_measurement_status": "same_clock_domain_window_available"
+    },
+    {
+      "duration_seconds": 30.001230709,
+      "state_messages_received": 771,
+      "state_messages_per_second": 25.698945735873078,
+      "unique_source_observations": 771,
+      "unique_observations_per_second": 25.698945735873078,
+      "repeated_source_observations": 0,
+      "uncorrelated_state_messages": 0,
+      "complete_state_messages": 771,
+      "incomplete_state_messages": 0,
+      "source_sequence_gaps": 22,
+      "source_sequence_restarts": 0,
+      "source_out_of_order_messages": 0,
+      "stream_sequence_gaps": 0,
+      "stream_sequence_duplicates": 0,
+      "stream_sequence_out_of_order_messages": 0,
+      "source_publication_wall_age_estimate_ms": {
+        "count": 771,
+        "sample_limit": 10000,
+        "p50": 41.380882263183594,
+        "p95": 58.40492248535156,
+        "p99": 79.01692390441895
+      },
+      "source_publication_to_client_receipt_ms": {
+        "count": 771,
+        "sample_limit": 10000,
+        "p50": 41.378875,
+        "p95": 58.401958,
+        "p99": 79.01
+      },
+      "client_latency_sample_count": 771,
+      "component_observation_status_counts": {},
+      "accuracy_evidence": "unavailable for unannotated live streams",
+      "trajectory_messages_received": 0,
+      "trajectory_messages_per_second": 0.0,
+      "incomplete_trajectory_messages": 0,
+      "trajectory_sequence_gaps": 0,
+      "trajectory_sequence_duplicates": 0,
+      "trajectory_sequence_out_of_order_messages": 0,
+      "trajectory_unique_source_observations": 0,
+      "trajectory_repeated_source_observations": 0,
+      "trajectory_source_sequence_gaps": 0,
+      "trajectory_source_out_of_order_messages": 0,
+      "trajectory_invalidated_or_spatially_invalid_messages": 0,
+      "trajectory_source_publication_wall_age_estimate_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "trajectory_source_publication_to_client_receipt_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "repetition": 3,
+      "streams": [
+        "state"
+      ],
+      "warmup_seconds": 10.0,
+      "requested_measured_seconds": 30.0,
+      "subscriber_delay_ms": 0.0,
+      "server_application_pings_answered": 1,
+      "client_application_heartbeats_sent": 1,
+      "measurement_started_monotonic_ns": 2499515201488166,
+      "measurement_ended_monotonic_ns": 2499545202718875,
+      "start_wall_time": "2026-10-21T15:15:11.687790-04:00",
+      "video_viewer": null,
+      "server_audit_domains": {
+        "state": true,
+        "trajectory": false,
+        "viewers": false
+      },
+      "server_host_id": "mbp-m4max-14.local",
+      "collector_host_id": "mbp-m4max-14.local",
+      "server_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "collector_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "monotonic_clocks_comparable": true,
+      "server_audit_run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+      "server_event_export": {
+        "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+        "process_id": 48667,
+        "host_id": "mbp-m4max-14.local",
+        "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+        "clock_implementation": "mach_absolute_time()",
+        "accepted_events": 2768,
+        "written_events": 2768,
+        "dropped_events": 0,
+        "sampled_out_events": 0,
+        "detailed_sampling": {
+          "state.integration_vision_poll": {
+            "candidates": 3661,
+            "selected": 395,
+            "sampled_out": 3266
+          },
+          "state.integration_observation_processed": {
+            "candidates": 3154,
+            "selected": 339,
+            "sampled_out": 2815
+          },
+          "state.state_publication_enqueued": {
+            "candidates": 3154,
+            "selected": 339,
+            "sampled_out": 2815
+          },
+          "state.state_published": {
+            "candidates": 3154,
+            "selected": 339,
+            "sampled_out": 2815
+          },
+          "state.integration_observation_duplicate": {
+            "candidates": 465,
+            "selected": 45,
+            "sampled_out": 420
+          },
+          "state.websocket_message": {
+            "candidates": 3013,
+            "selected": 321,
+            "sampled_out": 2692
+          }
+        },
+        "export_limit_dropped_events": 0,
+        "export_errors": 0,
+        "queue_depth": 0,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "max_exported_events": 200000,
+        "worker_alive": true,
+        "closed": false
+      },
+      "server_profiler_frame_count_before": 2199,
+      "server_profiler_frame_count_after": 3253,
+      "server_profiler_sampling_after": {
+        "configured_detailed_sample_rate": 0.1,
+        "processed_frames": 3253,
+        "failed_frames": 0,
+        "detailed_frames": 353,
+        "sampled_out_frames": 2900,
+        "retained_detailed_frames": 353,
+        "history_capacity": 10000
+      },
+      "server_profiler_measurement": "post-window process totals, including warm-up; unavailable when state audit is disabled",
+      "collector_settings": {
+        "history_size": 10000,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "event_export_limit": 200000,
+        "heartbeat_interval_seconds": 20.0
+      },
+      "server_measurements": {
+        "vision": {
+          "frame_records": 75,
+          "unique_source_observations_processed": 75,
+          "duplicate_or_reused_frame_records": 0,
+          "component_observation_status_counts": {},
+          "service_time_seconds": {
+            "count": 75,
+            "p50": 0.020718625,
+            "p95": 0.030106791,
+            "p99": 0.042628375,
+            "mean": 0.02191708390666667
+          },
+          "queue_wait_seconds": {
+            "count": 75,
+            "p50": 2.258317545056343e-05,
+            "p95": 4.1624996811151505e-05,
+            "p99": 0.00012587476521730423,
+            "mean": 2.627334867914518e-05
+          },
+          "shared_memory_read_copy_seconds": {
+            "count": 75,
+            "p50": 0.000401958,
+            "p95": 0.000649083,
+            "p99": 0.001400125,
+            "mean": 0.00045258177333333316
+          },
+          "stage_timings_seconds": {
+            "queue_wait": {
+              "inclusive": {
+                "count": 75,
+                "p50": 2.258317545056343e-05,
+                "p95": 4.1624996811151505e-05,
+                "p99": 0.00012587476521730423,
+                "mean": 2.627334867914518e-05
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 2.258317545056343e-05,
+                "p95": 4.1624996811151505e-05,
+                "p99": 0.00012587476521730423,
+                "mean": 2.627334867914518e-05
+              }
+            },
+            "masking": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.000454709,
+                "p95": 0.001848458,
+                "p99": 0.002572875,
+                "mean": 0.0005791650533333334
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.000454709,
+                "p95": 0.001848458,
+                "p99": 0.002572875,
+                "mean": 0.0005791650533333334
+              }
+            },
+            "preprocessing": {
+              "inclusive": {
+                "count": 75,
+                "p50": 1.167e-06,
+                "p95": 1.542e-06,
+                "p99": 3.6291e-05,
+                "mean": 1.664946666666667e-06
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 1.167e-06,
+                "p95": 1.542e-06,
+                "p99": 3.6291e-05,
+                "mean": 1.664946666666667e-06
+              }
+            },
+            "detector_cache_lock_wait": {
+              "inclusive": {
+                "count": 75,
+                "p50": 2.7919999999999997e-06,
+                "p95": 3.917e-06,
+                "p99": 2.4709e-05,
+                "mean": 3.1772666666666662e-06
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 2.7919999999999997e-06,
+                "p95": 3.917e-06,
+                "p99": 2.4709e-05,
+                "mean": 3.1772666666666662e-06
+              }
+            },
+            "detector_model_lock_wait": {
+              "inclusive": {
+                "count": 75,
+                "p50": 1.25e-06,
+                "p95": 2.541e-06,
+                "p99": 5.958e-06,
+                "mean": 1.3789199999999998e-06
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 1.25e-06,
+                "p95": 2.541e-06,
+                "p99": 5.958e-06,
+                "mean": 1.3789199999999998e-06
+              }
+            },
+            "model_execute": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.01106975,
+                "p95": 0.017918667,
+                "p99": 0.018885709,
+                "mean": 0.011650481080000004
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.01106975,
+                "p95": 0.017918667,
+                "p99": 0.018885709,
+                "mean": 0.011650481080000004
+              }
+            },
+            "detector_backend": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.017102875,
+                "p95": 0.023829666,
+                "p99": 0.032929042,
+                "mean": 0.017728414466666675
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.005821374,
+                "p95": 0.008619292,
+                "p99": 0.014746709,
+                "mean": 0.006076554466666667
+              }
+            },
+            "classification_and_adaptation": {
+              "inclusive": {
+                "count": 75,
+                "p50": 7.7e-05,
+                "p95": 0.000120792,
+                "p99": 0.000384583,
+                "mean": 8.500666666666667e-05
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 7.7e-05,
+                "p95": 0.000120792,
+                "p99": 0.000384583,
+                "mean": 8.500666666666667e-05
+              }
+            },
+            "detector_inference": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.017245125,
+                "p95": 0.023961833,
+                "p99": 0.033426209,
+                "mean": 0.01787525061333334
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 5.7041e-05,
+                "p95": 9.3792e-05,
+                "p99": 0.000110792,
+                "mean": 6.038833333333333e-05
+              }
+            },
+            "postprocessing": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.000409708,
+                "p95": 0.000555959,
+                "p99": 0.003051291,
+                "mean": 0.00045940388
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.000409708,
+                "p95": 0.000555959,
+                "p99": 0.003051291,
+                "mean": 0.00045940388
+              }
+            },
+            "tracking": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.001275083,
+                "p95": 0.002438791,
+                "p99": 0.0099195,
+                "mean": 0.0015641522399999996
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.001275083,
+                "p95": 0.002438791,
+                "p99": 0.0099195,
+                "mean": 0.0015641522399999996
+              }
+            },
+            "ball_detection": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.01905025,
+                "p95": 0.02674525,
+                "p99": 0.039578667,
+                "mean": 0.0199230522
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 1.7791e-05,
+                "p95": 2.775e-05,
+                "p99": 0.000305792,
+                "mean": 2.2580520000000003e-05
+              }
+            },
+            "cue_detection": {
+              "inclusive": {
+                "count": 75,
+                "p50": 0.001418042,
+                "p95": 0.003652625,
+                "p99": 0.0037615,
+                "mean": 0.0013764277733333337
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 0.001416792,
+                "p95": 0.003651208,
+                "p99": 0.003760083,
+                "mean": 0.0013746916533333335
+              }
+            },
+            "result_building": {
+              "inclusive": {
+                "count": 75,
+                "p50": 2.1916e-05,
+                "p95": 2.7167e-05,
+                "p99": 3.025e-05,
+                "mean": 2.2232226666666675e-05
+              },
+              "exclusive": {
+                "count": 75,
+                "p50": 2.1916e-05,
+                "p95": 2.7167e-05,
+                "p99": 3.025e-05,
+                "mean": 2.2232226666666675e-05
+              }
+            }
+          },
+          "exclusive_stage_work_ranked": [
+            {
+              "stage": "model_execute",
+              "total_exclusive_seconds": 0.8737860810000003,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.01106975,
+                "p95": 0.017918667,
+                "p99": 0.018885709,
+                "mean": 0.011650481080000004
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.01106975,
+                "p95": 0.017918667,
+                "p99": 0.018885709,
+                "mean": 0.011650481080000004
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.5313267232693116
+            },
+            {
+              "stage": "detector_backend",
+              "total_exclusive_seconds": 0.455741585,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.005821374,
+                "p95": 0.008619292,
+                "p99": 0.014746709,
+                "mean": 0.006076554466666667
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.017102875,
+                "p95": 0.023829666,
+                "p99": 0.032929042,
+                "mean": 0.017728414466666675
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.2771246741977026
+            },
+            {
+              "stage": "tracking",
+              "total_exclusive_seconds": 0.11731141799999997,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.001275083,
+                "p95": 0.002438791,
+                "p99": 0.0099195,
+                "mean": 0.0015641522399999996
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.001275083,
+                "p95": 0.002438791,
+                "p99": 0.0099195,
+                "mean": 0.0015641522399999996
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0713340400852832
+            },
+            {
+              "stage": "cue_detection",
+              "total_exclusive_seconds": 0.10310187400000001,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.001416792,
+                "p95": 0.003651208,
+                "p99": 0.003760083,
+                "mean": 0.0013746916533333335
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.001418042,
+                "p95": 0.003652625,
+                "p99": 0.0037615,
+                "mean": 0.0013764277733333337
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.06269358378042808
+            },
+            {
+              "stage": "masking",
+              "total_exclusive_seconds": 0.043437379000000005,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.000454709,
+                "p95": 0.001848458,
+                "p99": 0.002572875,
+                "mean": 0.0005791650533333334
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.000454709,
+                "p95": 0.001848458,
+                "p99": 0.002572875,
+                "mean": 0.0005791650533333334
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.026413147054327138
+            },
+            {
+              "stage": "postprocessing",
+              "total_exclusive_seconds": 0.034455291,
+              "exclusive": {
+                "count": 75,
+                "p50": 0.000409708,
+                "p95": 0.000555959,
+                "p99": 0.003051291,
+                "mean": 0.00045940388
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.000409708,
+                "p95": 0.000555959,
+                "p99": 0.003051291,
+                "mean": 0.00045940388
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.02095137158212594
+            },
+            {
+              "stage": "classification_and_adaptation",
+              "total_exclusive_seconds": 0.006375500000000001,
+              "exclusive": {
+                "count": 75,
+                "p50": 7.7e-05,
+                "p95": 0.000120792,
+                "p99": 0.000384583,
+                "mean": 8.500666666666667e-05
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 7.7e-05,
+                "p95": 0.000120792,
+                "p99": 0.000384583,
+                "mean": 8.500666666666667e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.003876776705262596
+            },
+            {
+              "stage": "detector_inference",
+              "total_exclusive_seconds": 0.004529125,
+              "exclusive": {
+                "count": 75,
+                "p50": 5.7041e-05,
+                "p95": 9.3792e-05,
+                "p99": 0.000110792,
+                "mean": 6.038833333333333e-05
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.017245125,
+                "p95": 0.023961833,
+                "p99": 0.033426209,
+                "mean": 0.01787525061333334
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.002754043807579398
+            },
+            {
+              "stage": "queue_wait",
+              "total_exclusive_seconds": 0.0019705011509358883,
+              "exclusive": {
+                "count": 75,
+                "p50": 2.258317545056343e-05,
+                "p95": 4.1624996811151505e-05,
+                "p99": 0.00012587476521730423,
+                "mean": 2.627334867914518e-05
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 2.258317545056343e-05,
+                "p95": 4.1624996811151505e-05,
+                "p99": 0.00012587476521730423,
+                "mean": 2.627334867914518e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0011982108006652632
+            },
+            {
+              "stage": "ball_detection",
+              "total_exclusive_seconds": 0.0016935390000000002,
+              "exclusive": {
+                "count": 75,
+                "p50": 1.7791e-05,
+                "p95": 2.775e-05,
+                "p99": 0.000305792,
+                "mean": 2.2580520000000003e-05
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 0.01905025,
+                "p95": 0.02674525,
+                "p99": 0.039578667,
+                "mean": 0.0199230522
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0010297972778062444
+            },
+            {
+              "stage": "result_building",
+              "total_exclusive_seconds": 0.0016674170000000007,
+              "exclusive": {
+                "count": 75,
+                "p50": 2.1916e-05,
+                "p95": 2.7167e-05,
+                "p99": 3.025e-05,
+                "mean": 2.2232226666666675e-05
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 2.1916e-05,
+                "p95": 2.7167e-05,
+                "p99": 3.025e-05,
+                "mean": 2.2232226666666675e-05
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.0010139131650158957
+            },
+            {
+              "stage": "detector_cache_lock_wait",
+              "total_exclusive_seconds": 0.00023829499999999997,
+              "exclusive": {
+                "count": 75,
+                "p50": 2.7919999999999997e-06,
+                "p95": 3.917e-06,
+                "p99": 2.4709e-05,
+                "mean": 3.1772666666666662e-06
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 2.7919999999999997e-06,
+                "p95": 3.917e-06,
+                "p99": 2.4709e-05,
+                "mean": 3.1772666666666662e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 0.00014490102815160378
+            },
+            {
+              "stage": "preprocessing",
+              "total_exclusive_seconds": 0.00012487100000000003,
+              "exclusive": {
+                "count": 75,
+                "p50": 1.167e-06,
+                "p95": 1.542e-06,
+                "p99": 3.6291e-05,
+                "mean": 1.664946666666667e-06
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 1.167e-06,
+                "p95": 1.542e-06,
+                "p99": 3.6291e-05,
+                "mean": 1.664946666666667e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 7.593082643915703e-05
+            },
+            {
+              "stage": "detector_model_lock_wait",
+              "total_exclusive_seconds": 0.00010341899999999998,
+              "exclusive": {
+                "count": 75,
+                "p50": 1.25e-06,
+                "p95": 2.541e-06,
+                "p99": 5.958e-06,
+                "mean": 1.3789199999999998e-06
+              },
+              "inclusive": {
+                "count": 75,
+                "p50": 1.25e-06,
+                "p95": 2.541e-06,
+                "p99": 5.958e-06,
+                "mean": 1.3789199999999998e-06
+              },
+              "share_of_observed_exclusive_stage_seconds": 6.28864199014277e-05
+            }
+          ],
+          "source_frames_rejected_stale_or_out_of_order": 0,
+          "source_restarts": 0,
+          "vision_queue_drops": 1,
+          "vision_queue_depth_after_drop_max": 0.0,
+          "processing_queue_depth": {
+            "count": 75,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "processing_queue_depth_max": 0.0
+        },
+        "integration": {
+          "processed_observations": 73,
+          "unique_source_observations": 73,
+          "rejected_observations": 0,
+          "coordinate_conversion_seconds": {
+            "count": 73,
+            "p50": 9.9083e-05,
+            "p95": 0.000142167,
+            "p99": 0.000231625,
+            "mean": 0.0001051050273972603
+          },
+          "core_update_seconds": {
+            "count": 73,
+            "p50": 0.0006235,
+            "p95": 0.001025,
+            "p99": 0.001599917,
+            "mean": 0.000670243205479452
+          },
+          "integration_lock_wait_seconds": {
+            "count": 73,
+            "p50": 1.709e-06,
+            "p95": 2.75e-06,
+            "p99": 5.959e-06,
+            "mean": 1.872095890410959e-06
+          }
+        },
+        "state_delivery": {
+          "published_messages": 73,
+          "unique_source_observations_published": 73,
+          "repeated_source_observation_publications": 0,
+          "serialization_seconds": {
+            "count": 73,
+            "p50": 0.000121,
+            "p95": 0.000193334,
+            "p99": 0.000323916,
+            "mean": 0.0001303498904109589
+          },
+          "source_publication_to_state_ms": {
+            "count": 73,
+            "p50": 41.837708,
+            "p95": 55.677708,
+            "p99": 59.845458,
+            "mean": 40.99998969863015
+          },
+          "outbound_queue_wait_seconds": {
+            "count": 73,
+            "p50": 6.9708e-05,
+            "p95": 0.000906125,
+            "p99": 0.001468625,
+            "mean": 0.0001625005890410959
+          },
+          "outbound_queue_depth_before_enqueue": {
+            "count": 73,
+            "p50": 0.0,
+            "p95": 0.0,
+            "p99": 0.0,
+            "mean": 0.0
+          },
+          "coalesced_updates": 0,
+          "dropped_updates": 0,
+          "socket_send_seconds": {
+            "count": 73,
+            "p50": 0.000692917,
+            "p95": 0.001876042,
+            "p99": 0.003190125,
+            "mean": 0.000889869821917808
+          },
+          "payload_bytes": {
+            "count": 73,
+            "p50": 8531.0,
+            "p95": 9538.0,
+            "p99": 10647.0,
+            "mean": 8403.90410958904
+          }
+        },
+        "video_capture": {
+          "camera_read_seconds": {
+            "count": 75,
+            "p50": 0.001413125,
+            "p95": 0.003833125,
+            "p99": 0.006163084,
+            "mean": 0.0016525561599999997
+          },
+          "camera_frame_queue_retrieval_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "undistortion_seconds": {
+            "count": 75,
+            "p50": 2e-06,
+            "p95": 3.959e-06,
+            "p99": 9.375e-06,
+            "mean": 2.318866666666666e-06
+          },
+          "shared_memory_publication_seconds": {
+            "count": 75,
+            "p50": 0.000770125,
+            "p95": 0.000996541,
+            "p99": 0.002342708,
+            "mean": 0.0008287039200000002
+          },
+          "camera_capture_queue_frames_skipped": 0.0,
+          "camera_total_dropped_frames_last": 0.0
+        },
+        "trajectory": {
+          "published_messages": 0,
+          "requests_coalesced": 0,
+          "predictions_discarded_stale": 0,
+          "prediction_queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "calculator_lock_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "executor_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "physics_compute_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "resources": {
+          "cpu_percent": {
+            "count": 59,
+            "p50": 59.1,
+            "p95": 80.8,
+            "p99": 83.1,
+            "mean": 60.35932203389832
+          },
+          "process_cpu_time_seconds": {
+            "count": 59,
+            "first": 46.445177856,
+            "last": 107.08935014400001,
+            "delta": 60.64417228800001
+          },
+          "resident_memory_bytes": {
+            "count": 59,
+            "first": 580042752.0,
+            "last": 593887232.0,
+            "minimum": 505380864.0,
+            "maximum": 596819968.0
+          },
+          "event_loop_lag_seconds": {
+            "count": 30,
+            "p50": 0.0010000001639127731,
+            "p95": 0.0010000001639127731,
+            "p99": 0.0010000001639127731,
+            "mean": 0.0008000000069538752
+          },
+          "outstanding_tasks": {
+            "count": 30,
+            "p50": 13.0,
+            "p95": 13.0,
+            "p99": 13.0,
+            "mean": 13.0
+          },
+          "by_process": {
+            "mbp-m4max-14.local:48667": {
+              "sample_count": 30,
+              "cpu_percent": {
+                "count": 30,
+                "p50": 45.0,
+                "p95": 52.2,
+                "p99": 59.1,
+                "mean": 43.60333333333334
+              },
+              "cpu_time_seconds": {
+                "first": 46.445177856,
+                "last": 59.213300735999994,
+                "delta": 12.768122879999993
+              },
+              "resident_memory_bytes": {
+                "first": 580042752,
+                "last": 539312128,
+                "minimum": 505380864,
+                "maximum": 580796416,
+                "change_first_to_last": -40730624,
+                "observed_span_seconds": 29.115685791,
+                "change_bytes_per_second": -1398923.7379594992
+              },
+              "event_export_status": {
+                "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+                "process_id": 48667,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 2768,
+                "written_events": 2768,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.integration_vision_poll": {
+                    "candidates": 3661,
+                    "selected": 395,
+                    "sampled_out": 3266
+                  },
+                  "state.integration_observation_processed": {
+                    "candidates": 3154,
+                    "selected": 339,
+                    "sampled_out": 2815
+                  },
+                  "state.state_publication_enqueued": {
+                    "candidates": 3154,
+                    "selected": 339,
+                    "sampled_out": 2815
+                  },
+                  "state.state_published": {
+                    "candidates": 3154,
+                    "selected": 339,
+                    "sampled_out": 2815
+                  },
+                  "state.integration_observation_duplicate": {
+                    "candidates": 465,
+                    "selected": 45,
+                    "sampled_out": 420
+                  },
+                  "state.websocket_message": {
+                    "candidates": 3013,
+                    "selected": 321,
+                    "sampled_out": 2692
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            },
+            "mbp-m4max-14.local:48539": {
+              "sample_count": 29,
+              "cpu_percent": {
+                "count": 29,
+                "p50": 77.8,
+                "p95": 81.8,
+                "p99": 83.1,
+                "mean": 77.69310344827586
+              },
+              "cpu_time_seconds": {
+                "first": 85.257203456,
+                "last": 107.08935014400001,
+                "delta": 21.83214668800001
+              },
+              "resident_memory_bytes": {
+                "first": 596475904,
+                "last": 593887232,
+                "minimum": 578666496,
+                "maximum": 596819968,
+                "change_first_to_last": -2588672,
+                "observed_span_seconds": 28.109778625,
+                "change_bytes_per_second": -92091.5114464015
+              },
+              "event_export_status": {
+                "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+                "process_id": 48539,
+                "host_id": "mbp-m4max-14.local",
+                "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+                "clock_implementation": "mach_absolute_time()",
+                "accepted_events": 510,
+                "written_events": 510,
+                "dropped_events": 0,
+                "sampled_out_events": 0,
+                "detailed_sampling": {
+                  "state.video_frame_published": {
+                    "candidates": 3518,
+                    "selected": 377,
+                    "sampled_out": 3141
+                  }
+                },
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+                "queue_depth": 0,
+                "queue_capacity": 2048,
+                "sample_rate": 1.0,
+                "max_exported_events": 200000,
+                "worker_alive": true,
+                "closed": false
+              }
+            }
+          },
+          "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+          "allocation_counts": "unavailable; RSS is a process memory proxy"
+        },
+        "viewers": {
+          "encoded_frames": 0,
+          "jpeg_encode_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "frame_read_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "send_backpressure_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        }
+      },
+      "server_measurement_status": "same_clock_domain_window_available"
+    }
+  ],
+  "delivery_latency": {
+    "clock": "mach_absolute_time()",
+    "clock_domain": "verified OS monotonic clock domain: Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+    "clocks_comparable": true,
+    "deadline_budget_ms": 50.0,
+    "source_publication_to_state_ms": {
+      "count": 234,
+      "p50": 41.168625,
+      "p95": 57.790875,
+      "p99": 76.538542
+    },
+    "source_publication_to_client_receipt_ms": {
+      "count": 2256,
+      "p50": 41.863958,
+      "p95": 60.390083,
+      "p99": 82.042917
+    },
+    "state_publication_to_receipt_ms": {
+      "count": 234,
+      "p50": 0.936667,
+      "p95": 2.810958,
+      "p99": 3.954167
+    },
+    "deadline_misses": {
+      "source_publication_to_state": {
+        "sample_count": 234,
+        "missed_deadlines": 59
+      },
+      "source_publication_to_client_receipt": {
+        "sample_count": 2256,
+        "missed_deadlines": 617
+      },
+      "state_publication_to_receipt": {
+        "sample_count": 234,
+        "missed_deadlines": 0
+      }
+    },
+    "socket_send_to_receipt_ms": {
+      "count": 63,
+      "p50": 0.019041,
+      "p95": 0.057917,
+      "p99": 0.084333
+    },
+    "trajectory_publication_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "trajectory_socket_send_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "component_observation_age_at_publication_ms": {}
+  },
+  "latency_reference_budget_ms": 50.0,
+  "server_event_count": 2258,
+  "server_event_file_count": 3282,
+  "resource_summary": {
+    "cpu_percent": {
+      "count": 178,
+      "p50": 61.9,
+      "p95": 83.6,
+      "p99": 91.2,
+      "mean": 61.690449438202236
+    },
+    "process_cpu_time_seconds": {
+      "count": 178,
+      "first": 10.755064575999999,
+      "last": 107.08935014400001,
+      "delta": 96.33428556800001
+    },
+    "resident_memory_bytes": {
+      "count": 178,
+      "first": 883326976.0,
+      "last": 593887232.0,
+      "minimum": 505380864.0,
+      "maximum": 891535360.0
+    },
+    "event_loop_lag_seconds": {
+      "count": 90,
+      "p50": 0.0010000001639127731,
+      "p95": 0.0019999993965029716,
+      "p99": 0.07499999925494194,
+      "mean": 0.0016666666604578495
+    },
+    "outstanding_tasks": {
+      "count": 90,
+      "p50": 13.0,
+      "p95": 13.0,
+      "p99": 13.0,
+      "mean": 13.0
+    },
+    "by_process": {
+      "mbp-m4max-14.local:48667": {
+        "sample_count": 89,
+        "cpu_percent": {
+          "count": 89,
+          "p50": 45.1,
+          "p95": 55.2,
+          "p99": 61.9,
+          "mean": 44.68202247191011
+        },
+        "cpu_time_seconds": {
+          "first": 10.755064575999999,
+          "last": 59.213300735999994,
+          "delta": 48.45823616
+        },
+        "resident_memory_bytes": {
+          "first": 883326976,
+          "last": 539312128,
+          "minimum": 505380864,
+          "maximum": 891535360,
+          "change_first_to_last": -344014848,
+          "observed_span_seconds": 108.430122208,
+          "change_bytes_per_second": -3172687.08173252
+        },
+        "event_export_status": {
+          "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+          "process_id": 48667,
+          "host_id": "mbp-m4max-14.local",
+          "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+          "clock_implementation": "mach_absolute_time()",
+          "accepted_events": 2768,
+          "written_events": 2768,
+          "dropped_events": 0,
+          "sampled_out_events": 0,
+          "detailed_sampling": {
+            "state.integration_vision_poll": {
+              "candidates": 3661,
+              "selected": 395,
+              "sampled_out": 3266
+            },
+            "state.integration_observation_processed": {
+              "candidates": 3154,
+              "selected": 339,
+              "sampled_out": 2815
+            },
+            "state.state_publication_enqueued": {
+              "candidates": 3154,
+              "selected": 339,
+              "sampled_out": 2815
+            },
+            "state.state_published": {
+              "candidates": 3154,
+              "selected": 339,
+              "sampled_out": 2815
+            },
+            "state.integration_observation_duplicate": {
+              "candidates": 465,
+              "selected": 45,
+              "sampled_out": 420
+            },
+            "state.websocket_message": {
+              "candidates": 3013,
+              "selected": 321,
+              "sampled_out": 2692
+            }
+          },
+          "export_limit_dropped_events": 0,
+          "export_errors": 0,
+          "queue_depth": 0,
+          "queue_capacity": 2048,
+          "sample_rate": 1.0,
+          "max_exported_events": 200000,
+          "worker_alive": true,
+          "closed": false
+        }
+      },
+      "mbp-m4max-14.local:48539": {
+        "sample_count": 89,
+        "cpu_percent": {
+          "count": 89,
+          "p50": 77.8,
+          "p95": 87.7,
+          "p99": 106.8,
+          "mean": 78.6988764044944
+        },
+        "cpu_time_seconds": {
+          "first": 21.611403327999998,
+          "last": 107.08935014400001,
+          "delta": 85.47794681600001
+        },
+        "resident_memory_bytes": {
+          "first": 659718144,
+          "last": 593887232,
+          "minimum": 578666496,
+          "maximum": 660799488,
+          "change_first_to_last": -65830912,
+          "observed_span_seconds": 108.441248792,
+          "change_bytes_per_second": -607065.233325278
+        },
+        "event_export_status": {
+          "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+          "process_id": 48539,
+          "host_id": "mbp-m4max-14.local",
+          "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+          "clock_implementation": "mach_absolute_time()",
+          "accepted_events": 510,
+          "written_events": 510,
+          "dropped_events": 0,
+          "sampled_out_events": 0,
+          "detailed_sampling": {
+            "state.video_frame_published": {
+              "candidates": 3518,
+              "selected": 377,
+              "sampled_out": 3141
+            }
+          },
+          "export_limit_dropped_events": 0,
+          "export_errors": 0,
+          "queue_depth": 0,
+          "queue_capacity": 2048,
+          "sample_rate": 1.0,
+          "max_exported_events": 200000,
+          "worker_alive": true,
+          "closed": false
+        }
+      }
+    },
+    "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+    "allocation_counts": "unavailable; RSS is a process memory proxy"
+  },
+  "server_event_export_status_by_process": {
+    "mbp-m4max-14.local:48667": {
+      "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+      "process_id": 48667,
+      "host_id": "mbp-m4max-14.local",
+      "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "clock_implementation": "mach_absolute_time()",
+      "accepted_events": 2768,
+      "written_events": 2768,
+      "dropped_events": 0,
+      "sampled_out_events": 0,
+      "detailed_sampling": {
+        "state.integration_vision_poll": {
+          "candidates": 3661,
+          "selected": 395,
+          "sampled_out": 3266
+        },
+        "state.integration_observation_processed": {
+          "candidates": 3154,
+          "selected": 339,
+          "sampled_out": 2815
+        },
+        "state.state_publication_enqueued": {
+          "candidates": 3154,
+          "selected": 339,
+          "sampled_out": 2815
+        },
+        "state.state_published": {
+          "candidates": 3154,
+          "selected": 339,
+          "sampled_out": 2815
+        },
+        "state.integration_observation_duplicate": {
+          "candidates": 465,
+          "selected": 45,
+          "sampled_out": 420
+        },
+        "state.websocket_message": {
+          "candidates": 3013,
+          "selected": 321,
+          "sampled_out": 2692
+        }
+      },
+      "export_limit_dropped_events": 0,
+      "export_errors": 0,
+      "queue_depth": 0,
+      "queue_capacity": 2048,
+      "sample_rate": 1.0,
+      "max_exported_events": 200000,
+      "worker_alive": true,
+      "closed": false
+    },
+    "mbp-m4max-14.local:48539": {
+      "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+      "process_id": 48539,
+      "host_id": "mbp-m4max-14.local",
+      "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "clock_implementation": "mach_absolute_time()",
+      "accepted_events": 510,
+      "written_events": 510,
+      "dropped_events": 0,
+      "sampled_out_events": 0,
+      "detailed_sampling": {
+        "state.video_frame_published": {
+          "candidates": 3518,
+          "selected": 377,
+          "sampled_out": 3141
+        }
+      },
+      "export_limit_dropped_events": 0,
+      "export_errors": 0,
+      "queue_depth": 0,
+      "queue_capacity": 2048,
+      "sample_rate": 1.0,
+      "max_exported_events": 200000,
+      "worker_alive": true,
+      "closed": false
+    }
+  },
+  "measurement_overhead_comparison": {
+    "baseline_summary": "thoughts/performance-audits/20261021-151051-91d409b4/summary.json",
+    "same_revision": true,
+    "same_dirty_worktree": true,
+    "same_model_hash": true,
+    "same_input_hash": true,
+    "same_relevant_configuration": true,
+    "same_audit_configuration": true,
+    "same_collector_settings": true,
+    "same_workload": true,
+    "reference_state_only_workload": true,
+    "same_machine": true,
+    "baseline_instrumentation_off": true,
+    "current_state_audit_only": true,
+    "unique_observation_throughput_change_percent": 2.0840994230640177,
+    "source_publication_to_client_receipt_p95_change_percent": -3.295463258260796,
+    "overhead_budget_percent": 2.0,
+    "enough_repetitions_and_samples": true,
+    "status": "pass",
+    "interpretation": "Instrumentation overhead is within the configured budget."
+  },
+  "event_export": {
+    "run_id": "45d18571-11b4-4d32-acc9-2061ccbee6c4",
+    "process_id": 48836,
+    "host_id": "mbp-m4max-14.local",
+    "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+    "clock_implementation": "mach_absolute_time()",
+    "accepted_events": 2256,
+    "written_events": 2256,
+    "dropped_events": 0,
+    "sampled_out_events": 0,
+    "detailed_sampling": {},
+    "export_limit_dropped_events": 0,
+    "export_errors": 0,
+    "queue_depth": 0,
+    "queue_capacity": 2048,
+    "sample_rate": 1.0,
+    "max_exported_events": 200000,
+    "worker_alive": false,
+    "closed": true
+  },
+  "server_measurements": {
+    "vision": {
+      "frame_records": 243,
+      "unique_source_observations_processed": 243,
+      "duplicate_or_reused_frame_records": 0,
+      "component_observation_status_counts": {},
+      "service_time_seconds": {
+        "count": 243,
+        "p50": 0.022289041,
+        "p95": 0.029901125,
+        "p99": 0.041605542,
+        "mean": 0.02290419823045267
+      },
+      "queue_wait_seconds": {
+        "count": 243,
+        "p50": 2.391589805483818e-05,
+        "p95": 4.062475636601448e-05,
+        "p99": 0.000638000201433897,
+        "mean": 0.00026181981603733796
+      },
+      "shared_memory_read_copy_seconds": {
+        "count": 243,
+        "p50": 0.000404833,
+        "p95": 0.000717625,
+        "p99": 0.001400125,
+        "mean": 0.00045935926337448564
+      },
+      "stage_timings_seconds": {
+        "queue_wait": {
+          "inclusive": {
+            "count": 243,
+            "p50": 2.391589805483818e-05,
+            "p95": 4.062475636601448e-05,
+            "p99": 0.000638000201433897,
+            "mean": 0.00026181981603733796
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 2.391589805483818e-05,
+            "p95": 4.062475636601448e-05,
+            "p99": 0.000638000201433897,
+            "mean": 0.00026181981603733796
+          }
+        },
+        "masking": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000464125,
+            "p95": 0.000927875,
+            "p99": 0.002319958,
+            "mean": 0.0005421140864197524
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000464125,
+            "p95": 0.000927875,
+            "p99": 0.002319958,
+            "mean": 0.0005421140864197524
+          }
+        },
+        "preprocessing": {
+          "inclusive": {
+            "count": 243,
+            "p50": 1.208e-06,
+            "p95": 1.542e-06,
+            "p99": 3.125e-06,
+            "mean": 1.3915967078189294e-06
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 1.208e-06,
+            "p95": 1.542e-06,
+            "p99": 3.125e-06,
+            "mean": 1.3915967078189294e-06
+          }
+        },
+        "detector_cache_lock_wait": {
+          "inclusive": {
+            "count": 243,
+            "p50": 2.834e-06,
+            "p95": 3.917e-06,
+            "p99": 7.4169999999999995e-06,
+            "mean": 3.1341234567901248e-06
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 2.834e-06,
+            "p95": 3.917e-06,
+            "p99": 7.4169999999999995e-06,
+            "mean": 3.1341234567901248e-06
+          }
+        },
+        "detector_model_lock_wait": {
+          "inclusive": {
+            "count": 243,
+            "p50": 1.292e-06,
+            "p95": 1.917e-06,
+            "p99": 5.75e-06,
+            "mean": 1.4744650205761304e-06
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 1.292e-06,
+            "p95": 1.917e-06,
+            "p99": 5.75e-06,
+            "mean": 1.4744650205761304e-06
+          }
+        },
+        "model_execute": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.011324041,
+            "p95": 0.016665,
+            "p99": 0.018885709,
+            "mean": 0.01171578185596708
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.011324041,
+            "p95": 0.016665,
+            "p99": 0.018885709,
+            "mean": 0.01171578185596708
+          }
+        },
+        "detector_backend": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.017907125,
+            "p95": 0.024507667,
+            "p99": 0.028898417,
+            "mean": 0.018634288065843604
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.006652208,
+            "p95": 0.009723459,
+            "p99": 0.014677376,
+            "mean": 0.006917031744855963
+          }
+        },
+        "classification_and_adaptation": {
+          "inclusive": {
+            "count": 243,
+            "p50": 8.45e-05,
+            "p95": 0.0001405,
+            "p99": 0.000176625,
+            "mean": 9.088117695473247e-05
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 8.45e-05,
+            "p95": 0.0001405,
+            "p99": 0.000176625,
+            "mean": 9.088117695473247e-05
+          }
+        },
+        "detector_inference": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.018059042,
+            "p95": 0.024722125,
+            "p99": 0.029111917,
+            "mean": 0.018789389600823048
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 5.9375e-05,
+            "p95": 8.7499e-05,
+            "p99": 0.000113208,
+            "mean": 6.264795473251028e-05
+          }
+        },
+        "postprocessing": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000485167,
+            "p95": 0.0006645,
+            "p99": 0.000990125,
+            "mean": 0.0005062865267489709
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000485167,
+            "p95": 0.0006645,
+            "p99": 0.000990125,
+            "mean": 0.0005062865267489709
+          }
+        },
+        "tracking": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.001715583,
+            "p95": 0.0029605,
+            "p99": 0.00423875,
+            "mean": 0.001814164304526748
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.001715583,
+            "p95": 0.0029605,
+            "p99": 0.00423875,
+            "mean": 0.001814164304526748
+          }
+        },
+        "ball_detection": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.020483084,
+            "p95": 0.026984041,
+            "p99": 0.037442375,
+            "mean": 0.021131993987654318
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 1.8541e-05,
+            "p95": 2.775e-05,
+            "p99": 4.7918e-05,
+            "mean": 2.0761958847736612e-05
+          }
+        },
+        "cue_detection": {
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000962958,
+            "p95": 0.003605125,
+            "p99": 0.004723875,
+            "mean": 0.0011901114320987656
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000961166,
+            "p95": 0.003603416,
+            "p99": 0.004722458,
+            "mean": 0.0011885497119341563
+          }
+        },
+        "result_building": {
+          "inclusive": {
+            "count": 243,
+            "p50": 2.2e-05,
+            "p95": 2.7917e-05,
+            "p99": 3.1958e-05,
+            "mean": 2.309155967078188e-05
+          },
+          "exclusive": {
+            "count": 243,
+            "p50": 2.2e-05,
+            "p95": 2.7917e-05,
+            "p99": 3.1958e-05,
+            "mean": 2.309155967078188e-05
+          }
+        }
+      },
+      "exclusive_stage_work_ranked": [
+        {
+          "stage": "model_execute",
+          "total_exclusive_seconds": 2.8469349910000004,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.011324041,
+            "p95": 0.016665,
+            "p99": 0.018885709,
+            "mean": 0.01171578185596708
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.011324041,
+            "p95": 0.016665,
+            "p99": 0.018885709,
+            "mean": 0.01171578185596708
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.506100290146838
+        },
+        {
+          "stage": "detector_backend",
+          "total_exclusive_seconds": 1.680838713999999,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.006652208,
+            "p95": 0.009723459,
+            "p99": 0.014677376,
+            "mean": 0.006917031744855963
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.017907125,
+            "p95": 0.024507667,
+            "p99": 0.028898417,
+            "mean": 0.018634288065843604
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.2988030859625053
+        },
+        {
+          "stage": "tracking",
+          "total_exclusive_seconds": 0.4408419259999998,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.001715583,
+            "p95": 0.0029605,
+            "p99": 0.00423875,
+            "mean": 0.001814164304526748
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.001715583,
+            "p95": 0.0029605,
+            "p99": 0.00423875,
+            "mean": 0.001814164304526748
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.07836857088862509
+        },
+        {
+          "stage": "cue_detection",
+          "total_exclusive_seconds": 0.28881757999999996,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000961166,
+            "p95": 0.003603416,
+            "p99": 0.004722458,
+            "mean": 0.0011885497119341563
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000962958,
+            "p95": 0.003605125,
+            "p99": 0.004723875,
+            "mean": 0.0011901114320987656
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.051343167827715086
+        },
+        {
+          "stage": "masking",
+          "total_exclusive_seconds": 0.13173372299999983,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000464125,
+            "p95": 0.000927875,
+            "p99": 0.002319958,
+            "mean": 0.0005421140864197524
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000464125,
+            "p95": 0.000927875,
+            "p99": 0.002319958,
+            "mean": 0.0005421140864197524
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.02341833432909009
+        },
+        {
+          "stage": "postprocessing",
+          "total_exclusive_seconds": 0.12302762599999995,
+          "exclusive": {
+            "count": 243,
+            "p50": 0.000485167,
+            "p95": 0.0006645,
+            "p99": 0.000990125,
+            "mean": 0.0005062865267489709
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.000485167,
+            "p95": 0.0006645,
+            "p99": 0.000990125,
+            "mean": 0.0005062865267489709
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.02187064945687642
+        },
+        {
+          "stage": "queue_wait",
+          "total_exclusive_seconds": 0.06362221529707313,
+          "exclusive": {
+            "count": 243,
+            "p50": 2.391589805483818e-05,
+            "p95": 4.062475636601448e-05,
+            "p99": 0.000638000201433897,
+            "mean": 0.00026181981603733796
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 2.391589805483818e-05,
+            "p95": 4.062475636601448e-05,
+            "p99": 0.000638000201433897,
+            "mean": 0.00026181981603733796
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.01131013589120388
+        },
+        {
+          "stage": "classification_and_adaptation",
+          "total_exclusive_seconds": 0.02208412599999999,
+          "exclusive": {
+            "count": 243,
+            "p50": 8.45e-05,
+            "p95": 0.0001405,
+            "p99": 0.000176625,
+            "mean": 9.088117695473247e-05
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 8.45e-05,
+            "p95": 0.0001405,
+            "p99": 0.000176625,
+            "mean": 9.088117695473247e-05
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.003925900173896637
+        },
+        {
+          "stage": "detector_inference",
+          "total_exclusive_seconds": 0.015223452999999998,
+          "exclusive": {
+            "count": 243,
+            "p50": 5.9375e-05,
+            "p95": 8.7499e-05,
+            "p99": 0.000113208,
+            "mean": 6.264795473251028e-05
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.018059042,
+            "p95": 0.024722125,
+            "p99": 0.029111917,
+            "mean": 0.018789389600823048
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.002706276751908013
+        },
+        {
+          "stage": "result_building",
+          "total_exclusive_seconds": 0.005611248999999997,
+          "exclusive": {
+            "count": 243,
+            "p50": 2.2e-05,
+            "p95": 2.7917e-05,
+            "p99": 3.1958e-05,
+            "mean": 2.309155967078188e-05
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 2.2e-05,
+            "p95": 2.7917e-05,
+            "p99": 3.1958e-05,
+            "mean": 2.309155967078188e-05
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.0009975130292626173
+        },
+        {
+          "stage": "ball_detection",
+          "total_exclusive_seconds": 0.005045155999999997,
+          "exclusive": {
+            "count": 243,
+            "p50": 1.8541e-05,
+            "p95": 2.775e-05,
+            "p99": 4.7918e-05,
+            "mean": 2.0761958847736612e-05
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 0.020483084,
+            "p95": 0.026984041,
+            "p99": 0.037442375,
+            "mean": 0.021131993987654318
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.0008968785460531994
+        },
+        {
+          "stage": "detector_cache_lock_wait",
+          "total_exclusive_seconds": 0.0007615920000000003,
+          "exclusive": {
+            "count": 243,
+            "p50": 2.834e-06,
+            "p95": 3.917e-06,
+            "p99": 7.4169999999999995e-06,
+            "mean": 3.1341234567901248e-06
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 2.834e-06,
+            "p95": 3.917e-06,
+            "p99": 7.4169999999999995e-06,
+            "mean": 3.1341234567901248e-06
+          },
+          "share_of_observed_exclusive_stage_seconds": 0.00013538838554164607
+        },
+        {
+          "stage": "detector_model_lock_wait",
+          "total_exclusive_seconds": 0.0003582949999999997,
+          "exclusive": {
+            "count": 243,
+            "p50": 1.292e-06,
+            "p95": 1.917e-06,
+            "p99": 5.75e-06,
+            "mean": 1.4744650205761304e-06
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 1.292e-06,
+            "p95": 1.917e-06,
+            "p99": 5.75e-06,
+            "mean": 1.4744650205761304e-06
+          },
+          "share_of_observed_exclusive_stage_seconds": 6.369418480977219e-05
+        },
+        {
+          "stage": "preprocessing",
+          "total_exclusive_seconds": 0.00033815799999999986,
+          "exclusive": {
+            "count": 243,
+            "p50": 1.208e-06,
+            "p95": 1.542e-06,
+            "p99": 3.125e-06,
+            "mean": 1.3915967078189294e-06
+          },
+          "inclusive": {
+            "count": 243,
+            "p50": 1.208e-06,
+            "p95": 1.542e-06,
+            "p99": 3.125e-06,
+            "mean": 1.3915967078189294e-06
+          },
+          "share_of_observed_exclusive_stage_seconds": 6.011442567410361e-05
+        }
+      ],
+      "source_frames_rejected_stale_or_out_of_order": 0,
+      "source_restarts": 0,
+      "vision_queue_drops": 23,
+      "vision_queue_depth_after_drop_max": 4.0,
+      "processing_queue_depth": {
+        "count": 243,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "mean": 0.0
+      },
+      "processing_queue_depth_max": 0.0
+    },
+    "integration": {
+      "processed_observations": 234,
+      "unique_source_observations": 234,
+      "rejected_observations": 0,
+      "coordinate_conversion_seconds": {
+        "count": 234,
+        "p50": 0.000104417,
+        "p95": 0.0001665,
+        "p99": 0.000222667,
+        "mean": 0.00011201263675213672
+      },
+      "core_update_seconds": {
+        "count": 234,
+        "p50": 0.000653709,
+        "p95": 0.001316917,
+        "p99": 0.003377875,
+        "mean": 0.0007730301282051283
+      },
+      "integration_lock_wait_seconds": {
+        "count": 234,
+        "p50": 1.75e-06,
+        "p95": 2.709e-06,
+        "p99": 5.959e-06,
+        "mean": 1.9050598290598294e-06
+      }
+    },
+    "state_delivery": {
+      "published_messages": 234,
+      "unique_source_observations_published": 234,
+      "repeated_source_observation_publications": 0,
+      "serialization_seconds": {
+        "count": 234,
+        "p50": 0.000126916,
+        "p95": 0.000184041,
+        "p99": 0.000323916,
+        "mean": 0.0001376782564102564
+      },
+      "source_publication_to_state_ms": {
+        "count": 234,
+        "p50": 41.168625,
+        "p95": 57.790875,
+        "p99": 76.538542,
+        "mean": 41.2182298846154
+      },
+      "outbound_queue_wait_seconds": {
+        "count": 234,
+        "p50": 5.7291e-05,
+        "p95": 0.000612208,
+        "p99": 0.001036375,
+        "mean": 0.00012430844017094028
+      },
+      "outbound_queue_depth_before_enqueue": {
+        "count": 234,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.0,
+        "mean": 0.0
+      },
+      "coalesced_updates": 0,
+      "dropped_updates": 0,
+      "socket_send_seconds": {
+        "count": 234,
+        "p50": 0.000529375,
+        "p95": 0.002229208,
+        "p99": 0.002909541,
+        "mean": 0.00090464897008547
+      },
+      "payload_bytes": {
+        "count": 234,
+        "p50": 9062.0,
+        "p95": 10606.0,
+        "p99": 12175.0,
+        "mean": 9324.51282051282
+      }
+    },
+    "video_capture": {
+      "camera_read_seconds": {
+        "count": 246,
+        "p50": 0.001439167,
+        "p95": 0.002443042,
+        "p99": 0.007959959,
+        "mean": 0.0017117075406504073
+      },
+      "camera_frame_queue_retrieval_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "undistortion_seconds": {
+        "count": 246,
+        "p50": 2.125e-06,
+        "p95": 4.334e-06,
+        "p99": 9.791e-06,
+        "mean": 2.570288617886179e-06
+      },
+      "shared_memory_publication_seconds": {
+        "count": 246,
+        "p50": 0.000775625,
+        "p95": 0.001135583,
+        "p99": 0.003430542,
+        "mean": 0.0008816824430894303
+      },
+      "camera_capture_queue_frames_skipped": 0.0,
+      "camera_total_dropped_frames_last": 0.0
+    },
+    "trajectory": {
+      "published_messages": 0,
+      "requests_coalesced": 0,
+      "predictions_discarded_stale": 0,
+      "prediction_queue_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "calculator_lock_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "executor_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "physics_compute_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    },
+    "resources": {
+      "cpu_percent": {
+        "count": 178,
+        "p50": 61.9,
+        "p95": 83.6,
+        "p99": 91.2,
+        "mean": 61.690449438202236
+      },
+      "process_cpu_time_seconds": {
+        "count": 178,
+        "first": 10.755064575999999,
+        "last": 107.08935014400001,
+        "delta": 96.33428556800001
+      },
+      "resident_memory_bytes": {
+        "count": 178,
+        "first": 883326976.0,
+        "last": 593887232.0,
+        "minimum": 505380864.0,
+        "maximum": 891535360.0
+      },
+      "event_loop_lag_seconds": {
+        "count": 90,
+        "p50": 0.0010000001639127731,
+        "p95": 0.0019999993965029716,
+        "p99": 0.07499999925494194,
+        "mean": 0.0016666666604578495
+      },
+      "outstanding_tasks": {
+        "count": 90,
+        "p50": 13.0,
+        "p95": 13.0,
+        "p99": 13.0,
+        "mean": 13.0
+      },
+      "by_process": {
+        "mbp-m4max-14.local:48667": {
+          "sample_count": 89,
+          "cpu_percent": {
+            "count": 89,
+            "p50": 45.1,
+            "p95": 55.2,
+            "p99": 61.9,
+            "mean": 44.68202247191011
+          },
+          "cpu_time_seconds": {
+            "first": 10.755064575999999,
+            "last": 59.213300735999994,
+            "delta": 48.45823616
+          },
+          "resident_memory_bytes": {
+            "first": 883326976,
+            "last": 539312128,
+            "minimum": 505380864,
+            "maximum": 891535360,
+            "change_first_to_last": -344014848,
+            "observed_span_seconds": 108.430122208,
+            "change_bytes_per_second": -3172687.08173252
+          },
+          "event_export_status": {
+            "run_id": "45671c93-945a-428e-bd80-602f80ac7eb6",
+            "process_id": 48667,
+            "host_id": "mbp-m4max-14.local",
+            "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+            "clock_implementation": "mach_absolute_time()",
+            "accepted_events": 2768,
+            "written_events": 2768,
+            "dropped_events": 0,
+            "sampled_out_events": 0,
+            "detailed_sampling": {
+              "state.integration_vision_poll": {
+                "candidates": 3661,
+                "selected": 395,
+                "sampled_out": 3266
+              },
+              "state.integration_observation_processed": {
+                "candidates": 3154,
+                "selected": 339,
+                "sampled_out": 2815
+              },
+              "state.state_publication_enqueued": {
+                "candidates": 3154,
+                "selected": 339,
+                "sampled_out": 2815
+              },
+              "state.state_published": {
+                "candidates": 3154,
+                "selected": 339,
+                "sampled_out": 2815
+              },
+              "state.integration_observation_duplicate": {
+                "candidates": 465,
+                "selected": 45,
+                "sampled_out": 420
+              },
+              "state.websocket_message": {
+                "candidates": 3013,
+                "selected": 321,
+                "sampled_out": 2692
+              }
+            },
+            "export_limit_dropped_events": 0,
+            "export_errors": 0,
+            "queue_depth": 0,
+            "queue_capacity": 2048,
+            "sample_rate": 1.0,
+            "max_exported_events": 200000,
+            "worker_alive": true,
+            "closed": false
+          }
+        },
+        "mbp-m4max-14.local:48539": {
+          "sample_count": 89,
+          "cpu_percent": {
+            "count": 89,
+            "p50": 77.8,
+            "p95": 87.7,
+            "p99": 106.8,
+            "mean": 78.6988764044944
+          },
+          "cpu_time_seconds": {
+            "first": 21.611403327999998,
+            "last": 107.08935014400001,
+            "delta": 85.47794681600001
+          },
+          "resident_memory_bytes": {
+            "first": 659718144,
+            "last": 593887232,
+            "minimum": 578666496,
+            "maximum": 660799488,
+            "change_first_to_last": -65830912,
+            "observed_span_seconds": 108.441248792,
+            "change_bytes_per_second": -607065.233325278
+          },
+          "event_export_status": {
+            "run_id": "f65f6f35-f965-4aa0-a24f-15ac75805a30",
+            "process_id": 48539,
+            "host_id": "mbp-m4max-14.local",
+            "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+            "clock_implementation": "mach_absolute_time()",
+            "accepted_events": 510,
+            "written_events": 510,
+            "dropped_events": 0,
+            "sampled_out_events": 0,
+            "detailed_sampling": {
+              "state.video_frame_published": {
+                "candidates": 3518,
+                "selected": 377,
+                "sampled_out": 3141
+              }
+            },
+            "export_limit_dropped_events": 0,
+            "export_errors": 0,
+            "queue_depth": 0,
+            "queue_capacity": 2048,
+            "sample_rate": 1.0,
+            "max_exported_events": 200000,
+            "worker_alive": true,
+            "closed": false
+          }
+        }
+      },
+      "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+      "allocation_counts": "unavailable; RSS is a process memory proxy"
+    },
+    "viewers": {
+      "encoded_frames": 0,
+      "jpeg_encode_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "frame_read_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "send_backpressure_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    }
+  },
+  "limitations": [
+    "The receiver observes delivery only while connected and does not infer unobserved exposures.",
+    "Source publication-to-receipt latency uses monotonic counters only when the producer, server, and receiver share a verified host clock. The wall-clock publication-age estimate is secondary and is not used for latency ranking.",
+    "This report does not claim projector display time.",
+    "Live state accuracy requires separate labeled observations."
+  ]
+}

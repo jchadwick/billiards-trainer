@@ -418,6 +418,7 @@ async def get_websocket_metrics() -> dict[str, Any]:
                 "compression_enabled": message_broadcaster.broadcast_stats.compression_enabled,
             },
             "frame_metrics": {
+                "frames_received": message_broadcaster.broadcast_stats.frame_metrics.frames_received,
                 "frames_sent": message_broadcaster.broadcast_stats.frame_metrics.frames_sent,
                 "bytes_sent": message_broadcaster.broadcast_stats.frame_metrics.bytes_sent,
                 "compression_ratio": (

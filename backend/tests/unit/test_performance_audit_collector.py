@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import os
 import struct
 import subprocess
 from collections.abc import Callable
@@ -235,6 +236,8 @@ def _rust_live_settings_file(tmp_path: Path) -> Path:
             "capture_helper_readiness_timeout_ms": 500,
             "capture_helper_child_exit_timeout_ms": 2500,
             "capture_helper_child_exit_poll_interval_ms": 25,
+            "public_state_delivery_schema_version": 1,
+            "frame_preview": None,
         },
     }
     settings_path = tmp_path / "rust-live-settings.json"
@@ -322,6 +325,7 @@ def test_state_message_provenance_is_extracted_from_observation_status() -> None
             "data": {
                 "sequence": 10,
                 "ball_count": 2,
+                "balls": [{"id": "ball-1", "position": {"x": 1, "y": 2}}],
                 "cue": {"confidence": 0.9},
                 "observation_status": {
                     "source_frame_number": 37,
@@ -341,7 +345,12 @@ def test_state_message_provenance_is_extracted_from_observation_status() -> None
     assert observed == {
         "stream_sequence": 10,
         "source_frame_number": 37,
+        "source_frame_id": None,
+        "source_session_id": None,
+        "source_observation_key": None,
+        "state_complete": True,
         "source_timestamp": 10.5,
+        "source_timestamp_stage": None,
         "source_timestamp_kind": "shared_memory_publication",
         "source_process_id": 101,
         "source_publication_monotonic_ns": 9_500_000,
@@ -355,22 +364,180 @@ def test_state_message_provenance_is_extracted_from_observation_status() -> None
     }
 
 
+def test_empty_component_status_uses_published_live_component_statuses() -> None:
+    observed = observation_from_message(
+        {
+            "type": "state",
+            "data": {
+                "sequence": 21,
+                "ball_count": 1,
+                "balls": [{"id": "ball-1", "position": {"x": 1, "y": 2}}],
+                "cue": None,
+                "observation_status": {
+                    "source_frame_number": 104,
+                    "component_observation_status": {},
+                    "ball_positions_status": "observed",
+                    "cue_detection_status": "failed",
+                    "motion_monitor_status": "skipped",
+                },
+            },
+        }
+    )
+
+    assert observed["component_status"] == {
+        "balls": "observed",
+        "cue": "failed",
+        "motion": "skipped",
+    }
+    accumulator = StateAccumulator()
+    accumulator.add(observed)
+    summary = accumulator.summary(1.0)
+    assert summary["unique_source_observations"] == 1
+    assert summary["unknown_freshness_source_updates"] == 0
+    assert summary["component_observation_status_counts"] == {
+        "balls": {"observed": 1},
+        "cue": {"failed": 1},
+        "motion": {"skipped": 1},
+    }
+
+
+def test_rust_scene_state_provenance_is_correlated_and_complete() -> None:
+    observed = observation_from_message(
+        {
+            "type": "state",
+            "data": {
+                "sequence": 12,
+                "ball_count": 2,
+                "balls": [{"id": "ball-1"}, {"id": "ball-2"}],
+                "cue": None,
+                "observation_status": {
+                    "phase": "rust_scene_observation",
+                    "source_session_id": "session-3",
+                    "source_frame_id": "frame-000042",
+                    "source_timestamp": "19000000042",
+                    "source_timestamp_kind": "monotonic:clock-a:camera_read_complete",
+                    "engine_instance_id": "engine-5",
+                    "snapshot_revision": 42,
+                    "calibration_revision": 7,
+                    "ball_positions_status": "observed",
+                    "observation_identity": {
+                        "engine_instance_id": "engine-5",
+                        "session_id": "session-3",
+                        "frame_id": "frame-000042",
+                    },
+                },
+            },
+        }
+    )
+
+    assert observed["stream_sequence"] == 12
+    assert observed["source_frame_number"] == 42
+    assert observed["source_observation_key"] == (
+        "engine-5",
+        "session-3",
+        "frame-000042",
+    )
+    assert observed["source_timestamp"] == "19000000042"
+    assert observed["source_timestamp_stage"] == "camera_read_complete"
+    assert observed["source_publication_monotonic_ns"] is None
+    assert observed["state_complete"] is True
+    assert observed["component_status"] == {"balls": "observed"}
+
+    accumulator = StateAccumulator()
+    accumulator.add(observed)
+    accumulator.add(dict(observed, stream_sequence=13))
+    summary = accumulator.summary(1)
+    assert summary["unique_source_observations"] == 1
+    assert summary["repeated_source_observations"] == 1
+    assert summary["uncorrelated_state_messages"] == 0
+    assert summary["complete_state_messages"] == 2
+    assert summary["source_publication_wall_age_estimate_ms"]["count"] == 0
+
+
+def test_project_metadata_hashes_rust_replay_assets_and_effective_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    replay_frames = tmp_path / "frames"
+    replay_frames.mkdir()
+    (replay_frames / "frame-0001.png").write_bytes(b"frame one")
+    onnx_path = tmp_path / "model.onnx"
+    onnx_path.write_bytes(b"onnx model")
+    checkpoint_path = tmp_path / "model.pt"
+    checkpoint_path.write_bytes(b"source model")
+    executable = tmp_path / "billiards-perception-infer"
+    executable.write_bytes(b"native executable")
+    monkeypatch.setattr(
+        collector.config,
+        "_config_data",
+        {
+            "perception": {
+                "provider": "rust",
+                "mode": "recorded_replay",
+                "rust_replay": {
+                    "onnx_path": str(onnx_path),
+                    "source_checkpoint_path": str(checkpoint_path),
+                    "input_path": str(replay_frames),
+                    "executable_path": str(executable),
+                    "provider": "openvino",
+                },
+            },
+            "performance_audit": {},
+        },
+    )
+
+    metadata = collector._project_metadata()
+
+    assert metadata["perception_provider"] == "rust"
+    assert metadata["model"]["sha256"] == collector._hash_file(onnx_path)
+    assert metadata["source_model"]["sha256"] == collector._hash_file(checkpoint_path)
+    assert metadata["inference_executable"]["sha256"] == collector._hash_file(
+        executable
+    )
+    assert metadata["configured_video_input"]["kind"] == "recorded_frame_directory"
+    assert metadata["configured_video_input"]["sha256"] == collector._hash_path(
+        replay_frames
+    )
+    assert (
+        metadata["effective_configuration"]["perception"]["rust_replay"]["provider"]
+        == "openvino"
+    )
+
+
+def test_project_metadata_marks_missing_git_identity_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def no_git_metadata(*args: Any, **kwargs: Any) -> str:
+        raise subprocess.CalledProcessError(128, args[0])
+
+    monkeypatch.setattr(collector.subprocess, "check_output", no_git_metadata)
+
+    metadata = collector._project_metadata()
+
+    assert metadata["revision"] is None
+    assert metadata["revision_status"] == "unavailable"
+    assert metadata["dirty_worktree_sha256"] is None
+    assert metadata["dirty_worktree_files"] is None
+
+
 def test_summary_separates_repeated_publications_from_unique_observations() -> None:
     summary = collect_run_summary(
         [
             {
                 "source_frame_number": 1,
                 "stream_sequence": 1,
+                "component_status": {"balls": "observed"},
                 "source_publication_age_ms": 4,
             },
             {
                 "source_frame_number": 1,
                 "stream_sequence": 2,
+                "component_status": {"balls": "observed"},
                 "source_publication_age_ms": 5,
             },
             {
                 "source_frame_number": 3,
                 "stream_sequence": 4,
+                "component_status": {"balls": "observed"},
                 "source_publication_age_ms": 8,
             },
             {"source_frame_number": None, "stream_sequence": 5},
@@ -381,15 +548,141 @@ def test_summary_separates_repeated_publications_from_unique_observations() -> N
     assert summary["state_messages_received"] == 4
     assert summary["state_messages_per_second"] == 2
     assert summary["unique_source_observations"] == 2
+    assert summary["unique_source_frame_updates"] == 2
     assert summary["repeated_source_observations"] == 1
     assert summary["uncorrelated_state_messages"] == 1
     assert summary["source_sequence_gaps"] == 1
     assert summary["source_publication_wall_age_estimate_ms"] == {
         "count": 3,
+        "retained_count": 3,
         "sample_limit": 10000,
+        "truncated": False,
         "p50": 5,
         "p95": 8,
         "p99": 8,
+    }
+
+
+def test_cached_source_frames_do_not_inflate_fresh_observation_rate() -> None:
+    summary = collect_run_summary(
+        [
+            {
+                "source_frame_number": 1,
+                "stream_sequence": 1,
+                "component_status": {"balls": "observed"},
+            },
+            {
+                "source_frame_number": 2,
+                "stream_sequence": 2,
+                "component_status": {"balls": "cached"},
+            },
+            {
+                "source_frame_number": 2,
+                "stream_sequence": 3,
+                "component_status": {"balls": "cached"},
+            },
+        ],
+        duration=2,
+    )
+
+    assert summary["unique_source_observations"] == 1
+    assert summary["unique_observations_per_second"] == 0.5
+    assert summary["unique_source_frame_updates"] == 2
+    assert summary["cached_or_failed_source_updates"] == 1
+    assert summary["repeated_source_observations"] == 1
+
+
+def test_state_accumulator_labels_last_n_latency_retention() -> None:
+    accumulator = StateAccumulator(maximum_samples=2)
+    for sequence, age_ms in enumerate((5.0, 10.0, 20.0), start=1):
+        accumulator.add(
+            {
+                "source_frame_number": sequence,
+                "stream_sequence": sequence,
+                "source_publication_age_ms": age_ms,
+                "source_timestamp_kind": "shared_memory_publication",
+                "source_publication_monotonic_ns": sequence * 1_000_000,
+                "receive_monotonic_ns": sequence * 1_000_000 + 100_000,
+                "clock_comparable": True,
+            }
+        )
+
+    summary = accumulator.summary(3.0)
+    assert summary["source_publication_wall_age_estimate_ms"] == {
+        "count": 3,
+        "retained_count": 2,
+        "sample_limit": 2,
+        "truncated": True,
+        "p50": 10.0,
+        "p95": 20.0,
+        "p99": 20.0,
+    }
+    assert summary["source_publication_to_client_receipt_ms"] == {
+        "count": 3,
+        "retained_count": 2,
+        "sample_limit": 2,
+        "truncated": True,
+        "p50": 0.1,
+        "p95": 0.1,
+        "p99": 0.1,
+    }
+    assert summary["client_latency_sample_count"] == 3
+    assert summary["retained_client_latency_sample_count"] == 2
+    assert summary["client_latency_samples_truncated"] is True
+
+
+def test_state_and_trajectory_identity_windows_are_bounded_and_report_evictions() -> (
+    None
+):
+    state = StateAccumulator(maximum_samples=2)
+    for process_id in (10, 20, 30):
+        state.add(
+            {
+                "source_frame_number": 1,
+                "source_process_id": process_id,
+                "source_timestamp_kind": "shared_memory_publication",
+                "source_timestamp": float(process_id),
+                "component_status": {"balls": "observed"},
+            }
+        )
+
+    state_summary = state.summary(1.0)
+    assert state_summary["source_identity_deduplication_window"] == {
+        "policy": "least-recently-seen source identities",
+        "capacity": 2,
+        "retained": 2,
+        "evictions": 1,
+    }
+    # An identity outside the window is counted as new because its high-water
+    # mark has been intentionally discarded; that loss of deduplication memory
+    # is disclosed rather than hidden.
+    state.add(
+        {
+            "source_frame_number": 2,
+            "source_process_id": 10,
+            "source_timestamp_kind": "shared_memory_publication",
+            "source_timestamp": 11.0,
+            "component_status": {"balls": "observed"},
+        }
+    )
+    assert state.summary(1.0)["source_identity_deduplication_window"]["evictions"] == 2
+
+    trajectory = TrajectoryAccumulator(maximum_samples=2)
+    for process_id in (10, 20, 30):
+        trajectory.add(
+            {
+                "source_frame_number": 1,
+                "vision_instance_id": "vision",
+                "source_process_id": process_id,
+                "stream_sequence": process_id,
+            }
+        )
+    trajectory_summary = trajectory.summary(1.0)
+    assert trajectory_summary["trajectory_source_identity_deduplication_window"] == {
+        "policy": "least-recently-seen source identities",
+        "capacity": 2,
+        "retained": 2,
+        "evictions": 1,
     }
 
 
@@ -505,8 +798,8 @@ def test_server_summary_ranks_retained_vision_stage_spans() -> None:
     assert vision["service_time_seconds"]["count"] == 2
     assert vision["service_time_seconds"]["p95"] == 0.3
     assert vision["queue_wait_seconds"]["mean"] == 0.015
-    assert vision["processing_queue_depth"]["p95"] == 3
-    assert vision["processing_queue_depth_max"] == 3
+    assert vision["sampled_processing_queue_depth"]["p95"] == 3
+    assert vision["sampled_processing_queue_depth_max"] == 3
     assert vision["shared_memory_read_copy_seconds"]["p95"] == 0.004
     assert vision["stage_timings_seconds"]["yolo_inference"]["exclusive"] == {
         "count": 2,
@@ -523,6 +816,87 @@ def test_server_summary_ranks_retained_vision_stage_spans() -> None:
         "share_of_observed_exclusive_stage_seconds"
     ] == pytest.approx(0.8157894736842105)
     assert summary["integration"]["integration_lock_wait_seconds"]["p95"] == 0.0005
+
+
+def test_trajectory_work_timings_include_failed_stale_and_publish_failed_outcomes() -> (
+    None
+):
+    outcomes = [
+        ("trajectory_prediction_published", 0.1, 0.01, 0.02, 0.2, 0.03),
+        ("trajectory_prediction_failed", 0.2, 0.03, 0.04, 0.4, None),
+        ("trajectory_prediction_discarded_stale", 0.3, 0.04, 0.05, 0.5, None),
+        ("trajectory_publication_failed", 0.4, 0.05, 0.06, 0.6, 0.07),
+    ]
+    events = [
+        {
+            "event_type": event_type,
+            "prediction_queue_wait_seconds": queue_wait,
+            "calculator_lock_wait_seconds": lock_wait,
+            "executor_wait_seconds": executor_wait,
+            "physics_compute_seconds": compute,
+            "trajectory_publication_seconds": publication,
+        }
+        for event_type, queue_wait, lock_wait, executor_wait, compute, publication in outcomes
+    ]
+
+    trajectory = _server_measurement_summary(events)["trajectory"]
+
+    assert trajectory["prediction_outcome_event_count"] == 4
+    assert trajectory["prediction_outcome_counts"] == {
+        "trajectory_prediction_discarded_stale": 1,
+        "trajectory_prediction_failed": 1,
+        "trajectory_prediction_published": 1,
+        "trajectory_publication_failed": 1,
+    }
+    assert trajectory["prediction_queue_wait_seconds"]["count"] == 4
+    assert trajectory["prediction_queue_wait_seconds"]["p95"] == 0.4
+    assert trajectory["calculator_lock_wait_seconds"]["count"] == 4
+    assert trajectory["executor_wait_seconds"]["count"] == 4
+    assert trajectory["physics_compute_seconds"]["count"] == 4
+    assert trajectory["physics_compute_seconds"]["p95"] == 0.6
+    assert trajectory["trajectory_publication_seconds"]["count"] == 2
+    assert trajectory["trajectory_publication_seconds"]["p95"] == 0.07
+
+
+def test_server_summary_labels_sampled_detail_counts_as_recorded_events() -> None:
+    summary = _server_measurement_summary(
+        [
+            {
+                "event_type": "vision_frame_complete",
+                "vision_instance_id": "vision-a",
+                "vision_process_id": 12,
+                "source_process_id": 9,
+                "source_frame_number": frame_number,
+            }
+            for frame_number in (7, 8)
+        ]
+        + [
+            {
+                "event_type": "integration_observation_processed",
+                "vision_instance_id": "vision-a",
+                "vision_process_id": 12,
+                "source_process_id": 9,
+                "source_frame_number": 7,
+            },
+            {
+                "event_type": "state_published",
+                "vision_instance_id": "vision-a",
+                "vision_process_id": 12,
+                "source_process_id": 9,
+                "source_frame_number": 7,
+            },
+        ]
+    )
+
+    assert "sampled" in summary["record_count_semantics"]
+    assert summary["vision"]["recorded_frame_detail_events"] == 2
+    assert (
+        summary["vision"]["recorded_unique_source_observations_in_frame_details"] == 2
+    )
+    assert summary["integration"]["recorded_observation_detail_events"] == 1
+    assert summary["state_delivery"]["recorded_state_publication_detail_events"] == 1
+    assert "unique_source_observations_processed" not in summary["vision"]
+    assert "unique_source_observations_published" not in summary["state_delivery"]
 
 
 def test_trajectory_identity_and_publication_to_receipt_correlation() -> None:
@@ -886,6 +1260,7 @@ def test_trajectory_summary_does_not_overwrite_state_summary_fields() -> None:
             "receive_monotonic_ns": 16_000_000,
             "source_publication_to_client_receipt_ms": 8.0,
             "clock_comparable": True,
+            "component_status": {"balls": "observed"},
         }
     )
     trajectory = TrajectoryAccumulator()
@@ -1051,6 +1426,25 @@ def test_instrumentation_overhead_requires_matched_off_and_state_only_runs(
     assert result is not None
     assert result["status"] == "inconclusive"
     assert result["current_state_audit_only"] is False
+
+    unavailable_metadata = {
+        **metadata,
+        "revision": None,
+        "dirty_worktree_sha256": None,
+        "model": {"sha256": None},
+        "configured_video_input": {"sha256": None},
+    }
+    baseline_path.write_text(
+        json.dumps({"metadata": unavailable_metadata, "repetitions": baseline_runs}),
+        encoding="utf-8",
+    )
+    result = _compare_overhead(baseline_path, baseline_runs, unavailable_metadata, 2.0)
+    assert result is not None
+    assert result["status"] == "inconclusive"
+    assert result["same_revision"] is False
+    assert result["same_dirty_worktree"] is False
+    assert result["same_model_hash"] is False
+    assert result["same_input_hash"] is False
 
 
 def test_capture_transport_benchmark_is_opt_in_by_default() -> None:
@@ -1230,6 +1624,7 @@ def test_capture_transport_report_is_saved_and_rendered_with_debug_caveat(
         (run_directory / "capture-transport.json").read_text(encoding="utf-8")
     )
     markdown = (run_directory / "report.md").read_text(encoding="utf-8")
+    assert summary["schema_version"] == 6
     assert len(invocations) == 1
     assert artifact == document
     assert (
@@ -1279,6 +1674,7 @@ def test_capture_transport_executable_is_not_invoked_for_normal_audit(
     run_directory = asyncio.run(run_audit(args))
 
     summary = json.loads((run_directory / "summary.json").read_text(encoding="utf-8"))
+    assert summary["schema_version"] == 6
     assert "capture_transport_benchmark" not in summary
     assert not (run_directory / "capture-transport.json").exists()
 
@@ -1314,6 +1710,40 @@ def test_rust_live_settings_build_a_validated_source_defaults_request(
     assert requested["output_frame_geometry"] == {"width_px": 640, "height_px": 360}
     assert requested["camera_controls"] == {"mode": "source_defaults"}
     assert requested["timestamp_semantics"] == {"kind": "read_completion_only"}
+
+
+def test_nested_frame_preview_settings_are_exported_as_json_objects(
+    tmp_path: Path,
+) -> None:
+    from backend.perception.rust_frame_preview import (
+        FramePreviewCalibrationControlSettings,
+        FramePreviewProcessSettings,
+    )
+
+    preview = FramePreviewProcessSettings(
+        bind_address="127.0.0.1",
+        port=0,
+        maximum_header_bytes=8192,
+        maximum_jpeg_bytes=4_194_304,
+        maximum_concurrent_encodes=1,
+        jpeg_quality=85,
+        request_timeout_ms=1000,
+        write_timeout_ms=2000,
+        calibration_control=FramePreviewCalibrationControlSettings(
+            store_path=tmp_path / "calibration.json",
+            store_lock_timeout_ms=100,
+            maximum_store_file_bytes=65_536,
+            maximum_request_bytes=65_536,
+        ),
+    )
+
+    exported = collector._json_compatible_setting_value(preview)
+
+    assert exported["bind_address"] == "127.0.0.1"
+    assert exported["calibration_control"]["store_path"] == str(
+        tmp_path / "calibration.json"
+    )
+    assert json.loads(json.dumps(exported)) == exported
 
 
 def test_rust_live_qualification_rejects_non_loopback_ingress(
@@ -1367,14 +1797,18 @@ def test_rust_live_state_accumulator_bounds_deduplication_and_accepts_zero_times
     assert summary["state_trace_truncated"] is True
 
 
-def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities() -> (
-    None
-):
+@pytest.mark.parametrize(
+    ("producer_dropped_records", "expected_status"),
+    [(0, "complete"), (1, "partial")],
+)
+def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
+    producer_dropped_records: int, expected_status: str
+) -> None:
     accumulator = collector.RustLiveTimingAccumulator(maximum_samples=8)
     accumulator.begin_measurement(100)
     frame = {
         "record_type": "frame",
-        "schema_version": 2,
+        "schema_version": 3,
         "engine_instance_id": "engine-a",
         "source_session_id": "session-a",
         "frame_id": "frame-0001",
@@ -1390,6 +1824,7 @@ def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
             "preprocess": 0.3,
             "inference": 2.4,
             "decode_and_nms": 0.4,
+            "engine_total": 3.1,
             "calibration": None,
             "tracking_and_state_assembly": 0.1,
             "scene_json_serialization": 0.2,
@@ -1433,6 +1868,29 @@ def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
     accumulator.add(
         {
             "record_type": "observation_outcome",
+            "schema_version": 3,
+            "outcome": "skipped",
+            "stage": "freshness_check",
+            "reason": "stale_after_inference",
+            "inference_timings_ms": {
+                "capture_helper_appsink_pull_wait": 0.05,
+                "capture_helper_rgb_buffer_allocation": 0.01,
+                "capture_helper_rgb_mapping_copy": 0.02,
+                "parent_framed_record_read": 0.08,
+                "parent_record_read_complete_to_inference_start": 0.2,
+                "preprocess": 0.3,
+                "inference": 2.4,
+                "decode_and_nms": 0.4,
+                "engine_total": 3.1,
+                "parent_record_read_complete_to_inference_complete": 3.3,
+                "maximum_frame_age": 1.0,
+            },
+            "audit_receiver_monotonic_ns": 195,
+        }
+    )
+    accumulator.add(
+        {
+            "record_type": "observation_outcome",
             "outcome": "failed",
             "reason": "outside_window",
             "audit_receiver_monotonic_ns": 201,
@@ -1442,7 +1900,7 @@ def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
         {
             "record_type": "footer",
             "export_status": "complete",
-            "dropped_records": 0,
+            "dropped_records": producer_dropped_records,
             "pipeline_counters": {
                 "association_capacity_pressure_frames": 1,
                 "association_capacity_evictions": 2,
@@ -1473,14 +1931,35 @@ def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
         summary["stage_durations_ms"]["capture_helper_appsink_pull_wait"]["p95"] == 0.05
     )
     assert summary["stage_durations_ms"]["parent_framed_record_read"]["p95"] == 0.08
+    assert summary["stage_durations_ms"]["engine_total"]["p95"] == 3.1
+    stale_timing = summary["stale_inference_timing_ms"]
+    assert stale_timing["stale_outcomes"] == 1
+    assert stale_timing["timed_stale_outcomes"] == 1
+    assert stale_timing["stage_durations_ms"]["inference"]["p95"] == 2.4
+    assert (
+        stale_timing["stage_durations_ms"][
+            "parent_record_read_complete_to_inference_complete"
+        ]["p95"]
+        == 3.3
+    )
+    assert stale_timing["deadline_overrun_ms"]["p95"] == pytest.approx(2.3)
+    failure_diagnostic = accumulator.stale_inference_diagnostic_summary()
+    assert failure_diagnostic["scope"] == (
+        "all_retained_run_records_not_a_measured_baseline"
+    )
+    assert failure_diagnostic["stale_outcomes"] == 1
+    assert failure_diagnostic["timed_stale_outcomes"] == 1
+    assert failure_diagnostic["stage_durations_ms"]["engine_total"]["p95"] == 3.1
     assert summary["matched_scene_socket_write_durations_ms"]["written"]["count"] == 1
     assert summary["observation_outcomes_in_measurement_window"] == {
-        "skipped": 1,
+        "skipped": 2,
         "degraded": 1,
     }
     assert summary["out_of_window_outcome_records"] == 1
+    assert summary["status"] == expected_status
+    assert summary["producer_dropped_records"] == producer_dropped_records
     assert summary["association_capacity_pressure"] == {
-        "measurement_status": "complete",
+        "measurement_status": expected_status,
         "measured_window_pressure_frames": 1,
         "measured_window_evicted_tracks": 2,
         "malformed_pressure_outcome_records": 0,
@@ -1490,10 +1969,119 @@ def test_rust_live_timing_accumulator_correlates_only_measured_exact_identities(
     }
 
 
+def test_rust_live_timing_accumulator_reports_startup_staleness_without_baseline() -> (
+    None
+):
+    accumulator = collector.RustLiveTimingAccumulator(maximum_samples=8)
+    accumulator.add(
+        {
+            "record_type": "observation_outcome",
+            "schema_version": 3,
+            "outcome": "skipped",
+            "stage": "freshness_check",
+            "reason": "stale_after_inference",
+            "inference_timings_ms": {
+                "preprocess": 38.0,
+                "inference": 290.0,
+                "engine_total": 330.0,
+                "parent_record_read_complete_to_inference_complete": 365.0,
+                "maximum_frame_age": 100.0,
+            },
+        }
+    )
+
+    diagnostic = accumulator.stale_inference_diagnostic_summary()
+
+    assert diagnostic["scope"] == ("all_retained_run_records_not_a_measured_baseline")
+    assert diagnostic["records_received"] == 1
+    assert diagnostic["stale_outcomes"] == 1
+    assert diagnostic["timed_stale_outcomes"] == 1
+    assert diagnostic["stage_durations_ms"]["inference"]["p95"] == 290.0
+    assert diagnostic["deadline_overrun_ms"]["p95"] == 265.0
+
+
+def test_rust_live_child_resource_sampler_reports_bounded_process_samples() -> None:
+    class FakeProcess:
+        def __init__(self, _process_id: int) -> None:
+            self.cpu_calls = 0
+            self.memory_calls = 0
+
+        def cpu_percent(self, *, interval: None = None) -> float:
+            self.cpu_calls += 1
+            return float(self.cpu_calls * 10)
+
+        def memory_info(self) -> Any:
+            self.memory_calls += 1
+            return SimpleNamespace(rss=self.memory_calls * 100)
+
+        def cpu_times(self) -> Any:
+            return SimpleNamespace(user=float(self.cpu_calls), system=0.5)
+
+    class RecordingRecorder:
+        def __init__(self) -> None:
+            self.events: list[dict[str, Any]] = []
+
+        def record(self, event: dict[str, Any]) -> bool:
+            self.events.append(event)
+            return True
+
+    recorder = RecordingRecorder()
+    sampler = collector.RustLiveChildResourceSampler(
+        cast("AsyncAuditRecorder", recorder),
+        process_id=9876,
+        interval_seconds=1,
+        maximum_samples=2,
+        process_factory=FakeProcess,
+    )
+    sampler._sample_once()
+    sampler._sample_once()
+    sampler._sample_once()
+    summary = sampler.summary()
+    sampler.close()
+
+    assert summary["status"] == "available"
+    assert summary["process_role"] == "rust_live_inference_child"
+    assert summary["process_id"] == 9876
+    assert summary["sample_count"] == 3
+    assert summary["retained_sample_count"] == 2
+    assert summary["samples_truncated"] is True
+    assert summary["cpu_percent"]["p50"] == 30
+    assert summary["cpu_percent"]["p95"] == 40
+    assert summary["cpu_time_seconds"]["delta"] == 1
+    assert summary["resident_memory_bytes"]["minimum"] == 200
+    assert summary["resident_memory_bytes"]["maximum"] == 300
+    assert summary["resident_memory_bytes"]["delta"] == 100
+    assert all(event["process_id"] == 9876 for event in recorder.events)
+    assert all(
+        event["sampled_process_role"] == "rust_live_inference_child"
+        for event in recorder.events
+    )
+
+
 def test_rust_live_timing_audit_flag_requires_live_qualification() -> None:
     args = build_parser().parse_args(["--rust-live-timing-audit"])
     with pytest.raises(ValueError, match="require --rust-live-qualification"):
         collector._rust_live_profile_arguments(args)
+
+
+def test_rust_live_qualification_rejects_nonpositive_resource_sample_interval(
+    tmp_path: Path,
+) -> None:
+    settings_path = _rust_live_settings_file(tmp_path)
+    args = build_parser().parse_args(
+        [
+            *_rust_live_profile_args(settings_path),
+            "--rust-live-resource-sample-interval",
+            "0",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="warm-up, duration and bounds"):
+        asyncio.run(
+            collector._run_rust_live_qualification(
+                args, capture_transport_settings=None
+            )
+        )
 
 
 def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
@@ -1504,6 +2092,7 @@ def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
             self.publisher = publisher
             self.running = False
             self.closed = False
+            self.transport_audit_enabled = False
             self.task: asyncio.Task[None] | None = None
             self._status = SimpleNamespace(
                 ready=False,
@@ -1539,6 +2128,28 @@ def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
                 await asyncio.sleep(0.004)
                 await self.publisher.publish(_qualification_scene(frame_number))
             await asyncio.Event().wait()
+
+        def enable_transport_audit(self) -> None:
+            self.transport_audit_enabled = True
+
+        def finish_transport_audit(self) -> dict[str, Any]:
+            assert self.transport_audit_enabled
+            self.transport_audit_enabled = False
+            return {
+                "status": "available",
+                "accepted_snapshots": 4,
+                "payload_bytes_total": 4096,
+                "payload_bytes_minimum": 900,
+                "payload_bytes_mean": 1024.0,
+                "payload_bytes_maximum": 1200,
+                "sequence_gaps": 2,
+                "queue_capacity": 1,
+                "queue_depth_high_water": 1,
+                "queue_depth_zero_before_enqueue": 2,
+                "queue_depth_one_before_enqueue": 2,
+                "queue_replacements": 2,
+                "queue_replacement_fraction": 0.5,
+            }
 
         async def close(self) -> None:
             self.closed = True
@@ -1596,6 +2207,15 @@ def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
     repetition = summary["repetitions"][0]
     state = repetition["state"]
     assert repetition["warmup_state_messages"] == 1
+    transport = repetition["rust_scene_transport"]
+    assert transport["status"] == "available"
+    assert transport["accepted_snapshots"] == 4
+    assert transport["payload_bytes_total"] == 4096
+    assert transport["queue_replacements"] == 2
+    assert transport["queue_replacement_fraction"] == 0.5
+    assert transport["measurement_window"]["clock"] == "collector_process_perf_counter"
+    assert repetition["process_resources"]["status"] == "unavailable"
+    assert "process id" in repetition["process_resources"]["unavailable_reason"]
     assert 0 < state["duration_seconds"] <= 0.15
     assert state["state_messages_received"] == 4
     assert state["unique_source_observations"] == 3
@@ -1614,6 +2234,8 @@ def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
     assert summary["event_export"]["written_events"] == 4
     assert "not a detector-accuracy result" in report
     assert "parent completion of the full frame-record read" in report
+    assert "## Rust scene transport" in report
+    assert "900 / 1024.0 / 1200" in report
     assert "Frame image persistence: `none" in report
     trace_path = Path(summary["state_event_file"])
     trace_lines = trace_path.read_text(encoding="utf-8").splitlines()
@@ -1624,8 +2246,12 @@ def test_rust_live_qualification_runs_bounded_state_only_repetition_and_closes(
     assert "rgb_frame" not in json.dumps(first_event)
 
 
+@pytest.mark.parametrize(
+    ("producer_dropped_records", "expected_status"),
+    [(0, "complete"), (1, "partial")],
+)
 def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
-    tmp_path: Path,
+    tmp_path: Path, producer_dropped_records: int, expected_status: str
 ) -> None:
     class TimingSupervisor:
         def __init__(
@@ -1633,6 +2259,7 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
         ) -> None:
             self.publisher = publisher
             self.audit_ingress = audit_ingress
+            self.process_id = os.getpid()
             self.writer: asyncio.StreamWriter | None = None
             self.task: asyncio.Task[None] | None = None
             self.records_written = 0
@@ -1750,7 +2377,7 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
                     "schema_version": 1,
                     "export_status": "complete",
                     "records_written_before_footer": self.records_written,
-                    "dropped_records": 0,
+                    "dropped_records": producer_dropped_records,
                     "scene_socket_write_successes": self.records_written // 2,
                     "scene_socket_write_failures": 0,
                     "skipped_observations": 0,
@@ -1786,6 +2413,8 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
             "0",
             "--duration",
             "0.05",
+            "--rust-live-resource-sample-interval",
+            "0.005",
             "--repetitions",
             "1",
             "--history-size",
@@ -1806,13 +2435,20 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
     summary = json.loads((run_directory / "summary.json").read_text(encoding="utf-8"))
     repetition = summary["repetitions"][0]
     timing = repetition["rust_pipeline_timing"]
-    assert repetition["rust_live_audit_ingress"]["status"] == "complete"
-    assert timing["status"] == "complete"
+    resources = repetition["process_resources"]
+    assert repetition["rust_live_audit_ingress"]["status"] == expected_status
+    assert timing["status"] == expected_status
+    assert timing["producer_dropped_records"] == producer_dropped_records
+    assert resources["status"] == "available"
+    assert resources["process_role"] == "rust_live_inference_child"
+    assert resources["process_id"] == os.getpid()
+    assert resources["sample_count"] >= 1
+    assert resources["resident_memory_bytes"]["count"] >= 1
     assert timing["state_timing_correlation"]["matched_frames"] == 3
     assert timing["state_timing_correlation"]["duplicate_timing_frame_records"] == 1
     assert timing["stage_durations_ms"]["inference"]["p95"] == 2.4
     assert timing["matched_scene_socket_write_durations_ms"]["written"]["count"] == 4
-    assert summary["event_export"]["written_events"] == 4
+    assert summary["event_export"]["written_events"] == (4 + resources["sample_count"])
     assert summary["rust_pipeline_timing_event_export"]["written_events"] == 10
     assert (
         timing["association_capacity_pressure"]["measured_window_pressure_frames"] == 1
@@ -1830,6 +2466,7 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
     assert "rust_live_pipeline_timing_record" in timing_trace
     report = (run_directory / "report.md").read_text(encoding="utf-8")
     assert "Rust pipeline timing (opt-in)" in report
+    assert "## Rust child resources" in report
     assert "Pressure frames" in report
 
 

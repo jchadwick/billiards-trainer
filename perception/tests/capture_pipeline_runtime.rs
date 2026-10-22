@@ -396,6 +396,7 @@ fn pipeline_config(
         scene_transport: SceneTransportConfig {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
             maximum_message_bytes: MAXIMUM_MESSAGE_BYTES,
+            public_state_delivery_enabled: false,
             connect_timeout: Duration::from_millis(100),
             write_timeout: Duration::from_millis(100),
             reconnect_initial_delay: Duration::from_millis(10),
@@ -505,6 +506,7 @@ fn fake_capture_to_anonymous_loopback_scene_delivery_runs_end_to_end() {
             scene_transport: SceneTransportConfig {
                 address,
                 maximum_message_bytes: MAXIMUM_MESSAGE_BYTES,
+                public_state_delivery_enabled: false,
                 connect_timeout: Duration::from_secs(1),
                 write_timeout: Duration::from_secs(1),
                 reconnect_initial_delay: Duration::from_millis(10),

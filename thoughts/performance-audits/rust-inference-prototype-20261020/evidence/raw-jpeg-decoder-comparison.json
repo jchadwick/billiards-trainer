@@ -1,0 +1,35 @@
+{
+  "comparison": {
+    "channel_value_count": 24883200,
+    "different_channel_value_counts_rgb": [
+      516303,
+      447797,
+      235407
+    ],
+    "different_pixel_count_any_channel": 695791,
+    "identical": false,
+    "max_absolute_channel_difference": 3,
+    "mean_absolute_channel_difference": 0.06365121849279835,
+    "pixel_count": 8294400
+  },
+  "decoders": {
+    "python": {
+      "name": "OpenCV imread(IMREAD_COLOR) -> BGR2RGB",
+      "raw_rgb_sha256": "17fc7e62057b6461596c9e1c0c16c24a2d54e105796f1d7518e9539412e6a4e7",
+      "version": "5.0.0"
+    },
+    "rust": {
+      "crate_version": "0.25.10",
+      "name": "image-rs ImageReader -> to_rgb8",
+      "raw_rgb_sha256": "55c69f1c9dc44667a1b1125236cbe43cd13c937753c01db574f29ef724e7cf44"
+    }
+  },
+  "input": {
+    "channels": 3,
+    "height": 2160,
+    "path": "backend/vision/test_data/grid.jpg",
+    "sha256": "d4cf0dbe75a9d0494260f385dcd6ecf0143e03ad430aae37ef3323bd98de72d6",
+    "width": 3840
+  },
+  "schema_version": 1
+}

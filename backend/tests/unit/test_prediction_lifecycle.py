@@ -337,6 +337,21 @@ def test_prediction_request_owns_detached_physics_inputs():
     assert request.lifecycle_generation == 1
 
 
+def test_failed_calculation_retains_lock_and_compute_timing():
+    def fail_calculation(**_kwargs):
+        raise RuntimeError("physics calculation failed")
+
+    service = _background_service(fail_calculation)
+    request = _prediction_request(service, 91)
+
+    with pytest.raises(RuntimeError, match="physics calculation failed"):
+        service._calculate_multiball_prediction(request)
+
+    assert request.timing["executor_wait_seconds"] is None
+    assert request.timing["calculator_lock_wait_seconds"] >= 0
+    assert request.timing["physics_compute_seconds"] >= 0
+
+
 @pytest.mark.asyncio
 async def test_prediction_worker_keeps_loop_responsive_and_coalesces_pending_frames():
     calculation_started = threading.Event()

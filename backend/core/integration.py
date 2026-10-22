@@ -1127,14 +1127,27 @@ class APIInterfaceImpl(APIInterface):
         sanitized.pop("validation_errors", None)
 
         # Limit precision of floating point numbers
-        if "balls" in sanitized:
-            for ball in sanitized["balls"]:
-                if "position" in ball:
-                    ball["position"]["x"] = round(ball["position"]["x"], 4)
-                    ball["position"]["y"] = round(ball["position"]["y"], 4)
-                if "velocity" in ball:
-                    ball["velocity"]["x"] = round(ball["velocity"]["x"], 4)
-                    ball["velocity"]["y"] = round(ball["velocity"]["y"], 4)
+        # Copy only the mutable nodes that are rounded. A deep copy of the
+        # entire state would add unnecessary work on every publication, while
+        # mutating these nested dictionaries would corrupt a producer's cached
+        # current state before its next observation arrives.
+        balls = sanitized.get("balls")
+        if isinstance(balls, list):
+            sanitized_balls: list[dict[str, Any]] = []
+            for ball in balls:
+                sanitized_ball = ball.copy()
+                for vector_name in ("position", "velocity"):
+                    vector = ball.get(vector_name)
+                    if isinstance(vector, dict):
+                        sanitized_vector = vector.copy()
+                        for axis in ("x", "y"):
+                            if axis in sanitized_vector:
+                                sanitized_vector[axis] = round(
+                                    sanitized_vector[axis], 4
+                                )
+                        sanitized_ball[vector_name] = sanitized_vector
+                sanitized_balls.append(sanitized_ball)
+            sanitized["balls"] = sanitized_balls
 
         return sanitized
 

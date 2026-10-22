@@ -32,10 +32,19 @@ from backend.api.models.responses import (
     ConfigValidationError as APIConfigValidationError,
 )
 from backend.api.models.responses import SuccessResponse
-from backend.config import Config, ConfigValidationError
+from backend.config import (
+    Config,
+    ConfigurationAuthorityConfigurationError,
+    ConfigurationRevisionConflict,
+    ConfigValidationError,
+)
 from backend.config import get_configuration_schema as build_configuration_schema
 from backend.config import load_schema_reference, validate_configuration
 from backend.core.constants_4k import CANONICAL_HEIGHT, CANONICAL_WIDTH
+from backend.perception.rust_config_authority import (
+    RustConfigurationAuthorityError,
+    RustConfigurationAuthorityRejected,
+)
 
 
 class _YamlLibrary(Protocol):
@@ -51,6 +60,14 @@ yaml = cast("_YamlLibrary", import_module("yaml"))
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/config", tags=["Configuration Management"])
+
+_DEPLOYMENT_EXECUTABLE_FIELDS = frozenset(
+    {
+        "perception.rust_live.executable_path",
+        "perception.rust_live.capture_helper_executable_path",
+        "perception.rust_replay.executable_path",
+    }
+)
 
 
 def calculate_checksum(data: str) -> str:
@@ -68,9 +85,77 @@ def validate_config_section(section: str, allowed_sections: list[str]) -> str:
     return section
 
 
-def _configuration_sections() -> list[str]:
-    """Return sections from the same runtime defaults used by validation."""
-    return list(load_schema_reference())
+def _uses_rust_authority(config_module: Config) -> bool:
+    """Whether the injected facade has selected Rust as the sole authority."""
+    return getattr(config_module, "authority_mode", "python") == "rust"
+
+
+def _configuration_sections(config_module: Config | None = None) -> list[str]:
+    """Return supported sections from the selected authority's defaults."""
+    if config_module is not None and _uses_rust_authority(config_module):
+        defaults = config_module.get_defaults()
+    else:
+        defaults = load_schema_reference()
+    return list(defaults)
+
+
+def _authority_http_error(
+    error: Exception,
+    *,
+    warning_detail: str = "object",
+) -> HTTPException | None:
+    """Translate Rust authority and facade errors into stable HTTP responses."""
+    if isinstance(error, ConfigurationRevisionConflict):
+        conflict_detail: dict[str, Any] = {"message": str(error)}
+        if error.current_revision is not None:
+            conflict_detail["current_revision"] = error.current_revision
+        return HTTPException(status_code=409, detail=conflict_detail)
+
+    if isinstance(error, ConfigValidationError):
+        return HTTPException(status_code=422, detail=_validation_detail(error.errors))
+
+    if isinstance(error, RustConfigurationAuthorityRejected):
+        response = error.response or {}
+        body = response.get("error", {})
+        code = body.get("code") if isinstance(body, dict) else None
+        if code == "revision_conflict":
+            conflict_detail = {"message": str(error)}
+            current_revision = response.get("current_revision")
+            if type(current_revision) is int:
+                conflict_detail["current_revision"] = current_revision
+            return HTTPException(status_code=409, detail=conflict_detail)
+        if code == "validation_failed":
+            errors = response.get("validation_errors", [])
+            if not isinstance(errors, list):
+                errors = []
+            return HTTPException(status_code=422, detail=_validation_detail(errors))
+        if code == "warnings_require_force":
+            warnings = response.get("warnings", [])
+            if not isinstance(warnings, list):
+                warnings = []
+            message = "Configuration has warnings. Use force_update=true to proceed"
+            warning_detail_value: Any = (
+                {"message": message, "warnings": warnings}
+                if warning_detail == "object"
+                else message
+            )
+            return HTTPException(status_code=400, detail=warning_detail_value)
+        if code == "invalid_section":
+            return HTTPException(status_code=400, detail=str(error))
+        return HTTPException(
+            status_code=503,
+            detail="Configuration authority is unavailable. The request was not completed.",
+        )
+
+    if isinstance(
+        error,
+        (ConfigurationAuthorityConfigurationError, RustConfigurationAuthorityError),
+    ):
+        return HTTPException(
+            status_code=503,
+            detail="Configuration authority is unavailable. The request was not completed.",
+        )
+    return None
 
 
 def _normalize_section_update(
@@ -103,8 +188,49 @@ def _restart_required(updated_fields: list[str]) -> bool:
         "api.rate_limiting.",
         "api.websocket.",
         "streaming.",
+        "game_session.",
     )
     return any(field.startswith(restart_prefixes) for field in updated_fields)
+
+
+def _assert_deployment_executables_unchanged(
+    candidate: dict[str, Any], current: dict[str, Any]
+) -> None:
+    """Prevent the unauthenticated config API from selecting server binaries.
+
+    Executable paths are deployment settings. They remain editable in the
+    local configuration file, but an HTTP update must not turn a later service
+    restart into execution of a caller-supplied binary.
+    """
+    changed_fields: list[str] = []
+
+    def visit(value: Any, prefix: str = "") -> None:
+        if not isinstance(value, dict):
+            return
+        for key, child in value.items():
+            path = f"{prefix}.{key}" if prefix else key
+            if path in _DEPLOYMENT_EXECUTABLE_FIELDS:
+                current_value: Any = current
+                for component in path.split("."):
+                    current_value = (
+                        current_value.get(component)
+                        if isinstance(current_value, dict)
+                        else None
+                    )
+                if child != current_value:
+                    changed_fields.append(path)
+            elif isinstance(child, dict):
+                visit(child, path)
+
+    visit(candidate)
+    if changed_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Server executable paths are deployment-managed and cannot be changed through the HTTP configuration API",
+                "fields": sorted(changed_fields),
+            },
+        )
 
 
 def _validation_detail(errors: list[dict[str, Any]]) -> dict[str, Any]:
@@ -132,7 +258,7 @@ async def get_configuration(
     with optional metadata inclusion.
     """
     try:
-        available_sections = _configuration_sections()
+        available_sections = _configuration_sections(config_module)
 
         if section:
             validate_config_section(section, available_sections)
@@ -163,6 +289,9 @@ async def get_configuration(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to retrieve configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -183,7 +312,8 @@ async def update_configuration(
     Supports partial updates, validation-only mode, and forced updates.
     """
     try:
-        available_sections = _configuration_sections()
+        rust_authority = _uses_rust_authority(config_module)
+        available_sections = _configuration_sections(config_module)
 
         if section:
             validate_config_section(section, available_sections)
@@ -194,8 +324,16 @@ async def update_configuration(
             )
 
         updates = _normalize_section_update(config_data, section)
-        current = config_module.get_all()
-        validation_errors, warnings = validate_configuration(updates, baseline=current)
+        current_configuration = config_module.get_all()
+        _assert_deployment_executables_unchanged(updates, current_configuration)
+        if rust_authority:
+            validation = config_module.validate_configuration(updates, merge=True)
+            validation_errors = validation["validation_errors"]
+            warnings = validation["warnings"]
+        else:
+            validation_errors, warnings = validate_configuration(
+                updates, baseline=current_configuration
+            )
 
         # If validation-only mode, return validation results
         if validate_only:
@@ -219,17 +357,31 @@ async def update_configuration(
         if warnings and not force_update:
             raise HTTPException(
                 status_code=400,
-                detail="Configuration has warnings. Use force_update=true to proceed",
+                detail=(
+                    {
+                        "message": "Configuration has warnings. Use force_update=true to proceed",
+                        "warnings": warnings,
+                    }
+                    if rust_authority
+                    else "Configuration has warnings. Use force_update=true to proceed"
+                ),
             )
 
         # Apply configuration update
         try:
-            updated_fields = config_module.apply_updates(updates)
+            updated_fields = (
+                config_module.apply_updates(updates, force_update=force_update)
+                if rust_authority
+                else config_module.apply_updates(updates)
+            )
         except ConfigValidationError as exc:
             raise HTTPException(
                 status_code=422, detail=_validation_detail(exc.errors)
             ) from exc
-        except Exception:
+        except Exception as exc:
+            authority_error = _authority_http_error(exc, warning_detail="object")
+            if authority_error is not None:
+                raise authority_error from exc
             raise HTTPException(
                 status_code=500,
                 detail="Configuration update failed. Changes were not persisted.",
@@ -251,6 +403,9 @@ async def update_configuration(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to update configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -280,7 +435,8 @@ async def reset_configuration(
                 detail="Configuration reset must be explicitly confirmed",
             )
 
-        available_sections = _configuration_sections()
+        rust_authority = _uses_rust_authority(config_module)
+        available_sections = _configuration_sections(config_module)
 
         if reset_type == "section" and sections:
             for section in sections:
@@ -290,23 +446,36 @@ async def reset_configuration(
         # updates and imports. The existing `user` mode historically reset the
         # complete store because configuration has no user-only namespace.
         try:
-            defaults = load_schema_reference()
+            defaults = (
+                config_module.get_defaults()
+                if rust_authority
+                else load_schema_reference()
+            )
             if reset_type == "section":
                 if not sections:
                     raise HTTPException(
                         status_code=422,
                         detail="At least one section is required for a section reset",
                     )
-                replacement = config_module.get_all()
-                for name in sections:
-                    replacement[name] = defaults[name]
-                config_module.replace_configuration(replacement)
+                if rust_authority:
+                    config_module.reset_sections(sections)
+                else:
+                    replacement = config_module.get_all()
+                    for name in sections:
+                        replacement[name] = defaults[name]
+                    config_module.replace_configuration(replacement)
             else:
-                config_module.replace_configuration(defaults)
+                config_module.replace_configuration(
+                    defaults,
+                    **({"force_update": False} if rust_authority else {}),
+                )
 
         except HTTPException:
             raise
         except Exception as e:
+            authority_error = _authority_http_error(e)
+            if authority_error is not None:
+                raise authority_error from e
             raise HTTPException(
                 status_code=500,
                 detail="Configuration reset failed. Changes were not persisted.",
@@ -327,6 +496,9 @@ async def reset_configuration(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to reset configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -386,11 +558,20 @@ async def import_configuration(
 
         # Exports add this transport-only envelope; it is not a runtime key.
         config_data.pop("_metadata", None)
-        current = config_module.get_all()
-        validation_base = current if merge_strategy == "merge" else {}
-        validation_errors, warnings = validate_configuration(
-            config_data, baseline=validation_base
-        )
+        rust_authority = _uses_rust_authority(config_module)
+        current_configuration = config_module.get_all()
+        _assert_deployment_executables_unchanged(config_data, current_configuration)
+        if rust_authority:
+            validation = config_module.validate_configuration(
+                config_data, merge=merge_strategy == "merge"
+            )
+            validation_errors = validation["validation_errors"]
+            warnings = validation["warnings"]
+        else:
+            validation_base = current_configuration if merge_strategy == "merge" else {}
+            validation_errors, warnings = validate_configuration(
+                config_data, baseline=validation_base
+            )
 
         if validate_only:
             return create_success_response(
@@ -418,14 +599,27 @@ async def import_configuration(
 
         try:
             if merge_strategy == "replace":
-                imported_fields = config_module.replace_configuration(config_data)
+                imported_fields = (
+                    config_module.replace_configuration(
+                        config_data, force_update=force_update
+                    )
+                    if rust_authority
+                    else config_module.replace_configuration(config_data)
+                )
             else:  # merge
-                imported_fields = config_module.apply_updates(config_data)
+                imported_fields = (
+                    config_module.apply_updates(config_data, force_update=force_update)
+                    if rust_authority
+                    else config_module.apply_updates(config_data)
+                )
         except ConfigValidationError as exc:
             raise HTTPException(
                 status_code=422, detail=_validation_detail(exc.errors)
             ) from exc
-        except Exception:
+        except Exception as exc:
+            authority_error = _authority_http_error(exc, warning_detail="object")
+            if authority_error is not None:
+                raise authority_error from exc
             raise HTTPException(
                 status_code=500,
                 detail="Configuration import failed. Changes were not persisted.",
@@ -448,6 +642,9 @@ async def import_configuration(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to import configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -470,17 +667,25 @@ async def export_configuration(
     Supports JSON and YAML formats with selective section export.
     """
     try:
-        available_sections = _configuration_sections()
+        available_sections = _configuration_sections(config_module)
 
         if sections:
             for section in sections:
                 validate_config_section(section, available_sections)
 
-        config_data = config_module.get_all()
-
-        # Filter sections if specified
-        if sections:
-            config_data = {k: v for k, v in config_data.items() if k in sections}
+        if _uses_rust_authority(config_module):
+            # Rust owns the configuration snapshot, defaults merge, section
+            # filtering, and stored metadata selection. The API-only export
+            # envelope below remains transport formatting.
+            config_data = config_module.export_configuration(
+                sections=sections,
+                include_defaults=include_defaults,
+                include_metadata=True,
+            )
+        else:
+            config_data = config_module.get_all()
+            if sections:
+                config_data = {k: v for k, v in config_data.items() if k in sections}
 
         # Add metadata if requested
         if include_metadata:
@@ -514,6 +719,9 @@ async def export_configuration(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to export configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -562,7 +770,12 @@ async def download_configuration(
             path=temp_path, filename=filename, media_type="application/octet-stream"
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to download configuration: {e}")
         raise HTTPException(
             status_code=500,
@@ -573,6 +786,7 @@ async def download_configuration(
 @router.get("/schema")
 async def get_configuration_schema(
     section: Optional[str] = Query(None, description="Specific section schema"),
+    config_module: Config = Depends(get_config_module),
 ) -> dict[str, Any]:
     """Get configuration schema for validation and documentation.
 
@@ -580,12 +794,17 @@ async def get_configuration_schema(
     """
     try:
         if section:
-            validate_config_section(section, _configuration_sections())
+            validate_config_section(section, _configuration_sections(config_module))
+        if _uses_rust_authority(config_module):
+            return config_module.get_schema(section)
         return build_configuration_schema(section)
 
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to get configuration schema: {e}")
         raise HTTPException(
             status_code=500,
@@ -728,12 +947,30 @@ async def set_playing_area_corners(
             ] = calibration_resolution_height
 
         try:
-            validation_errors, _ = validate_configuration(updates, baseline=baseline)
+            if _uses_rust_authority(config_module):
+                validation = config_module.validate_configuration(updates, merge=True)
+                validation_errors = validation["validation_errors"]
+                warnings = validation["warnings"]
+            else:
+                validation_errors, warnings = validate_configuration(
+                    updates, baseline=baseline
+                )
             if validation_errors:
                 raise HTTPException(
                     status_code=422, detail=_validation_detail(validation_errors)
                 )
-            config_module.apply_updates(updates)
+            if warnings and _uses_rust_authority(config_module):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "message": "Configuration has warnings. Use force_update=true to proceed",
+                        "warnings": warnings,
+                    },
+                )
+            if _uses_rust_authority(config_module):
+                config_module.apply_updates(updates, force_update=False)
+            else:
+                config_module.apply_updates(updates)
         except ConfigValidationError as exc:
             raise HTTPException(
                 status_code=422, detail=_validation_detail(exc.errors)
@@ -741,6 +978,9 @@ async def set_playing_area_corners(
         except HTTPException:
             raise
         except Exception as e:
+            authority_error = _authority_http_error(e, warning_detail="object")
+            if authority_error is not None:
+                raise authority_error from e
             raise HTTPException(
                 status_code=500,
                 detail="Failed to persist playing area configuration.",
@@ -773,6 +1013,9 @@ async def set_playing_area_corners(
     except HTTPException:
         raise
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to set playing area corners: {e}")
         raise HTTPException(
             status_code=500,
@@ -815,6 +1058,9 @@ async def get_playing_area_corners(
         }
 
     except Exception as e:
+        authority_error = _authority_http_error(e)
+        if authority_error is not None:
+            raise authority_error from e
         logger.error(f"Failed to get playing area corners: {e}")
         raise HTTPException(
             status_code=500,

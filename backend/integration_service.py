@@ -65,6 +65,17 @@ class _PredictionRequest:
     timing: dict[str, float | None] = field(default_factory=dict, compare=False)
 
 
+@dataclass(frozen=True)
+class _SourceObservationWatermark:
+    """Comparable source ordering fields for one producer run."""
+
+    producer_identity: tuple[Any, ...]
+    source_frame_number: int | None
+    source_timestamp_kind: str | None
+    source_timestamp: float | None
+    source_publication_monotonic_ns: int | None
+
+
 class BroadcastErrorType(Enum):
     """Types of broadcast errors for retry logic."""
 
@@ -236,12 +247,25 @@ class IntegrationService:
         self.running = False
         self.integration_task: Optional[asyncio.Task[None]] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Core events are snapshots, so the event handoff is deliberately a
+        # one-item latest-value mailbox. There is at most one loop callback,
+        # one drain task, and one pending snapshot regardless of producer rate.
+        self._state_event_lock = threading.Lock()
+        self._pending_state_event: Optional[tuple[str, dict[str, Any], Any]] = None
+        self._state_event_drain_scheduled = False
+        self._state_event_drain_task: Optional[asyncio.Task[None]] = None
+        self.coalesced_state_event_count = 0
         self._audit_recorder = getattr(vision_module, "audit_recorder", None)
         self._audit_domains = getattr(vision_module, "audit_domains", {})
         self._vision_instance_id = str(uuid.uuid4())
         self._vision_process_id = os.getpid()
         self._last_processed_observation_identity: tuple[Any, ...] | None = None
+        self._last_stale_observation_identity: tuple[Any, ...] | None = None
+        self._latest_processed_source_watermark: _SourceObservationWatermark | None = (
+            None
+        )
         self.duplicate_observation_count = 0
+        self.stale_observation_count = 0
         # Core emits state_updated while update_state is still in flight, but
         # its state model replaces the source frame/timestamp with Core-local
         # values. Serialize gateway-originated updates and keep a short-lived
@@ -267,11 +291,23 @@ class IntegrationService:
 
         # Configuration (use provided or singleton)
         self.config = config_module if config_module is not None else config
+        # The audit-only workload switch is inert in normal operation. It lets
+        # matched state-only runs remove prediction scheduling/compute while
+        # retaining lifecycle invalidation and all production defaults.
+        self._audit_trajectory_workload_enabled = bool(
+            self.config.get("performance_audit.trajectory_workload_enabled", True)
+        )
+        self._audit_detail_sample_rate = float(
+            self.config.get("performance_audit.detailed_event_sample_rate", 0.05)
+        )
         self._maximum_prediction_observation_age_seconds = float(
             self.config.get(
                 "vision.processing.phase_scheduler.maximum_observation_age_seconds",
                 0.5,
             )
+        )
+        self.maximum_observation_age_seconds = float(
+            self.config.get("perception.freshness.maximum_observation_age_seconds", 0.5)
         )
 
         # Initialize state conversion helpers
@@ -413,6 +449,7 @@ class IntegrationService:
     async def stop(self) -> None:
         """Stop the integration service."""
         if not self.running:
+            await self._cancel_state_event_drain()
             await self._drain_prediction_task()
             return
 
@@ -431,6 +468,11 @@ class IntegrationService:
             except asyncio.CancelledError:
                 pass
 
+        # State snapshots have no value after shutdown starts. Cancel a
+        # possibly blocked publisher and discard its one pending replacement;
+        # unlike controls, live state is never replayed across a restart.
+        await self._cancel_state_event_drain()
+
         await self._drain_prediction_task()
 
         # Stop vision module camera capture
@@ -442,6 +484,28 @@ class IntegrationService:
             logger.error(f"Error stopping vision camera capture: {e}")
 
         logger.info("Integration service stopped")
+
+    async def _cancel_state_event_drain(self) -> None:
+        """Discard pending state work and await the single publisher task."""
+        self._event_loop = None
+        state_event_lock = getattr(self, "_state_event_lock", None)
+        if state_event_lock is None:
+            # Some focused tests construct the service with __new__ to isolate
+            # prediction lifecycle behavior; there is no state mailbox there.
+            return
+        with state_event_lock:
+            self._pending_state_event = None
+            task = self._state_event_drain_task
+            self._state_event_drain_scheduled = False
+
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        with state_event_lock:
+            self._pending_state_event = None
+            self._state_event_drain_scheduled = False
+            self._state_event_drain_task = None
 
     def _subscribe_to_core_events(self) -> None:
         """Subscribe to Core module events for broadcasting."""
@@ -466,24 +530,30 @@ class IntegrationService:
                 loop_start = asyncio.get_event_loop().time()
 
                 # Get detection result from vision
-                poll_started_ns = time.perf_counter_ns()
-                detection_result = await self._get_vision_detection()
-                poll_finished_ns = time.perf_counter_ns()
-                self._record_audit_event(
-                    "state",
-                    {
-                        "event_type": "integration_vision_poll",
-                        "observation_available": detection_result is not None,
-                        "poll_seconds": max(0, poll_finished_ns - poll_started_ns)
-                        / 1e9,
-                        "vision_queue_depth": (
-                            self.vision._frame_queue.qsize()
-                            if hasattr(self.vision, "_frame_queue")
-                            else None
-                        ),
-                        "configured_target_fps": self.target_fps,
-                    },
+                poll_sampled = self._audit_enabled("state") and (
+                    self._should_sample_audit_detail(
+                        "state", None, category="integration_vision_poll"
+                    )
                 )
+                poll_started_ns = time.perf_counter_ns() if poll_sampled else None
+                detection_result = await self._get_vision_detection()
+                if poll_sampled and poll_started_ns is not None:
+                    poll_finished_ns = time.perf_counter_ns()
+                    self._record_audit_event(
+                        "state",
+                        {
+                            "event_type": "integration_vision_poll",
+                            "observation_available": detection_result is not None,
+                            "poll_seconds": max(0, poll_finished_ns - poll_started_ns)
+                            / 1e9,
+                            "vision_queue_depth": (
+                                self.vision._frame_queue.qsize()
+                                if hasattr(self.vision, "_frame_queue")
+                                else None
+                            ),
+                            "configured_target_fps": self.target_fps,
+                        },
+                    )
 
                 if detection_result:
                     # Convert to Core format and update state
@@ -547,10 +617,20 @@ class IntegrationService:
         observation_identity = self._source_observation_identity(detection)
         if (
             observation_identity is not None
+            and observation_identity == self._last_stale_observation_identity
+        ):
+            self.duplicate_observation_count += 1
+            return False
+        if (
+            observation_identity is not None
             and observation_identity == self._last_processed_observation_identity
         ):
             self.duplicate_observation_count += 1
-            if self._audit_enabled("state"):
+            if self._audit_enabled("state") and self._should_sample_audit_detail(
+                "state",
+                getattr(detection, "source_frame_number", detection.frame_number),
+                category="integration_observation_duplicate",
+            ):
                 self._record_audit_event(
                     "state",
                     {
@@ -569,11 +649,35 @@ class IntegrationService:
                 )
             return False
 
+        maximum_observation_age = getattr(self, "maximum_observation_age_seconds", 0.5)
+        observation_age_seconds, freshness_error = (
+            self._refresh_observation_publication_age(detection)
+        )
+        if freshness_error is not None or (
+            observation_age_seconds is not None
+            and observation_age_seconds >= maximum_observation_age
+        ):
+            self._reject_stale_observation(
+                detection,
+                observation_identity,
+                observation_age_seconds,
+                maximum_observation_age,
+                reason=freshness_error or "observation_age_exceeded",
+            )
+            return False
+
         state_audit_enabled = self._audit_enabled("state")
+        state_audit_detail = state_audit_enabled and (
+            self._should_sample_audit_detail(
+                "state",
+                getattr(detection, "source_frame_number", detection.frame_number),
+                category="integration_observation_processed",
+            )
+        )
         # A malformed coordinate contract must stop at this boundary instead
         # of injecting unscaled values into Core. Keep the integration loop
         # alive so a corrected frame can recover on the next observation.
-        observation_started_ns = time.perf_counter_ns() if state_audit_enabled else None
+        observation_started_ns = time.perf_counter_ns() if state_audit_detail else None
         conversion_started_ns = observation_started_ns
         conversion_finished_ns: int | None = None
         core_started_ns: int | None = None
@@ -583,7 +687,7 @@ class IntegrationService:
         lock_wait_seconds: float | None = None
         try:
             detection_data = self._convert_detection_to_core_format(detection)
-            if state_audit_enabled:
+            if state_audit_detail:
                 conversion_finished_ns = time.perf_counter_ns()
         except CoordinateConversionError as error:
             self.error_count += 1
@@ -593,8 +697,9 @@ class IntegrationService:
                 error,
             )
             if state_audit_enabled:
-                conversion_finished_ns = time.perf_counter_ns()
-                assert conversion_started_ns is not None
+                conversion_finished_ns = (
+                    time.perf_counter_ns() if state_audit_detail else None
+                )
                 self._record_audit_event(
                     "state",
                     {
@@ -602,20 +707,18 @@ class IntegrationService:
                         "source_frame_number": getattr(
                             detection, "source_frame_number", detection.frame_number
                         ),
-                        "coordinate_conversion_seconds": max(
-                            0, conversion_finished_ns - conversion_started_ns
-                        )
-                        / 1e9,
+                        "coordinate_conversion_seconds": (
+                            max(0, conversion_finished_ns - conversion_started_ns) / 1e9
+                            if state_audit_detail
+                            and conversion_started_ns is not None
+                            and conversion_finished_ns is not None
+                            else None
+                        ),
                         "reason": "coordinate_contract_invalid",
                     },
+                    force_keep=True,
                 )
             return False
-
-        # Store the identity only after conversion succeeds. A failed coordinate
-        # contract must not become an admitted observation; a corrected result
-        # from the same source frame can still be retried.
-        if observation_identity is not None:
-            self._last_processed_observation_identity = observation_identity
 
         # Attach vision eligibility/provenance to the Core update. Public
         # freshness advances only after Core accepts this state update.
@@ -633,23 +736,82 @@ class IntegrationService:
         # Keep the status handoff in registration order. Core's own state lock
         # serializes calls, and this integration lock ensures concurrent
         # gateway callers cannot reorder their handoffs while awaiting Core.
-        lock_wait_started_ns = time.perf_counter_ns() if state_audit_enabled else None
+        lock_wait_started_ns = time.perf_counter_ns() if state_audit_detail else None
         async with update_lock:
-            if state_audit_enabled and lock_wait_started_ns is not None:
+            if state_audit_detail and lock_wait_started_ns is not None:
                 lock_acquired_ns = time.perf_counter_ns()
                 lock_wait_seconds = (
                     max(0, lock_acquired_ns - lock_wait_started_ns) / 1e9
                 )
+
+            # Another caller may have admitted this same source result while
+            # this task was converting coordinates or waiting for the Core
+            # lock. Recheck inside the serialized section before touching Core.
+            if observation_identity is not None and observation_identity in (
+                self._last_processed_observation_identity,
+                self._last_stale_observation_identity,
+            ):
+                self.duplicate_observation_count += 1
+                return False
+
+            # A result can wait for conversion and the Core-update lock after
+            # Vision computed its age. Re-read the shared host monotonic clock
+            # immediately before Core mutation so it cannot cross the freshness
+            # deadline while waiting in this service.
+            observation_age_seconds, freshness_error = (
+                self._refresh_observation_publication_age(detection)
+            )
+            if freshness_error is not None or (
+                observation_age_seconds is not None
+                and observation_age_seconds >= maximum_observation_age
+            ):
+                self._reject_stale_observation(
+                    detection,
+                    observation_identity,
+                    observation_age_seconds,
+                    maximum_observation_age,
+                    reason=freshness_error or "observation_age_exceeded",
+                )
+                return False
+
+            ordering_regression = self._source_observation_ordering_regression(
+                detection
+            )
+            if ordering_regression == "duplicate_source_frame":
+                self.duplicate_observation_count += 1
+                return False
+            if ordering_regression is not None:
+                self._reject_stale_observation(
+                    detection,
+                    observation_identity,
+                    observation_age_seconds,
+                    maximum_observation_age,
+                    reason=ordering_regression,
+                )
+                return False
+
+            if status is not None:
+                status["frame_publication_age_seconds"] = observation_age_seconds
+                detection_data["observation_status"] = copy.deepcopy(status)
+
+            # This source result has now completed admission and validation.
+            # Remember its exact identity to avoid repeating the same failed
+            # Core call on every poll; the ordering watermark below advances
+            # only after Core accepts the update.
+            if observation_identity is not None:
+                self._last_processed_observation_identity = observation_identity
+            self._last_stale_observation_identity = None
+
             self._register_state_event_observation(state_event_token, status)
             try:
-                if state_audit_enabled:
+                if state_audit_detail:
                     core_started_ns = time.perf_counter_ns()
                 await self.core.update_state(detection_data)
-                if state_audit_enabled:
+                if state_audit_detail:
                     core_finished_ns = time.perf_counter_ns()
                 core_update_status = "complete"
             except Exception as e:
-                if state_audit_enabled:
+                if state_audit_detail:
                     core_finished_ns = time.perf_counter_ns()
                 core_update_status = "failed"
                 self.error_count += 1
@@ -664,6 +826,12 @@ class IntegrationService:
             # it before releasing this lock preserves ordering between
             # concurrent gateway callers.
             if core_update_status == "complete":
+                # Only the accepted Core state advances source ordering and
+                # public freshness. Failed updates remain deduped by exact
+                # identity above without making an older Core result stale.
+                watermark = self._source_observation_watermark(detection)
+                if watermark is not None:
+                    self._latest_processed_source_watermark = watermark
                 self.latest_observation_status = status
                 self._latest_observation_received_at = time.monotonic()
 
@@ -672,16 +840,42 @@ class IntegrationService:
         # launch predictions from a mixture of old Core state and new vision.
         trajectory_admission_status = "skipped_core_update_failed"
         if core_update_status == "complete":
-            if state_audit_enabled:
+            if state_audit_detail:
                 trajectory_started_ns = time.perf_counter_ns()
-            await self._check_trajectory_calculation(detection)
-            if state_audit_enabled:
+            if self._trajectory_calculation_enabled_for_current_run():
+                await self._check_trajectory_calculation(detection)
+                trajectory_admission_status = "checked"
+            else:
+                # Preserve lifecycle state (phase transitions and calibration
+                # invalidation) while excluding prediction admission and
+                # compute from the state-only audit workload.
+                self._pending_prediction = None
+                prediction_task = getattr(self, "_prediction_task", None)
+                if prediction_task is not None and not prediction_task.done():
+                    self._prediction_lifecycle_generation += 1
+                # Invalidate before lifecycle refresh can await a broadcast;
+                # otherwise an old worker could publish across that await.
+                await self._refresh_prediction_lifecycle(detection)
+                trajectory_admission_status = "skipped_for_audit_workload_control"
+            if state_audit_detail:
                 trajectory_finished_ns = time.perf_counter_ns()
-            trajectory_admission_status = "checked"
-        elif state_audit_enabled:
+        elif state_audit_detail:
             trajectory_finished_ns = time.perf_counter_ns()
 
-        if state_audit_enabled:
+        if state_audit_enabled and core_update_status == "failed":
+            self._record_audit_event(
+                "state",
+                {
+                    "event_type": "integration_observation_failed",
+                    "source_frame_number": status.get("source_frame_number"),
+                    "source_process_id": status.get("source_process_id"),
+                    "vision_instance_id": status.get("vision_instance_id"),
+                    "reason": "core_update_failed",
+                },
+                force_keep=True,
+            )
+
+        if state_audit_detail:
             assert conversion_started_ns is not None
             assert conversion_finished_ns is not None
             assert observation_started_ns is not None
@@ -725,6 +919,102 @@ class IntegrationService:
                 },
             )
         return True
+
+    @staticmethod
+    def _refresh_observation_publication_age(
+        detection: DetectionResult,
+    ) -> tuple[float | None, str | None]:
+        """Refresh age from the source's host-monotonic publication stamp.
+
+        Shared-memory records are timestamped with the same host monotonic
+        clock used here. When that provenance is present, it is authoritative
+        over the age sampled earlier in Vision. Legacy results without a valid
+        monotonic stamp retain their existing age value and behavior.
+        """
+        publication_monotonic_ns = getattr(
+            detection, "source_publication_monotonic_ns", None
+        )
+        if (
+            isinstance(publication_monotonic_ns, int)
+            and not isinstance(publication_monotonic_ns, bool)
+            and publication_monotonic_ns > 0
+        ):
+            try:
+                now_monotonic_ns = time.monotonic_ns()
+            except Exception:
+                detection.frame_publication_age_seconds = None
+                return None, "monotonic_clock_unavailable"
+
+            if (
+                not isinstance(now_monotonic_ns, int)
+                or isinstance(now_monotonic_ns, bool)
+                or now_monotonic_ns <= 0
+            ):
+                detection.frame_publication_age_seconds = None
+                return None, "monotonic_clock_unavailable"
+
+            age_delta_ns = now_monotonic_ns - publication_monotonic_ns
+            if age_delta_ns < 0:
+                detection.frame_publication_age_seconds = None
+                return None, "negative_monotonic_delta"
+
+            try:
+                age_seconds = age_delta_ns / 1_000_000_000
+            except OverflowError:
+                detection.frame_publication_age_seconds = None
+                return None, "monotonic_clock_unavailable"
+            if not math.isfinite(age_seconds):
+                detection.frame_publication_age_seconds = None
+                return None, "monotonic_clock_unavailable"
+
+            detection.frame_publication_age_seconds = age_seconds
+            return age_seconds, None
+
+        # Preserve the legacy age produced by Vision for records without a
+        # usable same-host clock stamp. Invalid or non-finite legacy values
+        # were historically treated as unavailable rather than rejected.
+        legacy_age = getattr(detection, "frame_publication_age_seconds", None)
+        legacy_age_seconds: float | None
+        try:
+            legacy_age_seconds = (
+                float(legacy_age)
+                if isinstance(legacy_age, (int, float))
+                and not isinstance(legacy_age, bool)
+                else None
+            )
+        except (OverflowError, ValueError):
+            legacy_age_seconds = None
+        if legacy_age_seconds is not None and not math.isfinite(legacy_age_seconds):
+            legacy_age_seconds = None
+        return legacy_age_seconds, None
+
+    def _reject_stale_observation(
+        self,
+        detection: DetectionResult,
+        observation_identity: tuple[Any, ...] | None,
+        observation_age_seconds: float | None,
+        maximum_observation_age: float,
+        *,
+        reason: str,
+    ) -> None:
+        """Record a freshness rejection consistently at either admission check."""
+        if observation_identity is not None:
+            self._last_stale_observation_identity = observation_identity
+        self.stale_observation_count += 1
+        if self._audit_enabled("state"):
+            self._record_audit_event(
+                "state",
+                {
+                    "event_type": "integration_observation_rejected",
+                    "source_frame_number": getattr(
+                        detection, "source_frame_number", detection.frame_number
+                    ),
+                    "reason": reason,
+                    "frame_publication_age_seconds": observation_age_seconds,
+                    "maximum_observation_age_seconds": maximum_observation_age,
+                },
+                force_keep=True,
+            )
 
     def _source_observation_identity(
         self, detection: DetectionResult
@@ -770,6 +1060,115 @@ class IntegrationService:
             source_timestamp,
         )
 
+    def _source_observation_watermark(
+        self, detection: DetectionResult
+    ) -> _SourceObservationWatermark | None:
+        """Build the ordering watermark used to prevent Core state rollback.
+
+        Frame numbers are comparable within the same vision instance, producer
+        process, and timestamp kind. Shared-memory monotonic publication ticks
+        provide an independent ordering signal on the same host. Source
+        timestamps are compared only when their clock kind is explicit and the
+        producer identity matches.
+        """
+        source_frame_number = getattr(detection, "source_frame_number", None)
+        if source_frame_number is None:
+            source_frame_number = getattr(detection, "frame_number", None)
+        if isinstance(source_frame_number, (bool, np.bool_)) or not isinstance(
+            source_frame_number, (int, np.integer)
+        ):
+            source_frame_number = None
+        else:
+            source_frame_number = int(source_frame_number)
+
+        publication_monotonic_ns = getattr(
+            detection, "source_publication_monotonic_ns", None
+        )
+        if (
+            isinstance(publication_monotonic_ns, (bool, np.bool_))
+            or not isinstance(publication_monotonic_ns, (int, np.integer))
+            or publication_monotonic_ns <= 0
+        ):
+            publication_monotonic_ns = None
+        else:
+            publication_monotonic_ns = int(publication_monotonic_ns)
+
+        source_timestamp_kind = getattr(detection, "source_timestamp_kind", None)
+        if not isinstance(source_timestamp_kind, str) or not source_timestamp_kind:
+            source_timestamp_kind = None
+        source_timestamp = getattr(detection, "source_timestamp", None)
+        if source_timestamp is None:
+            source_timestamp = getattr(detection, "timestamp", None)
+        if isinstance(source_timestamp, (bool, np.bool_)) or not isinstance(
+            source_timestamp, (int, float, np.integer, np.floating)
+        ):
+            source_timestamp = None
+        else:
+            source_timestamp = float(source_timestamp)
+            if not math.isfinite(source_timestamp):
+                source_timestamp = None
+
+        if (
+            source_frame_number is None
+            and publication_monotonic_ns is None
+            and source_timestamp is None
+        ):
+            return None
+
+        return _SourceObservationWatermark(
+            producer_identity=(
+                getattr(self, "_vision_instance_id", None),
+                getattr(detection, "source_process_id", None),
+                source_timestamp_kind,
+            ),
+            source_frame_number=source_frame_number,
+            source_timestamp_kind=source_timestamp_kind,
+            source_timestamp=source_timestamp,
+            source_publication_monotonic_ns=publication_monotonic_ns,
+        )
+
+    def _source_observation_ordering_regression(
+        self, detection: DetectionResult
+    ) -> str | None:
+        """Classify a duplicate or out-of-order observation for this producer."""
+        previous = getattr(self, "_latest_processed_source_watermark", None)
+        current = self._source_observation_watermark(detection)
+        if (
+            previous is None
+            or current is None
+            or current.producer_identity != previous.producer_identity
+        ):
+            # A process or vision-run identity change starts a new sequence.
+            return None
+
+        if (
+            current.source_publication_monotonic_ns is not None
+            and previous.source_publication_monotonic_ns is not None
+            and current.source_publication_monotonic_ns
+            < previous.source_publication_monotonic_ns
+        ):
+            return "source_publication_time_regressed"
+
+        if (
+            current.source_timestamp_kind is not None
+            and current.source_timestamp_kind == previous.source_timestamp_kind
+            and current.source_timestamp is not None
+            and previous.source_timestamp is not None
+            and current.source_timestamp < previous.source_timestamp
+        ):
+            return "source_timestamp_regressed"
+
+        if (
+            current.source_frame_number is not None
+            and previous.source_frame_number is not None
+        ):
+            if current.source_frame_number < previous.source_frame_number:
+                return "source_frame_sequence_regressed"
+            if current.source_frame_number == previous.source_frame_number:
+                return "duplicate_source_frame"
+
+        return None
+
     def _audit_enabled(self, domain: str) -> bool:
         """Check audit activation without constructing an event on the hot path."""
         recorder = getattr(self, "_audit_recorder", None)
@@ -780,11 +1179,42 @@ class IntegrationService:
             and domains.get(domain, False)
         )
 
-    def _record_audit_event(self, domain: str, event: dict[str, Any]) -> None:
+    def _trajectory_calculation_enabled_for_current_run(self) -> bool:
+        """Keep the prediction workload switch scoped to an active audit run."""
+        if getattr(self, "_audit_recorder", None) is None:
+            return True
+        return bool(getattr(self, "_audit_trajectory_workload_enabled", True))
+
+    def _should_sample_audit_detail(
+        self,
+        domain: str,
+        identity: int | str | None,
+        *,
+        category: str,
+    ) -> bool:
+        """Select detail before allocating event payloads or timing spans."""
+        if not self._audit_enabled(domain):
+            return False
+        recorder = getattr(self, "_audit_recorder", None)
+        selector = getattr(recorder, "select_detail_sample", None)
+        if not callable(selector):
+            return True
+        return bool(
+            selector(
+                domain,
+                identity,
+                getattr(self, "_audit_detail_sample_rate", 1.0),
+                category=category,
+            )
+        )
+
+    def _record_audit_event(
+        self, domain: str, event: dict[str, Any], *, force_keep: bool = False
+    ) -> None:
         """Record an event only when its audit domain is explicitly enabled."""
         recorder = getattr(self, "_audit_recorder", None)
         if recorder is not None and self._audit_enabled(domain):
-            recorder.record(event)
+            recorder.record(event, force_keep=force_keep)
 
     def _register_state_event_observation(
         self,
@@ -1236,22 +1666,23 @@ class IntegrationService:
         lock_started_ns = worker_started_ns
         with self._trajectory_calculation_lock:
             compute_started_ns = time.perf_counter_ns()
-            result = self.trajectory_calculator.predict_multiball_cue_shot(
-                cue_state=request.cue_state,
-                ball_state=request.ball_state,
-                table_state=request.table_state,
-                other_balls=request.other_balls,
-                quality=request.quality,
-                max_collision_depth=request.max_collision_depth,
+            request.timing["calculator_lock_wait_seconds"] = (
+                max(0, compute_started_ns - lock_started_ns) / 1e9
             )
-            compute_finished_ns = time.perf_counter_ns()
-        request.timing["calculator_lock_wait_seconds"] = (
-            max(0, compute_started_ns - lock_started_ns) / 1e9
-        )
-        request.timing["physics_compute_seconds"] = (
-            max(0, compute_finished_ns - compute_started_ns) / 1e9
-        )
-        return result
+            try:
+                return self.trajectory_calculator.predict_multiball_cue_shot(
+                    cue_state=request.cue_state,
+                    ball_state=request.ball_state,
+                    table_state=request.table_state,
+                    other_balls=request.other_balls,
+                    quality=request.quality,
+                    max_collision_depth=request.max_collision_depth,
+                )
+            finally:
+                compute_finished_ns = time.perf_counter_ns()
+                request.timing["physics_compute_seconds"] = (
+                    max(0, compute_finished_ns - compute_started_ns) / 1e9
+                )
 
     async def _prediction_worker(self) -> None:
         """Calculate queued predictions without blocking frame processing."""
@@ -1881,6 +2312,48 @@ class IntegrationService:
 
         return False
 
+    async def _broadcast_latest_state_once(
+        self,
+        broadcast_func: Callable[..., Any],
+        data_summary: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> bool:
+        """Attempt one best-effort state publication without replaying stale data.
+
+        State snapshots are ephemeral: a later snapshot supersedes a failed
+        write, so retrying this payload after backoff would deliberately send
+        old table state. Command and trajectory broadcasts retain the separate
+        retry policy in :meth:`_broadcast_with_retry`.
+        """
+        if not self.circuit_breaker.can_attempt():
+            logger.debug(
+                "Circuit breaker OPEN - dropping latest game-state publication. "
+                "Status: %s",
+                self.circuit_breaker.get_status(),
+            )
+            self.broadcast_metrics.failed_broadcasts += 1
+            return False
+
+        try:
+            await broadcast_func(*args, **kwargs)
+        except Exception as error:
+            error_type = self._classify_broadcast_error(error)
+            self.circuit_breaker.record_failure()
+            self.broadcast_metrics.failed_broadcasts += 1
+            logger.warning(
+                "Latest game-state publication failed and was dropped. "
+                "Error type: %s. Data: %s. Error: %s",
+                error_type.value,
+                data_summary,
+                error,
+            )
+            return False
+
+        self.circuit_breaker.record_success()
+        self.broadcast_metrics.successful_broadcasts += 1
+        return True
+
     def _on_state_updated(self, event_type: str, event_data: dict[str, Any]) -> None:
         """Handle Core state update events.
 
@@ -1890,8 +2363,10 @@ class IntegrationService:
             event_type: Type of event (e.g., "state_updated")
             event_data: Event data containing updated state (flattened GameState dict)
         """
-        # Schedule async processing using the stored event loop
-        if self._event_loop is None:
+        # A missing loop means Core emitted before the integration service was
+        # started. Do not retain the event: no consumer can make it current.
+        loop = self._event_loop
+        if loop is None:
             logger.error(
                 "No event loop available - cannot process state update. "
                 "Integration service may not be started properly."
@@ -1914,16 +2389,70 @@ class IntegrationService:
                 if has_matching_observation
                 else self.latest_observation_status
             )
-            self._event_loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(
-                    self._on_state_updated_async(
-                        event_type, event_data, observation_status
-                    ),
-                    loop=self._event_loop,
+            with self._state_event_lock:
+                if self._pending_state_event is not None:
+                    # The older snapshot has not begun publication and is no
+                    # longer useful. Keep only the newest Core state.
+                    self.coalesced_state_event_count += 1
+                self._pending_state_event = (
+                    event_type,
+                    event_data,
+                    observation_status,
                 )
-            )
+                if self._state_event_drain_scheduled:
+                    return
+                self._state_event_drain_scheduled = True
+
+            # At most one callback is posted to asyncio, even when Core calls
+            # this method from one or more executor threads.
+            loop.call_soon_threadsafe(self._start_state_event_drain)
         except Exception as e:
+            with self._state_event_lock:
+                self._pending_state_event = None
+                self._state_event_drain_scheduled = False
             logger.error(f"Failed to schedule state update processing: {e}")
+
+    def _start_state_event_drain(self) -> None:
+        """Create the single asyncio task that drains the latest-state slot."""
+        task = self._state_event_drain_task
+        if task is not None and not task.done():
+            return
+        loop = self._event_loop
+        if loop is None or loop.is_closed():
+            with self._state_event_lock:
+                self._pending_state_event = None
+                self._state_event_drain_scheduled = False
+            return
+        self._state_event_drain_task = loop.create_task(
+            self._drain_state_event_updates()
+        )
+
+    async def _drain_state_event_updates(self) -> None:
+        """Publish snapshots serially while always taking the newest pending one."""
+        try:
+            while True:
+                with self._state_event_lock:
+                    pending = self._pending_state_event
+                    self._pending_state_event = None
+                    if pending is None:
+                        self._state_event_drain_scheduled = False
+                        self._state_event_drain_task = None
+                        return
+
+                try:
+                    await self._on_state_updated_async(*pending)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # One malformed event or broadcaster failure must not
+                    # prevent a later, fresher snapshot from being published.
+                    logger.exception("Failed to publish a Core state update")
+        except asyncio.CancelledError:
+            with self._state_event_lock:
+                self._pending_state_event = None
+                self._state_event_drain_scheduled = False
+                self._state_event_drain_task = None
+            raise
 
     async def _on_state_updated_async(
         self,
@@ -2017,11 +2546,31 @@ class IntegrationService:
             )
             self._logged_state_structure = True
 
-        # Broadcast with retry logic
-        broadcast_started_ns = time.perf_counter_ns()
-        broadcast_succeeded = await self._broadcast_with_retry(
+        observation = (
+            observation_status
+            if isinstance(observation_status, dict)
+            else self.latest_observation_status
+        )
+        source_frame_number = (
+            observation.get("source_frame_number")
+            if isinstance(observation, dict)
+            else None
+        )
+        publication_detail = self._audit_enabled("state") and (
+            self._should_sample_audit_detail(
+                "state",
+                source_frame_number,
+                category="state_publication_enqueued",
+            )
+        )
+
+        # State is latest-value data. A failed send is dropped immediately;
+        # retrying it after backoff could publish an obsolete table snapshot.
+        # Detailed timing is selected before this await so ordinary updates do
+        # not pay audit clock costs.
+        broadcast_started_ns = time.perf_counter_ns() if publication_detail else None
+        broadcast_succeeded = await self._broadcast_latest_state_once(
             self.broadcaster.broadcast_game_state,
-            "broadcast_game_state",
             data_summary,
             balls_converted,
             cue,
@@ -2033,48 +2582,44 @@ class IntegrationService:
                 else observation_status
             ),
         )
-        observation = (
-            observation_status
-            if isinstance(observation_status, dict)
-            else self.latest_observation_status
-        )
-        self._record_audit_event(
-            "state",
-            {
-                "event_type": "state_publication_enqueued",
-                "source_frame_number": (
-                    observation.get("source_frame_number")
-                    if isinstance(observation, dict)
-                    else None
-                ),
-                "source_timestamp": (
-                    observation.get("source_timestamp")
-                    if isinstance(observation, dict)
-                    else None
-                ),
-                "source_timestamp_kind": (
-                    observation.get("source_timestamp_kind")
-                    if isinstance(observation, dict)
-                    else None
-                ),
-                "map_revision": (
-                    observation.get("map_revision")
-                    if isinstance(observation, dict)
-                    else None
-                ),
-                "calibration_revision": (
-                    observation.get("calibration_revision")
-                    if isinstance(observation, dict)
-                    else None
-                ),
-                "serialization_and_enqueue_seconds": max(
-                    0, time.perf_counter_ns() - broadcast_started_ns
-                )
-                / 1e9,
-                "broadcast_succeeded": broadcast_succeeded,
-                "payload_ball_count": len(balls_converted),
-            },
-        )
+        if publication_detail and broadcast_started_ns is not None:
+            self._record_audit_event(
+                "state",
+                {
+                    "event_type": "state_publication_enqueued",
+                    "source_frame_number": (
+                        observation.get("source_frame_number")
+                        if isinstance(observation, dict)
+                        else None
+                    ),
+                    "source_timestamp": (
+                        observation.get("source_timestamp")
+                        if isinstance(observation, dict)
+                        else None
+                    ),
+                    "source_timestamp_kind": (
+                        observation.get("source_timestamp_kind")
+                        if isinstance(observation, dict)
+                        else None
+                    ),
+                    "map_revision": (
+                        observation.get("map_revision")
+                        if isinstance(observation, dict)
+                        else None
+                    ),
+                    "calibration_revision": (
+                        observation.get("calibration_revision")
+                        if isinstance(observation, dict)
+                        else None
+                    ),
+                    "serialization_and_enqueue_seconds": max(
+                        0, time.perf_counter_ns() - broadcast_started_ns
+                    )
+                    / 1e9,
+                    "broadcast_succeeded": broadcast_succeeded,
+                    "payload_ball_count": len(balls_converted),
+                },
+            )
 
     def _on_trajectory_calculated(
         self, event_type: str, event_data: dict[str, Any]
@@ -2335,6 +2880,7 @@ class IntegrationService:
             "running": self.running,
             "frames_processed": self.frame_count,
             "duplicate_observations": self.duplicate_observation_count,
+            "stale_observations_rejected": getattr(self, "stale_observation_count", 0),
             "errors": self.error_count,
             "error_rate": (
                 self.error_count / self.frame_count if self.frame_count > 0 else 0
@@ -2345,5 +2891,6 @@ class IntegrationService:
                 "total_retries": self.broadcast_metrics.total_retries,
                 "success_rate_percent": self.broadcast_metrics.success_rate(),
             },
+            "coalesced_state_events": getattr(self, "coalesced_state_event_count", 0),
             "circuit_breaker": self.circuit_breaker.get_status(),
         }

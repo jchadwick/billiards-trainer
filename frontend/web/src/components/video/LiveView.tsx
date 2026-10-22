@@ -6,6 +6,12 @@ import React, { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { apiClient } from '../../api/client';
 import { getConfiguredLiveStreamUrl } from './live-stream-url';
+import {
+  currentObservationAgeSeconds,
+  DEFAULT_MAX_STATE_OBSERVATION_AGE_SECONDS,
+  observationIsStale,
+  positiveFreshnessLimit,
+} from './freshness';
 import { canonicalToImagePoint, normalizeImageExtentToCanonical, normalizeImagePointToCanonical } from '../../utils/coordinates';
 import type { GameType } from '../../types/api';
 import { useRootStore } from '../../stores/context';
@@ -46,6 +52,10 @@ const GAME_TYPE_LABELS: Record<GameType, string> = {
   straight: 'Straight Pool',
 };
 
+// A standard pool set contains the cue ball and fifteen object balls. Keep the
+// live layout stable even while only part of the set is visible to the camera.
+const BALL_SLOT_COUNT = 16;
+
 export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', autoConnect = true }) => {
   const { system, videoStore } = useRootStore();
   const videoRef = useRef<HTMLImageElement>(null);
@@ -53,15 +63,112 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [viewerStreamUrl, setViewerStreamUrl] = useState<string | undefined>();
   const [viewerConfigLoaded, setViewerConfigLoaded] = useState(false);
+  const [maximumObservationAgeSeconds, setMaximumObservationAgeSeconds] = useState(
+    DEFAULT_MAX_STATE_OBSERVATION_AGE_SECONDS,
+  );
+  const [ageTickMonotonicMs, setAgeTickMonotonicMs] = useState(0);
+  const receivedAtMonotonicMsRef = useRef(0);
+  const ageAtLastUniqueObservationSecondsRef = useRef<number | null>(null);
+  const lastUniqueObservationKeyRef = useRef<string | number | null>(null);
   const latestState = videoStore.latestGameState;
   const balls: Ball[] = latestState?.balls ?? [];
   const cue: Cue | null = latestState?.cue ?? null;
   const gameType = latestState?.game_type ?? null;
-  const reportedAge = latestState?.observation_status?.frame_publication_age_seconds;
-  const visionAgeMs = typeof reportedAge === 'number' && Number.isFinite(reportedAge) && reportedAge >= 0
-    ? Math.round(reportedAge * 1000)
-    : null;
+  const observationStatus = latestState?.observation_status;
+  const reportedAge = observationStatus?.frame_publication_age_seconds;
+  const observationIdentity = observationStatus?.observation_identity;
+  const sourceIdentityParts = [
+    observationIdentity?.engine_instance_id
+      ?? observationStatus?.engine_instance_id
+      ?? observationStatus?.vision_instance_id,
+    observationIdentity?.session_id
+      ?? observationStatus?.source_session_id
+      ?? observationStatus?.source_process_id,
+    observationIdentity?.frame_id
+      ?? observationStatus?.source_frame_id
+      ?? observationStatus?.source_frame_number
+      ?? observationStatus?.source_timestamp
+      ?? latestState?.frame_number,
+    observationIdentity?.snapshot_revision ?? observationStatus?.snapshot_revision,
+  ];
+  const uniqueObservationKey = sourceIdentityParts.some(
+    (part) => part !== undefined && part !== null && part !== '',
+  )
+    ? sourceIdentityParts.map((part) => part ?? '').join('\u0000')
+    : latestState ? '__anonymous_observation__' : null;
+  const currentAgeSeconds = currentObservationAgeSeconds(
+    reportedAge,
+    ageAtLastUniqueObservationSecondsRef.current,
+    receivedAtMonotonicMsRef.current,
+    ageTickMonotonicMs,
+  );
+  const visionAgeMs = currentAgeSeconds === null
+    ? null
+    : Math.round(currentAgeSeconds * 1000);
+  const freshnessStatusIsStale = observationIsStale(
+    null,
+    maximumObservationAgeSeconds,
+    observationStatus,
+  );
+  const isFreshnessUnknown = latestState !== null
+    && currentAgeSeconds === null
+    && !freshnessStatusIsStale;
+  const isObservationStale = latestState !== null && (
+    isFreshnessUnknown
+    || observationIsStale(
+      currentAgeSeconds,
+      maximumObservationAgeSeconds,
+      observationStatus,
+    )
+  );
   const isConnected = autoConnect && system.status.isConnected;
+  const hasReportedAge = typeof reportedAge === 'number' && Number.isFinite(reportedAge);
+
+  // Age keeps advancing without WebSocket messages. The origin changes only
+  // for a new source observation, so cached/repeated publications cannot reset
+  // the client freshness clock and make old positions look current.
+  useEffect(() => {
+    if (uniqueObservationKey === null) {
+      lastUniqueObservationKeyRef.current = null;
+      return;
+    }
+    if (
+      typeof reportedAge !== 'number'
+      || !Number.isFinite(reportedAge)
+      || reportedAge < 0
+    ) return;
+    if (lastUniqueObservationKeyRef.current === uniqueObservationKey) return;
+    lastUniqueObservationKeyRef.current = uniqueObservationKey;
+    receivedAtMonotonicMsRef.current = performance.now();
+    ageAtLastUniqueObservationSecondsRef.current = reportedAge;
+    setAgeTickMonotonicMs(receivedAtMonotonicMsRef.current);
+  }, [uniqueObservationKey, reportedAge]);
+
+  useEffect(() => {
+    if (!hasReportedAge) return;
+    const interval = window.setInterval(
+      () => setAgeTickMonotonicMs(performance.now()),
+      100,
+    );
+    return () => window.clearInterval(interval);
+  }, [hasReportedAge]);
+
+  const allBallPositionsAreStale = isObservationStale;
+  const observedBalls = allBallPositionsAreStale
+    ? []
+    : balls.filter((ball) => ball.is_observed !== false);
+  const nonObservedBalls = allBallPositionsAreStale
+    ? balls
+    : balls.filter((ball) => ball.is_observed === false);
+  const cueVisible = !allBallPositionsAreStale
+    && Boolean(cue && (cue.is_visible ?? cue.detected));
+  const displayedBalls = [
+    ...observedBalls.map((ball) => ({ ball, entireStateIsStale: false })),
+    ...nonObservedBalls.map((ball) => ({ ball, entireStateIsStale: allBallPositionsAreStale })),
+  ].slice(0, BALL_SLOT_COUNT);
+  const videoAspectRatio = videoSize.width > 0 && videoSize.height > 0
+    ? `${videoSize.width} / ${videoSize.height}`
+    : '16 / 9';
 
   // The detector may subscribe to a loopback camera URI while browsers need a
   // LAN-reachable hostname. Keep the viewer URL as runtime application config.
@@ -76,11 +183,17 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       if (cancelled) return;
       const values = response.data?.values;
       const streamUrl = values?.api?.stream?.viewer_url;
+      const configuredMaximumAge = values?.perception?.freshness
+        ?.maximum_observation_age_seconds;
+      setMaximumObservationAgeSeconds(
+        positiveFreshnessLimit(configuredMaximumAge),
+      );
       setViewerStreamUrl(getConfiguredLiveStreamUrl(streamUrl));
       setViewerConfigLoaded(true);
     }).catch(() => {
       if (cancelled) return;
       setViewerStreamUrl(undefined);
+      setMaximumObservationAgeSeconds(DEFAULT_MAX_STATE_OBSERVATION_AGE_SECONDS);
       setViewerConfigLoaded(true);
     });
 
@@ -98,15 +211,19 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     return 'Ball';
   };
 
-  const getBallFreshnessLabel = (ball: Ball): string => {
+  const getBallFreshnessLabel = (
+    ball: Ball,
+    entireStateIsStale: boolean,
+  ): string => {
+    if (entireStateIsStale) {
+      return isFreshnessUnknown
+        ? 'Last known state (freshness unknown)'
+        : 'Last known state (stale)';
+    }
     if (ball.position_kind === 'extrapolated') return 'Predicted track';
     if (ball.position_kind === 'filtered') return 'Filtered track';
     return 'Last observed';
   };
-
-  const observedBalls = balls.filter((ball) => ball.is_observed !== false);
-  const nonObservedBalls = balls.filter((ball) => ball.is_observed === false);
-  const cueVisible = Boolean(cue && (cue.is_visible ?? cue.detected));
 
   // Track video size when image loads
   useEffect(() => {
@@ -141,6 +258,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (isObservationStale) return;
 
     // Calculate scale factor from video coordinates to canvas coordinates
     const scaleX = rect.width / videoSize.width;
@@ -293,10 +411,10 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
         ctx.restore();
       }
     }
-  }, [balls, cue, cueVisible, videoSize]);
+  }, [balls, cue, cueVisible, isObservationStale, videoSize]);
 
   return (
-    <div className={`flex flex-col h-screen ${className}`}>
+    <div className={`flex flex-col w-full ${className}`}>
       {/* Header */}
       <div className="flex-none bg-gray-800 text-white p-4">
         <h1 className="text-xl font-bold">Live View</h1>
@@ -305,37 +423,51 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
           {isConnected ? 'Connected' : 'Disconnected'} | {observedBalls.length} balls observed
           {nonObservedBalls.length > 0 ? `, ${nonObservedBalls.length} stale` : ''}
           {' | Cue stick: '}{cueVisible ? `visible${typeof cue?.confidence === 'number' ? ` (${Math.round(cue.confidence * 100)}%)` : ''}` : 'not detected'}
-          {visionAgeMs !== null ? ` | Vision: ${visionAgeMs} ms old` : ''}
+          {visionAgeMs !== null
+            ? ` | State age: ${visionAgeMs} ms${isObservationStale ? ' · STALE' : ''}`
+            : latestState
+              ? ` | State age unavailable${isFreshnessUnknown ? ' · positions not current-qualified' : ''}`
+              : ''}
           {' | Mode: '}{gameTypeLabel}
         </div>
       </div>
 
       {/* Video container */}
-      <div className="flex-1 relative bg-black flex items-center justify-center">
+      <div
+        data-testid="live-video-pane"
+        className="relative w-full flex-none overflow-hidden bg-black"
+        style={{ aspectRatio: videoAspectRatio }}
+      >
         {/* MJPEG video stream */}
-        <img
-          ref={videoRef}
-          src={autoConnect && viewerConfigLoaded
-            ? (viewerStreamUrl ?? apiClient.getVideoStreamUrl())
-            : undefined}
-          alt="Video stream"
-          className="max-w-full max-h-full object-contain"
-          style={{ display: 'block' }}
-        />
+        {autoConnect && viewerConfigLoaded && !viewerStreamUrl ? (
+          <p role="status" className="px-4 text-center text-white">
+            Direct camera stream unavailable. Configure a browser-reachable
+            <code className="mx-1">api.stream.viewer_url</code> to display video.
+          </p>
+        ) : (
+          <img
+            ref={videoRef}
+            src={autoConnect && viewerConfigLoaded ? viewerStreamUrl : undefined}
+            alt="Video stream"
+            className="absolute inset-0 block h-full w-full object-contain"
+          />
+        )}
 
         {/* Ball detection overlay canvas */}
         <canvas
           ref={canvasRef}
           className="absolute pointer-events-none"
+          data-freshness={isObservationStale
+            ? (isFreshnessUnknown ? 'unknown' : 'stale')
+            : 'current'}
           style={{
-            // The image is centered in the taller video pane. Center the overlay
-            // canvas the same way so image coordinates don't start at the pane's
-            // top-left letterbox edge.
-            left: '50%',
-            top: '50%',
-            transform: 'translate(-50%, -50%)',
-            width: videoRef.current?.clientWidth || 0,
-            height: videoRef.current?.clientHeight || 0,
+            // The pane follows the source image aspect ratio, so the source and
+            // overlay share the same origin and dimensions without letterbox
+            // offsets or crop-dependent coordinate transforms.
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            opacity: isObservationStale ? 0 : 1,
           }}
         />
 
@@ -351,39 +483,62 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       </div>
 
       {/* Ball list */}
-      <div className="flex-none bg-gray-100 p-4 border-t">
-        <h2 className="font-semibold mb-2">Detected Balls</h2>
-        <div className="flex gap-2 flex-wrap">
-          {observedBalls.length === 0 ? (
-            <div className="text-gray-500 text-sm">No balls detected</div>
-          ) : (
-            observedBalls.map(ball => (
+      <div className="flex-none border-t bg-gray-100 px-4 py-3">
+        <div className="mb-2 flex items-center gap-3">
+          <h2 className="font-semibold">Detected Balls</h2>
+          <span
+            role="status"
+            aria-live="polite"
+            className="rounded-full bg-white px-2 py-0.5 text-sm text-gray-600"
+          >
+            {observedBalls.length} {observedBalls.length === 1 ? 'ball' : 'balls'} detected
+          </span>
+        </div>
+        <div
+          role="grid"
+          aria-label="Detected ball slots"
+          className="grid grid-cols-4 gap-2"
+        >
+          {Array.from({ length: BALL_SLOT_COUNT }, (_, index) => {
+            const entry = displayedBalls[index];
+            if (!entry) {
+              return (
+                <div
+                  key={`empty-${index}`}
+                  role="gridcell"
+                  aria-label={`Empty ball slot ${index + 1}`}
+                  className="min-h-12 rounded border border-dashed border-gray-300 bg-gray-50"
+                />
+              );
+            }
+
+            const { ball, entireStateIsStale } = entry;
+            const isObserved = ball.is_observed !== false && !entireStateIsStale;
+            const label = isObserved
+              ? getBallLabel(ball)
+              : getBallFreshnessLabel(ball, entireStateIsStale);
+            const confidence = ball.confidence_kind === 'unavailable'
+              ? 'n/a'
+              : `${Math.round(ball.confidence * 100)}%`;
+
+            return (
               <div
-                key={ball.id}
-                className="px-3 py-1 bg-white border rounded shadow-sm text-sm"
+                key={`${isObserved ? 'observed' : 'stale'}-${ball.id}`}
+                role="gridcell"
+                title={`${label} · ${confidence}`}
+                className={`flex min-h-12 min-w-0 flex-col items-center justify-center rounded border px-2 py-1 text-center text-xs shadow-sm ${
+                  isObserved
+                    ? 'border-gray-300 bg-white text-gray-900'
+                    : 'border-dashed border-amber-400 bg-amber-50 text-amber-900'
+                }`}
               >
-                {getBallLabel(ball)}
-                <span className="text-gray-500 ml-2">
-                  {ball.confidence_kind === 'unavailable'
-                    ? 'n/a'
-                    : `${Math.round(ball.confidence * 100)}%`}
+                <span className="w-full truncate font-medium">{label}</span>
+                <span className={isObserved ? 'text-gray-500' : 'text-amber-700'}>
+                  {confidence}
                 </span>
               </div>
-            ))
-          )}
-          {nonObservedBalls.map(ball => (
-            <div
-              key={`stale-${ball.id}`}
-              className="px-3 py-1 bg-amber-50 border border-dashed border-amber-400 rounded shadow-sm text-sm text-amber-900"
-            >
-              {getBallFreshnessLabel(ball)}
-              <span className="text-amber-700 ml-2">
-                {ball.confidence_kind === 'unavailable'
-                  ? 'n/a'
-                  : `${Math.round(ball.confidence * 100)}%`}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

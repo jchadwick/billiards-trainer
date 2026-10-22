@@ -266,9 +266,7 @@ def test_tracker_receives_monotonic_time_not_wall_publication_time(monkeypatch):
 
 
 @pytest.mark.unit
-def test_frame_publication_age_is_distinct_from_monotonic_observation_time(
-    monkeypatch,
-):
+def test_legacy_frame_publication_age_falls_back_to_wall_clock(monkeypatch):
     module = _make_module(settings=_settings(enabled=False))
     module._clock = lambda: 123.0
     monkeypatch.setattr("backend.vision.time.time", lambda: 1000.0)
@@ -286,6 +284,91 @@ def test_frame_publication_age_is_distinct_from_monotonic_observation_time(
     assert result.timestamp == 999.5
     assert module.tracker.calls[0][2] == 123.0
     assert result.ball_observation_timestamp is None
+
+
+@pytest.mark.unit
+def test_shared_memory_publication_age_uses_monotonic_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _make_module(settings=_settings(enabled=False))
+    monkeypatch.setattr("backend.vision.time.time", lambda: 1000.0)
+    monkeypatch.setattr("backend.vision.time.perf_counter_ns", lambda: 2_000_000_000)
+
+    result = module._process_single_frame(
+        np.zeros((50, 100, 3), dtype=np.uint8),
+        9,
+        999.5,
+        source_frame_number=9,
+        source_timestamp=999.5,
+        source_timestamp_kind="shared_memory_publication",
+        source_publication_monotonic_ns=1_500_000_000,
+    )
+
+    assert result.frame_publication_age_seconds == pytest.approx(0.5)
+
+
+@pytest.mark.unit
+def test_future_monotonic_publication_time_is_not_reported_as_fresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _make_module(settings=_settings(enabled=False))
+    monkeypatch.setattr("backend.vision.time.time", lambda: 1000.0)
+    monkeypatch.setattr("backend.vision.time.perf_counter_ns", lambda: 1_000_000_000)
+
+    result = module._process_single_frame(
+        np.zeros((50, 100, 3), dtype=np.uint8),
+        10,
+        999.5,
+        source_frame_number=10,
+        source_timestamp=999.5,
+        source_timestamp_kind="shared_memory_publication",
+        source_publication_monotonic_ns=2_000_000_000,
+    )
+
+    assert result.frame_publication_age_seconds is None
+
+
+@pytest.mark.unit
+def test_unavailable_monotonic_clock_does_not_claim_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _make_module(settings=_settings(enabled=False))
+    monkeypatch.setattr("backend.vision.time.time", lambda: 1000.0)
+
+    def unavailable_clock() -> int:
+        raise RuntimeError("monotonic clock unavailable")
+
+    monkeypatch.setattr("backend.vision.time.perf_counter_ns", unavailable_clock)
+    result = module._process_single_frame(
+        np.zeros((50, 100, 3), dtype=np.uint8),
+        12,
+        999.5,
+        source_frame_number=12,
+        source_timestamp=999.5,
+        source_timestamp_kind="shared_memory_publication",
+        source_publication_monotonic_ns=1_500_000_000,
+    )
+
+    assert result.frame_publication_age_seconds is None
+
+
+@pytest.mark.unit
+def test_negative_legacy_wall_clock_delta_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _make_module(settings=_settings(enabled=False))
+    monkeypatch.setattr("backend.vision.time.time", lambda: 1000.0)
+
+    result = module._process_single_frame(
+        np.zeros((50, 100, 3), dtype=np.uint8),
+        11,
+        1000.5,
+        source_frame_number=11,
+        source_timestamp=1000.5,
+        source_timestamp_kind="shared_memory_publication",
+    )
+
+    assert result.frame_publication_age_seconds is None
 
 
 @pytest.mark.unit

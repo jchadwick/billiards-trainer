@@ -8,13 +8,14 @@
 
 ## Context
 
-Python now resolves one immutable, revisioned capture-settings request, and
-Rust can compare that request with an opened source report before its first
-read. The report contains requested-versus-negotiated modes, source capability
-declarations, timestamp semantics, source-reported required control readbacks,
-and source-reported output geometry. Those values are currently available
-inside the Rust capture library only. The retained Python runtime therefore
-cannot distinguish a matching opened session from an unverified request.
+At the time of this decision, Python resolved one immutable, revisioned
+capture-settings request, and Rust could compare that request with an opened
+source report before its first read. ADR-0065 has since moved request
+construction to the Rust configuration authority. The report contains
+requested-versus-negotiated modes, source capability declarations, timestamp
+semantics, source-reported required control readbacks, and source-reported
+output geometry. Those values are available before processing starts, while
+source properties that cannot be observed remain explicitly unknown.
 
 The existing loopback scene handshake binds engine and source-session identity
 and preserves the recorded-replay path. Scene data must not be admitted as

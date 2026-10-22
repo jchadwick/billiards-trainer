@@ -35,6 +35,9 @@ use crate::ImageSpace;
 
 /// Request device identifier reserved for the synthetic GStreamer source.
 pub const SYNTHETIC_GSTREAMER_DEVICE_ID: &str = "synthetic-gstreamer-videotestsrc";
+/// Stable provenance label for the explicit remote stream source. The URL is
+/// launch configuration and is never treated as a physical camera selector.
+pub const HTTP_MJPEG_STREAM_DEVICE_ID: &str = "remote-http-mjpeg-stream";
 
 /// Explicit launch settings for the opt-in synthetic helper.
 ///
@@ -46,6 +49,8 @@ pub const SYNTHETIC_GSTREAMER_DEVICE_ID: &str = "synthetic-gstreamer-videotestsr
 pub struct GstreamerCaptureSourceConfig {
     /// Executable path for `billiards-perception-gstreamer-probe`.
     pub helper_executable_path: PathBuf,
+    /// Remote HTTP(S) multipart MJPEG URL for the explicit stream source.
+    pub http_mjpeg_url: Option<String>,
     /// Exact serialized bytes from the Python capture-settings owner.
     pub exact_capture_settings_json: Vec<u8>,
     /// Maximum number of request bytes the helper accepts.
@@ -86,6 +91,8 @@ enum HelperMode {
     Synthetic,
     #[cfg(feature = "camera-gstreamer-source")]
     Physical,
+    #[cfg(feature = "camera-gstreamer-source")]
+    HttpMjpeg,
 }
 
 impl HelperMode {
@@ -94,6 +101,16 @@ impl HelperMode {
             Self::Synthetic => false,
             #[cfg(feature = "camera-gstreamer-source")]
             Self::Physical => true,
+            #[cfg(feature = "camera-gstreamer-source")]
+            Self::HttpMjpeg => false,
+        }
+    }
+
+    fn permits_unbounded_run(self) -> bool {
+        match self {
+            Self::Synthetic => false,
+            #[cfg(feature = "camera-gstreamer-source")]
+            Self::Physical | Self::HttpMjpeg => true,
         }
     }
 }
@@ -155,6 +172,42 @@ impl GstreamerCaptureSourceFactory {
         Ok(factory)
     }
 
+    /// Construct an explicit remote HTTP-MJPEG source for development
+    /// integration tests. It has a distinct capture identity and uses
+    /// host-side read-completion time, never a claimed camera exposure time.
+    #[cfg(feature = "camera-gstreamer-source")]
+    pub fn new_http_mjpeg(
+        mut config: GstreamerCaptureSourceConfig,
+        url: String,
+    ) -> Result<Self, GstreamerCaptureSourceConfigError> {
+        if !crate::configuration_authority::valid_http_uri(&url) {
+            return Err(invalid_config(
+                "HTTP-MJPEG URL must be a valid credential-free HTTP(S) URI",
+            ));
+        }
+        config.http_mjpeg_url = Some(url);
+        let factory = Self::new_for_mode(config, HelperMode::HttpMjpeg)?;
+        if factory.resolved_settings.schema_version != 3 {
+            return Err(invalid_config(
+                "HTTP-MJPEG source requires capture-settings v3",
+            ));
+        }
+        if factory.resolved_settings.expected.device_id() != HTTP_MJPEG_STREAM_DEVICE_ID {
+            return Err(invalid_config(format!(
+                "HTTP-MJPEG capture settings must use source id {HTTP_MJPEG_STREAM_DEVICE_ID:?}"
+            )));
+        }
+        if !matches!(
+            factory.resolved_settings.camera_controls,
+            crate::capture_settings_wire::ResolvedCameraControlsPolicy::SourceDefaults
+        ) {
+            return Err(invalid_config(
+                "HTTP-MJPEG source supports source_defaults controls only",
+            ));
+        }
+        Ok(factory)
+    }
+
     fn new_for_mode(
         config: GstreamerCaptureSourceConfig,
         helper_mode: HelperMode,
@@ -182,6 +235,16 @@ impl GstreamerCaptureSourceFactory {
             return Err(invalid_config(format!(
                 "synthetic source requests must use device id {SYNTHETIC_GSTREAMER_DEVICE_ID:?}"
             )));
+        }
+        #[cfg(feature = "camera-gstreamer-source")]
+        if helper_mode == HelperMode::HttpMjpeg {
+            if config.http_mjpeg_url.is_none() {
+                return Err(invalid_config("HTTP-MJPEG source requires a remote URL"));
+            }
+        } else if config.http_mjpeg_url.is_some() {
+            return Err(invalid_config(
+                "HTTP-MJPEG URL is valid only for the HTTP-MJPEG source",
+            ));
         }
         if resolved_settings.expected.image_space() != ImageSpace::Raw {
             return Err(GstreamerCaptureSourceConfigError::Invalid(
@@ -523,7 +586,7 @@ fn validate_config(
     }
     match config.frame_count {
         Some(0) => return Err(invalid_config("helper frame count must be positive")),
-        None if !helper_mode.is_physical() => {
+        None if !helper_mode.permits_unbounded_run() => {
             return Err(invalid_config(
                 "synthetic GStreamer helpers require a finite frame count",
             ));
@@ -654,12 +717,18 @@ fn open_child_source(
             HelperMode::Synthetic => "synthetic",
             #[cfg(feature = "camera-gstreamer-source")]
             HelperMode::Physical => "physical",
+            #[cfg(feature = "camera-gstreamer-source")]
+            HelperMode::HttpMjpeg => "http-mjpeg",
         })
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         // Inherit stderr so diagnostics remain visible without a pipe that
         // could fill and stall frame delivery.
         .stderr(Stdio::inherit());
+    #[cfg(feature = "camera-gstreamer-source")]
+    if let Some(url) = config.http_mjpeg_url.as_deref() {
+        command.arg("--http-mjpeg-url").arg(url);
+    }
 
     let (mut child_stdin, child_stdout) = {
         let mut state = control
@@ -765,6 +834,18 @@ fn open_child_source(
             )
             .map_err(|error| format!("invalid physical input profile: {error}"))?
         }
+        #[cfg(feature = "camera-gstreamer-source")]
+        HelperMode::HttpMjpeg => {
+            let output_rate = resolved.expected.expected_negotiated_profile().frame_rate();
+            CaptureVideoProfile::new(
+                ready.width_px,
+                ready.height_px,
+                output_rate,
+                CapturePixelFormat::new(ready.pixel_format.clone())
+                    .map_err(|error| format!("invalid HTTP-MJPEG output format: {error}"))?,
+            )
+            .map_err(|error| format!("invalid HTTP-MJPEG output profile: {error}"))?
+        }
     };
     let is_physical = helper_mode.is_physical();
     let control_capability = if is_physical {
@@ -824,8 +905,16 @@ fn open_child_source(
             HelperMode::Synthetic => "GStreamer synthetic videotestsrc".to_owned(),
             #[cfg(feature = "camera-gstreamer-source")]
             HelperMode::Physical => "GStreamer selected physical camera".to_owned(),
+            #[cfg(feature = "camera-gstreamer-source")]
+            HelperMode::HttpMjpeg => "Remote HTTP multipart MJPEG stream".to_owned(),
         }),
-        "gstreamer",
+        match helper_mode {
+            HelperMode::Synthetic => "gstreamer",
+            #[cfg(feature = "camera-gstreamer-source")]
+            HelperMode::Physical => "gstreamer",
+            #[cfg(feature = "camera-gstreamer-source")]
+            HelperMode::HttpMjpeg => "gstreamer",
+        },
         resolved.expected.requested_profile().clone(),
         actual_profile,
         capabilities,

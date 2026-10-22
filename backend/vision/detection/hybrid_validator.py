@@ -735,9 +735,9 @@ def _extract_pattern_features(
 
     # Method 2: Edge Detection
     blurred = cv2.bilateralFilter(masked_gray, 5, 50, 50)
-    median_intensity = np.median(blurred[mask > 0])
-    lower_thresh = int(max(0, 0.66 * median_intensity))
-    upper_thresh = int(min(255, 1.33 * median_intensity))
+    median_intensity = float(np.median(blurred[mask > 0]))
+    lower_thresh = int(max(0.0, 0.66 * median_intensity))
+    upper_thresh = int(min(255.0, 1.33 * median_intensity))
     edges = cv2.Canny(blurred, lower_thresh, upper_thresh)
     edges_masked = cv2.bitwise_and(edges, edges, mask=mask)
 

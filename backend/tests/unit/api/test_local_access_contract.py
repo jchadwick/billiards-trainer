@@ -86,3 +86,7 @@ def _assert_no_authentication_contract(app: FastAPI) -> None:
         if middleware.cls is CORSMiddleware  # type: ignore[comparison-overlap]
     )
     assert cors.kwargs["allow_credentials"] is False
+    assert set(cors.kwargs["expose_headers"]) >= {
+        "X-Frame-Preview-Descriptor",
+        "X-Frame-Preview-Schema",
+    }

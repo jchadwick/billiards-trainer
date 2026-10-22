@@ -2,10 +2,13 @@
 
 import asyncio
 import json
+import time
+from types import SimpleNamespace
 
 import pytest
 
 import backend.api.websocket as websocket_package
+import backend.api.websocket.handler as handler_module
 from backend.api.websocket.handler import WebSocketConnection, WebSocketHandler
 from backend.api.websocket.manager import WebSocketManager
 
@@ -82,6 +85,106 @@ def add_connection(handler: WebSocketHandler, client_id: str, socket) -> None:
     handler.connections[client_id] = WebSocketConnection(socket, client_id)
 
 
+class AuditRecorder:
+    def __init__(self, selected: bool) -> None:
+        self.selected = selected
+        self.events: list[tuple[dict, bool]] = []
+        self.selections: list[tuple[str, int | str | None, str]] = []
+        self.sample_rates: list[float] = []
+
+    def select_detail_sample(self, domain, identity, sample_rate, *, category="detail"):
+        self.selections.append((domain, identity, category))
+        self.sample_rates.append(sample_rate)
+        return self.selected
+
+    def record(self, event, *, force_keep=False):
+        self.events.append((event, force_keep))
+        return True
+
+
+@pytest.mark.integration
+def test_unsampled_websocket_message_skips_timing_and_keeps_delivery(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    recorder = AuditRecorder(selected=False)
+    handler.configure_performance_audit(recorder, {"state": True})
+    connection = WebSocketConnection(RecordingSocket(), "sampled-out")
+
+    def fail_if_timed():
+        raise AssertionError("unsampled serialization must not take audit clocks")
+
+    monkeypatch.setattr(handler_module.time, "perf_counter_ns", fail_if_timed)
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 12,
+                "observation_status": {"source_frame_number": 91},
+            },
+        },
+    )
+
+    queued = connection.outbound_messages[0]
+    assert queued.audit_sampled is False
+    assert json.loads(queued.payload)["data"]["sequence"] == 12
+    assert recorder.selections == [("state", 91, "websocket_message")]
+    assert recorder.events == []
+
+
+@pytest.mark.integration
+def test_audit_activation_refreshes_sampling_from_selected_config(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    selected_config = SimpleNamespace(
+        get=lambda key, default=None: (
+            0.05 if key == "performance_audit.detailed_event_sample_rate" else default
+        )
+    )
+    monkeypatch.setattr(handler_module, "config", selected_config)
+    recorder = AuditRecorder(selected=True)
+    handler.configure_performance_audit(recorder, {"state": True})
+    connection = WebSocketConnection(RecordingSocket(), "selected-config")
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 1,
+                "observation_status": {"source_frame_number": 1},
+            },
+        },
+    )
+
+    assert recorder.sample_rates == [0.05]
+
+
+@pytest.mark.integration
+def test_websocket_delivery_samples_details_but_forces_coalescing_anomaly():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    recorder = AuditRecorder(selected=False)
+    handler.configure_performance_audit(recorder, {"state": True})
+    connection = WebSocketConnection(RecordingSocket(), "coalescing")
+
+    for frame_number in (1, 2):
+        assert handler._enqueue_message(
+            connection,
+            {
+                "type": "state",
+                "data": {
+                    "sequence": frame_number,
+                    "observation_status": {"source_frame_number": frame_number},
+                },
+            },
+        )
+
+    assert len(connection.outbound_messages) == 1
+    assert json.loads(connection.outbound_messages[0].payload)["data"]["sequence"] == 2
+    assert len(recorder.events) == 1
+    event, force_keep = recorder.events[0]
+    assert event["event_type"] == "websocket_update_coalesced"
+    assert force_keep is True
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_slow_client_does_not_block_healthy_client_and_updates_coalesce():
@@ -123,6 +226,368 @@ async def test_slow_client_does_not_block_healthy_client_and_updates_coalesce():
 
     await handler.disconnect("slow")
     await handler.disconnect("healthy")
+
+
+@pytest.mark.integration
+def test_expired_observation_is_dropped_before_serialization_or_enqueue(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_state_observation_age_seconds = 0.5
+    connection = WebSocketConnection(RecordingSocket(), "expired-observation")
+
+    def fail_if_serialized(_message):
+        raise AssertionError("expired state must be dropped before serialization")
+
+    monkeypatch.setattr(handler_module.json, "dumps", fail_if_serialized)
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 17,
+                "observation_status": {
+                    "source_frame_number": 901,
+                    "frame_publication_age_seconds": 0.75,
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+
+    assert not connection.outbound_messages
+    assert connection.dropped_updates == 1
+    assert connection.expired_updates == 1
+    assert handler.delivery_metrics["expired_updates"] == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_writer_drops_replaceable_update_that_ages_in_queue():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_replaceable_message_age_seconds = 0.01
+    socket = RecordingSocket()
+    connection = WebSocketConnection(socket, "expired-queue")
+    assert handler._enqueue_message(
+        connection,
+        {"type": "state", "data": {"sequence": 18}},
+    )
+    connection.outbound_messages[0].created_monotonic_ns = (
+        time.monotonic_ns() - 20_000_000
+    )
+    connection.is_alive = False
+
+    await handler._writer_loop(connection)
+
+    assert socket.messages == []
+    assert connection.expired_updates == 1
+    assert connection.dropped_updates == 1
+    assert handler.delivery_metrics["expired_updates"] == 1
+    assert not connection.replaceable_messages
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_writer_refreshes_python_state_age_at_delivery(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_state_observation_age_seconds = 2.0
+    handler.max_replaceable_message_age_seconds = 1.0
+    socket = RecordingSocket()
+    connection = WebSocketConnection(socket, "refreshed-source-age")
+    clock = {"now_ns": 10_000_000_000}
+    monkeypatch.setattr(handler_module.time, "monotonic_ns", lambda: clock["now_ns"])
+    monkeypatch.setattr(handler_module.time, "perf_counter_ns", lambda: clock["now_ns"])
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 21,
+                "observation_status": {
+                    "vision_instance_id": "vision-instance",
+                    "source_publication_monotonic_ns": 9_000_000_000,
+                    "frame_publication_age_seconds": 0.1,
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+    # Simulate work and queueing between state serialization and its socket write.
+    clock["now_ns"] += 400_000_000
+    connection.is_alive = False
+
+    await handler._writer_loop(connection)
+
+    delivered = json.loads(socket.messages[0])
+    assert delivered["data"]["observation_status"][
+        "frame_publication_age_seconds"
+    ] == pytest.approx(1.4)
+    assert connection.expired_updates == 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_writer_drops_python_state_that_expires_while_waiting(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_state_observation_age_seconds = 0.5
+    handler.max_replaceable_message_age_seconds = 2.0
+    socket = RecordingSocket()
+    connection = WebSocketConnection(socket, "expired-source-age")
+    clock = {"now_ns": 10_000_000_000}
+    monkeypatch.setattr(handler_module.time, "monotonic_ns", lambda: clock["now_ns"])
+    monkeypatch.setattr(handler_module.time, "perf_counter_ns", lambda: clock["now_ns"])
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 22,
+                "observation_status": {
+                    "vision_instance_id": "vision-instance",
+                    "source_publication_monotonic_ns": 10_000_000_000,
+                    "frame_publication_age_seconds": 0.0,
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+    # Keep the message in the bounded queue but advance beyond the source-age
+    # deadline before the writer is allowed to deliver it.
+    clock["now_ns"] += 600_000_000
+    connection.is_alive = False
+
+    await handler._writer_loop(connection)
+
+    assert socket.messages == []
+    assert connection.expired_updates == 1
+    assert handler.delivery_metrics["expired_updates"] == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_writer_drops_python_state_without_comparable_publication_tick(
+    monkeypatch,
+):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    socket = RecordingSocket()
+    connection = WebSocketConnection(socket, "missing-source-clock")
+    monkeypatch.setattr(handler_module.time, "monotonic_ns", lambda: 10_000_000_000)
+    monkeypatch.setattr(handler_module.time, "perf_counter_ns", lambda: 10_000_000_000)
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 23,
+                "observation_status": {
+                    "vision_instance_id": "vision-instance",
+                    "frame_publication_age_seconds": 0.01,
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+    connection.is_alive = False
+
+    await handler._writer_loop(connection)
+
+    assert socket.messages == []
+    assert connection.expired_updates == 1
+
+
+@pytest.mark.integration
+def test_source_silence_update_survives_source_age_expiry():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_state_observation_age_seconds = 0.5
+    connection = WebSocketConnection(RecordingSocket(), "stale-health")
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 19,
+                "observation_status": {
+                    "frame_publication_age_seconds": 10.0,
+                    "ball_positions_status": "cached",
+                    "freshness_status": "source_silent",
+                },
+            },
+        },
+    )
+
+    assert len(connection.outbound_messages) == 1
+    assert connection.expired_updates == 0
+
+
+@pytest.mark.integration
+def test_older_source_observation_is_rejected_before_serialization(monkeypatch):
+    handler = WebSocketHandler(manager=WebSocketManager())
+    connection = WebSocketConnection(RecordingSocket(), "out-of-order-source")
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 40,
+                "observation_status": {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "42",
+                },
+            },
+        },
+    )
+
+    def fail_if_serialized(_message):
+        raise AssertionError("an older source observation must be dropped early")
+
+    monkeypatch.setattr(handler_module.json, "dumps", fail_if_serialized)
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 41,
+                "observation_status": {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "41",
+                },
+            },
+        },
+    )
+
+    assert len(connection.outbound_messages) == 1
+    assert json.loads(connection.outbound_messages[0].payload)["data"]["sequence"] == 40
+    assert connection.state_source_frame_number == 42
+    assert connection.dropped_updates == 1
+    assert handler.delivery_metrics["dropped_updates"] == 1
+
+
+@pytest.mark.integration
+def test_equal_source_watermark_allows_stale_health_refresh():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    connection = WebSocketConnection(RecordingSocket(), "equal-source-health")
+
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 50,
+                "observation_status": {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "52",
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+    assert handler._enqueue_message(
+        connection,
+        {
+            "type": "state",
+            "data": {
+                "sequence": 51,
+                "observation_status": {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "52",
+                    "ball_positions_status": "cached",
+                    "freshness_status": "source_silent",
+                },
+            },
+        },
+    )
+
+    assert len(connection.outbound_messages) == 1
+    refreshed = json.loads(connection.outbound_messages[0].payload)
+    assert refreshed["data"]["sequence"] == 51
+    assert refreshed["data"]["observation_status"]["freshness_status"] == (
+        "source_silent"
+    )
+    assert connection.state_source_frame_number == 52
+    assert connection.dropped_updates == 1  # the replaced state was coalesced
+
+
+@pytest.mark.integration
+def test_new_source_epoch_resets_state_frame_watermark():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    connection = WebSocketConnection(RecordingSocket(), "new-source-epoch")
+
+    for sequence, engine, frame_id in (
+        (60, "engine-old", "900"),
+        (1, "engine-new", "1"),
+    ):
+        assert handler._enqueue_message(
+            connection,
+            {
+                "type": "state",
+                "data": {
+                    "sequence": sequence,
+                    "observation_status": {
+                        "engine_instance_id": engine,
+                        "source_session_id": "session-a",
+                        "source_frame_id": frame_id,
+                    },
+                },
+            },
+        )
+
+    latest = json.loads(connection.outbound_messages[0].payload)
+    assert latest["data"]["sequence"] == 1
+    assert connection.state_source_epoch == (
+        ("engine_instance_id", "engine-new"),
+        ("source_session_id", "session-a"),
+    )
+    assert connection.state_source_frame_number == 1
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_state_socket_write_is_cancelled_at_remaining_source_age_deadline():
+    handler = WebSocketHandler(manager=WebSocketManager())
+    handler.max_state_observation_age_seconds = 0.2
+    handler.replaceable_send_timeout_seconds = 1.0
+    socket = GatedSocket()
+    add_connection(handler, "expires-during-send", socket)
+    connection = handler.connections["expires-during-send"]
+
+    assert await handler.send_to_client(
+        "expires-during-send",
+        {
+            "type": "state",
+            "data": {
+                "sequence": 70,
+                "observation_status": {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "70",
+                    # The write starts with about 100 ms of source-age lifetime.
+                    "frame_publication_age_seconds": 0.1,
+                    "ball_positions_status": "observed",
+                },
+            },
+        },
+    )
+
+    async def release_after_source_expiry():
+        await socket.send_started.wait()
+        await asyncio.sleep(0.15)
+        socket.release_send.set()
+
+    delayed_release = asyncio.create_task(release_after_source_expiry())
+    await asyncio.wait_for(connection.closed_event.wait(), timeout=0.5)
+    await delayed_release
+
+    assert socket.messages == []
+    assert connection.send_timeouts == 1
+    assert handler.delivery_metrics["send_timeouts"] == 1
+    assert socket.close_calls == [(1013, "Slow consumer")]
 
 
 @pytest.mark.integration
@@ -288,7 +753,7 @@ async def test_concurrent_disconnects_share_one_cleanup_without_key_errors():
 @pytest.mark.asyncio
 async def test_send_deadline_disconnects_a_stalled_client_and_reports_metrics():
     handler = WebSocketHandler(manager=WebSocketManager())
-    handler.send_timeout_seconds = 0.01
+    handler.replaceable_send_timeout_seconds = 0.01
     socket = GatedSocket()
     add_connection(handler, "stalled", socket)
     connection = handler.connections["stalled"]

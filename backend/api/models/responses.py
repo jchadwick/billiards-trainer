@@ -536,6 +536,27 @@ class SceneBallInfo(BaseResponse):
     radius_source: Literal["legacy_standard_pool_ball_assumption"]
 
 
+class GameSessionMetadataResponse(BaseResponse):
+    """Revisioned game metadata owned separately from scene localization."""
+
+    schema_version: Literal[1]
+    revision: int = Field(..., ge=0, le=9_007_199_254_740_991)
+    game_type: Literal["practice", "8ball", "9ball", "straight"]
+    active_player: int = Field(..., ge=1, le=2)
+    scores: list[int] = Field(..., min_length=2, max_length=2)
+    is_break: bool
+
+    @field_validator("scores", mode="before")
+    @classmethod
+    def validate_scores(cls, scores: Any) -> Any:
+        if not isinstance(scores, list) or any(
+            type(score) is not int or not 0 <= score <= 4_294_967_295
+            for score in scores
+        ):
+            raise ValueError("scores must be unsigned 32-bit integers")
+        return scores
+
+
 class SceneGameStateResponse(BaseResponse):
     """Current Rust localization plus independently sourced Core metadata."""
 
@@ -556,7 +577,11 @@ class SceneGameStateResponse(BaseResponse):
         description=("Core table geometry only when calibration alignment is verified"),
     )
     game_type: Optional[str] = Field(
-        ..., description="Game type from Core, unavailable when Core has no state"
+        ..., description="Game type from the available game-session metadata source"
+    )
+    session: Optional[GameSessionMetadataResponse] = Field(
+        None,
+        description="Rust-owned game-session metadata, independent of localization",
     )
     is_valid: bool
     confidence: Optional[float] = Field(
@@ -592,7 +617,9 @@ class GameResetResponse(BaseResponse):
     """Game reset response."""
 
     success: bool = Field(..., description="Reset operation success")
-    new_state: GameStateResponse = Field(..., description="New game state after reset")
+    new_state: Union[GameStateResponse, SceneGameStateResponse] = Field(
+        ..., description="Current state after resetting game-session metadata"
+    )
     backup_created: bool = Field(..., description="Whether backup was created")
     reset_at: datetime = Field(..., description="Reset timestamp")
 

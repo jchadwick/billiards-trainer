@@ -1,30 +1,64 @@
 # Local development
 
-There is no `docker-compose.dev.yml`. The root `docker-compose.yml` runs the
-backend image without source mounts or hot reload and exposes only the HTTP API.
-Use it to verify the packaged backend locally:
+The supported app runtime is Rust. Python remains available for tests, model
+training/export, annotation, and off-device development tools; it is not needed
+to launch the server. The browser client remains HTML/CSS/JavaScript built from
+the React/TypeScript source.
+
+## Run the Rust application from source
+
+Install Rust, Node.js, and GStreamer development files available to
+`pkg-config`. Configure `config.json` with a verified Rust ONNX/checkpoint pair,
+capture source, and any available calibration, then run:
+
+```bash
+make run
+```
+
+The gateway builds and serves the browser client at
+`http://127.0.0.1:8001` by default. `RUST_HTTP_PORT` overrides the local HTTP
+port, while `RUST_SERVER_ARGS` can pass additional server CLI options. The
+Rust live path requires `perception.rust_live.onnx_path`,
+`perception.rust_live.source_checkpoint_path`, and the ONNX export manifest
+beside the model. An invalid or missing model pair prevents live startup.
+
+For a gateway-only run that does not open a capture source:
+
+```bash
+make run-api
+```
+
+To work on the browser client while the Rust gateway is running, start Vite in
+a separate terminal:
+
+```bash
+cd frontend/web
+npm ci
+npm run dev
+```
+
+The dev client and packaged static client are browser applications; there is no
+WASM runtime.
+
+## Run the packaged container locally
+
+The Compose image compiles the Rust server and capture executables, builds the
+static browser client, and installs native GStreamer runtime components. It
+does not install Python. Supply the same model and capture configuration used
+for a native run, then:
 
 ```bash
 docker compose up --build backend
 ```
 
-The image uses CPU-only PyTorch and ONNX Runtime. CUDA acceleration requires a
-separate image built with CUDA-compatible PyTorch and a matching container
-runtime.
+For gateway-only checks set `START_LIVE=false` in the environment. Container
+configuration and model mounts are described in [DOCKER.md](DOCKER.md).
 
-For backend hot reload, run the application from the repository root instead:
+## Python development tools
 
-```bash
-python -m backend.main --config config.json
-```
-
-The web client and projector are separate applications. Run the web client with
-`npm ci && npm run dev` from `frontend/web`. Launch the LÖVE projector from
-`frontend/projector` when needed. Its local UDP receiver binds to
-`127.0.0.1:9999`; the backend does not publish the projector's custom protocol,
-and the old Compose mapping for UDP port 5005 has been removed.
-
-The backend WebSocket endpoint is
-`ws://localhost:8000/api/v1/websocket/ws`. It carries state and trajectory
-updates; WebSocket camera-frame delivery is disabled. Camera video is served
-through the backend's HTTP stream routes.
+Python-based tests, model-export utilities, label/evaluation tools, and
+recorded-input comparison tools remain part of the repository. Install their
+dependencies with the root `uv`/`pyproject.toml` workflow documented in the
+relevant tool README. These workflows do not launch a Python application
+server and their throughput is not a substitute for real-time live-camera
+qualification.

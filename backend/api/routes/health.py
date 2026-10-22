@@ -434,6 +434,7 @@ async def graceful_shutdown(
 ) -> ShutdownResponse:
     """Schedule graceful shutdown through the directly accessible local API."""
     global _shutdown_scheduled, _shutdown_time
+    scheduled_at: datetime | None = None
 
     try:
         if _shutdown_scheduled:
@@ -453,7 +454,8 @@ async def graceful_shutdown(
 
         # Schedule shutdown
         _shutdown_scheduled = True
-        _shutdown_time = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        _shutdown_time = scheduled_at
 
         # Add shutdown task to background
         background_tasks.add_task(perform_graceful_shutdown, delay, force, save_state)
@@ -477,6 +479,13 @@ async def graceful_shutdown(
     except HTTPException:
         raise
     except Exception as e:
+        # If setup fails after setting the process-wide guard, roll back only
+        # the schedule created by this request. Otherwise every later shutdown
+        # request would be rejected as a duplicate even though no task was
+        # successfully scheduled.
+        if scheduled_at is not None and _shutdown_time == scheduled_at:
+            _shutdown_scheduled = False
+            _shutdown_time = None
         logger.error(f"Shutdown request failed: {e}")
         raise HTTPException(
             status_code=500,

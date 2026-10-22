@@ -1,0 +1,1040 @@
+{
+  "schema_version": 1,
+  "workload": "recorded_images_paced_latest_frame",
+  "parity_scope": "1280-square Ultralytics equivalence harness; the configured CoreML package declares a fixed 1280-square input, but package lineage and CoreML-versus-ONNX parity remain unverified",
+  "model": {
+    "onnx_path": "/tmp/billiards-rust-tcp.Ij3QEK/billiards-yolov8n.onnx",
+    "onnx_sha256": "2444f8007934aa6a17584856b3049ebd1c1a6861c174408d7c3d549b41b45648",
+    "source_checkpoint_path": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "manifest_path": "/tmp/billiards-rust-tcp.Ij3QEK/billiards-yolov8n.onnx.manifest.json",
+    "input_name": "images",
+    "input_shape": [
+      1,
+      3,
+      1280,
+      1280
+    ],
+    "output_name": "output0",
+    "output_shape": [
+      1,
+      6,
+      33600
+    ],
+    "class_names": [
+      "cue",
+      "ball"
+    ]
+  },
+  "runtime": {
+    "binding": "ort",
+    "binding_version": "2.0.0-rc.15",
+    "requested_execution_provider": "CPUExecutionProvider",
+    "observed_execution_providers": [
+      "CPUExecutionProvider"
+    ],
+    "provider_evidence": "ONNX Runtime per-node profile from a separate identically configured session; empty observations mean unavailable",
+    "provider_event_count": 214,
+    "provider_node_counts": {
+      "CPUExecutionProvider": 214
+    },
+    "retained_profile_path": null
+  },
+  "preprocessing": {
+    "color_order": "RGB",
+    "layout": "NCHW",
+    "dtype": "float32",
+    "normalization": "[0, 1]",
+    "resize": "aspect-preserving OpenCV INTER_LINEAR half-pixel sampling approximation",
+    "padding": "centered RGB=(114,114,114), fixed square, no stride auto-padding",
+    "parity_note": "PNG/JPEG are decoded by image-rs; this path is an OpenCV-compatible approximation until tensor comparison against the repository still-image fixtures is recorded, and JPEG decoder differences may remain",
+    "optional_tensor_dump_format": "raw little-endian float32 NCHW [1,3,image_size,image_size]"
+  },
+  "settings": {
+    "provider": "cpu",
+    "image_size": 1280,
+    "confidence": 0.4,
+    "iou": 0.45,
+    "max_detections": 300,
+    "intra_op_threads": null,
+    "warmup_runs": 1,
+    "replay_rate_fps": 30.0
+  },
+  "timings": {
+    "image_count": 8,
+    "provider_probe_session_init_ms": 16.657875,
+    "provider_probe_inference_ms": 68.170584,
+    "measurement_session_init_ms": 11.238667000000001,
+    "warmup_total_ms": 47.766416,
+    "total_recorded_image_ms": 490.970917,
+    "summed_image_pipeline_ms": 800.68825,
+    "mean_image_decode_ms": 44.080625,
+    "mean_preprocess_ms": 9.8388175,
+    "mean_inference_ms": 46.07508862499999,
+    "mean_decode_and_nms_ms": 0.091500125,
+    "mean_end_to_end_ms": 100.08603125,
+    "batch_export_ms": 1.1830019999999999,
+    "paced_replay": {
+      "requested_source_fps": 30.0,
+      "scheduled_frame_count": 10,
+      "decoded_frame_count": 10,
+      "processed_frame_count": 8,
+      "replaced_pending_frame_count": 2,
+      "source_schedule_deadline_misses": 10,
+      "mean_source_schedule_lateness_ms": 79.5055681,
+      "maximum_source_schedule_lateness_ms": 108.89867000000001,
+      "observed_source_fps": 24.507351184215633,
+      "processed_frame_fps": 16.29424416599405,
+      "source_to_inference_start_ms": {
+        "sample_count": 8,
+        "p50_ms": 23.672167,
+        "p95_ms": 48.593917,
+        "p99_ms": 48.593917
+      },
+      "source_to_inference_complete_ms": {
+        "sample_count": 8,
+        "p50_ms": 71.706125,
+        "p95_ms": 94.083417,
+        "p99_ms": 94.083417
+      }
+    }
+  },
+  "detection_batch_output": {
+    "destination": "thoughts/performance-audits/paced-latest-frame-smoke-20261020-r2/detection-batches.jsonl",
+    "format": "newline_delimited_json",
+    "mode": "synchronous_export_during_paced_latest_frame_replay",
+    "engine_instance_id": "paced-smoke-20261020-r2",
+    "source_session_id": "recorded-test-data-20261020",
+    "batch_count": 8,
+    "source_time": "synthetic_monotonic_frame_arrival"
+  },
+  "results": [
+    {
+      "path": "backend/vision/test_data/calibration_straight_on.png",
+      "source_frame_index": 0,
+      "encoded_image_sha256": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 41.621167,
+        "preprocess_ms": 9.633375,
+        "inference_ms": 49.900875,
+        "decode_and_nms_ms": 0.08383399999999999,
+        "end_to_end_ms": 101.239251
+      },
+      "source_schedule_lateness_ms": 41.661917,
+      "source_to_inference_start_ms": 9.646916000000001,
+      "source_to_inference_complete_ms": 59.631916,
+      "preprocessed_tensor_path": null,
+      "detections": []
+    },
+    {
+      "path": "backend/vision/test_data/clustered_balls.png",
+      "source_frame_index": 1,
+      "encoded_image_sha256": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 44.561375,
+        "preprocess_ms": 11.357041,
+        "inference_ms": 45.073958999999995,
+        "decode_and_nms_ms": 0.09775,
+        "end_to_end_ms": 101.090125
+      },
+      "source_schedule_lateness_ms": 52.893625,
+      "source_to_inference_start_ms": 27.25575,
+      "source_to_inference_complete_ms": 72.427959,
+      "preprocessed_tensor_path": null,
+      "detections": [
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9349595,
+          "bbox_xyxy_px": [
+            214.74481,
+            1026.0406,
+            333.7979,
+            1125.2402
+          ],
+          "center_xy_px": [
+            274.27136,
+            1075.6404
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93790126,
+          "bbox_xyxy_px": [
+            215.01581,
+            1399.7161,
+            340.87637,
+            1504.0708
+          ],
+          "center_xy_px": [
+            277.9461,
+            1451.8934
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.6982077,
+          "bbox_xyxy_px": [
+            800.02167,
+            249.3934,
+            890.77423,
+            352.62973
+          ],
+          "center_xy_px": [
+            845.39795,
+            301.01157
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9421941,
+          "bbox_xyxy_px": [
+            882.0238,
+            247.49963,
+            995.8744,
+            356.57574
+          ],
+          "center_xy_px": [
+            938.9491,
+            302.0377
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.934216,
+          "bbox_xyxy_px": [
+            999.3974,
+            1104.2662,
+            1083.2563,
+            1192.6761
+          ],
+          "center_xy_px": [
+            1041.3269,
+            1148.4712
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.94020593,
+          "bbox_xyxy_px": [
+            1127.6306,
+            1842.1018,
+            1234.0398,
+            1944.3157
+          ],
+          "center_xy_px": [
+            1180.8352,
+            1893.2087
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93595684,
+          "bbox_xyxy_px": [
+            1254.9817,
+            248.22794,
+            1361.7036,
+            354.57468
+          ],
+          "center_xy_px": [
+            1308.3427,
+            301.4013
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9394467,
+          "bbox_xyxy_px": [
+            1604.3892,
+            688.64026,
+            1707.6848,
+            790.2678
+          ],
+          "center_xy_px": [
+            1656.037,
+            739.45404
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9105481,
+          "bbox_xyxy_px": [
+            2698.0261,
+            840.863,
+            2790.7031,
+            932.38495
+          ],
+          "center_xy_px": [
+            2744.3647,
+            886.62396
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9290062,
+          "bbox_xyxy_px": [
+            2698.9585,
+            1440.6827,
+            2809.2034,
+            1545.0953
+          ],
+          "center_xy_px": [
+            2754.081,
+            1492.889
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9215374,
+          "bbox_xyxy_px": [
+            2723.215,
+            998.86926,
+            2818.7112,
+            1088.6924
+          ],
+          "center_xy_px": [
+            2770.9631,
+            1043.7808
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.8395951,
+          "bbox_xyxy_px": [
+            2771.8264,
+            1389.3175,
+            2882.6316,
+            1486.7047
+          ],
+          "center_xy_px": [
+            2827.229,
+            1438.0111
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.8733666,
+          "bbox_xyxy_px": [
+            2777.1458,
+            1475.743,
+            2888.8262,
+            1583.3497
+          ],
+          "center_xy_px": [
+            2832.9858,
+            1529.5464
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9380288,
+          "bbox_xyxy_px": [
+            2807.7725,
+            947.34064,
+            2917.2388,
+            1049.4724
+          ],
+          "center_xy_px": [
+            2862.5056,
+            998.4065
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9338005,
+          "bbox_xyxy_px": [
+            2968.3242,
+            233.28479,
+            3078.244,
+            339.6176
+          ],
+          "center_xy_px": [
+            3023.2842,
+            286.4512
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.89505285,
+          "bbox_xyxy_px": [
+            3512.4844,
+            947.3132,
+            3620.212,
+            1048.3873
+          ],
+          "center_xy_px": [
+            3566.3481,
+            997.8502
+          ]
+        }
+      ]
+    },
+    {
+      "path": "backend/vision/test_data/cue_aiming.png",
+      "source_frame_index": 2,
+      "encoded_image_sha256": "50822a3f22aaf6e0c72fcc00d066916e6343ab3726826454b432f0d802cd88b1",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 45.353375,
+        "preprocess_ms": 9.619917000000001,
+        "inference_ms": 45.956166,
+        "decode_and_nms_ms": 0.087584,
+        "end_to_end_ms": 101.01704200000002
+      },
+      "source_schedule_lateness_ms": 64.915167,
+      "source_to_inference_start_ms": 36.765709,
+      "source_to_inference_complete_ms": 82.809709,
+      "preprocessed_tensor_path": null,
+      "detections": [
+        {
+          "class_id": 0,
+          "class_name": "cue",
+          "confidence": 0.7688966,
+          "bbox_xyxy_px": [
+            2399.5125,
+            1127.0098,
+            3151.9016,
+            2130.1619
+          ],
+          "center_xy_px": [
+            2775.707,
+            1628.5858
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9312422,
+          "bbox_xyxy_px": [
+            506.24683,
+            438.52148,
+            623.9328,
+            544.032
+          ],
+          "center_xy_px": [
+            565.08984,
+            491.27673
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93723035,
+          "bbox_xyxy_px": [
+            1007.3949,
+            282.8355,
+            1121.396,
+            391.45148
+          ],
+          "center_xy_px": [
+            1064.3955,
+            337.1435
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93569016,
+          "bbox_xyxy_px": [
+            1129.318,
+            1430.3269,
+            1236.3185,
+            1531.9739
+          ],
+          "center_xy_px": [
+            1182.8182,
+            1481.1504
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9470233,
+          "bbox_xyxy_px": [
+            1267.6091,
+            1122.5787,
+            1365.2904,
+            1217.88
+          ],
+          "center_xy_px": [
+            1316.4497,
+            1170.2294
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9391416,
+          "bbox_xyxy_px": [
+            2120.6404,
+            911.369,
+            2224.7644,
+            1011.7108
+          ],
+          "center_xy_px": [
+            2172.7024,
+            961.5399
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9567473,
+          "bbox_xyxy_px": [
+            3529.4417,
+            283.58276,
+            3658.1194,
+            398.04822
+          ],
+          "center_xy_px": [
+            3593.7805,
+            340.8155
+          ]
+        }
+      ]
+    },
+    {
+      "path": "backend/vision/test_data/empty_table.png",
+      "source_frame_index": 3,
+      "encoded_image_sha256": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 43.893791,
+        "preprocess_ms": 9.622957999999999,
+        "inference_ms": 45.411624999999994,
+        "decode_and_nms_ms": 0.077583,
+        "end_to_end_ms": 99.005957
+      },
+      "source_schedule_lateness_ms": 75.477209,
+      "source_to_inference_start_ms": 48.593917,
+      "source_to_inference_complete_ms": 94.083417,
+      "preprocessed_tensor_path": null,
+      "detections": []
+    },
+    {
+      "path": "backend/vision/test_data/full_table.png",
+      "source_frame_index": 5,
+      "encoded_image_sha256": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 45.307083999999996,
+        "preprocess_ms": 9.398166,
+        "inference_ms": 44.580042,
+        "decode_and_nms_ms": 0.093542,
+        "end_to_end_ms": 99.378834
+      },
+      "source_schedule_lateness_ms": 99.601293,
+      "source_to_inference_start_ms": 12.735167,
+      "source_to_inference_complete_ms": 57.409084,
+      "preprocessed_tensor_path": null,
+      "detections": [
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9349595,
+          "bbox_xyxy_px": [
+            214.74481,
+            1026.0406,
+            333.7979,
+            1125.2402
+          ],
+          "center_xy_px": [
+            274.27136,
+            1075.6404
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93790126,
+          "bbox_xyxy_px": [
+            215.01581,
+            1399.7161,
+            340.87637,
+            1504.0708
+          ],
+          "center_xy_px": [
+            277.9461,
+            1451.8934
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.6982077,
+          "bbox_xyxy_px": [
+            800.02167,
+            249.3934,
+            890.77423,
+            352.62973
+          ],
+          "center_xy_px": [
+            845.39795,
+            301.01157
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9421941,
+          "bbox_xyxy_px": [
+            882.0238,
+            247.49963,
+            995.8744,
+            356.57574
+          ],
+          "center_xy_px": [
+            938.9491,
+            302.0377
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.934216,
+          "bbox_xyxy_px": [
+            999.3974,
+            1104.2662,
+            1083.2563,
+            1192.6761
+          ],
+          "center_xy_px": [
+            1041.3269,
+            1148.4712
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.94020593,
+          "bbox_xyxy_px": [
+            1127.6306,
+            1842.1018,
+            1234.0398,
+            1944.3157
+          ],
+          "center_xy_px": [
+            1180.8352,
+            1893.2087
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93595684,
+          "bbox_xyxy_px": [
+            1254.9817,
+            248.22794,
+            1361.7036,
+            354.57468
+          ],
+          "center_xy_px": [
+            1308.3427,
+            301.4013
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9394467,
+          "bbox_xyxy_px": [
+            1604.3892,
+            688.64026,
+            1707.6848,
+            790.2678
+          ],
+          "center_xy_px": [
+            1656.037,
+            739.45404
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9105481,
+          "bbox_xyxy_px": [
+            2698.0261,
+            840.863,
+            2790.7031,
+            932.38495
+          ],
+          "center_xy_px": [
+            2744.3647,
+            886.62396
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9290062,
+          "bbox_xyxy_px": [
+            2698.9585,
+            1440.6827,
+            2809.2034,
+            1545.0953
+          ],
+          "center_xy_px": [
+            2754.081,
+            1492.889
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9215374,
+          "bbox_xyxy_px": [
+            2723.215,
+            998.86926,
+            2818.7112,
+            1088.6924
+          ],
+          "center_xy_px": [
+            2770.9631,
+            1043.7808
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.8395951,
+          "bbox_xyxy_px": [
+            2771.8264,
+            1389.3175,
+            2882.6316,
+            1486.7047
+          ],
+          "center_xy_px": [
+            2827.229,
+            1438.0111
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.8733666,
+          "bbox_xyxy_px": [
+            2777.1458,
+            1475.743,
+            2888.8262,
+            1583.3497
+          ],
+          "center_xy_px": [
+            2832.9858,
+            1529.5464
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9380288,
+          "bbox_xyxy_px": [
+            2807.7725,
+            947.34064,
+            2917.2388,
+            1049.4724
+          ],
+          "center_xy_px": [
+            2862.5056,
+            998.4065
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9338005,
+          "bbox_xyxy_px": [
+            2968.3242,
+            233.28479,
+            3078.244,
+            339.6176
+          ],
+          "center_xy_px": [
+            3023.2842,
+            286.4512
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.89505285,
+          "bbox_xyxy_px": [
+            3512.4844,
+            947.3132,
+            3620.212,
+            1048.3873
+          ],
+          "center_xy_px": [
+            3566.3481,
+            997.8502
+          ]
+        }
+      ]
+    },
+    {
+      "path": "backend/vision/test_data/motion_blur.png",
+      "source_frame_index": 7,
+      "encoded_image_sha256": "57f6e2250f47fcdaddddea8511dc6ea09ebd0fbea684c7a5fb4a54e0a15afe41",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 44.390291,
+        "preprocess_ms": 9.581125,
+        "inference_ms": 45.8195,
+        "decode_and_nms_ms": 0.126,
+        "end_to_end_ms": 99.916916
+      },
+      "source_schedule_lateness_ms": 88.043419,
+      "source_to_inference_start_ms": 11.946958,
+      "source_to_inference_complete_ms": 57.892582999999995,
+      "preprocessed_tensor_path": null,
+      "detections": [
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.6860402,
+          "bbox_xyxy_px": [
+            349.4677,
+            664.0142,
+            522.8485,
+            788.39484
+          ],
+          "center_xy_px": [
+            436.1581,
+            726.2045
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.8924399,
+          "bbox_xyxy_px": [
+            471.8888,
+            366.83258,
+            579.92487,
+            454.48627
+          ],
+          "center_xy_px": [
+            525.90686,
+            410.65942
+          ]
+        }
+      ]
+    },
+    {
+      "path": "backend/vision/test_data/multiple_balls.png",
+      "source_frame_index": 8,
+      "encoded_image_sha256": "e2cfcaef233cc819e1e679e28aafcbf46b88ce68da5c324e8d4b5ab6610151bd",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 44.240292000000004,
+        "preprocess_ms": 9.9645,
+        "inference_ms": 47.946625,
+        "decode_and_nms_ms": 0.086875,
+        "end_to_end_ms": 102.23829200000002
+      },
+      "source_schedule_lateness_ms": 98.952586,
+      "source_to_inference_start_ms": 23.672167,
+      "source_to_inference_complete_ms": 71.706125,
+      "preprocessed_tensor_path": null,
+      "detections": [
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.92985594,
+          "bbox_xyxy_px": [
+            506.35403,
+            438.40814,
+            623.7156,
+            544.3581
+          ],
+          "center_xy_px": [
+            565.0348,
+            491.38312
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.93622184,
+          "bbox_xyxy_px": [
+            1129.3049,
+            1430.1823,
+            1236.1459,
+            1531.9746
+          ],
+          "center_xy_px": [
+            1182.7253,
+            1481.0784
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9416381,
+          "bbox_xyxy_px": [
+            1817.228,
+            546.6643,
+            1913.8506,
+            644.874
+          ],
+          "center_xy_px": [
+            1865.5393,
+            595.76917
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.9363967,
+          "bbox_xyxy_px": [
+            3307.0005,
+            1609.6505,
+            3429.6394,
+            1717.0682
+          ],
+          "center_xy_px": [
+            3368.3198,
+            1663.3594
+          ]
+        },
+        {
+          "class_id": 1,
+          "class_name": "ball",
+          "confidence": 0.95713294,
+          "bbox_xyxy_px": [
+            3529.5579,
+            283.64877,
+            3658.423,
+            398.94662
+          ],
+          "center_xy_px": [
+            3593.9905,
+            341.2977
+          ]
+        }
+      ]
+    },
+    {
+      "path": "backend/vision/test_data/table_corners_visible.png",
+      "source_frame_index": 9,
+      "encoded_image_sha256": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "source_width": 3840,
+      "source_height": 2160,
+      "letterbox": {
+        "source_width": 3840,
+        "source_height": 2160,
+        "resized_width": 1280,
+        "resized_height": 720,
+        "pad_left": 0,
+        "pad_top": 280,
+        "scale": 0.33333334,
+        "model_size": 1280
+      },
+      "timings": {
+        "image_decode_ms": 43.277625,
+        "preprocess_ms": 9.533458,
+        "inference_ms": 43.911917,
+        "decode_and_nms_ms": 0.078833,
+        "end_to_end_ms": 96.801833
+      },
+      "source_schedule_lateness_ms": 108.89867000000001,
+      "source_to_inference_start_ms": 38.014958,
+      "source_to_inference_complete_ms": 82.006125,
+      "preprocessed_tensor_path": null,
+      "detections": []
+    }
+  ]
+}

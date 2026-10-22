@@ -20,13 +20,20 @@ from backend.perception.capture_configuration import (
     CaptureSettingsSnapshotV3,
     resolve_capture_settings,
 )
-from backend.perception.scene_ingress import SceneIngressConfig, SceneSnapshotIngress
+from backend.perception.scene_ingress import (
+    SceneIngressConfig,
+    SceneIngressError,
+    SceneSnapshotIngress,
+)
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[3] / "perception/contracts/v1"
 ACK_CONTRACT_ROOT = (
     Path(__file__).resolve().parents[3] / "perception/contracts/capture-session-ack/v1"
 )
 ACK_V2_CONTRACT_ROOT = ACK_CONTRACT_ROOT.parent / "v2"
+PUBLIC_STATE_FIXTURE_ROOT = (
+    Path(__file__).resolve().parents[3] / "perception/contracts/public-state"
+)
 
 
 class EmptyConfiguration:
@@ -51,6 +58,31 @@ def _fixture() -> dict[str, Any]:
     if not isinstance(fixture, dict):
         raise AssertionError("scene fixture root must be a JSON object")
     return fixture
+
+
+def _public_state_delivery_fixture() -> dict[str, Any]:
+    fixture = json.loads(
+        (PUBLIC_STATE_FIXTURE_ROOT / "number-8.json").read_text(encoding="utf-8")
+    )
+    scene = fixture["scene"]
+    payload = fixture["expected"]
+    payload["observation_status"].update(
+        freshness_status="fresh", localization_age_ns="0"
+    )
+    return {
+        "delivery_type": "billiards_public_state_delivery",
+        "delivery_schema_version": 1,
+        "source_snapshot": scene,
+        "current_state": {
+            "payload": payload,
+            "epoch": 1,
+            "updated_monotonic_ns": 1_000_000,
+            "localization_received_monotonic_ns": 1_000_000,
+            "localization_age_ns": 0,
+            "ball_age_ns": {ball["id"]: 0 for ball in payload["balls"]},
+            "freshness": "fresh",
+        },
+    }
 
 
 def _next_scene(
@@ -282,6 +314,64 @@ def test_slow_consumer_gets_only_latest_complete_snapshot() -> None:
     assert stats.accepted_snapshots == 3
     assert stats.queue_replacements == 2
     assert stats.sequence_gap_total == 0
+
+
+def test_opt_in_transport_audit_excludes_warmup_and_measures_queue_pressure() -> None:
+    async def run() -> tuple[Any, Any]:
+        ingress = SceneSnapshotIngress(_settings())
+        await ingress.start()
+        _, writer = await _connect(ingress)
+        base = _fixture()
+        writer.write(_frame(_next_scene(base, 1)))
+        await writer.drain()
+        await _wait_for_count(ingress, 1)
+        await ingress.receive_latest()
+
+        ingress.enable_transport_audit()
+        payload_sizes = []
+        for sequence in (2, 3, 5):
+            payload = _frame(_next_scene(base, sequence))
+            payload_sizes.append(len(payload) - 4)
+            writer.write(payload)
+        await writer.drain()
+        # Include the warm-up frame in the ingress total. Waiting for only three
+        # frames can return after the first two measured frames, racing the
+        # final queue and audit assertions below.
+        await _wait_for_count(ingress, 4)
+        await ingress.receive_latest()
+        summary = ingress.finish_transport_audit()
+        assert ingress.finish_transport_audit().status == "disabled"
+        writer.close()
+        await writer.wait_closed()
+        await ingress.close()
+        return summary, payload_sizes
+
+    summary, payload_sizes = asyncio.run(run())
+
+    assert summary.status == "available"
+    assert summary.accepted_snapshots == 3
+    assert summary.payload_bytes_total == sum(payload_sizes)
+    assert summary.payload_bytes_minimum == min(payload_sizes)
+    assert summary.payload_bytes_mean == pytest.approx(sum(payload_sizes) / 3)
+    assert summary.payload_bytes_maximum == max(payload_sizes)
+    assert summary.sequence_gaps == 1
+    assert summary.queue_capacity == 1
+    assert summary.queue_depth_high_water == 1
+    assert summary.queue_depth_zero_before_enqueue == 1
+    assert summary.queue_depth_one_before_enqueue == 2
+    assert summary.queue_replacements == 2
+    assert summary.queue_replacement_fraction == pytest.approx(2 / 3)
+
+
+def test_transport_audit_is_disabled_until_explicitly_enabled() -> None:
+    ingress = SceneSnapshotIngress(_settings())
+
+    summary = ingress.finish_transport_audit()
+
+    assert summary.status == "disabled"
+    assert summary.accepted_snapshots == 0
+    assert summary.payload_bytes_total == 0
+    assert summary.queue_replacements == 0
 
 
 def test_ingress_counts_skipped_transport_sequences_without_replaying_history() -> None:
@@ -850,6 +940,135 @@ def test_live_handshake_rejects_legacy_or_mismatched_ack_before_ready(
     assert closed == b""
     assert stats.rejected_handshakes == 1
     assert accepted_ack is None
+
+
+def test_live_ingress_accepts_rust_public_state_delivery_and_exposes_raw_scene() -> (
+    None
+):
+    delivery = _public_state_delivery_fixture()
+    scene = delivery["source_snapshot"]
+    settings = _settings(
+        capture_settings=_capture_settings_v3(),
+        accept_public_state_delivery=True,
+    )
+    ingress = SceneSnapshotIngress(settings)
+    ingress._begin_producer_epoch(
+        (scene["engine_instance_id"], scene["source"]["session_id"]), None
+    )
+
+    async def run() -> None:
+        ingress._accept_payload(
+            json.dumps(delivery, separators=(",", ":")).encode("utf-8"),
+            ("127.0.0.1", 12345),
+            "native-state-test",
+        )
+        received = await ingress.receive_latest()
+        assert received.snapshot == scene
+        assert received.public_state_delivery == delivery
+        assert ingress.stats.accepted_snapshots == 1
+
+    asyncio.run(run())
+
+
+def test_replay_native_state_delivery_uses_identity_handshake_without_live_ack() -> (
+    None
+):
+    delivery = _public_state_delivery_fixture()
+    scene = delivery["source_snapshot"]
+
+    async def run() -> tuple[dict[str, Any], Any, Any]:
+        ingress = SceneSnapshotIngress(_settings(accept_public_state_delivery=True))
+        await ingress.start()
+        reader, writer = await asyncio.open_connection(*ingress.address)
+        writer.write(
+            _frame(
+                {
+                    "type": "hello",
+                    "protocol_version": 2,
+                    "engine_instance_id": scene["engine_instance_id"],
+                    "source_session_id": scene["source"]["session_id"],
+                }
+            )
+        )
+        await writer.drain()
+        ready = await _read_json_frame(reader)
+        writer.write(_frame(delivery))
+        await writer.drain()
+        await _wait_for_count(ingress, 1)
+        received = await ingress.receive_latest()
+        acknowledgement = ingress.capture_session_acknowledgement
+        stats = ingress.stats
+        writer.close()
+        await writer.wait_closed()
+        await ingress.close()
+        return ready, received, (acknowledgement, stats)
+
+    ready, received, (acknowledgement, stats) = asyncio.run(run())
+
+    assert ready == {
+        "type": "ready",
+        "protocol_version": 2,
+        "last_transport_sequence": None,
+    }
+    assert received.snapshot == scene
+    assert received.public_state_delivery == delivery
+    assert acknowledgement is None
+    assert stats.accepted_snapshots == 1
+
+
+def test_live_native_delivery_still_requires_request_bound_capture_ack() -> None:
+    async def run() -> tuple[bytes, Any]:
+        ingress = SceneSnapshotIngress(
+            _settings(
+                capture_settings=_capture_settings_v3(),
+                accept_public_state_delivery=True,
+            )
+        )
+        await ingress.start()
+        scene = _fixture()
+        reader, writer = await asyncio.open_connection(*ingress.address)
+        writer.write(
+            _frame(
+                {
+                    "type": "hello",
+                    "protocol_version": 2,
+                    "engine_instance_id": scene["engine_instance_id"],
+                    "source_session_id": scene["source"]["session_id"],
+                }
+            )
+        )
+        await writer.drain()
+        closed = await asyncio.wait_for(reader.read(), timeout=1.0)
+        stats = ingress.stats
+        writer.close()
+        await writer.wait_closed()
+        await ingress.close()
+        return closed, stats
+
+    closed, stats = asyncio.run(run())
+
+    assert closed == b""
+    assert stats.rejected_handshakes == 1
+    assert stats.accepted_snapshots == 0
+
+
+def test_native_rust_ingress_rejects_raw_scene_without_state_delivery() -> None:
+    scene = _fixture()
+    ingress = SceneSnapshotIngress(
+        _settings(
+            capture_settings=_capture_settings_v3(),
+            accept_public_state_delivery=True,
+        )
+    )
+    ingress._begin_producer_epoch(
+        (scene["engine_instance_id"], scene["source"]["session_id"]), None
+    )
+    with pytest.raises(SceneIngressError, match="required public-state delivery"):
+        ingress._accept_payload(
+            json.dumps(scene, separators=(",", ":")).encode("utf-8"),
+            ("127.0.0.1", 12345),
+            "raw-scene-test",
+        )
 
 
 def test_live_session_report_cannot_change_under_a_reused_source_identity() -> None:

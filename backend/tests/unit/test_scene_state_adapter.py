@@ -24,12 +24,39 @@ SCENE_FIXTURE = (
     Path(__file__).resolve().parents[3]
     / "perception/contracts/v1/scene-rust-tracked-success.json"
 )
+PUBLIC_STATE_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "perception/contracts/public-state/number-8.json"
+)
 
 
 def _scene() -> dict[str, Any]:
     value = json.loads(SCENE_FIXTURE.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     return value
+
+
+def _native_delivery() -> dict[str, Any]:
+    fixture = json.loads(PUBLIC_STATE_FIXTURE.read_text(encoding="utf-8"))
+    scene = fixture["scene"]
+    payload = fixture["expected"]
+    payload["observation_status"].update(
+        freshness_status="fresh", localization_age_ns="0"
+    )
+    return {
+        "delivery_type": "billiards_public_state_delivery",
+        "delivery_schema_version": 1,
+        "source_snapshot": scene,
+        "current_state": {
+            "payload": payload,
+            "epoch": 1,
+            "updated_monotonic_ns": 1_000_000,
+            "localization_received_monotonic_ns": 1_000_000,
+            "localization_age_ns": 0,
+            "ball_age_ns": {ball["id"]: 0 for ball in payload["balls"]},
+            "freshness": "fresh",
+        },
+    }
 
 
 def test_adapter_preserves_observation_identity_and_units() -> None:
@@ -82,6 +109,10 @@ def test_adapter_preserves_observation_identity_and_units() -> None:
         "nanoseconds"
     )
     assert payload.observation_status["source_timestamp_is_exposure"] is False
+    assert payload.observation_status["frame_publication_age_status"] == (
+        "clock_domain_mismatch"
+    )
+    assert "frame_publication_age_seconds" not in payload.observation_status
     assert payload.observation_status["calibration_revision"] == 12
     assert payload.observation_status["observation_identity"] == {
         "engine_instance_id": "engine-rust-stage2-a",
@@ -89,6 +120,44 @@ def test_adapter_preserves_observation_identity_and_units() -> None:
         "frame_id": "frame-0001",
         "snapshot_revision": 1,
     }
+
+
+def test_adapter_reports_age_when_source_and_snapshot_share_monotonic_domain() -> None:
+    scene = _scene()
+    scene["published_at"].update(
+        ticks="1500000000",
+        clock="monotonic",
+        domain_id="host-clock-a",
+        stage="snapshot_publication",
+    )
+
+    payload = SceneSnapshotStateAdapter().adapt(scene)
+
+    assert payload is not None
+    assert payload.observation_status["frame_publication_age_seconds"] == 0.5
+    assert payload.observation_status["frame_publication_age_status"] == "available"
+    assert (
+        payload.observation_status["frame_age_basis"]
+        == "source_timestamp_to_snapshot_publication"
+    )
+
+
+def test_adapter_does_not_report_age_when_publication_precedes_source() -> None:
+    scene = _scene()
+    scene["published_at"].update(
+        ticks="999999999",
+        clock="monotonic",
+        domain_id="host-clock-a",
+        stage="snapshot_publication",
+    )
+
+    payload = SceneSnapshotStateAdapter().adapt(scene)
+
+    assert payload is not None
+    assert payload.observation_status["frame_publication_age_status"] == (
+        "publication_precedes_source"
+    )
+    assert "frame_publication_age_seconds" not in payload.observation_status
 
 
 def test_adapter_maps_source_resolution_to_canonical_pixels_once() -> None:
@@ -242,6 +311,47 @@ def test_publisher_sends_only_successful_observations_without_core_round_trip() 
     assert calls[0]["observation_status"]["source_frame_id"] == "frame-0001"
 
 
+def test_publisher_advances_rust_age_from_ingress_using_python_monotonic_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Broadcaster:
+        def __init__(self) -> None:
+            self.status: dict[str, Any] | None = None
+
+        async def broadcast_game_state(
+            self,
+            balls: object,
+            cue: dict[str, Any] | None = None,
+            table: dict[str, Any] | None = None,
+            timestamp: Any = None,
+            observation_status: dict[str, Any] | None = None,
+            game_type: str | None = None,
+        ) -> None:
+            self.status = observation_status
+
+    async def run() -> dict[str, Any]:
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(broadcaster)
+        scene = _scene()
+        scene["published_at"].update(
+            ticks="1500000000",
+            clock="monotonic",
+            domain_id="host-clock-a",
+            stage="snapshot_publication",
+        )
+        monkeypatch.setattr(
+            "backend.perception.scene_state_adapter.time.monotonic_ns",
+            lambda: 750_000_000,
+        )
+        assert await publisher.publish(scene, received_monotonic_ns=500_000_000)
+        assert broadcaster.status is not None
+        return broadcaster.status
+
+    status = asyncio.run(run())
+
+    assert status["frame_publication_age_seconds"] == 0.75
+
+
 def test_publisher_payload_passes_existing_broadcaster_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -261,6 +371,47 @@ def test_publisher_payload_passes_existing_broadcaster_validation(
     assert state_data["balls"][0]["position"]["scale"] == [1.0, 1.0]
     assert "table_position" not in state_data["balls"][0]
     assert state_data["observation_status"]["source_frame_id"] == "frame-0001"
+
+
+def test_native_public_state_uses_rust_payload_without_python_reinterpretation() -> (
+    None
+):
+    class Broadcaster:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        async def broadcast_game_state(self, **kwargs: Any) -> None:
+            self.calls.append(kwargs)
+
+    class RejectingAdapter:
+        def adapt(self, *_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError(
+                "native Rust state must not run through Python adaptation"
+            )
+
+    async def run() -> tuple[Any, Broadcaster, datetime]:
+        broadcaster = Broadcaster()
+        publisher = SceneSnapshotStatePublisher(
+            broadcaster, adapter=cast("Any", RejectingAdapter())
+        )
+        delivery = _native_delivery()
+        received_at = datetime(2026, 10, 22, tzinfo=timezone.utc)
+        outcome = await publisher.publish_native_state(
+            delivery,
+            received_at=received_at,
+            received_monotonic_ns=123_456,
+        )
+        assert outcome == "localization"
+        return publisher.read_model, broadcaster, received_at
+
+    read_model, broadcaster, received_at = asyncio.run(run())
+
+    assert read_model is not None
+    assert read_model.payload.balls[0]["number"] == 8
+    assert read_model.payload.observation_status["freshness_status"] == "fresh"
+    assert read_model.localization_received_at == received_at
+    assert len(broadcaster.calls) == 1
+    assert broadcaster.calls[0]["balls"][0]["id"] == "track-1"
 
 
 def test_health_failure_publishes_cached_ball_as_stale_without_advancing_its_time() -> (

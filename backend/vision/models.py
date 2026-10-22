@@ -456,8 +456,10 @@ class DetectionResult:
     source_timestamp_kind: Optional[str] = None
     source_process_id: Optional[int] = None
     source_publication_monotonic_ns: Optional[int] = None
-    # Wall-clock age since the known publication/arrival time, not camera
-    # exposure time or a moving-ball observation gap.
+    # Elapsed age since known publication/arrival time. Shared-memory records
+    # use their monotonic publication timestamp; legacy records without it use
+    # a wall-clock estimate. This is not camera exposure age or a moving-ball
+    # observation gap.
     frame_publication_age_seconds: Optional[float] = None
 
     # Opt-in phase scheduler contract. ``None`` eligibility means no

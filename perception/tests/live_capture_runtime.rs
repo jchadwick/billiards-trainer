@@ -274,6 +274,7 @@ fn pipeline_config(
         scene_transport: SceneTransportConfig {
             address,
             maximum_message_bytes: MAXIMUM_MESSAGE_BYTES,
+            public_state_delivery_enabled: false,
             connect_timeout: Duration::from_secs(1),
             write_timeout: Duration::from_secs(1),
             reconnect_initial_delay: Duration::from_millis(10),

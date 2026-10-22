@@ -1,0 +1,985 @@
+{
+  "schema_version": 1,
+  "run_id": "rust-inference-prototype-20261020",
+  "created_at_utc": "2026-10-20T12:24:06.372697+00:00",
+  "scope": "Recorded-image inference prototype and provider comparison; not a live pipeline or production qualification.",
+  "repository": {
+    "revision": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "dirty": true,
+    "dirty_worktree_fingerprint_sha256": "3545b0cf012daa6c06bbf632f0bcef06ae41ad893d9938363827374922a58230",
+    "fingerprinted_file_count": 111,
+    "fingerprint_method": "SHA-256 over sorted modified/untracked non-ignored repository paths and each file-content SHA-256; excludes external symlink targets, captured separately below."
+  },
+  "hardware": {
+    "os": "macOS-26.6.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor": "arm",
+    "cpu_model": "Apple M4 Max",
+    "memory_bytes": 38654705664
+  },
+  "toolchain": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
+    "cargo": "cargo 1.99.1 (5f94df478 2026-08-27) (Homebrew)",
+    "python": "3.11.14",
+    "opencv_python": "5.0.0",
+    "onnxruntime_python": "1.31.0",
+    "pytorch": "2.14.1",
+    "ultralytics": "8.4.182",
+    "rust_ort_binding": "2.0.0-rc.15",
+    "rust_onnxruntime_binary": "1.31.x bundled by ort feature api-31"
+  },
+  "model": {
+    "source_checkpoint_path": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "onnx_filename": "billiards-yolov8n.onnx",
+    "onnx_sha256": "77cbca76dfa71714dfba121193d164492ef9773a0ccc577bc7df16b52c2fb6ca",
+    "export_manifest_sha256": "b8580919bdf4523a123e2e2600f90c2205649c12ab5942846658870503929dcf",
+    "input_shape": [
+      1,
+      3,
+      1280,
+      1280
+    ],
+    "output_shape": [
+      1,
+      6,
+      33600
+    ],
+    "classes": [
+      "cue",
+      "ball"
+    ]
+  },
+  "input": {
+    "path": "backend/vision/test_data",
+    "directory_sha256": "77ba44e1f6b05a2b10d7bb1d3217104de2a7921cad9bdac381b2235a82d86009",
+    "image_count": 10,
+    "png_count": 9,
+    "jpeg_count": 1,
+    "source_resolution": "3840x2160 for all ten stills",
+    "paced": false,
+    "annotation_scope": "Eight corresponding JSON annotation files exist; grid.jpg and calibration_straight_on.png have no paired JSON."
+  },
+  "settings": {
+    "image_size": 1280,
+    "rect": false,
+    "confidence": 0.4,
+    "iou": 0.45,
+    "max_detections": 300,
+    "warmup_runs": 1,
+    "repetitions_per_provider": 3,
+    "samples_per_provider": 30,
+    "observed_only_for_current_hardware": true
+  },
+  "provider_runs": {
+    "cpu": {
+      "settings": {
+        "provider": "cpu",
+        "image_size": 1280,
+        "confidence": 0.4,
+        "iou": 0.45,
+        "max_detections": 300,
+        "intra_op_threads": null,
+        "warmup_runs": 1
+      },
+      "requested_provider": "CPUExecutionProvider",
+      "observed_execution_providers": [
+        "CPUExecutionProvider"
+      ],
+      "profile_node_counts": {
+        "CPUExecutionProvider": 214
+      },
+      "profile_event_count": 214,
+      "measurement_session_init_ms": {
+        "samples": 3,
+        "mean": 11.431208666666668,
+        "min": 11.383584,
+        "max": 11.510834
+      },
+      "warmup_total_ms": {
+        "samples": 3,
+        "mean": 46.25573633333334,
+        "min": 43.854208,
+        "max": 50.052417
+      },
+      "timings": {
+        "image_decode_ms": {
+          "samples": 30,
+          "mean_ms": 40.18094716666667,
+          "p50_ms": 42.9816875,
+          "p95_ms": 45.101123099999995,
+          "p99_ms": 45.61354986,
+          "max_ms": 45.750333
+        },
+        "preprocess_ms": {
+          "samples": 30,
+          "mean_ms": 9.601122166666668,
+          "p50_ms": 9.6099375,
+          "p95_ms": 9.7785519,
+          "p99_ms": 9.98622282,
+          "max_ms": 10.05975
+        },
+        "inference_ms": {
+          "samples": 30,
+          "mean_ms": 42.41819573333334,
+          "p50_ms": 42.693729000000005,
+          "p95_ms": 46.19414605,
+          "p99_ms": 47.61058936,
+          "max_ms": 48.11125
+        },
+        "decode_and_nms_ms": {
+          "samples": 30,
+          "mean_ms": 0.08931406666666668,
+          "p50_ms": 0.0867085,
+          "p95_ms": 0.10369809999999999,
+          "p99_ms": 0.10428486000000001,
+          "max_ms": 0.10433300000000001
+        },
+        "end_to_end_ms": {
+          "samples": 30,
+          "mean_ms": 92.28957913333335,
+          "p50_ms": 95.62914599999999,
+          "p95_ms": 99.66575974999999,
+          "p99_ms": 100.92096599999999,
+          "max_ms": 101.10729099999999
+        }
+      },
+      "preprocess_inference_postprocess_without_file_decode": {
+        "samples": 30,
+        "mean_ms": 52.108631966666664,
+        "p50_ms": 52.27675,
+        "p95_ms": 55.8636372,
+        "p99_ms": 57.617737500000004,
+        "max_ms": 58.25175
+      },
+      "python_pt_output_comparison": {
+        "frames": 10,
+        "python_count": 73,
+        "rust_count": 73,
+        "matched_within_2px": 73,
+        "unmatched_python": 0,
+        "unmatched_rust": 0,
+        "max_center_error_px": 0.032483677120751904,
+        "mean_per_frame_center_error_px": 0.0012582455520454166,
+        "per_frame": [
+          {
+            "image": "calibration_straight_on.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          },
+          {
+            "image": "clustered_balls.png",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.00019806144497639343,
+            "mean_center_error_px": 4.119240923805329e-05
+          },
+          {
+            "image": "cue_aiming.png",
+            "python_pt_count": 7,
+            "rust_count": 7,
+            "matched_within_2px": 7,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.00025624560840877746,
+            "mean_center_error_px": 5.3620226456370154e-05
+          },
+          {
+            "image": "empty_table.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          },
+          {
+            "image": "frame_with_cue.png",
+            "python_pt_count": 11,
+            "rust_count": 11,
+            "matched_within_2px": 11,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.00021484460313154962,
+            "mean_center_error_px": 7.719623351197335e-05
+          },
+          {
+            "image": "full_table.png",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.00019806144497639343,
+            "mean_center_error_px": 4.119240923805329e-05
+          },
+          {
+            "image": "grid.jpg",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.032483677120751904,
+            "mean_center_error_px": 0.012318271764211056
+          },
+          {
+            "image": "motion_blur.png",
+            "python_pt_count": 2,
+            "rust_count": 2,
+            "matched_within_2px": 2,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 3.1045972407574504e-05,
+            "mean_center_error_px": 1.7445103336222998e-05
+          },
+          {
+            "image": "multiple_balls.png",
+            "python_pt_count": 5,
+            "rust_count": 5,
+            "matched_within_2px": 5,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 5.195459350540231e-05,
+            "mean_center_error_px": 3.3537374462435826e-05
+          },
+          {
+            "image": "table_corners_visible.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          }
+        ]
+      },
+      "annotated_still_accuracy": {
+        "annotated_images": 8,
+        "ground_truth_ball_count": 52,
+        "predicted_ball_count": 55,
+        "assigned_center_error_mean_px": 3.805621086690716,
+        "assigned_center_error_max_px": 14.994012006464517,
+        "threshold_metrics": {
+          "2": {
+            "matched": 18,
+            "precision": 0.32727272727272727,
+            "recall": 0.34615384615384615
+          },
+          "5": {
+            "matched": 42,
+            "precision": 0.7636363636363637,
+            "recall": 0.8076923076923077
+          },
+          "10": {
+            "matched": 49,
+            "precision": 0.8909090909090909,
+            "recall": 0.9423076923076923
+          },
+          "20": {
+            "matched": 52,
+            "precision": 0.9454545454545454,
+            "recall": 1.0
+          }
+        },
+        "per_image": [
+          {
+            "image": "clustered_balls.png",
+            "ground_truth_balls": 16,
+            "predicted_balls": 16,
+            "assigned_center_errors_px": [
+              1.941129593818944,
+              1.6277300083245456,
+              2.8929943103986178,
+              4.5363190639547595,
+              3.987737637733883,
+              3.6651042511231755,
+              4.6802328200637175,
+              3.935506525213589,
+              1.1269929946543087,
+              5.669401379334578,
+              1.3687766801051418,
+              1.8873307398545676,
+              14.994012006464517,
+              4.247721828227445,
+              2.846150693480656,
+              4.398477646822807
+            ]
+          },
+          {
+            "image": "cue_aiming.png",
+            "ground_truth_balls": 6,
+            "predicted_balls": 6,
+            "assigned_center_errors_px": [
+              2.172667139715754,
+              6.549994581562669,
+              2.743681003688045,
+              2.9690716394185515,
+              0.8437954550718499,
+              8.00588286824113
+            ]
+          },
+          {
+            "image": "empty_table.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 0,
+            "assigned_center_errors_px": []
+          },
+          {
+            "image": "frame_with_cue.png",
+            "ground_truth_balls": 9,
+            "predicted_balls": 10,
+            "assigned_center_errors_px": [
+              8.181341240896794,
+              4.034010346491139,
+              1.483529392900761,
+              6.782411512876595,
+              4.936579909461665,
+              2.71186645447376,
+              1.7000418899544403,
+              1.6502343489637565,
+              4.700600659022233
+            ]
+          },
+          {
+            "image": "full_table.png",
+            "ground_truth_balls": 16,
+            "predicted_balls": 16,
+            "assigned_center_errors_px": [
+              1.3729044395003973,
+              10.517410833945455,
+              3.9461497908215355,
+              0.21370215253958372,
+              3.1331216462181515,
+              1.9670702097281303,
+              0.736652563967675,
+              1.1875207828076433,
+              2.2890019156829156,
+              3.1694939233258395,
+              14.695760887072218,
+              1.939712891125808,
+              5.559356002937725,
+              1.3088097569929444,
+              4.162215386257713,
+              6.2193294718963505
+            ]
+          },
+          {
+            "image": "motion_blur.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 2,
+            "assigned_center_errors_px": []
+          },
+          {
+            "image": "multiple_balls.png",
+            "ground_truth_balls": 5,
+            "predicted_balls": 5,
+            "assigned_center_errors_px": [
+              4.455369417904654,
+              1.3228572863315826,
+              2.868457344985024,
+              3.0161143179431513,
+              0.5399588636183182
+            ]
+          },
+          {
+            "image": "table_corners_visible.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 0,
+            "assigned_center_errors_px": []
+          }
+        ],
+        "limitations": "Image-plane ball centers only; manual still annotations are not temporal or physical table-space ground truth. Empty/missing labels may be incomplete."
+      }
+    },
+    "auto": {
+      "settings": {
+        "provider": "auto",
+        "image_size": 1280,
+        "confidence": 0.4,
+        "iou": 0.45,
+        "max_detections": 300,
+        "intra_op_threads": null,
+        "warmup_runs": 1
+      },
+      "requested_provider": "AutoDevicePolicy::MaxEfficiency",
+      "observed_execution_providers": [
+        "CPUExecutionProvider",
+        "CoreMLExecutionProvider"
+      ],
+      "profile_node_counts": {
+        "CPUExecutionProvider": 5,
+        "CoreMLExecutionProvider": 4
+      },
+      "profile_event_count": 9,
+      "measurement_session_init_ms": {
+        "samples": 3,
+        "mean": 973.485153,
+        "min": 949.594,
+        "max": 994.3836670000001
+      },
+      "warmup_total_ms": {
+        "samples": 3,
+        "mean": 18.607194333333336,
+        "min": 18.465208,
+        "max": 18.77175
+      },
+      "timings": {
+        "image_decode_ms": {
+          "samples": 30,
+          "mean_ms": 40.011768100000005,
+          "p50_ms": 43.060854,
+          "p95_ms": 44.80454375,
+          "p99_ms": 45.19969,
+          "max_ms": 45.2835
+        },
+        "preprocess_ms": {
+          "samples": 30,
+          "mean_ms": 9.8428347,
+          "p50_ms": 9.6181035,
+          "p95_ms": 11.52218575,
+          "p99_ms": 12.02570593,
+          "max_ms": 12.2035
+        },
+        "inference_ms": {
+          "samples": 30,
+          "mean_ms": 14.846579166666668,
+          "p50_ms": 14.507249999999999,
+          "p95_ms": 16.69141495,
+          "p99_ms": 19.439553110000006,
+          "max_ms": 20.310000000000002
+        },
+        "decode_and_nms_ms": {
+          "samples": 30,
+          "mean_ms": 0.08927783333333333,
+          "p50_ms": 0.087333,
+          "p95_ms": 0.10316059999999998,
+          "p99_ms": 0.11509825000000001,
+          "max_ms": 0.11854200000000001
+        },
+        "end_to_end_ms": {
+          "samples": 30,
+          "mean_ms": 64.7904598,
+          "p50_ms": 67.5723965,
+          "p95_ms": 71.61307579999999,
+          "p99_ms": 76.37478540000001,
+          "max_ms": 77.59004200000001
+        }
+      },
+      "preprocess_inference_postprocess_without_file_decode": {
+        "samples": 30,
+        "mean_ms": 24.778691700000003,
+        "p50_ms": 24.3250205,
+        "p95_ms": 27.479965349999993,
+        "p99_ms": 31.546769470000005,
+        "max_ms": 32.595542
+      },
+      "python_pt_output_comparison": {
+        "frames": 10,
+        "python_count": 73,
+        "rust_count": 73,
+        "matched_within_2px": 73,
+        "unmatched_python": 0,
+        "unmatched_rust": 0,
+        "max_center_error_px": 0.45225002259100394,
+        "mean_per_frame_center_error_px": 0.020433401500358963,
+        "per_frame": [
+          {
+            "image": "calibration_straight_on.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          },
+          {
+            "image": "clustered_balls.png",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.02925164893033995,
+            "mean_center_error_px": 0.017224311830512783
+          },
+          {
+            "image": "cue_aiming.png",
+            "python_pt_count": 7,
+            "rust_count": 7,
+            "matched_within_2px": 7,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.45225002259100394,
+            "mean_center_error_px": 0.07476470304056727
+          },
+          {
+            "image": "empty_table.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          },
+          {
+            "image": "frame_with_cue.png",
+            "python_pt_count": 11,
+            "rust_count": 11,
+            "matched_within_2px": 11,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.08820189900391455,
+            "mean_center_error_px": 0.02255827634039855
+          },
+          {
+            "image": "full_table.png",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.02925164893033995,
+            "mean_center_error_px": 0.017224311830512783
+          },
+          {
+            "image": "grid.jpg",
+            "python_pt_count": 16,
+            "rust_count": 16,
+            "matched_within_2px": 16,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.04400654983204333,
+            "mean_center_error_px": 0.020665004444949644
+          },
+          {
+            "image": "motion_blur.png",
+            "python_pt_count": 2,
+            "rust_count": 2,
+            "matched_within_2px": 2,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0334583985448473,
+            "mean_center_error_px": 0.02508427221815794
+          },
+          {
+            "image": "multiple_balls.png",
+            "python_pt_count": 5,
+            "rust_count": 5,
+            "matched_within_2px": 5,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.04418615109228703,
+            "mean_center_error_px": 0.026813135298490654
+          },
+          {
+            "image": "table_corners_visible.png",
+            "python_pt_count": 0,
+            "rust_count": 0,
+            "matched_within_2px": 0,
+            "unmatched_python": 0,
+            "unmatched_rust": 0,
+            "max_center_error_px": 0.0,
+            "mean_center_error_px": 0.0
+          }
+        ]
+      },
+      "annotated_still_accuracy": {
+        "annotated_images": 8,
+        "ground_truth_ball_count": 52,
+        "predicted_ball_count": 55,
+        "assigned_center_error_mean_px": 3.8047049641716035,
+        "assigned_center_error_max_px": 15.004438189082771,
+        "threshold_metrics": {
+          "2": {
+            "matched": 18,
+            "precision": 0.32727272727272727,
+            "recall": 0.34615384615384615
+          },
+          "5": {
+            "matched": 42,
+            "precision": 0.7636363636363637,
+            "recall": 0.8076923076923077
+          },
+          "10": {
+            "matched": 49,
+            "precision": 0.8909090909090909,
+            "recall": 0.9423076923076923
+          },
+          "20": {
+            "matched": 52,
+            "precision": 0.9454545454545454,
+            "recall": 1.0
+          }
+        },
+        "per_image": [
+          {
+            "image": "clustered_balls.png",
+            "ground_truth_balls": 16,
+            "predicted_balls": 16,
+            "assigned_center_errors_px": [
+              1.946561657102048,
+              1.6186264859133082,
+              2.9082828339932982,
+              4.518081949234624,
+              4.016991171922042,
+              3.654386542225753,
+              4.6821241045066255,
+              3.924905871482481,
+              1.1070755891085715,
+              5.646513866980062,
+              1.3868022497817238,
+              1.877453299685507,
+              15.004438189082771,
+              4.24490274329107,
+              2.8342555109941245,
+              4.425681724841933
+            ]
+          },
+          {
+            "image": "cue_aiming.png",
+            "ground_truth_balls": 6,
+            "predicted_balls": 6,
+            "assigned_center_errors_px": [
+              2.177038743086608,
+              6.539593051130953,
+              2.7239643628357846,
+              2.9743936524943426,
+              0.8476942196336797,
+              8.005548918818782
+            ]
+          },
+          {
+            "image": "empty_table.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 0,
+            "assigned_center_errors_px": []
+          },
+          {
+            "image": "frame_with_cue.png",
+            "ground_truth_balls": 9,
+            "predicted_balls": 10,
+            "assigned_center_errors_px": [
+              8.16280614127252,
+              4.021664901505176,
+              1.479004885049433,
+              6.785975750030249,
+              4.918189687273154,
+              2.741931955683797,
+              1.7176287670215558,
+              1.6317001625605232,
+              4.693349640715067
+            ]
+          },
+          {
+            "image": "full_table.png",
+            "ground_truth_balls": 16,
+            "predicted_balls": 16,
+            "assigned_center_errors_px": [
+              1.390941220900402,
+              10.497864759082894,
+              3.944681989717329,
+              0.20665938159206107,
+              3.1340817044233282,
+              1.9739486720780648,
+              0.7429521182417737,
+              1.17909233294087,
+              2.285548140293728,
+              3.1669286856509973,
+              14.705013069358513,
+              1.9451316883182521,
+              5.588416956106621,
+              1.300635614190212,
+              4.147859013093541,
+              6.24295951792902
+            ]
+          },
+          {
+            "image": "motion_blur.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 2,
+            "assigned_center_errors_px": []
+          },
+          {
+            "image": "multiple_balls.png",
+            "ground_truth_balls": 5,
+            "predicted_balls": 5,
+            "assigned_center_errors_px": [
+              4.479691993876294,
+              1.3358956882931183,
+              2.8635272829150744,
+              2.996321846865007,
+              0.498937831798729
+            ]
+          },
+          {
+            "image": "table_corners_visible.png",
+            "ground_truth_balls": 0,
+            "predicted_balls": 0,
+            "assigned_center_errors_px": []
+          }
+        ],
+        "limitations": "Image-plane ball centers only; manual still annotations are not temporal or physical table-space ground truth. Empty/missing labels may be incomplete."
+      }
+    }
+  },
+  "model_equivalence": {
+    "python_pt_vs_python_onnx": {
+      "frames": 10,
+      "reference_count": 73,
+      "candidate_count": 73,
+      "matched_count": 73,
+      "unmatched_reference": 0,
+      "unmatched_candidate": 0,
+      "max_center_error_px": 0.000244140625,
+      "max_confidence_abs_error": 3.5762786865234375e-07,
+      "source_result": "/tmp/billiards-rust-stage2/python-equivalence/equivalence-20261020T052927.744572Z.json"
+    },
+    "rust_preprocess_vs_ultralytics": {
+      "fixtures": [
+        {
+          "image": "calibration_straight_on.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "clustered_balls.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "cue_aiming.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "empty_table.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "frame_with_cue.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "full_table.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "grid.jpg",
+          "exact": false,
+          "max_abs_difference": 0.011764708906412125,
+          "mean_abs_difference": 0.00013995003246236593,
+          "different_values": 132839,
+          "total_values": 4915200
+        },
+        {
+          "image": "motion_blur.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "multiple_balls.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        },
+        {
+          "image": "table_corners_visible.png",
+          "exact": true,
+          "max_abs_difference": 0.0,
+          "mean_abs_difference": 0.0,
+          "different_values": 0,
+          "total_values": 4915200
+        }
+      ],
+      "png_exact_count": 9,
+      "png_count": 9,
+      "jpeg_count": 1,
+      "jpeg_max_abs_difference": 0.011764708906412125,
+      "jpeg_mean_abs_difference": 0.00013995003246236593
+    },
+    "python_pt_annotated_still_accuracy": {
+      "annotated_images": 8,
+      "ground_truth_ball_count": 52,
+      "predicted_ball_count": 55,
+      "assigned_center_error_mean_px": 3.8056078962886155,
+      "assigned_center_error_max_px": 14.99400582924781,
+      "threshold_metrics": {
+        "2": {
+          "matched": 18,
+          "precision": 0.32727272727272727,
+          "recall": 0.34615384615384615
+        },
+        "5": {
+          "matched": 42,
+          "precision": 0.7636363636363637,
+          "recall": 0.8076923076923077
+        },
+        "10": {
+          "matched": 49,
+          "precision": 0.8909090909090909,
+          "recall": 0.9423076923076923
+        },
+        "20": {
+          "matched": 52,
+          "precision": 0.9454545454545454,
+          "recall": 1.0
+        }
+      },
+      "per_image": [
+        {
+          "image": "clustered_balls.png",
+          "ground_truth_balls": 16,
+          "predicted_balls": 16,
+          "assigned_center_errors_px": [
+            1.941135847235382,
+            1.6277589171088125,
+            2.893012098312714,
+            4.536298644858113,
+            3.987739874296161,
+            3.664906626705875,
+            4.680258579171655,
+            3.935507801280136,
+            1.1270004887351046,
+            5.66946745016706,
+            1.368751316853549,
+            1.8873328676643182,
+            14.99400582924781,
+            4.247761803586055,
+            2.846151059671644,
+            4.39844976103397
+          ]
+        },
+        {
+          "image": "cue_aiming.png",
+          "ground_truth_balls": 6,
+          "predicted_balls": 6,
+          "assigned_center_errors_px": [
+            2.1726701810062314,
+            6.549999142845159,
+            2.743665457154982,
+            2.9688354187772386,
+            0.8438037707821222,
+            8.005895282436779
+          ]
+        },
+        {
+          "image": "empty_table.png",
+          "ground_truth_balls": 0,
+          "predicted_balls": 0,
+          "assigned_center_errors_px": []
+        },
+        {
+          "image": "frame_with_cue.png",
+          "ground_truth_balls": 9,
+          "predicted_balls": 10,
+          "assigned_center_errors_px": [
+            8.181316794714958,
+            4.0339243389921995,
+            1.4835515831093116,
+            6.782404723239963,
+            4.936529330517497,
+            2.7119437347085573,
+            1.7000636034490078,
+            1.6501820591888652,
+            4.70060140720749
+          ]
+        },
+        {
+          "image": "full_table.png",
+          "ground_truth_balls": 16,
+          "predicted_balls": 16,
+          "assigned_center_errors_px": [
+            1.37287900739689,
+            10.517373764545502,
+            3.945965222175784,
+            0.21369853554616594,
+            3.1331397205573266,
+            1.9670640782487134,
+            0.7366168152888244,
+            1.1875556925871156,
+            2.2890261675822203,
+            3.169523630931794,
+            14.69575556106734,
+            1.9397191212935987,
+            5.55935783846013,
+            1.308783818450608,
+            4.16222652264718,
+            6.219341917456975
+          ]
+        },
+        {
+          "image": "motion_blur.png",
+          "ground_truth_balls": 0,
+          "predicted_balls": 2,
+          "assigned_center_errors_px": []
+        },
+        {
+          "image": "multiple_balls.png",
+          "ground_truth_balls": 5,
+          "predicted_balls": 5,
+          "assigned_center_errors_px": [
+            4.45535653989893,
+            1.3228408969758254,
+            2.868438752223364,
+            3.0161062126060165,
+            0.5399149970089907
+          ]
+        },
+        {
+          "image": "table_corners_visible.png",
+          "ground_truth_balls": 0,
+          "predicted_balls": 0,
+          "assigned_center_errors_px": []
+        }
+      ],
+      "limitations": "Image-plane ball centers only; manual still annotations are not temporal or physical table-space ground truth. Empty/missing labels may be incomplete."
+    }
+  },
+  "qualification_gaps": [
+    "The current live Python detector omits imgsz and follows Ultralytics defaults; 1280-square rect=False comparison is not production-path parity.",
+    "Still-image equivalence does not qualify motion, restart, source freshness, calibrated table-space accuracy, or real-time camera-to-client latency.",
+    "The model has only generic cue/ball classes and cannot identify numbered balls.",
+    "Accuracy labels are sparse still-image centers; temporal/physical annotation evidence is missing.",
+    "The auto profile uses CoreML and CPU nodes on this Mac only; Linux behavior and deployment are unqualified.",
+    "Only three short 10-image repetitions (30 samples/provider) were run; this is not the 30s+3x120s+20min acceptance audit."
+  ]
+}

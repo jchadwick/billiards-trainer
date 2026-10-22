@@ -1,0 +1,699 @@
+//! Rust-owned lifecycle for the live detector child.
+//!
+//! The gateway starts the detector only when explicitly configured for live
+//! operation. The child receives one exact, authority-generated capture
+//! request, publishes through the gateway's loopback ingress, and is restarted
+//! with bounded backoff after an unexpected exit. This keeps camera/model
+//! failures visible as not-ready state without putting Python in the service
+//! process tree.
+
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::time::Duration;
+
+use serde_json::Value;
+use tokio::io::AsyncWriteExt;
+use tokio::process::{Child, Command};
+use tokio::sync::watch;
+use tokio::time::{sleep, timeout};
+use uuid::Uuid;
+
+use crate::capture_settings_wire::build_capture_settings_v3;
+
+const PHYSICAL_SELECTOR_PREFIX: &str = "gstreamer-device-v1:";
+
+/// Validated process arguments derived from Rust's effective configuration.
+#[derive(Debug, Clone)]
+pub struct LiveProcessConfig {
+    executable: PathBuf,
+    project_root: PathBuf,
+    capture_request: Vec<u8>,
+    arguments: Vec<String>,
+    graceful_stop_timeout: Duration,
+    restart_initial_delay: Duration,
+    restart_maximum_delay: Duration,
+}
+
+impl LiveProcessConfig {
+    /// Resolve model, capture, and process settings from one effective config.
+    ///
+    /// Executable overrides are intended for deployment packaging and tests.
+    /// When omitted, sibling Rust binaries are used so a colocated server
+    /// distribution does not need a Python launcher or a PATH lookup.
+    pub fn from_effective_configuration(
+        configuration: &Value,
+        project_root: &Path,
+        scene_address: SocketAddr,
+        live_executable_override: Option<&Path>,
+        capture_helper_override: Option<&Path>,
+    ) -> Result<Self, String> {
+        if !project_root.is_absolute() {
+            return Err("live process project root must be absolute".to_owned());
+        }
+        let project_root = project_root
+            .canonicalize()
+            .map_err(|error| format!("could not resolve project root: {error}"))?;
+        let live = object_at(configuration, "perception.rust_live")?;
+        let capture_settings = build_capture_settings_v3(configuration)
+            .map_err(|error| format!("could not resolve live capture settings: {error}"))?;
+        let capture_request = serde_json::to_vec(&capture_settings)
+            .map_err(|error| format!("could not serialize live capture request: {error}"))?;
+        let request_text = std::str::from_utf8(&capture_request)
+            .map_err(|error| format!("capture request is not UTF-8: {error}"))?;
+        let resolved = crate::capture_settings_wire::parse_capture_settings_json(request_text)
+            .map_err(|error| format!("capture request failed Rust validation: {error}"))?;
+        if resolved.schema_version != 3 {
+            return Err("live detector requires capture settings v3".to_owned());
+        }
+
+        let executable = match live_executable_override {
+            Some(path) => resolve_configured_path(path, &project_root)?,
+            None => configured_or_sibling(
+                live,
+                "executable_path",
+                &project_root,
+                "billiards-perception-live",
+            )?,
+        };
+        let helper = match capture_helper_override {
+            Some(path) => resolve_configured_path(path, &project_root)?,
+            None => configured_or_sibling(
+                live,
+                "capture_helper_executable_path",
+                &project_root,
+                "billiards-perception-gstreamer-probe",
+            )?,
+        };
+        let requested = capture_settings
+            .get("requested")
+            .and_then(Value::as_object)
+            .ok_or_else(|| "capture request has no requested settings".to_owned())?;
+        let image_space = required_string(requested, "image_space")?;
+        let camera_profile = required_string(requested, "camera_profile_id")?;
+        let configuration_revision = capture_settings
+            .get("configuration_revision")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "capture request has no configuration revision".to_owned())?;
+        let rectification_revision = requested
+            .get("rectification_revision")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "capture request has no rectification revision".to_owned())?;
+        let capture_source = capture_source(configuration)?;
+        let engine_id = Uuid::new_v4().to_string();
+        let session_id = Uuid::new_v4().to_string();
+
+        let mut arguments = Vec::new();
+        push_config_argument(
+            &mut arguments,
+            live,
+            "onnx_path",
+            "onnx",
+            &project_root,
+            true,
+        )?;
+        push_config_argument(
+            &mut arguments,
+            live,
+            "source_checkpoint_path",
+            "source-checkpoint",
+            &project_root,
+            true,
+        )?;
+        for (config_key, argument) in [
+            ("provider", "provider"),
+            ("image_size", "image-size"),
+            ("confidence", "confidence"),
+            ("iou", "iou"),
+            ("max_detections", "max-detections"),
+            ("warmup_runs", "warmup-runs"),
+            ("ball_class_id", "tracking-ball-class-id"),
+            ("association_gate_px", "tracking-association-gate-px"),
+            (
+                "association_prediction_horizon_ms",
+                "tracking-association-prediction-horizon-ms",
+            ),
+            ("lost_after_ms", "tracking-lost-after-ms"),
+            ("maximum_track_age_ms", "tracking-maximum-track-age-ms"),
+            ("maximum_active_tracks", "tracking-maximum-active-tracks"),
+            (
+                "recent_observation_capacity",
+                "tracking-recent-observation-capacity",
+            ),
+            ("maximum_message_bytes", "scene-snapshots-max-message-bytes"),
+            ("connect_timeout_ms", "scene-snapshots-connect-timeout-ms"),
+            ("write_timeout_ms", "scene-snapshots-write-timeout-ms"),
+            (
+                "reconnect_initial_delay_ms",
+                "scene-snapshots-reconnect-initial-delay-ms",
+            ),
+            (
+                "reconnect_maximum_delay_ms",
+                "scene-snapshots-reconnect-maximum-delay-ms",
+            ),
+            ("poll_interval_ms", "poll-interval-ms"),
+        ] {
+            push_value_argument(&mut arguments, live, config_key, argument)?;
+        }
+        if let Some(threads) = live
+            .get("intra_op_threads")
+            .filter(|value| !value.is_null())
+        {
+            push_value_argument_named(&mut arguments, "intra-op-threads", threads)?;
+        }
+        if let Some(cue_class) = live.get("cue_class_id").filter(|value| !value.is_null()) {
+            push_value_argument_named(&mut arguments, "tracking-cue-class-id", cue_class)?;
+        }
+        push_argument(&mut arguments, "source-image-space", image_space);
+        push_argument(&mut arguments, "tracking-camera-profile-id", camera_profile);
+        push_argument(
+            &mut arguments,
+            "tracking-configuration-revision",
+            configuration_revision.to_string(),
+        );
+        push_argument(
+            &mut arguments,
+            "tracking-rectification-revision",
+            rectification_revision.to_string(),
+        );
+        push_argument(&mut arguments, "capture-settings-stdin", "");
+        push_argument(
+            &mut arguments,
+            "capture-settings-max-bytes",
+            required_u64(live, "capture_settings_maximum_bytes")?.to_string(),
+        );
+        push_argument(&mut arguments, "engine-instance-id", engine_id);
+        push_argument(&mut arguments, "source-session-id", session_id);
+        push_argument(
+            &mut arguments,
+            "scene-snapshots-tcp",
+            scene_address.to_string(),
+        );
+        push_argument(
+            &mut arguments,
+            "startup-timeout-ms",
+            seconds_as_milliseconds(required_f64(live, "startup_timeout_seconds")?)?.to_string(),
+        );
+        push_argument(
+            &mut arguments,
+            "graceful-stop-timeout-ms",
+            seconds_as_milliseconds(required_f64(live, "graceful_stop_timeout_seconds")?)?
+                .to_string(),
+        );
+
+        if let Some(url) = capture_source.http_mjpeg_url.as_deref() {
+            push_argument(&mut arguments, "capture-source", "gstreamer-http-mjpeg");
+            push_argument(&mut arguments, "capture-http-mjpeg-url", url);
+        } else {
+            push_argument(&mut arguments, "capture-source", "gstreamer-physical");
+        }
+        push_argument(
+            &mut arguments,
+            "capture-helper-executable",
+            helper.display().to_string(),
+        );
+        for (key, argument) in [
+            (
+                "capture_helper_ready_record_max_bytes",
+                "capture-helper-ready-record-max-bytes",
+            ),
+            (
+                "capture_helper_frame_header_max_bytes",
+                "capture-helper-frame-header-max-bytes",
+            ),
+            (
+                "capture_helper_slow_reader_delay_ms",
+                "capture-helper-slow-reader-delay-ms",
+            ),
+            (
+                "capture_helper_pull_timeout_ms",
+                "capture-helper-pull-timeout-ms",
+            ),
+            (
+                "capture_helper_readiness_timeout_ms",
+                "capture-helper-readiness-timeout-ms",
+            ),
+            (
+                "capture_helper_child_exit_timeout_ms",
+                "capture-helper-child-exit-timeout-ms",
+            ),
+            (
+                "capture_helper_child_exit_poll_interval_ms",
+                "capture-helper-child-exit-poll-interval-ms",
+            ),
+        ] {
+            push_value_argument(&mut arguments, live, key, argument)?;
+        }
+
+        if required_bool(live, "frame_preview_enabled")? {
+            for (key, argument) in [
+                ("frame_preview_bind_address", "frame-preview-bind-address"),
+                ("frame_preview_port", "frame-preview-port"),
+                (
+                    "frame_preview_max_header_bytes",
+                    "frame-preview-max-header-bytes",
+                ),
+                (
+                    "frame_preview_max_jpeg_bytes",
+                    "frame-preview-max-jpeg-bytes",
+                ),
+                (
+                    "frame_preview_max_concurrent_encodes",
+                    "frame-preview-max-concurrent-encodes",
+                ),
+                ("frame_preview_jpeg_quality", "frame-preview-jpeg-quality"),
+                (
+                    "frame_preview_request_timeout_ms",
+                    "frame-preview-request-timeout-ms",
+                ),
+                (
+                    "frame_preview_write_timeout_ms",
+                    "frame-preview-write-timeout-ms",
+                ),
+            ] {
+                push_value_argument(&mut arguments, live, key, argument)?;
+            }
+            if required_bool(live, "frame_preview_calibration_control_enabled")? {
+                push_config_argument(
+                    &mut arguments,
+                    live,
+                    "frame_preview_calibration_store_path",
+                    "frame-preview-calibration-store-path",
+                    &project_root,
+                    true,
+                )?;
+                for (key, argument) in [
+                    (
+                        "frame_preview_calibration_store_lock_timeout_ms",
+                        "frame-preview-calibration-store-lock-timeout-ms",
+                    ),
+                    (
+                        "frame_preview_calibration_store_max_file_bytes",
+                        "frame-preview-calibration-store-max-file-bytes",
+                    ),
+                    (
+                        "frame_preview_calibration_max_request_bytes",
+                        "frame-preview-calibration-max-request-bytes",
+                    ),
+                ] {
+                    push_value_argument(&mut arguments, live, key, argument)?;
+                }
+            }
+        }
+
+        let graceful_stop_timeout = Duration::from_millis(seconds_as_milliseconds(required_f64(
+            live,
+            "graceful_stop_timeout_seconds",
+        )?)?);
+        // The existing capture recovery policy supplies a conservative restart
+        // interval and a bounded cap, avoiding a tight model reload loop when a
+        // camera is disconnected. The detector itself retains its independent
+        // transport reconnect policy.
+        let restart_initial_delay = Duration::from_millis(seconds_as_milliseconds(required_f64(
+            live,
+            "source_silence_timeout_seconds",
+        )?)?);
+        let restart_maximum_delay = Duration::from_millis(seconds_as_milliseconds(required_f64(
+            live,
+            "startup_timeout_seconds",
+        )?)?);
+        if restart_initial_delay.is_zero() || restart_maximum_delay < restart_initial_delay {
+            return Err("live restart backoff configuration is invalid".to_owned());
+        }
+
+        Ok(Self {
+            executable,
+            project_root,
+            capture_request,
+            arguments,
+            graceful_stop_timeout,
+            restart_initial_delay,
+            restart_maximum_delay,
+        })
+    }
+
+    /// Keep the child alive, restarting unexpected exits with bounded backoff.
+    pub async fn supervise(self, mut shutdown: watch::Receiver<bool>) {
+        let mut restart_delay = self.restart_initial_delay;
+        loop {
+            if *shutdown.borrow() {
+                return;
+            }
+            match self.spawn_child().await {
+                Ok(mut child) => {
+                    eprintln!("live_detector_started=true");
+                    tokio::select! {
+                        result = child.wait() => {
+                            match result {
+                                Ok(status) => eprintln!("live_detector_exited={status}"),
+                                Err(error) => eprintln!("live_detector_wait_failed={error}"),
+                            }
+                        }
+                        changed = shutdown.changed() => {
+                            if changed.is_err() || *shutdown.borrow() {
+                                stop_child(&mut child, self.graceful_stop_timeout).await;
+                                return;
+                            }
+                        }
+                    }
+                }
+                Err(error) => eprintln!("live_detector_start_failed={error}"),
+            }
+            tokio::select! {
+                _ = sleep(restart_delay) => {},
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        return;
+                    }
+                }
+            }
+            restart_delay = restart_delay
+                .saturating_mul(2)
+                .min(self.restart_maximum_delay);
+        }
+    }
+
+    async fn spawn_child(&self) -> Result<Child, String> {
+        let mut child = Command::new(&self.executable)
+            .args(&self.arguments)
+            .current_dir(&self.project_root)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| format!("could not spawn {}: {error}", self.executable.display()))?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "live detector stdin was not piped".to_owned())?;
+        if let Err(error) = stdin.write_all(&self.capture_request).await {
+            let _ = child.kill().await;
+            return Err(format!("could not send exact capture request: {error}"));
+        }
+        drop(stdin);
+        Ok(child)
+    }
+}
+
+struct CaptureSource {
+    http_mjpeg_url: Option<String>,
+}
+
+fn capture_source(configuration: &Value) -> Result<CaptureSource, String> {
+    let selector = value_at(configuration, "perception.capture.device_selector")?;
+    if selector
+        .as_str()
+        .is_some_and(|value| value.starts_with(PHYSICAL_SELECTOR_PREFIX))
+    {
+        return Ok(CaptureSource {
+            http_mjpeg_url: None,
+        });
+    }
+    let device = value_at(configuration, "vision.camera.device_id")?;
+    let Some(url) = device.as_str() else {
+        return Err("live capture requires a stable camera selector or HTTP-MJPEG URL".into());
+    };
+    if url.starts_with("http://") || url.starts_with("https://") {
+        return Ok(CaptureSource {
+            http_mjpeg_url: Some(url.to_owned()),
+        });
+    }
+    Err("live physical camera capture requires a stable GStreamer selector".into())
+}
+
+fn object_at<'a>(
+    root: &'a Value,
+    path: &str,
+) -> Result<&'a serde_json::Map<String, Value>, String> {
+    value_at(root, path)?
+        .as_object()
+        .ok_or_else(|| format!("configuration field {path} must be an object"))
+}
+
+fn value_at<'a>(root: &'a Value, path: &str) -> Result<&'a Value, String> {
+    path.split('.').try_fold(root, |value, segment| {
+        value
+            .get(segment)
+            .ok_or_else(|| format!("configuration field {path} is missing"))
+    })
+}
+
+fn required_string(values: &serde_json::Map<String, Value>, key: &str) -> Result<String, String> {
+    values
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| format!("perception.rust_live.{key} must be a non-empty string"))
+}
+
+fn required_u64(values: &serde_json::Map<String, Value>, key: &str) -> Result<u64, String> {
+    values
+        .get(key)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("perception.rust_live.{key} must be an unsigned integer"))
+}
+
+fn required_f64(values: &serde_json::Map<String, Value>, key: &str) -> Result<f64, String> {
+    values
+        .get(key)
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| format!("perception.rust_live.{key} must be a finite number"))
+}
+
+fn required_bool(values: &serde_json::Map<String, Value>, key: &str) -> Result<bool, String> {
+    values
+        .get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("perception.rust_live.{key} must be a boolean"))
+}
+
+fn configured_or_sibling(
+    values: &serde_json::Map<String, Value>,
+    key: &str,
+    project_root: &Path,
+    sibling_name: &str,
+) -> Result<PathBuf, String> {
+    let configured = values.get(key).and_then(Value::as_str).unwrap_or_default();
+    if configured.trim().is_empty() {
+        let parent = std::env::current_exe()
+            .map_err(|error| format!("could not locate the Rust gateway executable: {error}"))?
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "Rust gateway executable has no parent directory".to_owned())?;
+        return resolve_configured_path(&parent.join(sibling_name), project_root);
+    }
+    resolve_configured_path(Path::new(configured), project_root)
+}
+
+fn resolve_configured_path(path: &Path, project_root: &Path) -> Result<PathBuf, String> {
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    };
+    Ok(candidate)
+}
+
+fn push_config_argument(
+    arguments: &mut Vec<String>,
+    live: &serde_json::Map<String, Value>,
+    key: &str,
+    argument: &str,
+    project_root: &Path,
+    required: bool,
+) -> Result<(), String> {
+    let raw = live.get(key).and_then(Value::as_str).unwrap_or_default();
+    if raw.trim().is_empty() {
+        if required {
+            return Err(format!("perception.rust_live.{key} must be configured"));
+        }
+        return Ok(());
+    }
+    let path = resolve_configured_path(Path::new(raw), project_root)?;
+    push_argument(arguments, argument, path.display().to_string());
+    Ok(())
+}
+
+fn push_value_argument(
+    arguments: &mut Vec<String>,
+    live: &serde_json::Map<String, Value>,
+    key: &str,
+    argument: &str,
+) -> Result<(), String> {
+    let value = live
+        .get(key)
+        .ok_or_else(|| format!("perception.rust_live.{key} is missing"))?;
+    push_value_argument_named(arguments, argument, value)
+}
+
+fn push_value_argument_named(
+    arguments: &mut Vec<String>,
+    argument: &str,
+    value: &Value,
+) -> Result<(), String> {
+    let encoded = match value {
+        Value::String(value) => value.clone(),
+        Value::Number(value) => value.to_string(),
+        _ => return Err(format!("live argument {argument} has an invalid value")),
+    };
+    push_argument(arguments, argument, encoded);
+    Ok(())
+}
+
+fn push_argument(
+    arguments: &mut Vec<String>,
+    argument: impl Into<String>,
+    value: impl Into<String>,
+) {
+    let value = value.into();
+    let argument = argument.into();
+    arguments.push(format!("--{argument}"));
+    if !value.is_empty() {
+        arguments.push(value);
+    }
+}
+
+fn seconds_as_milliseconds(seconds: f64) -> Result<u64, String> {
+    if seconds <= 0.0 || seconds > (u64::MAX as f64 / 1_000.0) {
+        return Err("live timeout seconds are outside the supported range".to_owned());
+    }
+    Ok((seconds * 1_000.0).round() as u64)
+}
+
+async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        // SAFETY: pid is the live child ID returned by the OS; SIGTERM is sent
+        // to that process only. The child handles it and joins its capture task.
+        let _ = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+    }
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+
+    if timeout(graceful_timeout, child.wait()).await.is_err() {
+        let _ = child.kill().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{stop_child, LiveProcessConfig};
+    use std::net::SocketAddr;
+    use std::time::Duration;
+
+    use serde_json::Value;
+
+    fn remote_stream_config() -> Value {
+        let mut configuration: Value =
+            serde_json::from_str(include_str!("../contracts/configuration/v1/defaults.json"))
+                .unwrap();
+        configuration["vision"]["camera"]["device_id"] =
+            Value::String("http://127.0.0.1:8001/stream.mjpg".to_owned());
+        configuration["vision"]["camera"]["backend"] = Value::String("gstreamer".to_owned());
+        configuration["vision"]["camera"]["video_file_path"] = Value::Null;
+        configuration["perception"]["rust_live"]["onnx_path"] =
+            Value::String("models/balls.onnx".to_owned());
+        configuration["perception"]["rust_live"]["source_checkpoint_path"] =
+            Value::String("models/balls.pt".to_owned());
+        configuration["perception"]["rust_live"]["capture_helper_executable_path"] = Value::String(
+            "perception/target/release/billiards-perception-gstreamer-probe".to_owned(),
+        );
+        configuration["perception"]["rust_live"]["executable_path"] =
+            Value::String("perception/target/release/billiards-perception-live".to_owned());
+        configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(false);
+        configuration
+    }
+
+    #[test]
+    fn builds_live_arguments_from_authority_settings_and_remote_mjpeg_url() {
+        let project = tempfile::tempdir().unwrap();
+        let configuration = remote_stream_config();
+        let config = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse::<SocketAddr>().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.executable,
+            project
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("perception/target/release/billiards-perception-live")
+        );
+        assert!(config
+            .arguments
+            .windows(2)
+            .any(|pair| pair == ["--capture-source", "gstreamer-http-mjpeg"]));
+        assert!(config.arguments.windows(2).any(|pair| {
+            pair == [
+                "--capture-http-mjpeg-url",
+                "http://127.0.0.1:8001/stream.mjpg",
+            ]
+        }));
+        assert!(config
+            .arguments
+            .windows(2)
+            .any(|pair| { pair == ["--scene-snapshots-tcp", "127.0.0.1:49321"] }));
+        assert!(config
+            .arguments
+            .contains(&"--capture-settings-stdin".to_owned()));
+        assert!(config.arguments.contains(&"--onnx".to_owned()));
+        assert!(config.arguments.contains(&"--source-checkpoint".to_owned()));
+    }
+
+    #[test]
+    fn rejects_live_launch_when_capture_is_neither_stable_camera_nor_http_stream() {
+        let project = tempfile::tempdir().unwrap();
+        let mut configuration = remote_stream_config();
+        configuration["vision"]["camera"]["device_id"] = serde_json::json!(0);
+        let error = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("stable camera selector"),
+            "unexpected configuration error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn sends_capture_request_then_reaps_the_child() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("fake-live");
+        std::fs::write(&executable, "#!/bin/sh\ncat >/dev/null\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let config = LiveProcessConfig {
+            executable,
+            project_root: directory.path().to_path_buf(),
+            capture_request: br#"{"schema_version":3}"#.to_vec(),
+            arguments: Vec::new(),
+            graceful_stop_timeout: Duration::from_millis(100),
+            restart_initial_delay: Duration::from_millis(10),
+            restart_maximum_delay: Duration::from_millis(100),
+        };
+        let mut child = config.spawn_child().await.unwrap();
+        let status = child.wait().await.unwrap();
+        assert!(status.success());
+
+        // The shutdown path is a no-op for an already reaped child and remains
+        // safe to call when the service exits between the signal and wait.
+        stop_child(&mut child, Duration::from_millis(10)).await;
+    }
+}

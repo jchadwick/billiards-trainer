@@ -9,42 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WebsocketEventsRouteImport } from './routes/websocket-events'
-import { Route as TestVideoRouteImport } from './routes/test-video'
 import { Route as LiveRouteImport } from './routes/live'
-import { Route as DiagnosticsRouteImport } from './routes/diagnostics'
-import { Route as ConfigurationRouteImport } from './routes/configuration'
-import { Route as CalibrationRouteImport } from './routes/calibration'
 import { Route as IndexRouteImport } from './routes/index'
 
-const WebsocketEventsRoute = WebsocketEventsRouteImport.update({
-  id: '/websocket-events',
-  path: '/websocket-events',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const TestVideoRoute = TestVideoRouteImport.update({
-  id: '/test-video',
-  path: '/test-video',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const LiveRoute = LiveRouteImport.update({
   id: '/live',
   path: '/live',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DiagnosticsRoute = DiagnosticsRouteImport.update({
-  id: '/diagnostics',
-  path: '/diagnostics',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ConfigurationRoute = ConfigurationRouteImport.update({
-  id: '/configuration',
-  path: '/configuration',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const CalibrationRoute = CalibrationRouteImport.update({
-  id: '/calibration',
-  path: '/calibration',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,114 +25,37 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/calibration': typeof CalibrationRoute
-  '/configuration': typeof ConfigurationRoute
-  '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/test-video': typeof TestVideoRoute
-  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/calibration': typeof CalibrationRoute
-  '/configuration': typeof ConfigurationRoute
-  '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/test-video': typeof TestVideoRoute
-  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/calibration': typeof CalibrationRoute
-  '/configuration': typeof ConfigurationRoute
-  '/diagnostics': typeof DiagnosticsRoute
   '/live': typeof LiveRoute
-  '/test-video': typeof TestVideoRoute
-  '/websocket-events': typeof WebsocketEventsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/calibration'
-    | '/configuration'
-    | '/diagnostics'
-    | '/live'
-    | '/test-video'
-    | '/websocket-events'
+  fullPaths: '/' | '/live'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/calibration'
-    | '/configuration'
-    | '/diagnostics'
-    | '/live'
-    | '/test-video'
-    | '/websocket-events'
-  id:
-    | '__root__'
-    | '/'
-    | '/calibration'
-    | '/configuration'
-    | '/diagnostics'
-    | '/live'
-    | '/test-video'
-    | '/websocket-events'
+  to: '/' | '/live'
+  id: '__root__' | '/' | '/live'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  CalibrationRoute: typeof CalibrationRoute
-  ConfigurationRoute: typeof ConfigurationRoute
-  DiagnosticsRoute: typeof DiagnosticsRoute
   LiveRoute: typeof LiveRoute
-  TestVideoRoute: typeof TestVideoRoute
-  WebsocketEventsRoute: typeof WebsocketEventsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/websocket-events': {
-      id: '/websocket-events'
-      path: '/websocket-events'
-      fullPath: '/websocket-events'
-      preLoaderRoute: typeof WebsocketEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/test-video': {
-      id: '/test-video'
-      path: '/test-video'
-      fullPath: '/test-video'
-      preLoaderRoute: typeof TestVideoRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/live': {
       id: '/live'
       path: '/live'
       fullPath: '/live'
       preLoaderRoute: typeof LiveRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/diagnostics': {
-      id: '/diagnostics'
-      path: '/diagnostics'
-      fullPath: '/diagnostics'
-      preLoaderRoute: typeof DiagnosticsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/configuration': {
-      id: '/configuration'
-      path: '/configuration'
-      fullPath: '/configuration'
-      preLoaderRoute: typeof ConfigurationRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/calibration': {
-      id: '/calibration'
-      path: '/calibration'
-      fullPath: '/calibration'
-      preLoaderRoute: typeof CalibrationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -177,12 +70,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  CalibrationRoute: CalibrationRoute,
-  ConfigurationRoute: ConfigurationRoute,
-  DiagnosticsRoute: DiagnosticsRoute,
   LiveRoute: LiveRoute,
-  TestVideoRoute: TestVideoRoute,
-  WebsocketEventsRoute: WebsocketEventsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

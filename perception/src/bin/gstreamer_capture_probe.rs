@@ -33,6 +33,9 @@ struct Args {
     /// camera-gstreamer-source feature and is never selected by live_main.
     #[arg(long, value_enum, default_value_t = SourceMode::Synthetic)]
     source_mode: SourceMode,
+    /// URL used only by the explicit HTTP-MJPEG source mode.
+    #[arg(long)]
+    http_mjpeg_url: Option<String>,
     /// Required session identity supplied by the supervising process.
     #[arg(long)]
     session_id: String,
@@ -65,6 +68,7 @@ struct Args {
 enum SourceMode {
     Synthetic,
     Physical,
+    HttpMjpeg,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,6 +111,16 @@ fn run(args: Args) -> Result<()> {
         #[cfg(not(feature = "camera-gstreamer-source"))]
         anyhow::bail!(
             "physical capture helper was not compiled; enable camera-gstreamer-source explicitly"
+        );
+    }
+    if args.source_mode == SourceMode::HttpMjpeg {
+        #[cfg(feature = "camera-gstreamer-source")]
+        {
+            return run_http_mjpeg(args);
+        }
+        #[cfg(not(feature = "camera-gstreamer-source"))]
+        anyhow::bail!(
+            "HTTP-MJPEG capture helper was not compiled; enable camera-gstreamer-source explicitly"
         );
     }
     let mut stdin = io::stdin().lock();
@@ -653,6 +667,384 @@ fn run_physical(args: Args) -> Result<()> {
     Ok(())
 }
 
+/// Consume a remote multipart MJPEG stream through a leaky, bounded GStreamer
+/// path. This is an explicit development source; it does not report camera
+/// controls or source exposure timestamps.
+#[cfg(feature = "camera-gstreamer-source")]
+fn run_http_mjpeg(args: Args) -> Result<()> {
+    use billiards_perception::capture_settings_wire::ResolvedCameraControlsPolicy;
+    use std::sync::{Arc, Mutex};
+
+    let url = args
+        .http_mjpeg_url
+        .as_deref()
+        .context("HTTP-MJPEG URL was not supplied")?;
+    let mut stdin = io::stdin().lock();
+    let exact_capture_settings =
+        read_capture_settings(&mut stdin, args.capture_settings_max_bytes)?;
+    let settings = parse_capture_settings_json(&exact_capture_settings)
+        .context("invalid exact Rust capture-settings request")?;
+    ensure!(
+        settings.schema_version == 3,
+        "HTTP-MJPEG source requires capture-settings v3"
+    );
+    ensure!(
+        settings.expected.device_id()
+            == billiards_perception::gstreamer_capture_source::HTTP_MJPEG_STREAM_DEVICE_ID,
+        "HTTP-MJPEG source settings have the wrong source identity"
+    );
+    ensure!(
+        settings.requested_backend == "auto" || settings.requested_backend == "gstreamer",
+        "GStreamer HTTP-MJPEG helper cannot satisfy requested backend {:?}",
+        settings.requested_backend
+    );
+    ensure!(
+        matches!(
+            &settings.camera_controls,
+            ResolvedCameraControlsPolicy::SourceDefaults
+        ),
+        "HTTP-MJPEG stream does not support requested camera controls"
+    );
+    ensure!(settings.expected.image_space() == billiards_perception::ImageSpace::Raw);
+    ensure!(settings.expected.rectification_revision() == 0);
+
+    let output_profile = settings.expected.expected_negotiated_profile();
+    ensure!(
+        output_profile.pixel_format().identifier() == "RGB8",
+        "HTTP-MJPEG source emits RGB8 only"
+    );
+    let output_geometry = settings
+        .expected
+        .output_frame_geometry()
+        .context("HTTP-MJPEG source requires capture-settings v3 output geometry")?;
+    let rate = output_profile.frame_rate();
+    let (fps_num, fps_den) = (rate.frames_numerator(), rate.seconds_denominator());
+    let frame_limit = settings.expected.frame_limit();
+    let expected_len = RgbFrameEnvelope::required_rgb8_len(
+        output_geometry.width_px(),
+        output_geometry.height_px(),
+        frame_limit,
+    )?;
+
+    gst::init().context("initialize GStreamer")?;
+    let source = gst::ElementFactory::make("souphttpsrc")
+        .name("remote_mjpeg_source")
+        .build()
+        .context("create GStreamer souphttpsrc; install the GStreamer Soup plugin")?;
+    source.set_property("location", url);
+    source.set_property("is-live", true);
+    // souphttpsrc provides a byte stream, not camera exposure timestamps. Give
+    // decoded frames local arrival timestamps so videorate can enforce the
+    // configured maximum cadence. These timestamps remain pipeline timing only
+    // and are never exposed as source capture times.
+    source.set_property("do-timestamp", true);
+    let timeout_seconds = u32::try_from(args.pull_timeout_ms.saturating_add(999) / 1000)
+        .context("HTTP-MJPEG timeout exceeds GStreamer source range")?
+        .max(1);
+    source.set_property("timeout", timeout_seconds);
+
+    let demux = gst::ElementFactory::make("multipartdemux")
+        .name("remote_mjpeg_demux")
+        .build()
+        .context("create GStreamer multipartdemux; install the GStreamer multipart plugin")?;
+    let decoder = gst::ElementFactory::make("jpegdec")
+        .name("remote_mjpeg_decoder")
+        .build()
+        .context("create GStreamer jpegdec; install the GStreamer JPEG plugin")?;
+    let rate_filter = gst::ElementFactory::make("videorate")
+        .name("remote_mjpeg_rate_limit")
+        .build()
+        .context("create GStreamer videorate")?;
+    // Permit frame dropping to meet the requested maximum cadence, but never
+    // manufacture duplicate observations when the remote stream is slower.
+    rate_filter.set_property("drop-only", true);
+    let converter = gst::ElementFactory::make("videoconvert")
+        .name("remote_mjpeg_rgb_converter")
+        .build()
+        .context("create GStreamer RGB converter")?;
+    let scaler = gst::ElementFactory::make("videoscale")
+        .name("remote_mjpeg_output_scaler")
+        .build()
+        .context("create GStreamer output scaler")?;
+    let output_filter = gst::ElementFactory::make("capsfilter")
+        .name("remote_mjpeg_rgb8_output_profile")
+        .build()
+        .context("create GStreamer output caps filter")?;
+    let output_caps = rgb_output_caps(
+        output_geometry.width_px(),
+        output_geometry.height_px(),
+        fps_num,
+        fps_den,
+    )?;
+    output_filter.set_property("caps", &output_caps);
+    let sink = gst::ElementFactory::make("appsink")
+        .name("remote_mjpeg_latest_frame_sink")
+        .build()
+        .context("create bounded GStreamer appsink")?
+        .downcast::<AppSink>()
+        .map_err(|_| anyhow!("remote HTTP-MJPEG sink is not an appsink"))?;
+    sink.set_caps(Some(&output_caps));
+    sink.set_max_buffers(1);
+    sink.set_drop(true);
+    sink.set_wait_on_eos(false);
+    sink.set_sync(false);
+
+    let pipeline = gst::Pipeline::new();
+    pipeline
+        .add_many([
+            &source,
+            &demux,
+            &decoder,
+            &rate_filter,
+            &converter,
+            &scaler,
+            &output_filter,
+            sink.upcast_ref(),
+        ])
+        .context("add HTTP-MJPEG pipeline elements")?;
+    source
+        .link(&demux)
+        .context("link HTTP source to multipart demuxer")?;
+    decoder
+        .link(&rate_filter)
+        .context("link JPEG decoder to latest-rate limiter")?;
+    rate_filter
+        .link(&converter)
+        .context("link rate limiter to RGB converter")?;
+    converter
+        .link(&scaler)
+        .context("link RGB converter to output scaler")?;
+    scaler
+        .link(&output_filter)
+        .context("link output scaler to RGB8 caps filter")?;
+    output_filter
+        .link(&sink)
+        .context("link RGB8 caps filter to bounded appsink")?;
+
+    let decoder_sink = decoder
+        .static_pad("sink")
+        .context("JPEG decoder has no sink pad")?;
+    let dynamic_link_error = Arc::new(Mutex::new(None::<String>));
+    let link_error_for_callback = Arc::clone(&dynamic_link_error);
+    demux.connect_pad_added(move |_demux, source_pad| {
+        let caps = source_pad
+            .current_caps()
+            .unwrap_or_else(|| source_pad.query_caps(None));
+        if !caps
+            .structure(0)
+            .is_some_and(|structure| structure.name() == "image/jpeg")
+        {
+            return;
+        }
+        if let Err(error) = source_pad.link(&decoder_sink) {
+            *link_error_for_callback
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
+        }
+    });
+
+    pipeline
+        .set_state(gst::State::Playing)
+        .context("start remote HTTP-MJPEG pipeline")?;
+    let _pipeline_guard = PipelineStateGuard(&pipeline);
+    let legacy_helper_start = (!args.capture_audit_timing).then(Instant::now);
+    let stdout = io::stdout();
+    let mut output = io::BufWriter::new(stdout.lock());
+    let first_sample_pull_started = args.capture_audit_timing.then(Instant::now);
+    // A brief source gap is not a failed capture session. Keep waiting for the
+    // next live frame, but surface actual GStreamer errors and EOS below. This
+    // is important for best-effort latest-state consumers: no old frame is
+    // replayed while the source catches up.
+    let first_sample = loop {
+        if let Some(sample) = pull_http_mjpeg_sample(
+            &sink,
+            &pipeline,
+            gst::ClockTime::from_mseconds(args.pull_timeout_ms),
+        )? {
+            break sample;
+        }
+    };
+    let first_sample_pull_wait_ns = elapsed_nanos(first_sample_pull_started);
+    if let Some(error) = dynamic_link_error
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+    {
+        return Err(anyhow!("could not link multipart JPEG stream: {error}"));
+    }
+    let first_caps = first_sample
+        .caps()
+        .context("first remote MJPEG sample has no negotiated RGB caps")?;
+    let first_info =
+        VideoInfo::from_caps(first_caps).context("parse first remote MJPEG output sample")?;
+    validate_video_info(
+        &first_info,
+        output_geometry.width_px(),
+        output_geometry.height_px(),
+        fps_num,
+        fps_den,
+    )?;
+    let ready = CaptureHelperReady {
+        record_schema_version: 1,
+        session_id: args.session_id.clone(),
+        configuration_revision: settings.configuration_revision,
+        camera_profile_id: settings.expected.camera_profile_id().to_owned(),
+        capture_settings_sha256: settings.request_sha256.clone(),
+        width_px: first_info.width(),
+        height_px: first_info.height(),
+        frame_rate_numerator: fps_num,
+        frame_rate_seconds_denominator: fps_den,
+        pixel_format: "RGB8".to_owned(),
+        source_device_id: None,
+        source_identifier: None,
+        source_identifier_source: None,
+        input_profile: None,
+    };
+    write_ready_record(&mut output, &ready, args.ready_record_max_bytes)
+        .context("write bounded HTTP-MJPEG helper-ready record")?;
+    output
+        .flush()
+        .context("flush HTTP-MJPEG helper-ready record")?;
+
+    let frame_budget = CaptureFrameBudget::new(settings.expected.aggregate_frame_limit());
+    let mut first_sample = Some(first_sample);
+    let mut sequence = 0_u64;
+    loop {
+        if args.frames.is_some_and(|limit| sequence >= limit) {
+            break;
+        }
+        if sequence > 0 && args.slow_reader_ms > 0 {
+            thread::sleep(std::time::Duration::from_millis(args.slow_reader_ms));
+        }
+        let (sample, appsink_pull_wait_ns) = if sequence == 0 {
+            (
+                first_sample
+                    .take()
+                    .expect("validated first remote frame is available as frame zero"),
+                first_sample_pull_wait_ns,
+            )
+        } else {
+            let pull_started = args.capture_audit_timing.then(Instant::now);
+            let sample = loop {
+                if let Some(sample) = pull_http_mjpeg_sample(
+                    &sink,
+                    &pipeline,
+                    gst::ClockTime::from_mseconds(args.pull_timeout_ms),
+                )? {
+                    break sample;
+                }
+            };
+            (sample, elapsed_nanos(pull_started))
+        };
+        let caps = sample
+            .caps()
+            .context("remote MJPEG output sample has no negotiated RGB caps")?;
+        let info = VideoInfo::from_caps(caps).context("parse remote MJPEG RGB sample")?;
+        validate_video_info(
+            &info,
+            output_geometry.width_px(),
+            output_geometry.height_px(),
+            fps_num,
+            fps_den,
+        )?;
+        let buffer = sample
+            .buffer()
+            .context("remote MJPEG output sample has no frame buffer")?;
+        let allocation_started = args.capture_audit_timing.then(Instant::now);
+        let mut owned_pixels = frame_budget
+            .allocate_rgb8_buffer(
+                output_geometry.width_px(),
+                output_geometry.height_px(),
+                frame_limit,
+            )
+            .context("allocate budgeted remote RGB frame")?;
+        let rgb_buffer_allocation_ns = elapsed_nanos(allocation_started);
+        let copy_started = args.capture_audit_timing.then(Instant::now);
+        let stride = copy_mapped_rgb_frame(
+            buffer,
+            &info,
+            output_geometry.width_px(),
+            output_geometry.height_px(),
+            owned_pixels.as_mut_slice(),
+        )?;
+        let rgb_mapping_copy_ns = elapsed_nanos(copy_started);
+        ensure!(
+            owned_pixels.len() == expected_len,
+            "remote RGB output length changed"
+        );
+        let header = FrameHeader {
+            record_schema_version: if args.capture_audit_timing { 3 } else { 2 },
+            session_id: &args.session_id,
+            frame_id: sequence.to_string(),
+            configuration_revision: settings.configuration_revision,
+            camera_profile_id: settings.expected.camera_profile_id(),
+            capture_settings_sha256: &settings.request_sha256,
+            width_px: output_geometry.width_px(),
+            height_px: output_geometry.height_px(),
+            pixel_format: "rgb8",
+            row_stride_bytes: stride,
+            // GStreamer PTS is pipeline time. It is not camera exposure time.
+            unverified_pipeline_pts_ticks: buffer.pts().map(|pts| pts.nseconds().to_string()),
+            source_timestamp_ticks: None,
+            host_read_completed_elapsed_ns: legacy_helper_start
+                .map(|started| started.elapsed().as_nanos().to_string()),
+            capture_timings_ns: args.capture_audit_timing.then(|| CaptureHelperTimingNs {
+                appsink_pull_wait_ns: appsink_pull_wait_ns.expect("timed mode measures pull wait"),
+                rgb_buffer_allocation_ns: rgb_buffer_allocation_ns
+                    .expect("timed mode measures RGB allocation"),
+                rgb_mapping_copy_ns: rgb_mapping_copy_ns
+                    .expect("timed mode measures RGB mapping and copy"),
+            }),
+        };
+        write_record(&mut output, &header, owned_pixels.as_slice())
+            .context("write bounded remote MJPEG frame record")?;
+        output.flush().context("flush remote MJPEG frame record")?;
+        sequence = sequence
+            .checked_add(1)
+            .context("remote MJPEG frame sequence overflowed")?;
+    }
+    Ok(())
+}
+
+/// Pull one sample from the live HTTP-MJPEG pipeline. `None` means that the
+/// timeout elapsed without a frame; it is a transient gap, not a reason to
+/// terminate capture. A real GStreamer error or EOS remains terminal so the
+/// supervising runtime can report or recover from the source failure.
+#[cfg(feature = "camera-gstreamer-source")]
+fn pull_http_mjpeg_sample(
+    sink: &AppSink,
+    pipeline: &gst::Pipeline,
+    timeout: gst::ClockTime,
+) -> Result<Option<gst::Sample>> {
+    if let Some(sample) = sink.try_pull_sample(timeout) {
+        return Ok(Some(sample));
+    }
+
+    if let Some(message) = pipeline
+        .bus()
+        .context("remote HTTP-MJPEG pipeline has no message bus")?
+        .pop_filtered(&[gst::MessageType::Error, gst::MessageType::Eos])
+    {
+        match message.view() {
+            gst::MessageView::Error(error) => {
+                return Err(anyhow!(
+                    "remote HTTP-MJPEG source pipeline failed: {}",
+                    error.error()
+                ));
+            }
+            gst::MessageView::Eos(..) => {
+                return Err(anyhow!("remote HTTP-MJPEG source reached end of stream"));
+            }
+            _ => {}
+        }
+    }
+
+    if sink.is_eos() {
+        return Err(anyhow!("remote HTTP-MJPEG appsink reached end of stream"));
+    }
+    Ok(None)
+}
+
 fn elapsed_nanos(started: Option<Instant>) -> Option<u64> {
     started.map(|started| u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX))
 }
@@ -872,9 +1264,9 @@ fn validate_args(args: &Args) -> Result<()> {
     ensure!(args.session_id.len() <= 128, "session identity is too long");
     match (args.frames, args.until_stopped, args.source_mode) {
         (Some(frames), false, _) => ensure!(frames > 0, "frame count must be positive"),
-        (None, true, SourceMode::Physical) => {}
+        (None, true, SourceMode::Physical | SourceMode::HttpMjpeg) => {}
         (None, true, SourceMode::Synthetic) => {
-            anyhow::bail!("run-until-stopped mode is available only for physical capture")
+            anyhow::bail!("run-until-stopped mode is unavailable for synthetic capture")
         }
         (None, false, _) => anyhow::bail!("provide --frames or --until-stopped"),
         (Some(_), true, _) => anyhow::bail!("--frames conflicts with --until-stopped"),
@@ -888,6 +1280,19 @@ fn validate_args(args: &Args) -> Result<()> {
         "helper-ready JSON byte limit must be positive"
     );
     ensure!(args.pull_timeout_ms > 0, "pull timeout must be positive");
+    match (args.source_mode, args.http_mjpeg_url.as_deref()) {
+        (SourceMode::HttpMjpeg, Some(url)) => ensure!(
+            billiards_perception::configuration_authority::valid_http_uri(url),
+            "HTTP-MJPEG URL must be a valid credential-free HTTP(S) URI"
+        ),
+        (SourceMode::HttpMjpeg, None) => {
+            anyhow::bail!("--http-mjpeg-url is required for HTTP-MJPEG source mode")
+        }
+        (_, Some(_)) => {
+            anyhow::bail!("--http-mjpeg-url is valid only for HTTP-MJPEG source mode")
+        }
+        (_, None) => {}
+    }
     ensure!(
         args.slow_reader_ms < args.pull_timeout_ms,
         "slow-reader delay must be shorter than the pull timeout"
@@ -903,6 +1308,7 @@ mod argument_tests {
     fn args(source_mode: SourceMode, frames: Option<u64>, until_stopped: bool) -> Args {
         Args {
             source_mode,
+            http_mjpeg_url: None,
             session_id: "capture-test-session".to_owned(),
             capture_settings_max_bytes: 16_384,
             ready_record_max_bytes: 4_096,
@@ -931,6 +1337,16 @@ mod argument_tests {
     }
 
     #[test]
+    fn remote_mjpeg_requires_a_valid_url_and_can_run_continuously() {
+        let mut source = args(SourceMode::HttpMjpeg, None, true);
+        assert!(validate_args(&source).is_err());
+        source.http_mjpeg_url = Some("http://127.0.0.1:8001/stream.mjpg".to_owned());
+        assert!(validate_args(&source).is_ok());
+        source.http_mjpeg_url = Some("http://user:pass@example.test/stream".to_owned());
+        assert!(validate_args(&source).is_err());
+    }
+
+    #[test]
     fn command_line_requires_one_run_duration_mode() {
         let common = [
             "capture-helper",
@@ -952,6 +1368,59 @@ mod argument_tests {
         let mut conflicting = continuous;
         conflicting.extend(["--frames", "1"]);
         assert!(Args::try_parse_from(conflicting).is_err());
+    }
+}
+
+#[cfg(all(test, feature = "camera-gstreamer-source"))]
+mod http_mjpeg_sample_tests {
+    use super::pull_http_mjpeg_sample;
+    use gst::prelude::*;
+    use gstreamer as gst;
+    use gstreamer_app::{AppSink, AppSrc};
+
+    #[test]
+    fn transient_empty_pull_waits_for_a_later_frame_and_eos_is_terminal() {
+        gst::init().unwrap();
+        let pipeline = gst::Pipeline::new();
+        let source = gst::ElementFactory::make("appsrc")
+            .build()
+            .unwrap()
+            .downcast::<AppSrc>()
+            .unwrap();
+        let sink = gst::ElementFactory::make("appsink")
+            .build()
+            .unwrap()
+            .downcast::<AppSink>()
+            .unwrap();
+        source.set_caps(Some(
+            &gst::Caps::builder("application/octet-stream").build(),
+        ));
+        sink.set_wait_on_eos(false);
+        pipeline
+            .add_many([
+                source.upcast_ref::<gst::Element>(),
+                sink.upcast_ref::<gst::Element>(),
+            ])
+            .unwrap();
+        source.link(&sink).unwrap();
+        pipeline.set_state(gst::State::Playing).unwrap();
+
+        let timeout = gst::ClockTime::from_mseconds(10);
+        assert!(pull_http_mjpeg_sample(&sink, &pipeline, timeout)
+            .unwrap()
+            .is_none());
+
+        source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![1_u8, 2, 3]))
+            .unwrap();
+        let sample = pull_http_mjpeg_sample(&sink, &pipeline, timeout)
+            .unwrap()
+            .expect("the sample after a transient gap must be delivered");
+        assert_eq!(sample.buffer().unwrap().size(), 3);
+
+        source.end_of_stream().unwrap();
+        assert!(pull_http_mjpeg_sample(&sink, &pipeline, timeout).is_err());
+        pipeline.set_state(gst::State::Null).unwrap();
     }
 }
 

@@ -1,10 +1,16 @@
 # ADR-0040: Version stable camera capture selectors separately from provider identifiers
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: ADR-0037, only for discovery-report identity and selector fields
-- Superseded by: None
+- Superseded by: ADR-0054, only for Linux persistent-identity resolution and
+  the source of the reported persistent identifier
+
+ADR-0054 changes only how Linux discovery obtains a persistent identifier when
+GStreamer reports a transient V4L node. This record remains in force for the
+discovery schema, selector hashing, exact-match capture selection, and
+capture-settings compatibility.
 
 ## Context
 

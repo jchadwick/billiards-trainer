@@ -35,6 +35,7 @@
     "enabled": false,
     "state_enabled": true,
     "trajectory_enabled": false,
+    "trajectory_workload_enabled": true,
     "viewers_enabled": false,
     "warmup_seconds": 30,
     "measured_seconds": 120,
@@ -49,6 +50,23 @@
     "latency_reference_budget_ms": 50.0,
     "instrumentation_overhead_budget_percent": 2.0,
     "output_directory": "thoughts/performance-audits"
+  },
+  "perception": {
+    "freshness": {
+      "maximum_observation_age_seconds": 0.5
+    },
+    "rust_replay": {
+      "replay_repeat_count": 1,
+      "maximum_replay_frames": 100000
+    }
+  },
+  "game_session": {
+    "store_path": "backend/calibration_data/game_session.json",
+    "maximum_store_file_bytes": 4096,
+    "maximum_request_bytes": 4096,
+    "maximum_response_bytes": 8192,
+    "lock_timeout_ms": 2000,
+    "operation_timeout_seconds": 5.0
   },
   "vision": {
     "performance": {
@@ -980,7 +998,8 @@
       },
       "performance": {
         "frame_log_interval": 30,
-        "sleep_interval_ms": 10
+        "sleep_interval_ms": 10,
+        "maximum_send_backpressure_seconds": 0.5
       }
     },
     "websocket": {
@@ -988,6 +1007,8 @@
         "replaceable_queue_capacity": 32,
         "control_queue_capacity": 32,
         "send_timeout_seconds": 5.0,
+        "max_replaceable_message_age_seconds": 0.25,
+        "replaceable_send_timeout_seconds": 0.5,
         "aggregation_buffer_capacity": 32
       },
       "manager": {

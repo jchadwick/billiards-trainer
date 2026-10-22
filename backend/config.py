@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.perception.camera_source import classify_camera_source
+from backend.perception.rust_config_authority import (
+    RustConfigurationAuthorityClient,
+    RustConfigurationAuthorityError,
+    RustConfigurationAuthorityProtocolError,
+    RustConfigurationAuthorityRejected,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +85,14 @@ _CROSS_FIELD_RULES: list[dict[str, Any]] = [
     },
     {
         "fields": [
+            "perception.rust_live.reconnect_initial_delay_ms",
+            "perception.rust_live.reconnect_maximum_delay_ms",
+        ],
+        "rule": "Rust live maximum reconnect delay must be at least the initial delay",
+        "kind": "nondecreasing",
+    },
+    {
+        "fields": [
             "perception.capture.maximum_rgb_frame_bytes",
             "perception.capture.maximum_aggregate_rgb_frame_bytes",
         ],
@@ -120,6 +134,7 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "vision.detection.yolo_confidence": (0, 1),
     "vision.detection.yolo_nms_threshold": (0, 1),
     "perception.rust_replay.image_size": (32, None),
+    "perception.rust_live.image_size": (32, None),
     "perception.capture.maximum_rgb_frame_bytes": (1, 1_073_741_824),
     "perception.capture.maximum_aggregate_rgb_frame_bytes": (1, 1_073_741_824),
     "perception.capture.maximum_frame_age_ms": (1, _MAX_SAFE_JSON_INTEGER),
@@ -128,7 +143,58 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "metadata.configuration_revision": (1, _MAX_SAFE_JSON_INTEGER),
     "perception.rust_replay.confidence": (0, 1),
     "perception.rust_replay.iou": (0, 1),
+    "perception.rust_live.confidence": (0, 1),
+    "perception.rust_live.iou": (0, 1),
+    "game_session.maximum_request_bytes": (128, 65_536),
+    "perception.rust_live.warmup_runs": (0, None),
+    "perception.rust_live.ball_class_id": (0, None),
+    "perception.rust_live.cue_class_id": (0, None),
+    "perception.rust_live.max_detections": (1, 4294967295),
+    "perception.rust_live.association_prediction_horizon_ms": (1, None),
+    "perception.rust_live.lost_after_ms": (1, None),
+    "perception.rust_live.maximum_track_age_ms": (1, None),
+    "perception.rust_live.maximum_active_tracks": (1, None),
+    "perception.rust_live.recent_observation_capacity": (1, None),
+    "perception.rust_live.port": (0, 65535),
+    "perception.rust_live.maximum_message_bytes": (1, 4294967295),
+    "perception.rust_live.capture_settings_maximum_bytes": (1, None),
+    "perception.rust_live.poll_interval_ms": (1, None),
+    "perception.rust_live.connect_timeout_ms": (1, None),
+    "perception.rust_live.write_timeout_ms": (1, None),
+    "perception.rust_live.reconnect_initial_delay_ms": (0, None),
+    "perception.rust_live.reconnect_maximum_delay_ms": (0, None),
+    "perception.rust_live.output_tail_capacity_bytes": (1, None),
+    "perception.rust_live.public_state_delivery_schema_version": (1, 1),
+    "perception.rust_live.frame_preview_port": (0, 65535),
+    "perception.rust_live.frame_preview_max_header_bytes": (128, 1048576),
+    "perception.rust_live.frame_preview_max_jpeg_bytes": (1, 16777216),
+    "perception.rust_live.frame_preview_max_concurrent_encodes": (1, 4),
+    "perception.rust_live.frame_preview_jpeg_quality": (1, 100),
+    "perception.rust_live.frame_preview_request_timeout_ms": (1, 60000),
+    "perception.rust_live.frame_preview_write_timeout_ms": (1, 60000),
+    "perception.rust_live.frame_preview_calibration_store_lock_timeout_ms": (
+        1,
+        60000,
+    ),
+    "perception.rust_live.frame_preview_calibration_store_max_file_bytes": (
+        1,
+        16777216,
+    ),
+    "perception.rust_live.frame_preview_calibration_max_request_bytes": (
+        1024,
+        1048576,
+    ),
+    "perception.rust_live.capture_helper_ready_record_max_bytes": (1, 4294967295),
+    "perception.rust_live.capture_helper_frame_header_max_bytes": (1, 4294967295),
+    "perception.rust_live.capture_helper_slow_reader_delay_ms": (0, None),
+    "perception.rust_live.capture_helper_pull_timeout_ms": (1, None),
+    "perception.rust_live.capture_helper_readiness_timeout_ms": (1, None),
+    "perception.rust_live.capture_helper_child_exit_timeout_ms": (1, None),
+    "perception.rust_live.capture_helper_child_exit_poll_interval_ms": (1, None),
     "perception.rust_replay.warmup_runs": (0, None),
+    "perception.rust_replay.public_state_delivery_schema_version": (1, 1),
+    "perception.rust_replay.replay_repeat_count": (1, None),
+    "perception.rust_replay.maximum_replay_frames": (1, 4294967295),
     "perception.rust_replay.ball_class_id": (0, None),
     "perception.rust_replay.cue_class_id": (0, None),
     "perception.rust_replay.association_prediction_horizon_ms": (1, None),
@@ -150,6 +216,7 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "api.stream.quality.single_frame_jpeg_quality": (1, 100),
     "api.stream.quality.min_jpeg_quality": (1, 100),
     "api.stream.quality.max_jpeg_quality": (1, 100),
+    "api.stream.performance.maximum_send_backpressure_seconds": (0.001, None),
     "streaming.encoding.default_jpeg_quality": (1, 100),
     "streaming.encoding.min_jpeg_quality": (1, 100),
     "streaming.encoding.max_jpeg_quality": (1, 100),
@@ -164,13 +231,21 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "api.websocket.delivery.replaceable_queue_capacity": (1, None),
     "api.websocket.delivery.control_queue_capacity": (1, None),
     "api.websocket.delivery.send_timeout_seconds": (0.001, None),
+    # These are operational defaults for best-effort freshness. They are not
+    # qualified end-to-end latency targets; deployments may tune them using
+    # workload measurements.
+    "api.websocket.delivery.max_replaceable_message_age_seconds": (0.001, None),
+    "api.websocket.delivery.replaceable_send_timeout_seconds": (0.001, None),
     "api.websocket.delivery.aggregation_buffer_capacity": (1, None),
+    "perception.freshness.maximum_observation_age_seconds": (0.001, None),
     "performance_audit.warmup_seconds": (0, None),
     "performance_audit.measured_seconds": (1, None),
     "performance_audit.repetitions": (1, None),
     "performance_audit.soak_seconds": (1, None),
     "performance_audit.heartbeat_interval_seconds": (1, None),
     "performance_audit.sample_rate": (0.000001, 1),
+    "performance_audit.detailed_frame_sample_rate": (0.000001, 1),
+    "performance_audit.detailed_event_sample_rate": (0.000001, 1),
     "performance_audit.history_size": (1, None),
     "performance_audit.event_queue_capacity": (1, None),
     "performance_audit.event_export_limit": (1, None),
@@ -199,6 +274,12 @@ _EXCLUSIVE_MINIMUMS: dict[str, float] = {
     "perception.rust_replay.startup_timeout_seconds": 0,
     "perception.rust_replay.stop_timeout_seconds": 0,
     "perception.rust_replay.output_limit_poll_interval_seconds": 0,
+    "perception.rust_live.association_gate_px": 0,
+    "perception.rust_live.read_timeout_seconds": 0,
+    "perception.rust_live.source_silence_timeout_seconds": 0,
+    "perception.rust_live.startup_timeout_seconds": 0,
+    "perception.rust_live.stop_timeout_seconds": 0,
+    "perception.rust_live.graceful_stop_timeout_seconds": 0,
 }
 _ENUM_VALUES: dict[str, tuple[str, ...]] = {
     "vision.camera.backend": (
@@ -216,6 +297,7 @@ _ENUM_VALUES: dict[str, tuple[str, ...]] = {
     "perception.provider": ("python", "rust"),
     "perception.mode": ("live", "recorded_replay"),
     "perception.rust_replay.provider": ("cpu", "auto", "openvino"),
+    "perception.rust_live.provider": ("cpu", "auto", "openvino"),
     "perception.rust_replay.source_image_space": ("raw", "rectified"),
     "perception.capture.image_space": ("raw", "rectified"),
     "perception.capture.timestamp_semantics": ("read_completion_only",),
@@ -243,6 +325,18 @@ class ConfigValidationError(ValueError):
     def __init__(self, errors: list[dict[str, Any]]) -> None:
         self.errors = errors
         super().__init__("Configuration validation failed")
+
+
+class ConfigurationAuthorityConfigurationError(ValueError):
+    """The explicitly selected configuration authority is not configured."""
+
+
+class ConfigurationRevisionConflict(RuntimeError):
+    """A Rust mutation was based on a revision superseded by another writer."""
+
+    def __init__(self, message: str, *, current_revision: int | None) -> None:
+        self.current_revision = current_revision
+        super().__init__(message)
 
 
 def _json_copy(value: Any) -> Any:
@@ -581,6 +675,13 @@ def validate_configuration(
     applied to the complete merged configuration passed by the store, and the
     merged snapshot is checked against the same supported-key schema.
     """
+    rust_config = globals().get("config")
+    if isinstance(rust_config, Config) and rust_config.authority_mode == "rust":
+        result = rust_config.validate_configuration(
+            candidate, merge=baseline is not None
+        )
+        return result["validation_errors"], result["warnings"]
+
     errors: list[dict[str, Any]] = []
     reference = load_schema_reference()
     baseline_with_defaults = _deep_merge(reference, baseline or {})
@@ -623,6 +724,66 @@ def validate_configuration(
                 "integer multiple of 32",
             )
         )
+
+    live_image_size = _dig(combined, "perception.rust_live.image_size")
+    if (
+        isinstance(live_image_size, int)
+        and not isinstance(live_image_size, bool)
+        and live_image_size % 32 != 0
+    ):
+        errors.append(
+            _error(
+                "perception.rust_live.image_size",
+                "Rust live image_size must be divisible by 32",
+                live_image_size,
+                "integer multiple of 32",
+            )
+        )
+
+    rust_live = _dig(combined, "perception.rust_live")
+    if isinstance(rust_live, dict):
+        control_enabled = rust_live.get("frame_preview_calibration_control_enabled")
+        if (
+            control_enabled is True
+            and rust_live.get("frame_preview_enabled") is not True
+        ):
+            errors.append(
+                _error(
+                    "perception.rust_live.frame_preview_enabled",
+                    "Calibration control requires the Rust frame-preview listener",
+                    rust_live.get("frame_preview_enabled"),
+                    "true when calibration control is enabled",
+                )
+            )
+        header_limit = rust_live.get("frame_preview_max_header_bytes")
+        if (
+            control_enabled is True
+            and isinstance(header_limit, int)
+            and not isinstance(header_limit, bool)
+            and header_limit < 4096
+        ):
+            errors.append(
+                _error(
+                    "perception.rust_live.frame_preview_max_header_bytes",
+                    "Calibration control requires a response limit of at least 4096 bytes",
+                    header_limit,
+                    "integer >= 4096",
+                )
+            )
+        store_path = rust_live.get("frame_preview_calibration_store_path")
+        if (
+            control_enabled is True
+            and isinstance(store_path, str)
+            and (not store_path.strip() or len(store_path) > 1024)
+        ):
+            errors.append(
+                _error(
+                    "perception.rust_live.frame_preview_calibration_store_path",
+                    "Calibration store path must be a non-empty path of at most 1024 characters",
+                    store_path,
+                    "non-empty path <= 1024 characters",
+                )
+            )
 
     warnings: list[str] = []
     for path in ("vision.camera.fps",):
@@ -805,11 +966,17 @@ def _load_schema_reference() -> dict[str, Any]:
 
 def load_schema_reference() -> dict[str, Any]:
     """Return an isolated copy of the bundled supported-configuration defaults."""
+    rust_config = globals().get("config")
+    if isinstance(rust_config, Config) and rust_config.authority_mode == "rust":
+        return rust_config.get_defaults()
     return copy.deepcopy(_load_schema_reference())
 
 
 def get_configuration_schema(section: Optional[str] = None) -> dict[str, Any]:
     """Build the JSON Schema exposed by the configuration API."""
+    rust_config = globals().get("config")
+    if isinstance(rust_config, Config) and rust_config.authority_mode == "rust":
+        return rust_config.get_schema(section)
     schema = _schema_from_example(load_schema_reference())
     if section is None:
         schema["x-cross-field-rules"] = copy.deepcopy(_CROSS_FIELD_RULES)
@@ -829,16 +996,90 @@ def get_configuration_schema(section: Optional[str] = None) -> dict[str, Any]:
 
 
 class Config:
-    """Singleton configuration store with dot-notation reads and atomic writes."""
+    """Configuration facade with a transitional Python or Rust authority.
+
+    Python remains the default authority until every configuration route is
+    qualified against the Rust protocol. Selecting Rust is explicit and fails
+    closed; Rust mode never reads, validates, or writes the Python config file.
+    """
 
     _instance: Optional["Config"] = None
     _config_data: dict[str, Any] = {}
     _config_file: Optional[Path] = None
+    _authority_mode: str | None = None
+    _rust_client: RustConfigurationAuthorityClient | None = None
+    _rust_revision: int | None = None
+    _rust_defaults: dict[str, Any] | None = None
+    _rust_schema: dict[str, Any] | None = None
 
     def __new__(cls) -> "Config":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
+
+    @property
+    def authority_mode(self) -> str:
+        """Return the active authority, resolving the explicit selector once."""
+        if self._authority_mode is None:
+            self._authority_mode = self._selected_authority_mode()
+        return self._authority_mode
+
+    @property
+    def revision(self) -> int | None:
+        """Return the cached Rust revision, or ``None`` for Python mode."""
+        return self._rust_revision if self.authority_mode == "rust" else None
+
+    @staticmethod
+    def _selected_authority_mode() -> str:
+        configured = os.getenv("BILLIARDS_CONFIG_AUTHORITY", "").strip().lower()
+        if not configured or configured == "python":
+            return "python"
+        if configured != "rust":
+            raise ConfigurationAuthorityConfigurationError(
+                "BILLIARDS_CONFIG_AUTHORITY must be 'python' or 'rust'"
+            )
+        return configured
+
+    @classmethod
+    def bootstrap_from_environment(
+        cls,
+        config_path: str | Path | None = None,
+        *,
+        default_config_path: str | Path | None = None,
+    ) -> "Config":
+        """Prepare the selected authority before importing config consumers.
+
+        In Python compatibility mode, no path preserves the legacy lazy load
+        unless a default is supplied by the executable entry point. Rust mode
+        requires a caller-provided path or ``BILLIARDS_CONFIG_PATH``.
+        """
+        authority_mode = cls._selected_authority_mode()
+        instance = cls()
+        if authority_mode == "rust":
+            # Mark Rust as selected before validating its bootstrap inputs. If
+            # initialization fails, later reads must not expose a prior Python
+            # snapshot from this process.
+            with _CONFIG_LOCK:
+                instance._authority_mode = "rust"
+                instance._config_data = {}
+                instance._config_file = None
+                instance._rust_client = None
+                instance._rust_revision = None
+                instance._rust_defaults = None
+                instance._rust_schema = None
+        selected_path = config_path or os.getenv("BILLIARDS_CONFIG_PATH")
+        if selected_path is None:
+            selected_path = default_config_path
+        if authority_mode == "rust" and selected_path is None:
+            raise ConfigurationAuthorityConfigurationError(
+                "Rust configuration authority requires an explicit config path "
+                "through --config or BILLIARDS_CONFIG_PATH"
+            )
+        if selected_path is not None:
+            cls.set_config_file(selected_path)
+        else:
+            instance._authority_mode = authority_mode
+        return cls()
 
     @classmethod
     def set_config_file(cls, config_path: str | Path) -> None:
@@ -846,7 +1087,41 @@ class Config:
             cls._instance = cls()
         with _CONFIG_LOCK:
             instance = cls._instance
-            selected_path = Path(config_path).resolve()
+            selected_path = Path(config_path).expanduser().resolve()
+            authority_mode = cls._selected_authority_mode()
+            if authority_mode == "rust":
+                # Clear the prior cache before validating the executable so a
+                # bad Rust selection cannot fall through to Python data.
+                instance._authority_mode = "rust"
+                instance._config_file = selected_path
+                instance._config_data = {}
+                instance._rust_client = None
+                instance._rust_revision = None
+                instance._rust_defaults = None
+                instance._rust_schema = None
+                executable_value = os.getenv(
+                    "BILLIARDS_CONFIG_AUTHORITY_EXECUTABLE", ""
+                ).strip()
+                if not executable_value:
+                    raise ConfigurationAuthorityConfigurationError(
+                        "Rust configuration authority requires "
+                        "BILLIARDS_CONFIG_AUTHORITY_EXECUTABLE"
+                    )
+                executable = Path(executable_value).expanduser()
+                if not executable.is_absolute():
+                    raise ConfigurationAuthorityConfigurationError(
+                        "BILLIARDS_CONFIG_AUTHORITY_EXECUTABLE must be an absolute path"
+                    )
+                if not executable.is_file() or not os.access(executable, os.X_OK):
+                    raise ConfigurationAuthorityConfigurationError(
+                        "BILLIARDS_CONFIG_AUTHORITY_EXECUTABLE must name an executable file"
+                    )
+                instance._rust_client = RustConfigurationAuthorityClient(
+                    executable, selected_path
+                )
+                instance._load_rust_snapshot()
+                return
+
             same_file = (
                 instance._config_file is not None
                 and instance._config_file.resolve() == selected_path
@@ -859,10 +1134,102 @@ class Config:
                 else None
             )
             instance._config_file = selected_path
+            instance._authority_mode = "python"
+            instance._rust_client = None
+            instance._rust_revision = None
+            instance._rust_defaults = None
+            instance._rust_schema = None
             instance._load_config(
                 minimum_revision=minimum_revision,
                 preserve_on_error=same_file,
             )
+
+    def _load_rust_snapshot(self) -> None:
+        """Load one complete Rust snapshot before publishing it to readers."""
+        response = self._rust_call("snapshot")
+        document = response.get("configuration")
+        revision = response.get("revision")
+        if not isinstance(document, dict) or type(revision) is not int or revision < 1:
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration snapshot is missing a valid revision or document",
+                response=response,
+            )
+        metadata = document.get("metadata")
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("configuration_revision") != revision
+        ):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration snapshot revision does not match its metadata",
+                response=response,
+            )
+        self._config_data = copy.deepcopy(document)
+        self._rust_revision = revision
+
+    def _rust_call(self, operation: str, **parameters: Any) -> dict[str, Any]:
+        """Call the selected authority and return its validated response body."""
+        if self.authority_mode != "rust" or self._rust_client is None:
+            raise ConfigurationAuthorityConfigurationError(
+                "Rust configuration authority has not been initialized"
+            )
+        request = {"protocol_version": 1, "operation": operation, **parameters}
+        try:
+            return self._rust_client.call(request).body
+        except RustConfigurationAuthorityRejected as error:
+            if error.code == "revision_conflict":
+                response = error.response or {}
+                current_revision = response.get("current_revision")
+                raise ConfigurationRevisionConflict(
+                    error.message,
+                    current_revision=(
+                        current_revision if type(current_revision) is int else None
+                    ),
+                ) from error
+            raise
+
+    def _accept_rust_mutation(self, response: dict[str, Any]) -> list[str]:
+        """Publish only a complete successful Rust mutation response to readers."""
+        document = response.get("configuration")
+        revision = response.get("revision")
+        updated_fields = response.get("updated_fields")
+        if (
+            not isinstance(document, dict)
+            or type(revision) is not int
+            or revision < 1
+            or not isinstance(updated_fields, list)
+            or any(not isinstance(field, str) for field in updated_fields)
+        ):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration mutation response is incomplete",
+                response=response,
+            )
+        metadata = document.get("metadata")
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("configuration_revision") != revision
+        ):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration mutation revision does not match its document",
+                response=response,
+            )
+        self._config_data = copy.deepcopy(document)
+        self._rust_revision = revision
+        return list(updated_fields)
+
+    def _mutate_rust(self, operation: str, **parameters: Any) -> list[str]:
+        """Serialize a Rust compare-and-swap and its local cache publication."""
+        with _CONFIG_LOCK:
+            expected_revision = self._rust_revision
+            if expected_revision is None:
+                raise ConfigurationAuthorityConfigurationError(
+                    "Rust configuration snapshot is not initialized"
+                )
+            response = self._rust_call(
+                operation,
+                expected_revision=expected_revision,
+                **parameters,
+            )
+            return self._accept_rust_mutation(response)
 
     def _load_config(
         self,
@@ -870,6 +1237,10 @@ class Config:
         minimum_revision: int | None = None,
         preserve_on_error: bool = False,
     ) -> None:
+        if self.authority_mode == "rust":
+            raise ConfigurationAuthorityConfigurationError(
+                "Python configuration reads are disabled in Rust authority mode"
+            )
         if self._config_file is None:
             self._config_file = Path(os.getcwd()) / "config.json"
         previous = self._config_data
@@ -914,7 +1285,15 @@ class Config:
 
     def get(self, key: str, default: Any = None) -> Any:
         with _CONFIG_LOCK:
-            if not self._config_data and self._config_file is None:
+            if self.authority_mode == "rust" and self._rust_revision is None:
+                raise ConfigurationAuthorityConfigurationError(
+                    "Rust configuration snapshot is not initialized"
+                )
+            if (
+                self.authority_mode == "python"
+                and not self._config_data
+                and self._config_file is None
+            ):
                 self._load_config()
             value: Any = self._config_data
             for component in key.split("."):
@@ -938,8 +1317,17 @@ class Config:
         cursor[components[-1]] = value
         self.apply_updates(updates)
 
-    def apply_updates(self, updates: dict[str, Any]) -> list[str]:
+    def apply_updates(
+        self, updates: dict[str, Any], *, force_update: bool = False
+    ) -> list[str]:
         """Validate, merge, and persist a partial configuration update."""
+        if self.authority_mode == "rust":
+            return self._mutate_rust(
+                "update",
+                data=updates,
+                force_update=force_update,
+            )
+
         if not isinstance(updates, dict) or not updates:
             raise ValueError("Configuration updates must be a non-empty object")
         if _contains_path(updates, ("metadata", "configuration_revision")):
@@ -957,8 +1345,17 @@ class Config:
                 self._commit(candidate)
             return changed_fields
 
-    def replace_configuration(self, replacement: dict[str, Any]) -> list[str]:
+    def replace_configuration(
+        self, replacement: dict[str, Any], *, force_update: bool = False
+    ) -> list[str]:
         """Validate and replace the complete stored configuration atomically."""
+        if self.authority_mode == "rust":
+            return self._mutate_rust(
+                "replace",
+                data=replacement,
+                force_update=force_update,
+            )
+
         if not isinstance(replacement, dict) or not replacement:
             raise ValueError("Configuration replacement must be a non-empty object")
         with _CONFIG_LOCK:
@@ -979,6 +1376,10 @@ class Config:
 
     def _commit(self, data: dict[str, Any]) -> None:
         """Persist before publishing new in-memory state, with atomic replacement."""
+        if self.authority_mode == "rust":
+            raise ConfigurationAuthorityConfigurationError(
+                "Python configuration writes are disabled in Rust authority mode"
+            )
         if self._config_file is None:
             self._config_file = Path(os.getcwd()) / "config.json"
         previous = self._config_data
@@ -1001,6 +1402,10 @@ class Config:
 
     def _save_config(self, data: dict[str, Any]) -> None:
         """Write complete configuration through fsync + same-directory rename."""
+        if self.authority_mode == "rust":
+            raise ConfigurationAuthorityConfigurationError(
+                "Python configuration writes are disabled in Rust authority mode"
+            )
         target = self._config_file
         if target is None:
             target = Path(os.getcwd()) / "config.json"
@@ -1037,6 +1442,9 @@ class Config:
 
     def reload(self) -> None:
         with _CONFIG_LOCK:
+            if self.authority_mode == "rust":
+                self._load_rust_snapshot()
+                return
             minimum_revision = _configuration_revision(
                 self._config_data, default=_schema_configuration_revision()
             )
@@ -1047,7 +1455,158 @@ class Config:
 
     def get_all(self) -> dict[str, Any]:
         with _CONFIG_LOCK:
+            if self.authority_mode == "rust" and self._rust_revision is None:
+                raise ConfigurationAuthorityConfigurationError(
+                    "Rust configuration snapshot is not initialized"
+                )
             return copy.deepcopy(self._config_data)
+
+    def resolve_capture_settings(self, *, schema_version: int = 3) -> dict[str, Any]:
+        """Build a live capture request through the Rust configuration authority.
+
+        The capture request determines which physical input Rust opens, so a
+        Rust perception provider must not resolve it from Python-side defaults
+        or a potentially stale local configuration cache. This operation reads
+        the active document and its embedded Rust defaults together.
+        """
+        if self.authority_mode != "rust":
+            raise ConfigurationAuthorityConfigurationError(
+                "Rust live capture requires BILLIARDS_CONFIG_AUTHORITY=rust so "
+                "capture settings are resolved by Rust"
+            )
+        if type(schema_version) is not int or schema_version != 3:
+            raise ValueError("Rust live capture currently requires schema version 3")
+        response = self._rust_call(
+            "capture_settings", data={"schema_version": schema_version}
+        )
+        capture_settings = response.get("capture_settings")
+        revision = response.get("revision")
+        if (
+            not isinstance(capture_settings, dict)
+            or type(revision) is not int
+            or revision < 1
+            or type(capture_settings.get("configuration_revision")) is not int
+            or capture_settings.get("configuration_revision") != revision
+        ):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust capture-settings response is missing a consistent request revision",
+                response=response,
+            )
+        return copy.deepcopy(capture_settings)
+
+    def validate_configuration(
+        self, candidate: dict[str, Any], *, merge: bool = True
+    ) -> dict[str, Any]:
+        """Validate a candidate through Rust without mutating cached state."""
+        if self.authority_mode != "rust":
+            errors, warnings = validate_configuration(
+                candidate,
+                baseline=self.get_all() if merge else None,
+            )
+            return {
+                "valid": not errors,
+                "validation_errors": errors,
+                "warnings": warnings,
+                "revision": None,
+            }
+        response = self._rust_call("validate", data=candidate, merge=merge)
+        if (
+            type(response.get("valid")) is not bool
+            or not isinstance(response.get("validation_errors"), list)
+            or not isinstance(response.get("warnings"), list)
+        ):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration validation response is incomplete",
+                response=response,
+            )
+        return response
+
+    def get_defaults(self) -> dict[str, Any]:
+        """Read and cache the embedded Rust defaults document."""
+        if self.authority_mode != "rust":
+            return load_schema_reference()
+        if self._rust_defaults is None:
+            response = self._rust_call("defaults")
+            configuration = response.get("configuration")
+            if not isinstance(configuration, dict):
+                raise RustConfigurationAuthorityProtocolError(
+                    "Rust configuration defaults response is incomplete",
+                    response=response,
+                )
+            self._rust_defaults = copy.deepcopy(configuration)
+        return copy.deepcopy(self._rust_defaults)
+
+    def get_schema(self, section: str | None = None) -> dict[str, Any]:
+        """Read and cache the Rust schema, optionally returning one section."""
+        if self.authority_mode != "rust":
+            return get_configuration_schema(section)
+        if self._rust_schema is None:
+            response = self._rust_call("schema")
+            schema = response.get("schema")
+            if not isinstance(schema, dict):
+                raise RustConfigurationAuthorityProtocolError(
+                    "Rust configuration schema response is incomplete",
+                    response=response,
+                )
+            self._rust_schema = copy.deepcopy(schema)
+        if section is None:
+            return copy.deepcopy(self._rust_schema)
+        properties = self._rust_schema.get("properties")
+        schema = properties.get(section) if isinstance(properties, dict) else None
+        if not isinstance(schema, dict):
+            raise KeyError(section)
+        return copy.deepcopy(schema)
+
+    def export_configuration(
+        self,
+        *,
+        sections: list[str] | None = None,
+        include_defaults: bool = False,
+        include_metadata: bool = True,
+    ) -> dict[str, Any]:
+        """Export the current configuration with optional section filtering."""
+        if self.authority_mode != "rust":
+            data = self.get_all()
+            if sections is not None:
+                data = {key: data[key] for key in sections if key in data}
+            if not include_metadata:
+                data.pop("metadata", None)
+            if include_defaults:
+                data = _deep_merge(self.get_defaults(), data)
+            return data
+        response = self._rust_call(
+            "export",
+            sections=sections,
+            include_defaults=include_defaults,
+            include_metadata=include_metadata,
+        )
+        configuration = response.get("configuration")
+        if not isinstance(configuration, dict):
+            raise RustConfigurationAuthorityProtocolError(
+                "Rust configuration export response is incomplete",
+                response=response,
+            )
+        return copy.deepcopy(configuration)
+
+    def reset_sections(
+        self, sections: list[str], *, force_update: bool = False
+    ) -> list[str]:
+        """Reset selected top-level sections through the configured authority."""
+        if self.authority_mode != "rust":
+            if not sections:
+                raise ValueError("At least one section is required")
+            defaults = self.get_defaults()
+            current = self.get_all()
+            for section in sections:
+                if section not in defaults:
+                    raise KeyError(section)
+                current[section] = defaults[section]
+            return self.replace_configuration(current)
+        return self._mutate_rust(
+            "reset_section",
+            sections=sections,
+            force_update=force_update,
+        )
 
 
 def _changed_leaf_paths(before: Any, after: Any, prefix: str = "") -> list[str]:

@@ -122,10 +122,10 @@ runtime.
   the model node to OpenVINO. A 30-frame paired CPU/OpenVINO replay retained
   identical detection counts and effectively identical centers; the short
   result is recorded in the [target A/B report](../../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/openvino-runtime-ab/report.md).
-- The supervised API selected OpenVINO, loaded its runtime libraries through
-  the provider-specific child environment, and published scenes to an
-  unauthenticated WebSocket subscriber through the retained frontend. This
-  short integration smoke is recorded in the [application report](../../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/openvino-runtime-ab/app-integration/report.md).
+- The supervised API selected the ONNX Runtime OpenVINO execution provider
+  and published scenes to an unauthenticated WebSocket subscriber through the
+  retained frontend. This historical smoke does **not** qualify the native
+  backend selected by ADR-0045; see the correction in the [application report](../../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/openvino-runtime-ab/app-integration/report.md).
 - The Apple Silicon Rust build compiles with the OpenVINO binding and exposes
   the runtime selection. Actual macOS provider execution is not yet qualified.
 - Missing or incompatible libraries must fail without switching to CPU. The

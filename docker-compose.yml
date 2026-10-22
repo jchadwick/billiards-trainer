@@ -3,18 +3,39 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
+      # The active configuration stays outside the image and is writable so
+      # changes made through the configuration API persist across restarts.
+      - "${CONFIG_HOST_FILE:-./config.json}:/app/config/config.json"
       - "${MODEL_DIRECTORY:-./models}:/app/models:ro"
+      - billiards-data:/app/backend/calibration_data
     environment:
-      PYTHONUNBUFFERED: "1"
-      PYTHONDONTWRITEBYTECODE: "1"
-      API_PORT: "8000"
-      CONFIG_FILE: /app/config.json
+      ENVIRONMENT: production
+      HTTP_BIND: 0.0.0.0
+      HTTP_PORT: "8000"
+      SCENE_BIND: 127.0.0.1
+      SCENE_PORT: "49321"
+      CONFIG_FILE: /app/config/config.json
+      PROJECT_ROOT: /app
+      WEB_ROOT: /app/web
+      LIVE_EXECUTABLE: /app/bin/billiards-perception-live
+      CAPTURE_HELPER_EXECUTABLE: /app/bin/billiards-perception-gstreamer-probe
+      # The checked-in config.json is for the legacy/replay workflow and does
+      # not satisfy Rust live-capture requirements. Enable live mode only when
+      # CONFIG_HOST_FILE points to a deployment config prepared for Rust.
+      START_LIVE: ${START_LIVE:-false}
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/api/v1/health/live"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 40s
+      start_period: 60s
+
+volumes:
+  billiards-data:

@@ -10,15 +10,20 @@ import struct
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
+from backend.config import load_schema_reference
 from backend.perception.capture_configuration import (
     CaptureSettingsSnapshotV1,
     CaptureSettingsSnapshotV2,
     CaptureSettingsSnapshotV3,
     resolve_capture_settings,
+)
+from backend.perception.rust_frame_preview import (
+    FramePreviewCalibrationControlSettings,
+    FramePreviewProcessSettings,
 )
 from backend.perception.rust_live_supervisor import (
     RustLiveAuditIngress,
@@ -76,13 +81,13 @@ def _audit_frame_record(
     }
 
 
-def _audit_footer(*, records_written: int) -> dict[str, Any]:
+def _audit_footer(*, records_written: int, dropped_records: int = 0) -> dict[str, Any]:
     return {
         "record_type": "footer",
         "schema_version": 1,
         "export_status": "complete",
         "records_written_before_footer": records_written,
-        "dropped_records": 0,
+        "dropped_records": dropped_records,
         "scene_socket_write_successes": 1,
         "scene_socket_write_failures": 0,
         "skipped_observations": 0,
@@ -121,6 +126,90 @@ def test_rust_live_audit_schema_v2_accepts_nullable_segmented_capture_durations(
     assert _validate_live_audit_record(value) == value
     value["durations_ms"].pop("parent_framed_record_read")
     with pytest.raises(ValueError, match="schema version 2"):
+        _validate_live_audit_record(value)
+
+
+def test_rust_live_audit_schema_v3_requires_engine_total_on_frame_records() -> None:
+    value = _audit_frame_record()
+    value["schema_version"] = 3
+    value["durations_ms"] = {
+        "capture_helper_appsink_pull_wait": None,
+        "capture_helper_rgb_buffer_allocation": None,
+        "capture_helper_rgb_mapping_copy": None,
+        "parent_framed_record_read": None,
+        "parent_record_read_complete_to_inference_start": 0.2,
+        "preprocess": 0.3,
+        "inference": 2.4,
+        "decode_and_nms": 0.4,
+        "engine_total": 3.1,
+        "calibration": None,
+        "tracking_and_state_assembly": 0.1,
+        "scene_json_serialization": 0.2,
+        "scene_queue_submit": 0.01,
+        "parent_record_read_complete_to_scene_queue_submit": 3.6,
+    }
+
+    assert _validate_live_audit_record(value) == value
+    value["durations_ms"].pop("engine_total")
+    with pytest.raises(ValueError, match="schema version 3"):
+        _validate_live_audit_record(value)
+
+
+def test_rust_live_audit_schema_v3_validates_stale_inference_timing_evidence() -> None:
+    value = {
+        "record_type": "observation_outcome",
+        "schema_version": 3,
+        "process_id": 123,
+        "engine_instance_id": "engine-a",
+        "source_session_id": "session-a",
+        "frame_id": "stale-frame-1",
+        "transport_sequence": None,
+        "configuration_revision": 1,
+        "tracking_configuration_revision": 2,
+        "rectification_revision": 3,
+        "calibration_revision": None,
+        "source_timestamp": None,
+        "outcome": "skipped",
+        "stage": "freshness_check",
+        "reason": "stale_after_inference",
+        "inference_timings_ms": {
+            "capture_helper_appsink_pull_wait": 6.0,
+            "capture_helper_rgb_buffer_allocation": 3.0,
+            "capture_helper_rgb_mapping_copy": 12.0,
+            "parent_framed_record_read": 18.0,
+            "parent_record_read_complete_to_inference_start": 2.0,
+            "preprocess": 28.0,
+            "inference": 144.0,
+            "decode_and_nms": 12.0,
+            "engine_total": 184.0,
+            "parent_record_read_complete_to_inference_complete": 186.0,
+            "maximum_frame_age": 100.0,
+        },
+    }
+
+    assert _validate_live_audit_record(value) == value
+    value["inference_timings_ms"] = None
+    with pytest.raises(ValueError, match="must be an object"):
+        _validate_live_audit_record(value)
+    value["inference_timings_ms"] = {
+        "capture_helper_appsink_pull_wait": 6.0,
+        "capture_helper_rgb_buffer_allocation": 3.0,
+        "capture_helper_rgb_mapping_copy": 12.0,
+        "parent_framed_record_read": 18.0,
+        "parent_record_read_complete_to_inference_start": 2.0,
+        "preprocess": 28.0,
+        "inference": 144.0,
+        "decode_and_nms": 12.0,
+        "engine_total": 184.0,
+        "parent_record_read_complete_to_inference_complete": 186.0,
+        "maximum_frame_age": 100.0,
+    }
+    value["inference_timings_ms"]["inference"] = float("inf")
+    with pytest.raises(ValueError, match="finite non-negative"):
+        _validate_live_audit_record(value)
+    value["inference_timings_ms"]["inference"] = 144.0
+    value["reason"] = "duplicate_source_frame"
+    with pytest.raises(ValueError, match="only valid for stale-after-inference"):
         _validate_live_audit_record(value)
 
 
@@ -196,6 +285,9 @@ def _write_child(
         "import hashlib, json, os, socket, struct, sys, time\n"
         "from pathlib import Path\n"
         "def arg(name): return sys.argv[sys.argv.index(name) + 1]\n"
+        "if '--frame-preview-tcp' in sys.argv:\n"
+        "  preview_bind = arg('--frame-preview-tcp').rsplit(':', 1)[0]\n"
+        "  print('frame_preview_ready=' + json.dumps({'schema_version':1, 'address':preview_bind + ':49123', 'engine_instance_id':arg('--engine-instance-id'), 'capture_session_id':arg('--source-session-id')}, separators=(',', ':')), file=sys.stderr, flush=True)\n"
         "request = sys.stdin.buffer.read()\n"
         f"Path({str(request_path)!r}).write_bytes(request)\n"
         f"Path({str(arguments_path)!r}).write_text(json.dumps(sys.argv[1:]))\n"
@@ -449,6 +541,181 @@ def _settings(
     )
 
 
+def _runtime_configuration_with_defaults(overrides: dict[str, Any]) -> Any:
+    """Create the same schema-backed dotted config view used by the API."""
+    values = load_schema_reference()
+
+    def merge(target: dict[str, Any], updates: dict[str, Any]) -> None:
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge(target[key], value)
+            else:
+                target[key] = copy.deepcopy(value)
+
+    merge(values, overrides)
+
+    class RuntimeConfiguration:
+        def get(self, key: str, default: Any = None) -> Any:
+            current: Any = values
+            for part in key.split("."):
+                if not isinstance(current, dict) or part not in current:
+                    return default
+                current = current[part]
+            return copy.deepcopy(current)
+
+        def get_all(self) -> dict[str, Any]:
+            return copy.deepcopy(values)
+
+        def resolve_capture_settings(
+            self, *, schema_version: int = 3
+        ) -> dict[str, Any]:
+            """Use the Python resolver only as a deterministic test oracle."""
+            return resolve_capture_settings(
+                self, schema_version=schema_version
+            ).as_dict()
+
+    return RuntimeConfiguration()
+
+
+def test_rust_live_settings_load_exact_camera_model_and_process_configuration(
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "billiards-perception"
+    executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    executable.chmod(0o755)
+    helper = tmp_path / "billiards-perception-gstreamer-probe"
+    helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    helper.chmod(0o755)
+    inference = _inference_settings(tmp_path)
+    configuration = _runtime_configuration_with_defaults(
+        {
+            "vision": {"camera": {"video_file_path": ""}},
+            "perception": {
+                "capture": {"device_selector": f"gstreamer-device-v1:{'b' * 64}"},
+                "rust_live": {
+                    "executable_path": str(executable),
+                    "capture_helper_executable_path": str(helper),
+                    "onnx_path": str(inference.onnx_path),
+                    "source_checkpoint_path": str(inference.source_checkpoint_path),
+                    "image_size": 640,
+                },
+            },
+        }
+    )
+
+    settings = RustLiveSettings.from_configuration(configuration, project_root=tmp_path)
+
+    assert settings.capture_settings.schema_version == 3
+    assert settings.capture_settings.requested["device_id"].startswith(
+        "gstreamer-device-v1:"
+    )
+    assert settings.inference.image_size == 640
+    assert settings.inference.onnx_path == inference.onnx_path
+    assert settings.executable_path == executable
+    assert settings.capture_helper_executable_path == helper
+    assert settings.public_state_delivery_schema_version == 1
+    assert settings.frame_preview == FramePreviewProcessSettings(
+        bind_address="127.0.0.1",
+        port=0,
+        maximum_header_bytes=8192,
+        maximum_jpeg_bytes=4_194_304,
+        maximum_concurrent_encodes=1,
+        jpeg_quality=85,
+        request_timeout_ms=1000,
+        write_timeout_ms=2000,
+        calibration_control=FramePreviewCalibrationControlSettings(
+            store_path=tmp_path
+            / "backend"
+            / "calibration_data"
+            / "calibration_table.json",
+            store_lock_timeout_ms=100,
+            maximum_store_file_bytes=65_536,
+            maximum_request_bytes=65_536,
+        ),
+    )
+    settings.validate()
+
+    disabled = _runtime_configuration_with_defaults(
+        {
+            "vision": {"camera": {"video_file_path": ""}},
+            "perception": {
+                "capture": {"device_selector": f"gstreamer-device-v1:{'b' * 64}"},
+                "rust_live": {
+                    "executable_path": str(executable),
+                    "capture_helper_executable_path": str(helper),
+                    "onnx_path": str(inference.onnx_path),
+                    "source_checkpoint_path": str(inference.source_checkpoint_path),
+                    "image_size": 640,
+                    "frame_preview_enabled": False,
+                    "frame_preview_calibration_control_enabled": False,
+                },
+            },
+        }
+    )
+    assert (
+        RustLiveSettings.from_configuration(
+            disabled, project_root=tmp_path
+        ).frame_preview
+        is None
+    )
+
+
+def test_rust_live_calibration_control_requires_the_complete_preview_settings_group(
+    tmp_path: Path,
+) -> None:
+    executable = _write_child(tmp_path, "ready")
+    inference = _inference_settings(tmp_path)
+    shared_values = {
+        "vision": {"camera": {"video_file_path": ""}},
+        "perception": {
+            "capture": {"device_selector": f"gstreamer-device-v1:{'b' * 64}"},
+            "rust_live": {
+                "executable_path": str(executable),
+                "capture_helper_executable_path": str(executable),
+                "onnx_path": str(inference.onnx_path),
+                "source_checkpoint_path": str(inference.source_checkpoint_path),
+                "frame_preview_enabled": False,
+                "frame_preview_calibration_control_enabled": True,
+            },
+        },
+    }
+    configuration = _runtime_configuration_with_defaults(shared_values)
+
+    with pytest.raises(RustLiveConfigurationError, match="requires frame preview"):
+        RustLiveSettings.from_configuration(configuration, project_root=tmp_path)
+
+    settings_with_path_escape = _runtime_configuration_with_defaults(
+        {
+            "vision": {"camera": {"video_file_path": ""}},
+            "perception": {
+                "capture": {"device_selector": f"gstreamer-device-v1:{'b' * 64}"},
+                "rust_live": {
+                    "executable_path": str(executable),
+                    "capture_helper_executable_path": str(executable),
+                    "onnx_path": str(inference.onnx_path),
+                    "source_checkpoint_path": str(inference.source_checkpoint_path),
+                    "frame_preview_calibration_store_path": "../outside/store.json",
+                },
+            },
+        }
+    )
+    with pytest.raises(RustLiveConfigurationError, match="inside the project root"):
+        RustLiveSettings.from_configuration(
+            settings_with_path_escape, project_root=tmp_path
+        )
+
+
+def test_rust_live_settings_require_stable_physical_camera_selector(
+    tmp_path: Path,
+) -> None:
+    configuration = _runtime_configuration_with_defaults(
+        {"vision": {"camera": {"video_file_path": ""}}}
+    )
+
+    with pytest.raises(RustLiveConfigurationError, match="stable physical webcam"):
+        RustLiveSettings.from_configuration(configuration, project_root=tmp_path)
+
+
 def _supervisor(
     settings: RustLiveSettings,
 ) -> tuple[RustLiveSupervisor, RecordingBroadcaster]:
@@ -478,6 +745,7 @@ def test_exact_settings_bytes_acknowledgement_and_published_scene_establish_read
         supervisor, broadcaster = _supervisor(settings)
         status = await supervisor.start()
         assert status.ready
+        assert supervisor.process_id is not None
         encoded = request_record.read_bytes()
         expected = settings.capture_settings.to_json().encode("utf-8")
         acknowledgement = supervisor.capture_session_acknowledgement
@@ -611,6 +879,21 @@ def test_live_supervisor_forwards_openvino_library_paths_only_when_selected(
     ):
         assert (child_environment.get(key) == expected) is (provider == "openvino")
     assert "HOME" not in child_environment
+
+
+def test_transport_audit_is_exposed_only_as_an_explicit_supervisor_operation(
+    tmp_path: Path,
+) -> None:
+    supervisor, _ = _supervisor(_settings(_write_child(tmp_path, "ready"), tmp_path))
+
+    assert supervisor.finish_transport_audit().status == "disabled"
+
+    supervisor.enable_transport_audit()
+    summary = supervisor.finish_transport_audit()
+
+    assert summary.status == "unavailable"
+    assert summary.accepted_snapshots == 0
+    assert summary.queue_capacity == 1
 
 
 def test_stable_selector_passes_explicit_helper_settings_without_changing_request(
@@ -929,7 +1212,7 @@ def test_rust_live_audit_ingress_marks_consumer_and_footer_loss_partial() -> Non
         address = await ingress.start()
         await _send_audit_records(
             address,
-            [_audit_frame_record(), _audit_footer(records_written=0)],
+            [_audit_frame_record(), _audit_footer(records_written=1)],
         )
         await _wait_for_audit_ingress(ingress, record_count=2)
         summary = ingress.summary()
@@ -939,7 +1222,37 @@ def test_rust_live_audit_ingress_marks_consumer_and_footer_loss_partial() -> Non
     summary = asyncio.run(run(consumer_accepts=False))
     assert summary["status"] == "partial"
     assert summary["consumer_dropped_records"] == 2
-    assert summary["footer_record_count_matches"] is False
+    assert summary["producer_dropped_records"] == 0
+    assert summary["footer_record_count_matches"] is True
+
+
+def test_rust_live_audit_ingress_marks_producer_loss_partial() -> None:
+    async def run() -> dict[str, Any]:
+        ingress = RustLiveAuditIngress(
+            queue_capacity=2,
+            maximum_record_bytes=1024,
+            connect_timeout_ms=500,
+            write_timeout_ms=500,
+            startup_timeout_seconds=1.0,
+            retained_record_capacity=4,
+        )
+        address = await ingress.start()
+        await _send_audit_records(
+            address,
+            [
+                _audit_frame_record(),
+                _audit_footer(records_written=1, dropped_records=1),
+            ],
+        )
+        await _wait_for_audit_ingress(ingress, record_count=2)
+        summary = ingress.summary()
+        await ingress.close()
+        return summary
+
+    summary = asyncio.run(run())
+    assert summary["status"] == "partial"
+    assert summary["producer_dropped_records"] == 1
+    assert summary["footer_record_count_matches"] is True
 
 
 def test_rust_live_audit_ingress_allows_the_child_startup_window_before_first_record() -> (
@@ -1006,6 +1319,172 @@ def test_rust_live_supervisor_adds_audit_flags_only_when_receiver_is_enabled(
     assert arguments[arguments.index("--live-audit-max-record-bytes") + 1] == "4096"
     assert arguments[arguments.index("--live-audit-connect-timeout-ms") + 1] == "1500"
     assert arguments[arguments.index("--live-audit-write-timeout-ms") + 1] == "2000"
+
+
+def test_rust_live_supervisor_adds_frame_preview_flags_only_when_configured(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(_write_child(tmp_path, "ready"), tmp_path)
+    disabled = RustLiveSupervisor(
+        settings, SceneSnapshotStatePublisher(RecordingBroadcaster())
+    )
+    disabled._engine_instance_id = "engine-test"
+    disabled._source_session_id = "session-test"
+    assert "--frame-preview-tcp" not in disabled._build_arguments(("127.0.0.1", 9000))
+    assert not any(
+        argument.startswith("--frame-preview-calibration-")
+        for argument in disabled._build_arguments(("127.0.0.1", 9000))
+    )
+
+    preview_settings = FramePreviewProcessSettings(
+        bind_address="127.0.0.1",
+        port=0,
+        maximum_header_bytes=8192,
+        maximum_jpeg_bytes=4_194_304,
+        maximum_concurrent_encodes=1,
+        jpeg_quality=85,
+        request_timeout_ms=1000,
+        write_timeout_ms=2000,
+        calibration_control=FramePreviewCalibrationControlSettings(
+            store_path=tmp_path / "data" / "calibration_table.json",
+            store_lock_timeout_ms=125,
+            maximum_store_file_bytes=65_536,
+            maximum_request_bytes=16_384,
+        ),
+    )
+    enabled = RustLiveSupervisor(
+        replace(settings, frame_preview=preview_settings),
+        SceneSnapshotStatePublisher(RecordingBroadcaster()),
+    )
+    enabled._engine_instance_id = "engine-test"
+    enabled._source_session_id = "session-test"
+    arguments = enabled._build_arguments(("127.0.0.1", 9000))
+    assert arguments[arguments.index("--frame-preview-tcp") + 1] == "127.0.0.1:0"
+    assert arguments[arguments.index("--frame-preview-max-header-bytes") + 1] == "8192"
+    assert arguments[arguments.index("--frame-preview-max-jpeg-bytes") + 1] == "4194304"
+    assert (
+        arguments[arguments.index("--frame-preview-max-concurrent-encodes") + 1] == "1"
+    )
+    assert arguments[
+        arguments.index("--frame-preview-calibration-store-path") + 1
+    ] == str(tmp_path / "data" / "calibration_table.json")
+    assert (
+        arguments[
+            arguments.index("--frame-preview-calibration-store-lock-timeout-ms") + 1
+        ]
+        == "125"
+    )
+    assert (
+        arguments[
+            arguments.index("--frame-preview-calibration-store-max-file-bytes") + 1
+        ]
+        == "65536"
+    )
+    assert (
+        arguments[arguments.index("--frame-preview-calibration-max-request-bytes") + 1]
+        == "16384"
+    )
+
+    preview_only = RustLiveSupervisor(
+        replace(
+            settings, frame_preview=replace(preview_settings, calibration_control=None)
+        ),
+        SceneSnapshotStatePublisher(RecordingBroadcaster()),
+    )
+    preview_only._engine_instance_id = "engine-test"
+    preview_only._source_session_id = "session-test"
+    preview_only_arguments = preview_only._build_arguments(("127.0.0.1", 9000))
+    assert "--frame-preview-tcp" in preview_only_arguments
+    assert not any(
+        argument.startswith("--frame-preview-calibration-")
+        for argument in preview_only_arguments
+    )
+
+
+def test_rust_live_supervisor_captures_split_preview_readiness_records(
+    tmp_path: Path,
+) -> None:
+    settings = replace(
+        _settings(_write_child(tmp_path, "ready"), tmp_path),
+        frame_preview=FramePreviewProcessSettings(
+            bind_address="127.0.0.1",
+            port=0,
+            maximum_header_bytes=8192,
+            maximum_jpeg_bytes=4_194_304,
+            maximum_concurrent_encodes=1,
+            jpeg_quality=85,
+            request_timeout_ms=1000,
+            write_timeout_ms=2000,
+        ),
+    )
+    supervisor = RustLiveSupervisor(
+        settings, SceneSnapshotStatePublisher(RecordingBroadcaster())
+    )
+    supervisor._engine_instance_id = "engine-test"
+    supervisor._source_session_id = "session-test"
+
+    async def run() -> Any:
+        loop = asyncio.get_running_loop()
+        supervisor._frame_preview_ready_future = loop.create_future()
+
+        class SplitStream:
+            chunks = [
+                b'frame_preview_ready={"schema_version":1,"address":"127.0.0.1:',
+                b'40123","engine_instance_id":"engine-test",',
+                b'"capture_session_id":"session-test"}\n',
+            ]
+
+            async def read(self, _size: int) -> bytes:
+                return self.chunks.pop(0) if self.chunks else b""
+
+        await supervisor._drain_output(
+            cast("asyncio.StreamReader", SplitStream()),
+            bytearray(),
+            capture_frame_preview_ready=True,
+        )
+        return supervisor._frame_preview_ready_future.result()
+
+    endpoint = asyncio.run(run())
+    assert endpoint.host == "127.0.0.1"
+    assert endpoint.port == 40123
+
+
+def test_rust_live_start_waits_for_the_preview_listener_and_first_scene(
+    tmp_path: Path,
+) -> None:
+    settings = replace(
+        _settings(_write_child(tmp_path, "ready"), tmp_path),
+        frame_preview=FramePreviewProcessSettings(
+            bind_address="127.0.0.1",
+            port=0,
+            maximum_header_bytes=8192,
+            maximum_jpeg_bytes=4_194_304,
+            maximum_concurrent_encodes=1,
+            jpeg_quality=85,
+            request_timeout_ms=1000,
+            write_timeout_ms=2000,
+        ),
+    )
+
+    async def run() -> tuple[RustLiveStatus, Any]:
+        supervisor, _broadcaster = _supervisor(settings)
+        try:
+            status = await supervisor.start()
+            assert supervisor._frame_preview_ready_future is not None
+            endpoint = supervisor._frame_preview_ready_future.result()
+            assert status.mode == "live"
+            assert status.first_observation_received
+            assert status.live_camera
+            assert status.preview == "rust_current_frame"
+            assert status.predictions == "unavailable"
+            return status, endpoint
+        finally:
+            await supervisor.close()
+
+    status, endpoint = asyncio.run(run())
+    assert status.ready
+    assert endpoint.host == "127.0.0.1"
+    assert endpoint.port == 49123
 
 
 @pytest.mark.parametrize("mode", ["wrong_ack", "no_scene", "exit"])

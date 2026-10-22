@@ -1,5 +1,6 @@
 use billiards_perception::calibration::{
-    CalibrationContext, CalibrationError, ImagePointPx, TableCalibrationV1, TablePointMm,
+    solve_table_calibration, CalibrationContext, CalibrationError, ImagePointPx,
+    TableCalibrationSolverInput, TableCalibrationV1, TablePointMm,
 };
 use billiards_perception::ImageSpace;
 
@@ -20,6 +21,20 @@ fn context() -> CalibrationContext<'static> {
         image_space: ImageSpace::Rectified,
         source_width_px: 1000,
         source_height_px: 500,
+    }
+}
+
+fn solver_input(corners_px: [ImagePointPx; 4]) -> TableCalibrationSolverInput {
+    TableCalibrationSolverInput {
+        calibration_revision: 3,
+        camera_profile_id: "test-camera-profile".to_owned(),
+        rectification_revision: 2,
+        image_space: ImageSpace::Rectified,
+        source_width_px: 1000,
+        source_height_px: 500,
+        table_width_mm: 2000.0,
+        table_height_mm: 1000.0,
+        corners_px,
     }
 }
 
@@ -93,6 +108,241 @@ fn python_exported_perspective_fixture_maps_the_declared_table_corners() {
             .expect("the exact source context must permit projection");
         assert_point(point, expected_x_mm, expected_y_mm);
     }
+}
+
+#[test]
+fn solver_creates_revision_bound_calibration_with_exact_center_origin_mapping() {
+    let corners = [
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 50.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 50.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 450.0,
+        },
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 450.0,
+        },
+    ];
+    let solved = solve_table_calibration(solver_input(corners)).unwrap();
+
+    assert_eq!(solved.calibration_revision, 3);
+    assert_eq!(solved.camera_profile_id, "test-camera-profile");
+    assert_eq!(solved.rectification_revision, 2);
+    assert_eq!(solved.image_space, ImageSpace::Rectified);
+    assert_eq!(
+        (solved.source_width_px, solved.source_height_px),
+        (1000, 500)
+    );
+    assert_eq!(
+        (solved.table_width_mm, solved.table_height_mm),
+        (2000.0, 1000.0)
+    );
+    solved.validate().unwrap();
+
+    let validated = solved.into_validated().unwrap();
+    for (corner, expected_x, expected_y) in [
+        (corners[0], -1000.0, -500.0),
+        (corners[1], 1000.0, -500.0),
+        (corners[2], 1000.0, 500.0),
+        (corners[3], -1000.0, 500.0),
+    ] {
+        assert_point(
+            validated.project(corner, context()).unwrap(),
+            expected_x,
+            expected_y,
+        );
+    }
+    assert_point(
+        validated
+            .project(
+                ImagePointPx {
+                    x_px: 500.0,
+                    y_px: 250.0,
+                },
+                context(),
+            )
+            .unwrap(),
+        0.0,
+        0.0,
+    );
+}
+
+#[test]
+fn solver_matches_python_perspective_export_for_skewed_table_corners() {
+    let corners = [
+        ImagePointPx {
+            x_px: 30.0,
+            y_px: 20.0,
+        },
+        ImagePointPx {
+            x_px: 970.0,
+            y_px: 45.0,
+        },
+        ImagePointPx {
+            x_px: 930.0,
+            y_px: 480.0,
+        },
+        ImagePointPx {
+            x_px: 55.0,
+            y_px: 455.0,
+        },
+    ];
+    let solved = solve_table_calibration(solver_input(corners)).unwrap();
+    let rust_projection = solved.clone().into_validated().unwrap();
+    let python_projection = serde_json::from_str::<TableCalibrationV1>(PYTHON_EXPORT_FIXTURE)
+        .unwrap()
+        .into_validated()
+        .unwrap();
+
+    for point in [
+        ImagePointPx {
+            x_px: 30.0,
+            y_px: 20.0,
+        },
+        ImagePointPx {
+            x_px: 970.0,
+            y_px: 45.0,
+        },
+        ImagePointPx {
+            x_px: 930.0,
+            y_px: 480.0,
+        },
+        ImagePointPx {
+            x_px: 55.0,
+            y_px: 455.0,
+        },
+        ImagePointPx {
+            x_px: 500.0,
+            y_px: 250.0,
+        },
+        ImagePointPx {
+            x_px: 400.0,
+            y_px: 300.0,
+        },
+    ] {
+        let rust_point = rust_projection.project(point, context()).unwrap();
+        let python_point = python_projection.project(point, context()).unwrap();
+        assert!((rust_point.x_mm - python_point.x_mm).abs() < 1.0e-7);
+        assert!((rust_point.y_mm - python_point.y_mm).abs() < 1.0e-7);
+    }
+}
+
+#[test]
+fn solver_rejects_reversed_or_misordered_corner_sequence() {
+    let corners = [
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 50.0,
+        },
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 450.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 450.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 50.0,
+        },
+    ];
+    assert_eq!(
+        solve_table_calibration(solver_input(corners)),
+        Err(CalibrationError::InvalidCalibrationCorners)
+    );
+}
+
+#[test]
+fn solver_rejects_degenerate_and_nearly_degenerate_quadrilaterals() {
+    let degenerate = [
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 100.0,
+        },
+        ImagePointPx {
+            x_px: 300.0,
+            y_px: 100.0,
+        },
+        ImagePointPx {
+            x_px: 700.0,
+            y_px: 100.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 100.0,
+        },
+    ];
+    assert!(matches!(
+        solve_table_calibration(solver_input(degenerate)),
+        Err(CalibrationError::InvalidCalibrationCorners)
+            | Err(CalibrationError::DegenerateCalibrationGeometry)
+    ));
+
+    let nearly_degenerate = [
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 100.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 100.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 100.00000001,
+        },
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 100.00000001,
+        },
+    ];
+    assert_eq!(
+        solve_table_calibration(solver_input(nearly_degenerate)),
+        Err(CalibrationError::DegenerateCalibrationGeometry)
+    );
+}
+
+#[test]
+fn solver_rejects_non_finite_and_out_of_bounds_corner_observations() {
+    let valid = [
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 50.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 50.0,
+        },
+        ImagePointPx {
+            x_px: 900.0,
+            y_px: 450.0,
+        },
+        ImagePointPx {
+            x_px: 100.0,
+            y_px: 450.0,
+        },
+    ];
+    let mut non_finite = valid;
+    non_finite[2].x_px = f64::NAN;
+    assert_eq!(
+        solve_table_calibration(solver_input(non_finite)),
+        Err(CalibrationError::NonFiniteImagePoint)
+    );
+
+    let mut outside = valid;
+    outside[3].y_px = 500.0;
+    assert_eq!(
+        solve_table_calibration(solver_input(outside)),
+        Err(CalibrationError::ImagePointOutsideSource)
+    );
 }
 
 #[test]

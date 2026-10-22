@@ -40,6 +40,7 @@ from .common import (
 from .responses import BallInfo, CueInfo
 from .responses import GameEvent as APIGameEvent
 from .responses import (
+    GameSessionMetadataResponse,
     GameStateResponse,
     SceneBallInfo,
     SceneGameStateResponse,
@@ -311,6 +312,7 @@ def scene_state_to_response(
     core_state: GameState | None,
     *,
     include_events: bool = True,
+    session_metadata: dict[str, Any] | None = None,
 ) -> SceneGameStateResponse:
     """Project fresh scene locations independently of optional Core metadata.
 
@@ -394,7 +396,16 @@ def scene_state_to_response(
         balls=balls,
         cue=None,
         table=table,
-        game_type=core_state.game_type.value if core_state is not None else None,
+        game_type=(
+            session_metadata["game_type"]
+            if session_metadata is not None
+            else core_state.game_type.value if core_state is not None else None
+        ),
+        session=(
+            GameSessionMetadataResponse.model_validate(session_metadata)
+            if session_metadata is not None
+            else None
+        ),
         is_valid=(
             status.get("phase") == "rust_scene_observation"
             and status.get("ball_detection_status") == "observed"

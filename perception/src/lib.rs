@@ -5,6 +5,8 @@
 //! image coordinates against the dimensions carried by that measurement.
 
 pub mod calibration;
+pub mod calibration_control;
+pub mod calibration_store;
 #[cfg(feature = "camera-gstreamer-discovery")]
 pub mod camera_discovery;
 pub mod capture;
@@ -14,8 +16,13 @@ pub mod capture_runtime;
 pub mod capture_session_ack;
 pub mod capture_settings_wire;
 pub mod capture_transport_benchmark;
+pub mod configuration_authority;
+mod configuration_http;
 pub mod detection_batch;
+pub mod frame_preview;
 pub mod framing;
+pub mod game_session;
+mod game_session_http;
 pub mod geometry;
 #[cfg(feature = "camera-gstreamer-probe")]
 pub mod gstreamer_capture_source;
@@ -23,8 +30,14 @@ pub mod inference;
 pub mod live_application;
 pub mod live_audit;
 pub mod live_config;
+pub mod live_handshake;
+pub mod live_supervisor;
+pub mod public_state;
+pub mod public_state_lifecycle;
 mod scene_transport;
+pub mod server;
 pub mod tracking;
+pub mod web_static;
 
 pub use scene_transport::{SceneTransportConfig, SceneTransportStats};
 

@@ -22,6 +22,9 @@ SCENE_FIXTURE = (
     Path(__file__).parents[3]
     / "perception/contracts/v1/scene-rust-tracked-success.json"
 )
+PUBLIC_STATE_FIXTURE = (
+    Path(__file__).parents[3] / "perception/contracts/public-state/number-8.json"
+)
 
 
 def _write_replay_assets(
@@ -56,7 +59,7 @@ def _write_replay_assets(
     executable_path = tmp_path / "fake-rust-replay"
     executable_path.write_text(
         f"#!{sys.executable}\n"
-        "import json, socket, struct, sys, time\n"
+        "import copy, json, socket, struct, sys, time\n"
         "from pathlib import Path\n"
         "def arg(name): return sys.argv[sys.argv.index(name) + 1]\n"
         "def read_exact(sock, count):\n"
@@ -96,7 +99,17 @@ def _write_replay_assets(
         "            observation['session_id'] = session_id\n"
         "            observation['frame_id'] = frame_id\n"
         "            observation['timestamp']['ticks'] = ticks\n"
-        "    send_frame(client, scene)\n"
+        f"    public_fixture = json.loads(Path({str(PUBLIC_STATE_FIXTURE)!r}).read_text())\n"
+        "    current_state = copy.deepcopy(public_fixture['expected'])\n"
+        "    status = current_state['observation_status']\n"
+        "    status.update(engine_instance_id=scene['engine_instance_id'], source_session_id=session_id, source_frame_id=frame_id, source_timestamp=ticks, ball_observation_source_timestamp=ticks, snapshot_revision=sequence, transport_sequence=sequence)\n"
+        "    status['observation_identity'].update(engine_instance_id=scene['engine_instance_id'], session_id=session_id, frame_id=frame_id, snapshot_revision=sequence)\n"
+        "    for ball in current_state['balls']:\n"
+        "        observation = ball['source_observation']\n"
+        "        observation.update(engine_instance_id=scene['engine_instance_id'], session_id=session_id, frame_id=frame_id)\n"
+        "        observation['timestamp']['ticks'] = ticks\n"
+        "    current_state_delivery = {'delivery_type': 'billiards_public_state_delivery', 'delivery_schema_version': 1, 'source_snapshot': scene, 'current_state': {'payload': current_state, 'epoch': 1, 'updated_monotonic_ns': time.monotonic_ns(), 'localization_received_monotonic_ns': time.monotonic_ns(), 'localization_age_ns': 0, 'ball_age_ns': {ball['id']: 0 for ball in current_state['balls']}, 'freshness': 'fresh'}}\n"
+        "    send_frame(client, current_state_delivery)\n"
         + (
             f"    if Path({str(exit_signal_path)!r}).exists(): sys.exit({child_exit_code})\n"
             if exit_signal_path is not None
@@ -149,11 +162,6 @@ def test_configured_rust_replay_reaches_http_and_unauthenticated_websocket(
     monkeypatch.setattr(main.rate_limiter, "close", AsyncMock())
     monkeypatch.setattr(main, "setup_signal_handlers", Mock())
     monkeypatch.setattr(main, "_register_shutdown_functions", AsyncMock())
-    monkeypatch.setattr(
-        main,
-        "CoreModule",
-        Mock(return_value=SimpleNamespace(get_current_state=lambda: None)),
-    )
     monkeypatch.setattr(
         main,
         "health_monitor",
@@ -323,11 +331,6 @@ def test_real_rust_model_replay_reaches_anonymous_http_and_websocket_clients(
     monkeypatch.setattr(main.rate_limiter, "close", AsyncMock())
     monkeypatch.setattr(main, "setup_signal_handlers", Mock())
     monkeypatch.setattr(main, "_register_shutdown_functions", AsyncMock())
-    monkeypatch.setattr(
-        main,
-        "CoreModule",
-        Mock(return_value=SimpleNamespace(get_current_state=lambda: None)),
-    )
     monkeypatch.setattr(
         main,
         "health_monitor",

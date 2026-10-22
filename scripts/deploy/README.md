@@ -1,114 +1,116 @@
-# Billiards Trainer - Local Distribution
+# Local Rust distribution bundle
 
-This is a locally built distribution of the Billiards Trainer system. The
-project does not provide remote deployment or user authentication.
+The distribution scripts build and run the Rust application server and live
+detector with the retained static browser client. Python is not installed or
+launched by this bundle. The browser application remains HTML/CSS/JavaScript.
 
-## Quick Start
+## Build the bundle
 
-1. Copy this entire directory to the machine that will run the application
-2. Run the setup script (first time only):
-   ```bash
-   ./setup_config.sh
-   ```
-3. Start the system:
-   ```bash
-   ./run.sh
-   ```
+The build host needs Rust/Cargo, Node.js/npm, `pkg-config`, `jq`, a SHA-256
+utility, and GStreamer 1.x development libraries discoverable through
+`pkg-config`. The native build is compatible with the build host by default.
+Provide a verified model pair and a live-capable configuration:
 
-## Features
-
-- **Local restart**: The startup script can restart the local process when files change
-- **Built-in configuration wizard**: Interactive setup for first-time deployment
-- **Self-contained**: Includes all necessary components (backend, frontend, projector)
-- **Production-optimized**: Pre-built frontend and optimized for performance
-
-## Deployment Workflow
-
-### Initial Local Install
 ```bash
-# On the machine that will run the application
-cp -R /path/to/dist /opt/billiards-trainer
-cd /opt/billiards-trainer
-./run.sh
-```
-
-### Local Update
-```bash
-# Rebuild the distribution in the source checkout
+BILLIARDS_ONNX_MODEL=/path/to/billiards-yolov8n.onnx \
+BILLIARDS_SOURCE_CHECKPOINT=/path/to/billiards-yolov8n.pt \
 make deploy
+```
 
-# Copy it locally to the installation directory, then restart the app
-cp -R dist/. /opt/billiards-trainer/
-cd /opt/billiards-trainer
+The ONNX model must have a sibling manifest named
+`billiards-yolov8n.onnx.manifest.json`. The build validates the manifest schema
+and the SHA-256 digests of both the ONNX export and source checkpoint against
+that manifest before building. By default, `config.json` is the configuration
+source. `BILLIARDS_CONFIG_SOURCE` selects another file, and `BILLIARDS_DIST_DIR`
+selects the output directory (default: `dist/`).
+
+Before building, the configuration must clear
+`vision.camera.video_file_path` and select either a stable GStreamer camera
+selector (`perception.capture.device_selector` beginning with
+`gstreamer-device-v1:`) or an HTTP(S) MJPEG source in
+`vision.camera.device_id`. Integer camera indices are not supported by this
+live capture path yet. The builder copies the model pair and manifest into
+`models/`, writes package-relative model and executable paths to `config.json`,
+and includes `build-info.txt` with the host/target and source revision.
+
+`BILLIARDS_RUST_TARGET` selects a Cargo target triple and
+`BILLIARDS_RUST_FEATURES` selects the Rust feature set. A cross-build still
+needs a working target toolchain and compatible target GStreamer and inference
+runtime libraries. The package includes ONNX Runtime shared libraries found
+beside the release binaries; GStreamer and OpenVINO remain native system
+dependencies. A macOS bundle cannot run on Linux, and vice versa.
+
+The bundle contains:
+
+- `bin/`: Rust gateway, live detector, GStreamer capture helper, and any
+  colocated ONNX Runtime libraries
+- `frontend/`: built static browser client
+- `models/`: verified ONNX model, source checkpoint, and manifest
+- `config.json`: package-ready live configuration
+- `data/`, `logs/`, `run/`, and `backend/calibration_data/`: runtime directories
+- `run.sh` and `update.sh`: Rust-only start and restart entry points
+- `build-info.txt`: build and source-revision metadata
+
+The builder stages the complete bundle beside the destination and replaces the
+previous `dist/` only after all builds and packaging steps succeed.
+
+## Run and update
+
+Copy the complete `dist/` directory to the matching macOS or Linux runtime
+machine. Install the matching GStreamer runtime and source plugins on that
+machine, then start the server:
+
+```bash
+cd /path/to/dist
 ./run.sh
 ```
 
-The project does not copy files over SSH, sign into a container registry, or
-configure remote deployment credentials. Move the bundle using a local file
-transfer method if the application runs on another machine.
+`run.sh` starts live capture by default and requires the Rust server, live
+detector, capture helper, nonempty configuration, and built `frontend/index.html`.
+For the bundled default config it also checks that the three model files are
+present. To start the gateway without live capture, set
+`BILLIARDS_START_LIVE=false`; a config file and built browser client are still
+required. The default HTTP listener is `0.0.0.0:8000`; the scene-ingress
+listener defaults to loopback at `127.0.0.1:49321`.
 
-## Directory Structure
+After replacing the distribution files, run:
 
-```
-dist/
-├── backend/          # Python backend modules
-├── frontend/         # Built web frontend (static files)
-├── config/           # Configuration templates
-├── data/            # Runtime data directory
-├── logs/            # Application logs
-├── run.sh           # Main startup script with auto-restart
-├── setup_config.sh  # Interactive configuration wizard
-├── requirements.txt # Python dependencies
-└── .env.example     # Configuration template
-```
-
-## Requirements
-
-- Python 3.8+
-- OpenCV dependencies (installed automatically)
-- Camera and projector hardware (for full functionality)
-
-## Configuration
-
-The configuration wizard will guide you through:
-- Local API port and device settings (the API has no login)
-- API port configuration
-- Camera settings
-- Projector settings
-- Environment mode
-
-Configuration is stored in `.env` file.
-
-## Monitoring
-
-- Application logs: `logs/` directory
-- API endpoint: `http://localhost:8000/docs` (Swagger UI)
-- Health check: `http://localhost:8000/health`
-
-## Troubleshooting
-
-### Port already in use
 ```bash
-# Find and kill the process
-lsof -ti:8000 | xargs kill -9
-./run.sh
+./update.sh
 ```
 
-### Dependencies not installing
-```bash
-# Manually create virtual environment and install
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+When `billiards-trainer.service` is installed, `update.sh` asks systemd to
+restart it. Otherwise it stops only the Rust server recorded in this bundle's
+PID file, waits for shutdown, and starts `run.sh`; it refuses to signal a PID
+that does not match the configured server executable.
 
-### Auto-restart not working
-Make sure watchdog is installed:
-```bash
-source .venv/bin/activate
-pip install watchdog
-```
+## Runtime overrides
 
-## Support
+`run.sh` accepts these environment variables:
 
-See the main repository for documentation and support.
+| Variable | Default | Purpose |
+|---|---|---|
+| `BILLIARDS_CONFIG` | `<bundle>/config.json` | Runtime configuration path |
+| `BILLIARDS_WEB_ROOT` | `<bundle>/frontend` | Built static client directory |
+| `BILLIARDS_PROJECT_ROOT` | `<bundle>` | Root for relative data/config paths |
+| `BILLIARDS_BIN_DIR` | `<bundle>/bin` | Directory containing the Rust binaries |
+| `BILLIARDS_SERVER_EXECUTABLE` | `<bin>/billiards-server` | Rust gateway executable |
+| `BILLIARDS_LIVE_EXECUTABLE` | `<bin>/billiards-perception-live` | Rust live detector executable |
+| `BILLIARDS_CAPTURE_HELPER_EXECUTABLE` | `<bin>/billiards-perception-gstreamer-probe` | GStreamer helper executable |
+| `BILLIARDS_HTTP_BIND` | `0.0.0.0` | HTTP bind address |
+| `BILLIARDS_HTTP_PORT` | `8000` | HTTP port |
+| `BILLIARDS_SCENE_BIND` | `127.0.0.1` | Scene-ingress bind address; Rust requires loopback |
+| `BILLIARDS_SCENE_PORT` | `49321` | Scene-ingress port |
+| `BILLIARDS_START_LIVE` | `true` | Start the supervised live detector |
+| `BILLIARDS_RUN_DIR` | `<bundle>/run` | Runtime PID-file directory |
+| `BILLIARDS_PID_FILE` | `<run-dir>/billiards-server.pid` | Server PID-file path |
+
+`update.sh` also accepts `BILLIARDS_STOP_TIMEOUT_SECONDS` (default `10`).
+
+## Qualification status
+
+Packaging and process startup do not by themselves qualify the selected camera,
+detector accuracy, calibrated table coordinates, sustained freshness, or
+target-machine behavior. Record and verify those separately on the intended
+runtime hardware. Numbered-ball classification and trajectory prediction are
+not prerequisites for the primary live ball-localization path.

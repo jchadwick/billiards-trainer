@@ -1,10 +1,10 @@
 # ADR-0036: Contain native camera capture in a supervised helper process
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0057 (API provider-selection gate only; helper decision retained)
 
 ## Context
 
@@ -351,4 +351,12 @@ exposure time and source-to-state latency remain unavailable. See the [short-run
 qualification report](../../../thoughts/performance-audits/20261021-103042-aeb9f8d8/report.md).
 This is short smoke/throughput evidence only, not sustained-performance,
 production-accuracy, forced-interruption/release, or Linux physical-hardware
-evidence. The API provider remains closed.
+evidence. At the time of this evidence, the API provider remained closed.
+
+## Scope supersession (2026-10-22)
+
+ADR-0057 supersedes only the API-selection gate in this record. Explicit Rust
+live mode may now launch the feature-enabled helper for qualification behind
+the Python service. The helper remains opt-in, physical use remains unqualified,
+and the camera identity, source acknowledgement, termination/release,
+accuracy, freshness, and platform gates in this record remain required.

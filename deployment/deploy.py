@@ -46,10 +46,18 @@ def build_production_configuration(
 
 
 def build_systemd_exec_start(target_dir: Path) -> str:
-    """Return the configured single-process app launcher for systemd."""
+    """Return the Rust server launcher for the generated systemd unit."""
+    server = target_dir / "bin" / "billiards-server"
+    live = target_dir / "bin" / "billiards-perception-live"
+    helper = target_dir / "bin" / "billiards-perception-gstreamer-probe"
+    configuration = target_dir / "config" / "production.json"
+    web_root = target_dir / "frontend" / "web" / "dist"
     return (
-        f"{target_dir}/venv/bin/python -m backend.main "
-        f"--config {target_dir}/config/production.json"
+        f"{server} --http-bind 0.0.0.0 --http-port 8000 "
+        f"--scene-bind 127.0.0.1 --scene-port 49321 "
+        f"--config {configuration} --project-root {target_dir} "
+        f"--web-root {web_root} --start-live "
+        f"--live-executable {live} --capture-helper-executable {helper}"
     )
 
 
@@ -192,7 +200,7 @@ class DeploymentManager:
         checks = [
             ("Source directory exists", self.source_dir.exists()),
             ("Target directory accessible", self._check_target_dir()),
-            ("Python version compatible", self._check_python_version()),
+            ("Rust toolchain available", self._check_rust_toolchain()),
             ("Required packages available", await self._check_dependencies()),
             ("System resources sufficient", await self._check_system_resources()),
             ("Ports available", await self._check_ports()),
@@ -216,10 +224,14 @@ class DeploymentManager:
             logger.error(f"Cannot access target directory: {e}")
             return False
 
-    def _check_python_version(self) -> bool:
-        """Check Python version compatibility."""
-        version = sys.version_info
-        return version.major == 3 and version.minor >= 8
+    def _check_rust_toolchain(self) -> bool:
+        """Check that the local machine can build the Rust server."""
+        try:
+            return subprocess.run(
+                ["cargo", "--version"], capture_output=True, check=False
+            ).returncode == 0
+        except OSError:
+            return False
 
     async def _check_dependencies(self) -> bool:
         """Check if required system dependencies are available."""
@@ -353,86 +365,106 @@ class DeploymentManager:
             logger.warning(f"Service stop failed: {e}")
 
     async def _deploy_code(self) -> None:
-        """Deploy application code."""
+        """Build and install Rust server binaries and the retained web client."""
         try:
-            logger.info("Deploying code...")
+            logger.info("Building Rust runtime and browser assets...")
 
-            # Remove old deployment (except backups and config)
+            perception_dir = self.source_dir / "perception"
+            cargo_args = [
+                "cargo",
+                "build",
+                "--release",
+                "--manifest-path",
+                str(perception_dir / "Cargo.toml"),
+                "--features",
+                "camera-gstreamer-source",
+                "--bin",
+                "billiards-server",
+                "--bin",
+                "billiards-perception-live",
+                "--bin",
+                "billiards-perception-gstreamer-probe",
+            ]
+            target_triple = os.environ.get("BILLIARDS_RUST_TARGET", "").strip()
+            if target_triple:
+                cargo_args.extend(["--target", target_triple])
+            subprocess.run(cargo_args, cwd=self.source_dir, check=True)
+
+            web_dir = self.source_dir / "frontend" / "web"
+            subprocess.run(["npm", "ci"], cwd=web_dir, check=True)
+            subprocess.run(["npm", "run", "build"], cwd=web_dir, check=True)
+
             if self.target_dir.exists():
                 for item in self.target_dir.iterdir():
-                    if item.name not in ["backups", "config", "logs", "data"]:
+                    if item.name not in ["backups", "config", "logs", "data", "models"]:
                         if item.is_dir():
                             shutil.rmtree(item)
                         else:
                             item.unlink()
 
-            # Copy source code
-            source_backend = self.source_dir / "backend"
-            target_backend = self.target_dir / "backend"
+            artifact_dir = perception_dir / "target"
+            if target_triple:
+                artifact_dir = artifact_dir / target_triple
+            artifact_dir = artifact_dir / "release"
+            bin_dir = self.target_dir / "bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            for executable in (
+                "billiards-server",
+                "billiards-perception-live",
+                "billiards-perception-gstreamer-probe",
+            ):
+                source = artifact_dir / executable
+                if not source.is_file():
+                    raise FileNotFoundError(f"Rust release binary is missing: {source}")
+                shutil.copy2(source, bin_dir / executable)
+                (bin_dir / executable).chmod(0o755)
 
-            shutil.copytree(source_backend, target_backend, dirs_exist_ok=True)
+            # ONNX Runtime may be copied beside the Cargo binaries by its
+            # binding. Keep that runtime colocated with the installed binaries.
+            for pattern in ("libonnxruntime*.so*", "libonnxruntime*.dylib"):
+                for source in artifact_dir.glob(pattern):
+                    shutil.copy2(source, bin_dir / source.name)
+
+            source_web_dist = self.source_dir / "backend" / "static"
+            if not source_web_dist.is_dir():
+                raise FileNotFoundError(f"Built browser client is missing: {source_web_dist}")
+            target_web_dist = self.target_dir / "frontend" / "web" / "dist"
+            shutil.copytree(source_web_dist, target_web_dist, dirs_exist_ok=True)
 
             # Copy deployment files
             source_deployment = self.source_dir / "deployment"
             target_deployment = self.target_dir / "deployment"
-
-            shutil.copytree(source_deployment, target_deployment, dirs_exist_ok=True)
-
-            # Match the actual configured launcher instead of the removed
-            # backend/system_launcher.py path.
-            subprocess.run(["chmod", "+x", str(target_backend / "main.py")])
-
-            logger.info("Code deployment completed")
+            shutil.copytree(
+                source_deployment,
+                target_deployment,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("*.py", "*.pyc", "__pycache__"),
+            )
+            logger.info("Rust runtime and browser assets installed")
 
         except Exception as e:
-            logger.error(f"Code deployment failed: {e}")
+            logger.error(f"Rust deployment build failed: {e}")
             raise
 
     async def _install_dependencies(self) -> None:
-        """Install Python dependencies."""
+        """Install native runtime packages; Python is not installed on target."""
         try:
-            logger.info("Installing dependencies...")
-
-            # Install system packages
+            logger.info("Installing Rust runtime dependencies...")
             system_packages = [
-                "python3-venv",
-                "python3-dev",
                 "nginx",
-                "libopencv-dev",
-                "python3-opencv",
+                "ca-certificates",
+                "gstreamer1.0-tools",
+                "gstreamer1.0-plugins-base",
+                "gstreamer1.0-plugins-good",
+                "libgstreamer1.0-0",
+                "libgstreamer-plugins-base1.0-0",
+                "v4l-utils",
             ]
-
             subprocess.run(["sudo", "apt-get", "update"], check=True)
-
             subprocess.run(
-                ["sudo", "apt-get", "install", "-y"] + system_packages, check=True
+                ["sudo", "apt-get", "install", "-y", *system_packages], check=True
             )
-
-            # Create virtual environment
-            venv_path = self.target_dir / "venv"
-            if not venv_path.exists():
-                subprocess.run(["python3", "-m", "venv", str(venv_path)], check=True)
-
-            # Install Python packages
-            pip_path = venv_path / "bin" / "pip"
-            requirements_file = self.source_dir / "requirements.txt"
-
-            if requirements_file.exists():
-                subprocess.run(
-                    [str(pip_path), "install", "-r", str(requirements_file)], check=True
-                )
-
-            # Install additional production packages
-            production_packages = [
-                "uvicorn[standard]",
-                "gunicorn",
-                "psutil",
-                "prometheus-client",
-            ]
-
-            subprocess.run([str(pip_path), "install"] + production_packages, check=True)
-
-            logger.info("Dependencies installed")
+            logger.info("Native runtime dependencies installed")
 
         except Exception as e:
             logger.error(f"Dependency installation failed: {e}")
@@ -451,6 +483,44 @@ class DeploymentManager:
             with source_configuration_path.open(encoding="utf-8") as source_file:
                 source_configuration = json.load(source_file)
             production_config = build_production_configuration(source_configuration)
+
+            # The Rust live runtime loads ONNX Runtime and verifies that export
+            # against its source checkpoint. Copy this pair into the deployment
+            # and rewrite paths relative to its Rust project root; never ship a
+            # config that silently falls back to a Python/CoreML model path.
+            perception = production_config.setdefault("perception", {})
+            rust_live = perception.setdefault("rust_live", {})
+            model_directory = self.target_dir / "models"
+            model_directory.mkdir(parents=True, exist_ok=True)
+            for key in ("onnx_path", "source_checkpoint_path"):
+                configured_path = rust_live.get(key)
+                if not isinstance(configured_path, str) or not configured_path.strip():
+                    raise ValueError(
+                        f"perception.rust_live.{key} must point to the qualified "
+                        "ONNX export or source checkpoint before deployment"
+                    )
+                source_path = Path(configured_path)
+                if not source_path.is_absolute():
+                    source_path = self.source_dir / source_path
+                source_path = source_path.resolve(strict=True)
+                if not source_path.is_file():
+                    raise ValueError(
+                        f"perception.rust_live.{key} is not a file: {source_path}"
+                    )
+                target_path = model_directory / source_path.name
+                shutil.copy2(source_path, target_path)
+                rust_live[key] = f"models/{target_path.name}"
+                if key == "onnx_path":
+                    manifest_source = Path(f"{source_path}.manifest.json")
+                    if not manifest_source.is_file():
+                        raise ValueError(
+                            f"ONNX export manifest is missing: {manifest_source}"
+                        )
+                    shutil.copy2(
+                        manifest_source,
+                        Path(f"{target_path}.manifest.json"),
+                    )
+
             production_config.setdefault("logging", {})["level"] = "INFO"
             production_config["logging"]["file"] = str(
                 self.target_dir / "logs" / "billiards-trainer.log"
@@ -503,11 +573,11 @@ Type=simple
 User=billiards
 Group=billiards
 WorkingDirectory={self.target_dir}
-Environment=PATH={self.target_dir}/venv/bin
-Environment=PYTHONPATH={self.target_dir}
+Environment=PATH={self.target_dir}/bin:/usr/local/bin:/usr/bin:/bin
 Environment=BILLIARDS_ENV=production
 Environment=BILLIARDS_CONFIG={self.target_dir}/config/production.json
 EnvironmentFile=-/etc/billiards-trainer.env
+SupplementaryGroups=video
 ExecStart={build_systemd_exec_start(self.target_dir)}
 Restart=always
 RestartSec=10

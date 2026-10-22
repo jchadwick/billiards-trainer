@@ -1,6 +1,17 @@
 # Billiards Trainer Backend
 
-The backend service provides real-time computer vision processing, physics calculations, and game state management for the billiards training system.
+> **Runtime status:** The supported application server and live localization
+> process are Rust. This directory contains Python modules retained for
+> migration reference, tests, training/model utilities, annotations, and other
+> off-device development tools; it is not launched by the supported app
+> runtime. The browser remains a standard HTML/CSS/JavaScript application.
+> Start the Rust app with `make run`; see the root README and
+> [`perception/README.md`](../perception/README.md) for current runtime details.
+
+This guide describes the retained Python package and its historical module
+contracts. Its examples of FastAPI endpoints, Python configuration behavior,
+and Python integration internals do not define the current Rust server's
+public API or runtime architecture.
 
 ---
 
@@ -19,7 +30,7 @@ The backend service provides real-time computer vision processing, physics calcu
 
 ## Overview
 
-The backend is a Python-based service that:
+The legacy Python package contains components that historically:
 
 1. **Captures video** from cameras (Kinect, USB webcams, or video files)
 2. **Detects objects** using YOLO+OpenCV hybrid detection (balls, cue stick, table)
@@ -36,9 +47,9 @@ The backend is a Python-based service that:
 - **WebSocket Broadcasting**: Real-time updates to all connected clients
 - **Configurable Pipeline**: Extensive configuration system with defaults and overrides
 
-### Technology Stack
+### Legacy Python Package Stack
 
-- **Python 3.12+**
+- **Python 3.12+** (for the retained Python tools and tests)
 - **FastAPI**: Async HTTP and WebSocket server
 - **OpenCV 4.8+**: Computer vision operations
 - **NumPy**: Numerical computations
@@ -462,10 +473,14 @@ Trajectory results are broadcast via WebSocket:
 
 ## Configuration
 
-### Configuration System
+### Legacy Python Configuration System
 
-The backend reads one JSON configuration file selected by `backend.main` (the
-repository-root `config.json` by default). The immutable
+The Python `Config` helper reads one JSON file selected by Python tooling. The
+Rust server instead accepts its active file through the `--config PATH`
+argument (the local `make run` target selects the repository-root
+`config.json`). Both runtimes use the checked-in configuration schema during
+the migration, but the Python singleton below is not the Rust server's
+configuration API. The immutable
 `backend/config_schema_defaults.json` supplies supported keys, defaults, and
 validation rules. Runtime/API updates use the same validated configuration
 store and are persisted to the selected file.
@@ -551,11 +566,13 @@ config.set("vision.detection.yolo_confidence", 0.5)
 
 ### Configuration Files
 
-- **`config.json`**: Active runtime configuration selected by the default launcher
-- **`backend/config_schema_defaults.json`**: Supported keys, defaults, and validation rules
+- **`config.json`**: Active application configuration passed to the Rust gateway
+- **`backend/config_schema_defaults.json`**: Shared schema defaults and validation rules, including retained Python tooling
 
-Pass `--config PATH` to `python -m backend.main` to select another JSON file.
-See `docs/CONFIG.md` for the configuration API and validation behavior.
+Pass `--config PATH` to `billiards-server` to select another runtime JSON file.
+The live detector requires a verified ONNX export and source checkpoint under
+`perception.rust_live`; see the root README and `docs/DOCKER.md`. `docs/CONFIG.md`
+describes the retained configuration schema and API migration context.
 
 ---
 
@@ -685,7 +702,7 @@ await service.stop()
 
 ## Getting Started
 
-### Prerequisites
+### Python Tooling Prerequisites
 
 ```bash
 # Python 3.12+
@@ -698,18 +715,22 @@ pip install -r backend/requirements.txt
 wget https://path.to/yolov8n-pool.onnx -O models/yolov8n-pool.onnx
 ```
 
-### Running the Backend
+### Running the Rust Application
 
 ```bash
-# Start development server
-python -m backend.dev_server
+# Build the browser client and run the Rust gateway with supervised live capture
+make run
 
-# Full application with an explicitly selected configuration file
-python -m backend.main --config config.json
-
-# With logging
-python -m backend.dev_server --log-level DEBUG
+# Run the Rust gateway without opening a capture source
+make run-api
 ```
+
+Prepare the Rust live model paths, manifest, capture source, and calibration in
+`config.json` before using `make run`. The default local HTTP port is 8001. The
+Rust process serves the built web client and exposes the state WebSocket at
+`/api/v1/websocket/ws`; the current state endpoint is
+`/api/v1/game/state`. The Python development server commands below are retained
+for legacy module tests only and are not supported app launchers.
 
 ### Testing with Video File
 
@@ -724,11 +745,12 @@ python tools/video_debugger.py video.mp4 --loop --log-level INFO
 ### API Access
 
 ```bash
-# REST API (default port 8000)
-curl http://localhost:8000/api/v1/health
+# Rust live health and state (default local port 8001)
+curl http://localhost:8001/api/v1/health/live
+curl http://localhost:8001/api/v1/game/state
 
-# WebSocket (default port 8000)
-ws://localhost:8000/api/v1/websocket/ws
+# Rust WebSocket
+ws://localhost:8001/api/v1/websocket/ws
 ```
 
 ---
@@ -807,7 +829,10 @@ Black 25.9.0. A local environment can run
 `make -f backend/tests/Makefile test-ci` for the same collection and coverage
 checks.
 
-### Public Python Contracts
+### Retained Python Internal Contracts
+
+The following contracts are for Python tools and legacy module tests. They are
+not the public contract of the Rust application server.
 
 - `backend.config.Config` is the configuration singleton. Select a JSON file with
   `Config.set_config_file(path)`. Its public operations are `get`, `set`,
@@ -837,9 +862,8 @@ checks.
 ### Debugging
 
 ```bash
-# Enable debug logging
-export LOG_LEVEL=DEBUG
-python -m backend.dev_server
+# Run the supported Rust application while investigating live behavior
+make run
 
 # Use video debugger for vision issues
 python tools/video_debugger.py video.mp4 --log-level DEBUG
@@ -868,8 +892,8 @@ python -c "import cv2; print([i for i in range(10) if cv2.VideoCapture(i).isOpen
 
 **WebSocket connection refused**:
 ```bash
-# Check server is running
-curl http://localhost:8000/api/health
+# Check the Rust server is running
+curl http://localhost:8001/api/v1/health/live
 
 # Check firewall rules
 sudo ufw status

@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "run_id": "linux-perception-smoke-20261020",
+  "created_at_utc": "2026-10-20T15:29:34.259569+00:00",
+  "git": {
+    "revision": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "branch": "main",
+    "working_tree_dirty": true,
+    "dirty_worktree_identity_sha256_at_recording": "1ddac88675a9a0774a96961c4de3283f3cb02191f32336a7d99230a591436b53",
+    "identity_method": "SHA-256 over git diff HEAD --binary plus sorted untracked paths and file-content hashes, excluding this metadata file",
+    "identity_scope_note": "Captured during final evidence packaging after inference and scoring; Rust inference sources were unchanged after execution."
+  },
+  "host": {
+    "container_os": "Debian 13",
+    "container_architecture": "aarch64",
+    "container_image": "rust:1.92-trixie",
+    "container_image_digest": "sha256:f58923369ba295ae1f60bc49d03f2c955a5c93a0b7d49acfb2b2a65bebaf350d",
+    "container_rustc": "1.92.0 (ded5c06cf 2025-12-08)",
+    "container_execution_platform": "Linux ARM64 under the development machine's Docker engine",
+    "underlying_host": "Apple M4 Max, macOS 26.6.2, arm64; 14 logical cores; 36 GiB memory",
+    "physical_linux_hardware": false
+  },
+  "input": {
+    "path": "backend/vision/test_data",
+    "processed_file_count": 10,
+    "sha256_by_relative_path": {
+      "calibration_straight_on.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "clustered_balls.png": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "cue_aiming.png": "50822a3f22aaf6e0c72fcc00d066916e6343ab3726826454b432f0d802cd88b1",
+      "empty_table.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "frame_with_cue.png": "b8a58b3a61b9e67715610322fed70c36626769164885d4f3c05ccdc8306ea5c9",
+      "full_table.png": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "grid.jpg": "d4cf0dbe75a9d0494260f385dcd6ecf0143e03ad430aae37ef3323bd98de72d6",
+      "motion_blur.png": "57f6e2250f47fcdaddddea8511dc6ea09ebd0fbea684c7a5fb4a54e0a15afe41",
+      "multiple_balls.png": "e2cfcaef233cc819e1e679e28aafcbf46b88ce68da5c324e8d4b5ab6610151bd",
+      "table_corners_visible.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d"
+    }
+  },
+  "model": {
+    "source_checkpoint_path": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "onnx_path": "/tmp/billiards-rust-tcp.Ij3QEK/billiards-yolov8n.onnx",
+    "onnx_sha256": "2444f8007934aa6a17584856b3049ebd1c1a6861c174408d7c3d549b41b45648",
+    "class_names": [
+      "cue",
+      "ball"
+    ],
+    "input_shape": [
+      1,
+      3,
+      1280,
+      1280
+    ]
+  },
+  "configuration": {
+    "provider": "cpu",
+    "image_size": 1280,
+    "confidence": 0.4,
+    "iou": 0.45,
+    "max_detections": 300,
+    "intra_op_threads": null,
+    "warmup_runs": 1,
+    "replay_rate_fps": null
+  },
+  "runtime": {
+    "binding": "ort",
+    "binding_version": "2.0.0-rc.15",
+    "onnx_runtime_version": "1.31.0",
+    "requested_provider": "CPUExecutionProvider",
+    "observed_providers": [
+      "CPUExecutionProvider"
+    ],
+    "provider_node_counts": {
+      "CPUExecutionProvider": 214
+    }
+  },
+  "measurement_losses": {
+    "measurement_repetitions": 1,
+    "tcp_receiver_used": false,
+    "live_camera_used": false,
+    "source_to_receipt_latency_available": false,
+    "physical_accuracy_labels_available": false
+  },
+  "equivalence": {
+    "frames_processed": 10,
+    "matched_detections": 73,
+    "unmatched_reference_detections": 0,
+    "unmatched_candidate_detections": 0,
+    "center_error_mean_px": 0.0027442390895300833,
+    "center_error_p95_px": 0.015878273374020316,
+    "center_error_max_px": 0.03251198245689458
+  },
+  "timings": {
+    "image_count": 10,
+    "provider_probe_session_init_ms": 17.843432999999997,
+    "provider_probe_inference_ms": 90.451954,
+    "measurement_session_init_ms": 12.929315,
+    "warmup_total_ms": 78.28093,
+    "total_recorded_image_ms": 1366.861789,
+    "summed_image_pipeline_ms": 1364.5890419999998,
+    "mean_image_decode_ms": 48.5216511,
+    "mean_preprocess_ms": 10.2381394,
+    "mean_inference_ms": 77.60735539999999,
+    "mean_decode_and_nms_ms": 0.0917583,
+    "mean_end_to_end_ms": 136.45890419999998,
+    "batch_export_ms": 2.2214550000000006
+  },
+  "artifacts": {
+    "rust_report_sha256": "8ba6a71313fab678ff3a6cf227557115a6b343cdcfe9ac232ad0113added190b",
+    "detection_batch_jsonl_sha256": "31ae8664be986f4ca9b3226a97d6fdca1ba4320fd275cfdfc0c7f9775f33e04d",
+    "equivalence_json_path": "thoughts/performance-audits/linux-perception-smoke-20261020/equivalence/equivalence-20261020T152704.641143Z.json",
+    "equivalence_json_sha256": "90e044886662f1615914d29a5055b5b0cf7911babb2c42bc448c4df35819891f",
+    "equivalence_markdown_path": "thoughts/performance-audits/linux-perception-smoke-20261020/equivalence/equivalence-20261020T152704.641143Z.md",
+    "equivalence_markdown_sha256": "57bdaf8b1f90c50324fcf0a02c729449934a8243037d23e4f52ed764ea1088bc"
+  }
+}

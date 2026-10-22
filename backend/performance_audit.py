@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 import uuid
+import zlib
 from pathlib import Path
 from subprocess import run as _run_subprocess
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,25 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
 logger = logging.getLogger(__name__)
+
+
+def deterministic_audit_sample(identity: int | str, sample_rate: float) -> bool:
+    """Select a repeatable fraction of observations without shared RNG state."""
+    if not 0 < sample_rate <= 1:
+        raise ValueError("sample rate must be in (0, 1]")
+    if sample_rate >= 1:
+        return True
+    if isinstance(identity, bool) or not isinstance(identity, (int, str)):
+        raise TypeError("sample identity must be an integer or string")
+    identity_value = (
+        zlib.crc32(identity.encode("utf-8")) if isinstance(identity, str) else identity
+    )
+    mask = (1 << 64) - 1
+    value = (identity_value + 0x9E3779B97F4A7C15) & mask
+    value = ((value ^ (value >> 30)) * 0xBF58476D1CE4E5B9) & mask
+    value = ((value ^ (value >> 27)) * 0x94D049BB133111EB) & mask
+    value ^= value >> 31
+    return value < int(sample_rate * (1 << 64))
 
 
 def monotonic_clock_domain_id() -> str | None:
@@ -139,6 +159,7 @@ class AsyncAuditRecorder:
         self.written = 0
         self.dropped = 0
         self.sampled_out = 0
+        self._detail_sampling: dict[str, dict[str, int]] = {}
         self.export_limit_dropped = 0
         self.export_errors = 0
         self._closed = False
@@ -148,14 +169,18 @@ class AsyncAuditRecorder:
         )
         self._worker.start()
 
-    def record(self, event: Mapping[str, Any]) -> bool:
-        """Enqueue one event without waiting for disk or a slow consumer."""
+    def record(self, event: Mapping[str, Any], *, force_keep: bool = False) -> bool:
+        """Enqueue one event without waiting for disk or a slow consumer.
+
+        Rare correctness and lifecycle anomalies may bypass probabilistic
+        sampling with ``force_keep``. Queue and export bounds still apply.
+        """
         with self._lock:
             if self._closed:
                 return False
             self._sequence += 1
             sequence = self._sequence
-            if self._random.random() > self.sample_rate:
+            if not force_keep and self._random.random() > self.sample_rate:
                 self.sampled_out += 1
                 return True
             envelope = {
@@ -177,6 +202,39 @@ class AsyncAuditRecorder:
             self.accepted += 1
         return True
 
+    def select_detail_sample(
+        self,
+        domain: str,
+        identity: int | str | None,
+        sample_rate: float,
+        *,
+        category: str = "detail",
+    ) -> bool:
+        """Choose detail before callers allocate event dictionaries or timers.
+
+        Every selection is counted by domain. Call ``record(...,
+        force_keep=True)`` only after this returns true; the regular bounded
+        queue and export limits still apply.
+        """
+        if not domain or not category:
+            raise ValueError("audit detail domain and category cannot be empty")
+        if not 0 < sample_rate <= 1:
+            raise ValueError("detail sample rate must be in (0, 1]")
+        with self._lock:
+            if self._closed:
+                return False
+            counter_key = f"{domain}.{category}"
+            counts = self._detail_sampling.setdefault(
+                counter_key, {"candidates": 0, "selected": 0, "sampled_out": 0}
+            )
+            counts["candidates"] += 1
+            sample_identity = identity if identity is not None else counts["candidates"]
+            if deterministic_audit_sample(sample_identity, sample_rate):
+                counts["selected"] += 1
+                return True
+            counts["sampled_out"] += 1
+            return False
+
     def status(self) -> dict[str, Any]:
         """Return counts used to disclose sampling and export loss."""
         with self._lock:
@@ -190,6 +248,10 @@ class AsyncAuditRecorder:
                 "written_events": self.written,
                 "dropped_events": self.dropped,
                 "sampled_out_events": self.sampled_out,
+                "detailed_sampling": {
+                    domain: dict(counts)
+                    for domain, counts in self._detail_sampling.items()
+                },
                 "export_limit_dropped_events": self.export_limit_dropped,
                 "export_errors": self.export_errors,
                 "queue_depth": self._queue.qsize(),
@@ -280,6 +342,7 @@ class AuditResourceSampler:
                     {
                         "event_type": "process_resource_sample",
                         "resource_measurement_status": "unavailable",
+                        "sampled_monotonic_ns": sampled_ns,
                         "cpu_percent": None,
                         "resident_memory_bytes": None,
                         "audit_export_status": self._recorder.status(),

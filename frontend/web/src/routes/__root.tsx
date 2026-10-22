@@ -1,36 +1,11 @@
-import { TanstackDevtools } from "@tanstack/react-devtools";
-import { Outlet, createRootRoute } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
-import { observer } from "mobx-react-lite";
-import { ErrorBoundary } from "../components/common";
-import { AppLayout } from "../components/layout";
-import { StoreProvider, rootStore } from "../hooks/useStores";
+import { Outlet, createRootRoute } from '@tanstack/react-router';
 
-const RootComponent = observer(() => {
-  return (
-    <StoreProvider value={rootStore}>
-      <ErrorBoundary>
-        <AppLayout>
-          <Outlet />
-        </AppLayout>
-        {process.env.NODE_ENV === "development" && (
-          <TanstackDevtools
-            config={{
-              position: "bottom-left",
-            }}
-            plugins={[
-              {
-                name: "Tanstack Router",
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
-        )}
-      </ErrorBoundary>
-    </StoreProvider>
-  );
-});
-
+/** Keep the active browser surface deliberately small: the live table view. */
 export const Route = createRootRoute({
-  component: RootComponent,
+  component: () => <Outlet />,
+  notFoundComponent: () => (
+    <main className="flex min-h-screen items-center justify-center bg-gray-950 p-6 text-gray-100">
+      <p>This build currently provides the live table view at <a className="underline" href="/live">/live</a>.</p>
+    </main>
+  ),
 });

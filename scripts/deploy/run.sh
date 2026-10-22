@@ -1,124 +1,120 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# Start the packaged Rust gateway and its supervised Rust live detector.
+# This script intentionally does not install dependencies or invoke Python.
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+BIN_DIR="${BILLIARDS_BIN_DIR:-$SCRIPT_DIR/bin}"
+SERVER="${BILLIARDS_SERVER_EXECUTABLE:-$BIN_DIR/billiards-server}"
+LIVE="${BILLIARDS_LIVE_EXECUTABLE:-$BIN_DIR/billiards-perception-live}"
+CAPTURE_HELPER="${BILLIARDS_CAPTURE_HELPER_EXECUTABLE:-$BIN_DIR/billiards-perception-gstreamer-probe}"
+CONFIG="${BILLIARDS_CONFIG:-$SCRIPT_DIR/config.json}"
+WEB_ROOT="${BILLIARDS_WEB_ROOT:-$SCRIPT_DIR/frontend}"
+PROJECT_ROOT="${BILLIARDS_PROJECT_ROOT:-$SCRIPT_DIR}"
+RUN_DIR="${BILLIARDS_RUN_DIR:-$SCRIPT_DIR/run}"
+PID_FILE="${BILLIARDS_PID_FILE:-$RUN_DIR/billiards-server.pid}"
+HTTP_BIND="${BILLIARDS_HTTP_BIND:-0.0.0.0}"
+HTTP_PORT="${BILLIARDS_HTTP_PORT:-8000}"
+SCENE_BIND="${BILLIARDS_SCENE_BIND:-127.0.0.1}"
+SCENE_PORT="${BILLIARDS_SCENE_PORT:-49321}"
+START_LIVE="${BILLIARDS_START_LIVE:-true}"
 
-echo -e "${GREEN}=== Billiards Trainer Production Runner ===${NC}"
-
-# Check if LÖVE2D is installed for projector
-if ! command -v love &> /dev/null; then
-    echo -e "${YELLOW}Warning: LÖVE2D (love) is not installed. Projector will not start.${NC}"
-    echo -e "${YELLOW}Install with: sudo apt-get install love${NC}"
-    PROJECTOR_AVAILABLE=false
-else
-    PROJECTOR_AVAILABLE=true
-    echo -e "${BLUE}LÖVE2D detected: $(love --version)${NC}"
-fi
-
-# Check if config exists
-if [ ! -f ".env" ]; then
-    echo -e "${YELLOW}No configuration found. Running setup...${NC}"
-    ./setup_config.sh
-fi
-
-# Check if Python is installed
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: Python 3 is not installed${NC}"
+fail() {
+    printf 'Error: %s\n' "$*" >&2
     exit 1
+}
+
+require_executable() {
+    local executable="$1"
+    local label="$2"
+    [[ -f "$executable" && -x "$executable" ]] || fail "$label is missing or not executable: $executable. Build or install the Rust distribution first."
+}
+
+require_file() {
+    local file_path="$1"
+    local label="$2"
+    [[ -f "$file_path" && -r "$file_path" && -s "$file_path" ]] || fail "$label is missing, unreadable, or empty: $file_path"
+}
+
+[[ -f "$CONFIG" && -r "$CONFIG" && -s "$CONFIG" ]] || fail "configuration file is missing, unreadable, or empty: $CONFIG"
+[[ -d "$PROJECT_ROOT" ]] || fail "project root does not exist: $PROJECT_ROOT"
+require_executable "$SERVER" "Rust server binary"
+if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" ]]; then
+    require_executable "$LIVE" "Rust live detector binary"
+    require_executable "$CAPTURE_HELPER" "Rust GStreamer capture helper"
+    if [[ "$CONFIG" == "$SCRIPT_DIR/config.json" ]]; then
+        require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx" "packaged ONNX model"
+        require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
+        require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx.manifest.json" "packaged ONNX export manifest"
+    fi
+elif [[ "$START_LIVE" != "false" && "$START_LIVE" != "0" && "$START_LIVE" != "no" ]]; then
+    fail "BILLIARDS_START_LIVE must be true or false (received: $START_LIVE)"
+fi
+if [[ ! -d "$WEB_ROOT" || ! -f "$WEB_ROOT/index.html" ]]; then
+    fail "built web client is missing from $WEB_ROOT (expected index.html); build frontend/web before starting the server"
 fi
 
-# Check if virtual environment exists
-if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv .venv
+mkdir -p "$(dirname -- "$PID_FILE")" || fail "could not create PID-file directory: $(dirname -- "$PID_FILE")"
+if [[ -e "$PID_FILE" ]]; then
+    existing_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2>/dev/null; then
+        existing_command="$(ps -p "$existing_pid" -o command= 2>/dev/null || true)"
+        case "$existing_command" in
+            *"$SERVER"*) fail "this distribution already has a server running (PID $existing_pid)" ;;
+            *) fail "PID file $PID_FILE refers to live process $existing_pid, not this Rust server; remove the stale PID file only after verifying that process" ;;
+        esac
+    fi
+    rm -f -- "$PID_FILE"
 fi
 
-# Activate virtual environment
-source .venv/bin/activate
-
-# Install dependencies
-echo "Installing dependencies..."
-pip install -q --upgrade pip
-pip install -q -r requirements.txt
-
-# Check if watchdog is installed for auto-restart
-if ! pip show watchdog &> /dev/null; then
-    echo "Installing watchdog for auto-restart..."
-    pip install -q watchdog
+args=(
+    --http-bind "$HTTP_BIND"
+    --http-port "$HTTP_PORT"
+    --scene-bind "$SCENE_BIND"
+    --scene-port "$SCENE_PORT"
+    --config "$CONFIG"
+    --project-root "$PROJECT_ROOT"
+    --web-root "$WEB_ROOT"
+)
+if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" ]]; then
+    args+=(
+        --start-live
+        --live-executable "$LIVE"
+        --capture-helper-executable "$CAPTURE_HELPER"
+    )
 fi
 
-# Kill any existing instances
-pkill -f "python.*backend.main" || true
-pkill -f "love.*projector" || true
-sleep 1
+printf 'Starting Rust Billiards Trainer server at http://%s:%s\n' "$HTTP_BIND" "$HTTP_PORT"
+printf 'Serving web client from %s; live detector: %s\n' "$WEB_ROOT" "$START_LIVE"
+"$SERVER" "${args[@]}" &
+server_pid=$!
+printf '%s\n' "$server_pid" > "$PID_FILE"
 
-echo -e "${GREEN}Starting Billiards Trainer...${NC}"
-echo "The server will auto-restart when files change."
-echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
-
-# Function to start the backend server
-start_server() {
-    python -m backend.main &
-    SERVER_PID=$!
-    echo -e "${GREEN}Backend started with PID: $SERVER_PID${NC}"
-}
-
-# Function to start the projector
-start_projector() {
-    if [ "$PROJECTOR_AVAILABLE" = true ] && [ -d "frontend/projector" ]; then
-        cd frontend/projector
-        love . > /tmp/projector.log 2>&1 &
-        PROJECTOR_PID=$!
-        cd "$SCRIPT_DIR"
-        echo -e "${BLUE}Projector started with PID: $PROJECTOR_PID${NC}"
-        echo -e "${BLUE}Projector logs: /tmp/projector.log${NC}"
-    fi
-}
-
-# Function to stop the server
-stop_server() {
-    if [ ! -z "$SERVER_PID" ] && kill -0 $SERVER_PID 2>/dev/null; then
-        echo "Stopping backend (PID: $SERVER_PID)..."
-        kill $SERVER_PID 2>/dev/null || true
-        wait $SERVER_PID 2>/dev/null || true
-    fi
-}
-
-# Function to stop the projector
-stop_projector() {
-    if [ ! -z "$PROJECTOR_PID" ] && kill -0 $PROJECTOR_PID 2>/dev/null; then
-        echo "Stopping projector (PID: $PROJECTOR_PID)..."
-        kill $PROJECTOR_PID 2>/dev/null || true
-        wait $PROJECTOR_PID 2>/dev/null || true
-    fi
-}
-
-# Trap for graceful shutdown
 cleanup() {
-    echo -e "\n${YELLOW}Shutting down...${NC}"
-    stop_server
-    stop_projector
-    pkill -f "watchmedo" || true
-    exit 0
+    local status="$1"
+    trap - INT TERM EXIT
+    if kill -0 "$server_pid" 2>/dev/null; then
+        kill -TERM "$server_pid" 2>/dev/null || true
+        wait "$server_pid" 2>/dev/null || true
+    fi
+    if [[ -f "$PID_FILE" ]] && [[ "$(cat "$PID_FILE" 2>/dev/null || true)" == "$server_pid" ]]; then
+        rm -f -- "$PID_FILE"
+    fi
+    exit "$status"
 }
 
-trap cleanup SIGINT SIGTERM
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
+trap 'cleanup $?' EXIT
 
-# Start projector first (runs in background)
-start_projector
-
-# Watch for changes and auto-restart backend (watchmedo will start the server)
-watchmedo auto-restart \
-    --directory=. \
-    --pattern="*.py;*.json;*.yaml;*.yml" \
-    --recursive \
-    --ignore-patterns="*/__pycache__/*;*/.venv/*;*/logs/*;*/data/*;*/.git/*;*/frontend/*" \
-    -- python -m backend.main
+if wait "$server_pid"; then
+    status=0
+else
+    status=$?
+fi
+trap - EXIT
+if [[ -f "$PID_FILE" ]] && [[ "$(cat "$PID_FILE" 2>/dev/null || true)" == "$server_pid" ]]; then
+    rm -f -- "$PID_FILE"
+fi
+exit "$status"

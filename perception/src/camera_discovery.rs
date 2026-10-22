@@ -4,7 +4,9 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 
 use anyhow::{bail, Result};
 use serde::Serialize;
@@ -56,8 +58,10 @@ pub struct CameraDevice {
     pub provider_properties: Option<BTreeMap<String, ProviderProperty>>,
     /// The provider's advertised GStreamer caps string, not negotiated caps.
     pub advertised_caps: Option<String>,
-    /// A provider identity is populated only for the documented stable forms
-    /// or for an explicitly transient Linux `/dev/videoN` path.
+    /// A provider identity is populated only for documented stable forms or
+    /// for an explicitly transient Linux `/dev/videoN` path. When Linux's
+    /// provider exposes only `/dev/videoN`, discovery may resolve that node
+    /// through the OS's stable V4L symlinks.
     pub identifier_value: Option<String>,
     pub identifier_source: Option<String>,
     pub identifier_classification: IdentifierClassification,
@@ -394,6 +398,30 @@ fn classify_identifier(
     platform_os: &str,
     properties: Option<&BTreeMap<String, RawProviderProperty>>,
 ) -> (Option<String>, Option<String>, IdentifierClassification) {
+    classify_identifier_with_device_root(platform_os, properties, Path::new("/dev"))
+}
+
+fn classify_identifier_with_device_root(
+    platform_os: &str,
+    properties: Option<&BTreeMap<String, RawProviderProperty>>,
+    device_root: &Path,
+) -> (Option<String>, Option<String>, IdentifierClassification) {
+    classify_identifier_with_roots(
+        platform_os,
+        properties,
+        device_root,
+        Path::new("/sys/class/video4linux"),
+        Path::new("/run/udev/data"),
+    )
+}
+
+fn classify_identifier_with_roots(
+    platform_os: &str,
+    properties: Option<&BTreeMap<String, RawProviderProperty>>,
+    device_root: &Path,
+    sysfs_video_root: &Path,
+    udev_data_root: &Path,
+) -> (Option<String>, Option<String>, IdentifierClassification) {
     let Some(properties) = properties else {
         return (None, None, IdentifierClassification::Unavailable);
     };
@@ -431,6 +459,20 @@ fn classify_identifier(
                 continue;
             };
             if is_video_node_path(value) {
+                if key == "device.path" {
+                    if let Some(stable_path) = stable_linux_video_node_path_with_roots(
+                        value,
+                        device_root,
+                        sysfs_video_root,
+                        udev_data_root,
+                    ) {
+                        return (
+                            Some(stable_path),
+                            Some(key.clone()),
+                            IdentifierClassification::PlatformPersistent,
+                        );
+                    }
+                }
                 return (
                     Some(value.to_owned()),
                     Some(key.clone()),
@@ -441,6 +483,108 @@ fn classify_identifier(
     }
 
     (None, None, IdentifierClassification::Unavailable)
+}
+
+/// Resolve a GStreamer's transient `/dev/videoN` value to an OS-maintained
+/// stable V4L link, if one points to the same device node. Prefer by-id over
+/// by-path and sort aliases so a camera with multiple links has deterministic
+/// identity. Only actual symlinks with one safe basename are considered.
+#[cfg(test)]
+fn stable_linux_video_node_path(value: &str, device_root: &Path) -> Option<String> {
+    stable_linux_video_node_path_with_roots(
+        value,
+        device_root,
+        Path::new("/sys/class/video4linux"),
+        Path::new("/run/udev/data"),
+    )
+}
+
+fn stable_linux_video_node_path_with_roots(
+    value: &str,
+    device_root: &Path,
+    sysfs_video_root: &Path,
+    udev_data_root: &Path,
+) -> Option<String> {
+    if !is_video_node_path(value) {
+        return None;
+    }
+
+    let node_name = Path::new(value).file_name()?;
+    let node_path = device_root.join(node_name);
+    let node_target = fs::canonicalize(&node_path).ok();
+
+    for directory_name in ["by-id", "by-path"] {
+        let directory = device_root.join("v4l").join(directory_name);
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        let mut matching_names = entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok()?;
+                if !file_type.is_symlink() {
+                    return None;
+                }
+
+                let file_name = entry.file_name();
+                let file_name = file_name.to_str()?;
+                let target = fs::canonicalize(entry.path()).ok()?;
+                if !is_single_symlink_name(file_name) || node_target.as_ref() != Some(&target) {
+                    return None;
+                }
+                Some(file_name.to_owned())
+            })
+            .collect::<Vec<_>>();
+        matching_names.sort();
+
+        if let Some(file_name) = matching_names.into_iter().next() {
+            return Some(format!("/dev/v4l/{directory_name}/{file_name}"));
+        }
+    }
+
+    stable_linux_video_node_from_udev(value, node_name, sysfs_video_root, udev_data_root)
+}
+
+/// Resolve a stable alias from the udev record for this exact V4L node. This
+/// supports containers that expose read-only sysfs/udev metadata but do not
+/// mount the host's `/dev/v4l` symlinks. The record is selected by sysfs's
+/// kernel-reported major/minor pair, never by display name or a serial string.
+fn stable_linux_video_node_from_udev(
+    value: &str,
+    node_name: &std::ffi::OsStr,
+    sysfs_video_root: &Path,
+    udev_data_root: &Path,
+) -> Option<String> {
+    if !is_video_node_path(value) {
+        return None;
+    }
+    let node_name = node_name.to_str()?;
+    let device_number = fs::read_to_string(sysfs_video_root.join(node_name).join("dev")).ok()?;
+    let device_number = device_number.trim();
+    let (major, minor) = device_number.split_once(':')?;
+    if major.is_empty()
+        || minor.is_empty()
+        || !major.bytes().all(|byte| byte.is_ascii_digit())
+        || !minor.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+
+    let udev_record = fs::read_to_string(udev_data_root.join(format!("c{major}:{minor}"))).ok()?;
+    for namespace in ["v4l/by-id/", "v4l/by-path/"] {
+        let mut aliases: Vec<&str> = udev_record
+            .lines()
+            .filter_map(|line| line.strip_prefix("S:"))
+            .filter_map(|alias| alias.strip_prefix(namespace))
+            .filter(|alias| is_single_symlink_name(alias))
+            .collect();
+        aliases.sort_unstable();
+        if let Some(alias) = aliases.first() {
+            return Some(format!("/dev/{namespace}{alias}"));
+        }
+    }
+
+    None
 }
 
 fn is_video_node_path(value: &str) -> bool {
@@ -614,6 +758,177 @@ mod tests {
 
         assert!(!is_video_node_path("/dev/video12-extra"));
         assert!(!is_video_node_path("/dev/video"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_transient_provider_path_resolves_to_deterministic_stable_link() {
+        use std::os::unix::fs::symlink;
+
+        let device_root = tempfile::tempdir().unwrap();
+        let video_node = device_root.path().join("video0");
+        std::fs::write(&video_node, b"camera node").unwrap();
+        let by_id = device_root.path().join("v4l/by-id");
+        let by_path = device_root.path().join("v4l/by-path");
+        std::fs::create_dir_all(&by_id).unwrap();
+        std::fs::create_dir_all(&by_path).unwrap();
+
+        // Multiple links to the same physical node are stable; by-id wins,
+        // and lexical order makes aliases deterministic within that class.
+        symlink(&video_node, by_id.join("usb-camera-z")).unwrap();
+        symlink(&video_node, by_id.join("usb-camera-a")).unwrap();
+        symlink(&video_node, by_path.join("pci-camera")).unwrap();
+        symlink(
+            device_root.path().join("video1"),
+            by_id.join("other-camera"),
+        )
+        .unwrap();
+        std::fs::write(by_id.join("not-a-symlink"), b"not a link").unwrap();
+
+        assert_eq!(
+            stable_linux_video_node_path("/dev/video0", device_root.path()).as_deref(),
+            Some("/dev/v4l/by-id/usb-camera-a")
+        );
+
+        let properties = BTreeMap::from([("device.path".to_owned(), property("/dev/video0"))]);
+        let (value, source, classification) =
+            classify_identifier_with_device_root("linux", Some(&properties), device_root.path());
+        assert_eq!(value.as_deref(), Some("/dev/v4l/by-id/usb-camera-a"));
+        assert_eq!(source.as_deref(), Some("device.path"));
+        assert_eq!(classification, IdentifierClassification::PlatformPersistent);
+        assert_eq!(
+            capture_selector(
+                "linux",
+                source.as_deref().unwrap(),
+                value.as_deref().unwrap()
+            ),
+            capture_selector("linux", "device.path", "/dev/v4l/by-id/usb-camera-a")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_transient_provider_path_uses_by_path_then_falls_back_safely() {
+        use std::os::unix::fs::symlink;
+
+        let device_root = tempfile::tempdir().unwrap();
+        let video_node = device_root.path().join("video8");
+        std::fs::write(&video_node, b"camera node").unwrap();
+        let by_path = device_root.path().join("v4l/by-path");
+        std::fs::create_dir_all(&by_path).unwrap();
+        symlink(&video_node, by_path.join("pci-camera")).unwrap();
+        assert_eq!(
+            stable_linux_video_node_path("/dev/video8", device_root.path()).as_deref(),
+            Some("/dev/v4l/by-path/pci-camera")
+        );
+
+        let no_link_root = tempfile::tempdir().unwrap();
+        std::fs::write(no_link_root.path().join("video8"), b"camera node").unwrap();
+        let no_sysfs_root = tempfile::tempdir().unwrap();
+        let no_udev_root = tempfile::tempdir().unwrap();
+        let properties = BTreeMap::from([("device.path".to_owned(), property("/dev/video8"))]);
+        let (value, source, classification) = classify_identifier_with_roots(
+            "linux",
+            Some(&properties),
+            no_link_root.path(),
+            no_sysfs_root.path(),
+            no_udev_root.path(),
+        );
+        assert_eq!(value.as_deref(), Some("/dev/video8"));
+        assert_eq!(source.as_deref(), Some("device.path"));
+        assert_eq!(
+            classification,
+            IdentifierClassification::EnumeratedTransient
+        );
+
+        assert_eq!(
+            stable_linux_video_node_path("/dev/video8-extra", device_root.path()),
+            None
+        );
+    }
+
+    #[test]
+    fn linux_transient_provider_path_resolves_exact_udev_v4l_alias_without_mounted_links() {
+        let device_root = tempfile::tempdir().unwrap();
+        std::fs::write(device_root.path().join("video0"), b"camera node").unwrap();
+        let sysfs_root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(sysfs_root.path().join("video0")).unwrap();
+        std::fs::write(sysfs_root.path().join("video0/dev"), "81:0\n").unwrap();
+        let udev_root = tempfile::tempdir().unwrap();
+        std::fs::write(
+            udev_root.path().join("c81:0"),
+            "S:v4l/by-path/pci-camera\nS:v4l/by-id/usb-camera-z\nS:v4l/by-id/../unsafe\nS:v4l/by-id/usb-camera-a\nE:ID_SERIAL=not-used-as-identity\n",
+        )
+        .unwrap();
+        // A different node's record must not participate in alias selection.
+        std::fs::write(udev_root.path().join("c81:1"), "S:v4l/by-id/other-camera\n").unwrap();
+
+        let properties = BTreeMap::from([("device.path".to_owned(), property("/dev/video0"))]);
+        let (value, source, classification) = classify_identifier_with_roots(
+            "linux",
+            Some(&properties),
+            device_root.path(),
+            sysfs_root.path(),
+            udev_root.path(),
+        );
+
+        assert_eq!(value.as_deref(), Some("/dev/v4l/by-id/usb-camera-a"));
+        assert_eq!(source.as_deref(), Some("device.path"));
+        assert_eq!(classification, IdentifierClassification::PlatformPersistent);
+        assert_eq!(
+            capture_selector(
+                "linux",
+                source.as_deref().unwrap(),
+                value.as_deref().unwrap()
+            ),
+            capture_selector("linux", "device.path", "/dev/v4l/by-id/usb-camera-a")
+        );
+    }
+
+    #[test]
+    fn linux_udev_identity_requires_matching_device_number_and_safe_alias() {
+        let device_root = tempfile::tempdir().unwrap();
+        std::fs::write(device_root.path().join("video0"), b"camera node").unwrap();
+        let sysfs_root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(sysfs_root.path().join("video0")).unwrap();
+        std::fs::write(sysfs_root.path().join("video0/dev"), "81:0\n").unwrap();
+        let udev_root = tempfile::tempdir().unwrap();
+        std::fs::write(udev_root.path().join("c81:1"), "S:v4l/by-id/other-node\n").unwrap();
+        std::fs::write(
+            udev_root.path().join("c81:0"),
+            "S:v4l/by-id/../unsafe\nS:v4l/by-id/nested/name\nS:v4l/by-id/\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            stable_linux_video_node_path_with_roots(
+                "/dev/video0",
+                device_root.path(),
+                sysfs_root.path(),
+                udev_root.path(),
+            ),
+            None
+        );
+
+        std::fs::write(
+            sysfs_root.path().join("video0/dev"),
+            "not-a-device-number\n",
+        )
+        .unwrap();
+        std::fs::write(
+            udev_root.path().join("cnot-a-device-number"),
+            "S:v4l/by-id/invalid-key\n",
+        )
+        .unwrap();
+        assert_eq!(
+            stable_linux_video_node_path_with_roots(
+                "/dev/video0",
+                device_root.path(),
+                sysfs_root.path(),
+                udev_root.path(),
+            ),
+            None
+        );
     }
 
     #[test]

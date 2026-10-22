@@ -12,13 +12,16 @@ from backend.api import main
 from backend.perception.provider import PerceptionProviderError
 
 
-def test_rust_selection_fails_before_starting_live_python_services(
+def test_invalid_python_mode_fails_before_starting_services(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         main.config,
         "get",
-        lambda key, default=None: "rust" if key == "perception.provider" else default,
+        lambda key, default=None: {
+            "perception.provider": "python",
+            "perception.mode": "recorded_replay",
+        }.get(key, default),
     )
     initialize_rate_limiter = AsyncMock(return_value=True)
     monkeypatch.setattr(main.rate_limiter, "initialize", initialize_rate_limiter)
@@ -27,7 +30,7 @@ def test_rust_selection_fails_before_starting_live_python_services(
         async with main.lifespan(main.app):
             pytest.fail("unsupported Rust provider unexpectedly entered lifespan")
 
-    with pytest.raises(PerceptionProviderError, match="recorded-input replay"):
+    with pytest.raises(PerceptionProviderError, match="supports only"):
         asyncio.run(enter_lifespan())
 
     assert initialize_rate_limiter.await_count == 0
@@ -81,13 +84,13 @@ def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
         stop_monitoring=AsyncMock(),
     )
     monkeypatch.setattr(main, "health_monitor", health_monitor)
-    monkeypatch.setattr(main, "CoreModule", Mock(return_value=object()))
 
     async def run_lifespan() -> None:
         async with main.lifespan(app):
             assert main.app_state.perception_provider == "rust"
             assert main.app_state.scene_state_publisher is publisher
             assert main.app_state.perception_runtime is supervisor
+            assert main.app_state.core_module is None
             assert main.app_state.vision_module is None
             assert main.app_state.integration_service is None
             assert supervisor.start.await_count == 1

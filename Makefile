@@ -19,11 +19,19 @@
 # Default target
 .DEFAULT_GOAL := help
 
-# Variables
+# Python is retained for development, tests, and model tooling; the app server is Rust.
 PYTHON := python3
 PIP := pip
 VENV_DIR := venv
 BACKEND_DIR := backend
+RUST_MANIFEST := perception/Cargo.toml
+RUST_FEATURES ?= camera-gstreamer-source
+RUST_HTTP_BIND ?= 127.0.0.1
+RUST_HTTP_PORT ?= 8001
+RUST_SCENE_BIND ?= 127.0.0.1
+RUST_SCENE_PORT ?= 49321
+RUST_CONFIG ?= config.json
+RUST_SERVER_ARGS ?=
 CONFIG_DIR := config
 LOGS_DIR := logs
 DATA_DIR := data
@@ -54,15 +62,12 @@ help: ## Show this help message
 
 # ===== Environment Setup =====
 
-install: venv ## Install the project and dependencies
-	@echo "$(BLUE)Installing billiards-trainer...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e .
-	@echo "$(GREEN)Installation complete!$(RESET)"
-	@echo "$(YELLOW)Activate the virtual environment: source $(VENV_DIR)/bin/activate$(RESET)"
+install: build ## Build the Rust server and browser client; no Python app runtime is installed
+	@echo "$(GREEN)Rust application and browser client built successfully.$(RESET)"
 
 install-dev: venv ## Install development dependencies
 	@echo "$(BLUE)Installing development dependencies...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[dev,test,docs,performance]"
+	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[python-tooling,dev,test,docs,performance]"
 	@echo "$(GREEN)Development dependencies installed!$(RESET)"
 
 venv: ## Create virtual environment
@@ -77,7 +82,7 @@ venv: ## Create virtual environment
 
 dev: venv setup-dirs ## Setup complete development environment
 	@echo "$(BLUE)Installing development dependencies...$(RESET)"
-	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[dev,test,docs,performance]"
+	@. $(VENV_DIR)/bin/activate && $(VENV_DIR)/bin/pip install -e ".[python-tooling,dev,test,docs,performance]"
 	@echo "$(GREEN)Development environment setup complete!$(RESET)"
 	@echo "$(YELLOW)Activate the virtual environment:$(RESET)"
 	@echo "  source $(VENV_DIR)/bin/activate"
@@ -164,60 +169,58 @@ build-frontend: ## Build the frontend web app
 	cd frontend/web && npm install && npm run build
 	@echo "$(GREEN)Frontend built to backend/static/$(RESET)"
 
-build: build-frontend ## Build the entire application
+build-rust: ## Build Rust server and live perception binaries
+	cargo build --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) \
+		--bin billiards-server \
+		--bin billiards-perception-live \
+		--bin billiards-perception-gstreamer-probe
+
+build: build-frontend build-rust ## Build the Rust application and web client
 
 # ===== Development Server =====
 
-kill-processes: ## Kill existing backend and video processes
-	@echo "$(YELLOW)Stopping existing backend and video processes...$(RESET)"
-	@pkill -9 -f "backend.api.main" 2>/dev/null || true
-	@pkill -9 -f "backend.video" 2>/dev/null || true
-	@pkill -9 -f "uvicorn.*backend" 2>/dev/null || true
-	@pkill -9 -f "python.*backend" 2>/dev/null || true
-	@lsof -ti:8000 | xargs kill -9 2>/dev/null || true
+kill-processes: ## Stop existing Billiards Trainer Rust processes
+	@echo "$(YELLOW)Stopping Billiards Trainer Rust processes...$(RESET)"
+	@pkill -TERM -x billiards-server 2>/dev/null || true
+	@pkill -TERM -x billiards-perception-live 2>/dev/null || true
+	@pkill -TERM -x billiards-perception-gstreamer-probe 2>/dev/null || true
 	@sleep 1
-	@echo "$(GREEN)Processes stopped$(RESET)"
+	@echo "$(GREEN)Rust app processes stopped$(RESET)"
 
-run: kill-processes setup-dirs ## Run both video module and API server
-	@echo "$(BLUE)Starting billiards trainer...$(RESET)"
-	@echo "$(CYAN)Starting Video Module...$(RESET)"
-	@$(PYTHON) -m backend.video > $(LOGS_DIR)/video.log 2>&1 &
-	@sleep 2
-	@echo "$(GREEN)Video Module started (logs: $(LOGS_DIR)/video.log)$(RESET)"
-	@echo "$(CYAN)Starting API Server...$(RESET)"
-	@uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+run: build-frontend kill-processes setup-dirs ## Run Rust server, live detector, and retained web client
+	@echo "$(BLUE)Starting Billiards Trainer Rust server...$(RESET)"
+	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
+		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
+		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
+		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
+		--web-root "$(PWD)/backend/static" --start-live $(RUST_SERVER_ARGS)
 
-run-video: kill-processes ## Run video module only
-	@echo "$(BLUE)Starting Video Module...$(RESET)"
-	@$(PYTHON) -m backend.video
+run-video: ## Deprecated: camera capture is supervised by the Rust server
+	@echo "Camera capture is started and supervised by 'make run' (Rust)."
 
-run-api: ## Run API server only
-	@echo "$(BLUE)Starting API server...$(RESET)"
-	uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+run-api: build-frontend build-rust ## Run Rust gateway without live capture
+	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
+		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
+		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
+		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
+		--web-root "$(PWD)/backend/static" $(RUST_SERVER_ARGS)
 
 run-frontend: ## Run frontend dev server only
-	@echo "$(BLUE)Starting frontend dev server...$(RESET)"
 	cd frontend/web && npm run dev
 
 run-visualizer: ## Run LOVE2D visualizer only
-	@echo "$(BLUE)Starting LOVE2D visualizer...$(RESET)"
 	love frontend/visualizer
 
 test-visualizer: ## Test LOVE2D visualizer module initialization
-	@echo "$(BLUE)Testing LOVE2D visualizer module initialization...$(RESET)"
 	cd frontend/visualizer && ./run_test.sh
 
-run-vision: ## Run vision system only
-	@echo "$(BLUE)Starting vision system...$(RESET)"
-	$(PYTHON) -m backend.vision.main
+run-vision: ## Deprecated: perception is supervised by the Rust server
+	@echo "Use 'make run' to start the Rust perception pipeline."
 
-run-projector: ## Run projector system only
-	@echo "$(BLUE)Starting projector system...$(RESET)"
-	$(PYTHON) -m backend.projector.main
+run-projector: ## Deprecated: projector runtime is not part of the Rust server package
+	@echo "The legacy Python projector is not launched by the Rust live application."
 
-run-dev: ## Run in development mode with hot reload
-	@echo "$(BLUE)Starting in development mode...$(RESET)"
-	ENVIRONMENT=development $(PYTHON) -m backend.main
+run-dev: run ## Run the Rust app; the frontend development server is separate
 
 # ===== Monitoring and Debugging =====
 
@@ -252,9 +255,7 @@ monitor: ## Monitor log files in real-time
 	@if [ -f $(LOGS_DIR)/info.log ]; then tail -f $(LOGS_DIR)/info.log; else echo "No logs to monitor"; fi
 
 profile: ## Run with performance profiling
-	@echo "$(BLUE)Running with profiling...$(RESET)"
-	$(PYTHON) -m cProfile -o profile.stats -m backend.main
-	@echo "$(GREEN)Profile saved to profile.stats$(RESET)"
+	@echo "Rust profiling is available through docs/PERFORMANCE_AUDIT.md."
 
 # ===== Configuration =====
 

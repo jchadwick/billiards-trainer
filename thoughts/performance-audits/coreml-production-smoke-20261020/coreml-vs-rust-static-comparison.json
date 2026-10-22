@@ -1,0 +1,237 @@
+{
+  "captured_at_utc": "2026-10-20T13:09:20.495989+00:00",
+  "input_sha256": "e2cfcaef233cc819e1e679e28aafcbf46b88ce68da5c324e8d4b5ab6610151bd",
+  "interpretation": "The output centers are close for this one image after identical tensors, but the CoreML package has no verified source manifest, so this does not prove the artifacts share weights or that runtime backends are equivalent. It is not accuracy or performance qualification.",
+  "output_comparison": {
+    "candidate_count": 5,
+    "matched_count": 5,
+    "matches": [
+      {
+        "candidate_center": [
+          1182.7253,
+          1481.0784
+        ],
+        "candidate_index": 1,
+        "center_error_px": 0.9219309355910614,
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence_abs_error": 0.00018668374999997184,
+        "reference_center": [
+          1182.75,
+          1482.0
+        ],
+        "reference_index": 0
+      },
+      {
+        "candidate_center": [
+          3368.3198,
+          1663.3594
+        ],
+        "candidate_index": 3,
+        "center_error_px": 0.6945792971286251,
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence_abs_error": 0.00036154374999997074,
+        "reference_center": [
+          3369.0,
+          1663.5
+        ],
+        "reference_index": 1
+      },
+      {
+        "candidate_center": [
+          1865.5393,
+          595.76917
+        ],
+        "candidate_index": 2,
+        "center_error_px": 1.1451384103678415,
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence_abs_error": 0.007556068750000033,
+        "reference_center": [
+          1864.5,
+          596.25
+        ],
+        "reference_index": 2
+      },
+      {
+        "candidate_center": [
+          3593.9905,
+          341.2977
+        ],
+        "candidate_index": 4,
+        "center_error_px": 0.04863681733012705,
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence_abs_error": 0.023539190000000043,
+        "reference_center": [
+          3594.0,
+          341.25
+        ],
+        "reference_index": 3
+      },
+      {
+        "candidate_center": [
+          565.0348,
+          491.38312
+        ],
+        "candidate_index": 0,
+        "center_error_px": 0.16080103979763893,
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence_abs_error": 0.010422346250000047,
+        "reference_center": [
+          565.125,
+          491.25
+        ],
+        "reference_index": 4
+      }
+    ],
+    "reference_count": 5,
+    "unmatched_candidate": [],
+    "unmatched_reference": []
+  },
+  "preprocessing": {
+    "comparison_result": "exactly_equal",
+    "evidence": "tensor-comparison.json"
+  },
+  "python_coreml": {
+    "backend": "CoreML",
+    "detections": [
+      {
+        "center": [
+          1182.75,
+          1482.0
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93603515625
+      },
+      {
+        "center": [
+          3369.0,
+          1663.5
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93603515625
+      },
+      {
+        "center": [
+          1864.5,
+          596.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93408203125
+      },
+      {
+        "center": [
+          3594.0,
+          341.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93359375
+      },
+      {
+        "center": [
+          565.125,
+          491.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.91943359375
+      }
+    ],
+    "model_sha256_tree": "a18334e92e24e6c9e4e59a8c4977e9aa3f33d6ec141834f8ac3c860f57261d92",
+    "source_lineage": "not present in package manifest"
+  },
+  "rust_onnx_cpu": {
+    "detections": [
+      {
+        "bbox_xyxy_px": [
+          506.35403,
+          438.40814,
+          623.7156,
+          544.3581
+        ],
+        "center_xy_px": [
+          565.0348,
+          491.38312
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.92985594
+      },
+      {
+        "bbox_xyxy_px": [
+          1129.3049,
+          1430.1823,
+          1236.1459,
+          1531.9746
+        ],
+        "center_xy_px": [
+          1182.7253,
+          1481.0784
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93622184
+      },
+      {
+        "bbox_xyxy_px": [
+          1817.228,
+          546.6643,
+          1913.8506,
+          644.874
+        ],
+        "center_xy_px": [
+          1865.5393,
+          595.76917
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.9416381
+      },
+      {
+        "bbox_xyxy_px": [
+          3307.0005,
+          1609.6505,
+          3429.6394,
+          1717.0682
+        ],
+        "center_xy_px": [
+          3368.3198,
+          1663.3594
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.9363967
+      },
+      {
+        "bbox_xyxy_px": [
+          3529.5579,
+          283.64877,
+          3658.423,
+          398.94662
+        ],
+        "center_xy_px": [
+          3593.9905,
+          341.2977
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.95713294
+      }
+    ],
+    "onnx_sha256": "77cbca76dfa71714dfba121193d164492ef9773a0ccc577bc7df16b52c2fb6ca",
+    "provider": [
+      "CPUExecutionProvider"
+    ],
+    "source_checkpoint_path": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e"
+  },
+  "schema_version": 1,
+  "scope": "single static image; same encoded PNG and exactly equal 1280-square float32 preprocessed tensor; detector output comparison only"
+}

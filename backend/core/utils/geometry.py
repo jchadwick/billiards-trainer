@@ -84,6 +84,8 @@ def point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> 
         True if point is inside polygon, False otherwise
     """
     n = len(polygon)
+    if n < 3:
+        return False
     inside = False
 
     p1x, p1y = polygon[0]
@@ -181,6 +183,12 @@ class GeometryUtils:
 
         # Quadratic equation coefficients
         a = dx * dx + dy * dy
+        if a == 0:
+            # A zero-length segment is a point: it intersects only when that
+            # point lies exactly on the circle boundary.
+            if fx * fx + fy * fy == radius * radius:
+                return [Vector2D(line_start.x, line_start.y, scale=line_start.scale)]
+            return []
         b = 2 * (fx * dx + fy * dy)
         c = fx * fx + fy * fy - radius * radius
 
@@ -198,7 +206,8 @@ class GeometryUtils:
         intersections = []
 
         # Check if intersections are within line segment (0 <= t <= 1)
-        for t in [t1, t2]:
+        parameters = [t1] if sqrt_discriminant == 0 else [t1, t2]
+        for t in parameters:
             if 0 <= t <= 1:
                 x = line_start.x + t * dx
                 y = line_start.y + t * dy
@@ -306,6 +315,8 @@ class GeometryUtils:
         """Check if point is inside polygon using ray casting algorithm."""
         x, y = point.x, point.y
         n = len(polygon)
+        if n < 3:
+            return False
         inside = False
 
         p1x, p1y = polygon[0].x, polygon[0].y
@@ -351,7 +362,7 @@ class GeometryUtils:
 
         # Calculate intersection points
         a = (radius1**2 - radius2**2 + d**2) / (2 * d)
-        h = math.sqrt(radius1**2 - a**2)
+        h = math.sqrt(max(0.0, radius1**2 - a**2))
 
         # Point P2 is a + h*perpendicular to line between centers
         p2_x = center1.x + a * (center2.x - center1.x) / d
@@ -370,6 +381,8 @@ class GeometryUtils:
             scale=center1.scale,
         )
 
+        if h == 0:
+            return [intersection1]
         return [intersection1, intersection2]
 
     @staticmethod

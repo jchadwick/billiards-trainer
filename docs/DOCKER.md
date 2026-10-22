@@ -1,11 +1,45 @@
 # Docker deployment
 
-The repository Compose file builds one backend process per table from
-`backend/Dockerfile`. It does not start Redis, the web frontend, or the LÖVE
-projector. Redis is optional for distributed rate-limit admission; it does not
-distribute camera ownership, game state, or broadcasts.
+The Compose service builds one Rust application server per table. The image
+contains the Rust gateway, Rust live-perception executables, native GStreamer
+runtime components, and the built browser client. It does not install or launch
+Python. The gateway serves the static HTML/CSS/JavaScript client, exposes HTTP
+and WebSocket APIs, and supervises the live detector when `START_LIVE=true`.
 
-## Start the backend
+## Prepare configuration and model files
+
+Compose mounts `CONFIG_HOST_FILE` at `/app/config/config.json` and
+`MODEL_DIRECTORY` at `/app/models` (read-only). The live Rust process requires a
+verified ONNX export, its source checkpoint, and the export manifest named by
+appending `.manifest.json` to the ONNX filename. Before starting live capture,
+set these paths in the mounted configuration, relative to the application root
+`/app`:
+
+```json
+{
+  "perception": {
+    "provider": "rust",
+    "mode": "live",
+    "rust_live": {
+      "onnx_path": "models/billiards-yolov8n.onnx",
+      "source_checkpoint_path": "models/billiards-yolov8n.pt"
+    }
+  }
+}
+```
+
+Place `billiards-yolov8n.onnx.manifest.json` next to the ONNX file in the host
+model directory. The example model filenames are illustrative: use a real,
+qualified export and its matching checkpoint/manifest. The repository's
+default configuration may not contain a qualified Rust live model pair, so a
+live launch will fail clearly until one is supplied. There is no implicit
+Python or alternate-model fallback.
+
+Set the selected camera or network stream and any applied calibration in the
+same configuration. A successful startup alone does not establish calibrated
+coordinates, detector accuracy, freshness, or camera qualification.
+
+## Build and run
 
 ```bash
 docker compose build backend
@@ -14,45 +48,31 @@ docker compose logs -f backend
 docker compose down
 ```
 
-The API is exposed on host port 8000 by default. To use another host port, set
-`API_PORT` when starting Compose; the container continues listening on port
-8000:
+The HTTP service is exposed on host port 8000 by default; override it with
+`API_PORT`:
 
 ```bash
 API_PORT=8080 docker compose up -d backend
 ```
 
-The image includes the repository's `config.json`; `CONFIG_FILE` selects the
-file passed to `python -m backend.main`. The Compose service mounts
-`./models` read-only at `/app/models` by default (`MODEL_DIRECTORY` can select
-another host directory). Supply the detector model named by the selected
-configuration. Startup fails clearly when that required model is missing. The
-default configuration points to a CoreML `.mlpackage`; Linux deployments must
-select a Linux-compatible model format and device in their mounted config.
+Set `START_LIVE=false` to run the Rust gateway without opening a camera. This
+mode is useful for gateway/replay integration checks and does not perform live
+detection. The scene-ingress TCP listener remains loopback-only inside the
+container and is not published as a host port.
 
-To use a host-managed config, add a read-write bind mount and change
-`CONFIG_FILE` in a Compose override. The file must be writable by the
-container's application user because validated API updates persist atomically.
+One service instance owns one table's capture and state. Run separate
+containers/configurations for separate tables; do not scale one service into
+multiple replicas against the same camera. The Compose file does not start a
+projector process.
 
-The container starts through `backend/entrypoint.sh`, which performs import
-checks and launches `backend.main` as one process. Run one backend instance per
-table. Do not increase worker count to scale multiple tables in one process;
-start a separate instance for each table.
+## Configuration persistence and data
 
-## Other components
+`CONFIG_HOST_FILE` selects the host configuration file and
+`MODEL_DIRECTORY` selects the host directory containing the ONNX, checkpoint,
+and manifest. The configuration mount is writable because configuration API
+updates persist to that file. Keep model artifacts read-only to the service.
+The `billiards-data` volume retains application data between container
+recreations.
 
-The frontend runs separately from Compose. From `frontend/web`, install the
-locked dependencies and start the Vite server with `npm ci` and `npm run dev`.
-
-The projector is also separate. It listens on `127.0.0.1:9999` for its local
-custom UDP payload; the backend does not publish that protocol. WebSocket video
-delivery is disabled. The backend's HTTP video routes remain available on the
-API port.
-
-## Rate limiting
-
-In-memory rate limiting is the default for this single-worker deployment. If
-Redis storage is explicitly selected in configuration, provide a reachable
-Redis service separately. The application fails readiness when the selected
-Redis store is unavailable and rejects WebSocket admission during an outage;
-it does not silently fall back to per-process memory limits.
+The service is anonymous and has no authentication layer; API and WebSocket
+clients send no credentials.

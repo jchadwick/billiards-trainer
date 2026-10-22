@@ -21,6 +21,7 @@ from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCENE_FIXTURE = PROJECT_ROOT / "perception/contracts/v1/scene-rust-tracked-success.json"
+PUBLIC_STATE_FIXTURE = PROJECT_ROOT / "perception/contracts/public-state/number-8.json"
 
 
 class DictConfiguration:
@@ -127,8 +128,7 @@ def _fake_executable(
             else ""
         )
         + (
-            "print('fake producer failed', file=sys.stderr, flush=True)\n"
-            "sys.exit(7)\n"
+            "print('fake producer failed', file=sys.stderr, flush=True)\nsys.exit(7)\n"
             if mode == "exit"
             else ""
         )
@@ -152,7 +152,22 @@ def _fake_executable(
                 "read_frame()\n"
                 "scene['transport_sequence'] = 1\n"
                 "scene['snapshot_revision'] = 1\n"
-                "data = json.dumps(scene, separators=(',',':')).encode()\n"
+                f"delivery_fixture = json.loads(Path({str(PUBLIC_STATE_FIXTURE)!r}).read_text())\n"
+                "delivery_fixture['scene'] = scene\n"
+                "observation_status = delivery_fixture['expected']['observation_status']\n"
+                "observation_status['engine_instance_id'] = scene['engine_instance_id']\n"
+                "observation_status['source_session_id'] = scene['source']['session_id']\n"
+                "observation_status['source_frame_id'] = scene['source']['frame_id']\n"
+                "for ball in delivery_fixture['expected']['balls']:\n"
+                "  ball['source_observation']['engine_instance_id'] = scene['engine_instance_id']\n"
+                "  ball['source_observation']['session_id'] = scene['source']['session_id']\n"
+                "  ball['source_observation']['frame_id'] = scene['source']['frame_id']\n"
+                "delivery = {'delivery_type':'billiards_public_state_delivery', "
+                "'delivery_schema_version':1, 'source_snapshot':scene, "
+                "'current_state':{'payload':delivery_fixture['expected'], 'epoch':1, "
+                "'updated_monotonic_ns':1, 'localization_received_monotonic_ns':1, "
+                "'localization_age_ns':0, 'ball_age_ns':{'track-1':0}, 'freshness':'fresh'}}\n"
+                "data = json.dumps(delivery, separators=(',',':')).encode()\n"
                 "client.sendall(struct.pack('>I',len(data)) + data)\n"
                 "client.close()\n"
                 "print('fake replay complete', flush=True)\n"
@@ -190,6 +205,41 @@ def test_replay_settings_validate_manifest_class_ids_and_replay_only_inputs(
     with pytest.raises(RustReplayConfigurationError, match="PNG/JPEG"):
         _settings(tmp_path, input_path=str(input_path))
 
+    with pytest.raises(RustReplayConfigurationError, match="supported v1"):
+        _settings(tmp_path, public_state_delivery_schema_version=2)
+
+
+def test_replay_repeat_count_is_bounded_by_corpus_size_and_configured_cap(
+    tmp_path: Path,
+) -> None:
+    default_settings = _settings(tmp_path)
+    assert default_settings.replay_repeat_count == 1
+    assert default_settings.maximum_replay_frames == 100000
+    assert default_settings.public_state_delivery_schema_version == 1
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "frame-1.png").write_bytes(b"frame one")
+    (corpus / "frame-2.jpg").write_bytes(b"frame two")
+    (corpus / "ignore.txt").write_text("not an image", encoding="utf-8")
+
+    settings = _settings(
+        tmp_path,
+        input_path=str(corpus),
+        replay_repeat_count=3,
+        maximum_replay_frames=6,
+    )
+    assert settings.replay_repeat_count == 3
+    assert settings.maximum_replay_frames == 6
+
+    with pytest.raises(RustReplayConfigurationError, match="image count multiplied"):
+        _settings(
+            tmp_path,
+            input_path=str(corpus),
+            replay_repeat_count=3,
+            maximum_replay_frames=5,
+        )
+
 
 def test_config_schema_validates_replay_thresholds_and_enum_values() -> None:
     errors, _ = validate_configuration(
@@ -200,6 +250,9 @@ def test_config_schema_validates_replay_thresholds_and_enum_values() -> None:
                     "confidence": 1.1,
                     "image_size": 24,
                     "maximum_message_bytes": 0,
+                    "replay_repeat_count": 0,
+                    "maximum_replay_frames": 4294967296,
+                    "public_state_delivery_schema_version": 2,
                 }
             }
         }
@@ -210,6 +263,9 @@ def test_config_schema_validates_replay_thresholds_and_enum_values() -> None:
         "perception.rust_replay.confidence",
         "perception.rust_replay.image_size",
         "perception.rust_replay.maximum_message_bytes",
+        "perception.rust_replay.replay_repeat_count",
+        "perception.rust_replay.maximum_replay_frames",
+        "perception.rust_replay.public_state_delivery_schema_version",
     } <= {error["field"] for error in errors}
 
 
@@ -321,10 +377,24 @@ def test_supervisor_launches_replay_and_publishes_first_scene(
     assert ("LD_LIBRARY_PATH" in record_data["env"]) is (provider == "openvino")
     assert ("DYLD_LIBRARY_PATH" in record_data["env"]) is (provider == "openvino")
     assert "--scene-snapshots-tcp" in record_data["argv"]
+    assert record_data["argv"][
+        record_data["argv"].index("--public-state-delivery-schema-version") + 1
+    ] == str(settings.public_state_delivery_schema_version)
+    assert record_data["argv"].index("--public-state-delivery-schema-version") > (
+        record_data["argv"].index("--scene-snapshots-tcp")
+    )
     assert "--detection-batches-jsonl" in record_data["argv"]
+    assert record_data["argv"][
+        record_data["argv"].index("--replay-repeat-count") + 1
+    ] == str(settings.replay_repeat_count)
+    assert record_data["argv"][
+        record_data["argv"].index("--maximum-replay-frames") + 1
+    ] == str(settings.maximum_replay_frames)
     provider_argument = record_data["argv"].index("--provider")
     assert record_data["argv"][provider_argument + 1] == provider
     assert len(broadcaster.states) == 1
+    assert broadcaster.states[0]["balls"][0]["number"] == 8
+    assert broadcaster.states[0]["game_type"] == "eight_ball"
     assert len(supervisor._stderr_tail) == 64 * 1024
     assert b"fake replay complete" in supervisor._stdout_tail
 

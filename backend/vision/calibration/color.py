@@ -14,6 +14,8 @@ from sklearn.cluster import KMeans
 from backend.config import config as config_manager
 
 logger = logging.getLogger(__name__)
+HSV_VALUE_MIN = int(np.iinfo(np.uint8).min)
+HSV_VALUE_MAX = int(np.iinfo(np.uint8).max)
 
 
 @dataclass
@@ -407,6 +409,19 @@ class ColorCalibrator:
         self, original: ColorThresholds, light_ratio: float
     ) -> ColorThresholds:
         """Adapt individual color thresholds for lighting changes."""
+        if light_ratio == 1.0:
+            # A missing/zero reference falls back to a unit ratio. Preserve the
+            # calibrated thresholds exactly when no measurable lighting change
+            # is available, rather than applying the dark-light factors below.
+            return ColorThresholds(
+                original.hue_min,
+                original.hue_max,
+                original.saturation_min,
+                original.saturation_max,
+                original.value_min,
+                original.value_max,
+            )
+
         # Adjust value thresholds based on lighting ratio
         bright_min_factor = config_manager.get(
             "vision.calibration.color.lighting_adaptation.bright_value_min_factor", 0.8
@@ -422,11 +437,35 @@ class ColorCalibrator:
         )
 
         if light_ratio > 1.0:  # Brighter lighting
-            v_min = min(255, int(original.value_min * light_ratio * bright_min_factor))
-            v_max = min(255, int(original.value_max * light_ratio * bright_max_factor))
+            v_min = min(
+                HSV_VALUE_MAX,
+                max(
+                    HSV_VALUE_MIN,
+                    int(original.value_min * light_ratio * bright_min_factor),
+                ),
+            )
+            v_max = min(
+                HSV_VALUE_MAX,
+                max(
+                    HSV_VALUE_MIN,
+                    int(original.value_max * light_ratio * bright_max_factor),
+                ),
+            )
         else:  # Darker lighting
-            v_min = max(0, int(original.value_min * light_ratio * dark_min_factor))
-            v_max = max(0, int(original.value_max * light_ratio * dark_max_factor))
+            v_min = min(
+                HSV_VALUE_MAX,
+                max(
+                    HSV_VALUE_MIN,
+                    int(original.value_min * light_ratio * dark_min_factor),
+                ),
+            )
+            v_max = min(
+                HSV_VALUE_MAX,
+                max(
+                    HSV_VALUE_MIN,
+                    int(original.value_max * light_ratio * dark_max_factor),
+                ),
+            )
 
         # Slightly adjust saturation for extreme lighting changes
         very_bright_threshold = config_manager.get(

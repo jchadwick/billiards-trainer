@@ -78,6 +78,18 @@ class _PsutilModule(Protocol):
 router = APIRouter(prefix="/diagnostics", tags=["Diagnostics"])
 
 
+def _require_legacy_camera_owner() -> None:
+    """Do not let diagnostics open Python capture beside Rust live capture."""
+    if getattr(get_app_state(), "perception_provider", None) == "rust":
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Camera diagnostics are unavailable while Rust owns live capture; "
+                "use the active provider's diagnostics."
+            ),
+        )
+
+
 class HardwareDevice(BaseModel):
     """Hardware device information."""
 
@@ -709,6 +721,7 @@ async def diagnose_camera() -> VisionDiagnosticResult:
     - Resolution and FPS
     - Frame quality
     """
+    _require_legacy_camera_owner()
     start_time = time.time()
 
     try:
@@ -1003,6 +1016,7 @@ async def diagnose_ball_detection() -> VisionDiagnosticResult:
     - Detection accuracy
     - Performance metrics
     """
+    _require_legacy_camera_owner()
     start_time = time.time()
 
     try:
@@ -1059,6 +1073,7 @@ async def diagnose_vision_system() -> list[VisionDiagnosticResult]:
 
     Returns comprehensive results for all components.
     """
+    _require_legacy_camera_owner()
     results = []
 
     # Run all vision diagnostics
@@ -1218,6 +1233,7 @@ async def get_fisheye_test_image() -> Response:
     Returns:
         JPEG image showing original and corrected frames side-by-side
     """
+    _require_legacy_camera_owner()
     logger.info("Fisheye test image endpoint called")
 
     try:

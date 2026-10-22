@@ -1,155 +1,96 @@
-# Production-ready Dockerfile for Billiards Trainer Backend API
-# ============================================================
+# Build the retained browser client and Rust server separately so the runtime
+# image contains only static HTML/JS/CSS, Rust executables, model libraries,
+# and the native GStreamer runtime needed for camera/stream capture.
 
-# ========================
-# Build Stage
-# ========================
-FROM python:3.11-slim AS builder
+FROM node:22-bookworm-slim AS web-builder
+WORKDIR /src/frontend/web
+COPY frontend/web/package.json frontend/web/package-lock.json ./
+RUN npm ci
+COPY frontend/web/ ./
+RUN npm run build
 
-# Set environment variables for build
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+FROM rust:1.99-trixie AS rust-builder
+ENV CARGO_HOME=/usr/local/cargo \
+    CARGO_TARGET_DIR=/build/target
+WORKDIR /build
 
-# Install system dependencies required for building Python packages
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    gcc \
-    g++ \
+# The GStreamer feature is deliberately compiled into the deployment binaries;
+# actual camera/stream capture remains selected through the mounted config.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
     pkg-config \
-    curl \
-    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+COPY perception/ ./perception/
+# Depending on the Linux target bundle, ort-sys may statically embed ONNX
+# Runtime or provide a shared object. Copy any emitted shared library; static
+# builds require no additional ONNX runtime artifact in the final image.
+RUN cargo build --release --locked \
+    --manifest-path perception/Cargo.toml \
+    --features camera-gstreamer-source \
+    --bin billiards-server \
+    --bin billiards-perception-live \
+    --bin billiards-perception-gstreamer-probe
+RUN mkdir -p /runtime/bin /runtime/lib \
+    && install -m 0755 /build/target/release/billiards-server /runtime/bin/ \
+    && install -m 0755 /build/target/release/billiards-perception-live /runtime/bin/ \
+    && install -m 0755 /build/target/release/billiards-perception-gstreamer-probe /runtime/bin/ \
+    && find /build/target/release /root/.cache/ort.pyke.io \
+        -name 'libonnxruntime*.so*' -exec cp -L '{}' /runtime/lib/ \;
 
-# Upgrade pip and install wheel
-RUN pip install --upgrade pip setuptools wheel
-
-# Use the CPU-only PyTorch index. PyPI's default Linux wheels now bundle CUDA,
-# which expanded this CPU deployment image by several gigabytes.
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
-    torch \
-    torchvision \
-    && python -c "import torch, torchvision; assert not torch.cuda.is_available(); print(f'CPU PyTorch {torch.__version__}, torchvision {torchvision.__version__}')"
-
-# Install core dependencies first
-RUN pip install --no-cache-dir \
-    fastapi \
-    uvicorn[standard] \
-    numpy \
-    scipy \
-    pydantic \
-    python-dotenv \
-    PyYAML \
-    python-multipart \
-    websockets \
-    psutil \
-    watchdog \
-    sqlalchemy \
-    redis \
-    aiofiles \
-    aiohttp \
-    ultralytics \
-    onnxruntime \
-    onnx
-
-# Install OpenCV headless (no GUI dependencies)
-RUN pip install --no-cache-dir opencv-python-headless
-
-# Install the remaining runtime dependencies. Calibration uses scikit-learn;
-# test runners and projector display libraries stay out of the production image.
-RUN pip install --no-cache-dir \
-    scikit-learn \
-    Pillow \
-    email-validator \
-    jsonschema
-
-# ========================
-# Production Stage
-# ========================
-FROM python:3.11-slim AS production
-
-# Set build arguments
+FROM debian:trixie-slim AS runtime
 ARG BUILD_DATE
-ARG BUILD_VERSION=1.0.0
-ARG BUILD_COMMIT
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
 
-# Add metadata labels
-LABEL org.opencontainers.image.title="Billiards Trainer Backend API" \
-      org.opencontainers.image.description="FastAPI backend for billiards training system" \
+LABEL org.opencontainers.image.title="Billiards Trainer" \
+      org.opencontainers.image.description="Rust billiards localization server and static browser client" \
       org.opencontainers.image.version=${BUILD_VERSION} \
       org.opencontainers.image.created=${BUILD_DATE} \
-      org.opencontainers.image.source="https://github.com/your-org/billiards-trainer" \
-      org.opencontainers.image.revision=${BUILD_COMMIT} \
-      maintainer="Billiards Trainer Team"
+      org.opencontainers.image.revision=${BUILD_COMMIT}
 
-# Set production environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app \
-    PATH="/opt/venv/bin:$PATH" \
-    # Application settings
-    ENVIRONMENT=production \
-    DEBUG=false \
-    # API configuration
-    API_PORT=8000 \
-    # Directories
-    CONFIG_DIR=/app/config \
-    DATA_DIR=/app/data \
-    LOG_DIR=/app/logs \
-    TEMP_DIR=/tmp
+ENV ENVIRONMENT=production \
+    HTTP_BIND=0.0.0.0 \
+    HTTP_PORT=8000 \
+    SCENE_BIND=127.0.0.1 \
+    SCENE_PORT=49321 \
+    CONFIG_FILE=/app/config/config.json \
+    PROJECT_ROOT=/app \
+    WEB_ROOT=/app/web \
+    LIVE_EXECUTABLE=/app/bin/billiards-perception-live \
+    CAPTURE_HELPER_EXECUTABLE=/app/bin/billiards-perception-gstreamer-probe \
+    START_LIVE=false \
+    LD_LIBRARY_PATH=/app/lib:/usr/local/lib
 
-# Install minimal runtime system dependencies
+# Soup HTTP, multipart demux, JPEG decode, V4L2, and GStreamer base elements
+# are all required by the live capture helper. OpenVINO stays an optional
+# externally supplied runtime and is not coupled to the ONNX Runtime CPU path.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # System utilities
-    curl \
     ca-certificates \
-    # Create non-root user
+    curl \
+    libgstreamer1.0-0 \
+    libgstreamer-plugins-base1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
     && groupadd --gid 1000 appuser \
-    && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser \
-    # Clean up
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get autoremove -y \
-    && apt-get clean
+    && useradd --uid 1000 --gid appuser --shell /usr/sbin/nologin --create-home appuser \
+    && mkdir -p /app/bin /app/lib /app/config /app/data /app/logs /app/temp /app/web /app/models \
+    && chown -R appuser:appuser /app \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
-
-# Create application directories
-RUN mkdir -p /app/config /app/data /app/logs /app/temp
-
-# Copy entrypoint script
+COPY --from=rust-builder --chown=appuser:appuser /runtime/bin/ /app/bin/
+COPY --from=rust-builder --chown=appuser:appuser /runtime/lib/ /app/lib/
+COPY --from=web-builder --chown=appuser:appuser /src/backend/static/ /app/web/
 COPY --chown=root:root backend/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN chmod 0755 /app/entrypoint.sh
 
-# Set proper ownership for app directory
-RUN chown -R appuser:appuser /app
-
-# Copy application code
-COPY --chown=appuser:appuser . /app/
-
-# The repository may use a symlink for its externally managed model directory.
-# Normalize that path in the image so Docker volume mounts can target /app/models.
-RUN if [ -L /app/models ]; then rm /app/models; fi \
-    && mkdir -p /app/models \
-    && chown appuser:appuser /app/models
-
-# Switch to non-root user
+WORKDIR /app
 USER appuser
 
-# Set working directory
-WORKDIR /app
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl --fail --silent http://127.0.0.1:${HTTP_PORT}/api/v1/health/live >/dev/null || exit 1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:${API_PORT:-8000}/api/v1/health || exit 1
-
-# Expose ports
 EXPOSE 8000
-
-# Set entrypoint
 ENTRYPOINT ["/app/entrypoint.sh"]

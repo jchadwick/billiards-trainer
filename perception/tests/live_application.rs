@@ -151,11 +151,13 @@ fn live_settings(
         scene_transport: SceneTransportConfig {
             address,
             maximum_message_bytes: MAXIMUM_SCENE_BYTES,
+            public_state_delivery_enabled: false,
             connect_timeout: Duration::from_secs(1),
             write_timeout: Duration::from_secs(1),
             reconnect_initial_delay: Duration::from_millis(10),
             reconnect_maximum_delay: Duration::from_millis(20),
         },
+        frame_preview: None,
         startup_timeout: Duration::from_secs(5),
         poll_interval: Duration::from_millis(10),
         graceful_stop_timeout: Duration::from_secs(2),

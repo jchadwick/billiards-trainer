@@ -578,12 +578,14 @@ class ObjectTracker:
                 number_mismatch_penalty = penalties.get("number_mismatch", 3.0)
                 invalid_measurement_penalty = penalties.get("invalid_measurement", 5.0)
 
-                # Add penalty for type mismatch
-                # Skip penalty if either is UNKNOWN (generic ball detection)
+                # Add a penalty for different known types. UNKNOWN is a
+                # generic detector result and may continue an established
+                # track, but known identities (including CUE) must not match
+                # a different known ball type.
                 if (
                     track.ball_type != detection.ball_type
-                    and detection.ball_type not in [BallType.CUE, BallType.UNKNOWN]
-                    and track.ball_type not in [BallType.CUE, BallType.UNKNOWN]
+                    and detection.ball_type != BallType.UNKNOWN
+                    and track.ball_type != BallType.UNKNOWN
                 ):
                     distance *= type_mismatch_penalty
 
@@ -606,13 +608,13 @@ class ObjectTracker:
     def _is_compatible_detection(self, track: Track, detection: Ball) -> bool:
         """Check if detection is compatible with track."""
         # Type compatibility
-        # Allow UNKNOWN detections to match any track (generic "ball" from YOLO)
-        # Allow CUE to match CUE
-        # Otherwise require exact type match
+        # UNKNOWN detections may continue any track because the generic model
+        # class does not identify a specific ball. Every known type, including
+        # CUE, must otherwise match exactly to avoid switching identities.
         if (
             track.ball_type != detection.ball_type
-            and detection.ball_type not in [BallType.CUE, BallType.UNKNOWN]
-            and track.ball_type not in [BallType.CUE, BallType.UNKNOWN]
+            and detection.ball_type != BallType.UNKNOWN
+            and track.ball_type != BallType.UNKNOWN
         ):
             return False
 

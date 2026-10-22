@@ -15,8 +15,10 @@ use std::time::{Duration, Instant};
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 
+use crate::capture::CaptureFrameTiming;
 use crate::capture_pipeline::CapturePipelineStats;
 use crate::detection_batch::BatchTimestamp;
+use crate::inference::FrameInferenceTimings;
 use crate::SceneTransportStats;
 
 /// Maximum number of queued audit events. Each event contains bounded identity
@@ -26,7 +28,7 @@ pub const MAX_LIVE_AUDIT_QUEUE_CAPACITY: usize = 4_096;
 /// and is capped so a malformed or future record cannot monopolize the writer.
 pub const MIN_LIVE_AUDIT_RECORD_BYTES: usize = 1_024;
 pub const MAX_LIVE_AUDIT_RECORD_BYTES: usize = 1_048_576;
-pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 2;
+pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 3;
 
 /// Explicit settings for the opt-in side channel. There are no implicit
 /// address, queue, framing, or deadline defaults.
@@ -87,6 +89,7 @@ pub(crate) struct LiveAuditFrame<'a> {
     pub preprocess_ms: f64,
     pub inference_ms: f64,
     pub decode_and_nms_ms: f64,
+    pub engine_total_ms: f64,
     pub calibration_ms: Option<f64>,
     pub tracking_state_ms: Option<f64>,
     pub scene_serialization_ms: Option<f64>,
@@ -109,6 +112,19 @@ pub(crate) struct LiveAuditObservationOutcome<'a> {
     pub outcome: &'static str,
     pub stage: &'static str,
     pub reason: &'a str,
+    pub inference_timings: Option<LiveAuditInferenceTimings>,
+}
+
+/// Same-parent-clock timing evidence for an inference result that was rejected
+/// by the freshness guard. `source_timestamp` remains separately represented
+/// by the source's nullable timestamp and is never synthesized here.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LiveAuditInferenceTimings {
+    pub capture_timing: CaptureFrameTiming,
+    pub parent_record_read_complete_to_inference_start_ms: f64,
+    pub inference: FrameInferenceTimings,
+    pub parent_record_read_complete_to_inference_complete_ms: f64,
+    pub maximum_frame_age_ms: f64,
 }
 
 pub(crate) struct LiveAuditSceneWrite<'a> {
@@ -208,6 +224,7 @@ impl LiveAuditRecorder {
                 preprocess: frame.preprocess_ms,
                 inference: frame.inference_ms,
                 decode_and_nms: frame.decode_and_nms_ms,
+                engine_total: frame.engine_total_ms,
                 calibration: frame.calibration_ms,
                 tracking_and_state_assembly: frame.tracking_state_ms,
                 scene_json_serialization: frame.scene_serialization_ms,
@@ -249,6 +266,35 @@ impl LiveAuditRecorder {
             outcome: observation.outcome,
             stage: observation.stage,
             reason: observation.reason.to_owned(),
+            inference_timings_ms: observation.inference_timings.map(|timings| {
+                InferenceOutcomeDurationsMs {
+                    capture_helper_appsink_pull_wait: timings
+                        .capture_timing
+                        .helper
+                        .map(|timing| ns_to_ms(timing.appsink_pull_wait_ns)),
+                    capture_helper_rgb_buffer_allocation: timings
+                        .capture_timing
+                        .helper
+                        .map(|timing| ns_to_ms(timing.rgb_buffer_allocation_ns)),
+                    capture_helper_rgb_mapping_copy: timings
+                        .capture_timing
+                        .helper
+                        .map(|timing| ns_to_ms(timing.rgb_mapping_copy_ns)),
+                    parent_framed_record_read: timings
+                        .capture_timing
+                        .parent_framed_record_read_ns
+                        .map(ns_to_ms),
+                    parent_record_read_complete_to_inference_start: timings
+                        .parent_record_read_complete_to_inference_start_ms,
+                    preprocess: timings.inference.preprocess_ms,
+                    inference: timings.inference.inference_ms,
+                    decode_and_nms: timings.inference.decode_and_nms_ms,
+                    engine_total: timings.inference.engine_total_ms,
+                    parent_record_read_complete_to_inference_complete: timings
+                        .parent_record_read_complete_to_inference_complete_ms,
+                    maximum_frame_age: timings.maximum_frame_age_ms,
+                }
+            }),
         });
     }
 
@@ -407,6 +453,8 @@ enum AuditRecord {
         outcome: &'static str,
         stage: &'static str,
         reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        inference_timings_ms: Option<InferenceOutcomeDurationsMs>,
     },
 }
 
@@ -423,6 +471,7 @@ struct FrameDurationsMs {
     preprocess: f64,
     inference: f64,
     decode_and_nms: f64,
+    engine_total: f64,
     /// Null means the runtime had no valid table calibration.
     calibration: Option<f64>,
     tracking_and_state_assembly: Option<f64>,
@@ -430,6 +479,25 @@ struct FrameDurationsMs {
     scene_queue_submit: Option<f64>,
     /// Parent record read completion through successful scene queue submission.
     parent_record_read_complete_to_scene_queue_submit: f64,
+}
+
+#[derive(Debug, Serialize)]
+struct InferenceOutcomeDurationsMs {
+    /// Helper-process capture spans; unavailable if the source did not expose them.
+    capture_helper_appsink_pull_wait: Option<f64>,
+    capture_helper_rgb_buffer_allocation: Option<f64>,
+    capture_helper_rgb_mapping_copy: Option<f64>,
+    /// Parent-local span for reading and copying the complete framed record.
+    parent_framed_record_read: Option<f64>,
+    /// Includes receiver queue delay after the parent completed the framed read.
+    parent_record_read_complete_to_inference_start: f64,
+    preprocess: f64,
+    inference: f64,
+    decode_and_nms: f64,
+    engine_total: f64,
+    /// Freshness age measured in the parent process's monotonic clock domain.
+    parent_record_read_complete_to_inference_complete: f64,
+    maximum_frame_age: f64,
 }
 
 fn ns_to_ms(value: u64) -> f64 {
@@ -799,6 +867,7 @@ mod tests {
             preprocess_ms: 1.2,
             inference_ms: 3.4,
             decode_and_nms_ms: 0.6,
+            engine_total_ms: 5.7,
             calibration_ms: None,
             tracking_state_ms: Some(0.2),
             scene_serialization_ms: Some(0.1),
@@ -847,6 +916,7 @@ mod tests {
             0.03
         );
         assert_eq!(frame["durations_ms"]["parent_framed_record_read"], 0.04);
+        assert_eq!(frame["durations_ms"]["engine_total"], 5.7);
         assert_eq!(
             frame["durations_ms"]["calibration"],
             serde_json::Value::Null
@@ -923,6 +993,7 @@ mod tests {
             preprocess_ms: 0.0,
             inference_ms: 0.0,
             decode_and_nms_ms: 0.0,
+            engine_total_ms: 0.0,
             calibration_ms: None,
             tracking_state_ms: None,
             scene_serialization_ms: None,

@@ -1,10 +1,10 @@
 # ADR-0032: Python supervisor validates Rust live startup
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-20
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0057 (provider-selection gate only; process contract retained)
 
 ## Context
 
@@ -195,3 +195,12 @@ argv values and reject invalid selectors, policies, paths, and timeouts. The
 API does not construct this supervisor, and no physical webcam has been
 opened; startup, accuracy, freshness, interruption, release/reopen, and
 macOS/Linux behavior remain unqualified.
+
+## Scope supersession (2026-10-22)
+
+ADR-0057 supersedes this record only where it kept `perception.provider=rust`
+with `perception.mode=live` unavailable at API preflight. The Python service
+now permits that explicit mode and constructs this supervisor, while keeping
+Python as the bundled default and requiring the exact stable selector, helper,
+first-localization readiness, and fail-closed behavior. This record's request,
+acknowledgement, timeout, and shutdown contracts remain active.

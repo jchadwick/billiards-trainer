@@ -11,7 +11,11 @@ from typing import TYPE_CHECKING
 # required outside TYPE_CHECKING even though the name is only used as a type.
 from fastapi import WebSocket  # noqa: TC002
 
-# Import config module before setting up logging
+# Load the selected snapshot before reading settings or importing app modules.
+from backend.config import Config
+
+Config.bootstrap_from_environment()
+
 from backend.config import config
 
 if TYPE_CHECKING:
@@ -66,6 +70,9 @@ def create_simple_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=cors_methods,
         allow_headers=cors_headers,
+        # Browsers on the separate development frontend port need to read the
+        # descriptor paired with the Rust preview JPEG body.
+        expose_headers=["X-Frame-Preview-Descriptor", "X-Frame-Preview-Schema"],
     )
 
     # Basic health check

@@ -18,6 +18,7 @@ import hashlib
 import ipaddress
 import json
 import math
+import os
 import platform
 import socket
 import subprocess
@@ -25,8 +26,8 @@ import sys
 import threading
 import time
 import uuid
-from collections import Counter, deque
-from dataclasses import fields
+from collections import Counter, OrderedDict, deque
+from dataclasses import fields, is_dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -53,29 +54,90 @@ def percentile(values: list[float], rank: float) -> float | None:
 
 
 def observation_from_message(message: dict[str, Any]) -> dict[str, Any]:
-    """Extract state identity from the versioned WebSocket envelope."""
+    """Extract state identity from Python and native Rust state envelopes."""
     data = message.get("data")
     if not isinstance(data, dict):
         data = {}
     status = data.get("observation_status")
     if not isinstance(status, dict):
         status = {}
+    identity = status.get("observation_identity")
+    if not isinstance(identity, dict):
+        identity = {}
+
+    engine_instance_id = identity.get("engine_instance_id") or status.get(
+        "engine_instance_id"
+    )
+    source_session_id = identity.get("session_id") or status.get("source_session_id")
+    source_frame_id = identity.get("frame_id") or status.get("source_frame_id")
+    source_frame_number = status.get("source_frame_number")
+    if source_frame_number is None:
+        source_frame_number = _numeric_frame_sequence(source_frame_id)
+    source_timestamp = status.get("source_timestamp")
+    source_timestamp_kind = status.get("source_timestamp_kind")
+    source_timestamp_stage = None
+    if isinstance(source_timestamp_kind, str) and ":" in source_timestamp_kind:
+        source_timestamp_stage = source_timestamp_kind.rsplit(":", 1)[-1]
+    elif isinstance(status.get("source_timestamp"), dict):
+        source_timestamp = status["source_timestamp"].get("ticks")
+        source_timestamp_stage = status["source_timestamp"].get("stage")
+    has_scene_identity = all(
+        isinstance(value, str) and value
+        for value in (engine_instance_id, source_session_id, source_frame_id)
+    )
+    source_observation_key = (
+        (str(engine_instance_id), str(source_session_id), str(source_frame_id))
+        if has_scene_identity
+        else None
+    )
+    stream_sequence = data.get("sequence", message.get("sequence"))
+    state_complete = (
+        isinstance(stream_sequence, int)
+        and not isinstance(stream_sequence, bool)
+        and isinstance(data.get("balls"), list)
+        and isinstance(data.get("observation_status"), dict)
+        and (has_scene_identity or isinstance(source_frame_number, int))
+    )
+    component_status = status.get("component_observation_status")
+    component_status = (
+        dict(component_status) if isinstance(component_status, dict) else {}
+    )
+    # The Python live pipeline currently publishes these established top-level
+    # fields alongside an empty component_observation_status object. Merge the
+    # fields when individual component entries are absent so an empty envelope
+    # does not silently turn observed frames into unknown freshness.
+    legacy_component_statuses = {
+        "balls": status.get("ball_positions_status")
+        or status.get("ball_detection_status"),
+        "cue": status.get("cue_detection_status"),
+        "motion": status.get("motion_monitor_status"),
+    }
+    for component, component_state in legacy_component_statuses.items():
+        if component not in component_status and isinstance(component_state, str):
+            component_status[component] = component_state
+    if not component_status:
+        component_status = None
     return {
-        "stream_sequence": data.get("sequence", message.get("sequence")),
-        "source_frame_number": status.get("source_frame_number"),
-        "source_timestamp": status.get("source_timestamp"),
-        "source_timestamp_kind": status.get("source_timestamp_kind"),
+        "stream_sequence": stream_sequence,
+        "source_frame_number": source_frame_number,
+        "source_frame_id": source_frame_id,
+        "source_session_id": source_session_id,
+        "source_observation_key": source_observation_key,
+        "state_complete": state_complete,
+        "source_timestamp": source_timestamp,
+        "source_timestamp_stage": source_timestamp_stage,
+        "source_timestamp_kind": source_timestamp_kind,
         "source_process_id": status.get("source_process_id"),
         "source_publication_monotonic_ns": status.get(
             "source_publication_monotonic_ns"
         ),
-        "vision_instance_id": status.get("vision_instance_id"),
+        "vision_instance_id": status.get("vision_instance_id") or engine_instance_id,
         "vision_process_id": status.get("vision_process_id"),
         "map_revision": status.get("map_revision"),
         "calibration_revision": status.get("calibration_revision"),
         "ball_count": data.get("ball_count"),
         "cue_present": data.get("cue") is not None,
-        "component_status": status.get("component_observation_status"),
+        "component_status": component_status,
     }
 
 
@@ -130,12 +192,59 @@ def collect_run_summary(
     return accumulator.summary(duration)
 
 
+class _BoundedIdentityWindow:
+    """Retain recent source high-water marks without growing across restarts.
+
+    The collector cannot preserve duplicate and ordering checks for identities
+    that have aged out of this LRU window. The summary reports both the
+    capacity and eviction count so that limitation remains visible in long
+    audits rather than silently consuming unbounded memory.
+    """
+
+    def __init__(self, capacity: int) -> None:
+        if capacity < 1:
+            raise ValueError("identity window capacity must be positive")
+        self.capacity = capacity
+        self._values: OrderedDict[str, Any] = OrderedDict()
+        self.evictions = 0
+
+    def get(self, identity: str) -> Any | None:
+        """Return and refresh one retained identity's recency."""
+        value = self._values.get(identity)
+        if value is not None:
+            self._values.move_to_end(identity)
+        return value
+
+    def set(self, identity: str, value: Any) -> None:
+        """Insert a high-water mark, evicting the least-recent identity."""
+        if identity in self._values:
+            self._values[identity] = value
+            self._values.move_to_end(identity)
+            return
+        if len(self._values) >= self.capacity:
+            self._values.popitem(last=False)
+            self.evictions += 1
+        self._values[identity] = value
+
+    def summary(self) -> dict[str, int | str]:
+        """Expose the bounded identity window and lost deduplication history."""
+        return {
+            "policy": "least-recently-seen source identities",
+            "capacity": self.capacity,
+            "retained": len(self._values),
+            "evictions": self.evictions,
+        }
+
+
 class StateAccumulator:
     """Online counters with bounded latency samples for long audit runs."""
 
     def __init__(self, maximum_samples: int = 10000) -> None:
         self.message_count = 0
         self.unique_observations = 0
+        self.unique_source_frames = 0
+        self.cached_or_failed_source_updates = 0
+        self.unknown_freshness_source_updates = 0
         self.repeated_observations = 0
         self.uncorrelated_messages = 0
         self.source_sequence_gaps = 0
@@ -150,11 +259,14 @@ class StateAccumulator:
         # restart inside the same capture process and reset its frame counter;
         # a newer shared-memory publication timestamp distinguishes that new
         # sequence epoch from a delayed observation from the previous epoch.
-        self._last_source: dict[str, tuple[int, float | None]] = {}
+        self._last_source = _BoundedIdentityWindow(maximum_samples)
         self._last_stream_sequence: int | None = None
         self._ages: deque[float] = deque(maxlen=maximum_samples)
         self._source_to_receipt_ms: deque[float] = deque(maxlen=maximum_samples)
         self._latency_samples: deque[dict[str, Any]] = deque(maxlen=maximum_samples)
+        self._age_sample_count = 0
+        self._source_to_receipt_sample_count = 0
+        self._latency_sample_count = 0
         self._component_status_counts: dict[str, dict[str, int]] = {}
 
     def add(self, event: dict[str, Any]) -> None:
@@ -162,7 +274,11 @@ class StateAccumulator:
         source = event.get("source_frame_number")
         instance = "|".join(
             str(event.get(field) or "unknown")
-            for field in ("vision_instance_id", "source_process_id")
+            for field in (
+                "vision_instance_id",
+                "source_process_id",
+                "source_session_id",
+            )
         )
         if isinstance(source, int) and not isinstance(source, bool):
             previous = self._last_source.get(instance)
@@ -181,8 +297,8 @@ class StateAccumulator:
             )
 
             if previous is None:
-                self.unique_observations += 1
-                self._last_source[instance] = (source, source_timestamp)
+                self._record_unique_source_frame(event)
+                self._last_source.set(instance, (source, source_timestamp))
             elif (
                 has_publication_timestamp
                 and previous[1] is not None
@@ -193,10 +309,10 @@ class StateAccumulator:
                 # newer one. Do not let it poison the active frame high-water.
                 self.source_out_of_order += 1
             elif source > previous[0]:
-                self.unique_observations += 1
+                self._record_unique_source_frame(event)
                 if source > previous[0] + 1:
                     self.source_sequence_gaps += source - previous[0] - 1
-                self._last_source[instance] = (source, source_timestamp)
+                self._last_source.set(instance, (source, source_timestamp))
             elif (
                 has_publication_timestamp
                 and previous[1] is not None
@@ -206,22 +322,26 @@ class StateAccumulator:
                 # A newer publication paired with a non-increasing frame
                 # number is a source restart, including a reset to the same
                 # first frame number. Start a new observation sequence epoch.
-                self.unique_observations += 1
+                self._record_unique_source_frame(event)
                 self.source_sequence_restarts += 1
-                self._last_source[instance] = (source, source_timestamp)
+                self._last_source.set(instance, (source, source_timestamp))
             else:
                 self.repeated_observations += int(source == previous[0])
                 self.source_out_of_order += int(source < previous[0])
         else:
             self.uncorrelated_messages += 1
 
-        if (
-            isinstance(event.get("stream_sequence"), int)
-            and not isinstance(event.get("stream_sequence"), bool)
-            and isinstance(source, int)
-            and not isinstance(source, bool)
-            and isinstance(event.get("component_status"), dict)
-        ):
+        if isinstance(event.get("state_complete"), bool):
+            state_complete = event["state_complete"]
+        else:
+            state_complete = (
+                isinstance(event.get("stream_sequence"), int)
+                and not isinstance(event.get("stream_sequence"), bool)
+                and isinstance(source, int)
+                and not isinstance(source, bool)
+                and isinstance(event.get("component_status"), dict)
+            )
+        if state_complete:
             self.complete_messages += 1
         else:
             self.incomplete_messages += 1
@@ -247,6 +367,7 @@ class StateAccumulator:
             age = event.get("source_publication_age_ms")
         if isinstance(age, (int, float)) and math.isfinite(age):
             self._ages.append(float(age))
+            self._age_sample_count += 1
         receive_ns = event.get("receive_monotonic_ns")
         if isinstance(receive_ns, int) and not isinstance(receive_ns, bool):
             publication_ns = event.get("source_publication_monotonic_ns")
@@ -258,6 +379,7 @@ class StateAccumulator:
                 and receive_ns >= publication_ns
             ):
                 self._source_to_receipt_ms.append((receive_ns - publication_ns) / 1e6)
+                self._source_to_receipt_sample_count += 1
             self._latency_samples.append(
                 {
                     "stream_sequence": sequence,
@@ -266,12 +388,29 @@ class StateAccumulator:
                     "source_process_id": event.get("source_process_id"),
                 }
             )
+            self._latency_sample_count += 1
         component_status = event.get("component_status")
         if isinstance(component_status, dict):
             for component, status in component_status.items():
                 counts = self._component_status_counts.setdefault(str(component), {})
                 name = str(status)
                 counts[name] = counts.get(name, 0) + 1
+
+    def _record_unique_source_frame(self, event: dict[str, Any]) -> None:
+        """Count one new source frame and only call observed balls fresh."""
+        self.unique_source_frames += 1
+        component_status = event.get("component_status")
+        ball_status = (
+            component_status.get("balls")
+            if isinstance(component_status, dict)
+            else None
+        )
+        if ball_status == "observed":
+            self.unique_observations += 1
+        elif ball_status in {"cached", "failed", "skipped", "unavailable"}:
+            self.cached_or_failed_source_updates += 1
+        else:
+            self.unknown_freshness_source_updates += 1
 
     def summary(self, duration: float) -> dict[str, Any]:
         return {
@@ -284,6 +423,12 @@ class StateAccumulator:
             "unique_observations_per_second": (
                 self.unique_observations / duration if duration else 0
             ),
+            "unique_source_frame_updates": self.unique_source_frames,
+            "unique_source_frame_updates_per_second": (
+                self.unique_source_frames / duration if duration else 0
+            ),
+            "cached_or_failed_source_updates": self.cached_or_failed_source_updates,
+            "unknown_freshness_source_updates": self.unknown_freshness_source_updates,
             "repeated_source_observations": self.repeated_observations,
             "uncorrelated_state_messages": self.uncorrelated_messages,
             "complete_state_messages": self.complete_messages,
@@ -291,24 +436,34 @@ class StateAccumulator:
             "source_sequence_gaps": self.source_sequence_gaps,
             "source_sequence_restarts": self.source_sequence_restarts,
             "source_out_of_order_messages": self.source_out_of_order,
+            "source_identity_deduplication_window": self._last_source.summary(),
             "stream_sequence_gaps": self.stream_sequence_gaps,
             "stream_sequence_duplicates": self.stream_sequence_duplicates,
             "stream_sequence_out_of_order_messages": self.stream_sequence_out_of_order,
             "source_publication_wall_age_estimate_ms": {
-                "count": len(self._ages),
+                "count": self._age_sample_count,
+                "retained_count": len(self._ages),
                 "sample_limit": self._ages.maxlen,
+                "truncated": self._age_sample_count > len(self._ages),
                 "p50": percentile(list(self._ages), 0.50),
                 "p95": percentile(list(self._ages), 0.95),
                 "p99": percentile(list(self._ages), 0.99),
             },
             "source_publication_to_client_receipt_ms": {
-                "count": len(self._source_to_receipt_ms),
+                "count": self._source_to_receipt_sample_count,
+                "retained_count": len(self._source_to_receipt_ms),
                 "sample_limit": self._source_to_receipt_ms.maxlen,
+                "truncated": self._source_to_receipt_sample_count
+                > len(self._source_to_receipt_ms),
                 "p50": percentile(list(self._source_to_receipt_ms), 0.50),
                 "p95": percentile(list(self._source_to_receipt_ms), 0.95),
                 "p99": percentile(list(self._source_to_receipt_ms), 0.99),
             },
-            "client_latency_sample_count": len(self._latency_samples),
+            "client_latency_sample_count": self._latency_sample_count,
+            "retained_client_latency_sample_count": len(self._latency_samples),
+            "client_latency_samples_truncated": (
+                self._latency_sample_count > len(self._latency_samples)
+            ),
             "component_observation_status_counts": self._component_status_counts,
             "accuracy_evidence": "unavailable for unannotated live streams",
         }
@@ -487,11 +642,25 @@ class RustLiveTimingAccumulator:
         "preprocess",
         "inference",
         "decode_and_nms",
+        "engine_total",
         "calibration",
         "tracking_and_state_assembly",
         "scene_json_serialization",
         "scene_queue_submit",
         "host_read_complete_to_scene_queue_submit",
+    )
+    _INFERENCE_OUTCOME_DURATION_FIELDS = (
+        "capture_helper_appsink_pull_wait",
+        "capture_helper_rgb_buffer_allocation",
+        "capture_helper_rgb_mapping_copy",
+        "parent_framed_record_read",
+        "parent_record_read_complete_to_inference_start",
+        "preprocess",
+        "inference",
+        "decode_and_nms",
+        "engine_total",
+        "parent_record_read_complete_to_inference_complete",
+        "maximum_frame_age",
     )
 
     def __init__(self, maximum_samples: int) -> None:
@@ -666,8 +835,13 @@ class RustLiveTimingAccumulator:
             }
             for outcome, values in matched_write_durations.items()
         }
-
         measured_outcomes: Counter[str] = Counter()
+        measured_stale_outcomes = 0
+        timed_stale_outcomes = 0
+        stale_inference_durations: dict[str, list[float]] = {
+            name: [] for name in self._INFERENCE_OUTCOME_DURATION_FIELDS
+        }
+        stale_deadline_overruns: list[float] = []
         out_of_window_outcomes = 0
         association_pressure_frames = 0
         association_capacity_evictions = 0
@@ -686,6 +860,37 @@ class RustLiveTimingAccumulator:
                 outcome = record.get("outcome")
                 if isinstance(outcome, str):
                     measured_outcomes[outcome] += 1
+                if record.get("reason") == "stale_after_inference":
+                    measured_stale_outcomes += 1
+                    raw_timings = record.get("inference_timings_ms")
+                    if isinstance(raw_timings, dict):
+                        timed_stale_outcomes += 1
+                        for name in self._INFERENCE_OUTCOME_DURATION_FIELDS:
+                            duration = raw_timings.get(name)
+                            if (
+                                isinstance(duration, (int, float))
+                                and not isinstance(duration, bool)
+                                and math.isfinite(duration)
+                                and duration >= 0
+                            ):
+                                stale_inference_durations[name].append(float(duration))
+                        age = raw_timings.get(
+                            "parent_record_read_complete_to_inference_complete"
+                        )
+                        maximum_age = raw_timings.get("maximum_frame_age")
+                        if (
+                            isinstance(age, (int, float))
+                            and not isinstance(age, bool)
+                            and math.isfinite(age)
+                            and age >= 0
+                            and isinstance(maximum_age, (int, float))
+                            and not isinstance(maximum_age, bool)
+                            and math.isfinite(maximum_age)
+                            and maximum_age >= 0
+                        ):
+                            stale_deadline_overruns.append(
+                                max(0.0, float(age) - float(maximum_age))
+                            )
                 if outcome == "degraded" and record.get("stage") == "track_association":
                     reason = record.get("reason")
                     suffix = (
@@ -701,6 +906,27 @@ class RustLiveTimingAccumulator:
                         malformed_pressure_outcomes += 1
             else:
                 out_of_window_outcomes += 1
+
+        stale_inference_summary = {
+            "stale_outcomes": measured_stale_outcomes,
+            "timed_stale_outcomes": timed_stale_outcomes,
+            "stage_durations_ms": {
+                name: {
+                    "count": len(values),
+                    "sample_limit": self._records.maxlen,
+                    "p50": percentile(values, 0.50),
+                    "p95": percentile(values, 0.95),
+                    "p99": percentile(values, 0.99),
+                }
+                for name, values in stale_inference_durations.items()
+            },
+            "deadline_overrun_ms": {
+                "count": len(stale_deadline_overruns),
+                "p50": percentile(stale_deadline_overruns, 0.50),
+                "p95": percentile(stale_deadline_overruns, 0.95),
+                "p99": percentile(stale_deadline_overruns, 0.99),
+            },
+        }
 
         footer = self._footer
         footer_pipeline_counters = (
@@ -719,12 +945,12 @@ class RustLiveTimingAccumulator:
             and footer.get("export_status") == "complete"
             and footer.get("dropped_records", 0) == 0
         )
+        producer_dropped_records = (
+            footer.get("dropped_records") if footer is not None else None
+        )
         return {
-            "status": (
-                "complete"
-                if footer is not None and footer.get("export_status") == "complete"
-                else "partial"
-            ),
+            "status": "complete" if footer_export_complete else "partial",
+            "producer_dropped_records": producer_dropped_records,
             "record_counts": dict(self._record_counts),
             "observation_outcomes_received": dict(self._outcome_counts),
             "observation_outcomes_in_measurement_window": dict(measured_outcomes),
@@ -758,6 +984,7 @@ class RustLiveTimingAccumulator:
                 ],
             },
             "stage_durations_ms": stage_summary,
+            "stale_inference_timing_ms": stale_inference_summary,
             "matched_detection_count": {
                 "count": len(matched_detections),
                 "mean": (
@@ -788,6 +1015,278 @@ class RustLiveTimingAccumulator:
             "retained_records": len(self._records),
             "retention_limit": self._records.maxlen,
         }
+
+    def stale_inference_diagnostic_summary(self) -> dict[str, Any]:
+        """Summarize retained stale outcomes even when readiness never starts.
+
+        This is explicitly an all-retained-record diagnostic, not a measured
+        performance window. Startup failures have no valid warm-up/measurement
+        boundary, but their timing evidence still explains why no state arrived.
+        """
+        stale_records = [
+            record
+            for record in self._records
+            if record.get("record_type") == "observation_outcome"
+            and record.get("reason") == "stale_after_inference"
+        ]
+        durations: dict[str, list[float]] = {
+            name: [] for name in self._INFERENCE_OUTCOME_DURATION_FIELDS
+        }
+        deadline_overruns: list[float] = []
+        timed_records = 0
+        for record in stale_records:
+            raw_timings = record.get("inference_timings_ms")
+            if not isinstance(raw_timings, dict):
+                continue
+            timed_records += 1
+            for name in self._INFERENCE_OUTCOME_DURATION_FIELDS:
+                value = raw_timings.get(name)
+                if (
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(value)
+                    and value >= 0
+                ):
+                    durations[name].append(float(value))
+            age = raw_timings.get("parent_record_read_complete_to_inference_complete")
+            maximum_age = raw_timings.get("maximum_frame_age")
+            if (
+                isinstance(age, (int, float))
+                and not isinstance(age, bool)
+                and math.isfinite(age)
+                and age >= 0
+                and isinstance(maximum_age, (int, float))
+                and not isinstance(maximum_age, bool)
+                and math.isfinite(maximum_age)
+                and maximum_age >= 0
+            ):
+                deadline_overruns.append(max(0.0, float(age) - float(maximum_age)))
+        return {
+            "scope": "all_retained_run_records_not_a_measured_baseline",
+            "records_received": self._record_count,
+            "retained_records": len(self._records),
+            "retention_limit": self._records.maxlen,
+            "records_truncated": self._record_count > len(self._records),
+            "stale_outcomes": len(stale_records),
+            "timed_stale_outcomes": timed_records,
+            "stage_durations_ms": {
+                name: {
+                    "count": len(values),
+                    "p50": percentile(values, 0.50),
+                    "p95": percentile(values, 0.95),
+                    "p99": percentile(values, 0.99),
+                }
+                for name, values in durations.items()
+            },
+            "deadline_overrun_ms": {
+                "count": len(deadline_overruns),
+                "p50": percentile(deadline_overruns, 0.50),
+                "p95": percentile(deadline_overruns, 0.95),
+                "p99": percentile(deadline_overruns, 0.99),
+            },
+        }
+
+
+class RustLiveChildResourceSampler:
+    """Sample a supervised Rust child off the event loop with bounded retention."""
+
+    def __init__(
+        self,
+        recorder: AsyncAuditRecorder,
+        *,
+        process_id: int,
+        interval_seconds: float,
+        maximum_samples: int,
+        process_factory: Callable[[int], Any] | None = None,
+    ) -> None:
+        if (
+            isinstance(process_id, bool)
+            or not isinstance(process_id, int)
+            or process_id < 1
+        ):
+            raise ValueError("process_id must be a positive integer")
+        if (
+            isinstance(interval_seconds, bool)
+            or not isinstance(interval_seconds, (int, float))
+            or not math.isfinite(interval_seconds)
+            or interval_seconds <= 0
+        ):
+            raise ValueError("resource sample interval must be positive")
+        if (
+            isinstance(maximum_samples, bool)
+            or not isinstance(maximum_samples, int)
+            or maximum_samples < 1
+        ):
+            raise ValueError("maximum resource samples must be positive")
+        self._recorder = recorder
+        self._process_id = process_id
+        self._interval_seconds = interval_seconds
+        self._samples: deque[dict[str, Any]] = deque(maxlen=maximum_samples)
+        self._sample_count = 0
+        self._available_sample_count = 0
+        self._unavailable_sample_count = 0
+        self._process: Any = None
+        self._unavailable_reason: str | None = None
+        self._stop = threading.Event()
+        self._samples_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        try:
+            if process_factory is None:
+                import psutil
+
+                process_factory = psutil.Process
+            self._process = process_factory(process_id)
+            self._process.cpu_percent(interval=None)
+        except Exception as error:
+            self._unavailable_reason = f"{type(error).__name__}: {error}"
+
+    def start(self) -> None:
+        """Begin periodic sampling after the measured window has warmed up."""
+        if self._thread is not None:
+            raise RuntimeError("resource sampler has already started")
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"rust-live-resources-{self._process_id}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def close(self) -> None:
+        """Stop sampling promptly before the supervised process is terminated."""
+        self._stop.set()
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=max(0.1, self._interval_seconds * 2))
+
+    def summary(self) -> dict[str, Any]:
+        """Summarize retained CPU and RSS samples, exposing retention loss."""
+        with self._samples_lock:
+            samples = list(self._samples)
+            sample_count = self._sample_count
+            available_sample_count = self._available_sample_count
+            unavailable_sample_count = self._unavailable_sample_count
+        summary_status = (
+            "unavailable"
+            if available_sample_count == 0
+            else ("partial" if unavailable_sample_count > 0 else "available")
+        )
+        unavailable_reason = self._unavailable_reason
+        if not samples and unavailable_reason is None:
+            unavailable_reason = (
+                "no samples were collected during the measurement window"
+            )
+        cpu_percent = [
+            float(sample["cpu_percent"])
+            for sample in samples
+            if isinstance(sample.get("cpu_percent"), (int, float))
+            and not isinstance(sample.get("cpu_percent"), bool)
+            and math.isfinite(sample["cpu_percent"])
+        ]
+        cpu_times = [
+            float(sample["cpu_time_seconds"])
+            for sample in samples
+            if isinstance(sample.get("cpu_time_seconds"), (int, float))
+            and not isinstance(sample.get("cpu_time_seconds"), bool)
+            and math.isfinite(sample["cpu_time_seconds"])
+        ]
+        memory = [
+            int(sample["resident_memory_bytes"])
+            for sample in samples
+            if isinstance(sample.get("resident_memory_bytes"), int)
+            and not isinstance(sample.get("resident_memory_bytes"), bool)
+        ]
+        return {
+            "status": summary_status,
+            "unavailable_reason": unavailable_reason,
+            "process_role": "rust_live_inference_child",
+            "process_id": self._process_id,
+            "sample_count": sample_count,
+            "available_sample_count": available_sample_count,
+            "unavailable_sample_count": unavailable_sample_count,
+            "retained_sample_count": len(samples),
+            "retention_limit": self._samples.maxlen,
+            "samples_truncated": sample_count > len(samples),
+            "cpu_percent": {
+                "count": len(cpu_percent),
+                "p50": percentile(cpu_percent, 0.50),
+                "p95": percentile(cpu_percent, 0.95),
+                "p99": percentile(cpu_percent, 0.99),
+                "maximum": max(cpu_percent) if cpu_percent else None,
+            },
+            "cpu_time_seconds": {
+                "first": cpu_times[0] if cpu_times else None,
+                "last": cpu_times[-1] if cpu_times else None,
+                "delta": cpu_times[-1] - cpu_times[0] if len(cpu_times) > 1 else None,
+            },
+            "resident_memory_bytes": {
+                "count": len(memory),
+                "first": memory[0] if memory else None,
+                "last": memory[-1] if memory else None,
+                "minimum": min(memory) if memory else None,
+                "maximum": max(memory) if memory else None,
+                "delta": memory[-1] - memory[0] if len(memory) > 1 else None,
+            },
+        }
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._sample_once()
+            if self._stop.wait(self._interval_seconds):
+                return
+
+    def _sample_once(self) -> None:
+        sampled_ns = time.perf_counter_ns()
+        event: dict[str, Any] = {
+            "event_type": "process_resource_sample",
+            "sampled_process_role": "rust_live_inference_child",
+            "process_id": self._process_id,
+            "host_id": socket.gethostname(),
+            "event_monotonic_ns": sampled_ns,
+            "sampled_monotonic_ns": sampled_ns,
+        }
+        if self._process is None:
+            event.update(
+                {
+                    "resource_measurement_status": "unavailable",
+                    "resource_measurement_error": self._unavailable_reason,
+                    "cpu_percent": None,
+                    "cpu_time_seconds": None,
+                    "resident_memory_bytes": None,
+                }
+            )
+        else:
+            try:
+                cpu_percent = self._process.cpu_percent(interval=None)
+                memory_bytes = self._process.memory_info().rss
+                cpu_times = self._process.cpu_times()
+                event.update(
+                    {
+                        "resource_measurement_status": "available",
+                        "cpu_percent": cpu_percent,
+                        "cpu_time_seconds": float(cpu_times.user + cpu_times.system),
+                        "resident_memory_bytes": memory_bytes,
+                    }
+                )
+            except Exception as error:
+                message = f"{type(error).__name__}: {error}"
+                event.update(
+                    {
+                        "resource_measurement_status": "unavailable",
+                        "resource_measurement_error": message,
+                        "cpu_percent": None,
+                        "cpu_time_seconds": None,
+                        "resident_memory_bytes": None,
+                    }
+                )
+                if self._unavailable_reason is None:
+                    self._unavailable_reason = message
+        with self._samples_lock:
+            self._sample_count += 1
+            if event["resource_measurement_status"] == "available":
+                self._available_sample_count += 1
+            else:
+                self._unavailable_sample_count += 1
+            self._samples.append(event)
+        self._recorder.record(event)
 
 
 class RustLiveQualificationBroadcaster:
@@ -919,7 +1418,7 @@ class TrajectoryAccumulator:
         self.repeated_source_observations = 0
         self.unique_source_observations = 0
         self.invalidated_messages = 0
-        self._last_source: dict[str, int] = {}
+        self._last_source = _BoundedIdentityWindow(maximum_samples)
         self._ages: deque[float] = deque(maxlen=maximum_samples)
         self.source_sequence_gaps = 0
         self.source_out_of_order = 0
@@ -964,13 +1463,13 @@ class TrajectoryAccumulator:
             previous = self._last_source.get(source_identity)
             if previous is None:
                 self.unique_source_observations += 1
-                self._last_source[source_identity] = source
+                self._last_source.set(source_identity, source)
             elif source == previous:
                 self.repeated_source_observations += 1
             elif source > previous:
                 self.unique_source_observations += 1
                 self.source_sequence_gaps += max(0, source - previous - 1)
-                self._last_source[source_identity] = source
+                self._last_source.set(source_identity, source)
             else:
                 self.source_out_of_order += 1
         if (
@@ -1007,6 +1506,9 @@ class TrajectoryAccumulator:
             "trajectory_repeated_source_observations": self.repeated_source_observations,
             "trajectory_source_sequence_gaps": self.source_sequence_gaps,
             "trajectory_source_out_of_order_messages": self.source_out_of_order,
+            "trajectory_source_identity_deduplication_window": (
+                self._last_source.summary()
+            ),
             "trajectory_invalidated_or_spatially_invalid_messages": self.invalidated_messages,
             "trajectory_source_publication_wall_age_estimate_ms": {
                 "count": len(self._ages),
@@ -1033,6 +1535,18 @@ def _project_metadata() -> dict[str, Any]:
             ).strip()
         except (OSError, subprocess.CalledProcessError):
             return None
+
+    git_revision = git("rev-parse", "HEAD")
+    configured_revision = config.get("metadata.source_revision") or os.getenv(
+        "APP_REVISION"
+    )
+    revision = git_revision or configured_revision
+    if git_revision is not None:
+        revision_status = "git_checkout"
+    elif configured_revision:
+        revision_status = "configured_build_revision"
+    else:
+        revision_status = "unavailable"
 
     configured_output = config.get(
         "performance_audit.output_directory", "thoughts/performance-audits"
@@ -1079,6 +1593,7 @@ def _project_metadata() -> dict[str, Any]:
 
     selected = {
         "performance_audit": config.get("performance_audit", {}),
+        "perception": config.get("perception", {}),
         "camera": config.get("vision.camera", {}),
         "detection": config.get("vision.detection", {}),
         "processing": config.get("vision.processing", {}),
@@ -1102,10 +1617,24 @@ def _project_metadata() -> dict[str, Any]:
             "physical_cpu_count": None,
             "system_memory_bytes": None,
         }
-    model_value = config.get("vision.detection.yolo_model_path")
-    input_value = config.get("vision.camera.video_file_path")
+    perception_provider = config.get("perception.provider")
+    rust_replay = config.get("perception.rust_replay", {})
+    if not isinstance(rust_replay, dict):
+        rust_replay = {}
+    if perception_provider == "rust":
+        model_value = rust_replay.get("onnx_path")
+        input_value = rust_replay.get("input_path")
+        executable_value = rust_replay.get("executable_path")
+        source_model_value = rust_replay.get("source_checkpoint_path")
+    else:
+        model_value = config.get("vision.detection.yolo_model_path")
+        input_value = config.get("vision.camera.video_file_path")
+        executable_value = None
+        source_model_value = None
     model_path = _resolve_configured_path(model_value)
     input_path = _resolve_configured_path(input_value)
+    executable_path = _resolve_configured_path(executable_value)
+    source_model_path = _resolve_configured_path(source_model_value)
     model_identity = {
         "configured_path": str(model_value) if model_value else None,
         "exists": bool(model_path and model_path.exists()),
@@ -1113,23 +1642,54 @@ def _project_metadata() -> dict[str, Any]:
     }
     if model_path is not None and (model_path.is_file() or model_path.is_dir()):
         model_identity["sha256"] = _hash_path(model_path)
+    source_model_identity = {
+        "configured_path": str(source_model_value) if source_model_value else None,
+        "exists": bool(source_model_path and source_model_path.exists()),
+        "sha256": (
+            _hash_path(source_model_path)
+            if source_model_path is not None
+            and (source_model_path.is_file() or source_model_path.is_dir())
+            else None
+        ),
+    }
+    executable_identity = {
+        "configured_path": str(executable_value) if executable_value else None,
+        "exists": bool(executable_path and executable_path.is_file()),
+        "sha256": (
+            _hash_file(executable_path)
+            if executable_path is not None and executable_path.is_file()
+            else None
+        ),
+    }
     return {
-        "revision": git("rev-parse", "HEAD"),
-        "dirty_worktree_sha256": dirty_digest.hexdigest(),
-        "dirty_worktree_files": relevant_paths,
+        "revision": revision,
+        "revision_status": revision_status,
+        "dirty_worktree_sha256": (
+            dirty_digest.hexdigest() if git_revision is not None else None
+        ),
+        "dirty_worktree_files": relevant_paths if git_revision is not None else None,
         "host": platform.node(),
         "platform": platform.platform(),
         "processor": platform.processor() or None,
         "hardware": hardware,
         "python": platform.python_version(),
+        "perception_provider": perception_provider,
         "model": model_identity,
+        "source_model": source_model_identity,
+        "inference_executable": executable_identity,
         "configured_video_input": {
             "path": str(input_value) if input_value else None,
             "exists": bool(input_path and input_path.exists()),
             "sha256": (
                 _hash_path(input_path)
-                if input_path is not None and input_path.is_file()
+                if input_path is not None
+                and (input_path.is_file() or input_path.is_dir())
                 else None
+            ),
+            "kind": (
+                "recorded_frame_directory"
+                if input_path is not None and input_path.is_dir()
+                else "file" if input_path is not None and input_path.is_file() else None
             ),
         },
         "effective_configuration": selected,
@@ -1460,6 +2020,23 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
                 output.append(float(value))
         return output
 
+    def values_for_event_types(
+        event_types: set[str], field: str, *, domain: str | None = None
+    ) -> list[float]:
+        """Collect one timing across every outcome that performed the work."""
+        output = []
+        for event in events:
+            value = event.get(field)
+            if (
+                event.get("event_type") in event_types
+                and (domain is None or event.get("domain") == domain)
+                and isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and math.isfinite(value)
+            ):
+                output.append(float(value))
+        return output
+
     def stats(samples: list[float]) -> dict[str, Any]:
         return {
             "count": len(samples),
@@ -1641,6 +2218,16 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
             if total_exclusive_seconds
             else None
         )
+    trajectory_timing_outcomes = {
+        "trajectory_prediction_published",
+        "trajectory_prediction_failed",
+        "trajectory_prediction_discarded_stale",
+        "trajectory_publication_failed",
+    }
+    prediction_outcome_counts = {
+        event_type: sum(event.get("event_type") == event_type for event in events)
+        for event_type in sorted(trajectory_timing_outcomes)
+    }
     source_publication_to_state_ms = [
         (event["event_monotonic_ns"] - event["source_publication_monotonic_ns"]) / 1e6
         for event in events
@@ -1651,13 +2238,20 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
         and event["event_monotonic_ns"] >= event["source_publication_monotonic_ns"]
     ]
     return {
+        "record_count_semantics": (
+            "Counts below are derived from events retained by the asynchronous audit "
+            "exporter. High-frequency pipeline and publication events are sampled; "
+            "export queue drops and export limits can also reduce these counts. "
+            "Use the headless subscriber's state accumulator for delivered-state "
+            "throughput and repeat counts."
+        ),
         "vision": {
-            "frame_records": processed_total,
-            "unique_source_observations_processed": processed_unique,
-            "duplicate_or_reused_frame_records": max(
+            "recorded_frame_detail_events": processed_total,
+            "recorded_unique_source_observations_in_frame_details": processed_unique,
+            "recorded_duplicate_or_reused_frame_details": max(
                 0, processed_total - processed_unique
             ),
-            "component_observation_status_counts": component_status_counts,
+            "recorded_component_observation_status_counts": component_status_counts,
             "service_time_seconds": stats(
                 values("vision_frame_complete", "service_time_seconds")
             ),
@@ -1669,30 +2263,30 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
             ),
             "stage_timings_seconds": stage_timings,
             "exclusive_stage_work_ranked": ranked_exclusive_stages,
-            "source_frames_rejected_stale_or_out_of_order": sum(
+            "recorded_source_frame_rejection_events": sum(
                 event.get("event_type") == "vision_source_frame_rejected"
                 for event in events
             ),
-            "source_restarts": sum(
+            "recorded_source_restart_events": sum(
                 event.get("event_type") == "vision_source_restart_detected"
                 for event in events
             ),
-            "vision_queue_drops": sum(
+            "recorded_vision_queue_drop_events": sum(
                 event.get("event_type") == "vision_queue_frame_dropped"
                 for event in events
             ),
-            "vision_queue_depth_after_drop_max": (
+            "recorded_vision_queue_depth_after_drop_max": (
                 max(vision_queue_depths) if vision_queue_depths else None
             ),
-            "processing_queue_depth": stats(processing_queue_depths),
-            "processing_queue_depth_max": (
+            "sampled_processing_queue_depth": stats(processing_queue_depths),
+            "sampled_processing_queue_depth_max": (
                 max(processing_queue_depths) if processing_queue_depths else None
             ),
         },
         "integration": {
-            "processed_observations": integration_total,
-            "unique_source_observations": integration_unique,
-            "rejected_observations": sum(
+            "recorded_observation_detail_events": integration_total,
+            "recorded_unique_source_observations_in_observation_details": integration_unique,
+            "recorded_observation_rejection_events": sum(
                 event.get("event_type") == "integration_observation_rejected"
                 for event in events
             ),
@@ -1712,9 +2306,9 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
             ),
         },
         "state_delivery": {
-            "published_messages": published_total,
-            "unique_source_observations_published": published_unique,
-            "repeated_source_observation_publications": max(
+            "recorded_state_publication_detail_events": published_total,
+            "recorded_unique_source_observations_in_publication_details": published_unique,
+            "recorded_repeated_source_observation_publication_details": max(
                 0, published_total - published_unique
             ),
             "serialization_seconds": stats(
@@ -1737,12 +2331,12 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
                     domain="state",
                 )
             ),
-            "coalesced_updates": sum(
+            "recorded_coalesced_update_events": sum(
                 event.get("event_type") == "websocket_update_coalesced"
                 and event.get("domain") == "state"
                 for event in events
             ),
-            "dropped_updates": sum(
+            "recorded_dropped_update_events": sum(
                 event.get("event_type") == "websocket_update_dropped"
                 and event.get("domain") == "state"
                 for event in events
@@ -1789,21 +2383,32 @@ def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
                 event.get("event_type") == "trajectory_prediction_discarded_stale"
                 for event in events
             ),
+            "prediction_outcome_counts": prediction_outcome_counts,
+            "prediction_outcome_event_count": sum(prediction_outcome_counts.values()),
             "prediction_queue_wait_seconds": stats(
-                values(
-                    "trajectory_prediction_published", "prediction_queue_wait_seconds"
+                values_for_event_types(
+                    trajectory_timing_outcomes, "prediction_queue_wait_seconds"
                 )
             ),
             "calculator_lock_wait_seconds": stats(
-                values(
-                    "trajectory_prediction_published", "calculator_lock_wait_seconds"
+                values_for_event_types(
+                    trajectory_timing_outcomes, "calculator_lock_wait_seconds"
                 )
             ),
             "executor_wait_seconds": stats(
-                values("trajectory_prediction_published", "executor_wait_seconds")
+                values_for_event_types(
+                    trajectory_timing_outcomes, "executor_wait_seconds"
+                )
             ),
             "physics_compute_seconds": stats(
-                values("trajectory_prediction_published", "physics_compute_seconds")
+                values_for_event_types(
+                    trajectory_timing_outcomes, "physics_compute_seconds"
+                )
+            ),
+            "trajectory_publication_seconds": stats(
+                values_for_event_types(
+                    trajectory_timing_outcomes, "trajectory_publication_seconds"
+                )
             ),
         },
         "resources": {
@@ -2015,12 +2620,29 @@ def _compare_overhead(
         and len(baseline_collector_settings) == 1
         and current_collector_settings == baseline_collector_settings
     )
-    same_model = metadata.get("model", {}).get("sha256") == baseline_metadata.get(
-        "model", {}
-    ).get("sha256")
-    same_input = metadata.get("configured_video_input", {}).get(
+    model_hash = metadata.get("model", {}).get("sha256")
+    baseline_model_hash = baseline_metadata.get("model", {}).get("sha256")
+    same_model = bool(
+        isinstance(model_hash, str) and model_hash and model_hash == baseline_model_hash
+    )
+    input_hash = metadata.get("configured_video_input", {}).get("sha256")
+    baseline_input_hash = baseline_metadata.get("configured_video_input", {}).get(
         "sha256"
-    ) == baseline_metadata.get("configured_video_input", {}).get("sha256")
+    )
+    same_input = bool(
+        isinstance(input_hash, str) and input_hash and input_hash == baseline_input_hash
+    )
+    same_revision = bool(
+        isinstance(metadata.get("revision"), str)
+        and metadata.get("revision")
+        and metadata.get("revision") == baseline_metadata.get("revision")
+    )
+    same_dirty_worktree = bool(
+        isinstance(metadata.get("dirty_worktree_sha256"), str)
+        and metadata.get("dirty_worktree_sha256")
+        and metadata.get("dirty_worktree_sha256")
+        == baseline_metadata.get("dirty_worktree_sha256")
+    )
     current_domains = [run.get("server_audit_domains") for run in repetitions]
     baseline_domains = [run.get("server_audit_domains") for run in baseline_runs]
     baseline_instrumentation_off = bool(baseline_domains) and all(
@@ -2059,9 +2681,8 @@ def _compare_overhead(
         same_machine
         and baseline_instrumentation_off
         and current_state_only
-        and metadata.get("revision") == baseline_metadata.get("revision")
-        and metadata.get("dirty_worktree_sha256")
-        == baseline_metadata.get("dirty_worktree_sha256")
+        and same_revision
+        and same_dirty_worktree
         and same_configuration
         and same_audit_configuration
         and same_workload
@@ -2072,9 +2693,8 @@ def _compare_overhead(
     )
     return {
         "baseline_summary": str(baseline_path),
-        "same_revision": metadata.get("revision") == baseline_metadata.get("revision"),
-        "same_dirty_worktree": metadata.get("dirty_worktree_sha256")
-        == baseline_metadata.get("dirty_worktree_sha256"),
+        "same_revision": same_revision,
+        "same_dirty_worktree": same_dirty_worktree,
         "same_model_hash": same_model,
         "same_input_hash": same_input,
         "same_relevant_configuration": same_configuration,
@@ -2442,8 +3062,11 @@ async def collect_repetition(
             "server_profiler_frame_count_after": (
                 server_end.get("total_frames") if server_end else None
             ),
+            "server_profiler_sampling_after": (
+                server_end.get("profile_sampling") if server_end else None
+            ),
             "server_profiler_measurement": (
-                "vision profiler frame count; unavailable when state audit is disabled"
+                "post-window process totals, including warm-up; unavailable when state audit is disabled"
             ),
         }
     )
@@ -2606,6 +3229,53 @@ def _markdown_report(report: dict[str, Any]) -> str:
         )
         or "unavailable"
     )
+    detailed_event_sampling_summary = []
+    for process, status in exporter_statuses.items():
+        if not isinstance(status, dict):
+            continue
+        categories = status.get("detailed_sampling")
+        if not isinstance(categories, dict):
+            continue
+        for category, counts in categories.items():
+            if not isinstance(counts, dict):
+                continue
+            detailed_event_sampling_summary.append(
+                "{process} {category}: selected={selected}/{candidates}, "
+                "sampled-out={sampled_out}".format(
+                    process=process,
+                    category=category,
+                    selected=counts.get("selected", "unknown"),
+                    candidates=counts.get("candidates", "unknown"),
+                    sampled_out=counts.get("sampled_out", "unknown"),
+                )
+            )
+    detailed_event_sampling_summary_text = (
+        "; ".join(detailed_event_sampling_summary) or "unavailable"
+    )
+    profiler_sampling_summary = []
+    for repetition in report.get("repetitions", []):
+        sampling = repetition.get("server_profiler_sampling_after")
+        if not isinstance(sampling, dict):
+            continue
+        profiler_sampling_summary.append(
+            "run {run}: configured detail rate={rate}, process frames={frames}, "
+            "detailed={detailed}, sampled-out={sampled_out}, failed={failed}, "
+            "retained in history={retained}/{capacity}".format(
+                run=repetition.get("repetition", "?"),
+                rate=sampling.get("configured_detailed_sample_rate", "unknown"),
+                frames=sampling.get("processed_frames", "unknown"),
+                detailed=sampling.get("detailed_frames", "unknown"),
+                sampled_out=sampling.get("sampled_out_frames", "unknown"),
+                failed=sampling.get("failed_frames", "unknown"),
+                retained=sampling.get("retained_detailed_frames", "unknown"),
+                capacity=sampling.get("history_capacity", "unknown"),
+            )
+        )
+    profiler_sampling_summary_text = (
+        "; ".join(profiler_sampling_summary)
+        if profiler_sampling_summary
+        else "unavailable"
+    )
     lines.extend(
         [
             "",
@@ -2616,6 +3286,12 @@ def _markdown_report(report: dict[str, Any]) -> str:
             f"Source publication-to-state p95 (ms): {report['delivery_latency']['source_publication_to_state_ms']['p95'] if report['delivery_latency']['source_publication_to_state_ms']['p95'] is not None else 'unavailable'}.",
             f"Deadline misses above {report['delivery_latency']['deadline_budget_ms']:.1f} ms: {report['delivery_latency']['deadline_misses']}.",
             f"Client trace losses: dropped={report['event_export'].get('dropped_events')}, sampled={report['event_export'].get('sampled_out_events')}, export-limit-dropped={report['event_export'].get('export_limit_dropped_events')}, errors={report['event_export'].get('export_errors')}.",
+            "Vision profiler detail sampling (post-window process totals, includes warm-up): "
+            + profiler_sampling_summary_text
+            + ".",
+            "Detailed event sampling (process totals from final or last resource snapshot, includes warm-up): "
+            + detailed_event_sampling_summary_text
+            + ".",
             f"Final server/video exporter status by process: {exporter_status_summary}.",
             f"Instrumentation overhead comparison: {report['measurement_overhead_comparison']['status'] if report['measurement_overhead_comparison'] else 'not requested'}.",
             "",
@@ -3182,6 +3858,29 @@ def _read_rust_live_settings(
     return settings
 
 
+def _json_compatible_setting_value(value: Any) -> Any:
+    """Convert nested native settings dataclasses into report-safe JSON values."""
+    if isinstance(value, Path):
+        return str(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _json_compatible_setting_value(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, dict):
+        return {
+            str(key): _json_compatible_setting_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_compatible_setting_value(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(
+        f"Rust live audit setting {type(value).__name__} is not JSON-compatible"
+    )
+
+
 async def _collect_rust_live_qualification_repetition(
     settings: Any,
     *,
@@ -3189,6 +3888,7 @@ async def _collect_rust_live_qualification_repetition(
     warmup_seconds: float,
     measured_seconds: float,
     poll_interval_seconds: float,
+    resource_sample_interval_seconds: float,
     history_size: int,
     recorder: AsyncAuditRecorder,
     progress: bool,
@@ -3250,6 +3950,17 @@ async def _collect_rust_live_qualification_repetition(
     )
     startup_started_ns = time.perf_counter_ns()
     timing_ingress_summary: dict[str, Any] = {"status": "disabled"}
+    scene_transport_summary: dict[str, Any] = {"status": "disabled"}
+    scene_transport_audit_enabled = False
+    scene_transport_audit_finished = False
+    resource_sampler: RustLiveChildResourceSampler | None = None
+    resource_summary: dict[str, Any] = {
+        "status": "unavailable",
+        "unavailable_reason": "supervisor did not expose a child process id",
+        "process_role": "rust_live_inference_child",
+        "process_id": None,
+        "sample_count": 0,
+    }
     measurement_failure: dict[str, Any] | None = None
     try:
         if timing_ingress is not None:
@@ -3275,9 +3986,28 @@ async def _collect_rust_live_qualification_repetition(
                 min(poll_interval_seconds, warmup_deadline - time.monotonic())
             )
 
+        process_id = getattr(supervisor, "process_id", None)
+        if isinstance(process_id, int) and not isinstance(process_id, bool):
+            resource_sampler = RustLiveChildResourceSampler(
+                recorder,
+                process_id=process_id,
+                interval_seconds=resource_sample_interval_seconds,
+                maximum_samples=history_size,
+            )
+            resource_sampler.start()
+        elif process_id is not None:
+            resource_summary["unavailable_reason"] = (
+                "supervisor exposed an invalid child process id"
+            )
+
         measurement_started_ns = broadcaster.begin_measurement()
         if timing_accumulator is not None:
             timing_accumulator.begin_measurement(measurement_started_ns)
+        enable_transport_audit = getattr(supervisor, "enable_transport_audit", None)
+        if callable(enable_transport_audit):
+            enable_transport_audit()
+            scene_transport_audit_enabled = True
+            scene_transport_start_ns = time.perf_counter_ns()
         measurement_deadline = time.monotonic() + measured_seconds
         while time.monotonic() < measurement_deadline:
             status = supervisor.status
@@ -3296,21 +4026,54 @@ async def _collect_rust_live_qualification_repetition(
         measurement_ended_ns = broadcaster.end_measurement()
         if timing_accumulator is not None:
             timing_accumulator.end_measurement(measurement_ended_ns)
+        if scene_transport_audit_enabled:
+            scene_transport_summary = _finish_scene_transport_audit(supervisor)
+            scene_transport_audit_finished = True
+            scene_transport_end_ns = measurement_ended_ns
+            scene_transport_duration = max(
+                0.0,
+                (scene_transport_end_ns - scene_transport_start_ns) / 1_000_000_000,
+            )
+            scene_transport_summary["measured_seconds"] = scene_transport_duration
+            scene_transport_summary["accepted_snapshots_per_second"] = (
+                scene_transport_summary.get("accepted_snapshots", 0)
+                / scene_transport_duration
+                if scene_transport_duration > 0
+                else None
+            )
+            scene_transport_summary["measurement_window"] = {
+                "start_monotonic_ns": scene_transport_start_ns,
+                "end_monotonic_ns": scene_transport_end_ns,
+                "clock": "collector_process_perf_counter",
+            }
     finally:
         if broadcaster._measurement_open:
             measurement_ended_ns = broadcaster.end_measurement()
             if timing_accumulator is not None:
                 timing_accumulator.end_measurement(measurement_ended_ns)
         try:
-            await supervisor.close()
+            if resource_sampler is not None:
+                resource_sampler.close()
+                resource_summary = resource_sampler.summary()
         finally:
-            if timing_ingress is not None:
-                await timing_ingress.close()
-                timing_ingress_summary = timing_ingress.summary()
-            if audit_session_results is not None:
-                audit_session_results.append(
-                    {"repetition": repetition, **timing_ingress_summary}
-                )
+            try:
+                if scene_transport_audit_enabled and not scene_transport_audit_finished:
+                    scene_transport_summary = _finish_scene_transport_audit(supervisor)
+                await supervisor.close()
+            finally:
+                if timing_ingress is not None:
+                    await timing_ingress.close()
+                    timing_ingress_summary = timing_ingress.summary()
+                if audit_session_results is not None:
+                    audit_session_result = {
+                        "repetition": repetition,
+                        **timing_ingress_summary,
+                    }
+                    if timing_accumulator is not None:
+                        audit_session_result["stale_inference_timing_diagnostic"] = (
+                            timing_accumulator.stale_inference_diagnostic_summary()
+                        )
+                    audit_session_results.append(audit_session_result)
 
     final_status = supervisor.status
     worker_stats = getattr(supervisor, "worker_stats", None)
@@ -3346,7 +4109,12 @@ async def _collect_rust_live_qualification_repetition(
         else {"status": "disabled"}
     )
     if timing_ingress is not None:
-        timing_summary["status"] = timing_ingress_summary["status"]
+        timing_summary["status"] = (
+            "complete"
+            if timing_summary.get("status") == "complete"
+            and timing_ingress_summary.get("status") == "complete"
+            else "partial"
+        )
         timing_summary["ingress_status"] = timing_ingress_summary
     return {
         "repetition": repetition,
@@ -3358,6 +4126,7 @@ async def _collect_rust_live_qualification_repetition(
         "startup_to_first_localization_ms": (startup_completed_ns - startup_started_ns)
         / 1_000_000,
         "state": state_summary,
+        "rust_scene_transport": scene_transport_summary,
         "rust_pipeline_timing": timing_summary,
         "rust_live_audit_ingress": timing_ingress_summary,
         "supervisor_status_after_stop": {
@@ -3378,6 +4147,7 @@ async def _collect_rust_live_qualification_repetition(
             ),
         },
         "worker_stats_after_stop": worker_stats_value,
+        "process_resources": resource_summary,
         "capture_session_acknowledgement": capture_acknowledgement_value,
         "state_trace": broadcaster.measurement.retained_trace,
     }
@@ -3394,6 +4164,28 @@ def _supervisor_failure_detail(status: Any) -> dict[str, Any]:
             status, "last_observation_age_seconds", None
         ),
         "stderr_tail": getattr(status, "stderr_tail", ""),
+    }
+
+
+def _finish_scene_transport_audit(supervisor: Any) -> dict[str, Any]:
+    """Finalize optional receiver counters without failing the qualification."""
+    finish = getattr(supervisor, "finish_transport_audit", None)
+    if not callable(finish):
+        return {"status": "disabled"}
+    try:
+        summary = finish()
+    except Exception as error:
+        return {
+            "status": "partial",
+            "error": f"{type(error).__name__}: {error}",
+        }
+    if isinstance(summary, dict):
+        return dict(summary)
+    if hasattr(summary, "__dataclass_fields__"):
+        return {field.name: getattr(summary, field.name) for field in fields(summary)}
+    return {
+        "status": "partial",
+        "error": "supervisor returned an unsupported scene transport audit summary",
     }
 
 
@@ -3445,6 +4237,101 @@ def _rust_live_qualification_markdown(report: dict[str, Any]) -> str:
                     detail=json.dumps(failure, sort_keys=True, default=str),
                 )
             )
+    lines.extend(
+        [
+            "",
+            "## Rust scene transport",
+            "",
+            "Receiver-side payload and latest-only queue counters are enabled only for the measured window. Queue depth is sampled immediately before enqueue; the queue capacity is fixed by the existing transport contract. These aggregate counters do not split producer serialization, socket write, and receiver parsing.",
+            "",
+            "| Repetition | Status | Accepted snapshots/s | Payload bytes min / mean / max | Queue capacity / high-water | Queue replacements / fraction | Sequence gaps |",
+            "|---:|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for run in report["repetitions"]:
+        transport = run.get("rust_scene_transport", {})
+        payload = " / ".join(
+            (
+                (f"{value:.1f}" if isinstance(value, float) else str(value))
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else "unavailable"
+            )
+            for value in (
+                transport.get("payload_bytes_minimum"),
+                transport.get("payload_bytes_mean"),
+                transport.get("payload_bytes_maximum"),
+            )
+        )
+        replacement_fraction = transport.get("queue_replacement_fraction")
+        replacement_value = (
+            f"{replacement_fraction:.3f}"
+            if isinstance(replacement_fraction, (int, float))
+            else "unavailable"
+        )
+        lines.append(
+            "| {repetition} | {status} | {rate} | {payload} | {capacity} / {high_water} | {replacements} / {fraction} | {gaps} |".format(
+                repetition=run["repetition"],
+                status=transport.get("status", "disabled"),
+                rate=(
+                    f"{transport['accepted_snapshots_per_second']:.2f}"
+                    if isinstance(
+                        transport.get("accepted_snapshots_per_second"), (int, float)
+                    )
+                    else "unavailable"
+                ),
+                payload=payload,
+                capacity=transport.get("queue_capacity", "unavailable"),
+                high_water=transport.get("queue_depth_high_water", "unavailable"),
+                replacements=transport.get("queue_replacements", "unavailable"),
+                fraction=replacement_value,
+                gaps=transport.get("sequence_gaps", "unavailable"),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Rust child resources",
+            "",
+            "CPU utilization and resident memory are sampled only during each measured window. Sample retention is bounded; unavailable measurements remain explicit.",
+            "",
+            "| Repetition | Status | Samples | CPU p50 / p95 / p99 (%) | CPU time delta (s) | RSS min / max (MiB) | RSS first→last delta (MiB) |",
+            "|---:|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for run in report["repetitions"]:
+        resources = run.get("process_resources", {})
+        cpu = resources.get("cpu_percent", {})
+        cpu_time = resources.get("cpu_time_seconds", {})
+        memory = resources.get("resident_memory_bytes", {})
+        lines.append(
+            "| {repetition} | {status} | {samples} | {cpu} | {cpu_delta} | {memory_range} | {memory_delta} |".format(
+                repetition=run["repetition"],
+                status=resources.get("status", "unavailable"),
+                samples=resources.get("sample_count", 0),
+                cpu=" / ".join(
+                    f"{value:.1f}" if isinstance(value, (int, float)) else "unavailable"
+                    for value in (cpu.get("p50"), cpu.get("p95"), cpu.get("p99"))
+                ),
+                cpu_delta=(
+                    "{:.3f}".format(cpu_time["delta"])
+                    if isinstance(cpu_time.get("delta"), (int, float))
+                    else "unavailable"
+                ),
+                memory_range=" / ".join(
+                    (
+                        f"{value / (1024 * 1024):.1f}"
+                        if isinstance(value, int)
+                        else "unavailable"
+                    )
+                    for value in (memory.get("minimum"), memory.get("maximum"))
+                ),
+                memory_delta=(
+                    "{:.1f}".format(memory["delta"] / (1024 * 1024))
+                    if isinstance(memory.get("delta"), int)
+                    else "unavailable"
+                ),
+            )
+        )
     if any(
         run.get("rust_pipeline_timing", {}).get("status") != "disabled"
         for run in report["repetitions"]
@@ -3498,6 +4385,33 @@ def _rust_live_qualification_markdown(report: dict[str, Any]) -> str:
                     ),
                     pressure_frames=pressure.get("measured_window_pressure_frames", 0),
                     evicted_tracks=pressure.get("measured_window_evicted_tracks", 0),
+                )
+            )
+            stale = timing.get("stale_inference_timing_ms", {})
+            stale_stages = stale.get("stage_durations_ms", {})
+            lines.append(
+                "Stale-after-inference outcomes for repetition {repetition}: "
+                "{timed}/{total} timed; engine total p95={engine_total} ms; "
+                "age at completion p95={age} ms; deadline overrun p95={overrun} ms.".format(
+                    repetition=run["repetition"],
+                    timed=stale.get("timed_stale_outcomes", 0),
+                    total=stale.get("stale_outcomes", 0),
+                    engine_total=_format_percentile_ms(
+                        stale_stages, "engine_total", "p95"
+                    ),
+                    age=_format_percentile_ms(
+                        stale_stages,
+                        "parent_record_read_complete_to_inference_complete",
+                        "p95",
+                    ),
+                    overrun=(
+                        "{:.3f}".format(stale["deadline_overrun_ms"]["p95"])
+                        if isinstance(
+                            stale.get("deadline_overrun_ms", {}).get("p95"),
+                            (int, float),
+                        )
+                        else "unavailable"
+                    ),
                 )
             )
             pressure_status = pressure.get("measurement_status", "unavailable")
@@ -3580,6 +4494,7 @@ async def _run_rust_live_qualification(
         or not math.isfinite(args.duration)
         or not math.isfinite(args.sample_rate)
         or not math.isfinite(args.rust_live_status_poll_interval)
+        or not math.isfinite(args.rust_live_resource_sample_interval)
         or args.warmup < 0
         or args.duration <= 0
         or args.repetitions < 1
@@ -3588,6 +4503,7 @@ async def _run_rust_live_qualification(
         or args.event_export_limit < 1
         or not 0 < args.sample_rate <= 1
         or args.rust_live_status_poll_interval <= 0
+        or args.rust_live_resource_sample_interval <= 0
     ):
         raise ValueError("Rust live warm-up, duration and bounds are invalid")
     timing_audit_enabled = bool(getattr(args, "rust_live_timing_audit", False))
@@ -3623,6 +4539,9 @@ async def _run_rust_live_qualification(
                     warmup_seconds=args.warmup,
                     measured_seconds=args.duration,
                     poll_interval_seconds=args.rust_live_status_poll_interval,
+                    resource_sample_interval_seconds=(
+                        args.rust_live_resource_sample_interval
+                    ),
                     history_size=args.history_size,
                     recorder=state_recorder,
                     progress=not args.quiet,
@@ -3715,18 +4634,14 @@ async def _run_rust_live_qualification(
                 "project_root": str(settings.project_root),
                 "capture_request": settings.capture_settings.to_dict(),
                 "inference": {
-                    field.name: (
-                        str(getattr(inference, field.name))
-                        if isinstance(getattr(inference, field.name), Path)
-                        else getattr(inference, field.name)
+                    field.name: _json_compatible_setting_value(
+                        getattr(inference, field.name)
                     )
                     for field in fields(inference)
                 },
                 "supervisor": {
-                    field.name: (
-                        str(getattr(settings, field.name))
-                        if isinstance(getattr(settings, field.name), Path)
-                        else getattr(settings, field.name)
+                    field.name: _json_compatible_setting_value(
+                        getattr(settings, field.name)
                     )
                     for field in fields(settings)
                     if field.name
@@ -3743,6 +4658,9 @@ async def _run_rust_live_qualification(
                     "repetitions": args.repetitions,
                     "history_size": args.history_size,
                     "status_poll_interval_seconds": args.rust_live_status_poll_interval,
+                    "resource_sample_interval_seconds": (
+                        args.rust_live_resource_sample_interval
+                    ),
                     "event_queue_capacity": args.queue_capacity,
                     "event_sample_rate": args.sample_rate,
                     "event_export_limit": args.event_export_limit,
@@ -3985,7 +4903,7 @@ async def run_audit(args: argparse.Namespace) -> Path:
             config.get("performance_audit.latency_reference_budget_ms", 50.0)
         )
         report = {
-            "schema_version": 3,
+            "schema_version": 6,
             "audit_run_id": run_id,
             "created_at": datetime.now().astimezone().isoformat(),
             "websocket_url": args.url,
@@ -4204,6 +5122,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=float(audit_settings.get("resource_sample_interval_seconds", 1.0)),
         help="How often the qualification checks supervisor readiness",
+    )
+    parser.add_argument(
+        "--rust-live-resource-sample-interval",
+        type=float,
+        default=float(audit_settings.get("resource_sample_interval_seconds", 1.0)),
+        help="How often to sample the supervised Rust inference process",
     )
     parser.add_argument(
         "--capture-transport-benchmark-executable",

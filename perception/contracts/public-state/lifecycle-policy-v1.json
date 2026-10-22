@@ -1,0 +1,5 @@
+{
+  "stale_after_ns": 100000000,
+  "expire_after_ns": 1000000000,
+  "maximum_balls": 64
+}

@@ -8,17 +8,24 @@ Type=simple
 User=billiards
 Group=billiards
 WorkingDirectory=/opt/billiards-trainer
-Environment=PATH=/opt/billiards-trainer/venv/bin
-Environment=PYTHONPATH=/opt/billiards-trainer
+SupplementaryGroups=video
 Environment=BILLIARDS_ENV=production
-Environment=BILLIARDS_CONFIG=/opt/billiards-trainer/config/production.json
 EnvironmentFile=-/etc/billiards-trainer.env
 
 ExecStartPre=/bin/mkdir -p /opt/billiards-trainer/logs
 ExecStartPre=/bin/chown billiards:billiards /opt/billiards-trainer/logs
 
-ExecStart=/opt/billiards-trainer/venv/bin/python -m backend.main \
-    --config /opt/billiards-trainer/config/production.json
+ExecStart=/opt/billiards-trainer/bin/billiards-server \
+    --http-bind 0.0.0.0 \
+    --http-port 8000 \
+    --scene-bind 127.0.0.1 \
+    --scene-port 49321 \
+    --config /opt/billiards-trainer/config/production.json \
+    --project-root /opt/billiards-trainer \
+    --web-root /opt/billiards-trainer/frontend/web/dist \
+    --start-live \
+    --live-executable /opt/billiards-trainer/bin/billiards-perception-live \
+    --capture-helper-executable /opt/billiards-trainer/bin/billiards-perception-gstreamer-probe
 
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed
@@ -35,11 +42,11 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-ReadWritePaths=/opt/billiards-trainer/logs /opt/billiards-trainer/data
+PrivateDevices=false
+ReadWritePaths=/opt/billiards-trainer/logs /opt/billiards-trainer/data /opt/billiards-trainer/config /opt/billiards-trainer/backend/calibration_data
 
 # Resource limits
 LimitNOFILE=65536

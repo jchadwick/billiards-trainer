@@ -476,6 +476,7 @@ fn helper_config_for_contract(
         )),
         exact_capture_settings_json,
         capture_settings_max_bytes: MAX_SETTINGS_BYTES,
+        http_mjpeg_url: None,
         ready_record_max_bytes: READY_RECORD_MAX_BYTES,
         frame_header_max_bytes: FRAME_HEADER_MAX_BYTES,
         frame_count: Some(frame_count),

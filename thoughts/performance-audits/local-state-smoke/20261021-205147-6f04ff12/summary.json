@@ -1,0 +1,1160 @@
+{
+  "schema_version": 6,
+  "audit_run_id": "20261021-205147-6f04ff12",
+  "created_at": "2026-10-21T20:52:00.590500-04:00",
+  "websocket_url": "ws://127.0.0.1:8000/api/v1/websocket/ws",
+  "scenario": "state-only-live-freshness-verified",
+  "scenario_label": "state-only-live-freshness-verified",
+  "video_url": null,
+  "metadata": {
+    "revision": "127255103e7cd117f727a0842770ec079c15a87a",
+    "revision_status": "git_checkout",
+    "dirty_worktree_sha256": "5173760e4b8f2285d919ce955e437a9331efb8d1f2fc8e3abfffe47b74ac6c1b",
+    "dirty_worktree_files": [
+      "backend/api/routes/stream.py",
+      "backend/api/websocket/broadcaster.py",
+      "backend/api/websocket/endpoints.py",
+      "backend/api/websocket/handler.py",
+      "backend/config.py",
+      "backend/config_schema_defaults.json",
+      "backend/integration_service.py",
+      "backend/perception/rust_live_supervisor.py",
+      "backend/perception/rust_replay_supervisor.py",
+      "backend/perception/scene_ingress.py",
+      "backend/perception/scene_state_adapter.py",
+      "backend/perception/scene_state_worker.py",
+      "backend/performance_audit.py",
+      "backend/tests/integration/test_pipeline_replay.py",
+      "backend/tests/integration/test_websocket_delivery.py",
+      "backend/tests/unit/api/test_stream_audit.py",
+      "backend/tests/unit/test_config_validation.py",
+      "backend/tests/unit/test_integration_observation_freshness.py",
+      "backend/tests/unit/test_performance_audit.py",
+      "backend/tests/unit/test_performance_audit_collector.py",
+      "backend/tests/unit/test_prediction_lifecycle.py",
+      "backend/tests/unit/test_rust_live_supervisor.py",
+      "backend/tests/unit/test_rust_replay_supervisor.py",
+      "backend/tests/unit/test_scene_snapshot_ingress.py",
+      "backend/tests/unit/test_scene_state_adapter.py",
+      "backend/tests/unit/test_scene_state_worker.py",
+      "backend/tests/unit/test_shared_memory_publication_clock.py",
+      "backend/tests/unit/test_vision_phase_integration.py",
+      "backend/tests/unit/test_vision_queue_freshness.py",
+      "backend/tests/unit/test_websocket_frame_best_effort.py",
+      "backend/tools/collect_performance_audit.py",
+      "backend/video/ipc/shared_memory.py",
+      "backend/video/process.py",
+      "backend/vision/__init__.py",
+      "backend/vision/models.py",
+      "backend/vision/performance_profiler.py",
+      "config.json",
+      "docs/PERFORMANCE_AUDIT.md",
+      "docs/architecture/README.md",
+      "docs/architecture/decisions/0008-opt-in-performance-audit.md",
+      "docs/architecture/decisions/0043-runtime-selectable-openvino-for-rust-onnx.md",
+      "docs/architecture/decisions/0045-use-the-native-openvino-runtime-backend-for-openvino-selection.md",
+      "docs/architecture/decisions/0047-measure-rust-scene-transport-at-the-python-receiver.md",
+      "docs/architecture/decisions/0048-isolate-trajectory-workload-during-state-path-audits.md",
+      "docs/architecture/decisions/0049-explicit-performance-audit-count-semantics.md",
+      "docs/architecture/decisions/0050-normalize-audit-evidence-across-python-and-rust-runtimes.md",
+      "docs/architecture/decisions/0051-repeat-recorded-input-for-bounded-paced-audits.md",
+      "docs/architecture/decisions/0052-latest-state-best-effort-freshness.md",
+      "frontend/web/src/components/video/LiveView.tsx",
+      "frontend/web/src/components/video/freshness.ts",
+      "frontend/web/src/stores/VideoStore.ts",
+      "frontend/web/src/tests/integration/LiveViewFreshness.test.tsx",
+      "frontend/web/src/tests/integration/VideoStoreFrozenReference.test.ts",
+      "frontend/web/src/tests/integration/freshness.test.ts",
+      "perception/Cargo.lock",
+      "perception/Cargo.toml",
+      "perception/src/capture_pipeline.rs",
+      "perception/src/inference/runtime.rs",
+      "perception/src/main.rs",
+      "perception/src/scene_transport.rs",
+      "thoughts/latest-state-freshness-contract.md"
+    ],
+    "host": "mbp-m4max-14.local",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "processor": "arm",
+    "hardware": {
+      "logical_cpu_count": 14,
+      "physical_cpu_count": 14,
+      "system_memory_bytes": 38654705664
+    },
+    "python": "3.11.14",
+    "perception_provider": null,
+    "model": {
+      "configured_path": "models/billiards-yolov8n.mlpackage",
+      "exists": true,
+      "sha256": "2e31a395445a0ee970eb29827120b9671ae21a254a7fb6cacaea044050dd4da7"
+    },
+    "source_model": {
+      "configured_path": null,
+      "exists": false,
+      "sha256": null
+    },
+    "inference_executable": {
+      "configured_path": null,
+      "exists": false,
+      "sha256": null
+    },
+    "configured_video_input": {
+      "path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/test_data/demo3.mp4",
+      "exists": true,
+      "sha256": "0329ca2aa917f968bf4f0f55c51fd5af67124c90ec1dc8eede7674c013c8a555",
+      "kind": "file"
+    },
+    "effective_configuration": {
+      "performance_audit": {
+        "enabled": false,
+        "state_enabled": true,
+        "trajectory_enabled": false,
+        "trajectory_workload_enabled": true,
+        "viewers_enabled": false,
+        "warmup_seconds": 30,
+        "measured_seconds": 120,
+        "repetitions": 3,
+        "soak_seconds": 1200,
+        "sample_rate": 1.0,
+        "history_size": 10000,
+        "event_queue_capacity": 2048,
+        "event_export_limit": 200000,
+        "export_drain_timeout_seconds": 5.0,
+        "resource_sample_interval_seconds": 1.0,
+        "latency_reference_budget_ms": 50.0,
+        "instrumentation_overhead_budget_percent": 2.0,
+        "output_directory": "thoughts/performance-audits"
+      },
+      "perception": {
+        "freshness": {
+          "maximum_observation_age_seconds": 0.5
+        },
+        "rust_replay": {
+          "replay_repeat_count": 1,
+          "maximum_replay_frames": 100000
+        }
+      },
+      "camera": {
+        "device_id": 0,
+        "backend": "auto",
+        "resolution": [
+          1920,
+          1080
+        ],
+        "fps": 30,
+        "control_policy": "source_defaults",
+        "exposure_mode": "auto",
+        "exposure_value": null,
+        "gain": 1.0,
+        "brightness": 0.5,
+        "contrast": 0.5,
+        "saturation": 0.5,
+        "buffer_size": 2,
+        "auto_focus": true,
+        "video_file_path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/test_data/demo3.mp4",
+        "loop_video": true,
+        "video_start_frame": 0,
+        "video_end_frame": null,
+        "auto_reconnect": true,
+        "reconnect_delay": 1.0,
+        "max_reconnect_attempts": 5,
+        "frame_log_interval": 30,
+        "fps_tracker_size": 10,
+        "frame_sleep_compensation": 0.001,
+        "stop_timeout": 5.0
+      },
+      "detection": {
+        "detection_backend": "yolo",
+        "yolo_model_path": "models/billiards-yolov8n.mlpackage",
+        "yolo_confidence": 0.4,
+        "yolo_nms_threshold": 0.45,
+        "yolo_device": "auto",
+        "enable_ball_detection": true,
+        "enable_opencv_classification": false,
+        "use_opencv_validation": true,
+        "max_balls_on_table": 16,
+        "marker_filtering": {
+          "enabled": true,
+          "mask_radius_px": 15
+        },
+        "save_mask_visualization": true,
+        "enable_boundary_masking": true
+      },
+      "processing": {
+        "use_gpu": true,
+        "enable_tracking": true,
+        "tracking_max_distance": 50,
+        "frame_skip": 0,
+        "roi_enabled": false,
+        "video_file_cache_frames": 10,
+        "video_playback_speed": 1.0,
+        "target_fps": 30,
+        "enable_threading": true,
+        "max_frame_queue_size": 5,
+        "capture_frame_interval_ms": 1,
+        "processing_queue_timeout_sec": 0.1,
+        "processing_error_retry_delay_sec": 0.01,
+        "capture_error_retry_delay_sec": 0.1,
+        "thread_shutdown_timeout_sec": 5.0,
+        "source_restart_sequence_reset_threshold": 5,
+        "source_restart_sequence_drop_threshold": 60,
+        "motion_monitor": {
+          "enabled": true,
+          "difference_threshold": 20,
+          "active_motion_fraction_threshold": 0.003,
+          "persistent_change_fraction_threshold": 0.005,
+          "minimum_region_area_px": 12,
+          "minimum_region_area_fraction": 0.0002,
+          "likely_occlusion_min_area_fraction": 0.008,
+          "likely_occlusion_max_area_fraction": 0.4,
+          "illumination_median_delta_threshold": 12.0,
+          "illumination_contrast_change_threshold": 0.2,
+          "candidate_neighborhood_radius_scale": 1.8,
+          "minimum_candidate_radius_px": 2.0,
+          "max_changed_regions": 32,
+          "normalize_illumination": true
+        },
+        "phase_scheduler": {
+          "enabled": false,
+          "quiet_dwell_seconds": 0.8,
+          "limited_motion_quiet_dwell_seconds": 0.35,
+          "many_moving_exit_quiet_dwell_seconds": 0.8,
+          "many_moving_enter_count": 4,
+          "many_moving_exit_count": 2,
+          "many_moving_enter_dwell_seconds": 0.0,
+          "consistent_full_observations_required": 3,
+          "ball_position_tolerance_px": 6.0,
+          "minimum_ball_confidence": 0.5,
+          "minimum_detected_balls": 1,
+          "cue_implies_aiming": true,
+          "maximum_motion_observation_gap_seconds": 0.35,
+          "maximum_ball_observation_gap_seconds": 1.0,
+          "actual_path_history_max_points": 120,
+          "ball_crop_margin_fraction": 0.08,
+          "ball_detection_crop": {
+            "RECOVERING": false,
+            "IDLE": false,
+            "AIMING": false,
+            "LIMITED_MOTION": false,
+            "MANY_MOVING": false
+          },
+          "maximum_observation_age_seconds": 0.5,
+          "maximum_cue_age_seconds": 0.25,
+          "motion_enter_fraction_threshold": 0.003,
+          "motion_exit_fraction_threshold": 0.001,
+          "processing_max_dimension": {
+            "RECOVERING": null,
+            "IDLE": null,
+            "AIMING": null,
+            "LIMITED_MOTION": null,
+            "MANY_MOVING": null
+          },
+          "intervals_seconds": {
+            "RECOVERING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.1,
+              "cue_detection": 0.25,
+              "detailed_tracking": 0.0
+            },
+            "IDLE": {
+              "motion_monitor": 0.1,
+              "ball_map_verification": 0.75,
+              "cue_detection": 1.0,
+              "detailed_tracking": 0.0
+            },
+            "AIMING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.5,
+              "cue_detection": 0.05,
+              "detailed_tracking": 0.0
+            },
+            "LIMITED_MOTION": {
+              "motion_monitor": 0.03,
+              "ball_map_verification": 0.1,
+              "cue_detection": 0.1,
+              "detailed_tracking": 0.033
+            },
+            "MANY_MOVING": {
+              "motion_monitor": 0.05,
+              "ball_map_verification": 0.0,
+              "cue_detection": 0.0,
+              "detailed_tracking": 0.0
+            }
+          }
+        }
+      },
+      "vision_performance": {
+        "enable_profiling": false,
+        "profile_log_interval": 30,
+        "profile_history_size": 100
+      },
+      "video": {
+        "shared_memory_name": "billiards_video",
+        "shared_memory_attach_timeout_sec": 5.0,
+        "enable_distortion_correction": true,
+        "calibration_file_path": "backend/calibration_data/camera/camera_params.yaml",
+        "process": {
+          "shutdown_timeout": 10.0,
+          "main_loop_sleep": 0.001
+        }
+      },
+      "calibration": {
+        "playing_area_corners": [
+          {
+            "x": 38,
+            "y": 43,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 606,
+            "y": 39,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 603,
+            "y": 324,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 39,
+            "y": 324,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          }
+        ],
+        "marker_dots": [
+          {
+            "x": 182,
+            "y": 182,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          },
+          {
+            "x": 459,
+            "y": 181,
+            "scale": [
+              6.0,
+              6.0
+            ]
+          }
+        ],
+        "calibration_resolution_width": 640,
+        "calibration_resolution_height": 360
+      },
+      "websocket_delivery": {
+        "replaceable_queue_capacity": 32,
+        "control_queue_capacity": 32,
+        "send_timeout_seconds": 5.0,
+        "max_replaceable_message_age_seconds": 0.25,
+        "replaceable_send_timeout_seconds": 0.5,
+        "aggregation_buffer_capacity": 32
+      },
+      "stream_quality": {
+        "default_jpeg_quality": 80,
+        "websocket_jpeg_quality": 75,
+        "single_frame_jpeg_quality": 90,
+        "min_jpeg_quality": 1,
+        "max_jpeg_quality": 100
+      }
+    },
+    "runtime_measurement_capabilities": {
+      "cpu_percent": "psutil process sample when supported",
+      "resident_memory_bytes": "RSS sample; allocation counts unavailable",
+      "accelerator_metrics": "unavailable unless separately exposed by the detector backend",
+      "browser_render_and_physical_display_latency": "not measured"
+    },
+    "configuration_note": "Sensitive or unrelated settings are omitted."
+  },
+  "repetitions": [
+    {
+      "duration_seconds": 10.001109084,
+      "state_messages_received": 264,
+      "state_messages_per_second": 26.39707234294176,
+      "unique_source_observations": 264,
+      "unique_observations_per_second": 26.39707234294176,
+      "unique_source_frame_updates": 264,
+      "unique_source_frame_updates_per_second": 26.39707234294176,
+      "cached_or_failed_source_updates": 0,
+      "unknown_freshness_source_updates": 0,
+      "repeated_source_observations": 0,
+      "uncorrelated_state_messages": 0,
+      "complete_state_messages": 264,
+      "incomplete_state_messages": 0,
+      "source_sequence_gaps": 6,
+      "source_sequence_restarts": 0,
+      "source_out_of_order_messages": 0,
+      "source_identity_deduplication_window": {
+        "policy": "least-recently-seen source identities",
+        "capacity": 10000,
+        "retained": 1,
+        "evictions": 0
+      },
+      "stream_sequence_gaps": 0,
+      "stream_sequence_duplicates": 0,
+      "stream_sequence_out_of_order_messages": 0,
+      "source_publication_wall_age_estimate_ms": {
+        "count": 264,
+        "retained_count": 264,
+        "sample_limit": 10000,
+        "truncated": false,
+        "p50": 63.2777214050293,
+        "p95": 66.14303588867188,
+        "p99": 67.02685356140137
+      },
+      "source_publication_to_client_receipt_ms": {
+        "count": 264,
+        "retained_count": 264,
+        "sample_limit": 10000,
+        "truncated": false,
+        "p50": 63.275583,
+        "p95": 66.139292,
+        "p99": 67.025125
+      },
+      "client_latency_sample_count": 264,
+      "retained_client_latency_sample_count": 264,
+      "client_latency_samples_truncated": false,
+      "component_observation_status_counts": {
+        "balls": {
+          "observed": 264
+        },
+        "cue": {
+          "observed": 264
+        },
+        "motion": {
+          "skipped": 264
+        }
+      },
+      "accuracy_evidence": "unavailable for unannotated live streams",
+      "trajectory_messages_received": 0,
+      "trajectory_messages_per_second": 0.0,
+      "incomplete_trajectory_messages": 0,
+      "trajectory_sequence_gaps": 0,
+      "trajectory_sequence_duplicates": 0,
+      "trajectory_sequence_out_of_order_messages": 0,
+      "trajectory_unique_source_observations": 0,
+      "trajectory_repeated_source_observations": 0,
+      "trajectory_source_sequence_gaps": 0,
+      "trajectory_source_out_of_order_messages": 0,
+      "trajectory_source_identity_deduplication_window": {
+        "policy": "least-recently-seen source identities",
+        "capacity": 10000,
+        "retained": 0,
+        "evictions": 0
+      },
+      "trajectory_invalidated_or_spatially_invalid_messages": 0,
+      "trajectory_source_publication_wall_age_estimate_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "trajectory_source_publication_to_client_receipt_ms": {
+        "count": 0,
+        "sample_limit": 10000,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "repetition": 1,
+      "streams": [
+        "state"
+      ],
+      "warmup_seconds": 2.0,
+      "requested_measured_seconds": 10.0,
+      "subscriber_delay_ms": 0.0,
+      "server_application_pings_answered": 0,
+      "client_application_heartbeats_sent": 0,
+      "measurement_started_monotonic_ns": 2517861570603791,
+      "measurement_ended_monotonic_ns": 2517871571712875,
+      "start_wall_time": "2026-10-21T20:51:49.830579-04:00",
+      "video_viewer": null,
+      "server_audit_domains": {
+        "state": false,
+        "trajectory": false,
+        "viewers": false
+      },
+      "server_host_id": "mbp-m4max-14.local",
+      "collector_host_id": "mbp-m4max-14.local",
+      "server_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "collector_clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+      "monotonic_clocks_comparable": true,
+      "server_audit_run_id": null,
+      "server_event_export": null,
+      "server_profiler_frame_count_before": null,
+      "server_profiler_frame_count_after": null,
+      "server_profiler_sampling_after": null,
+      "server_profiler_measurement": "post-window process totals, including warm-up; unavailable when state audit is disabled",
+      "collector_settings": {
+        "history_size": 10000,
+        "queue_capacity": 2048,
+        "sample_rate": 1.0,
+        "event_export_limit": 200000,
+        "heartbeat_interval_seconds": 20.0
+      },
+      "server_measurements": {
+        "record_count_semantics": "Counts below are derived from events retained by the asynchronous audit exporter. High-frequency pipeline and publication events are sampled; export queue drops and export limits can also reduce these counts. Use the headless subscriber's state accumulator for delivered-state throughput and repeat counts.",
+        "vision": {
+          "recorded_frame_detail_events": 0,
+          "recorded_unique_source_observations_in_frame_details": 0,
+          "recorded_duplicate_or_reused_frame_details": 0,
+          "recorded_component_observation_status_counts": {},
+          "service_time_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "shared_memory_read_copy_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "stage_timings_seconds": {},
+          "exclusive_stage_work_ranked": [],
+          "recorded_source_frame_rejection_events": 0,
+          "recorded_source_restart_events": 0,
+          "recorded_vision_queue_drop_events": 0,
+          "recorded_vision_queue_depth_after_drop_max": null,
+          "sampled_processing_queue_depth": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "sampled_processing_queue_depth_max": null
+        },
+        "integration": {
+          "recorded_observation_detail_events": 0,
+          "recorded_unique_source_observations_in_observation_details": 0,
+          "recorded_observation_rejection_events": 0,
+          "coordinate_conversion_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "core_update_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "integration_lock_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "state_delivery": {
+          "recorded_state_publication_detail_events": 0,
+          "recorded_unique_source_observations_in_publication_details": 0,
+          "recorded_repeated_source_observation_publication_details": 0,
+          "serialization_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "source_publication_to_state_ms": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "outbound_queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "outbound_queue_depth_before_enqueue": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "recorded_coalesced_update_events": 0,
+          "recorded_dropped_update_events": 0,
+          "socket_send_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "payload_bytes": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "video_capture": {
+          "camera_read_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "camera_frame_queue_retrieval_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "undistortion_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "shared_memory_publication_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "camera_capture_queue_frames_skipped": 0,
+          "camera_total_dropped_frames_last": null
+        },
+        "trajectory": {
+          "published_messages": 0,
+          "requests_coalesced": 0,
+          "predictions_discarded_stale": 0,
+          "prediction_outcome_counts": {
+            "trajectory_prediction_discarded_stale": 0,
+            "trajectory_prediction_failed": 0,
+            "trajectory_prediction_published": 0,
+            "trajectory_publication_failed": 0
+          },
+          "prediction_outcome_event_count": 0,
+          "prediction_queue_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "calculator_lock_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "executor_wait_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "physics_compute_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "trajectory_publication_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        },
+        "resources": {
+          "cpu_percent": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "process_cpu_time_seconds": {
+            "count": 0,
+            "first": null,
+            "last": null,
+            "delta": null
+          },
+          "resident_memory_bytes": {
+            "count": 0,
+            "first": null,
+            "last": null,
+            "minimum": null,
+            "maximum": null
+          },
+          "event_loop_lag_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "outstanding_tasks": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "by_process": {},
+          "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+          "allocation_counts": "unavailable; RSS is a process memory proxy"
+        },
+        "viewers": {
+          "encoded_frames": 0,
+          "jpeg_encode_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "frame_read_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          },
+          "send_backpressure_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null
+          }
+        }
+      },
+      "server_measurement_status": "same_clock_domain_window_available"
+    }
+  ],
+  "delivery_latency": {
+    "clock": "mach_absolute_time()",
+    "clock_domain": "verified OS monotonic clock domain: Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+    "clocks_comparable": true,
+    "deadline_budget_ms": 50.0,
+    "source_publication_to_state_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "source_publication_to_client_receipt_ms": {
+      "count": 264,
+      "p50": 63.275583,
+      "p95": 66.139292,
+      "p99": 67.025125
+    },
+    "state_publication_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "deadline_misses": {
+      "source_publication_to_state": {
+        "sample_count": 0,
+        "missed_deadlines": 0
+      },
+      "source_publication_to_client_receipt": {
+        "sample_count": 264,
+        "missed_deadlines": 259
+      },
+      "state_publication_to_receipt": {
+        "sample_count": 0,
+        "missed_deadlines": 0
+      }
+    },
+    "socket_send_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "trajectory_publication_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "trajectory_socket_send_to_receipt_ms": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null
+    },
+    "component_observation_age_at_publication_ms": {}
+  },
+  "latency_reference_budget_ms": 50.0,
+  "server_event_count": 0,
+  "server_event_file_count": 0,
+  "resource_summary": {
+    "cpu_percent": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null,
+      "mean": null
+    },
+    "process_cpu_time_seconds": {
+      "count": 0,
+      "first": null,
+      "last": null,
+      "delta": null
+    },
+    "resident_memory_bytes": {
+      "count": 0,
+      "first": null,
+      "last": null,
+      "minimum": null,
+      "maximum": null
+    },
+    "event_loop_lag_seconds": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null,
+      "mean": null
+    },
+    "outstanding_tasks": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null,
+      "mean": null
+    },
+    "by_process": {},
+    "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+    "allocation_counts": "unavailable; RSS is a process memory proxy"
+  },
+  "server_event_export_status_by_process": {},
+  "measurement_overhead_comparison": null,
+  "event_export": {
+    "run_id": "bb85d4f3-6d91-42c4-bae5-9efe8c3b856f",
+    "process_id": 36655,
+    "host_id": "mbp-m4max-14.local",
+    "clock_domain_id": "Darwin:EB204DBA-BB00-40DA-8178-EAC203E61254:mach_absolute_time()",
+    "clock_implementation": "mach_absolute_time()",
+    "accepted_events": 264,
+    "written_events": 264,
+    "dropped_events": 0,
+    "sampled_out_events": 0,
+    "detailed_sampling": {},
+    "export_limit_dropped_events": 0,
+    "export_errors": 0,
+    "queue_depth": 0,
+    "queue_capacity": 2048,
+    "sample_rate": 1.0,
+    "max_exported_events": 200000,
+    "worker_alive": false,
+    "closed": true
+  },
+  "server_measurements": {
+    "record_count_semantics": "Counts below are derived from events retained by the asynchronous audit exporter. High-frequency pipeline and publication events are sampled; export queue drops and export limits can also reduce these counts. Use the headless subscriber's state accumulator for delivered-state throughput and repeat counts.",
+    "vision": {
+      "recorded_frame_detail_events": 0,
+      "recorded_unique_source_observations_in_frame_details": 0,
+      "recorded_duplicate_or_reused_frame_details": 0,
+      "recorded_component_observation_status_counts": {},
+      "service_time_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "queue_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "shared_memory_read_copy_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "stage_timings_seconds": {},
+      "exclusive_stage_work_ranked": [],
+      "recorded_source_frame_rejection_events": 0,
+      "recorded_source_restart_events": 0,
+      "recorded_vision_queue_drop_events": 0,
+      "recorded_vision_queue_depth_after_drop_max": null,
+      "sampled_processing_queue_depth": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "sampled_processing_queue_depth_max": null
+    },
+    "integration": {
+      "recorded_observation_detail_events": 0,
+      "recorded_unique_source_observations_in_observation_details": 0,
+      "recorded_observation_rejection_events": 0,
+      "coordinate_conversion_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "core_update_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "integration_lock_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    },
+    "state_delivery": {
+      "recorded_state_publication_detail_events": 0,
+      "recorded_unique_source_observations_in_publication_details": 0,
+      "recorded_repeated_source_observation_publication_details": 0,
+      "serialization_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "source_publication_to_state_ms": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "outbound_queue_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "outbound_queue_depth_before_enqueue": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "recorded_coalesced_update_events": 0,
+      "recorded_dropped_update_events": 0,
+      "socket_send_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "payload_bytes": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    },
+    "video_capture": {
+      "camera_read_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "camera_frame_queue_retrieval_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "undistortion_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "shared_memory_publication_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "camera_capture_queue_frames_skipped": 0,
+      "camera_total_dropped_frames_last": null
+    },
+    "trajectory": {
+      "published_messages": 0,
+      "requests_coalesced": 0,
+      "predictions_discarded_stale": 0,
+      "prediction_outcome_counts": {
+        "trajectory_prediction_discarded_stale": 0,
+        "trajectory_prediction_failed": 0,
+        "trajectory_prediction_published": 0,
+        "trajectory_publication_failed": 0
+      },
+      "prediction_outcome_event_count": 0,
+      "prediction_queue_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "calculator_lock_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "executor_wait_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "physics_compute_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "trajectory_publication_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    },
+    "resources": {
+      "cpu_percent": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "process_cpu_time_seconds": {
+        "count": 0,
+        "first": null,
+        "last": null,
+        "delta": null
+      },
+      "resident_memory_bytes": {
+        "count": 0,
+        "first": null,
+        "last": null,
+        "minimum": null,
+        "maximum": null
+      },
+      "event_loop_lag_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "outstanding_tasks": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "by_process": {},
+      "accelerator_metrics": "unavailable unless separately exposed by detector backend",
+      "allocation_counts": "unavailable; RSS is a process memory proxy"
+    },
+    "viewers": {
+      "encoded_frames": 0,
+      "jpeg_encode_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "frame_read_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      },
+      "send_backpressure_seconds": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "mean": null
+      }
+    }
+  },
+  "limitations": [
+    "The receiver observes delivery only while connected and does not infer unobserved exposures.",
+    "Source publication-to-receipt latency uses monotonic counters only when the producer, server, and receiver share a verified host clock. The wall-clock publication-age estimate is secondary and is not used for latency ranking.",
+    "This report does not claim projector display time.",
+    "Live state accuracy requires separate labeled observations."
+  ]
+}

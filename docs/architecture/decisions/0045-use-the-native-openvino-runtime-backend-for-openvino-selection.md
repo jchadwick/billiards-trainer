@@ -5,9 +5,11 @@
 - Deciders: Project maintainers
 - Supersedes: [ADR-0043](0043-runtime-selectable-openvino-for-rust-onnx.md)
 - Superseded by: None
-- Implementation stage: native backend builds on Apple Silicon and passed a
-  direct Linux test-container smoke and short unpaced comparison; Apple Silicon
-  runtime execution, API-container packaging, and labeled accuracy remain open.
+- Implementation stage: native backend builds on Apple Silicon and Linux,
+  passed direct runtime/model smokes on both platforms, produced matching
+  detections in short CPU comparisons, and delivered states through the rebuilt
+  API container; labeled accuracy, server-stage telemetry, and sustained
+  client freshness remain open.
 
 ## Context
 
@@ -38,7 +40,11 @@ Use Intel's `openvino` Rust bindings over the OpenVINO C API as the direct
 backend selected by `--provider openvino` and the existing Python replay
 configuration. Compile the bindings with runtime linking, require OpenVINO
 Runtime 2025.1 or newer at launch, and compile the existing ONNX model for the
-CPU device. Do not register the ONNX Runtime OpenVINO execution provider.
+CPU device. Prefer the binding's standard runtime discovery; when the official
+runtime package exposes only version-suffixed libraries, search the explicitly
+configured `LD_LIBRARY_PATH` or `DYLD_LIBRARY_PATH` and load the newest matching
+C API library there. Do not search arbitrary directories, register the ONNX
+Runtime OpenVINO execution provider, or fall back to another inference backend.
 
 Keep `cpu` and `auto` on ONNX Runtime. Keep the configured production default
 at `cpu`; OpenVINO never activates implicitly and a missing/incompatible
@@ -122,15 +128,18 @@ explicit OpenVINO selection.
   explicit OpenVINO invocation with missing runtime libraries must fail clearly
   and must not switch to CPU.
 - The macOS runtime smoke must run on Apple Silicon with a supported OpenVINO
-  Runtime; it does not qualify Intel macOS execution.
+  Runtime; it does not qualify Intel macOS execution. The bounded 30-frame
+  runtime and CPU comparison are recorded in the
+  [Apple Silicon runtime report](../../../thoughts/performance-audits/native-openvino-macos-runtime-20261021/report.md).
 - A target Linux smoke using the native backend must load the installed
   OpenVINO runtime, run the model, publish a state, and record native backend
   provenance with unavailable per-node counts. Keep the application-level
   replay bounded; the target is for relational validation, not extended tuning.
 - Compare native OpenVINO against ONNX Runtime CPU on the same short recorded
   frames, thresholds, and model; verify detection counts and center differences
-  before treating speed measurements as meaningful. Labeled temporal accuracy
-  and a real Apple Silicon OpenVINO runtime smoke remain required before
+  before treating speed measurements as meaningful. Short Linux and Apple
+  Silicon comparisons now pass the detection-count check. Labeled temporal
+  accuracy and broader Apple Silicon validation remain required before
   production recommendations or claiming fully qualified Mac execution.
 - The former ONNX Runtime OpenVINO A/B and API smoke remain linked in ADR-0043
   as historical evidence and must not be cited as native-backend qualification.
@@ -142,9 +151,13 @@ A sequential 30-frame CPU/native A/B matched all per-frame detection counts and
 all 416 same-class detections to below 0.001 source pixels of center delta; the
 single-run throughput and latency changes are directional only. A host
 invocation without visible OpenVINO libraries failed with a clear load error
-and did not fall back to CPU. The existing API/frontend containers were left
-on their prior binary, so application-container state delivery through this
-backend remains unverified.
+and did not fall back to CPU. A later API deployment smoke used the
+runtime-selected native OpenVINO binary in the target API container. It
+published 221 states from 300 scheduled frame slots and delivered a short
+WebSocket sample to the collector. The measured delivery rate was below the
+requested 5 Hz, server-stage timings and comparable cross-host latencies were
+unavailable, and the frontend renderer was not qualified. See the
+[target replay notes](../../../thoughts/performance-audits/target-rust-replay-smoke-20261021/target-smoke-notes.md).
 
 ## Revisit when
 

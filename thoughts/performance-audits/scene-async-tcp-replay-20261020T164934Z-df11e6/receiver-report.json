@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "run_id": "scene-async-tcp-replay-20261020T164934Z-df11e6",
+  "accepted_snapshots": 10,
+  "latest_transport_sequence": 10,
+  "latest_source_frame_id": "frame-000010",
+  "queue_replacements": 9,
+  "sequence_gap_total": 0,
+  "rejected_messages": 0,
+  "authentication_failures": 0,
+  "connection_count": 1,
+  "connection_active_at_capture": false
+}

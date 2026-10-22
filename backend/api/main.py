@@ -8,21 +8,29 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional, Protocol, cast
 
+# This must run before importing websocket, health, vision, or route modules:
+# several of those modules read configuration while they are imported.
+from backend.config import Config
+
+Config.bootstrap_from_environment()
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import config
-
-# Import core module
-from backend.core import CoreModule, CoreModuleConfig
 from backend.integration_service import IntegrationService
 from backend.perception.provider import (
     PerceptionProvider,
     PerceptionProviderError,
     require_api_provider,
 )
+from backend.perception.rust_game_session import (
+    RustGameSessionAuthorityClient,
+    RustGameSessionAuthoritySettings,
+)
+from backend.perception.rust_live_supervisor import RustLiveSettings, RustLiveSupervisor
 from backend.perception.rust_replay_supervisor import (
     RustReplaySettings,
     RustReplaySupervisor,
@@ -64,6 +72,32 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _create_rust_game_session_authority(
+    runtime_config: Any,
+    perception_settings: Any,
+) -> RustGameSessionAuthorityClient | None:
+    """Create an optional metadata client without making capture depend on it."""
+    project_root = getattr(
+        perception_settings, "project_root", Path(__file__).resolve().parents[2]
+    )
+    try:
+        session_settings = RustGameSessionAuthoritySettings.from_configuration(
+            runtime_config,
+            perception_executable=perception_settings.executable_path,
+            project_root=project_root,
+        )
+        return RustGameSessionAuthorityClient(session_settings)
+    except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as error:
+        # Ball localization is the primary Rust service. An uninstalled or
+        # misconfigured secondary metadata command must not stop capture.
+        logger.warning(
+            "Rust game-session metadata is unavailable; scene localization "
+            "continues without it: %s",
+            error,
+        )
+        return None
+
+
 class _HealthMonitorLifecycle(Protocol):
     """Typed surface for health-monitor operations used by the API lifecycle."""
 
@@ -93,6 +127,23 @@ class _RuntimeConfiguration:
                 return self._base.get(key, default)
             value = value[component]
         return copy.deepcopy(value)
+
+    def get_all(self) -> dict[str, Any]:
+        """Return the saved configuration overlaid with application overrides."""
+        get_all = getattr(self._base, "get_all", None)
+        if not callable(get_all):
+            raise TypeError("runtime configuration base must provide get_all()")
+        merged = get_all()
+
+        def merge(target: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+            for key, value in updates.items():
+                if isinstance(value, dict) and isinstance(target.get(key), dict):
+                    target[key] = merge(target[key], value)
+                else:
+                    target[key] = copy.deepcopy(value)
+            return target
+
+        return merge(merged, self._overrides)
 
 
 def get_middleware_config(
@@ -279,9 +330,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     app_state.startup_time = time.time()
     app_state.is_healthy = False
     app_state.config_module = config
+    app_state.core_module = None
     app_state.vision_module = None
     app_state.integration_service = None
     app_state.scene_state_publisher = None
+    app_state.game_session_authority = None
     app_state.perception_runtime = None
     app_state.performance_broadcast_task = None
     audit_runtime_task: asyncio.Task[None] | None = None
@@ -306,17 +359,6 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
                 "Rate-limit dependency is unavailable; WebSocket admission is closed"
             )
 
-        # Initialize core module
-        logger.info("Initializing core module...")
-        core_config = CoreModuleConfig(
-            physics_enabled=True,
-            prediction_enabled=True,
-            assistance_enabled=True,
-            async_processing=True,
-            debug_mode=runtime_config.get("system.debug", False),
-        )
-        app_state.core_module = CoreModule(core_config)
-
         # Vision module will be initialized lazily on first camera access
         # This prevents startup from hanging if camera initialization is slow
         logger.info("Vision module will be initialized on first camera/stream access")
@@ -332,6 +374,21 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         await initialize_websocket_system()
 
         if selected_provider is PerceptionProvider.PYTHON:
+            # Keep the legacy Python game-domain runtime confined to the
+            # selected Python provider. Rust runs never instantiate a second
+            # domain engine behind the same service process.
+            from backend.core import CoreModule, CoreModuleConfig
+
+            logger.info("Initializing Python core module...")
+            core_config = CoreModuleConfig(
+                physics_enabled=True,
+                prediction_enabled=True,
+                assistance_enabled=True,
+                async_processing=True,
+                debug_mode=runtime_config.get("system.debug", False),
+            )
+            app_state.core_module = CoreModule(core_config)
+
             logger.info("Initializing Python vision module for live integration...")
             from backend.vision import VisionModule
 
@@ -411,17 +468,41 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             app_state.performance_broadcast_task = asyncio.create_task(
                 broadcast_performance_stats_loop()
             )
-        else:
-            # Rust replay is the only publisher in this branch. Starting the
-            # Python vision or integration services would create a competing
-            # perception pipeline and a conflicting state stream.
+        elif runtime_config.get("perception.mode", "live") == "live":
+            # Rust live capture is the only publisher in this branch. Starting
+            # Python vision or integration would create a competing camera and
+            # potentially mix state from two owners.
             websocket_handler.configure_performance_audit()
             publisher = SceneSnapshotStatePublisher(message_broadcaster)
             app_state.scene_state_publisher = publisher
-            settings = RustReplaySettings.from_configuration(runtime_config)
-            supervisor = RustReplaySupervisor(settings, publisher)
-            app_state.perception_runtime = supervisor
-            replay_status = await supervisor.start()
+            live_settings = RustLiveSettings.from_configuration(runtime_config)
+            app_state.game_session_authority = _create_rust_game_session_authority(
+                runtime_config, live_settings
+            )
+            live_supervisor = RustLiveSupervisor(live_settings, publisher)
+            app_state.perception_runtime = live_supervisor
+            live_status = await live_supervisor.start()
+            if not live_status.ready:
+                raise RuntimeError(
+                    "Rust live startup completed without a healthy localization"
+                )
+            logger.info(
+                "Rust live capture published its first localization; "
+                "Python vision and integration remain stopped"
+            )
+        else:
+            # Recorded replay is the only publisher in this branch. Starting
+            # Python vision or integration would create a competing state stream.
+            websocket_handler.configure_performance_audit()
+            publisher = SceneSnapshotStatePublisher(message_broadcaster)
+            app_state.scene_state_publisher = publisher
+            replay_settings = RustReplaySettings.from_configuration(runtime_config)
+            app_state.game_session_authority = _create_rust_game_session_authority(
+                runtime_config, replay_settings
+            )
+            replay_supervisor = RustReplaySupervisor(replay_settings, publisher)
+            app_state.perception_runtime = replay_supervisor
+            replay_status = await replay_supervisor.start()
             logger.info(
                 "Rust recorded replay published its first localization; "
                 "live camera, preview and predictions remain unavailable"
@@ -486,13 +567,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
             app_state.performance_broadcast_task = None
 
         if app_state.perception_runtime is not None:
-            logger.info("Stopping supervised Rust replay...")
+            logger.info("Stopping supervised Rust perception...")
             try:
                 await app_state.perception_runtime.close()
             except Exception:
                 logger.exception("Error stopping Rust replay provider")
-            app_state.perception_runtime = None
-            app_state.scene_state_publisher = None
+        app_state.perception_runtime = None
+        app_state.scene_state_publisher = None
+        app_state.game_session_authority = None
 
         # Stop integration service first
         if app_state.integration_service:
@@ -559,6 +641,7 @@ def create_app(config_override: Optional[dict[str, Any]] = None) -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Frame-Preview-Descriptor", "X-Frame-Preview-Schema"],
     )
 
     # Add middleware in reverse order (last added = first executed)

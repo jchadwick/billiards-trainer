@@ -379,6 +379,21 @@ fn v3_source_defaults_retains_output_geometry_without_inventing_control_values()
 }
 
 #[test]
+fn store_owned_tombstone_revision_is_visible_without_changing_exact_request_digest() {
+    let mut resolved = parse_capture_settings_json(PYTHON_CAPTURE_SETTINGS_V3).unwrap();
+    let request_digest = resolved.request_sha256.clone();
+
+    resolved
+        .expected
+        .apply_calibration_store_state(12, None)
+        .unwrap();
+
+    assert_eq!(resolved.expected.calibration_revision(), 12);
+    assert!(resolved.expected.calibration().is_none());
+    assert_eq!(resolved.request_sha256, request_digest);
+}
+
+#[test]
 fn v3_require_policy_preserves_the_strict_control_request() {
     let resolved =
         CaptureSettingsSnapshotV3::parse_json(PYTHON_CAPTURE_SETTINGS_V3_REQUIRE).unwrap();

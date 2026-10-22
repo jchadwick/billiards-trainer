@@ -43,8 +43,15 @@ def test_generated_systemd_launcher_uses_real_configured_entry_point():
     target_dir = Path("/opt/billiards-trainer")
 
     assert build_systemd_exec_start(target_dir) == (
-        "/opt/billiards-trainer/venv/bin/python -m backend.main "
-        "--config /opt/billiards-trainer/config/production.json"
+        "/opt/billiards-trainer/bin/billiards-server "
+        "--http-bind 0.0.0.0 --http-port 8000 "
+        "--scene-bind 127.0.0.1 --scene-port 49321 "
+        "--config /opt/billiards-trainer/config/production.json "
+        "--project-root /opt/billiards-trainer "
+        "--web-root /opt/billiards-trainer/frontend/web/dist --start-live "
+        "--live-executable /opt/billiards-trainer/bin/billiards-perception-live "
+        "--capture-helper-executable "
+        "/opt/billiards-trainer/bin/billiards-perception-gstreamer-probe"
     )
 
 
@@ -57,16 +64,10 @@ def test_checked_in_service_uses_single_process_and_optional_redis_environment()
     )
     service = service_file.read_text(encoding="utf-8")
 
-    assert "python -m backend.main" in service
+    assert "/opt/billiards-trainer/bin/billiards-server" in service
     assert "--config /opt/billiards-trainer/config/production.json" in service
     assert "EnvironmentFile=-/etc/billiards-trainer.env" in service
-
-    entrypoint = (Path(__file__).resolve().parents[2] / "entrypoint.sh").read_text(
-        encoding="utf-8"
-    )
-    assert "python -m backend.main" in entrypoint
-    assert "--workers" not in entrypoint
-    assert "${WORKERS" not in entrypoint
+    assert "python -m backend.main" not in service
     assert "system_launcher.py" not in service
     assert "--workers 4" not in service
 

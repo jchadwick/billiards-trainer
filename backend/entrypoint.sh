@@ -1,52 +1,66 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+set -eu
 
-# The application owns one camera and one game state per backend process. Keep
-# this launcher single-process; distribute tables by running separate instances.
-CONFIG_FILE=${CONFIG_FILE:-/app/config.json}
+# Keep the container's process tree owned by the Rust gateway. The gateway
+# supervises billiards-perception-live and forwards shutdown to that child.
+CONFIG_FILE=${CONFIG_FILE:-/app/config/config.json}
+PROJECT_ROOT=${PROJECT_ROOT:-/app}
+WEB_ROOT=${WEB_ROOT:-/app/web}
+HTTP_BIND=${HTTP_BIND:-0.0.0.0}
+HTTP_PORT=${HTTP_PORT:-8000}
+SCENE_BIND=${SCENE_BIND:-127.0.0.1}
+SCENE_PORT=${SCENE_PORT:-49321}
+LIVE_EXECUTABLE=${LIVE_EXECUTABLE:-/app/bin/billiards-perception-live}
+CAPTURE_HELPER_EXECUTABLE=${CAPTURE_HELPER_EXECUTABLE:-/app/bin/billiards-perception-gstreamer-probe}
+START_LIVE=${START_LIVE:-true}
 
-echo "🚀 Starting Billiards Trainer Backend API..."
-echo "Environment: ${ENVIRONMENT:-production}"
-echo "Debug Mode: ${DEBUG:-false}"
-echo "Configuration file: ${CONFIG_FILE}"
-echo "Config Dir: ${CONFIG_DIR}"
-echo "Data Dir: ${DATA_DIR}"
-echo "Log Dir: ${LOG_DIR}"
-echo "Temp Dir: ${TEMP_DIR}"
+mkdir -p "$PROJECT_ROOT" /app/config /app/data /app/logs /app/temp
 
+if [ ! -d "$WEB_ROOT" ]; then
+    echo "Rust server static web root does not exist: $WEB_ROOT" >&2
+    exit 1
+fi
 
-# Create directories if they don't exist
-mkdir -p "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" "$TEMP_DIR"
+set -- \
+    --http-bind "$HTTP_BIND" \
+    --http-port "$HTTP_PORT" \
+    --scene-bind "$SCENE_BIND" \
+    --scene-port "$SCENE_PORT" \
+    --project-root "$PROJECT_ROOT" \
+    --web-root "$WEB_ROOT"
 
-# Run health check
-echo "🔍 Running pre-startup health check..."
-python -c "
-import sys
-try:
-    # Test critical imports
-    import fastapi
-    import uvicorn
-    print('✅ FastAPI/Uvicorn loaded successfully')
-except ImportError as e:
-    print(f'❌ Critical web framework missing: {e}')
-    sys.exit(1)
+if [ -f "$CONFIG_FILE" ]; then
+    set -- "$@" --config "$CONFIG_FILE"
+elif [ "$START_LIVE" = "true" ]; then
+    echo "Live capture requires a mounted configuration file: $CONFIG_FILE" >&2
+    exit 1
+else
+    echo "No configuration file found; starting in replay-only mode without config APIs."
+fi
 
-try:
-    import cv2
-    print('✅ OpenCV loaded successfully')
-except ImportError as e:
-    print(f'⚠️  OpenCV not available: {e}')
+case "$START_LIVE" in
+    true|1|yes)
+        if [ ! -x "$LIVE_EXECUTABLE" ]; then
+            echo "Rust live detector is not executable: $LIVE_EXECUTABLE" >&2
+            exit 1
+        fi
+        if [ ! -x "$CAPTURE_HELPER_EXECUTABLE" ]; then
+            echo "Rust GStreamer helper is not executable: $CAPTURE_HELPER_EXECUTABLE" >&2
+            exit 1
+        fi
+        set -- "$@" \
+            --start-live \
+            --live-executable "$LIVE_EXECUTABLE" \
+            --capture-helper-executable "$CAPTURE_HELPER_EXECUTABLE"
+        ;;
+    false|0|no)
+        ;;
+    *)
+        echo "START_LIVE must be true/false, 1/0, or yes/no (got: $START_LIVE)" >&2
+        exit 2
+        ;;
+esac
 
-try:
-    import numpy
-    import scipy
-    print('✅ Scientific libraries loaded successfully')
-except ImportError as e:
-    print(f'⚠️  Scientific libraries not available: {e}')
-
-print('✅ Health check completed')
-"
-
-echo "🌟 Starting the application with one backend process per table"
-
-exec python -m backend.main --config "$CONFIG_FILE"
+echo "Starting Rust billiards server on ${HTTP_BIND}:${HTTP_PORT}."
+echo "Project root: ${PROJECT_ROOT}; static client: ${WEB_ROOT}; live capture: ${START_LIVE}."
+exec /app/bin/billiards-server "$@"

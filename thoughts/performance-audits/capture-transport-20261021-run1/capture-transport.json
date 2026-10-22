@@ -1,0 +1,581 @@
+{
+  "schema_version": 1,
+  "experiment": "deterministic_rgb8_in_process_vs_supervised_stdout_pipe",
+  "scope": "isolated transport microbenchmark; not a camera, detector, CaptureSource mailbox, or client-delivery benchmark",
+  "metadata": {
+    "crate_version": "0.1.0",
+    "rustc_version": null,
+    "rustc_version_status": "unavailable_not_embedded_at_build_time",
+    "build_profile": "release",
+    "target_os": "macos",
+    "target_arch": "aarch64",
+    "target_family": "unix",
+    "logical_cpu_count": 14
+  },
+  "workload": {
+    "pixel_format": "RGB8",
+    "width_px": 3840,
+    "height_px": 2160,
+    "payload_bytes_per_frame": 24883200,
+    "warmup_frames_per_repetition": 5,
+    "measured_frames_per_repetition": 60,
+    "repetitions": 3,
+    "seed": 20261021,
+    "max_payload_bytes": 25000000,
+    "max_total_frames_per_arm": 200,
+    "max_total_samples": 72,
+    "sampling_limit_per_arm_per_repetition": 12,
+    "generated_frames_per_arm_over_all_repetitions": 195,
+    "payload_generator": "deterministic_xorshift64star_v1",
+    "sampling_method": "reservoir_sampling_algorithm_r"
+  },
+  "measurements_not_taken": {
+    "camera_source_to_parent_latency": {
+      "status": "unavailable",
+      "reason": "No camera source or comparable camera clock is used by this experiment."
+    },
+    "detector_accuracy_and_latency": {
+      "status": "unavailable",
+      "reason": "No detector or image interpretation is invoked by this experiment."
+    },
+    "process_cpu_time": {
+      "status": "unavailable",
+      "reason": "CPU time is not sampled by this portable microbenchmark."
+    },
+    "resident_memory": {
+      "status": "unavailable",
+      "reason": "Per-process RSS is not sampled by this portable microbenchmark."
+    },
+    "capture_mailbox_and_client_delivery": {
+      "status": "unavailable",
+      "reason": "The production capture mailbox and client delivery path are not exercised."
+    }
+  },
+  "repetitions": [
+    {
+      "repetition": 1,
+      "in_process": {
+        "arm": "in_process_deterministic_rgb8",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 7681370583,
+        "frames_per_second": 7.811106019645609,
+        "payload_mib_per_second": 185.36120730213702,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 124522750,
+          "p95_ns": 133901458,
+          "p99_ns": 133901458,
+          "samples": [
+            {
+              "frame_index": 51,
+              "completion_ns": 121804917,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 53,
+              "completion_ns": 121923084,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 123129834,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 13,
+              "completion_ns": 123515708,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 123528416,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 6,
+              "completion_ns": 124522750,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 7,
+              "completion_ns": 126554541,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 131035208,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 131250000,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 132277459,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 133047709,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 133901458,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "unavailable",
+          "value": null,
+          "unit": "nanoseconds",
+          "reason": "The in-process arm has no child startup or readiness boundary."
+        }
+      },
+      "supervised_stdout_pipe": {
+        "arm": "supervised_child_stdout_pipe",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 5557927500,
+        "frames_per_second": 10.795390907851893,
+        "payload_mib_per_second": 256.1796865828135,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 91789292,
+          "p95_ns": 94015375,
+          "p99_ns": 94015375,
+          "samples": [
+            {
+              "frame_index": 7,
+              "completion_ns": 90004833,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 6,
+              "completion_ns": 90184083,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 13,
+              "completion_ns": 90283000,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 91523000,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 91604084,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            },
+            {
+              "frame_index": 53,
+              "completion_ns": 91789292,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 92011334,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 92224459,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 92260458,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 51,
+              "completion_ns": 92500250,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 92813833,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 94015375,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "available",
+          "value": 3853208,
+          "unit": "nanoseconds",
+          "reason": null
+        }
+      }
+    },
+    {
+      "repetition": 2,
+      "in_process": {
+        "arm": "in_process_deterministic_rgb8",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 7621290166,
+        "frames_per_second": 7.872682799517491,
+        "payload_mib_per_second": 186.82245315261233,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 123581916,
+          "p95_ns": 134142708,
+          "p99_ns": 134142708,
+          "samples": [
+            {
+              "frame_index": 7,
+              "completion_ns": 121449750,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 121998958,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 51,
+              "completion_ns": 122454417,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 53,
+              "completion_ns": 122576667,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 13,
+              "completion_ns": 122946583,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 6,
+              "completion_ns": 123581916,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 125084500,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 125912458,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 129435792,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 129749792,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 132618000,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 134142708,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "unavailable",
+          "value": null,
+          "unit": "nanoseconds",
+          "reason": "The in-process arm has no child startup or readiness boundary."
+        }
+      },
+      "supervised_stdout_pipe": {
+        "arm": "supervised_child_stdout_pipe",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 5572860875,
+        "frames_per_second": 10.76646292556155,
+        "payload_mib_per_second": 255.49321200307193,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 90484292,
+          "p95_ns": 94558041,
+          "p99_ns": 94558041,
+          "samples": [
+            {
+              "frame_index": 6,
+              "completion_ns": 89804334,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 90052709,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 7,
+              "completion_ns": 90222250,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 90286625,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            },
+            {
+              "frame_index": 53,
+              "completion_ns": 90452709,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 51,
+              "completion_ns": 90484292,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 13,
+              "completion_ns": 91442292,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 92525792,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 92628958,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 92840417,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 93469500,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 94558041,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "available",
+          "value": 2995917,
+          "unit": "nanoseconds",
+          "reason": null
+        }
+      }
+    },
+    {
+      "repetition": 3,
+      "in_process": {
+        "arm": "in_process_deterministic_rgb8",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 7629843125,
+        "frames_per_second": 7.863857620270535,
+        "payload_mib_per_second": 186.6130275122793,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 123345125,
+          "p95_ns": 134010791,
+          "p99_ns": 134010791,
+          "samples": [
+            {
+              "frame_index": 53,
+              "completion_ns": 122758875,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 122774917,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 122873542,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            },
+            {
+              "frame_index": 7,
+              "completion_ns": 123033959,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 13,
+              "completion_ns": 123322208,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 6,
+              "completion_ns": 123345125,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 123758792,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 129175583,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 51,
+              "completion_ns": 130426750,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 130537375,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 133628292,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 134010791,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "unavailable",
+          "value": null,
+          "unit": "nanoseconds",
+          "reason": "The in-process arm has no child startup or readiness boundary."
+        }
+      },
+      "supervised_stdout_pipe": {
+        "arm": "supervised_child_stdout_pipe",
+        "measured_frames": 60,
+        "measured_payload_bytes": 1492992000,
+        "elapsed_ns": 5488576500,
+        "frames_per_second": 10.931796249901955,
+        "payload_mib_per_second": 259.41664928966554,
+        "measured_payload_sha256": "8fb0248c34ad33e948377bcf97953f41062c673de2483cf096f4a678c5d03a02",
+        "sampled_frame_completion": {
+          "clock": "parent_process_monotonic",
+          "basis": "parent-side frame handling; reservoir sampled across measured frames",
+          "sampled_frames": 12,
+          "sampling_limit": 12,
+          "p50_ns": 90575166,
+          "p95_ns": 92923667,
+          "p99_ns": 92923667,
+          "samples": [
+            {
+              "frame_index": 13,
+              "completion_ns": 89661083,
+              "frame_sha256": "7471f4cde437940889dce2fda73564596bfba863265bbb0da057ecf7779665c6"
+            },
+            {
+              "frame_index": 6,
+              "completion_ns": 89992875,
+              "frame_sha256": "9969646fbb681e3d610ee82b28e55b555150e14e3dc13e333599379763e7b835"
+            },
+            {
+              "frame_index": 11,
+              "completion_ns": 90041375,
+              "frame_sha256": "c195843ac6c13ab54cbb9979b52123224d3b7d840a8f580b1597bbfd1b98cdf0"
+            },
+            {
+              "frame_index": 7,
+              "completion_ns": 90229417,
+              "frame_sha256": "66b6243a3235312d2c6c6169285d69c737b72d7288012c9dc4b284760f75d99e"
+            },
+            {
+              "frame_index": 17,
+              "completion_ns": 90498708,
+              "frame_sha256": "f5c30d4f84448cefe4f7c819dbe04bce201154c7d3dd1bb6645499f8dcaca6ce"
+            },
+            {
+              "frame_index": 19,
+              "completion_ns": 90575166,
+              "frame_sha256": "79c41f80e83c5c30a168263a59c0d7e10784946109dfcd0c7e46a4d95db5f082"
+            },
+            {
+              "frame_index": 39,
+              "completion_ns": 90727625,
+              "frame_sha256": "94acec9bd9483a8ac8966087ec6e79d113dc3227dc1b901beb31ba21c5cb6437"
+            },
+            {
+              "frame_index": 51,
+              "completion_ns": 90785417,
+              "frame_sha256": "8c7091fec3f2dd4fd69d12f423f462114d3d31d196462eab7914c97481352d39"
+            },
+            {
+              "frame_index": 54,
+              "completion_ns": 91049209,
+              "frame_sha256": "529801a0b1679fd687b59113571e528f0740e822175a5b4937f3cc5b70c008ff"
+            },
+            {
+              "frame_index": 53,
+              "completion_ns": 91284500,
+              "frame_sha256": "19cef17665e4e6d2ccd1523ab7212d94f965d6db6c5d0d32f551fe7bb542b0fb"
+            },
+            {
+              "frame_index": 33,
+              "completion_ns": 92224208,
+              "frame_sha256": "190b7a5aae5cd5344a5765c2f70d31d256c7daf1be8af08720038bc81fc931be"
+            },
+            {
+              "frame_index": 23,
+              "completion_ns": 92923667,
+              "frame_sha256": "76bccb8ad4461eded4b74d57f08cb372bf2ff52531c0ebd8d44c17d11c844eb4"
+            }
+          ]
+        },
+        "startup_to_ready_ns": {
+          "status": "available",
+          "value": 3094584,
+          "unit": "nanoseconds",
+          "reason": null
+        }
+      }
+    }
+  ]
+}

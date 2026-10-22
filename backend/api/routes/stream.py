@@ -9,15 +9,25 @@ Provides video streaming capabilities including:
 """
 
 import asyncio
+import base64
+import json
 import logging
+import math
 import time
 from typing import Any, AsyncGenerator, Optional, cast
 
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from backend.perception.rust_frame_preview import (
+    FramePreviewBusy,
+    FramePreviewProtocolError,
+    FramePreviewRequestTooLarge,
+    FramePreviewTransportError,
+    FramePreviewUnavailable,
+)
 from backend.streaming.enhanced_camera_module import (
     EnhancedCameraConfig,
     EnhancedCameraModule,
@@ -33,6 +43,180 @@ from ..websocket import message_broadcaster
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stream", tags=["Video Streaming"])
+
+
+@router.get("/calibration-frame", summary="Read the current Rust-owned camera frame")
+async def calibration_frame(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> Response:
+    """Proxy one Rust-owned current frame with its exact capture descriptor.
+
+    The response body is the original Rust-encoded JPEG. The
+    ``X-Frame-Preview-Descriptor`` header carries the base64url-encoded JSON
+    descriptor from the same local protocol response, so browser clicks remain
+    tied to the displayed source frame. This route never opens Python camera
+    capture or interprets calibration data.
+    """
+    if getattr(app_state, "perception_provider", None) != "rust":
+        raise HTTPException(
+            status_code=409,
+            detail="Descriptor-bound calibration preview requires the Rust provider",
+        )
+    runtime = getattr(app_state, "perception_runtime", None)
+    get_preview = getattr(runtime, "get_current_frame_preview", None)
+    if not callable(get_preview):
+        raise HTTPException(
+            status_code=503,
+            detail="Rust live frame preview is not available in this runtime mode",
+        )
+    try:
+        preview = await get_preview()
+        descriptor_json = json.dumps(
+            preview.descriptor,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except FramePreviewBusy as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewTransportError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except (FramePreviewProtocolError, TypeError, ValueError) as error:
+        logger.warning(
+            "Rust calibration-frame proxy rejected an invalid response: %s", error
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Rust frame-preview response was invalid",
+        ) from error
+
+    descriptor_header = (
+        base64.urlsafe_b64encode(descriptor_json).rstrip(b"=").decode("ascii")
+    )
+    return Response(
+        content=preview.jpeg,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Frame-Preview-Schema": "1",
+            "X-Frame-Preview-Descriptor": descriptor_header,
+        },
+    )
+
+
+def _rust_calibration_control_runtime(app_state: ApplicationState) -> Any:
+    """Return the enabled Rust control runtime without a Python fallback."""
+    if getattr(app_state, "perception_provider", None) != "rust":
+        raise HTTPException(
+            status_code=409,
+            detail="Rust-owned calibration control requires the Rust provider",
+        )
+    runtime = getattr(app_state, "perception_runtime", None)
+    if not callable(
+        getattr(runtime, "get_calibration_store_snapshot", None)
+    ) or not callable(getattr(runtime, "submit_calibration_store_request", None)):
+        raise HTTPException(
+            status_code=503,
+            detail="Rust calibration control is not available in this runtime mode",
+        )
+    return runtime
+
+
+def _calibration_control_status_response(result: Any) -> JSONResponse:
+    """Translate Rust's explicit control status into an HTTP status code."""
+    status_codes = {
+        "ok": 200,
+        "invalid_request": 422,
+        "stale_context": 409,
+        "stale_revision": 409,
+        "busy": 503,
+        "store_error": 503,
+        "unsupported": 501,
+    }
+    status = getattr(result, "status", None)
+    status_code = status_codes.get(status) if isinstance(status, str) else None
+    if status_code is None:
+        logger.warning("Rust calibration control returned an unknown status")
+        raise HTTPException(
+            status_code=502, detail="Rust calibration response was invalid"
+        )
+    return JSONResponse(status_code=status_code, content=result.to_dict())
+
+
+async def _read_bounded_request_body(request: Request, maximum_bytes: int) -> bytes:
+    """Read a request incrementally so oversized bodies never accumulate."""
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > maximum_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail="Calibration request exceeds the configured byte limit",
+            )
+        body.extend(chunk)
+    return bytes(body)
+
+
+@router.get("/calibration-store", summary="Read Rust-owned table calibration")
+async def calibration_store_snapshot(
+    app_state: ApplicationState = Depends(get_app_state),
+) -> JSONResponse:
+    """Return the opaque calibration-store snapshot produced by Rust."""
+    runtime = _rust_calibration_control_runtime(app_state)
+    try:
+        result = await runtime.get_calibration_store_snapshot()
+    except FramePreviewUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewTransportError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewProtocolError as error:
+        logger.warning("Rust calibration snapshot response was invalid: %s", error)
+        raise HTTPException(
+            status_code=502, detail="Rust calibration response was invalid"
+        ) from error
+    return _calibration_control_status_response(result)
+
+
+@router.post("/calibration-store", summary="Submit table calibration to Rust")
+async def submit_calibration_store_request(
+    request: Request,
+    app_state: ApplicationState = Depends(get_app_state),
+) -> JSONResponse:
+    """Forward the exact bounded JSON body to Rust for validation and persistence."""
+    runtime = _rust_calibration_control_runtime(app_state)
+    maximum_bytes = getattr(runtime, "calibration_control_max_request_bytes", None)
+    if type(maximum_bytes) is not int or maximum_bytes <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Rust calibration request limits are not configured",
+        )
+    body = await _read_bounded_request_body(request, maximum_bytes)
+    try:
+        result = await runtime.submit_calibration_store_request(body)
+    except FramePreviewRequestTooLarge as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except FramePreviewUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewTransportError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except FramePreviewProtocolError as error:
+        logger.warning("Rust calibration submit response was invalid: %s", error)
+        raise HTTPException(
+            status_code=502, detail="Rust calibration response was invalid"
+        ) from error
+    return _calibration_control_status_response(result)
+
+
+def _reject_secondary_camera_owner(app_state: ApplicationState) -> None:
+    """Keep legacy preview routes from opening another source in Rust mode."""
+    if getattr(app_state, "perception_provider", None) == "rust":
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Camera preview is unavailable while Rust owns live capture; "
+                "a Rust-sourced preview bridge is not available yet."
+            ),
+        )
 
 
 def _get_stream_config(app_state: ApplicationState) -> dict[str, Any]:
@@ -59,7 +243,60 @@ def _viewer_audit_recorder(vision_module: Any) -> Any | None:
     """Return the audit queue only when viewer interference is enabled."""
     domains = getattr(vision_module, "audit_domains", {})
     recorder = getattr(vision_module, "audit_recorder", None)
-    return recorder if recorder is not None and domains.get("viewers", False) else None
+    return (
+        recorder
+        if recorder is not None
+        and isinstance(domains, dict)
+        and domains.get("viewers", False)
+        else None
+    )
+
+
+def _configured_send_backpressure_limit(
+    performance_config: dict[str, Any],
+) -> float | None:
+    """Return the validated viewer send-wait limit when runtime config provides it.
+
+    Endpoints receive validated application settings. Direct generator callers
+    may omit stream settings; in that case use the validated global config
+    default rather than inventing a second value here.
+    """
+    value = performance_config.get("maximum_send_backpressure_seconds")
+    if value is None:
+        from backend.config import config as config_manager
+
+        value = config_manager.get(
+            "api.stream.performance.maximum_send_backpressure_seconds"
+        )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value <= 0
+    ):
+        return None
+    return float(value)
+
+
+def _viewer_audit_detail_selected(
+    recorder: Any | None,
+    identity: int | str | None,
+    sample_rate: float,
+) -> bool:
+    """Sample a viewer frame before building detail events or timing encode/send."""
+    if recorder is None:
+        return False
+    selector = getattr(recorder, "select_detail_sample", None)
+    if not callable(selector):
+        return True
+    return bool(
+        selector(
+            "viewers",
+            identity,
+            sample_rate,
+            category="viewer_frame",
+        )
+    )
 
 
 class CameraModuleAdapter:
@@ -203,6 +440,7 @@ async def get_vision_module(
     Note: Using EnhancedCameraModule with fisheye correction and preprocessing
     capabilities for improved image quality.
     """
+    _reject_secondary_camera_owner(app_state)
     logger.info("=== get_vision_module called ===")
     print("=== get_vision_module called ===", flush=True)
 
@@ -328,6 +566,8 @@ async def generate_mjpeg_stream(
     max_height: Optional[int] = None,
     raw: bool = False,
     stream_config: Optional[dict[str, Any]] = None,
+    audit_recorder: Any | None = None,
+    audit_detail_sample_rate: float = 0.1,
 ) -> AsyncGenerator[bytes, None]:
     """Generate MJPEG stream from camera frames.
 
@@ -343,7 +583,6 @@ async def generate_mjpeg_stream(
         MJPEG frame data
     """
     client_id = id(asyncio.current_task())
-    audit_recorder = _viewer_audit_recorder(vision_module)
     _streaming_clients.add(client_id)
     _stream_stats["active_streams"] = len(_streaming_clients)
 
@@ -369,6 +608,9 @@ async def generate_mjpeg_stream(
         perf_cfg = (stream_config or {}).get("performance", {})
         frame_log_interval = perf_cfg.get("frame_log_interval", 30)
         sleep_interval = perf_cfg.get("sleep_interval_ms", 10) / 1000.0
+        maximum_send_backpressure_seconds = _configured_send_backpressure_limit(
+            perf_cfg
+        )
         resolution_cfg = (stream_config or {}).get("resolution", {})
         default_scale = resolution_cfg.get("default_scale", 1.0)
 
@@ -399,6 +641,11 @@ async def generate_mjpeg_stream(
                     continue
 
                 frame_count += 1
+                detail_selected = _viewer_audit_detail_selected(
+                    audit_recorder,
+                    frame_count,
+                    audit_detail_sample_rate,
+                )
                 if frame_count % frame_log_interval == 0:
                     logger.debug(f"Client {client_id} processed {frame_count} frames")
 
@@ -418,9 +665,9 @@ async def generate_mjpeg_stream(
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                encode_started_ns = time.perf_counter_ns() if audit_recorder else 0
+                encode_started_ns = time.perf_counter_ns() if detail_selected else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
-                encode_finished_ns = time.perf_counter_ns() if audit_recorder else 0
+                encode_finished_ns = time.perf_counter_ns() if detail_selected else 0
 
                 if not success:
                     logger.warning("Failed to encode frame as JPEG")
@@ -436,8 +683,10 @@ async def generate_mjpeg_stream(
                     + frame_data
                     + b"\r\n"
                 )
-                send_started_ns = time.perf_counter_ns() if audit_recorder else 0
-                if audit_recorder is not None:
+                # A TCP chunk cannot be retracted after it enters the response
+                # writer. Bound the wait for that chunk, then make a slow viewer
+                # reconnect and begin from the current camera frame.
+                if detail_selected and audit_recorder is not None:
                     audit_recorder.record(
                         {
                             "event_type": "viewer_frame_encoded",
@@ -458,27 +707,40 @@ async def generate_mjpeg_stream(
                             / 1e9,
                             "payload_bytes": len(chunk),
                             "viewer_count": len(_streaming_clients),
-                        }
+                        },
+                        force_keep=True,
                     )
+                send_started_ns = time.perf_counter_ns()
                 yield chunk
-                if audit_recorder is not None:
+                send_backpressure_seconds = (
+                    max(0, time.perf_counter_ns() - send_started_ns) / 1e9
+                )
+                if detail_selected and audit_recorder is not None:
                     audit_recorder.record(
                         {
                             "event_type": "viewer_send_backpressure",
                             "domain": "viewers",
                             "viewer_id": str(client_id),
                             "frame_number": frame_count,
-                            "send_backpressure_seconds": max(
-                                0, time.perf_counter_ns() - send_started_ns
-                            )
-                            / 1e9,
-                        }
+                            "send_backpressure_seconds": send_backpressure_seconds,
+                        },
+                        force_keep=True,
                     )
 
                 # Update statistics
                 _stream_stats["total_frames_served"] += 1
                 _stream_stats["last_frame_time"] = current_time
                 last_frame_time = current_time
+                if (
+                    maximum_send_backpressure_seconds is not None
+                    and send_backpressure_seconds >= maximum_send_backpressure_seconds
+                ):
+                    logger.warning(
+                        "Disconnecting slow MJPEG viewer %s after %.3fs of send backpressure",
+                        client_id,
+                        send_backpressure_seconds,
+                    )
+                    break
 
             except Exception as e:
                 logger.error(f"Error generating frame for client {client_id}: {e}")
@@ -526,6 +788,7 @@ async def video_stream(
         Cache-Control: no-cache
         Connection: close
     """
+    _reject_secondary_camera_owner(app_state)
     try:
         # Get stream configuration
         stream_config = _get_stream_config(app_state)
@@ -706,6 +969,14 @@ async def video_stream_raw(
                 max_height=height,
                 raw=True,
                 stream_config=stream_config,
+                audit_recorder=_viewer_audit_recorder(app_state.vision_module),
+                audit_detail_sample_rate=float(
+                    app_state.config_module.get(
+                        "performance_audit.detailed_event_sample_rate", 0.05
+                    )
+                    if app_state.config_module is not None
+                    else 0.1
+                ),
             ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
@@ -797,12 +1068,18 @@ async def generate_mjpeg_stream_from_shm(
         perf_cfg = stream_config.get("performance", {})
         frame_log_interval = perf_cfg.get("frame_log_interval", 30)
         sleep_interval = perf_cfg.get("sleep_interval_ms", 10) / 1000.0
+        maximum_send_backpressure_seconds = _configured_send_backpressure_limit(
+            perf_cfg
+        )
+        audit_detail_sample_rate = float(
+            config_module.get("performance_audit.detailed_event_sample_rate", 0.05)
+        )
 
         # Track this client
         _streaming_clients.add(client_id)
         _stream_stats["active_streams"] = len(_streaming_clients)
 
-        while True:
+        while client_id in _streaming_clients:
             try:
                 # Check if client disconnected
                 if await request.is_disconnected():
@@ -829,14 +1106,26 @@ async def generate_mjpeg_stream_from_shm(
                     continue
 
                 frame_count += 1
+                # Frame numbers are stable across identical replay runs and
+                # shared by every viewer. Keep the writer PID in event
+                # provenance, but out of the sampling key so process restarts
+                # do not select a different subset of the same replay.
+                frame_identity = (
+                    metadata.frame_number if metadata is not None else frame_count
+                )
+                detail_selected = _viewer_audit_detail_selected(
+                    audit_recorder,
+                    frame_identity,
+                    audit_detail_sample_rate,
+                )
                 if frame_count % frame_log_interval == 0:
                     logger.debug(f"Client {client_id} processed {frame_count} frames")
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                encode_started_ns = time.perf_counter_ns() if audit_recorder else 0
+                encode_started_ns = time.perf_counter_ns() if detail_selected else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
-                encode_finished_ns = time.perf_counter_ns() if audit_recorder else 0
+                encode_finished_ns = time.perf_counter_ns() if detail_selected else 0
 
                 if not success:
                     logger.warning(f"Client {client_id} failed to encode frame as JPEG")
@@ -852,8 +1141,10 @@ async def generate_mjpeg_stream_from_shm(
                     + frame_data
                     + b"\r\n"
                 )
-                send_started_ns = time.perf_counter_ns() if audit_recorder else 0
-                if audit_recorder is not None:
+                # The in-flight TCP chunk cannot be skipped. Disconnect a
+                # viewer that remains backpressured past its configured
+                # freshness window; reconnecting reads the newest shared frame.
+                if detail_selected and audit_recorder is not None:
                     audit_recorder.record(
                         {
                             "event_type": "viewer_frame_encoded",
@@ -877,21 +1168,24 @@ async def generate_mjpeg_stream_from_shm(
                             / 1e9,
                             "payload_bytes": len(chunk),
                             "viewer_count": len(_streaming_clients),
-                        }
+                        },
+                        force_keep=True,
                     )
+                send_started_ns = time.perf_counter_ns()
                 yield chunk
-                if audit_recorder is not None:
+                send_backpressure_seconds = (
+                    max(0, time.perf_counter_ns() - send_started_ns) / 1e9
+                )
+                if detail_selected and audit_recorder is not None:
                     audit_recorder.record(
                         {
                             "event_type": "viewer_send_backpressure",
                             "domain": "viewers",
                             "viewer_id": str(client_id),
                             "frame_number": metadata.frame_number if metadata else None,
-                            "send_backpressure_seconds": max(
-                                0, time.perf_counter_ns() - send_started_ns
-                            )
-                            / 1e9,
-                        }
+                            "send_backpressure_seconds": send_backpressure_seconds,
+                        },
+                        force_keep=True,
                     )
 
                 # Update statistics
@@ -900,6 +1194,16 @@ async def generate_mjpeg_stream_from_shm(
                 last_frame_time = current_time
                 if metadata:
                     last_frame_number = metadata.frame_number
+                if (
+                    maximum_send_backpressure_seconds is not None
+                    and send_backpressure_seconds >= maximum_send_backpressure_seconds
+                ):
+                    logger.warning(
+                        "Disconnecting slow shared-memory MJPEG viewer %s after %.3fs of send backpressure",
+                        client_id,
+                        send_backpressure_seconds,
+                    )
+                    break
 
             except Exception as e:
                 logger.error(
@@ -968,6 +1272,7 @@ async def video_stream_shm(
         503: Video Module not running or not available
         500: Stream generation error
     """
+    _reject_secondary_camera_owner(app_state)
     try:
         # Get stream configuration
         stream_config = _get_stream_config(app_state)
@@ -1187,6 +1492,7 @@ async def stop_video_capture(
         logger.info("Stopping video capture via API request")
 
         # Stop any active streams
+        active_streams_terminated = len(_streaming_clients)
         _streaming_clients.clear()
         _stream_stats["active_streams"] = 0
 
@@ -1196,7 +1502,7 @@ async def stop_video_capture(
         return {
             "status": "stopped",
             "message": "Video capture stopped successfully",
-            "active_streams_terminated": len(_streaming_clients),
+            "active_streams_terminated": active_streams_terminated,
         }
 
     except Exception as e:

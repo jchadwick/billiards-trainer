@@ -300,6 +300,9 @@ async def test_opt_in_audit_correlates_pipeline_publication_with_client_receipt(
     recorder = AsyncAuditRecorder(tmp_path / "audit" / "events")
     domains = {"state": True, "trajectory": False, "viewers": False}
     local_pipeline.handler.configure_performance_audit(recorder, domains)
+    # This test verifies the full correlated trace for its single source frame;
+    # ordinary audit runs use the configured deterministic detail sample.
+    local_pipeline.handler._audit_detail_sample_rate = 1.0
     monkeypatch.setattr(broadcaster_module, "websocket_handler", local_pipeline.handler)
 
     vision = VisionModule(
@@ -334,8 +337,6 @@ async def test_opt_in_audit_correlates_pipeline_publication_with_client_receipt(
         source_publication_monotonic_ns=source_publication_monotonic_ns,
     )
     assert detection is not None
-    status = integration._observation_status_with_identity(detection)
-    converted = integration._convert_detection_to_core_format(detection)
     restarted_detection = await asyncio.to_thread(
         vision._process_single_frame,
         frame,
@@ -347,6 +348,11 @@ async def test_opt_in_audit_correlates_pipeline_publication_with_client_receipt(
         source_process_id=5678,
     )
     assert restarted_detection is not None
+    # Exercise the production gateway path: coordinate conversion, Core update,
+    # Core event correlation, and WebSocket publication. A direct broadcaster
+    # call would leave the most important state-producing boundaries untested.
+    integration._event_loop = asyncio.get_running_loop()
+    integration._subscribe_to_core_events()
 
     try:
         async with websockets.connect(local_pipeline.url) as client:
@@ -356,12 +362,7 @@ async def test_opt_in_audit_correlates_pipeline_publication_with_client_receipt(
                 json.dumps({"type": "subscribe", "data": {"streams": ["state"]}})
             )
             await receive_type(client, "subscribed")
-            await local_pipeline.broadcaster.broadcast_game_state(
-                converted["balls"],
-                cue=converted.get("cue"),
-                table=converted.get("table"),
-                observation_status=status,
-            )
+            assert await integration._process_detection(detection)
             state_message = await receive_type(client, "state")
             received_ns = time.perf_counter_ns()
             state = state_message["data"]

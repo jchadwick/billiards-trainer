@@ -34,7 +34,8 @@ Memory Layout:
     - Timestamp nanoseconds (8 bytes): Timestamp nanoseconds
     - Writer pid (4 bytes): Process ID of writer
     - Reader count (4 bytes): Number of active readers
-    - Publication monotonic timestamp (8 bytes): Optional perf-counter nanoseconds
+    - Publication monotonic timestamp (8 bytes): perf-counter nanoseconds when
+      provided by the writer; legacy writers leave this reserved field as zero
     - Reserved (160 bytes): For future use
 
 Performance Targets:
@@ -404,7 +405,7 @@ class SharedMemoryFrameWriter:
         width: int,
         height: int,
         frame_format: FrameFormat = FrameFormat.BGR24,
-        capture_publication_clock: bool = False,
+        capture_publication_clock: bool = True,
     ):
         """Initialize frame writer.
 
@@ -413,9 +414,13 @@ class SharedMemoryFrameWriter:
             width: Frame width in pixels.
             height: Frame height in pixels.
             frame_format: Frame format (default BGR24 for OpenCV).
-            capture_publication_clock: Store a monotonic publication timestamp
-                for audit runs. Disabled by default so ordinary frame writes do
-                not pay for detailed audit timing.
+            capture_publication_clock: Store a monotonic software publication
+                timestamp in the compatible reserved header field. Enabled by
+                default so normal frame consumers can measure freshness without
+                wall-clock adjustments. Explicitly disabling it remains
+                supported for legacy integrations that require zero in reserved
+                metadata; this timestamp is publication time, never exposure
+                time.
         """
         self.name = name
         self.width = width

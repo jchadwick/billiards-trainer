@@ -1,0 +1,1 @@
+SUPERSEDED by run5 as the canonical result. The setup-only payload method was in place, but this was a short 60-frame smoke run and the report schema did not yet label the in-process rate as logical payload volume.

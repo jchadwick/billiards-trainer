@@ -12,6 +12,8 @@ use billiards_perception::inference::{
 use billiards_perception::tracking::TrackingConfigV1;
 use clap::{Parser, ValueEnum};
 
+const SUPPORTED_PUBLIC_STATE_DELIVERY_SCHEMA_VERSION: u8 = 1;
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ProviderArgument {
     Cpu,
@@ -91,6 +93,15 @@ struct Arguments {
     /// replaces stale pending images when inference falls behind this rate.
     #[arg(long)]
     replay_rate_fps: Option<f64>,
+
+    /// Number of times to cycle through recorded images during paced replay.
+    /// The default preserves the historical single-pass behavior.
+    #[arg(long, default_value_t = 1)]
+    replay_repeat_count: usize,
+
+    /// Required upper bound when --replay-repeat-count is greater than one.
+    #[arg(long)]
+    maximum_replay_frames: Option<usize>,
 
     /// Coordinate space of the source image bytes. Required when auditing a calibration.
     #[arg(long, value_enum)]
@@ -173,6 +184,10 @@ struct Arguments {
     #[arg(long)]
     scene_snapshots_write_timeout_ms: Option<u64>,
 
+    /// Native public-state delivery schema version; required with scene TCP output.
+    #[arg(long)]
+    public_state_delivery_schema_version: Option<u8>,
+
     /// Initial asynchronous scene reconnect delay, in milliseconds.
     #[arg(long, default_value_t = 100)]
     scene_snapshots_reconnect_initial_delay_ms: u64,
@@ -253,6 +268,8 @@ fn main() -> Result<()> {
         intra_op_threads: arguments.intra_op_threads,
         warmup_runs: arguments.warmup_runs,
         replay_rate_fps: arguments.replay_rate_fps,
+        replay_repeat_count: arguments.replay_repeat_count,
+        maximum_replay_frames: arguments.maximum_replay_frames,
         source_image_space: arguments
             .source_image_space
             .map(ImageSpace::from)
@@ -400,7 +417,8 @@ fn scene_snapshot_output_options(
         || arguments.tracking_rectification_revision.is_some();
     let has_tcp_setting = arguments.scene_snapshots_max_message_bytes.is_some()
         || arguments.scene_snapshots_connect_timeout_ms.is_some()
-        || arguments.scene_snapshots_write_timeout_ms.is_some();
+        || arguments.scene_snapshots_write_timeout_ms.is_some()
+        || arguments.public_state_delivery_schema_version.is_some();
     let destination = match (
         arguments.scene_snapshots_jsonl.clone(),
         arguments.scene_snapshots_tcp,
@@ -466,6 +484,22 @@ fn scene_snapshot_output_options(
             "select --scene-snapshots-jsonl, or provide --scene-snapshots-tcp with its maximum-message and timeout settings"
         ),
     };
+    match (&destination, arguments.public_state_delivery_schema_version) {
+        (SceneSnapshotOutputDestination::JsonlFile { .. }, None) => {}
+        (SceneSnapshotOutputDestination::JsonlFile { .. }, Some(_)) => bail!(
+            "public-state delivery schema selection is not supported for raw scene JSONL output"
+        ),
+        (
+            SceneSnapshotOutputDestination::LoopbackTcp { .. },
+            Some(SUPPORTED_PUBLIC_STATE_DELIVERY_SCHEMA_VERSION),
+        ) => {}
+        (SceneSnapshotOutputDestination::LoopbackTcp { .. }, None) => bail!(
+            "scene TCP output requires --public-state-delivery-schema-version 1"
+        ),
+        (SceneSnapshotOutputDestination::LoopbackTcp { .. }, Some(version)) => bail!(
+            "unsupported scene public-state delivery schema version {version}; supported version is {SUPPORTED_PUBLIC_STATE_DELIVERY_SCHEMA_VERSION}"
+        ),
+    }
     ensure!(
         has_detection_batch_output,
         "scene snapshot output requires detection-batch output"
@@ -527,6 +561,7 @@ fn scene_snapshot_output_options(
     Ok(Some(SceneSnapshotOutputOptions {
         destination,
         tracking,
+        delivery_schema_version: arguments.public_state_delivery_schema_version,
     }))
 }
 
@@ -562,10 +597,19 @@ mod tests {
             "0.45",
             "--replay-rate-fps",
             "30",
+            "--replay-repeat-count",
+            "4",
+            "--maximum-replay-frames",
+            "400",
+            "--public-state-delivery-schema-version",
+            "1",
         ])
         .unwrap();
 
         assert_eq!(arguments.replay_rate_fps, Some(30.0));
+        assert_eq!(arguments.replay_repeat_count, 4);
+        assert_eq!(arguments.maximum_replay_frames, Some(400));
+        assert_eq!(arguments.public_state_delivery_schema_version, Some(1));
     }
 
     #[test]
@@ -590,6 +634,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(arguments.replay_rate_fps, None);
+        assert_eq!(arguments.replay_repeat_count, 1);
+        assert_eq!(arguments.maximum_replay_frames, None);
     }
 
     #[test]
@@ -808,14 +854,33 @@ mod tests {
         assert_eq!(output.tracking.camera_profile_id(), "camera-a");
         assert_eq!(output.tracking.maximum_active_tracks(), 24);
 
+        arguments.public_state_delivery_schema_version = Some(1);
+        let error = scene_snapshot_output_options(&arguments, true, None)
+            .expect_err("raw JSONL must reject native delivery schema selection");
+        assert!(error
+            .to_string()
+            .contains("not supported for raw scene JSONL"));
+        arguments.public_state_delivery_schema_version = None;
+
         arguments.scene_snapshots_jsonl = None;
         arguments.scene_snapshots_tcp = Some("127.0.0.1:9000".parse().unwrap());
         arguments.scene_snapshots_max_message_bytes = Some(64 * 1024);
         arguments.scene_snapshots_connect_timeout_ms = Some(1000);
         arguments.scene_snapshots_write_timeout_ms = Some(1000);
+        let error = scene_snapshot_output_options(&arguments, true, None)
+            .expect_err("native schema version must be explicit for TCP output");
+        assert!(error
+            .to_string()
+            .contains("requires --public-state-delivery-schema-version 1"));
+        arguments.public_state_delivery_schema_version = Some(2);
+        let error = scene_snapshot_output_options(&arguments, true, None)
+            .expect_err("unsupported delivery schema versions must fail closed");
+        assert!(error.to_string().contains("supported version is 1"));
+        arguments.public_state_delivery_schema_version = Some(1);
         let tcp_output = scene_snapshot_output_options(&arguments, true, None)
             .unwrap()
             .expect("replay TCP settings enable scene output");
+        assert_eq!(tcp_output.delivery_schema_version, Some(1));
         assert!(matches!(
             tcp_output.destination,
             SceneSnapshotOutputDestination::LoopbackTcp {

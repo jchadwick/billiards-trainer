@@ -27,6 +27,9 @@ const SCENE_LIVE_PROTOCOL_VERSION: u8 = 3;
 pub struct SceneTransportConfig {
     pub address: SocketAddr,
     pub maximum_message_bytes: usize,
+    /// Wrap live snapshots with the Rust-owned public-state lifecycle result.
+    /// Replay and offline callers keep sending raw scene-snapshot v1 records.
+    pub public_state_delivery_enabled: bool,
     pub connect_timeout: Duration,
     pub write_timeout: Duration,
     pub reconnect_initial_delay: Duration,
@@ -43,6 +46,9 @@ pub struct SceneTransportStats {
     pub superseded_before_write_snapshots: u64,
     /// Oversized payloads rejected before they enter the bounded queue.
     pub oversized_submissions: u64,
+    /// Live snapshots discarded because their source-frame freshness deadline
+    /// elapsed before a connection, retry, or complete socket write.
+    pub expired_snapshots: u64,
     pub dropped_snapshots: u64,
     pub connection_attempts: u64,
     pub successful_connections: u64,
@@ -75,7 +81,17 @@ struct PendingSnapshot {
     identity: ProducerIdentity,
     frame_id: Option<String>,
     write_attempt: u64,
+    /// Live capture snapshots are useful only until this local monotonic
+    /// deadline. Recorded replay leaves this unset to preserve its semantics.
+    freshness_deadline: Option<Instant>,
     payload: Vec<u8>,
+}
+
+impl PendingSnapshot {
+    fn is_expired(&self, now: Instant) -> bool {
+        self.freshness_deadline
+            .is_some_and(|deadline| now >= deadline)
+    }
 }
 
 #[derive(Clone)]
@@ -197,19 +213,26 @@ impl LatestSceneWriter {
         )
     }
 
-    pub(crate) fn submit_with_frame_id(
+    /// Enqueue a live capture snapshot with an absolute source-frame
+    /// freshness deadline. The deadline is anchored to capture read completion
+    /// so submission overhead, reconnect, and socket-write time all consume
+    /// the same end-to-end budget. Replay callers intentionally use the
+    /// deadline-free submission method above.
+    pub(crate) fn submit_live_with_frame_id_and_deadline(
         &self,
         sequence: u64,
         engine_instance_id: &str,
         source_session_id: &str,
         frame_id: &str,
+        freshness_deadline: Instant,
         payload: Vec<u8>,
     ) -> Result<()> {
-        self.submit_with_optional_frame_id(
+        self.submit_with_optional_frame_id_and_deadline(
             sequence,
             engine_instance_id,
             source_session_id,
             Some(frame_id),
+            Some(freshness_deadline),
             payload,
         )
     }
@@ -220,6 +243,25 @@ impl LatestSceneWriter {
         engine_instance_id: &str,
         source_session_id: &str,
         frame_id: Option<&str>,
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        self.submit_with_optional_frame_id_and_deadline(
+            sequence,
+            engine_instance_id,
+            source_session_id,
+            frame_id,
+            None,
+            payload,
+        )
+    }
+
+    fn submit_with_optional_frame_id_and_deadline(
+        &self,
+        sequence: u64,
+        engine_instance_id: &str,
+        source_session_id: &str,
+        frame_id: Option<&str>,
+        freshness_deadline: Option<Instant>,
         payload: Vec<u8>,
     ) -> Result<()> {
         ensure!(
@@ -266,6 +308,7 @@ impl LatestSceneWriter {
             identity,
             frame_id: frame_id.map(str::to_owned),
             write_attempt: 1,
+            freshness_deadline,
             payload,
         };
         if state.pending.replace(pending).is_some() {
@@ -424,6 +467,10 @@ fn run_worker(
         };
         let stopping = lock_state(&shared.0).stopping;
 
+        if drop_if_expired(&shared, &pending) {
+            continue 'worker;
+        }
+
         loop {
             if stream.is_none() || connected_identity.as_ref() != Some(&pending.identity) {
                 stream = None;
@@ -440,6 +487,9 @@ fn run_worker(
                         connected_identity = Some(pending.identity.clone());
                         stream = Some(connected);
                         reconnect_delay = config.reconnect_initial_delay;
+                        if drop_if_expired(&shared, &pending) {
+                            continue 'worker;
+                        }
                     }
                     Err(_) => {
                         increment(&shared, |stats| stats.connection_failures += 1);
@@ -460,6 +510,9 @@ fn run_worker(
             }
 
             pending = supersede_with_newest_pending(&shared, pending);
+            if drop_if_expired(&shared, &pending) {
+                continue 'worker;
+            }
             if connected_identity.as_ref() == Some(&pending.identity) {
                 break;
             }
@@ -475,16 +528,29 @@ fn run_worker(
             continue;
         }
 
+        // A pending capture may expire while the receiver handshake or
+        // watermark check is in progress. Check again immediately before the
+        // first byte can be written.
+        if drop_if_expired(&shared, &pending) {
+            continue 'worker;
+        }
         let write_started = Instant::now();
         let write_result = match Instant::now().checked_add(config.write_timeout) {
-            Some(deadline) => write_framed_message_until(
-                stream
-                    .as_mut()
-                    .expect("connected stream was initialized above"),
-                &pending.payload,
-                config.maximum_message_bytes,
-                deadline,
-            ),
+            Some(write_timeout_deadline) => {
+                let deadline = pending
+                    .freshness_deadline
+                    .map_or(write_timeout_deadline, |freshness_deadline| {
+                        freshness_deadline.min(write_timeout_deadline)
+                    });
+                write_framed_message_until(
+                    stream
+                        .as_mut()
+                        .expect("connected stream was initialized above"),
+                    &pending.payload,
+                    config.maximum_message_bytes,
+                    deadline,
+                )
+            }
             None => Err(anyhow::anyhow!(
                 "scene write deadline cannot be represented"
             )),
@@ -512,6 +578,9 @@ fn run_worker(
                 stream = None;
                 connected_identity = None;
                 receiver_sequence = None;
+                if drop_if_expired(&shared, &pending) {
+                    continue 'worker;
+                }
                 increment(&shared, |stats| stats.write_failures += 1);
                 if stopping {
                     count_shutdown_drop(&shared, true);
@@ -757,9 +826,25 @@ fn supersede_with_newest_pending(
     }
 }
 
+/// Expire an in-flight live capture snapshot exactly once before it can be
+/// retried or written. Returning true means the caller should abandon it and
+/// take the newest work item, if any.
+fn drop_if_expired(shared: &Arc<(Mutex<SharedState>, Condvar)>, pending: &PendingSnapshot) -> bool {
+    if !pending.is_expired(Instant::now()) {
+        return false;
+    }
+    let mut state = lock_state(&shared.0);
+    state.stats.expired_snapshots += 1;
+    state.stats.dropped_snapshots += 1;
+    true
+}
+
 fn requeue_or_drop(shared: &Arc<(Mutex<SharedState>, Condvar)>, pending: PendingSnapshot) {
     let mut state = lock_state(&shared.0);
-    if state.pending.is_some() {
+    if pending.is_expired(Instant::now()) {
+        state.stats.expired_snapshots += 1;
+        state.stats.dropped_snapshots += 1;
+    } else if state.pending.is_some() {
         state.stats.dropped_snapshots += 1;
     } else {
         state.pending = Some(pending);
@@ -845,6 +930,7 @@ mod tests {
         SceneTransportConfig {
             address,
             maximum_message_bytes: 64 * 1024,
+            public_state_delivery_enabled: false,
             connect_timeout: Duration::from_millis(500),
             write_timeout: Duration::from_millis(500),
             reconnect_initial_delay: Duration::from_millis(10),
@@ -988,6 +1074,24 @@ mod tests {
         }))
         .unwrap();
         crate::framing::write_framed_message(stream, &ready, 64 * 1024).unwrap();
+    }
+
+    fn wait_until_stats(
+        writer: &LatestSceneWriter,
+        timeout: Duration,
+        predicate: impl Fn(&super::SceneTransportStats) -> bool,
+    ) {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if predicate(&writer.stats()) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(2));
+        }
+        panic!(
+            "scene transport stats condition was not reached: {:?}",
+            writer.stats()
+        );
     }
 
     #[test]
@@ -1250,6 +1354,107 @@ mod tests {
         assert!(stats.successful_connections >= 2);
         assert_eq!(stats.last_receiver_sequence_at_handshake, Some(1));
         assert!(stats.last_written_sequence.unwrap() >= 2);
+    }
+
+    #[test]
+    fn expired_live_snapshot_is_not_replayed_after_receiver_returns() {
+        let reserved = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = reserved.local_addr().unwrap();
+        drop(reserved);
+
+        let mut transport = config(address);
+        transport.reconnect_initial_delay = Duration::from_millis(20);
+        transport.reconnect_maximum_delay = Duration::from_millis(40);
+        let mut writer = LatestSceneWriter::start(transport).unwrap();
+        let freshness_deadline = Instant::now() + Duration::from_millis(120);
+        writer
+            .submit_live_with_frame_id_and_deadline(
+                1,
+                "live-engine",
+                "live-session",
+                "frame-1",
+                freshness_deadline,
+                serde_json::to_vec(&json!({"transport_sequence": 1})).unwrap(),
+            )
+            .unwrap();
+
+        wait_until_stats(&writer, Duration::from_secs(1), |stats| {
+            stats.connection_failures > 0
+        });
+        wait_until_stats(&writer, Duration::from_secs(1), |stats| {
+            stats.expired_snapshots == 1
+        });
+
+        // The receiver becomes available only after the source frame's full
+        // freshness budget has elapsed. No handshake or stale scene should
+        // occur until a new capture observation is submitted.
+        let receiver = TcpListener::bind(address).unwrap();
+        receiver.set_nonblocking(true).unwrap();
+        thread::sleep(Duration::from_millis(60));
+        assert!(receiver.accept().is_err());
+        let stats = writer.shutdown();
+        assert_eq!(stats.expired_snapshots, 1);
+        assert_eq!(stats.written_snapshots, 0);
+        assert_eq!(stats.dropped_snapshots, 1);
+    }
+
+    #[test]
+    fn reconnect_retries_only_the_newest_live_snapshot() {
+        let reserved = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = reserved.local_addr().unwrap();
+        drop(reserved);
+
+        let (received_tx, received_rx) = mpsc::channel();
+        let mut transport = config(address);
+        transport.reconnect_initial_delay = Duration::from_millis(300);
+        transport.reconnect_maximum_delay = Duration::from_millis(300);
+        let mut writer = LatestSceneWriter::start(transport).unwrap();
+        let first_deadline = Instant::now() + Duration::from_secs(3);
+        writer
+            .submit_live_with_frame_id_and_deadline(
+                1,
+                "live-engine",
+                "live-session",
+                "frame-1",
+                first_deadline,
+                serde_json::to_vec(&json!({"transport_sequence": 1})).unwrap(),
+            )
+            .unwrap();
+        wait_until_stats(&writer, Duration::from_secs(1), |stats| {
+            stats.connection_failures > 0
+        });
+
+        for sequence in 2..=3 {
+            let freshness_deadline = Instant::now() + Duration::from_secs(3);
+            writer
+                .submit_live_with_frame_id_and_deadline(
+                    sequence,
+                    "live-engine",
+                    "live-session",
+                    &format!("frame-{sequence}"),
+                    freshness_deadline,
+                    serde_json::to_vec(&json!({"transport_sequence": sequence})).unwrap(),
+                )
+                .unwrap();
+        }
+
+        let receiver = thread::spawn(move || {
+            let listener = TcpListener::bind(address).unwrap();
+            let (mut stream, _) = listener.accept().unwrap();
+            let _hello = read_frame(&mut stream);
+            write_ready(&mut stream, None);
+            let received: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            received_tx
+                .send(received["transport_sequence"].as_u64().unwrap())
+                .unwrap();
+        });
+
+        assert_eq!(received_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 3);
+        let stats = writer.shutdown();
+        receiver.join().unwrap();
+        assert_eq!(stats.last_written_sequence, Some(3));
+        assert!(stats.replaced_pending_snapshots >= 1);
+        assert_eq!(stats.expired_snapshots, 0);
     }
 
     #[test]

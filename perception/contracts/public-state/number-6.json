@@ -1,0 +1,208 @@
+{
+  "scene": {
+    "schema_version": 1,
+    "engine_instance_id": "engine-rust-stage2-a",
+    "source": {
+      "session_id": "replay-session-01",
+      "frame_id": "frame-0001",
+      "timestamp": {
+        "ticks": "1000000000",
+        "unit": "nanoseconds",
+        "clock": "monotonic",
+        "domain_id": "host-clock-a",
+        "stage": "shared_memory_publication"
+      },
+      "width_px": 3840,
+      "height_px": 2160
+    },
+    "snapshot_revision": 1,
+    "transport_sequence": 1,
+    "update_kind": "observation",
+    "published_at": {
+      "ticks": "2000000001",
+      "unit": "nanoseconds",
+      "clock": "monotonic",
+      "domain_id": "scene-writer-clock-a",
+      "stage": "snapshot_publication"
+    },
+    "revisions": {
+      "configuration": 7,
+      "rectification": 3,
+      "calibration": null,
+      "calibration_state": "unavailable"
+    },
+    "outcome": "success",
+    "reason": null,
+    "cue": {
+      "status": "observed",
+      "last_observation": {
+        "session_id": "replay-session-01",
+        "frame_id": "frame-0001",
+        "timestamp": {
+          "ticks": "1000000000",
+          "unit": "nanoseconds",
+          "clock": "monotonic",
+          "domain_id": "host-clock-a",
+          "stage": "shared_memory_publication"
+        }
+      },
+      "image_center_px": {
+        "x": 500.0,
+        "y": 400.0
+      },
+      "image_space": "raw",
+      "image_width_px": 3840,
+      "image_height_px": 2160,
+      "confidence": 0.88
+    },
+    "balls": [
+      {
+        "track_id": "track-1",
+        "status": "observed",
+        "last_observation": {
+          "session_id": "replay-session-01",
+          "frame_id": "frame-0001",
+          "timestamp": {
+            "ticks": "1000000000",
+            "unit": "nanoseconds",
+            "clock": "monotonic",
+            "domain_id": "host-clock-a",
+            "stage": "shared_memory_publication"
+          }
+        },
+        "measurement": {
+          "image_center_px": {
+            "x": 1882.4,
+            "y": 1024.7
+          },
+          "image_space": "raw",
+          "image_width_px": 3840,
+          "image_height_px": 2160,
+          "table_center_mm": null,
+          "detector_confidence": 0.97,
+          "table_position_uncertainty": {
+            "status": "unavailable",
+            "sigma_x_mm": null,
+            "sigma_y_mm": null
+          }
+        },
+        "estimate": null,
+        "identity": {
+          "number": 6,
+          "confidence": 0.8,
+          "evidence": [
+            {
+              "source": "number_classifier",
+              "confidence": 0.8
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "table": {
+    "calibrated": true
+  },
+  "game_type": "eight_ball",
+  "expected": {
+    "balls": [
+      {
+        "id": "track-1",
+        "position": {
+          "x": 1882.4,
+          "y": 1024.7,
+          "scale": [
+            1.0,
+            1.0
+          ]
+        },
+        "radius": 36,
+        "radius_scale": [
+          1.0,
+          1.0
+        ],
+        "radius_unit": "canonical_pixels",
+        "radius_source": "legacy_standard_pool_ball_assumption",
+        "confidence": 0.97,
+        "confidence_kind": "detector_observation",
+        "last_observation_confidence": 0.97,
+        "number": 6,
+        "type": "solid",
+        "identity_status": "identified",
+        "identity_confidence": 0.8,
+        "identity_evidence": [
+          {
+            "source": "number_classifier",
+            "confidence": 0.8
+          }
+        ],
+        "is_observed": true,
+        "tracking_status": "observed",
+        "position_kind": "measured",
+        "source_observation": {
+          "engine_instance_id": "engine-rust-stage2-a",
+          "session_id": "replay-session-01",
+          "frame_id": "frame-0001",
+          "timestamp": {
+            "ticks": "1000000000",
+            "unit": "nanoseconds",
+            "clock": "monotonic",
+            "domain_id": "host-clock-a",
+            "stage": "shared_memory_publication"
+          }
+        },
+        "image_space": "raw",
+        "image_width_px": 3840,
+        "image_height_px": 2160
+      }
+    ],
+    "observation_status": {
+      "phase": "rust_scene_observation",
+      "source_session_id": "replay-session-01",
+      "source_frame_id": "frame-0001",
+      "source_timestamp": "1000000000",
+      "source_timestamp_unit": "nanoseconds",
+      "source_timestamp_kind": "monotonic:host-clock-a:shared_memory_publication",
+      "ball_observation_source_timestamp": "1000000000",
+      "ball_observation_source_timestamp_unit": "nanoseconds",
+      "ball_observation_source_timestamp_kind": "monotonic:host-clock-a:shared_memory_publication",
+      "source_timestamp_clock": "monotonic",
+      "source_timestamp_domain_id": "host-clock-a",
+      "source_timestamp_is_exposure": false,
+      "published_at": {
+        "ticks": "2000000001",
+        "unit": "nanoseconds",
+        "clock": "monotonic",
+        "domain_id": "scene-writer-clock-a",
+        "stage": "snapshot_publication"
+      },
+      "frame_publication_age_status": "clock_domain_mismatch",
+      "frame_age_basis": "source_timestamp_to_snapshot_publication",
+      "engine_instance_id": "engine-rust-stage2-a",
+      "snapshot_revision": 1,
+      "transport_sequence": 1,
+      "configuration_revision": 7,
+      "rectification_revision": 3,
+      "calibration_revision": null,
+      "calibration_state": "unavailable",
+      "source_image_space": "raw",
+      "source_width_px": 3840,
+      "source_height_px": 2160,
+      "ball_positions_status": "observed",
+      "ball_detection_status": "observed",
+      "ball_radius_source": "legacy_standard_pool_ball_assumption",
+      "omitted_track_ids_without_image_position": [],
+      "cue_detection_status": "observed",
+      "observation_identity": {
+        "engine_instance_id": "engine-rust-stage2-a",
+        "session_id": "replay-session-01",
+        "frame_id": "frame-0001",
+        "snapshot_revision": 1
+      }
+    },
+    "table": {
+      "calibrated": true
+    },
+    "game_type": "eight_ball"
+  }
+}

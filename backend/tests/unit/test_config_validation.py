@@ -93,8 +93,11 @@ def test_performance_audit_configuration_is_validated_and_bounded() -> None:
                 "enabled": True,
                 "state_enabled": True,
                 "trajectory_enabled": False,
+                "trajectory_workload_enabled": False,
                 "viewers_enabled": False,
                 "sample_rate": 0.25,
+                "detailed_frame_sample_rate": 0.05,
+                "detailed_event_sample_rate": 0.05,
                 "heartbeat_interval_seconds": 20.0,
                 "history_size": 1000,
                 "export_drain_timeout_seconds": 2.5,
@@ -102,11 +105,17 @@ def test_performance_audit_configuration_is_validated_and_bounded() -> None:
         }
     )
     assert errors == []
+    assert (
+        load_schema_reference()["performance_audit"]["trajectory_workload_enabled"]
+        is True
+    )
 
     errors, _ = validate_configuration(
         {
             "performance_audit": {
                 "sample_rate": 1.5,
+                "detailed_frame_sample_rate": 0,
+                "detailed_event_sample_rate": 1.1,
                 "heartbeat_interval_seconds": 0,
                 "event_queue_capacity": 0,
                 "export_drain_timeout_seconds": 0,
@@ -115,14 +124,163 @@ def test_performance_audit_configuration_is_validated_and_bounded() -> None:
     )
     assert {error["field"] for error in errors} >= {
         "performance_audit.sample_rate",
+        "performance_audit.detailed_frame_sample_rate",
+        "performance_audit.detailed_event_sample_rate",
         "performance_audit.heartbeat_interval_seconds",
         "performance_audit.event_queue_capacity",
         "performance_audit.export_drain_timeout_seconds",
     }
 
 
+def test_rust_calibration_control_configuration_is_bounded_and_all_or_none() -> None:
+    errors, _ = validate_configuration(
+        {
+            "perception": {
+                "rust_live": {
+                    "frame_preview_calibration_control_enabled": True,
+                    "frame_preview_enabled": False,
+                }
+            }
+        }
+    )
+    assert "perception.rust_live.frame_preview_enabled" in {
+        error["field"] for error in errors
+    }
+
+    errors, _ = validate_configuration(
+        {
+            "perception": {
+                "rust_live": {
+                    "frame_preview_calibration_control_enabled": True,
+                    "frame_preview_max_header_bytes": 2048,
+                    "frame_preview_calibration_max_request_bytes": 2_000_000,
+                }
+            }
+        }
+    )
+    assert {error["field"] for error in errors} >= {
+        "perception.rust_live.frame_preview_max_header_bytes",
+        "perception.rust_live.frame_preview_calibration_max_request_bytes",
+    }
+
+    errors, _ = validate_configuration(
+        {
+            "perception": {
+                "rust_live": {
+                    "frame_preview_calibration_control_enabled": False,
+                    "frame_preview_enabled": False,
+                }
+            }
+        }
+    )
+    assert errors == []
+
+
+def test_replaceable_websocket_delivery_defaults_are_operational_settings() -> None:
+    delivery = load_schema_reference()["api"]["websocket"]["delivery"]
+    stream_performance = load_schema_reference()["api"]["stream"]["performance"]
+    perception_freshness = load_schema_reference()["perception"]["freshness"]
+    active_config = json.loads(
+        (Path(__file__).resolve().parents[3] / "config.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert perception_freshness["maximum_observation_age_seconds"] == 0.5
+    assert delivery["max_replaceable_message_age_seconds"] == 0.25
+    assert delivery["replaceable_send_timeout_seconds"] == 0.5
+    assert stream_performance["maximum_send_backpressure_seconds"] == 0.5
+    assert (
+        active_config["perception"]["freshness"]["maximum_observation_age_seconds"]
+        == 0.5
+    )
+    active_delivery = active_config["api"]["websocket"]["delivery"]
+    assert active_delivery["max_replaceable_message_age_seconds"] == 0.25
+    assert active_delivery["replaceable_send_timeout_seconds"] == 0.5
+    assert (
+        active_config["api"]["stream"]["performance"][
+            "maximum_send_backpressure_seconds"
+        ]
+        == 0.5
+    )
+
+    errors, _ = validate_configuration(
+        {
+            "perception": {"freshness": {"maximum_observation_age_seconds": 0.75}},
+            "api": {
+                "websocket": {
+                    "delivery": {
+                        "max_replaceable_message_age_seconds": 0.75,
+                        "replaceable_send_timeout_seconds": 1.25,
+                    }
+                },
+                "stream": {"performance": {"maximum_send_backpressure_seconds": 1.25}},
+            },
+        }
+    )
+    assert errors == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_replaceable_message_age_seconds", 0),
+        ("max_replaceable_message_age_seconds", -0.01),
+        ("max_replaceable_message_age_seconds", float("inf")),
+        ("max_replaceable_message_age_seconds", float("nan")),
+        ("max_replaceable_message_age_seconds", "0.25"),
+        ("max_replaceable_message_age_seconds", True),
+        ("replaceable_send_timeout_seconds", 0),
+        ("replaceable_send_timeout_seconds", -0.01),
+        ("replaceable_send_timeout_seconds", float("inf")),
+        ("replaceable_send_timeout_seconds", float("nan")),
+        ("replaceable_send_timeout_seconds", "0.5"),
+        ("replaceable_send_timeout_seconds", False),
+    ],
+)
+def test_replaceable_websocket_delivery_rejects_invalid_limits(
+    field: str, value: Any
+) -> None:
+    errors, _ = validate_configuration(
+        {"api": {"websocket": {"delivery": {field: value}}}}
+    )
+
+    assert f"api.websocket.delivery.{field}" in {error["field"] for error in errors}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -0.01, float("inf"), float("nan"), "0.5", True],
+)
+def test_perception_observation_age_rejects_invalid_limits(value: Any) -> None:
+    errors, _ = validate_configuration(
+        {"perception": {"freshness": {"maximum_observation_age_seconds": value}}}
+    )
+    assert "perception.freshness.maximum_observation_age_seconds" in {
+        error["field"] for error in errors
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [0, -0.01, float("inf"), float("nan"), "0.5", True],
+)
+def test_video_stream_backpressure_limit_rejects_invalid_values(value: Any) -> None:
+    errors, _ = validate_configuration(
+        {
+            "api": {
+                "stream": {"performance": {"maximum_send_backpressure_seconds": value}}
+            }
+        }
+    )
+
+    assert "api.stream.performance.maximum_send_backpressure_seconds" in {
+        error["field"] for error in errors
+    }
+
+
 def test_perception_provider_configuration_is_explicit_and_validated() -> None:
-    assert load_schema_reference()["perception"]["provider"] == "python"
+    assert load_schema_reference()["perception"]["provider"] == "rust"
     assert load_schema_reference()["perception"]["mode"] == "live"
     assert (
         load_schema_reference()["vision"]["camera"]["control_policy"]
@@ -965,6 +1123,23 @@ def test_schema_route_matches_runtime_defaults_and_section_schema() -> None:
     assert api_schema["properties"]["websocket"]["properties"]["delivery"][
         "properties"
     ]["send_timeout_seconds"] == {"type": "number", "minimum": 0.001}
+    delivery_schema = api_schema["properties"]["websocket"]["properties"]["delivery"][
+        "properties"
+    ]
+    assert delivery_schema["max_replaceable_message_age_seconds"] == {
+        "type": "number",
+        "minimum": 0.001,
+    }
+    assert delivery_schema["replaceable_send_timeout_seconds"] == {
+        "type": "number",
+        "minimum": 0.001,
+    }
+    assert perception_schema["properties"]["freshness"]["properties"][
+        "maximum_observation_age_seconds"
+    ] == {"type": "number", "minimum": 0.001}
+    assert api_schema["properties"]["stream"]["properties"]["performance"][
+        "properties"
+    ]["maximum_send_backpressure_seconds"] == {"type": "number", "minimum": 0.001}
     assert api_schema["x-cross-field-rules"]
     rate_schema = api_schema["properties"]["rate_limiting"]["properties"]
     assert rate_schema["store"]["enum"] == ["memory", "redis"]

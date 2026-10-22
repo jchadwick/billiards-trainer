@@ -1,0 +1,228 @@
+{
+  "cpu_model": "Intel(R) Core(TM) i5-8600T CPU @ 2.30GHz",
+  "host": "hp-prodesk",
+  "inference_binary_sha256": "01e22295cd157b572b96b2858e2f7f673e8dd4fe10df36ca1394558d9b9b0f0c",
+  "input_frames": [
+    {
+      "name": "frame-001.jpg",
+      "sha256": "21d9c6c6754594d35dbcd001aad5e0011a34dd7157857dfeb9cd6d3ad2355be4",
+      "size_bytes": 285253
+    },
+    {
+      "name": "frame-002.jpg",
+      "sha256": "ca14f155678a39049ac99067415d1b2e9a858e79f03f9e2b9aa5ba739f55ed0f",
+      "size_bytes": 309064
+    },
+    {
+      "name": "frame-003.jpg",
+      "sha256": "ce2d4ea62fc743d9f22c900d6290dd86f19aeab42ccf12efef3ed6a0a49a2fbc",
+      "size_bytes": 307861
+    },
+    {
+      "name": "frame-004.jpg",
+      "sha256": "e457893801c1012b92f16fce920cb2ac82a259f3558546200a740e17c966f1bf",
+      "size_bytes": 308793
+    },
+    {
+      "name": "frame-005.jpg",
+      "sha256": "8d9dc25b9bf3bb6c9f4b65df45f5ac1c46593f25f3001547dd8e903064e28787",
+      "size_bytes": 305471
+    },
+    {
+      "name": "frame-006.jpg",
+      "sha256": "998b1f4dbc20f5885a4f938a3b7d1bf1003f1e71992542c4b55fbf42cc982140",
+      "size_bytes": 305144
+    },
+    {
+      "name": "frame-007.jpg",
+      "sha256": "b05994affb6482a7067793d5506fbde588799cb0a702dc60b8e194f446109bcb",
+      "size_bytes": 305590
+    },
+    {
+      "name": "frame-008.jpg",
+      "sha256": "8bce370c8cc589bcce630a2ede92ff532ee388968139049047c633b4d82523c5",
+      "size_bytes": 310391
+    },
+    {
+      "name": "frame-009.jpg",
+      "sha256": "5e48484f1e1d68f256aa5eb4b8461a08fd59919919ac3ee257bdd9e99e018e28",
+      "size_bytes": 306524
+    },
+    {
+      "name": "frame-010.jpg",
+      "sha256": "5bf32a11e07934b46d2c183a1ec4cb0f0edf7e393aca2d162a03d1f96bc40a2d",
+      "size_bytes": 308480
+    },
+    {
+      "name": "frame-011.jpg",
+      "sha256": "5fa299380759eddde3d8ec7dffbc2a5e30ac68c56e6e6ebcd0bbe017b2af5792",
+      "size_bytes": 310779
+    },
+    {
+      "name": "frame-012.jpg",
+      "sha256": "02661d8e7aa4b3a66b208d6229d5ff977e3deaf182c42b137d84245f1a601899",
+      "size_bytes": 312446
+    },
+    {
+      "name": "frame-013.jpg",
+      "sha256": "95540cd3925a5bef91afa0e079ed775494555c0bfea43e04872ab77854f20b5a",
+      "size_bytes": 312494
+    },
+    {
+      "name": "frame-014.jpg",
+      "sha256": "402cfaebcdef99dd35cec9f0ab4208941561da20ba004d3a3f61ff0d65e55b94",
+      "size_bytes": 312555
+    },
+    {
+      "name": "frame-015.jpg",
+      "sha256": "6cfc1588201333ef278aa600b0f5636dc09adc56146abbddbb4269a1c073c9de",
+      "size_bytes": 312021
+    },
+    {
+      "name": "frame-016.jpg",
+      "sha256": "75902950649c4e85656f5e110f7a23ddf04c0c86bdee45db5d9dd121efbc74a4",
+      "size_bytes": 312817
+    },
+    {
+      "name": "frame-017.jpg",
+      "sha256": "1472a44b6885d467d2fb0c5e68d06b4b2ddcc1c96d0128cfffd7a7ec817a1ff0",
+      "size_bytes": 312995
+    },
+    {
+      "name": "frame-018.jpg",
+      "sha256": "82a0f8b19b3acfd7a40ca63d71defc75eaf45a286c40086457897b9b2fa8b401",
+      "size_bytes": 312335
+    },
+    {
+      "name": "frame-019.jpg",
+      "sha256": "0fc42f4015094c2c45208f5c07f793070a619d184b93c2f15d7bce9879ba9414",
+      "size_bytes": 314330
+    },
+    {
+      "name": "frame-020.jpg",
+      "sha256": "3e2fb259debf1ea8e66b8196dd49d371edb2697ad7e6a4a0ebc4d0405e303ed0",
+      "size_bytes": 318660
+    },
+    {
+      "name": "frame-021.jpg",
+      "sha256": "32ad826615a6b86bd579692cff2aaa83cb23b960735944681d5d32f4a478b93d",
+      "size_bytes": 315270
+    },
+    {
+      "name": "frame-022.jpg",
+      "sha256": "c99021d28295e75ab59d7a82d16deafc3964c7c850da007411958f871beae55d",
+      "size_bytes": 315723
+    },
+    {
+      "name": "frame-023.jpg",
+      "sha256": "ba8e302feb5051e0bebb2268a05ac47fe3bfadecfb3001dad4414d6eb33a3dae",
+      "size_bytes": 312518
+    },
+    {
+      "name": "frame-024.jpg",
+      "sha256": "42ef86c4525c629fa7344eef4834728be1f23118e46fa61c401d28a9a127770f",
+      "size_bytes": 316173
+    },
+    {
+      "name": "frame-025.jpg",
+      "sha256": "5a4d77effba07c5503b51c6206f9186d58e0421e67ca5085119f16b5f5d2f321",
+      "size_bytes": 316290
+    },
+    {
+      "name": "frame-026.jpg",
+      "sha256": "79fc4412155ec66f9f1a2a24c7ca4cc33b8f155b0d41857e447665c2fbf8ad61",
+      "size_bytes": 319936
+    },
+    {
+      "name": "frame-027.jpg",
+      "sha256": "f9534566eae6a195b4f98d5091bfa1891ff987552b0738caa7c9df8ab0ef3281",
+      "size_bytes": 317695
+    },
+    {
+      "name": "frame-028.jpg",
+      "sha256": "ef1c26b516eea036e6ac05dd437a292bebe2c4cb5aacf3ab25d5e3cafcab810a",
+      "size_bytes": 317380
+    },
+    {
+      "name": "frame-029.jpg",
+      "sha256": "06c6158ed402644becfa3cc29fa9a248d14f16866a2ee5a43fbc18655c84655b",
+      "size_bytes": 318698
+    },
+    {
+      "name": "frame-030.jpg",
+      "sha256": "077a448f1f8bc450233d19b7716766874ee4bde16cc50604b58af7cc11e20e18",
+      "size_bytes": 318500
+    }
+  ],
+  "logical_cpu_count": 6,
+  "machine": "x86_64",
+  "models": {
+    "1280": {
+      "billiards-yolov8n.onnx": "7beb3af7923290a5524fe1744de13bd66f4e43ea8a5048347bc8a12c51a1e4b5",
+      "billiards-yolov8n.onnx.manifest.json": "74c229ff058ec138b6194593921e5768dbeada092440ffd2c2a9f84e6b0dc707"
+    },
+    "960": {
+      "billiards-yolov8n.onnx": "eb27f3caad24c70b0f25fbef7287699610bd7f0246623b99fd2887d4ef33bbff",
+      "billiards-yolov8n.onnx.manifest.json": "0aa9377c6fa3dae041de4d82d616f89d30e794d7bedc3390c0161015c917213d"
+    }
+  },
+  "openvino_runtime_version": "2026.4.1-22982-e213a147257-releases/2026/4",
+  "openvino_test_image": "billiards-openvino-runtime-test:20261021",
+  "openvino_test_image_id": "sha256:9509ab47f29e0affd40be3ef60d15e113f7aa133e8fc47f6a3092b7f8530aac9",
+  "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+  "results": {
+    "cpu-1280.json": "4a4bd12532eeca9b45230ec203056572d3934e8657b5931b2642ad253c8874ef",
+    "cpu-960.json": "d01adc464eb8b8e2de461be6e1633bc40baad1c6d89c90df585f589b0cbe78fb",
+    "openvino-1280.json": "4a6634d0501fdc8a25073fd0f8945cdb30f0a9886a6373c6c241d8b17bf6f33a",
+    "openvino-960.json": "5030cc1c160d4942993a0c2e03b060fe7756cd0a44858641043cf96383eb3121"
+  },
+  "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+  "system_memory_bytes": 16540291072,
+  "repository": {
+    "head_revision": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "worktree_was_dirty": true,
+    "dirty_path_count_at_capture": 244,
+    "dirty_worktree_identity_sha256": null,
+    "dirty_worktree_identity_note": "Not captured during target execution; the recorded head revision and dirty path count are retained, and the tested executable SHA-256 is recorded separately."
+  },
+  "source_input": {
+    "kind": "recorded_video_frames",
+    "source_video_name": "full_table.mp4",
+    "source_video_sha256": "a1de2fe82fe5eb4c8722c4b64b7b5d416cead997c7cab491efa9975f8325c3a3",
+    "video_segment_seconds": [
+      120,
+      180
+    ],
+    "source_dimensions_px": [
+      3840,
+      2160
+    ],
+    "source_frame_rate_fps": 30,
+    "input_selection": "first 30 sequential extracted JPEGs from the 60-second segment",
+    "replay_mode": "unpaced recorded-image replay; no source timestamp used for camera-latency claims"
+  },
+  "measurement_scope": {
+    "runs_per_provider_and_size": 1,
+    "verification_rerun": "One bounded rerun of each provider/size arm used the recorded native inference binary and identical 30 input frames after an earlier local artifact-copy checksum mismatch. All four final local result-file SHA-256 values were verified against the target-side files.",
+    "measured_images_per_run": 30,
+    "warmup_images": 2,
+    "application_api_or_web_client_included": false,
+    "long_soak_performed": false,
+    "target_machine_use": "bounded relative A/B only; not a target qualification",
+    "openvino_library_resolution_note": "The OpenVINO C runtime was in a temporary test container and exposed a versioned libopenvino_c.so.2641; a temporary /tmp/libopenvino_c.so symlink was needed for the openvino-rs finder. Host OpenVINO installation and deploy-time library discovery remain unqualified."
+  },
+  "local_model_exports": {
+    "1280": {
+      "billiards-yolov8n.onnx": "7beb3af7923290a5524fe1744de13bd66f4e43ea8a5048347bc8a12c51a1e4b5",
+      "billiards-yolov8n.onnx.manifest.json": "74c229ff058ec138b6194593921e5768dbeada092440ffd2c2a9f84e6b0dc707"
+    },
+    "960": {
+      "billiards-yolov8n.onnx": "eb27f3caad24c70b0f25fbef7287699610bd7f0246623b99fd2887d4ef33bbff",
+      "billiards-yolov8n.onnx.manifest.json": "0aa9377c6fa3dae041de4d82d616f89d30e794d7bedc3390c0161015c917213d"
+    },
+    "640": {
+      "billiards-yolov8n.onnx": "efb4922ecff3a184ca40b1f26f3fc5f7b3b2071fde2f22a723523a6509208c7a",
+      "billiards-yolov8n.onnx.manifest.json": "0e99f1e21630380cd1cd1a8fbb504a00023f23316e149e7037989bc38b1a8be0"
+    }
+  }
+}

@@ -1,4 +1,12 @@
-# Rust perception migration with maximum reuse
+# Rust perception migration with maximum reuse — historical plan
+
+> **Superseded migration scope:** this document records the earlier perception-
+> first proposal and its implementation history. Do not follow its Rust/WASM
+> browser-client or permanent-Python-gateway destination. ADR-0066 and the
+> current [server migration plan](rust-domain-migration-plan.md) require the
+> deployed server services to move to Rust while the browser remains
+> HTML/JavaScript/CSS. Python model training, annotation, and acceptance tools
+> may remain off-device. Ball-number classification remains excluded.
 
 ## Outcome and verification strategy
 
@@ -1242,7 +1250,13 @@ has no V4L2 camera, so physical Linux capture remains untested.
 
 **Done when:** live capture/preview/calibration work on both platforms, interruption and restart recover safely, stale states expire, old/new owners never overlap, and the legacy shared-memory path is unnecessary in Rust mode.
 
-## Stage 6 — Keep the frontend and fix its adapters
+## Stage 6 — Historical frontend adapter work
+
+This section records frontend work from the earlier proposal. Keep the browser
+application HTML/JavaScript/CSS. Any remaining API integration work belongs at
+the end of Rust server qualification, as ordered in the current
+[domain migration plan](rust-domain-migration-plan.md); no Rust/WASM client is
+planned.
 
 **Modules/tasks, sequentially:** `frontend/web/`, then each retained Lua client separately.
 
@@ -1271,7 +1285,12 @@ The independent backend coverage gate remains 51.36% against the unchanged 80%
 threshold. This closes the current web type/build/test failure but does not yet
 qualify either-provider live operation or the retained Lua client.
 
-## Stage 7 — Add number identification without delaying localization
+## Stage 7 — Historical proposal: add number identification without delaying localization
+
+This stage is **excluded from the current migration by ADR-0064**. The user
+reports that ball-number classification does not work and directs that it not
+be migrated. Keep the following proposal as historical context only; do not
+implement its classifier or allow it to block accurate location delivery.
 
 **Modules/tasks, sequentially:** Python training/evaluation tools and datasets as needed, `perception/` identity consumer, then `backend/`/frontend adapters only if additional fields are needed.
 
@@ -1283,7 +1302,11 @@ qualify either-provider live operation or the retained Lua client.
 
 **Done when:** held-out number precision, unknown rate, time-to-identify and continuity meet declared criteria, and enabling identity does not violate localization accuracy/freshness. This stage is a separate feature gate; reliable anonymous localization can ship before reliable numbers.
 
-## Stage 8 — Qualify, switch the default, then remove obsolete paths
+## Stage 8 — Historical proposal: qualify runtime domains and replace the web client
+
+The Rust/WASM replacement proposed here was rejected and superseded by ADR-0066.
+The current plan keeps the browser client in HTML/JavaScript/CSS and moves only
+server-side services to Rust.
 
 **Modules/tasks, sequentially:** `backend/` tool/test adapters, Rust test/build pipeline, frontend CI, deployment scripts/config, and documentation/ADRs. Keep changes reviewable per module.
 
@@ -1879,3 +1902,32 @@ spans and non-blocking export, followed by Python receipt-side correlation and
 matched audit-off/on overhead tests. No camera image payloads or credentials
 belong on this channel. Python remains the active production path; the Rust
 camera route remains an opt-in qualification path, not a completed migration.
+
+**Stale-inference diagnosis on the Linux target (2026-10-22):** ADR-0055 adds
+schema-v3 timings to stale-after-inference outcomes, with strict Python parsing
+and a startup-failure diagnostic path. The real two-class model ran against the
+illuminated physical webcam at 1920×1080 MJPEG/10 FPS and 1280-pixel model input
+on CPU. All 62 inference outcomes exceeded the configured 100 ms freshness
+limit; parent-read-complete-to-inference-complete age was 317 ms at p50 and
+363 ms at p95. Model inference was 267/292 ms p50/p95, preprocessing was
+37.6/38.3 ms, and decode/NMS remained below 0.3 ms at p95. No state was
+published, so this is diagnostic evidence rather than a measured performance
+baseline or accuracy result. The source provides no verified exposure time.
+The details and hashes are preserved in the
+[target timing diagnostic](performance-audits/target-physical-camera-qualification-20261022/20261022-040555-efa22995/timing-diagnostic.json).
+
+This run shows that lowering camera FPS can reduce discarded work, but cannot
+make the current CPU inference pass a 100 ms freshness guard. The next
+measurement should compare a faster runtime or smaller model-input profile on
+identical input, with localization accuracy scored before recommending either.
+The target audit container did not expose OpenVINO to this run. The separate
+lower-FPS relational test remains useful after the primary inference path can
+publish fresh states.
+
+The Rust perception suite passes 136 library tests, 7 inference-binary tests,
+6 live-binary tests, and the applicable integration suites. The configured
+backend gate passes 2,974 tests with two model-dependent skips at 80.07%
+coverage, above the 80% threshold. ADR validation and scoped Ruff, Black,
+isort, and mypy checks pass. The earlier 54.96% coverage checkpoint above is
+historical; this newer result clears that shortfall, while the two skipped
+real-model checks remain unqualified.

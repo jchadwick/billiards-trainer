@@ -232,6 +232,17 @@ config/secrets.json
 *.onnx
 *.pkl
 
+# Keep compact performance reports and result JSON in version control, while
+# leaving high-volume per-event traces and replay/model inputs local to the run.
+thoughts/performance-audits/**/*.jsonl
+thoughts/performance-audits/**/frames/*.jpg
+thoughts/performance-audits/**/*.pt
+thoughts/performance-audits/**/*.so
+thoughts/performance-audits/**/billiards-perception-infer
+thoughts/performance-audits/**/raw/*.json
+thoughts/performance-audits/rust-live-trained-model-export-20261021/camera-qualification-*/**/summary.json
+thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/full-table-segment-paced-report.json
+
 # Camera and video files
 *.mp4
 *.avi
@@ -240,6 +251,7 @@ config/secrets.json
 
 # Calibration data
 calibration_*.json
+backend/calibration_data/game_session.json.lock
 camera_matrix.json
 distortion_coefficients.json
 

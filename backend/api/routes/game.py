@@ -13,7 +13,7 @@ import logging
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional, cast
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -42,6 +42,11 @@ from backend.api.models.responses import (
 )
 from backend.core import CoreModule
 from backend.core.models import BallState, CueState, GameState, GameType, TableState
+from backend.perception.rust_game_session import (
+    RustGameSessionAuthorityClient,
+    RustGameSessionAuthorityError,
+    RustGameSessionAuthorityRejected,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +121,27 @@ def _get_current_core_state(core_module: CoreModule | None) -> GameState | None:
     return game_state
 
 
+async def _read_rust_session_metadata(
+    authority: RustGameSessionAuthorityClient | None,
+) -> dict[str, Any] | None:
+    """Read Rust session metadata without blocking the API event loop.
+
+    Localization stays available if this separate metadata store is temporarily
+    unavailable; reset commands, which mutate session state, fail closed.
+    """
+    if authority is None:
+        return None
+    try:
+        snapshot = await asyncio.to_thread(authority.snapshot)
+    except Exception as error:
+        # Session metadata is secondary to measured ball locations. Contain
+        # malformed configuration and unexpected adapter errors here as well
+        # as typed process failures so /game/state keeps serving localization.
+        logger.warning("Rust game-session metadata is unavailable: %s", error)
+        return None
+    return snapshot.to_dict()
+
+
 @router.get("/state", response_model=SceneGameStateResponse | GameStateResponse)
 async def get_current_game_state(
     include_events: bool = Query(True, description="Include recent game events"),
@@ -143,10 +169,14 @@ async def get_current_game_state(
         response: GameStateResponse | SceneGameStateResponse
         if scene_read_model is not None:
             game_state = _get_current_core_state(core_module)
+            session_metadata = await _read_rust_session_metadata(
+                getattr(app_state, "game_session_authority", None)
+            )
             response = scene_state_to_response(
                 scene_read_model,
                 game_state,
                 include_events=include_events,
+                session_metadata=session_metadata,
             )
             logger.info("Current scene state retrieved")
             return response
@@ -300,7 +330,8 @@ async def reset_game_state(
     ),
     preserve_table: bool = Query(True, description="Keep existing table configuration"),
     create_backup: bool = Query(True, description="Create backup of current state"),
-    core_module: CoreModule = Depends(get_core_module),
+    core_module: Optional[CoreModule] = Depends(get_optional_core_module),
+    app_state: Any = Depends(get_app_state),
 ) -> GameResetResponse:
     """Reset game state tracking (FR-API-015).
 
@@ -308,6 +339,92 @@ async def reset_game_state(
     optional table preservation and backup creation.
     """
     try:
+        authority: RustGameSessionAuthorityClient | None = getattr(
+            app_state, "game_session_authority", None
+        )
+        if authority is not None:
+            if not preserve_table:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Rust game-session reset does not alter table calibration; "
+                        "use the calibration controls for table changes"
+                    ),
+                )
+            publisher = getattr(app_state, "scene_state_publisher", None)
+            if getattr(publisher, "read_model", None) is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Current Rust scene state is unavailable for reset response",
+                )
+
+            try:
+                current_session = await asyncio.to_thread(authority.snapshot)
+                session = await asyncio.to_thread(
+                    authority.reset,
+                    expected_revision=current_session.revision,
+                    game_type=cast(
+                        "Literal['practice', '8ball', '9ball', 'straight']",
+                        game_type,
+                    ),
+                )
+            except RustGameSessionAuthorityRejected as error:
+                if error.code == "stale_revision":
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Game session changed during reset; read current state "
+                            "and retry"
+                        ),
+                    ) from error
+                raise HTTPException(
+                    status_code=503,
+                    detail="Rust game-session authority rejected the reset",
+                ) from error
+            except RustGameSessionAuthorityError as error:
+                logger.exception("Rust game-session reset failed", exc_info=error)
+                raise HTTPException(
+                    status_code=503,
+                    detail="Rust game-session authority is unavailable",
+                ) from error
+
+            # Reset can wait on two bounded subprocess operations. Fetch the
+            # live read model afterward so the response does not return stale
+            # ball positions captured before those waits.
+            read_model = getattr(publisher, "read_model", None)
+            if read_model is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Current Rust scene state became unavailable during reset",
+                )
+
+            new_state_response: GameStateResponse | SceneGameStateResponse = (
+                scene_state_to_response(
+                    read_model,
+                    None,
+                    include_events=False,
+                    session_metadata=session.to_dict(),
+                )
+            )
+            return GameResetResponse(
+                success=True,
+                new_state=new_state_response,
+                # The Rust metadata store has no scene history to back up.
+                backup_created=False,
+                reset_at=datetime.now(timezone.utc),
+            )
+
+        if (
+            core_module is None
+            and getattr(app_state, "scene_state_publisher", None) is not None
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="Rust game-session authority is unavailable",
+            )
+        if core_module is None:
+            raise HTTPException(status_code=503, detail="Core module not available")
+
         # Get current state for backup if requested
         current_state = None
         backup_created = False

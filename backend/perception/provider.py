@@ -30,9 +30,9 @@ def require_api_provider(
 ) -> PerceptionProvider:
     """Resolve the selected mode before starting any perception path.
 
-    Python owns the current live mode. Rust is supervised only in its explicit
-    recorded-replay mode; Rust/live remains unsupported until capture ownership
-    and platform qualification are complete. No selection silently falls back.
+    Rust is the default runtime. Python remains selectable only for migration
+    comparisons and legacy tests; each mode has a strict supervisor and
+    configuration, and no selection silently falls back.
     """
     configuration_defaults = load_schema_reference()
     perception_defaults = configuration_defaults.get("perception")
@@ -71,11 +71,5 @@ def require_api_provider(
     if provider is PerceptionProvider.PYTHON and configured_mode != "live":
         raise PerceptionProviderError(
             "the Python provider supports only perception.mode='live'"
-        )
-    if provider is PerceptionProvider.RUST and configured_mode != "recorded_replay":
-        raise PerceptionProviderError(
-            "the Rust perception provider currently supports only explicit "
-            "recorded-input replay. Set perception.mode to 'recorded_replay'; "
-            "live camera ownership and provider qualification remain incomplete."
         )
     return provider

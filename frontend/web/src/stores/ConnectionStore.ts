@@ -65,7 +65,7 @@ export class ConnectionStore {
   private async testConnection(): Promise<void> {
     try {
       const { apiClient } = await import('../api/client');
-      const response = await apiClient.getHealth();
+      const response = await apiClient.healthCheck();
 
       if (!response.success) {
         throw new Error(response.error || 'Health check failed');

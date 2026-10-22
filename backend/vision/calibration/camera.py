@@ -803,7 +803,18 @@ class CameraCalibrator:
                 "vision.calibration.camera.fisheye.distortion_limits.clamp_threshold",
                 0.25,
             )
-            k1, k2 = float(D[0]), float(D[1])
+            # OpenCV returns distortion coefficients as an Nx1 column vector.
+            # Normalize its shape before extracting values; converting D[0]
+            # directly only works for a one-dimensional test/fake result under
+            # current NumPy versions and rejects the real OpenCV layout.
+            distortion_values = np.asarray(D, dtype=np.float64).reshape(-1).copy()
+            if distortion_values.size < 2 or not np.all(
+                np.isfinite(distortion_values[:2])
+            ):
+                raise ValueError(
+                    "Calibration returned fewer than two finite radial distortion coefficients"
+                )
+            k1, k2 = float(distortion_values[0]), float(distortion_values[1])
             if abs(k1) > warning_threshold or abs(k2) > warning_threshold:
                 logger.warning(
                     f"High distortion values detected: k1={k1:.3f}, k2={k2:.3f}"
@@ -813,13 +824,13 @@ class CameraCalibrator:
                 )
                 k1 = np.clip(k1, -clamp_threshold, clamp_threshold)
                 k2 = np.clip(k2, -clamp_threshold, clamp_threshold)
-                D[0], D[1] = k1, k2
+                distortion_values[0], distortion_values[1] = k1, k2
                 logger.info(f"Clamped to: k1={k1:.3f}, k2={k2:.3f}")
 
             # Convert to fisheye-compatible format for backwards compatibility
             fisheye_dist = np.zeros((4, 1), dtype=np.float64)
-            fisheye_dist[0] = D[0]  # k1
-            fisheye_dist[1] = D[1]  # k2
+            fisheye_dist[0, 0] = k1
+            fisheye_dist[1, 0] = k2
 
             logger.info(
                 f"Final distortion coefficients: k1={fisheye_dist[0,0]:.4f}, k2={fisheye_dist[1,0]:.4f}"

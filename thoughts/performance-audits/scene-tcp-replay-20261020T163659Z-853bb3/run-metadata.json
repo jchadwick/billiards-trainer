@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "run_id": "scene-tcp-replay-20261020T163659Z-853bb3",
+  "created_at_utc": "2026-10-20T16:38:02.616950+00:00",
+  "git": {
+    "revision": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "branch": "main",
+    "working_tree_dirty": true,
+    "dirty_worktree_identity_sha256": "d69b3ef6e24a44e3b2c81a8f6a5db1f7f79a7854e1e879bcb88c4c2a3eab83de",
+    "identity_method": "SHA-256 over git diff HEAD --binary plus sorted untracked paths and their content hashes; this run-metadata file is excluded"
+  },
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "architecture": "arm64",
+    "processor": "arm"
+  },
+  "toolchain": {
+    "python": "3.11.14",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
+    "binary_profile": "debug",
+    "onnx_runtime_binding": "ort",
+    "onnx_runtime_binding_version": "2.0.0-rc.15"
+  },
+  "input": {
+    "path": "backend/vision/test_data",
+    "raster_file_count": 10,
+    "sha256_by_relative_path": {
+      "calibration_straight_on.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "clustered_balls.png": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "cue_aiming.png": "50822a3f22aaf6e0c72fcc00d066916e6343ab3726826454b432f0d802cd88b1",
+      "empty_table.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d",
+      "frame_with_cue.png": "b8a58b3a61b9e67715610322fed70c36626769164885d4f3c05ccdc8306ea5c9",
+      "full_table.png": "f1e1773a9c46e36d20a4af1cd3793053114ddac70a7e8273f4fc1bf679bd1f1b",
+      "grid.jpg": "d4cf0dbe75a9d0494260f385dcd6ecf0143e03ad430aae37ef3323bd98de72d6",
+      "motion_blur.png": "57f6e2250f47fcdaddddea8511dc6ea09ebd0fbea684c7a5fb4a54e0a15afe41",
+      "multiple_balls.png": "e2cfcaef233cc819e1e679e28aafcbf46b88ce68da5c324e8d4b5ab6610151bd",
+      "table_corners_visible.png": "03e06376e901a806706369f0b75d50658cd3e364667668bd5e0cbf414b72182d"
+    }
+  },
+  "model": {
+    "onnx_path": "/tmp/billiards-rust-tcp.Ij3QEK/billiards-yolov8n.onnx",
+    "onnx_sha256": "2444f8007934aa6a17584856b3049ebd1c1a6861c174408d7c3d549b41b45648",
+    "checkpoint_path": "models/billiards-yolov8n.pt",
+    "checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "observed_execution_providers": [
+      "CPUExecutionProvider"
+    ]
+  },
+  "configuration": {
+    "inference": {
+      "provider": "cpu",
+      "source_image_space": "raw",
+      "image_size": 1280,
+      "confidence": 0.4,
+      "iou": 0.45,
+      "max_detections": 300,
+      "intra_op_threads": null,
+      "warmup_runs": 1,
+      "replay_rate_fps": 30.0
+    },
+    "scene_output": {
+      "destination": "tcp://127.0.0.1:52747",
+      "format": "length_framed_json_scene_snapshot_v1",
+      "mode": "synchronous_loopback_export_during_paced_latest_frame_replay",
+      "snapshot_count": 10,
+      "connect_ms": 0.8811249999999999,
+      "maximum_message_bytes": 262144,
+      "connect_timeout_ms": 5000.0,
+      "write_timeout_ms": 5000.0,
+      "ball_class_id": 1,
+      "cue_class_id": 0,
+      "camera_profile_id": "audit-camera-unavailable",
+      "association_gate_px": 18.5,
+      "association_prediction_horizon_ms": 50.0,
+      "lost_after_ms": 200.0,
+      "maximum_track_age_ms": 1000.0,
+      "maximum_active_tracks": 300,
+      "recent_observation_capacity": 32,
+      "configuration_revision": 1,
+      "rectification_revision": 1,
+      "mean_tracking_ms": 0.2093667,
+      "mean_export_ms": 0.42089989999999994,
+      "source_time": "synthetic_monotonic_frame_arrival"
+    },
+    "receiver": {
+      "bind_address": "127.0.0.1",
+      "maximum_message_bytes": 262144,
+      "queue_capacity": 1,
+      "read_timeout_seconds": 15.0,
+      "authentication": "random launch-scoped token supplied in child environment; value omitted"
+    }
+  },
+  "results": {
+    "rust_exit_code": 0,
+    "rust_reported_scenes": 10,
+    "receiver_accepted_scenes": 10,
+    "queue_replacements": 0,
+    "rejected_messages": 0,
+    "authentication_failures": 0,
+    "sequence_gap_total": 0,
+    "source_schedule_deadlines_missed": 10,
+    "processed_frame_fps": 2.3001510192903605,
+    "cross_process_one_way_latency": "unavailable; producer and receiver monotonic epochs are not qualified",
+    "accuracy_evidence": "static provider equivalence exists in prior run; this transport smoke has no temporal or physical labels"
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "run_id": "scene-tcp-replay-20261020T163659Z-853bb3",
+  "result": "passed",
+  "workload": "paced_recorded_still_replay",
+  "producer": "Rust billiards-perception-infer",
+  "receiver": {
+    "accepted_snapshots": 10,
+    "queue_replacements": 0,
+    "rejected_messages": 0,
+    "authentication_failures": 0,
+    "read_timeouts": 0,
+    "sequence_gap_total": 0,
+    "connection_count": 1,
+    "cross_process_one_way_latency": "unavailable; monotonic epochs not qualified",
+    "receipts": [
+      {
+        "transport_sequence": 1,
+        "snapshot_revision": 1,
+        "frame_id": "frame-000001",
+        "outcome": "success",
+        "ball_count": 0,
+        "receipt_monotonic_ns": "2410881825098375",
+        "payload_sha256": "4f9dba52dec6b890569a52ed42ea6d6e83858df9ee28a36c54ab046377116ee6"
+      },
+      {
+        "transport_sequence": 2,
+        "snapshot_revision": 2,
+        "frame_id": "frame-000002",
+        "outcome": "success",
+        "ball_count": 16,
+        "receipt_monotonic_ns": "2410882232541416",
+        "payload_sha256": "076892cd348d29a9ff5b86f97e5253f5d950222f515faeb629e8c8740965495c"
+      },
+      {
+        "transport_sequence": 3,
+        "snapshot_revision": 3,
+        "frame_id": "frame-000003",
+        "outcome": "success",
+        "ball_count": 22,
+        "receipt_monotonic_ns": "2410882636303416",
+        "payload_sha256": "46fb8ba0adc01c7b792a116d293dc5216f4eef739d2ce7f25bb4db1c5312ce32"
+      },
+      {
+        "transport_sequence": 4,
+        "snapshot_revision": 4,
+        "frame_id": "frame-000004",
+        "outcome": "success",
+        "ball_count": 22,
+        "receipt_monotonic_ns": "2410883029810208",
+        "payload_sha256": "b5095a5cbf66578435c72bc6dde50a8ac9ad80402ce581c4f8b1720156c1fe14"
+      },
+      {
+        "transport_sequence": 5,
+        "snapshot_revision": 5,
+        "frame_id": "frame-000005",
+        "outcome": "success",
+        "ball_count": 16,
+        "receipt_monotonic_ns": "2410883427242000",
+        "payload_sha256": "7897e9fa505fd345581ad20344f89eecba8282137ed935a17de9ad4f7a3d33cc"
+      },
+      {
+        "transport_sequence": 6,
+        "snapshot_revision": 6,
+        "frame_id": "frame-000006",
+        "outcome": "success",
+        "ball_count": 24,
+        "receipt_monotonic_ns": "2410883827200458",
+        "payload_sha256": "a4a8c9ea856eda455ae62879fa0de25380d13dd5689d0d239a59e56d67951139"
+      },
+      {
+        "transport_sequence": 7,
+        "snapshot_revision": 7,
+        "frame_id": "frame-000007",
+        "outcome": "success",
+        "ball_count": 40,
+        "receipt_monotonic_ns": "2410884229164833",
+        "payload_sha256": "7b3f6ed69991cda0b261139e2747147e1491367877a822e999532f2e09c86021"
+      },
+      {
+        "transport_sequence": 8,
+        "snapshot_revision": 8,
+        "frame_id": "frame-000008",
+        "outcome": "success",
+        "ball_count": 34,
+        "receipt_monotonic_ns": "2410884627476708",
+        "payload_sha256": "33bf9efec5588a50e7759808101673be541a63364903e594b705fb8a67483053"
+      },
+      {
+        "transport_sequence": 9,
+        "snapshot_revision": 9,
+        "frame_id": "frame-000009",
+        "outcome": "success",
+        "ball_count": 23,
+        "receipt_monotonic_ns": "2410885021580916",
+        "payload_sha256": "a581503ff39462d3494c0106d3cc7447f7ed3bde521de39b6a40a97c1f7316d1"
+      },
+      {
+        "transport_sequence": 10,
+        "snapshot_revision": 10,
+        "frame_id": "frame-000010",
+        "outcome": "success",
+        "ball_count": 7,
+        "receipt_monotonic_ns": "2410885413156750",
+        "payload_sha256": "ed1021490e571771d337bb8c9edae466447b84cccd3fe1f806bd46e6b5175085"
+      }
+    ]
+  },
+  "provider": [
+    "CPUExecutionProvider"
+  ],
+  "input_directory": "/Users/jchadwick/repos/jchadwick/billiards-trainer/backend/vision/test_data",
+  "input_file_count": 20,
+  "onnx_path": "/tmp/billiards-rust-tcp.Ij3QEK/billiards-yolov8n.onnx",
+  "onnx_sha256": "2444f8007934aa6a17584856b3049ebd1c1a6861c174408d7c3d549b41b45648",
+  "checkpoint_path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/models/billiards-yolov8n.pt",
+  "engine_instance_id": "rust-replay-853bb3",
+  "source_session_id": "source-replay-853bb3",
+  "scene_output": {
+    "destination": "tcp://127.0.0.1:52747",
+    "format": "length_framed_json_scene_snapshot_v1",
+    "mode": "synchronous_loopback_export_during_paced_latest_frame_replay",
+    "snapshot_count": 10,
+    "connect_ms": 0.8811249999999999,
+    "maximum_message_bytes": 262144,
+    "connect_timeout_ms": 5000.0,
+    "write_timeout_ms": 5000.0,
+    "ball_class_id": 1,
+    "cue_class_id": 0,
+    "camera_profile_id": "audit-camera-unavailable",
+    "association_gate_px": 18.5,
+    "association_prediction_horizon_ms": 50.0,
+    "lost_after_ms": 200.0,
+    "maximum_track_age_ms": 1000.0,
+    "maximum_active_tracks": 300,
+    "recent_observation_capacity": 32,
+    "configuration_revision": 1,
+    "rectification_revision": 1,
+    "mean_tracking_ms": 0.2093667,
+    "mean_export_ms": 0.42089989999999994,
+    "source_time": "synthetic_monotonic_frame_arrival"
+  },
+  "batch_jsonl_sha256": "524cf215ba145aecaa88040cc60fb502d6c4f7f9fa6df7a1d58fd3dd3c547267",
+  "process_return_code": 0
+}

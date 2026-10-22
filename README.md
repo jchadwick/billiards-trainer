@@ -1,83 +1,69 @@
 # Billiards Trainer
 
-An augmented reality system that provides real-time assistance for pool/billiards players by detecting the game state through computer vision and projecting trajectory predictions directly onto the pool table. The system uses an overhead camera to capture the table, processes the imagery to detect balls, cue stick, and table boundaries, calculates shot trajectories based on physics simulation, and displays visual guidance through a calibrated projector.
+Billiards Trainer detects table state from an overhead camera and publishes it
+to browser clients. The first priority is accurate, fresh ball locations. Cue
+quality and trajectory prediction are additional capabilities; predictions are
+not on the critical path for basic localization. Numbered-ball classification
+(for example, distinguishing the 6, 7, and 8 balls) is not part of the current
+Rust migration.
 
-### Primary Goals
+## Runtime architecture
 
-1. **Enhance Player Experience**: Provide intuitive visual feedback to help players improve their aim and understand ball physics
-2. **Real-time Performance**: Process and display trajectory updates with less than 50ms latency
-3. **Zero Installation Access**: Enable users to access the system interface from any device without software installation
-4. **Professional Accuracy**: Achieve trajectory prediction accuracy suitable for training and entertainment venues
+- **Server:** Rust owns the supported application server, live capture and
+  localization process, HTTP/WebSocket state delivery, and static asset
+  serving. The gateway supervises the Rust live detector when started with
+  `--start-live`.
+- **Browser:** The web client remains a standard HTML/CSS/JavaScript application
+  built from the React/TypeScript source in `frontend/web`. It is delivered as
+  static browser assets; it is not WebAssembly.
+- **Models:** The Rust live detector consumes a verified ONNX export and its
+  source checkpoint. Number classification is intentionally excluded.
+- **Python:** Python is retained for tests, training and model-export workflows,
+  annotations, and off-device development/audit utilities. Python is not the
+  supported application-server runtime.
 
-## System Overview
+The Rust live path and deployment packaging are still being qualified. A
+successful build or replay is not proof of camera accuracy, calibrated table
+coordinates, sustained freshness, or target-device behavior. The checked-in
+runtime configuration must provide a qualified model pair and appropriate
+capture/calibration settings before live operation can start. macOS and Linux
+qualification are tracked separately.
 
-### Core Functionality
+## Run locally
 
-The system performs continuous real-time analysis of a pool table through the following pipeline:
+Install the Rust toolchain, Node.js, and the GStreamer development/runtime
+components needed by the selected camera or stream source. Prepare `config.json`
+with the Rust live model paths and capture settings, then run:
 
-1. **Image Capture**: Overhead camera captures the pool table at 30+ FPS
-2. **Game State Detection**: Computer vision identifies all balls, cue stick position, and table boundaries
-3. **Physics Calculation**: Predicts ball trajectories based on cue angle and estimated force
-4. **Augmented Display**: Projects trajectory lines and collision predictions onto the physical table
-5. **User Interface**: Web-based control panel for system configuration and monitoring
-
-### Key Features
-
-- **Automatic Calibration**: Self-calibrating system that adapts to different table sizes and lighting conditions
-- **Multi-ball Trajectory**: Calculates collision chains showing how balls will interact
-- **Difficulty Levels**: Adjustable assistance levels from beginner to expert
-- **Remote Access**: Web-based interface accessible from any device
-- **Spectator Mode**: Stream augmented view to external displays or devices
-- **Shot History**: Record and replay shot sequences for training analysis
-
-## Technical Requirements
-
-### Hardware Requirements
-
-- **Camera**: Minimum 1080p resolution, 30 FPS, wide-angle lens for full table coverage
-- **Computer**: Modern CPU (Intel i5/AMD Ryzen 5 or better), 8GB RAM minimum
-- **Projector**: 1080p resolution minimum, 3000+ lumens for daylight visibility (optional for AR display)
-- **Network**: Ethernet or Wi-Fi for multi-device connectivity
-
-### Software Stack
-
-- **Backend**: Python 3.12+ with FastAPI framework
-- **Computer Vision**: OpenCV 4.8+ for image processing
-- **Frontend**: Modern web application (React) with WebSocket support
-- **Deployment**: Can be run natively or in Docker containers for easy installation
-
-## Project Structure
-
-```
-/
-├── backend/
-│   ├── api/              # FastAPI routes and WebSocket handlers
-│   ├── core/             # Detection, tracking, physics calculations
-│   ├── vision/           # OpenCV processing modules
-│   ├── projector/        # Projection client module
-│   └── config/           # Configuration management
-└── frontend/             # Web application
+```bash
+make run
 ```
 
-## Architecture
+The local Rust gateway defaults to `http://127.0.0.1:8001`; the frontend is
+built and served by that gateway. The development-only Vite client can also be
+run separately with `make run-frontend`. To run the gateway without starting
+live capture, use `make run-api`.
 
-See @ARCHITECTURE.md for detailed architecture diagrams and explanations.
+The Rust configuration requires `perception.rust_live.onnx_path` and
+`perception.rust_live.source_checkpoint_path`. The ONNX export must have its
+matching `.manifest.json` alongside it. Paths may be absolute or relative to
+the configured project root. Missing or unverified model inputs are reported
+as startup errors rather than falling back to Python.
 
-## Project Scope
+## Repository map
 
-### In Scope
+```text
+perception/       Rust server, capture, inference, tracking, and contracts
+frontend/web/     Browser client source and tests (HTML/CSS/JavaScript output)
+backend/          Retained Python tests, model/off-device tools, and migration
+                  reference code; not the supported server runtime
+models/           Model artifacts and manifests, where present
+docs/             Runtime, deployment, and architecture decision records
+thoughts/          Performance audit reports and investigation notes
+```
 
-- Complete pool table game state detection
-- Real-time trajectory calculation and display
-- Web-based configuration and monitoring interface
-- Projector calibration and geometric correction
-- Multi-client support for remote viewing
-- Configuration persistence and management
-- Docker-based deployment solution
-
-### Out of Scope
-
-- Automatic shot execution (robotic cue)
-- Score keeping and game rule enforcement
-- Player identification and tracking
-- 3D visualization (2D projection only)
+See [Rust perception/runtime notes](perception/README.md),
+[architecture decisions](docs/architecture/README.md), and the
+[Docker deployment guide](docs/DOCKER.md) for implementation and qualification
+details. Historical Python module documentation is in
+[`backend/README.md`](backend/README.md).

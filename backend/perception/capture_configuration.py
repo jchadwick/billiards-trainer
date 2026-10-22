@@ -1,10 +1,12 @@
-"""Resolve Python's effective capture configuration into the Rust request.
+"""Keep the legacy Python capture-settings contract for differential tooling.
 
-This module serializes requested settings only. A generated profile identifier
-is a stable fingerprint of the raw camera mode and, for v2, emitted RGB8
-geometry. It is not a device identity or an application acknowledgment. Rust
-must compare the request with the opened source report before reading frames;
-settings absent from that report remain unverified.
+The live supervisor now requests its v3 settings from the Rust configuration
+authority. This module remains a Python reference implementation for contract
+tests and offline performance-audit tooling. A generated profile identifier
+is a fingerprint of the raw camera mode and, for v2+, emitted RGB8 geometry;
+it is not a device identity or an application acknowledgment. Rust compares
+the request with the opened source report before reading frames, and fields
+absent from that report remain unverified.
 """
 
 from __future__ import annotations

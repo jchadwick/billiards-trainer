@@ -29,13 +29,16 @@ switch activate collection; each domain switch then controls its own events.
 | `performance_audit.enabled` | `false` | Global activation |
 | `performance_audit.state_enabled` | `true` | Camera-to-state and state-delivery evidence |
 | `performance_audit.trajectory_enabled` | `false` | Prediction queue, compute, freshness, and delivery |
+| `performance_audit.trajectory_workload_enabled` | `true` | Keep or suppress trajectory admission and compute in an active audit; ignored when auditing is off |
 | `performance_audit.viewers_enabled` | `false` | Per-viewer frame read, encoding, and backpressure |
 | `performance_audit.warmup_seconds` | `30` | Warm-up before each measured run |
 | `performance_audit.measured_seconds` | `120` | Duration of each ordinary run |
 | `performance_audit.repetitions` | `3` | Ordinary measured repetitions |
 | `performance_audit.soak_seconds` | `1200` | One separate 20-minute soak duration |
-| `performance_audit.sample_rate` | `1.0` | Fraction of audit events retained |
-| `performance_audit.history_size` | `10000` | In-memory timing and percentile sample cap |
+| `performance_audit.sample_rate` | `1.0` | Fraction of eligible audit events accepted by the exporter |
+| `performance_audit.detailed_frame_sample_rate` | `0.05` | Fraction of vision frames that receive nested stage timings |
+| `performance_audit.detailed_event_sample_rate` | `0.05` | Fraction of high-frequency pipeline and delivery details timed and exported |
+| `performance_audit.history_size` | `10000` | In-memory timing, percentile, and source-identity deduplication window cap |
 | `performance_audit.event_queue_capacity` | `2048` | Per-process asynchronous export queue cap |
 | `performance_audit.event_export_limit` | `200000` | Per-process written event cap |
 | `performance_audit.export_drain_timeout_seconds` | `5.0` | Maximum post-run wait for the API exporter queue to drain |
@@ -45,15 +48,80 @@ switch activate collection; each domain switch then controls its own events.
 | `performance_audit.output_directory` | `thoughts/performance-audits` | Run reports and per-process event files |
 
 The shared configuration validator checks these values before accepting a
-configuration update. Sampling and export are bounded. Queue drops, sampled-out
-records, export-limit drops, and write failures appear in the report so missing
-trace data cannot look like a performance win. A run ranks recorded vision
-stages by cumulative exclusive work and reports per-stage p50/p95/p99; this
-attributes work but does not predict speedup from removing it.
+configuration update. Frame detail selection happens before allocating its
+timing context or recording nested spans. It uses a deterministic hash of the
+frame number so separate runs sample the same frame identities without a
+shared random-number lock. High-frequency event detail uses the same selector;
+the audit reports candidate, selected, and sampled-out counts separately from
+records lost to the bounded export queue. Correctness and lifecycle anomalies
+remain unsampled. In-memory profiler counters retain exact total and failure
+counts; exported stage events and server-side event summaries describe only
+the selected detail sample and retained records. Their names say `recorded` or
+`sampled` so they cannot be mistaken for full pipeline totals. Use the headless
+subscriber's state accumulator for delivered-state throughput and repeated
+publication counts; it also discloses the bounded identity-deduplication
+window. The general `sample_rate` then controls exporter acceptance for the
+remaining eligible events. Failed frames, source discontinuities, and the
+sampling footer bypass probabilistic sampling, while the bounded queue and
+export cap still apply. Queue drops, sampled-out records, export-limit drops,
+and write failures appear in status and reports so missing trace data cannot
+look like a performance win. A run ranks recorded vision stages by cumulative
+exclusive work and reports per-stage p50/p95/p99; this attributes work but does
+not predict speedup from removing it.
+
+Video events retain the capture thread's `camera_read_seconds` for selected
+frames, then time undistortion and shared-memory publication. The main loop
+cannot select a frame before `get_latest_frame()` returns its identity, so
+`camera_frame_queue_retrieval_seconds` is explicitly unavailable rather than
+timing every empty polling iteration.
 
 The API status endpoint is
 `GET /api/v1/vision/performance/audit`. When state profiling is enabled,
 `GET /api/v1/vision/performance` shows the current profiler window.
+
+The headless collector accepts both Python state identities and native Rust
+scene identities. Rust observations retain engine, session, and full frame ID;
+numeric frame suffixes are used only to count ordering and gaps. Source ticks
+keep their declared clock and stage and are never interpreted as wall time. In
+containers without the Git checkout, revision and dirty-worktree identity are
+reported as unavailable; overhead comparisons require known matching source,
+worktree, model, and input hashes. Rust replay metadata uses the configured ONNX
+model, source checkpoint, inference executable, and replay input directory.
+The primary `unique_source_observations` and
+`unique_observations_per_second` metrics count new frames whose ball positions
+are explicitly marked `observed`. `unique_source_frame_updates` counts every
+newly received source frame, including cached, failed, and skipped updates;
+those states are counted separately so stale state cannot inflate fresh
+detection throughput.
+
+For a finite API replay, subscribe before replay begins or collect while the
+source is actively running. A collector that attaches after startup can miss
+early frames and include idle time after a one-shot replay ends; that result is
+a startup smoke, not a steady-state throughput measurement.
+
+For a bounded paced audit, configure `perception.rust_replay.replay_repeat_count`
+to repeat the recorded PNG/JPEG corpus after each complete pass. It defaults to
+`1`, preserving one-pass replay. `maximum_replay_frames` defaults to `100000`
+and caps the total scheduled frames (`corpus image count × repeat count`); the
+supervisor rejects a configuration that exceeds the cap before launching the
+detector. The Rust replay assigns each repeated frame a new monotonically
+increasing source identity, while the recorded pixels and hashes repeat. This
+keeps delivery accounting well-defined, but repeated visual content is load
+input only and does not count as new accuracy evidence.
+
+Choose enough repeats to cover the collector's full warm-up and measurement
+window, plus the time between backend startup and collector attachment:
+
+```text
+repeat_count >= ceil(
+  replay_rate_fps × (warmup_seconds + measured_seconds × repetitions + startup_margin_seconds)
+  / corpus_image_count
+)
+```
+
+Keep the resulting total at or below `maximum_replay_frames`. For separate
+accuracy evaluation, use temporally annotated recordings rather than looping a
+short corpus.
 
 ## Run the live delivery audit
 
@@ -123,18 +191,57 @@ uv run python backend/tools/collect_performance_audit.py \
   --streams state,trajectory --scenario trajectory-enabled
 ```
 
+The trajectory-enabled setting controls measurement only. Prediction work
+continues by default. To isolate prediction interference, run matched state
+audits with trajectory_workload_enabled set first to false and then to true;
+restart the backend between arms and keep the input, detector, calibration,
+stream subscription, and measurement settings fixed. Keep the audit domains
+identical between these two workload arms so the measured difference is
+prediction work rather than added tracing. Set trajectory_enabled to true in
+a separate trajectory-detail run when you need prediction queue and compute
+timings. This control is effective only while auditing is active and preserves
+phase/calibration invalidation.
+
 For viewer interference, turn on `viewers_enabled` and add a local MJPEG
-subscriber. The application video route is `/api/v1/video`:
+subscriber. The application video route is `/api/v1/stream/video`:
 
 ```bash
 uv run python backend/tools/collect_performance_audit.py \
-  --video-url http://127.0.0.1:8000/api/v1/video \
+  --video-url http://127.0.0.1:8000/api/v1/stream/video \
   --scenario state-plus-video-viewer
 ```
 
 The MJPEG subscriber starts before warm-up so its connection and encoder state
 settle before measurement. Per-run viewer byte, chunk, and frame counts exclude
-the warm-up interval.
+the warm-up interval. Detailed viewer events use deterministic sampling by
+source writer and frame number on the shared-memory path, so all viewers select
+the same source frames for fan-out and cross-run A/B comparisons. Frame number
+is the sampling key; writer PID remains event provenance only. The legacy
+raw-camera route uses a per-client sequence because it does not expose a
+shared-memory source frame identity. The read span needs two monotonic clock reads before the shared-memory
+frame identity is available; only selected frames export that span and receive
+JPEG/send timing and paired event records. Selected detail events bypass the
+second probabilistic event filter, while queue capacity and export limits still
+apply. New collector summaries use schema version 6 and distinguish retained
+event counts from headless-client delivery counts.
+
+Live MJPEG routes read the newest shared-memory frame on each iteration rather
+than queueing frames for a viewer. The response-writer wait is limited by
+`api.stream.performance.maximum_send_backpressure_seconds` (validated default
+`0.5` seconds); a client exceeding the limit is disconnected after its current
+chunk and can reconnect on the latest frame. This bounds server-side backlog,
+but a JPEG already accepted by TCP cannot be recalled and browser-display delay
+is not measured.
+
+The headless collector bounds source high-water identities by `history_size`.
+Its state and trajectory summaries report the retained identity count, capacity,
+and number of evictions. A source identity that returns after eviction is
+counted as new because duplicate and ordering history for that identity is no
+longer retained. Trajectory queue, executor, calculator-lock, compute, and
+publication timing distributions combine published, calculation-failed,
+stale-discarded, and publication-failed outcomes when that timing is available;
+the outcome counts remain separate so a fast successful subset cannot hide slow
+or failed work.
 
 To exercise bounded slow-consumer behavior, add a measured delay after each
 headless receive:
@@ -156,7 +263,10 @@ uv run python backend/tools/collect_performance_audit.py --soak
 
 The soak uses one 20-minute measured interval after the configured warm-up.
 The collector retains at most `history_size` latency samples and a bounded
-number of exported events. Override run settings with `--warmup`, `--duration`,
+number of exported events. Percentiles describe the retained most-recent sample
+window; the summary separately reports total observations, retained count, and
+whether the sample window was truncated. Override run settings with `--warmup`,
+`--duration`,
 `--repetitions`, `--history-size`, `--queue-capacity`, `--sample-rate`, and
 `--event-export-limit` when a test calls for different limits.
 
@@ -193,6 +303,38 @@ when comparing pace modes or candidate profiles. Each report records the input
 hash, model hash, source revision, dirty-worktree identity, host, runtime,
 hardware, and relevant configuration. Capacity results must not be presented
 as end-to-end live latency.
+
+Camera frame-rate qualification is separate from detector cadence. The
+`vision.camera.fps` setting requests a camera mode that must be negotiated and
+verified; it does not implement software sampling. A target-Linux replay paced
+unique 4K video frames at several software arrival rates through the Rust
+latest-frame mailbox. It processed 3.317 observations/s from 3.333 arrivals/s
+with no pending replacements; at 3.75 FPS one pending frame was replaced, and
+replacement and p95 completion latency rose above that. This is a single-run
+capacity screen with synthetic post-decode timestamps, no connected camera,
+and no temporal accuracy labels. It does not justify a webcam setting. See the
+[unique-video sampling report](../thoughts/performance-audits/software-sampling-rate-20261021/sampling-rate-comparison.md).
+Use continuous-video source frame IDs and temporal labels to evaluate software
+sampling; count intentional sampling skips separately from overload
+replacements.
+
+The opt-in Rust physical-camera qualification is a state-only supervisor run,
+separate from the API delivery audit. It requires an explicit capture profile
+and a Rust live settings file. During the measured window it samples the Rust
+inference child process (CPU utilization, CPU time, and RSS) on the configured
+`performance_audit.resource_sample_interval_seconds` interval. Override the
+interval for this mode with `--rust-live-resource-sample-interval`. The report
+retains bounded samples and summarizes them per repetition; missing process
+identity or unsupported resource sampling is reported as unavailable. This
+mode does not include the API, frontend, trajectory, or video viewers.
+
+The same run enables receiver-side scene transport counters after warm-up and
+turns them off at the end of the measured window. It reports accepted snapshot
+rate, serialized payload bytes (minimum, mean, and maximum), transport sequence
+gaps, and the one-slot queue's occupancy before enqueue and replacement
+fraction. These scalar counters retain no per-frame history and do not split
+Rust serialization, socket write, kernel buffering, or Python parsing. They
+use the collector process monotonic window and do not subtract Rust timestamps.
 
 ## Repeatable workload matrix
 
@@ -268,6 +410,27 @@ elapsed segments from different processes; they are never subtracted from each
 other. The parent framed-read span includes pipe transfer and producer
 backpressure, but is not a separate helper write timer. Camera exposure remains
 unavailable, and GStreamer PTS remains explicitly unverified as source time.
+Per-repetition CPU, CPU-time, and RSS summaries identify the Rust inference
+child separately from the audit runner.
+
+Rust live-audit schema v3 adds `engine_total` to successful frame timings and
+adds `inference_timings_ms` to observations rejected after inference for
+freshness. Those rejected observations retain their normal identity and
+nullable source timestamp, and never become scene or state publications. The
+collector reports their capture, scheduling, preprocess, inference, decode,
+completion-age, and configured-limit distributions separately from matched
+published frames. If startup fails before a measured window exists, the report
+labels these as all-retained startup diagnostics rather than a performance
+baseline. The Python parser continues to accept archived schema-v1/v2 records.
+
+On the Linux target, the illuminated-table camera run on the real 1280-input
+CPU model rejected all 62 inference results against its 100 ms freshness limit:
+inference p50/p95 was 267/292 ms, preprocessing 37.6/38.3 ms, and age at
+inference completion 317/363 ms. The run failed before readiness and is not a
+performance or accuracy result. This evidence identifies inference as the
+first bottleneck to investigate; reducing capture FPS alone cannot make that
+inference fit inside the current freshness budget. See the
+[target startup diagnostic](../thoughts/performance-audits/target-physical-camera-qualification-20261022/20261022-040555-efa22995/report.md).
 
 Source frame counters are tracked with their source publication timestamps. A
 newer publication paired with a non-increasing counter starts a new sequence

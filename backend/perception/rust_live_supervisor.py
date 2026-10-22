@@ -1,10 +1,9 @@
-"""Supervise the unqualified Rust live-capture process boundary.
+"""Supervise the Rust live-capture process boundary.
 
-This module deliberately does not make Rust live selectable by the API. It
-proves the Python process contract only: one immutable capture request is
-written to child stdin, the same request configures v3 scene ingress, and
-readiness waits for a usable localization to reach the retained publisher.
-The camera adapter and physical platform qualification remain separate gates.
+The API can opt into this provider explicitly. One immutable v3 capture request
+configures both the child and scene ingress; readiness waits for a usable
+localization to reach the retained gateway publisher. Physical performance and
+accuracy qualification remain deployment gates, not implicit startup fallbacks.
 """
 
 from __future__ import annotations
@@ -23,15 +22,33 @@ from collections import Counter, deque
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
+from backend.config import load_schema_reference
 from backend.perception.capture_configuration import (
     CaptureSettingsSnapshot,
     CaptureSettingsSnapshotV1,
     CaptureSettingsSnapshotV2,
     CaptureSettingsSnapshotV3,
 )
-from backend.perception.scene_ingress import SceneIngressConfig, SceneSnapshotIngress
+from backend.perception.rust_frame_preview import (
+    CalibrationControlResponse,
+    FramePreviewCalibrationControlSettings,
+    FramePreviewEndpoint,
+    FramePreviewImage,
+    FramePreviewProcessSettings,
+    FramePreviewProtocolError,
+    FramePreviewUnavailable,
+    fetch_frame_preview,
+    parse_ready_record,
+    read_calibration_store,
+    submit_calibration_request,
+)
+from backend.perception.scene_ingress import (
+    SceneIngressConfig,
+    SceneIngressTransportAuditSummary,
+    SceneSnapshotIngress,
+)
 from backend.perception.scene_state_worker import (
     SceneSnapshotStateWorker,
     SceneStateWorkerStats,
@@ -53,9 +70,22 @@ _MAX_FRAME_RECORD_HEADER_BYTES = (1 << 32) - 1
 _MAX_LIVE_AUDIT_RECORD_BYTES = 1_048_576
 _MIN_LIVE_AUDIT_RECORD_BYTES = 1_024
 _MAX_LIVE_AUDIT_QUEUE_CAPACITY = 4_096
-_LIVE_AUDIT_SCHEMA_VERSION = 2
+_LIVE_AUDIT_SCHEMA_VERSION = 3
 _GSTREAMER_CAPTURE_SELECTOR_PREFIX = "gstreamer-device-v1:"
 _GSTREAMER_CAPTURE_SELECTOR_PATTERN = re.compile(r"^gstreamer-device-v1:[0-9a-f]{64}$")
+_DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+class ConfigurationReader(Protocol):
+    """Validated configuration surface needed to build a Rust live session."""
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+    def get_all(self) -> dict[str, Any]: ...
+
+    def resolve_capture_settings(
+        self, *, schema_version: int = 3
+    ) -> dict[str, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -212,6 +242,51 @@ def _capture_runtime_identity(
         camera_profile_id=camera_profile_id,
         rectification_revision=rectification_revision,
         image_space=image_space,
+    )
+
+
+def _capture_settings_snapshot_from_authority(
+    value: object,
+) -> CaptureSettingsSnapshotV3:
+    """Retain Rust's validated request as deterministic bytes for the child.
+
+    Python owns only the transport between the configuration authority and
+    the live process. Rust has already built and validated this v3 contract;
+    the DTO below does not resolve defaults or recalculate profile identity.
+    """
+    if not isinstance(value, dict):
+        raise RustLiveConfigurationError(
+            "Rust configuration authority returned no capture-settings object"
+        )
+    schema_version = value.get("schema_version")
+    revision = value.get("configuration_revision")
+    requested = value.get("requested")
+    if (
+        type(schema_version) is not int
+        or schema_version != 3
+        or type(revision) is not int
+        or not 1 <= revision <= _MAX_SAFE_JSON_INTEGER
+        or not isinstance(requested, dict)
+    ):
+        raise RustLiveConfigurationError(
+            "Rust configuration authority returned an invalid v3 capture request"
+        )
+    try:
+        encoded_requested = json.dumps(
+            requested,
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise RustLiveConfigurationError(
+            "Rust configuration authority returned non-finite capture settings"
+        ) from error
+    return CaptureSettingsSnapshotV3(
+        schema_version=schema_version,
+        configuration_revision=revision,
+        _requested_json=encoded_requested,
     )
 
 
@@ -551,6 +626,178 @@ class RustLiveSettings:
     capture_helper_readiness_timeout_ms: int | None = None
     capture_helper_child_exit_timeout_ms: int | None = None
     capture_helper_child_exit_poll_interval_ms: int | None = None
+    public_state_delivery_schema_version: int | None = None
+    frame_preview: FramePreviewProcessSettings | None = None
+
+    @classmethod
+    def from_configuration(
+        cls,
+        configuration: ConfigurationReader,
+        *,
+        project_root: Path = _DEFAULT_PROJECT_ROOT,
+    ) -> RustLiveSettings:
+        """Build a fail-closed live session from validated application settings."""
+        perception = load_schema_reference().get("perception")
+        defaults = perception.get("rust_live") if isinstance(perception, dict) else None
+        if not isinstance(defaults, dict):
+            raise RustLiveConfigurationError(
+                "bundled configuration must define perception.rust_live"
+            )
+
+        def value(key: str) -> Any:
+            if key not in defaults:
+                raise RustLiveConfigurationError(
+                    f"bundled perception.rust_live.{key} default is missing"
+                )
+            return configuration.get(f"perception.rust_live.{key}", defaults[key])
+
+        def path_value(key: str) -> Path:
+            raw = value(key)
+            if not isinstance(raw, str) or not raw.strip():
+                raise RustLiveConfigurationError(
+                    f"perception.rust_live.{key} must be a configured path"
+                )
+            candidate = Path(raw).expanduser()
+            if not candidate.is_absolute():
+                candidate = project_root / candidate
+            return candidate.resolve()
+
+        try:
+            capture_request = configuration.resolve_capture_settings(schema_version=3)
+            capture_settings = _capture_settings_snapshot_from_authority(
+                capture_request
+            )
+        except RustLiveConfigurationError:
+            raise
+        except Exception as error:
+            raise RustLiveConfigurationError(
+                f"Rust configuration authority could not resolve live capture settings: {error}"
+            ) from error
+        if _gstreamer_capture_selector(capture_settings) is None:
+            raise RustLiveConfigurationError(
+                "Rust live capture requires perception.capture.device_selector to "
+                "identify one stable physical webcam"
+            )
+
+        inference = RustLiveInferenceSettings(
+            onnx_path=path_value("onnx_path"),
+            source_checkpoint_path=path_value("source_checkpoint_path"),
+            provider=value("provider"),
+            image_size=value("image_size"),
+            confidence=value("confidence"),
+            iou=value("iou"),
+            max_detections=value("max_detections"),
+            intra_op_threads=value("intra_op_threads"),
+            warmup_runs=value("warmup_runs"),
+            ball_class_id=value("ball_class_id"),
+            cue_class_id=value("cue_class_id"),
+            association_gate_px=value("association_gate_px"),
+            association_prediction_horizon_ms=value(
+                "association_prediction_horizon_ms"
+            ),
+            lost_after_ms=value("lost_after_ms"),
+            maximum_track_age_ms=value("maximum_track_age_ms"),
+            maximum_active_tracks=value("maximum_active_tracks"),
+            recent_observation_capacity=value("recent_observation_capacity"),
+        )
+        frame_preview_enabled = value("frame_preview_enabled")
+        if type(frame_preview_enabled) is not bool:
+            raise RustLiveConfigurationError(
+                "perception.rust_live.frame_preview_enabled must be a boolean"
+            )
+        calibration_control_enabled = value("frame_preview_calibration_control_enabled")
+        if type(calibration_control_enabled) is not bool:
+            raise RustLiveConfigurationError(
+                "perception.rust_live.frame_preview_calibration_control_enabled "
+                "must be a boolean"
+            )
+        if calibration_control_enabled and not frame_preview_enabled:
+            raise RustLiveConfigurationError(
+                "Rust calibration control requires frame preview to be enabled"
+            )
+        frame_preview = None
+        if frame_preview_enabled:
+            try:
+                calibration_control = None
+                if calibration_control_enabled:
+                    calibration_control = FramePreviewCalibrationControlSettings(
+                        store_path=path_value("frame_preview_calibration_store_path"),
+                        store_lock_timeout_ms=value(
+                            "frame_preview_calibration_store_lock_timeout_ms"
+                        ),
+                        maximum_store_file_bytes=value(
+                            "frame_preview_calibration_store_max_file_bytes"
+                        ),
+                        maximum_request_bytes=value(
+                            "frame_preview_calibration_max_request_bytes"
+                        ),
+                    )
+                frame_preview = FramePreviewProcessSettings(
+                    bind_address=value("frame_preview_bind_address"),
+                    port=value("frame_preview_port"),
+                    maximum_header_bytes=value("frame_preview_max_header_bytes"),
+                    maximum_jpeg_bytes=value("frame_preview_max_jpeg_bytes"),
+                    maximum_concurrent_encodes=value(
+                        "frame_preview_max_concurrent_encodes"
+                    ),
+                    jpeg_quality=value("frame_preview_jpeg_quality"),
+                    request_timeout_ms=value("frame_preview_request_timeout_ms"),
+                    write_timeout_ms=value("frame_preview_write_timeout_ms"),
+                    calibration_control=calibration_control,
+                )
+                frame_preview.validate(project_root=project_root.resolve())
+            except (TypeError, ValueError) as error:
+                raise RustLiveConfigurationError(
+                    f"invalid Rust frame-preview settings: {error}"
+                ) from error
+        helper_path = path_value("capture_helper_executable_path")
+        settings = cls(
+            capture_settings=capture_settings,
+            inference=inference,
+            executable_path=path_value("executable_path"),
+            project_root=project_root.resolve(),
+            bind_address=value("bind_address"),
+            port=value("port"),
+            maximum_message_bytes=value("maximum_message_bytes"),
+            capture_settings_maximum_bytes=value("capture_settings_maximum_bytes"),
+            read_timeout_seconds=value("read_timeout_seconds"),
+            source_silence_timeout_seconds=value("source_silence_timeout_seconds"),
+            startup_timeout_seconds=value("startup_timeout_seconds"),
+            stop_timeout_seconds=value("stop_timeout_seconds"),
+            graceful_stop_timeout_seconds=value("graceful_stop_timeout_seconds"),
+            poll_interval_ms=value("poll_interval_ms"),
+            connect_timeout_ms=value("connect_timeout_ms"),
+            write_timeout_ms=value("write_timeout_ms"),
+            reconnect_initial_delay_ms=value("reconnect_initial_delay_ms"),
+            reconnect_maximum_delay_ms=value("reconnect_maximum_delay_ms"),
+            output_tail_capacity_bytes=value("output_tail_capacity_bytes"),
+            capture_helper_executable_path=helper_path,
+            capture_helper_ready_record_max_bytes=value(
+                "capture_helper_ready_record_max_bytes"
+            ),
+            capture_helper_frame_header_max_bytes=value(
+                "capture_helper_frame_header_max_bytes"
+            ),
+            capture_helper_slow_reader_delay_ms=value(
+                "capture_helper_slow_reader_delay_ms"
+            ),
+            capture_helper_pull_timeout_ms=value("capture_helper_pull_timeout_ms"),
+            capture_helper_readiness_timeout_ms=value(
+                "capture_helper_readiness_timeout_ms"
+            ),
+            capture_helper_child_exit_timeout_ms=value(
+                "capture_helper_child_exit_timeout_ms"
+            ),
+            capture_helper_child_exit_poll_interval_ms=value(
+                "capture_helper_child_exit_poll_interval_ms"
+            ),
+            public_state_delivery_schema_version=value(
+                "public_state_delivery_schema_version"
+            ),
+            frame_preview=frame_preview,
+        )
+        settings.validate()
+        return settings
 
     def validate(self) -> None:
         """Reject invalid settings before creating a listener or child process."""
@@ -569,6 +816,26 @@ class RustLiveSettings:
             raise RustLiveConfigurationError(
                 "inference must be a RustLiveInferenceSettings"
             )
+        if self.public_state_delivery_schema_version is not None and (
+            type(self.public_state_delivery_schema_version) is not int
+            or self.public_state_delivery_schema_version != 1
+        ):
+            raise RustLiveConfigurationError(
+                "public_state_delivery_schema_version must be supported v1"
+            )
+        if self.frame_preview is not None:
+            try:
+                self.frame_preview.validate(
+                    project_root=(
+                        self.project_root
+                        if isinstance(self.project_root, Path)
+                        else None
+                    )
+                )
+            except (TypeError, ValueError) as error:
+                raise RustLiveConfigurationError(
+                    f"invalid Rust frame-preview settings: {error}"
+                ) from error
         self.inference.validate()
         _capture_runtime_identity(self.capture_settings)
         _validate_capture_helper_settings(self)
@@ -827,6 +1094,11 @@ class RustLiveStatus:
     process_return_code: int | None
     process_status: str
     failure: str | None
+    mode: str
+    first_observation_received: bool
+    live_camera: bool
+    preview: str
+    predictions: str
     ingress_accepted_snapshots: int
     ingress_rejected_handshakes: int
     ingress_queue_replacements: int
@@ -975,6 +1247,9 @@ class RustLiveAuditIngress:
     def summary(self) -> dict[str, Any]:
         """Return bounded receipt counts and explicit completeness status."""
         footer = self._footer
+        producer_dropped_records = (
+            footer.get("dropped_records") if footer is not None else None
+        )
         footer_record_count_matches = (
             footer is not None
             and footer.get("records_written_before_footer") == self._record_count - 1
@@ -983,6 +1258,7 @@ class RustLiveAuditIngress:
             footer is not None
             and self._protocol_error is None
             and self._consumer_dropped_records == 0
+            and producer_dropped_records == 0
             and footer_record_count_matches
         )
         return {
@@ -994,6 +1270,7 @@ class RustLiveAuditIngress:
             "malformed_records": self._malformed_records,
             "oversized_records": self._oversized_records,
             "consumer_dropped_records": self._consumer_dropped_records,
+            "producer_dropped_records": producer_dropped_records,
             "protocol_error": self._protocol_error,
             "footer_received": footer is not None,
             "footer_record_count_matches": footer_record_count_matches,
@@ -1224,7 +1501,7 @@ def _validate_live_audit_record(value: Any) -> dict[str, Any]:
         "footer",
     }:
         raise ValueError("record_type is unknown")
-    schema_version = _audit_integer(value, "schema_version", minimum=1, maximum=2)
+    schema_version = _audit_integer(value, "schema_version", minimum=1, maximum=3)
 
     if record_type == "footer":
         _audit_exact_fields(
@@ -1323,6 +1600,7 @@ def _validate_live_audit_record(value: Any) -> dict[str, Any]:
                 "stage",
                 "reason",
             },
+            optional={"inference_timings_ms"} if schema_version >= 3 else None,
         )
         transport_sequence = value.get("transport_sequence")
         if transport_sequence is not None:
@@ -1339,6 +1617,48 @@ def _validate_live_audit_record(value: Any) -> dict[str, Any]:
                 )
         if value["outcome"] not in {"skipped", "rejected", "failed", "degraded"}:
             raise ValueError("observation outcome is not supported")
+        if "inference_timings_ms" in value:
+            inference_timings = value["inference_timings_ms"]
+            if schema_version < 3:
+                raise ValueError("inference_timings_ms requires schema version 3")
+            if not (
+                value["outcome"] == "skipped"
+                and value["stage"] == "freshness_check"
+                and value["reason"] == "stale_after_inference"
+            ):
+                raise ValueError(
+                    "inference_timings_ms is only valid for stale-after-inference outcomes"
+                )
+            if not isinstance(inference_timings, dict):
+                raise ValueError("inference_timings_ms must be an object")
+            _audit_exact_fields(
+                inference_timings,
+                required={
+                    "capture_helper_appsink_pull_wait",
+                    "capture_helper_rgb_buffer_allocation",
+                    "capture_helper_rgb_mapping_copy",
+                    "parent_framed_record_read",
+                    "parent_record_read_complete_to_inference_start",
+                    "preprocess",
+                    "inference",
+                    "decode_and_nms",
+                    "engine_total",
+                    "parent_record_read_complete_to_inference_complete",
+                    "maximum_frame_age",
+                },
+            )
+            optional_timing_values = {
+                "capture_helper_appsink_pull_wait",
+                "capture_helper_rgb_buffer_allocation",
+                "capture_helper_rgb_mapping_copy",
+                "parent_framed_record_read",
+            }
+            for name, duration in inference_timings.items():
+                _audit_duration(
+                    duration,
+                    f"inference_timings_ms.{name}",
+                    allow_none=name in optional_timing_values,
+                )
         return value
 
     _audit_exact_fields(
@@ -1401,6 +1721,8 @@ def _validate_live_audit_record(value: Any) -> dict[str, Any]:
             "scene_queue_submit",
             "parent_record_read_complete_to_scene_queue_submit",
         }
+        if schema_version >= 3:
+            required_durations.add("engine_total")
         optional_durations = {
             "capture_helper_appsink_pull_wait",
             "capture_helper_rgb_buffer_allocation",
@@ -1456,6 +1778,9 @@ class RustLiveSupervisor:
                 maximum_message_bytes=settings.maximum_message_bytes,
                 read_timeout_seconds=settings.read_timeout_seconds,
                 capture_settings=settings.capture_settings,
+                accept_public_state_delivery=(
+                    settings.public_state_delivery_schema_version == 1
+                ),
             )
         )
         self._worker = SceneSnapshotStateWorker(
@@ -1471,6 +1796,9 @@ class RustLiveSupervisor:
         self._stderr_tail = bytearray()
         self._engine_instance_id: str | None = None
         self._source_session_id: str | None = None
+        self._frame_preview_ready_future: (
+            asyncio.Future[FramePreviewEndpoint] | None
+        ) = None
         self._failure: str | None = None
         self._started = False
         self._closed = False
@@ -1494,6 +1822,12 @@ class RustLiveSupervisor:
         else:
             process_status = "completed"
         worker_stats = self._worker.stats
+        camera_running = (
+            process is not None
+            and return_code is None
+            and not self._closed
+            and worker_stats.source_health == "healthy"
+        )
         source_health = (
             "process_failed"
             if process_status == "failed"
@@ -1517,6 +1851,15 @@ class RustLiveSupervisor:
             process_return_code=return_code,
             process_status=process_status,
             failure=self._failure,
+            mode="live",
+            first_observation_received=worker_stats.published > 0,
+            live_camera=camera_running,
+            preview=(
+                "rust_current_frame"
+                if camera_running and self._settings.frame_preview is not None
+                else "unavailable"
+            ),
+            predictions="unavailable",
             ingress_accepted_snapshots=self._ingress.stats.accepted_snapshots,
             ingress_rejected_handshakes=self._ingress.stats.rejected_handshakes,
             ingress_queue_replacements=self._ingress.stats.queue_replacements,
@@ -1528,6 +1871,20 @@ class RustLiveSupervisor:
             ),
             stderr_tail=self._stderr_tail.decode("utf-8", errors="replace"),
         )
+
+    @property
+    def process_id(self) -> int | None:
+        """Return the child PID for opt-in audit resource sampling."""
+        process = self._process
+        return process.pid if process is not None else None
+
+    def enable_transport_audit(self) -> None:
+        """Enable receiver-side scalar transport counters for one measured window."""
+        self._ingress.enable_transport_audit()
+
+    def finish_transport_audit(self) -> SceneIngressTransportAuditSummary:
+        """Stop receiver-side counters and return their bounded aggregate."""
+        return self._ingress.finish_transport_audit()
 
     @property
     def capture_session_acknowledgement(
@@ -1558,9 +1915,23 @@ class RustLiveSupervisor:
             await self._worker.start()
             if self._audit_ingress is not None:
                 await self._audit_ingress.start()
+            preview_settings = self._settings.frame_preview
+            if preview_settings is not None and preview_settings.calibration_control:
+                try:
+                    preview_settings.calibration_control.store_path.parent.mkdir(
+                        parents=True, exist_ok=True
+                    )
+                except OSError as error:
+                    raise RustLiveStartupError(
+                        "Rust calibration store parent directory could not be prepared"
+                    ) from error
             address = self._ingress.address
             self._engine_instance_id = str(uuid.uuid4())
             self._source_session_id = str(uuid.uuid4())
+            if self._settings.frame_preview is not None:
+                self._frame_preview_ready_future = (
+                    asyncio.get_running_loop().create_future()
+                )
             environment = {
                 key: os.environ[key]
                 for key in _RUST_CHILD_ENVIRONMENT_KEYS
@@ -1594,11 +1965,16 @@ class RustLiveSupervisor:
                 name="rust-live-stdout-drain",
             )
             self._stderr_task = asyncio.create_task(
-                self._drain_output(self._process.stderr, self._stderr_tail),
+                self._drain_output(
+                    self._process.stderr,
+                    self._stderr_tail,
+                    capture_frame_preview_ready=True,
+                ),
                 name="rust-live-stderr-drain",
             )
 
             await self._send_capture_request(startup_deadline)
+            await self._await_frame_preview_ready(startup_deadline)
             await self._await_first_observation(startup_deadline)
             self._ready = True
             status = self.status
@@ -1624,6 +2000,74 @@ class RustLiveSupervisor:
             return
         self._closed = True
         await self._stop()
+
+    async def get_current_frame_preview(self) -> FramePreviewImage:
+        """Return one JPEG and its exact Rust capture descriptor for the wizard."""
+        preview_settings = self._settings.frame_preview
+        ready = self._frame_preview_ready_future
+        if preview_settings is None or ready is None:
+            raise FramePreviewUnavailable(
+                "Rust current-frame preview is disabled for this process"
+            )
+        if self._closed or not self.status.process_running:
+            raise FramePreviewUnavailable("Rust live capture is not running")
+        try:
+            endpoint = await asyncio.shield(ready)
+        except FramePreviewProtocolError:
+            raise
+        except Exception as error:
+            raise FramePreviewUnavailable(
+                "Rust current-frame preview endpoint is not ready"
+            ) from error
+        return await fetch_frame_preview(endpoint, preview_settings.client_limits)
+
+    @property
+    def calibration_control_max_request_bytes(self) -> int | None:
+        """Expose only the configured HTTP body bound for the gateway adapter."""
+        preview = self._settings.frame_preview
+        control = preview.calibration_control if preview is not None else None
+        return control.maximum_request_bytes if control is not None else None
+
+    async def get_calibration_store_snapshot(self) -> CalibrationControlResponse:
+        """Read the durable Rust calibration state without interpreting it."""
+        endpoint, preview = await self._calibration_control_endpoint()
+        return await read_calibration_store(endpoint, preview.client_limits)
+
+    async def submit_calibration_store_request(
+        self, request_body: bytes
+    ) -> CalibrationControlResponse:
+        """Forward request bytes to Rust; solving and persistence remain there."""
+        endpoint, preview = await self._calibration_control_endpoint()
+        control = preview.calibration_control
+        assert control is not None
+        return await submit_calibration_request(
+            endpoint,
+            preview.client_limits,
+            request_body,
+            maximum_request_bytes=control.maximum_request_bytes,
+        )
+
+    async def _calibration_control_endpoint(
+        self,
+    ) -> tuple[FramePreviewEndpoint, FramePreviewProcessSettings]:
+        """Require the active process's configured Rust control listener."""
+        preview = self._settings.frame_preview
+        ready = self._frame_preview_ready_future
+        if preview is None or preview.calibration_control is None or ready is None:
+            raise FramePreviewUnavailable(
+                "Rust calibration control is disabled for this process"
+            )
+        if self._closed or not self.status.process_running:
+            raise FramePreviewUnavailable("Rust live capture is not running")
+        try:
+            endpoint = await asyncio.shield(ready)
+        except FramePreviewProtocolError:
+            raise
+        except Exception as error:
+            raise FramePreviewUnavailable(
+                "Rust calibration-control endpoint is not ready"
+            ) from error
+        return endpoint, preview
 
     def _build_arguments(self, address: tuple[str, int]) -> list[str]:
         """Pass detector, tracker and transport settings explicitly to the child."""
@@ -1758,6 +2202,40 @@ class RustLiveSupervisor:
                     str(self._audit_ingress.write_timeout_ms),
                 )
             )
+        if settings.frame_preview is not None:
+            preview = settings.frame_preview
+            arguments.extend(
+                (
+                    "--frame-preview-tcp",
+                    preview.socket_address,
+                    "--frame-preview-max-header-bytes",
+                    str(preview.maximum_header_bytes),
+                    "--frame-preview-max-jpeg-bytes",
+                    str(preview.maximum_jpeg_bytes),
+                    "--frame-preview-max-concurrent-encodes",
+                    str(preview.maximum_concurrent_encodes),
+                    "--frame-preview-jpeg-quality",
+                    str(preview.jpeg_quality),
+                    "--frame-preview-request-timeout-ms",
+                    str(preview.request_timeout_ms),
+                    "--frame-preview-write-timeout-ms",
+                    str(preview.write_timeout_ms),
+                )
+            )
+            control = preview.calibration_control
+            if control is not None:
+                arguments.extend(
+                    (
+                        "--frame-preview-calibration-store-path",
+                        str(control.store_path),
+                        "--frame-preview-calibration-store-lock-timeout-ms",
+                        str(control.store_lock_timeout_ms),
+                        "--frame-preview-calibration-store-max-file-bytes",
+                        str(control.maximum_store_file_bytes),
+                        "--frame-preview-calibration-max-request-bytes",
+                        str(control.maximum_request_bytes),
+                    )
+                )
         # The complete calibration bundle remains inside the exact capture
         # request on stdin. Do not pass a separately sourced calibration path
         # or revision set that could drift from the request-bound v3 ACK.
@@ -1821,6 +2299,27 @@ class RustLiveSupervisor:
                 observation_task.cancel()
             await asyncio.gather(observation_task, return_exceptions=True)
 
+    async def _await_frame_preview_ready(self, startup_deadline: float) -> None:
+        """Require the configured Rust preview listener before serving requests."""
+        ready = self._frame_preview_ready_future
+        if ready is None:
+            return
+        remaining = max(0.0, startup_deadline - asyncio.get_running_loop().time())
+        if remaining <= 0:
+            raise RustLiveStartupError(
+                "Rust frame-preview listener did not become ready before startup deadline"
+            )
+        try:
+            await asyncio.wait_for(asyncio.shield(ready), timeout=remaining)
+        except asyncio.TimeoutError as error:
+            raise RustLiveStartupError(
+                "Rust frame-preview listener did not become ready before startup deadline"
+            ) from error
+        except FramePreviewProtocolError as error:
+            raise RustLiveStartupError(
+                f"Rust frame-preview readiness was invalid: {error}"
+            ) from error
+
     def _child_exit_error(self, return_code: int) -> RustLiveStartupError:
         details = self._stderr_tail.decode("utf-8", errors="replace").strip()
         suffix = f": {details}" if details else ""
@@ -1830,15 +2329,64 @@ class RustLiveSupervisor:
         )
 
     async def _drain_output(
-        self, stream: asyncio.StreamReader, destination: bytearray
+        self,
+        stream: asyncio.StreamReader,
+        destination: bytearray,
+        *,
+        capture_frame_preview_ready: bool = False,
     ) -> None:
         """Drain pipes while retaining only the configured diagnostic tail."""
         capacity = self._settings.output_tail_capacity_bytes
+        line_buffer = bytearray()
+        discard_oversized_line = False
         while chunk := await stream.read(capacity):
             destination.extend(chunk)
             excess = len(destination) - capacity
             if excess > 0:
                 del destination[:excess]
+            if not capture_frame_preview_ready:
+                continue
+            offset = 0
+            while offset < len(chunk):
+                newline = chunk.find(b"\n", offset)
+                segment_end = len(chunk) if newline < 0 else newline
+                segment = chunk[offset:segment_end]
+                if not discard_oversized_line:
+                    if len(line_buffer) + len(segment) > capacity:
+                        line_buffer.clear()
+                        discard_oversized_line = True
+                    else:
+                        line_buffer.extend(segment)
+                if newline < 0:
+                    break
+                if not discard_oversized_line:
+                    self._consume_frame_preview_ready_line(
+                        bytes(line_buffer).rstrip(b"\r")
+                    )
+                line_buffer.clear()
+                discard_oversized_line = False
+                offset = newline + 1
+
+    def _consume_frame_preview_ready_line(self, line: bytes) -> None:
+        """Resolve the one request-bound preview listener announcement."""
+        if not line.startswith(b"frame_preview_ready="):
+            return
+        ready = self._frame_preview_ready_future
+        if ready is None or ready.done():
+            return
+        assert self._engine_instance_id is not None
+        assert self._source_session_id is not None
+        try:
+            endpoint = parse_ready_record(
+                line,
+                expected_engine_instance_id=self._engine_instance_id,
+                expected_capture_session_id=self._source_session_id,
+                maximum_record_bytes=self._settings.output_tail_capacity_bytes,
+            )
+        except FramePreviewProtocolError as error:
+            ready.set_exception(error)
+        else:
+            ready.set_result(endpoint)
 
     async def _stop(self) -> None:
         """Idempotently terminate/reap the process and close consumer resources."""

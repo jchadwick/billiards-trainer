@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "audit_mode": "rust_live_camera_qualification",
+  "audit_run_id": "20261022-041120-212da569",
+  "outcome": "failed",
+  "error_type": "RustLiveStartupError",
+  "error": "Rust live process exited with status 1 before a usable localization: GStreamer capture probe failed: timed out waiting for first physical camera sample\nError: live capture failed before readiness: capture source preflight failed: source open failed: helper did not send a valid ready record: unexpected EOF before helper-ready record",
+  "event_export": {
+    "run_id": "000970fa-9416-4ebe-8e00-80c56765b303",
+    "process_id": 1,
+    "host_id": "hp-prodesk",
+    "clock_domain_id": "Linux:6aecfd3a-7cb5-41e9-89c7-85636f8db1de:clock_gettime(CLOCK_MONOTONIC)",
+    "clock_implementation": "clock_gettime(CLOCK_MONOTONIC)",
+    "accepted_events": 0,
+    "written_events": 0,
+    "dropped_events": 0,
+    "sampled_out_events": 0,
+    "detailed_sampling": {},
+    "export_limit_dropped_events": 0,
+    "export_errors": 0,
+    "queue_depth": 0,
+    "queue_capacity": 2048,
+    "sample_rate": 1.0,
+    "max_exported_events": 200000,
+    "worker_alive": false,
+    "closed": true
+  },
+  "rust_live_audit_sessions": [
+    {
+      "repetition": 1,
+      "schema_version": 3,
+      "status": "complete",
+      "connection_count": 1,
+      "records_received": 1,
+      "record_counts": {
+        "footer": 1
+      },
+      "malformed_records": 0,
+      "oversized_records": 0,
+      "consumer_dropped_records": 0,
+      "producer_dropped_records": 0,
+      "protocol_error": null,
+      "footer_received": true,
+      "footer_record_count_matches": true,
+      "footer_received_monotonic_ns": 5441171075662,
+      "footer": {
+        "record_type": "footer",
+        "schema_version": 3,
+        "export_status": "complete",
+        "records_written_before_footer": 0,
+        "dropped_records": 0,
+        "scene_socket_write_successes": 0,
+        "scene_socket_write_failures": 0,
+        "skipped_observations": 0,
+        "rejected_observations": 0,
+        "failed_observations": 0,
+        "clean_shutdown": false,
+        "pipeline_counters": {
+          "frames_received": 0,
+          "preflight_rejections": 0,
+          "inference_started": 0,
+          "inference_failures": 0,
+          "scene_processing_failures": 0,
+          "publication_failures": 0,
+          "association_capacity_pressure_frames": 0,
+          "association_capacity_evictions": 0,
+          "stale_frames": 0,
+          "duplicate_frames": 0,
+          "out_of_order_frames": 0,
+          "scenes_submitted": 0
+        },
+        "scene_transport_counters": {
+          "queued_snapshots": 0,
+          "written_snapshots": 0,
+          "replaced_pending_snapshots": 0,
+          "superseded_before_write_snapshots": 0,
+          "oversized_submissions": 0,
+          "expired_snapshots": 0,
+          "dropped_snapshots": 0,
+          "connection_attempts": 0,
+          "successful_connections": 0,
+          "connection_failures": 0,
+          "write_failures": 0
+        }
+      },
+      "retained_record_count": 1,
+      "retained_record_limit": 10000,
+      "retained_records_truncated": false,
+      "stale_inference_timing_diagnostic": {
+        "scope": "all_retained_run_records_not_a_measured_baseline",
+        "records_received": 1,
+        "retained_records": 1,
+        "retention_limit": 10000,
+        "records_truncated": false,
+        "stale_outcomes": 0,
+        "timed_stale_outcomes": 0,
+        "stage_durations_ms": {
+          "capture_helper_appsink_pull_wait": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "capture_helper_rgb_buffer_allocation": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "capture_helper_rgb_mapping_copy": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "parent_framed_record_read": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "parent_record_read_complete_to_inference_start": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "preprocess": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "inference": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "decode_and_nms": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "engine_total": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "parent_record_read_complete_to_inference_complete": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "maximum_frame_age": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          }
+        },
+        "deadline_overrun_ms": {
+          "count": 0,
+          "p50": null,
+          "p95": null,
+          "p99": null
+        }
+      }
+    }
+  ],
+  "rust_pipeline_timing_event_export": {
+    "run_id": "4abf511c-34bd-42c6-9732-d6ab33b56e64",
+    "process_id": 1,
+    "host_id": "hp-prodesk",
+    "clock_domain_id": "Linux:6aecfd3a-7cb5-41e9-89c7-85636f8db1de:clock_gettime(CLOCK_MONOTONIC)",
+    "clock_implementation": "clock_gettime(CLOCK_MONOTONIC)",
+    "accepted_events": 1,
+    "written_events": 1,
+    "dropped_events": 0,
+    "sampled_out_events": 0,
+    "detailed_sampling": {},
+    "export_limit_dropped_events": 0,
+    "export_errors": 0,
+    "queue_depth": 0,
+    "queue_capacity": 2048,
+    "sample_rate": 1.0,
+    "max_exported_events": 200000,
+    "worker_alive": false,
+    "closed": true
+  },
+  "image_frame_persistence": "none",
+  "limitations": [
+    "This failure record contains no detector-accuracy result.",
+    "No camera image/frame bytes are recorded by the qualification runner."
+  ]
+}

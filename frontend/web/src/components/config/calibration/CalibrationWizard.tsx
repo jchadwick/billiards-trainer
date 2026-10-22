@@ -3,11 +3,23 @@ import { observer } from "mobx-react-lite";
 import { Card, CardContent, Button } from "../../ui";
 import { apiClient } from "../../../api/client";
 import type { CalibrationData } from "../../../types/video";
+import type {
+  PerceptionRuntimeStatus,
+  RustFramePreviewDescriptor,
+} from "../../../types/perception";
 import {
   CANONICAL_IMAGE_SIZE,
   canonicalToImagePoint,
   normalizeImagePointToCanonical,
 } from "../../../utils/coordinates";
+import {
+  fitImageInside,
+  mapClientPointerToCanvasPoint,
+  mapPointerToSourcePoint,
+  sourcePointToCanvasPoint,
+  type CanvasPointerMetrics,
+  type CanvasPoint,
+} from "./previewCoordinates";
 
 const CALIBRATION_CANVAS_WIDTH = 640;
 const CALIBRATION_CANVAS_HEIGHT = 360;
@@ -43,15 +55,65 @@ interface MarkerDot {
   id: string;
   x: number;
   y: number;
+  sourceX?: number;
+  sourceY?: number;
+}
+
+interface RustCalibrationPreview {
+  image: HTMLImageElement;
+  descriptor: RustFramePreviewDescriptor;
+}
+
+function canvasPointerMetrics(
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): CanvasPointerMetrics {
+  return {
+    clientX,
+    clientY,
+    bounds: canvas.getBoundingClientRect(),
+    borderLeft: canvas.clientLeft,
+    borderTop: canvas.clientTop,
+    clientWidth: canvas.clientWidth,
+    clientHeight: canvas.clientHeight,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+  };
+}
+
+async function decodeRustPreviewImage(
+  blob: Blob,
+  descriptor: RustFramePreviewDescriptor,
+): Promise<HTMLImageElement> {
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.src = objectUrl;
+    await image.decode();
+    if (
+      image.naturalWidth !== descriptor.width_px ||
+      image.naturalHeight !== descriptor.height_px
+    ) {
+      throw new Error("Rust preview JPEG geometry does not match its frame descriptor");
+    }
+    return image;
+  } finally {
+    // The decoded image owns its pixels after decode; no long-lived object URL
+    // is needed for this one-frame calibration workflow.
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 // Interactive video feed with point selection
 const VideoFeedCanvas: React.FC<{
-  onPointSelect: (x: number, y: number) => void;
+  onPointSelect: (x: number, y: number, sourcePoint?: CanvasPoint) => void;
   points: Point[];
   markerDots: MarkerDot[];
   width: number;
   height: number;
+  provider: PerceptionRuntimeStatus["provider"];
+  rustPreview?: RustCalibrationPreview | null;
   overlayVisible: boolean;
   savedCalibrationData?: CalibrationData | null;
   selectionMode?: 'corners' | 'markers';
@@ -61,6 +123,8 @@ const VideoFeedCanvas: React.FC<{
   markerDots,
   width,
   height,
+  provider,
+  rustPreview = null,
   overlayVisible,
   savedCalibrationData,
   selectionMode = 'corners',
@@ -76,11 +140,12 @@ const VideoFeedCanvas: React.FC<{
   // Get the video stream URL from the API client
   const videoStreamUrl = apiClient.getVideoStreamUrl();
 
-  // Continuous canvas drawing loop for live video
+  // Python keeps its legacy continuous MJPEG feed. Rust supplies a single
+  // decoded still image whose descriptor stays paired with every selected point.
   const drawFrame = useCallback(() => {
     const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img) return;
+    const img = provider === "rust" ? rustPreview?.image : imgRef.current;
+    if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -89,8 +154,26 @@ const VideoFeedCanvas: React.FC<{
     ctx.clearRect(0, 0, width, height);
 
     // Draw video frame if available
-    if (img.complete && img.naturalWidth > 0) {
-      ctx.drawImage(img, 0, 0, width, height);
+    if (img?.complete && img.naturalWidth > 0) {
+      if (provider === "rust") {
+        const imageRect = fitImageInside(
+          img.naturalWidth,
+          img.naturalHeight,
+          width,
+          height,
+        );
+        if (imageRect) {
+          ctx.drawImage(
+            img,
+            imageRect.x,
+            imageRect.y,
+            imageRect.width,
+            imageRect.height,
+          );
+        }
+      } else {
+        ctx.drawImage(img, 0, 0, width, height);
+      }
     }
 
     // Draw saved calibration overlay in magenta/purple (if exists)
@@ -166,6 +249,18 @@ const VideoFeedCanvas: React.FC<{
     // Draw calibration points overlay if visible (new points being set)
     if (overlayVisible) {
       points.forEach((point, index) => {
+        const displayPoint = provider === "rust" && rustPreview
+          ? sourcePointToCanvasPoint(
+              point.x,
+              point.y,
+              rustPreview.descriptor.width_px,
+              rustPreview.descriptor.height_px,
+              width,
+              height,
+            )
+          : { x: point.screenX, y: point.screenY };
+        if (!displayPoint) return;
+
         // Draw crosshair lines (X and Y axis through the point)
         ctx.strokeStyle = "rgba(59, 130, 246, 0.5)"; // Semi-transparent blue
         ctx.lineWidth = 1;
@@ -173,14 +268,14 @@ const VideoFeedCanvas: React.FC<{
 
         // Vertical line (Y-axis)
         ctx.beginPath();
-        ctx.moveTo(point.screenX, 0);
-        ctx.lineTo(point.screenX, height);
+        ctx.moveTo(displayPoint.x, 0);
+        ctx.lineTo(displayPoint.x, height);
         ctx.stroke();
 
         // Horizontal line (X-axis)
         ctx.beginPath();
-        ctx.moveTo(0, point.screenY);
-        ctx.lineTo(width, point.screenY);
+        ctx.moveTo(0, displayPoint.y);
+        ctx.lineTo(width, displayPoint.y);
         ctx.stroke();
 
         ctx.setLineDash([]); // Reset dash pattern
@@ -191,7 +286,7 @@ const VideoFeedCanvas: React.FC<{
 
         // Draw point circle
         ctx.beginPath();
-        ctx.arc(point.screenX, point.screenY, 8, 0, 2 * Math.PI);
+        ctx.arc(displayPoint.x, displayPoint.y, 8, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
 
@@ -199,7 +294,7 @@ const VideoFeedCanvas: React.FC<{
         ctx.fillStyle = "#ffffff";
         ctx.font = "12px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText((index + 1).toString(), point.screenX, point.screenY + 4);
+        ctx.fillText((index + 1).toString(), displayPoint.x, displayPoint.y + 4);
       });
 
       // Draw connecting lines for table outline
@@ -208,10 +303,21 @@ const VideoFeedCanvas: React.FC<{
         ctx.lineWidth = 3;
         ctx.beginPath();
         points.forEach((point, index) => {
+          const displayPoint = provider === "rust" && rustPreview
+            ? sourcePointToCanvasPoint(
+                point.x,
+                point.y,
+                rustPreview.descriptor.width_px,
+                rustPreview.descriptor.height_px,
+                width,
+                height,
+              )
+            : { x: point.screenX, y: point.screenY };
+          if (!displayPoint) return;
           if (index === 0) {
-            ctx.moveTo(point.screenX, point.screenY);
+            ctx.moveTo(displayPoint.x, displayPoint.y);
           } else {
-            ctx.lineTo(point.screenX, point.screenY);
+            ctx.lineTo(displayPoint.x, displayPoint.y);
           }
         });
         ctx.closePath();
@@ -314,7 +420,7 @@ const VideoFeedCanvas: React.FC<{
 
     // Request next frame
     animationFrameRef.current = requestAnimationFrame(drawFrame);
-  }, [points, markerDots, width, height, overlayVisible, savedCalibrationData, selectionMode, mousePos]);
+  }, [points, markerDots, width, height, provider, rustPreview, overlayVisible, savedCalibrationData, selectionMode, mousePos]);
 
   // Start animation loop
   useEffect(() => {
@@ -331,6 +437,22 @@ const VideoFeedCanvas: React.FC<{
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    if (provider === "rust") {
+      if (!rustPreview) return;
+      const metrics = canvasPointerMetrics(canvas, event.clientX, event.clientY);
+      const canvasPoint = mapClientPointerToCanvasPoint(metrics);
+      const sourcePoint = mapPointerToSourcePoint(
+        metrics,
+        rustPreview.descriptor.width_px,
+        rustPreview.descriptor.height_px,
+      );
+      // Ignore the canvas border and letterbox margins; they do not correspond
+      // to a pixel in the frame returned by Rust.
+      if (!canvasPoint || !sourcePoint) return;
+      onPointSelect(canvasPoint.x, canvasPoint.y, sourcePoint);
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -341,10 +463,19 @@ const VideoFeedCanvas: React.FC<{
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    if (provider === "rust") {
+      const point = mapClientPointerToCanvasPoint(
+        canvasPointerMetrics(canvas, event.clientX, event.clientY),
+      );
+      setMousePos(point);
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    setMousePos({ x, y });
+    setMousePos({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
   };
 
   const handleMouseLeave = () => {
@@ -353,21 +484,23 @@ const VideoFeedCanvas: React.FC<{
 
   return (
     <div ref={containerRef} className="relative">
-      {/* MJPEG stream image (hidden, used as source for canvas) */}
-      <img
-        ref={imgRef}
-        src={videoStreamUrl}
-        alt="Camera stream"
-        style={{ display: "none" }}
-        onLoad={() => {
-          setStreamConnected(true);
-          setStreamError(null);
-        }}
-        onError={() => {
-          setStreamError("Failed to load video stream");
-          setStreamConnected(false);
-        }}
-      />
+      {/* Python MJPEG remains available only while the Python provider owns capture. */}
+      {provider === "python" && (
+        <img
+          ref={imgRef}
+          src={videoStreamUrl}
+          alt="Camera stream"
+          style={{ display: "none" }}
+          onLoad={() => {
+            setStreamConnected(true);
+            setStreamError(null);
+          }}
+          onError={() => {
+            setStreamError("Failed to load video stream");
+            setStreamConnected(false);
+          }}
+        />
+      )}
 
       {/* Canvas for overlay */}
       <canvas
@@ -377,17 +510,17 @@ const VideoFeedCanvas: React.FC<{
         onClick={handleCanvasClick}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="border border-gray-300 dark:border-gray-600 rounded-lg cursor-crosshair bg-gray-900"
+        className="max-w-full h-auto border border-gray-300 dark:border-gray-600 rounded-lg cursor-crosshair bg-gray-900"
       />
 
       {/* Connection status indicator */}
-      {!streamConnected && (
+      {provider === "python" && !streamConnected && (
         <div className="absolute top-2 left-2 px-2 py-1 bg-yellow-600 text-white text-xs rounded shadow">
           Connecting to camera stream...
         </div>
       )}
 
-      {streamError && (
+      {provider === "python" && streamError && (
         <div className="absolute top-2 left-2 px-2 py-1 bg-red-600 text-white text-xs rounded shadow">
           {streamError}
         </div>
@@ -407,6 +540,61 @@ const PlayingAreaCalibrationStep: React.FC<{
   const [isLoading, setIsLoading] = useState(true);
   const [existingCalibration, setExistingCalibration] = useState<any>(null);
   const [savedCalibrationData, setSavedCalibrationData] = useState<CalibrationData | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<PerceptionRuntimeStatus | null>(null);
+  const [rustPreview, setRustPreview] = useState<RustCalibrationPreview | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewNotice, setPreviewNotice] = useState<string | null>(null);
+  const [isRefreshingPreview, setIsRefreshingPreview] = useState(false);
+  const previewIdentityRef = useRef<string | null>(null);
+
+  const refreshRustPreview = useCallback(async () => {
+    setIsRefreshingPreview(true);
+    try {
+      const response = await apiClient.getRustCalibrationFrame();
+      if (!response.success || !response.data) {
+        throw new Error(response.error || "Rust current-frame preview is unavailable");
+      }
+      const image = await decodeRustPreviewImage(
+        response.data.image,
+        response.data.descriptor,
+      );
+      const descriptor = response.data.descriptor;
+      const frameIdentity = [
+        descriptor.engine_instance_id,
+        descriptor.capture_session_id,
+        descriptor.source_frame_id,
+        descriptor.camera_profile_id,
+        descriptor.width_px,
+        descriptor.height_px,
+        descriptor.pixel_format,
+        descriptor.image_space,
+        descriptor.configuration_revision,
+        descriptor.calibration_revision,
+        descriptor.rectification_revision,
+      ].join(":");
+      setPreviewError(null);
+      if (
+        previewIdentityRef.current !== null &&
+        previewIdentityRef.current !== frameIdentity
+      ) {
+        // A corner set is valid only for the one image that produced it. Do
+        // not let points from an older still silently mix with a fresh frame.
+        setPoints([]);
+        setMarkerDots([]);
+        setPreviewNotice("A newer camera frame was loaded; select the calibration points again.");
+      } else {
+        setPreviewNotice(null);
+      }
+      previewIdentityRef.current = frameIdentity;
+      setRustPreview({ image, descriptor });
+    } catch (error) {
+      setPreviewError(
+        error instanceof Error ? error.message : "Rust current-frame preview is unavailable",
+      );
+    } finally {
+      setIsRefreshingPreview(false);
+    }
+  }, []);
 
   const pointInstructions = [
     "Top-left corner of the playing area",
@@ -419,6 +607,27 @@ const PlayingAreaCalibrationStep: React.FC<{
   useEffect(() => {
     const loadExistingCalibration = async () => {
       try {
+        const runtimeResponse = await apiClient.getPerceptionRuntimeStatus();
+        if (!runtimeResponse.success || !runtimeResponse.data) {
+          throw new Error(runtimeResponse.error || "Unable to identify the active perception runtime");
+        }
+        setRuntimeStatus(runtimeResponse.data);
+
+        if (runtimeResponse.data.provider === "rust") {
+          // Rust mode must never read Python's camera or legacy calibration.
+          if (
+            runtimeResponse.data.mode !== "live" ||
+            runtimeResponse.data.preview !== "rust_current_frame"
+          ) {
+            throw new Error("Rust calibration preview requires an active Rust live camera");
+          }
+          await refreshRustPreview();
+          return;
+        }
+        if (runtimeResponse.data.provider !== "python") {
+          throw new Error("No supported perception runtime is active");
+        }
+
         // Fetch from playing area config
         const response = await apiClient.getPlayingArea();
         if (response.success && response.data) {
@@ -509,21 +718,29 @@ const PlayingAreaCalibrationStep: React.FC<{
         }
       } catch (error) {
         console.error("Failed to load existing calibration:", error);
+        setPreviewError(error instanceof Error ? error.message : "Calibration setup failed");
       } finally {
         setIsLoading(false);
       }
     };
 
     loadExistingCalibration();
-  }, []);
+  }, [refreshRustPreview]);
 
-  const handlePointSelect = (screenX: number, screenY: number) => {
+  const handlePointSelect = (
+    screenX: number,
+    screenY: number,
+    sourcePoint?: CanvasPoint,
+  ) => {
+    if (runtimeStatus?.provider === "rust" && !sourcePoint) return;
+    setPreviewNotice(null);
     if (selectionMode === 'markers') {
       // Add a new marker dot
       const newMarkerDot: MarkerDot = {
         id: `marker_${markerDots.length}_${Date.now()}`,
         x: screenX,
         y: screenY,
+        ...(sourcePoint ? { sourceX: sourcePoint.x, sourceY: sourcePoint.y } : {}),
       };
       setMarkerDots([...markerDots, newMarkerDot]);
       return;
@@ -534,8 +751,8 @@ const PlayingAreaCalibrationStep: React.FC<{
     if (points.length === 0) {
       // No points yet, just add sequentially
       const newPoint: Point = {
-        x: screenX,
-        y: screenY,
+        x: sourcePoint?.x ?? screenX,
+        y: sourcePoint?.y ?? screenY,
         id: `corner_${points.length}`,
         screenX,
         screenY,
@@ -549,8 +766,8 @@ const PlayingAreaCalibrationStep: React.FC<{
     if (points.length < 4) {
       // Add next point
       const newPoint: Point = {
-        x: screenX,
-        y: screenY,
+        x: sourcePoint?.x ?? screenX,
+        y: sourcePoint?.y ?? screenY,
         id: `corner_${points.length}`,
         screenX,
         screenY,
@@ -582,8 +799,8 @@ const PlayingAreaCalibrationStep: React.FC<{
       ...newPoints[nearestIndex],
       screenX,
       screenY,
-      x: screenX,
-      y: screenY,
+      x: sourcePoint?.x ?? screenX,
+      y: sourcePoint?.y ?? screenY,
     };
     setPoints(newPoints);
   };
@@ -609,6 +826,13 @@ const PlayingAreaCalibrationStep: React.FC<{
   };
 
   const applyCalibration = async () => {
+    if (runtimeStatus?.provider === "rust") {
+      // Rust frame selections are source-pixel and descriptor-bound. Until the
+      // Rust calibration submission endpoint is connected, never send them to
+      // Python's legacy canonical-config route.
+      setPreviewError("Rust calibration saving is not available in this runtime yet; no Python calibration was changed.");
+      return;
+    }
     if (points.length !== 4) {
       alert("Please set all 4 corners of the playing area");
       return;
@@ -681,7 +905,36 @@ const PlayingAreaCalibrationStep: React.FC<{
           Identify the 4 corners of the playing surface for accurate trajectory
           calculations
         </p>
-        {existingCalibration && existingCalibration.calibrated && (
+        {runtimeStatus?.provider === "rust" && (
+          <div className="mt-3 space-y-2">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Rust owns this camera frame. Select all four corners on the same still image; refreshing to a newer frame clears the selection.
+            </p>
+            <Button
+              variant="outline"
+              onClick={refreshRustPreview}
+              disabled={isRefreshingPreview}
+            >
+              {isRefreshingPreview ? "Loading current frame…" : "Refresh Current Frame"}
+            </Button>
+            {rustPreview && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Frame {rustPreview.descriptor.source_frame_id} · {rustPreview.descriptor.width_px}×{rustPreview.descriptor.height_px} · {rustPreview.descriptor.image_space}
+              </p>
+            )}
+          </div>
+        )}
+        {previewError && (
+          <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+            {previewError}
+          </p>
+        )}
+        {previewNotice && (
+          <p role="status" className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+            {previewNotice}
+          </p>
+        )}
+        {runtimeStatus?.provider === "python" && existingCalibration && existingCalibration.calibrated && (
           <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded-full text-sm">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path
@@ -704,8 +957,10 @@ const PlayingAreaCalibrationStep: React.FC<{
               markerDots={markerDots}
               width={CALIBRATION_CANVAS_WIDTH}
               height={CALIBRATION_CANVAS_HEIGHT}
+              provider={runtimeStatus?.provider ?? "unavailable"}
+              rustPreview={rustPreview}
               overlayVisible={true}
-              savedCalibrationData={savedCalibrationData}
+              savedCalibrationData={runtimeStatus?.provider === "python" ? savedCalibrationData : null}
               selectionMode={selectionMode}
             />
           </div>
@@ -788,7 +1043,7 @@ const PlayingAreaCalibrationStep: React.FC<{
                   {pointInstructions[index]}:
                 </span>
                 <span className="font-mono text-gray-800 dark:text-gray-200">
-                  ({point.screenX.toFixed(0)}, {point.screenY.toFixed(0)})
+                  ({(runtimeStatus?.provider === "rust" ? point.x : point.screenX).toFixed(0)}, {(runtimeStatus?.provider === "rust" ? point.y : point.screenY).toFixed(0)})
                 </span>
               </div>
             ))}
@@ -799,11 +1054,11 @@ const PlayingAreaCalibrationStep: React.FC<{
       <div className="flex justify-center">
         <Button
           onClick={applyCalibration}
-          disabled={!canProceed || isApplying}
-          variant={canProceed ? "primary" : "outline"}
+          disabled={!canProceed || isApplying || runtimeStatus?.provider === "rust"}
+          variant={canProceed && runtimeStatus?.provider !== "rust" ? "primary" : "outline"}
           className="px-8"
         >
-          {isApplying ? "Applying..." : "Apply Calibration"}
+          {isApplying ? "Applying..." : runtimeStatus?.provider === "rust" ? "Rust Calibration Save Not Connected" : "Apply Calibration"}
         </Button>
       </div>
     </div>

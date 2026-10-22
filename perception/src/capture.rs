@@ -13,6 +13,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::io;
+use std::ops::Deref;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -20,18 +21,18 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::detection_batch::{
     BatchTimestamp, ClockKind, SourceFrame, TimeUnit, TimestampStage, MAX_IDENTIFIER_CHARACTERS,
 };
-use crate::ImageSpace;
-
-const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
+use crate::frame_preview::{FramePreviewSlotError, LatestCapturedFrameSlot};
 use crate::live_config::{
     CapturePreflightError, CaptureSessionCompatibility, ExpectedCaptureSettings,
 };
+use crate::ImageSpace;
 
+const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 const RGB_CHANNELS: usize = 3;
 
 /// Helper-process capture durations measured only during an opt-in live audit.
@@ -725,17 +726,44 @@ struct Inner {
     session_id: String,
     frame_limit: CaptureFrameLimit,
     frame_budget: CaptureFrameBudget,
+    frame_preview: Option<Arc<LatestCapturedFrameSlot>>,
     state: Mutex<MailboxState>,
     available: Condvar,
 }
 
 #[derive(Debug, Default)]
 struct MailboxState {
-    pending: Option<RgbFrameEnvelope>,
+    pending: Option<MailboxFrame>,
     terminal: Option<TerminalState>,
     counters: MailboxCounters,
     waiting_receivers: usize,
     receiver_claimed: bool,
+}
+
+/// Avoid a per-frame Arc allocation when preview is disabled. With preview
+/// enabled, inference and the preview slot share the one accepted envelope.
+#[allow(clippy::large_enum_variant)] // The inline owned variant avoids a disabled-mode heap allocation.
+#[derive(Debug)]
+enum MailboxFrame {
+    Owned(RgbFrameEnvelope),
+    Shared(Arc<RgbFrameEnvelope>),
+}
+
+impl std::ops::Deref for MailboxFrame {
+    type Target = RgbFrameEnvelope;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(frame) => frame,
+            Self::Shared(frame) => frame,
+        }
+    }
+}
+
+impl PartialEq for MailboxFrame {
+    fn eq(&self, other: &Self) -> bool {
+        self.deref() == other.deref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -780,6 +808,7 @@ pub enum PublishError {
     ForeignBudget,
     FrameExceedsLimit { actual: usize, maximum: usize },
     FrameCapacityExceedsLimit { capacity: usize, maximum: usize },
+    FramePreview(FramePreviewSlotError),
     Terminal(MailboxTerminal),
 }
 
@@ -801,6 +830,9 @@ impl Display for PublishError {
                 formatter,
                 "RGB frame allocation capacity is {capacity} bytes; configured maximum is {maximum}"
             ),
+            Self::FramePreview(error) => {
+                write!(formatter, "frame preview publication failed: {error}")
+            }
             Self::Terminal(reason) => {
                 write!(formatter, "mailbox no longer accepts frames: {reason}")
             }
@@ -832,7 +864,7 @@ impl Display for MailboxTerminal {
 #[derive(Debug, PartialEq)]
 enum ReceiveOutcome {
     /// The most recent queued frame was received.
-    Frame(RgbFrameEnvelope),
+    Frame(MailboxFrame),
     /// The deadline elapsed while the mailbox was open and empty.
     TimedOut,
     /// Graceful closure; any final pending frame was already drained.
@@ -942,10 +974,20 @@ impl CaptureFrameReceiver {
 
 impl LatestFrameMailbox {
     /// Create an empty mailbox for one validated source session identity.
+    #[cfg(test)]
     fn with_budget(
         session_id: impl Into<String>,
         frame_limit: CaptureFrameLimit,
         frame_budget: CaptureFrameBudget,
+    ) -> Result<Self, CaptureEnvelopeError> {
+        Self::with_budget_and_preview(session_id, frame_limit, frame_budget, None)
+    }
+
+    fn with_budget_and_preview(
+        session_id: impl Into<String>,
+        frame_limit: CaptureFrameLimit,
+        frame_budget: CaptureFrameBudget,
+        frame_preview: Option<Arc<LatestCapturedFrameSlot>>,
     ) -> Result<Self, CaptureEnvelopeError> {
         let session_id = session_id.into();
         validate_identifier(&session_id, "session_id")?;
@@ -954,6 +996,7 @@ impl LatestFrameMailbox {
                 session_id,
                 frame_limit,
                 frame_budget,
+                frame_preview,
                 state: Mutex::new(MailboxState::default()),
                 available: Condvar::new(),
             }),
@@ -1012,7 +1055,19 @@ impl LatestFrameMailbox {
             return Err(PublishError::Terminal(terminal));
         }
 
-        if state.pending.replace(frame).is_some() {
+        let mailbox_frame = match &self.inner.frame_preview {
+            Some(preview) => {
+                let frame = Arc::new(frame);
+                if let Err(error) = preview.publish(Arc::clone(&frame)) {
+                    state.counters.rejected_frames =
+                        state.counters.rejected_frames.saturating_add(1);
+                    return Err(PublishError::FramePreview(error));
+                }
+                MailboxFrame::Shared(frame)
+            }
+            None => MailboxFrame::Owned(frame),
+        };
+        if state.pending.replace(mailbox_frame).is_some() {
             state.counters.replaced_frames = state.counters.replaced_frames.saturating_add(1);
         }
         state.counters.accepted_frames = state.counters.accepted_frames.saturating_add(1);
@@ -1020,6 +1075,16 @@ impl LatestFrameMailbox {
         debug_assert!(state.pending.is_some());
         drop(state);
         self.inner.available.notify_one();
+        Ok(())
+    }
+
+    fn bind_frame_preview(
+        &self,
+        compatibility: &CaptureSessionCompatibility,
+    ) -> Result<(), FramePreviewSlotError> {
+        if let Some(preview) = &self.inner.frame_preview {
+            preview.bind_compatible_session(compatibility)?;
+        }
         Ok(())
     }
 
@@ -1043,6 +1108,9 @@ impl LatestFrameMailbox {
             state.counters.cancelled_frames = state.counters.cancelled_frames.saturating_add(1);
         }
         state.terminal = Some(TerminalState::Cancelled);
+        if let Some(preview) = &self.inner.frame_preview {
+            preview.clear();
+        }
         drop(state);
         self.inner.available.notify_all();
         true
@@ -1135,6 +1203,9 @@ impl LatestFrameMailbox {
             return false;
         }
         state.terminal = Some(terminal);
+        if let Some(preview) = &self.inner.frame_preview {
+            preview.clear();
+        }
         drop(state);
         self.inner.available.notify_all();
         true
@@ -1814,7 +1885,7 @@ impl CaptureSourceMetadata {
 }
 
 /// Timestamp meaning declared by the opened adapter.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum CaptureTimestampSemantics {
     /// Frames carry no source timestamp; the host read-completion `Instant`
@@ -1848,7 +1919,7 @@ pub struct CaptureSessionReport {
 }
 
 impl CaptureSessionReport {
-    fn new(session_id: String, metadata: CaptureSourceMetadata) -> Self {
+    pub(crate) fn new(session_id: String, metadata: CaptureSourceMetadata) -> Self {
         let CaptureSourceMetadata {
             device_id,
             device_name,
@@ -2307,6 +2378,7 @@ pub enum CaptureWorkerFailure {
     OpenPanicked(String),
     SourceMetadataPanicked(String),
     PreflightRejected(CapturePreflightError),
+    FramePreviewSetup(String),
     FrameProfileMismatch {
         expected_width_px: u32,
         expected_height_px: u32,
@@ -2339,6 +2411,9 @@ impl Display for CaptureWorkerFailure {
                 write!(formatter, "source metadata panicked: {message}")
             }
             Self::PreflightRejected(error) => Display::fmt(error, formatter),
+            Self::FramePreviewSetup(message) => {
+                write!(formatter, "frame preview session setup failed: {message}")
+            }
             Self::FrameProfileMismatch {
                 expected_width_px,
                 expected_height_px,
@@ -2673,6 +2748,7 @@ impl CaptureWorker {
     /// using the same gate fail before opening if another worker is active or
     /// the gate is quarantined. Each successful start uses its caller-provided
     /// identity or generates a fresh process-local identity.
+    #[cfg(test)]
     fn start<F: CaptureSourceFactory>(
         owner_gate: CaptureOwnerGate,
         frame_limit: CaptureFrameLimit,
@@ -2680,6 +2756,26 @@ impl CaptureWorker {
         factory: F,
         expected_settings: Option<ExpectedCaptureSettings>,
         requested_session_id: Option<String>,
+    ) -> Result<Self, CaptureStartError> {
+        Self::start_with_preview(
+            owner_gate,
+            frame_limit,
+            frame_budget,
+            factory,
+            expected_settings,
+            requested_session_id,
+            None,
+        )
+    }
+
+    fn start_with_preview<F: CaptureSourceFactory>(
+        owner_gate: CaptureOwnerGate,
+        frame_limit: CaptureFrameLimit,
+        frame_budget: CaptureFrameBudget,
+        factory: F,
+        expected_settings: Option<ExpectedCaptureSettings>,
+        requested_session_id: Option<String>,
+        frame_preview: Option<Arc<LatestCapturedFrameSlot>>,
     ) -> Result<Self, CaptureStartError> {
         let session_id = match requested_session_id {
             Some(session_id) => {
@@ -2701,10 +2797,11 @@ impl CaptureWorker {
                 )));
             }
         };
-        let mailbox = match LatestFrameMailbox::with_budget(
+        let mailbox = match LatestFrameMailbox::with_budget_and_preview(
             session_id.clone(),
             frame_limit,
             frame_budget.clone(),
+            frame_preview,
         ) {
             Ok(mailbox) => mailbox,
             Err(error) => {
@@ -3087,7 +3184,7 @@ impl CaptureRuntimeCoordinator {
         &mut self,
         factory: F,
     ) -> Result<String, CaptureStartError> {
-        self.start_inner(factory, None, None)
+        self.start_inner(factory, None, None, None)
     }
 
     /// Compatibility alias for prototype/replay callers. This path remains
@@ -3108,7 +3205,7 @@ impl CaptureRuntimeCoordinator {
         expected: ExpectedCaptureSettings,
         factory: F,
     ) -> Result<String, CaptureStartError> {
-        self.start_inner(factory, Some(expected), None)
+        self.start_inner(factory, Some(expected), None, None)
     }
 
     /// Open and preflight one source using a caller-provided session identity.
@@ -3122,7 +3219,25 @@ impl CaptureRuntimeCoordinator {
         session_id: impl Into<String>,
         factory: F,
     ) -> Result<String, CaptureStartError> {
-        self.start_inner(factory, Some(expected), Some(session_id.into()))
+        self.start_inner(factory, Some(expected), Some(session_id.into()), None)
+    }
+
+    /// Open a preflighted session and publish each captured frame to an
+    /// optional latest-frame preview slot before the inference receiver sees
+    /// it. The slot remains absent from capture state when preview is disabled.
+    pub fn start_preflighted_with_session_id_and_frame_preview<F: CaptureSourceFactory>(
+        &mut self,
+        expected: ExpectedCaptureSettings,
+        session_id: impl Into<String>,
+        frame_preview: Arc<LatestCapturedFrameSlot>,
+        factory: F,
+    ) -> Result<String, CaptureStartError> {
+        self.start_inner(
+            factory,
+            Some(expected),
+            Some(session_id.into()),
+            Some(frame_preview),
+        )
     }
 
     fn start_inner<F: CaptureSourceFactory>(
@@ -3130,6 +3245,7 @@ impl CaptureRuntimeCoordinator {
         factory: F,
         expected_settings: Option<ExpectedCaptureSettings>,
         requested_session_id: Option<String>,
+        frame_preview: Option<Arc<LatestCapturedFrameSlot>>,
     ) -> Result<String, CaptureStartError> {
         if let Some(expected) = expected_settings.as_ref() {
             if expected.frame_limit().maximum_rgb8_bytes() != self.frame_limit.maximum_rgb8_bytes()
@@ -3154,13 +3270,14 @@ impl CaptureRuntimeCoordinator {
                 session_id: worker.session_id().to_owned(),
             });
         }
-        let worker = CaptureWorker::start(
+        let worker = CaptureWorker::start_with_preview(
             self.owner_gate.clone(),
             self.frame_limit,
             self.frame_budget.clone(),
             factory,
             expected_settings,
             requested_session_id,
+            frame_preview,
         )?;
         let session_id = worker.session_id().to_owned();
         self.preflight_state = worker.preflight_state.clone();
@@ -3449,13 +3566,31 @@ fn run_capture_worker(input: CaptureWorkerInput) -> CaptureWorkerReport {
                             let preflight_error = preflight.as_ref().and_then(|context| {
                                 match context.expected.validate_session(&report) {
                                     Ok(compatibility) => {
-                                        publish_preflight_status(
-                                            &context.state,
-                                            CapturePreflightStatus::Compatible(Box::new(
-                                                compatibility,
-                                            )),
-                                        );
-                                        None
+                                        match mailbox.bind_frame_preview(&compatibility) {
+                                            Ok(()) => {
+                                                publish_preflight_status(
+                                                    &context.state,
+                                                    CapturePreflightStatus::Compatible(Box::new(
+                                                        compatibility,
+                                                    )),
+                                                );
+                                                None
+                                            }
+                                            Err(error) => {
+                                                let reason = format!(
+                                                    "frame preview could not bind to accepted capture session: {error}"
+                                                );
+                                                publish_preflight_status(
+                                                    &context.state,
+                                                    CapturePreflightStatus::Failed {
+                                                        session_id: session_id.clone(),
+                                                        reason: reason.clone(),
+                                                    },
+                                                );
+                                                mailbox.fail(reason.clone());
+                                                Some(CaptureWorkerFailure::FramePreviewSetup(reason))
+                                            }
+                                        }
                                     }
                                     Err(error) => {
                                         publish_preflight_status(
@@ -3472,14 +3607,14 @@ fn run_capture_worker(input: CaptureWorkerInput) -> CaptureWorkerReport {
                                         // release operation to learn no frame
                                         // can arrive from this session.
                                         mailbox.fail(error.to_string());
-                                        Some(error)
+                                        Some(CaptureWorkerFailure::PreflightRejected(error))
                                     }
                                 }
                             });
-                            if let Some(error) = preflight_error {
+                            if let Some(failure) = preflight_error {
                                 Ok(CaptureReadLoopResult {
                                     end: CaptureWorkerEnd::Failed,
-                                    failures: vec![CaptureWorkerFailure::PreflightRejected(error)],
+                                    failures: vec![failure],
                                     frames_published: 0,
                                     frames_dropped: 0,
                                     budget_exhausted_frames: 0,
@@ -4586,6 +4721,7 @@ mod worker_tests {
     use crate::detection_batch::{
         BatchTimestamp, ClockKind, SourceFrame, TimeUnit, TimestampStage,
     };
+    use crate::frame_preview::LatestCapturedFrameSlot;
     use crate::live_config::{CaptureControlRequirements, ExpectedCaptureSettings};
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicBool;
@@ -4984,6 +5120,93 @@ mod worker_tests {
             serde_json::to_value(report).unwrap()
         );
         assert_eq!(serialized["failure"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn mailbox_publishes_shared_capture_frame_to_preview_before_inference_lags() {
+        let session_id = "capture-preview-session";
+        let metadata = fake_metadata("RGB8");
+        let geometry = metadata.applied_frame_geometry();
+        let expected = ExpectedCaptureSettings::new(
+            geometry.configuration_revision(),
+            metadata.device_id(),
+            metadata.requested_profile().clone(),
+            metadata.negotiated_profile().clone(),
+            geometry.camera_profile_id(),
+            geometry.image_space(),
+            geometry.rectification_revision(),
+            1,
+            None,
+            metadata.timestamp_semantics().clone(),
+            CaptureControlRequirements::default(),
+            Duration::from_secs(1),
+            TEST_FRAME_LIMIT,
+            TEST_AGGREGATE_FRAME_LIMIT,
+        )
+        .unwrap();
+        let report = CaptureSessionReport::new(session_id.to_owned(), metadata);
+        let compatibility = expected.validate_session(&report).unwrap();
+
+        let budget = test_frame_budget();
+        let preview = Arc::new(LatestCapturedFrameSlot::new("capture-preview-engine").unwrap());
+        let mailbox = LatestFrameMailbox::with_budget_and_preview(
+            session_id,
+            TEST_FRAME_LIMIT,
+            budget.clone(),
+            Some(Arc::clone(&preview)),
+        )
+        .unwrap();
+        mailbox.bind_frame_preview(&compatibility).unwrap();
+        let make_frame = |frame_id: &str, fill: u8| {
+            let mut pixels = budget.allocate_rgb8_buffer(2, 1, TEST_FRAME_LIMIT).unwrap();
+            pixels.as_mut_slice().fill(fill);
+            RgbFrameEnvelope::new(
+                SourceFrame {
+                    session_id: session_id.to_owned(),
+                    frame_id: frame_id.to_owned(),
+                    timestamp: Some(fake_source_timestamp("fake-clock")),
+                    width_px: 2,
+                    height_px: 1,
+                },
+                pixels,
+                Instant::now(),
+                TEST_FRAME_LIMIT,
+            )
+            .unwrap()
+        };
+
+        mailbox
+            .publish(make_frame("frame-inference-is-processing", 19))
+            .unwrap();
+        let ReceiveOutcome::Frame(inference_frame) = mailbox.receive() else {
+            panic!("first captured frame should be delivered to inference");
+        };
+
+        mailbox
+            .publish(make_frame("frame-newest-capture", 221))
+            .unwrap();
+        let newest = preview.snapshot().expect("capture preview is current");
+        assert_eq!(
+            inference_frame.source().frame_id,
+            "frame-inference-is-processing"
+        );
+        assert_eq!(newest.descriptor().source_frame_id, "frame-newest-capture");
+        assert_eq!(
+            newest.descriptor().engine_instance_id,
+            "capture-preview-engine"
+        );
+        assert_eq!(newest.descriptor().capture_session_id, session_id);
+        assert_eq!(newest.rgb8(), &[221; 6]);
+        // Two captured buffers consume exactly two frame reservations: preview
+        // shares the accepted envelope and does not allocate a pixel copy.
+        assert_eq!(budget.stats().current_bytes, 12);
+
+        mailbox.cancel();
+        assert!(preview.snapshot().is_none());
+        drop(newest);
+        assert_eq!(budget.stats().current_bytes, 6);
+        drop(inference_frame);
+        assert_eq!(budget.stats().current_bytes, 0);
     }
 
     fn fake_metadata_read_completion_only(pixel_format: &str) -> CaptureSourceMetadata {

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import os
 import queue
 import threading
@@ -140,8 +141,6 @@ class VisionConfig:
     save_debug_images: bool
     debug_output_path: str
 
-    latest_frame_queue_enabled: bool
-
     @classmethod
     def from_config_dict(cls, config_dict: dict[str, Any]) -> VisionConfig:
         """Create VisionConfig from configuration dictionary.
@@ -190,10 +189,6 @@ class VisionConfig:
             max_frame_queue_size=config_dict.get(
                 "max_frame_queue_size",
                 config_mgr.get("vision.processing.max_frame_queue_size", 5),
-            ),
-            latest_frame_queue_enabled=config_dict.get(
-                "latest_frame_queue_enabled",
-                config_mgr.get("vision.processing.latest_frame_queue_enabled", True),
             ),
             # Detection settings
             enable_ball_detection=config_dict.get(
@@ -311,9 +306,10 @@ class VisionModule:
         self._capture_thread: threading.Thread | None = None
         self._processing_thread: threading.Thread | None = None
         self._is_running = False
-        self._frame_queue: queue.Queue[dict[str, Any]] = queue.Queue(
-            maxsize=self.config.max_frame_queue_size
-        )
+        # Live localization keeps exactly one pending frame. If inference is
+        # busy, capture replaces that slot so the next operation starts from
+        # the newest available image instead of replaying historical frames.
+        self._frame_queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         self._result_queue: queue.Queue[Any] = queue.Queue(
             maxsize=self.config.max_frame_queue_size
         )
@@ -425,6 +421,9 @@ class VisionModule:
                 enable_console_logging=profile_console,
                 resource_sample_interval_seconds=resource_interval,
                 target_fps=target_fps,
+                detailed_sample_rate=_get_config_value(
+                    "performance_audit.detailed_frame_sample_rate", 0.05
+                ),
                 event_sink=(
                     self._record_profiler_audit_event
                     if self.audit_recorder is not None
@@ -461,7 +460,10 @@ class VisionModule:
             return
         if event.get("event_type") == "process_resource_sample":
             event = {**event, "audit_export_status": recorder.status()}
-        recorder.record(event)
+        recorder.record(
+            event,
+            force_keep=event.get("event_type") == "vision_frame_sampling_summary",
+        )
 
     def _initialize_components(self) -> None:
         """Initialize all vision processing components."""
@@ -592,18 +594,11 @@ class VisionModule:
             self.stats = VisionStatistics()
             self._start_time = time.monotonic()
             self._frame_number = 0
-            self.phase_scheduler = VisionPhaseScheduler(self.phase_scheduler.settings)
-            self.motion_monitor.reset()
-            self._phase_geometry_signature = None
-            self._phase_last_motion_assessment = None
-            self._phase_last_motion_timestamp = None
-            self._phase_last_ball_timestamp = None
-            self._phase_last_ball_source_timestamp = None
-            self._phase_last_ball_source_frame_number = None
-            self._phase_last_ball_source_timestamp_kind = None
-            self._phase_last_cue_timestamp = None
-            self._phase_last_cue = None
-            self._phase_last_ball_map = []
+            # A newly attached stream starts a fresh source epoch. Reuse the
+            # same reset contract used when an in-process camera restart is
+            # detected so old frame IDs, calibration, and tracker state cannot
+            # make the first current observations look stale or duplicated.
+            self._reset_after_source_restart()
 
             # Start processing threads
             self._is_running = True
@@ -965,11 +960,7 @@ class VisionModule:
         logger.info("VisionModule capture loop ended")
 
     def _enqueue_frame(self, frame_data: dict[str, Any]) -> None:
-        """Queue a frame, replacing pending stale work in latest-frame mode."""
-        if not self.config.latest_frame_queue_enabled:
-            self._frame_queue.put_nowait(frame_data)
-            return
-
+        """Retain only the newest pending frame without blocking capture."""
         while True:
             try:
                 self._frame_queue.put_nowait(frame_data)
@@ -1007,7 +998,8 @@ class VisionModule:
                     else None
                 ),
                 "queue_depth_after_drop": self._frame_queue.qsize(),
-            }
+            },
+            force_keep=True,
         )
 
     def _processing_loop(self) -> None:
@@ -1026,15 +1018,14 @@ class VisionModule:
                 except queue.Empty:
                     continue
 
-                if self.config.latest_frame_queue_enabled:
-                    while True:
-                        try:
-                            newer_frame_data = self._frame_queue.get_nowait()
-                        except queue.Empty:
-                            break
-                        self._record_queue_drop(frame_data, newer_frame_data)
-                        frame_data = newer_frame_data
-                        self.stats.frames_dropped += 1
+                while True:
+                    try:
+                        newer_frame_data = self._frame_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    self._record_queue_drop(frame_data, newer_frame_data)
+                    frame_data = newer_frame_data
+                    self.stats.frames_dropped += 1
 
                 processing_queue_depth = (
                     self._frame_queue.qsize() if self._audit_enabled("state") else None
@@ -1176,6 +1167,7 @@ class VisionModule:
         self.motion_monitor.reset()
         self.phase_scheduler = VisionPhaseScheduler(self.phase_scheduler.settings)
         self._phase_geometry_signature = None
+        self._phase_calibration_revision = None
         self._phase_last_ball_map = []
         self._phase_last_ball_timestamp = None
         self._phase_last_ball_source_timestamp = None
@@ -1760,26 +1752,26 @@ class VisionModule:
 
             # Start profiling this frame
             if self.profiler:
-                self.profiler.start_frame(
-                    frame_number,
-                    metadata={
-                        "source_frame_number": source_frame_number,
-                        "source_timestamp": source_timestamp,
-                        "source_timestamp_kind": source_timestamp_kind,
-                        "source_process_id": source_process_id,
-                        "source_publication_monotonic_ns": (
-                            source_publication_monotonic_ns
-                        ),
-                        "queue_delay_seconds": queue_delay_seconds,
-                        **(audit_metadata or {}),
-                        "calibration_revision": calibration_revision,
-                        "phase": (
-                            phase_decision.phase.value
-                            if phase_decision is not None
-                            else "unscheduled"
-                        ),
-                    },
-                )
+                if self.profiler.start_frame(frame_number):
+                    self.profiler.update_current_frame_metadata(
+                        {
+                            "source_frame_number": source_frame_number,
+                            "source_timestamp": source_timestamp,
+                            "source_timestamp_kind": source_timestamp_kind,
+                            "source_process_id": source_process_id,
+                            "source_publication_monotonic_ns": (
+                                source_publication_monotonic_ns
+                            ),
+                            "queue_delay_seconds": queue_delay_seconds,
+                            **(audit_metadata or {}),
+                            "calibration_revision": calibration_revision,
+                            "phase": (
+                                phase_decision.phase.value
+                                if phase_decision is not None
+                                else "unscheduled"
+                            ),
+                        }
+                    )
                 current_frame = self.profiler.current_frame
                 if current_frame is not None:
                     current_frame.queue_wait_time = queue_delay_seconds
@@ -2289,16 +2281,11 @@ class VisionModule:
             processing_time = (
                 time.monotonic() - start_time
             ) * 1000  # Convert to milliseconds
-            age_reference_timestamp = source_timestamp
-            if (
-                age_reference_timestamp is None
-                and source_timestamp_kind == "vision_capture_fallback"
-            ):
-                age_reference_timestamp = timestamp
-            frame_publication_age_seconds = (
-                max(0.0, time.time() - age_reference_timestamp)
-                if age_reference_timestamp is not None
-                else None
+            frame_publication_age_seconds = self._calculate_publication_age_seconds(
+                source_timestamp=source_timestamp,
+                source_timestamp_kind=source_timestamp_kind,
+                source_publication_monotonic_ns=source_publication_monotonic_ns,
+                fallback_timestamp=timestamp,
             )
 
             # Create a default table (no detection needed)
@@ -2502,7 +2489,7 @@ class VisionModule:
                             "frame_publication_age_seconds": result.frame_publication_age_seconds,
                         }
                     )
-                self.profiler.end_frame()
+                self.profiler.end_frame(frame_status="complete")
 
             return result
 
@@ -2510,14 +2497,92 @@ class VisionModule:
             logger.error(f"Frame processing failed: {e}")
             self.stats.last_error = str(e)
 
+            # Frame-level detail sampling must never hide a failed observation.
+            # This event is rare and stays correlated with its source identity.
+            recorder = getattr(self, "audit_recorder", None)
+            if recorder is not None and self._audit_enabled("state"):
+                failure_event: dict[str, Any] = {
+                    "event_type": "vision_frame_failed",
+                    "frame_number": frame_number,
+                    "source_frame_number": source_frame_number,
+                    "source_timestamp": source_timestamp,
+                    "source_timestamp_kind": source_timestamp_kind,
+                    "source_process_id": source_process_id,
+                    "source_publication_monotonic_ns": source_publication_monotonic_ns,
+                    "queue_delay_seconds": queue_delay_seconds,
+                    "error_type": type(e).__name__,
+                }
+                if isinstance(audit_metadata, dict):
+                    failure_event.update(
+                        {
+                            key: audit_metadata[key]
+                            for key in ("calibration_revision", "map_revision")
+                            if key in audit_metadata
+                        }
+                    )
+                recorder.record(failure_event, force_keep=True)
+
             # End profiling even on error
             if self.profiler:
                 current_frame = self.profiler.current_frame
                 if current_frame is not None:
                     current_frame.metadata["frame_status"] = "failed"
-                self.profiler.end_frame()
+                self.profiler.end_frame(frame_status="failed")
 
             return None
+
+    @staticmethod
+    def _calculate_publication_age_seconds(
+        *,
+        source_timestamp: float | None,
+        source_timestamp_kind: str | None,
+        source_publication_monotonic_ns: int | None,
+        fallback_timestamp: float,
+    ) -> float | None:
+        """Measure age from shared-memory publication using elapsed-time clocks.
+
+        Shared-memory publication timestamps and ``perf_counter_ns`` are
+        produced on the same machine, so their difference is not affected by
+        wall-clock corrections. Older records may not contain the reserved
+        monotonic header value; those retain the legacy wall-clock estimate.
+        A negative or otherwise invalid delta is unavailable, never clamped to
+        zero, because doing so could make a future or incomparable timestamp
+        appear fresh.
+        """
+        if source_publication_monotonic_ns is not None:
+            if (
+                isinstance(source_publication_monotonic_ns, bool)
+                or not isinstance(source_publication_monotonic_ns, int)
+                or source_publication_monotonic_ns <= 0
+            ):
+                return None
+
+            try:
+                age_ns = time.perf_counter_ns() - source_publication_monotonic_ns
+            except (OSError, RuntimeError):
+                return None
+            if age_ns < 0:
+                return None
+            return age_ns / 1_000_000_000
+
+        # Records predating the monotonic shared-memory field retain their
+        # wall-clock age estimate. The fallback timestamp is only meaningful
+        # for frames captured without shared-memory metadata.
+        age_reference_timestamp = source_timestamp
+        if (
+            age_reference_timestamp is None
+            and source_timestamp_kind == "vision_capture_fallback"
+        ):
+            age_reference_timestamp = fallback_timestamp
+        if age_reference_timestamp is None or not math.isfinite(
+            age_reference_timestamp
+        ):
+            return None
+
+        wall_age_seconds = time.time() - age_reference_timestamp
+        if not math.isfinite(wall_age_seconds) or wall_age_seconds < 0:
+            return None
+        return wall_age_seconds
 
     def _record_source_frame_event(
         self,
@@ -2541,7 +2606,7 @@ class VisionModule:
         }
         if reason is not None:
             event["reason"] = reason
-        recorder.record(event)
+        recorder.record(event, force_keep=True)
 
     def _audit_enabled(self, domain: str) -> bool:
         """Return whether an audit domain is active, including partial test setups."""

@@ -142,6 +142,49 @@ describe('VideoStore frozen trajectory reference', () => {
     expect(store.currentTrajectories[0].predictionStatus).toBe('frozen_reference');
   });
 
+  test('ignores an older transport snapshot but accepts a restarted producer epoch', () => {
+    sendState('aiming', {
+      frame_number: 12,
+      observation_status: {
+        observation_identity: {
+          engine_instance_id: 'engine-a',
+          session_id: 'session-a',
+          frame_id: 'frame-12',
+        },
+        transport_sequence: 12,
+      },
+    });
+    sendState('idle', {
+      frame_number: 11,
+      observation_status: {
+        observation_identity: {
+          engine_instance_id: 'engine-a',
+          session_id: 'session-a',
+          frame_id: 'frame-11',
+        },
+        transport_sequence: 11,
+      },
+    });
+
+    expect(store.latestGameState?.frame_number).toBe(12);
+    expect(store.visionPhase).toBe('aiming');
+
+    sendState('idle', {
+      frame_number: 1,
+      observation_status: {
+        observation_identity: {
+          engine_instance_id: 'engine-b',
+          session_id: 'session-b',
+          frame_id: 'frame-1',
+        },
+        transport_sequence: 1,
+      },
+    });
+
+    expect(store.latestGameState?.frame_number).toBe(1);
+    expect(store.visionPhase).toBe('idle');
+  });
+
   test('ignores live predictions during motion and replaces the reference on valid aiming output', () => {
     sendState('aiming');
     sendPrediction(prediction('prediction-1'));

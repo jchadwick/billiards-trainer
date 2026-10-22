@@ -37,6 +37,19 @@ _RUST_CHILD_ENVIRONMENT_KEYS = ("TMPDIR",)
 _OPENVINO_CHILD_ENVIRONMENT_KEYS = ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH")
 
 
+def _count_replay_images(input_path: Path) -> int:
+    """Count exactly the supported corpus files before scheduling repetitions."""
+    if input_path.is_file():
+        return int(input_path.suffix.lower() in _IMAGE_SUFFIXES)
+    if not input_path.is_dir():
+        return 0
+    return sum(
+        1
+        for path in input_path.rglob("*")
+        if path.is_file() and path.suffix.lower() in _IMAGE_SUFFIXES
+    )
+
+
 class ConfigurationReader(Protocol):
     """Small interface shared by the validated config store and tests."""
 
@@ -65,6 +78,9 @@ class RustReplaySettings:
     iou: float
     warmup_runs: int
     replay_rate_fps: float
+    public_state_delivery_schema_version: int
+    replay_repeat_count: int
+    maximum_replay_frames: int
     source_image_space: str
     ball_class_id: int
     cue_class_id: int | None
@@ -143,6 +159,11 @@ class RustReplaySettings:
             iou=value("iou"),
             warmup_runs=value("warmup_runs"),
             replay_rate_fps=value("replay_rate_fps"),
+            public_state_delivery_schema_version=value(
+                "public_state_delivery_schema_version"
+            ),
+            replay_repeat_count=value("replay_repeat_count"),
+            maximum_replay_frames=value("maximum_replay_frames"),
             source_image_space=value("source_image_space"),
             ball_class_id=value("ball_class_id"),
             cue_class_id=value("cue_class_id"),
@@ -252,19 +273,17 @@ class RustReplaySettings:
             )
         if not self.input_path.exists():
             raise RustReplayConfigurationError("configured replay input does not exist")
-        if self.input_path.is_dir() and not any(
-            path.is_file() and path.suffix.lower() in _IMAGE_SUFFIXES
-            for path in self.input_path.rglob("*")
-        ):
-            raise RustReplayConfigurationError(
-                "configured replay directory contains no PNG/JPEG images"
-            )
         if (
             self.input_path.is_file()
             and self.input_path.suffix.lower() not in _IMAGE_SUFFIXES
         ):
             raise RustReplayConfigurationError(
                 "Rust recorded replay accepts only PNG/JPEG files or directories"
+            )
+        replay_image_count = _count_replay_images(self.input_path)
+        if replay_image_count == 0:
+            raise RustReplayConfigurationError(
+                "configured replay directory contains no PNG/JPEG images"
             )
         if (
             not isinstance(self.image_size, int)
@@ -289,9 +308,18 @@ class RustReplaySettings:
                     f"{label} must be finite and between zero and one"
                 )
         self._require_positive_finite("replay_rate_fps", self.replay_rate_fps)
+        if (
+            type(self.public_state_delivery_schema_version) is not int
+            or self.public_state_delivery_schema_version != 1
+        ):
+            raise RustReplayConfigurationError(
+                "public_state_delivery_schema_version must select supported v1"
+            )
         self._require_positive_finite("association_gate_px", self.association_gate_px)
         for name in (
             "warmup_runs",
+            "replay_repeat_count",
+            "maximum_replay_frames",
             "association_prediction_horizon_ms",
             "lost_after_ms",
             "maximum_track_age_ms",
@@ -317,6 +345,16 @@ class RustReplaySettings:
         if self.maximum_message_bytes > 0xFFFFFFFF:
             raise RustReplayConfigurationError(
                 "maximum_message_bytes must fit the scene transport frame length"
+            )
+        if self.maximum_replay_frames > 0xFFFFFFFF:
+            raise RustReplayConfigurationError(
+                "maximum_replay_frames must fit the Rust replay frame identity"
+            )
+        scheduled_frames = replay_image_count * self.replay_repeat_count
+        if scheduled_frames > self.maximum_replay_frames:
+            raise RustReplayConfigurationError(
+                "replay input image count multiplied by replay_repeat_count "
+                "exceeds maximum_replay_frames"
             )
         if self.reconnect_maximum_delay_ms < self.reconnect_initial_delay_ms:
             raise RustReplayConfigurationError(
@@ -448,6 +486,7 @@ class RustReplaySupervisor:
             port=settings.port,
             maximum_message_bytes=settings.maximum_message_bytes,
             read_timeout_seconds=settings.read_timeout_seconds,
+            accept_public_state_delivery=True,
         )
         self._ingress = SceneSnapshotIngress(ingress_settings)
         self._worker = SceneSnapshotStateWorker(
@@ -628,6 +667,10 @@ class RustReplaySupervisor:
             str(settings.warmup_runs),
             "--replay-rate-fps",
             str(settings.replay_rate_fps),
+            "--replay-repeat-count",
+            str(settings.replay_repeat_count),
+            "--maximum-replay-frames",
+            str(settings.maximum_replay_frames),
             "--source-image-space",
             settings.source_image_space,
             "--detection-batches-jsonl",
@@ -638,6 +681,8 @@ class RustReplaySupervisor:
             source_session_id,
             "--scene-snapshots-tcp",
             f"{address[0]}:{address[1]}",
+            "--public-state-delivery-schema-version",
+            str(settings.public_state_delivery_schema_version),
             "--scene-snapshots-max-message-bytes",
             str(settings.maximum_message_bytes),
             "--scene-snapshots-connect-timeout-ms",

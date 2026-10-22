@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:billiards-trainer:perception:public-state-delivery:v1",
+  "title": "Billiards Rust public-state delivery v1",
+  "description": "Raw scene provenance paired with Rust-owned current public state for the retained service gateway.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["delivery_type", "delivery_schema_version", "source_snapshot", "current_state"],
+  "properties": {
+    "delivery_type": { "const": "billiards_public_state_delivery" },
+    "delivery_schema_version": { "const": 1 },
+    "source_snapshot": { "type": "object" },
+    "current_state": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/currentState" }
+      ]
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticks", "unit", "clock", "domain_id", "stage"],
+      "properties": {
+        "ticks": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$", "maxLength": 20 },
+        "unit": { "const": "nanoseconds" },
+        "clock": { "enum": ["monotonic", "unix_epoch", "sensor"] },
+        "domain_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "stage": { "enum": ["exposure", "camera_read_complete", "shared_memory_publication", "frame_arrival", "inference_complete", "snapshot_publication"] }
+      }
+    },
+    "currentState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["payload", "epoch", "updated_monotonic_ns", "localization_received_monotonic_ns", "localization_age_ns", "ball_age_ns", "freshness"],
+      "properties": {
+        "payload": { "$ref": "#/$defs/payload" },
+        "epoch": { "type": "integer", "minimum": 1 },
+        "updated_monotonic_ns": { "type": "integer", "minimum": 0 },
+        "localization_received_monotonic_ns": { "type": ["integer", "null"], "minimum": 0 },
+        "localization_age_ns": { "type": ["integer", "null"], "minimum": 0 },
+        "ball_age_ns": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "freshness": { "enum": ["fresh", "stale", "expired"] }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["balls", "observation_status", "table", "game_type"],
+      "properties": {
+        "balls": { "type": "array", "items": { "$ref": "#/$defs/ball" } },
+        "observation_status": { "type": "object" },
+        "table": { "type": ["object", "null"] },
+        "game_type": { "type": ["string", "null"] }
+      }
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+    },
+    "position": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "scale"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 }
+      }
+    },
+    "sourceObservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine_instance_id", "session_id", "frame_id", "timestamp"],
+      "properties": {
+        "engine_instance_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "session_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "frame_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "timestamp": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "identityEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "confidence"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+      }
+    },
+    "tablePosition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "unit", "origin"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "unit": { "const": "millimeters" },
+        "origin": { "const": "playing_surface_center" }
+      }
+    },
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "position", "radius", "radius_scale", "radius_unit", "radius_source", "confidence", "confidence_kind", "last_observation_confidence", "number", "type", "identity_status", "identity_confidence", "identity_evidence", "is_observed", "tracking_status", "position_kind", "source_observation", "image_space", "image_width_px", "image_height_px"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "position": { "$ref": "#/$defs/position" },
+        "radius": { "type": "number", "exclusiveMinimum": 0 },
+        "radius_scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
+        "radius_unit": { "const": "canonical_pixels" },
+        "radius_source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "confidence_kind": { "enum": ["detector_observation", "unavailable"] },
+        "last_observation_confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "number": { "type": ["integer", "null"], "minimum": 1, "maximum": 15 },
+        "type": { "enum": ["unknown", "eight", "stripe", "solid"] },
+        "identity_status": { "enum": ["identified", "unknown"] },
+        "identity_confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "identity_evidence": { "type": "array", "items": { "$ref": "#/$defs/identityEvidence" } },
+        "is_observed": { "type": "boolean" },
+        "tracking_status": { "enum": ["observed", "tracked", "occluded", "lost"] },
+        "position_kind": { "enum": ["measured", "filtered", "extrapolated", "last_observed"] },
+        "source_observation": { "$ref": "#/$defs/sourceObservation" },
+        "image_space": { "const": "raw" },
+        "image_width_px": { "type": "integer", "minimum": 1 },
+        "image_height_px": { "type": "integer", "minimum": 1 },
+        "table_position": { "$ref": "#/$defs/tablePosition" }
+      }
+    }
+  }
+}

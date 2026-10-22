@@ -45,9 +45,10 @@ yarn-error.log*
 **/docs/
 thoughts/
 
-# The backend image has no frontend runtime. Keep web and visualization assets
-# out of the image build context.
-frontend/
+# Include the standard web client source for the Docker Node build stage;
+# keep the projector, generated dist, tests, and node_modules excluded.
+frontend/*
+!frontend/web/
 
 # Docker
 Dockerfile*
@@ -63,6 +64,7 @@ docker-compose*.yml
 .cache/
 temp/
 tmp/
+perception/target
 **/target/
 *.log
 logs/

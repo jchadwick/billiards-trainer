@@ -74,7 +74,11 @@ export const NavMenuItem: React.FC<{
     <Link
       to={item.path}
       className={`${baseClasses} ${activeClasses} ${disabledClasses}`}
-      onClick={item.disabled ? (e) => e.preventDefault() : handleClick}
+      onClick={
+        item.disabled
+          ? (e: React.MouseEvent<HTMLAnchorElement>) => e.preventDefault()
+          : handleClick
+      }
       aria-disabled={item.disabled}
       aria-current={isActive ? 'page' : undefined}
       role="menuitem"

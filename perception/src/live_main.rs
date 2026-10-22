@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{ensure, Context, Result};
+use billiards_perception::calibration_control::CalibrationControlConfig;
 use billiards_perception::capture::{
     CaptureInterrupt, CaptureOpenError, CaptureSource, CaptureSourceFactory,
 };
+use billiards_perception::frame_preview::FramePreviewConfig;
 #[cfg(feature = "camera-gstreamer-source")]
 use billiards_perception::gstreamer_capture_source::{
     GstreamerCaptureSourceConfig, GstreamerCaptureSourceFactory,
@@ -50,6 +52,9 @@ enum CaptureSourceArgument {
     Unavailable,
     /// Use the opt-in GStreamer helper with the exact v3 discovery selector.
     GstreamerPhysical,
+    /// Use an explicit remote HTTP multipart MJPEG stream for development
+    /// integration testing; this is not physical-camera capture.
+    GstreamerHttpMjpeg,
 }
 
 impl From<ImageSpaceArgument> for ImageSpace {
@@ -115,6 +120,10 @@ struct Arguments {
     /// Physical capture remains unavailable unless explicitly selected.
     #[arg(long, value_enum, default_value_t = CaptureSourceArgument::Unavailable)]
     capture_source: CaptureSourceArgument,
+
+    /// Remote multipart MJPEG URL, required only with gstreamer-http-mjpeg.
+    #[arg(long)]
+    capture_http_mjpeg_url: Option<String>,
 
     /// Absolute path to the opt-in GStreamer capture helper executable.
     #[arg(long)]
@@ -260,6 +269,52 @@ struct Arguments {
     /// Audit record socket-write deadline, in milliseconds.
     #[arg(long)]
     live_audit_write_timeout_ms: Option<u64>,
+
+    /// Optional loopback-only TCP endpoint for one-shot calibration frame
+    /// previews. Use port zero to let Rust select a free port; the actual
+    /// address is emitted on stderr as `frame_preview_ready=<JSON>`.
+    #[arg(long)]
+    frame_preview_tcp: Option<SocketAddr>,
+
+    /// Maximum JSON response-header bytes for the preview protocol.
+    #[arg(long)]
+    frame_preview_max_header_bytes: Option<usize>,
+
+    /// Maximum JPEG bytes per one-shot preview response.
+    #[arg(long)]
+    frame_preview_max_jpeg_bytes: Option<usize>,
+
+    /// Number of concurrent preview requests/JPEG encoders.
+    #[arg(long)]
+    frame_preview_max_concurrent_encodes: Option<usize>,
+
+    /// JPEG quality in the inclusive range 1..=100.
+    #[arg(long)]
+    frame_preview_jpeg_quality: Option<u8>,
+
+    /// Maximum time to receive the fixed preview request, in milliseconds.
+    #[arg(long)]
+    frame_preview_request_timeout_ms: Option<u64>,
+
+    /// Maximum time to write one preview header and JPEG, in milliseconds.
+    #[arg(long)]
+    frame_preview_write_timeout_ms: Option<u64>,
+
+    /// Enable Rust-owned calibration persistence on the frame-preview listener.
+    #[arg(long)]
+    frame_preview_calibration_store_path: Option<PathBuf>,
+
+    /// Maximum time to wait for the calibration store lock, in milliseconds.
+    #[arg(long)]
+    frame_preview_calibration_store_lock_timeout_ms: Option<u64>,
+
+    /// Maximum durable calibration store file size.
+    #[arg(long)]
+    frame_preview_calibration_store_max_file_bytes: Option<usize>,
+
+    /// Maximum calibration submit JSON body bytes; accepted range is 1..=1048576.
+    #[arg(long)]
+    frame_preview_calibration_max_request_bytes: Option<usize>,
 }
 
 fn main() -> Result<()> {
@@ -285,6 +340,7 @@ fn main() -> Result<()> {
     let exact_capture_settings =
         read_capture_settings(&mut stdin, arguments.capture_settings_max_bytes)?;
     let live_audit_config = build_live_audit_config(&arguments)?;
+    let frame_preview_config = build_frame_preview_config(&arguments)?;
     let capture_audit_timing = live_audit_config.is_some();
     let source_factory = build_capture_source_factory(
         &arguments,
@@ -330,6 +386,7 @@ fn main() -> Result<()> {
         poll_interval: Duration::from_millis(arguments.poll_interval_ms),
         graceful_stop_timeout: Duration::from_millis(arguments.graceful_stop_timeout_ms),
         capture_settings_maximum_bytes: arguments.capture_settings_max_bytes,
+        frame_preview: frame_preview_config,
     };
 
     match source_factory {
@@ -342,6 +399,14 @@ fn main() -> Result<()> {
         ),
         #[cfg(feature = "camera-gstreamer-source")]
         LiveCaptureSourceFactory::GstreamerPhysical(factory) => run_live_application_with_audit(
+            &exact_capture_settings,
+            settings,
+            *factory,
+            &termination_requested,
+            live_audit_config,
+        ),
+        #[cfg(feature = "camera-gstreamer-source")]
+        LiveCaptureSourceFactory::GstreamerHttpMjpeg(factory) => run_live_application_with_audit(
             &exact_capture_settings,
             settings,
             *factory,
@@ -390,10 +455,103 @@ fn build_live_audit_config(arguments: &Arguments) -> Result<Option<LiveAuditConf
     Ok(Some(config))
 }
 
+fn build_frame_preview_config(arguments: &Arguments) -> Result<Option<FramePreviewConfig>> {
+    let preview_supplied = [
+        arguments.frame_preview_tcp.is_some(),
+        arguments.frame_preview_max_header_bytes.is_some(),
+        arguments.frame_preview_max_jpeg_bytes.is_some(),
+        arguments.frame_preview_max_concurrent_encodes.is_some(),
+        arguments.frame_preview_jpeg_quality.is_some(),
+        arguments.frame_preview_request_timeout_ms.is_some(),
+        arguments.frame_preview_write_timeout_ms.is_some(),
+    ];
+    let calibration_supplied = [
+        arguments.frame_preview_calibration_store_path.is_some(),
+        arguments
+            .frame_preview_calibration_store_lock_timeout_ms
+            .is_some(),
+        arguments
+            .frame_preview_calibration_store_max_file_bytes
+            .is_some(),
+        arguments
+            .frame_preview_calibration_max_request_bytes
+            .is_some(),
+    ];
+    if preview_supplied.iter().all(|value| !value) {
+        ensure!(
+            calibration_supplied.iter().all(|value| !value),
+            "--frame-preview-calibration-store-* settings require the complete --frame-preview-* configuration"
+        );
+        return Ok(None);
+    }
+    ensure!(
+        preview_supplied.iter().all(|value| *value),
+        "all --frame-preview-* options must be supplied together"
+    );
+    ensure!(
+        calibration_supplied.iter().all(|value| *value)
+            || calibration_supplied.iter().all(|value| !value),
+        "all --frame-preview-calibration-store-* options must be supplied together"
+    );
+
+    let calibration_control = if calibration_supplied[0] {
+        Some(CalibrationControlConfig::new(
+            arguments
+                .frame_preview_calibration_store_path
+                .clone()
+                .expect("validated above"),
+            Duration::from_millis(
+                arguments
+                    .frame_preview_calibration_store_lock_timeout_ms
+                    .expect("validated above"),
+            ),
+            arguments
+                .frame_preview_calibration_store_max_file_bytes
+                .expect("validated above"),
+            arguments
+                .frame_preview_calibration_max_request_bytes
+                .expect("validated above"),
+        )?)
+    } else {
+        None
+    };
+
+    let config = FramePreviewConfig {
+        listen_address: arguments.frame_preview_tcp.expect("validated above"),
+        maximum_header_bytes: arguments
+            .frame_preview_max_header_bytes
+            .expect("validated above"),
+        maximum_jpeg_bytes: arguments
+            .frame_preview_max_jpeg_bytes
+            .expect("validated above"),
+        maximum_concurrent_encodes: arguments
+            .frame_preview_max_concurrent_encodes
+            .expect("validated above"),
+        jpeg_quality: arguments
+            .frame_preview_jpeg_quality
+            .expect("validated above"),
+        request_timeout: Duration::from_millis(
+            arguments
+                .frame_preview_request_timeout_ms
+                .expect("validated above"),
+        ),
+        write_timeout: Duration::from_millis(
+            arguments
+                .frame_preview_write_timeout_ms
+                .expect("validated above"),
+        ),
+        calibration_control,
+    };
+    config.validate()?;
+    Ok(Some(config))
+}
+
 enum LiveCaptureSourceFactory {
     Unavailable(UnavailableCaptureSourceFactory),
     #[cfg(feature = "camera-gstreamer-source")]
     GstreamerPhysical(Box<GstreamerCaptureSourceFactory>),
+    #[cfg(feature = "camera-gstreamer-source")]
+    GstreamerHttpMjpeg(Box<GstreamerCaptureSourceFactory>),
 }
 
 fn build_capture_source_factory(
@@ -417,11 +575,16 @@ fn build_capture_source_factory(
         CaptureSourceArgument::GstreamerPhysical => {
             #[cfg(feature = "camera-gstreamer-source")]
             {
+                ensure!(
+                    arguments.capture_http_mjpeg_url.is_none(),
+                    "--capture-http-mjpeg-url requires --capture-source gstreamer-http-mjpeg"
+                );
                 let config = GstreamerCaptureSourceConfig {
                     helper_executable_path: required_capture_option(
                         arguments.capture_helper_executable.clone(),
                         "--capture-helper-executable",
                     )?,
+                    http_mjpeg_url: None,
                     exact_capture_settings_json: exact_capture_settings.to_vec(),
                     capture_settings_max_bytes: arguments.capture_settings_max_bytes,
                     ready_record_max_bytes: required_capture_option(
@@ -469,11 +632,72 @@ fn build_capture_source_factory(
                 )
             }
         }
+        CaptureSourceArgument::GstreamerHttpMjpeg => {
+            #[cfg(feature = "camera-gstreamer-source")]
+            {
+                let url = required_capture_option(
+                    arguments.capture_http_mjpeg_url.clone(),
+                    "--capture-http-mjpeg-url",
+                )?;
+                let config = GstreamerCaptureSourceConfig {
+                    helper_executable_path: required_capture_option(
+                        arguments.capture_helper_executable.clone(),
+                        "--capture-helper-executable",
+                    )?,
+                    http_mjpeg_url: Some(url.clone()),
+                    exact_capture_settings_json: exact_capture_settings.to_vec(),
+                    capture_settings_max_bytes: arguments.capture_settings_max_bytes,
+                    ready_record_max_bytes: required_capture_option(
+                        arguments.capture_helper_ready_record_max_bytes,
+                        "--capture-helper-ready-record-max-bytes",
+                    )?,
+                    frame_header_max_bytes: required_capture_option(
+                        arguments.capture_helper_frame_header_max_bytes,
+                        "--capture-helper-frame-header-max-bytes",
+                    )?,
+                    frame_count: None,
+                    slow_reader_delay_ms: required_capture_option(
+                        arguments.capture_helper_slow_reader_delay_ms,
+                        "--capture-helper-slow-reader-delay-ms",
+                    )?,
+                    pull_timeout_ms: required_capture_option(
+                        arguments.capture_helper_pull_timeout_ms,
+                        "--capture-helper-pull-timeout-ms",
+                    )?,
+                    capture_audit_timing,
+                    readiness_timeout: Duration::from_millis(required_capture_option(
+                        arguments.capture_helper_readiness_timeout_ms,
+                        "--capture-helper-readiness-timeout-ms",
+                    )?),
+                    child_exit_timeout: Duration::from_millis(required_capture_option(
+                        arguments.capture_helper_child_exit_timeout_ms,
+                        "--capture-helper-child-exit-timeout-ms",
+                    )?),
+                    child_exit_poll_interval: Duration::from_millis(required_capture_option(
+                        arguments.capture_helper_child_exit_poll_interval_ms,
+                        "--capture-helper-child-exit-poll-interval-ms",
+                    )?),
+                };
+                let factory = GstreamerCaptureSourceFactory::new_http_mjpeg(config, url)
+                    .context("invalid opt-in remote HTTP-MJPEG source configuration")?;
+                Ok(LiveCaptureSourceFactory::GstreamerHttpMjpeg(Box::new(
+                    factory,
+                )))
+            }
+            #[cfg(not(feature = "camera-gstreamer-source"))]
+            {
+                let _ = (arguments, exact_capture_settings);
+                anyhow::bail!(
+                    "HTTP-MJPEG capture was not compiled; build with camera-gstreamer-source explicitly"
+                )
+            }
+        }
     }
 }
 
 fn has_capture_helper_options(arguments: &Arguments) -> bool {
-    arguments.capture_helper_executable.is_some()
+    arguments.capture_http_mjpeg_url.is_some()
+        || arguments.capture_helper_executable.is_some()
         || arguments.capture_helper_ready_record_max_bytes.is_some()
         || arguments.capture_helper_frame_header_max_bytes.is_some()
         || arguments.capture_helper_slow_reader_delay_ms.is_some()
@@ -487,7 +711,7 @@ fn has_capture_helper_options(arguments: &Arguments) -> bool {
 
 #[cfg(feature = "camera-gstreamer-source")]
 fn required_capture_option<T>(value: Option<T>, argument_name: &str) -> Result<T> {
-    value.ok_or_else(|| anyhow::anyhow!("{argument_name} is required for physical capture"))
+    value.ok_or_else(|| anyhow::anyhow!("{argument_name} is required for selected capture source"))
 }
 
 /// Default for builds and sessions without the explicit physical-source
@@ -517,8 +741,8 @@ mod tests {
     use clap::Parser;
 
     use super::{
-        build_capture_source_factory, build_live_audit_config, Arguments, CaptureSourceArgument,
-        LiveCaptureSourceFactory, ProviderArgument,
+        build_capture_source_factory, build_frame_preview_config, build_live_audit_config,
+        Arguments, CaptureSourceArgument, LiveCaptureSourceFactory, ProviderArgument,
     };
 
     #[test]
@@ -589,6 +813,79 @@ mod tests {
     }
 
     #[test]
+    fn live_cli_requires_a_complete_valid_loopback_frame_preview_configuration() {
+        let mut arguments = supervisor_arguments();
+        arguments.extend(["--frame-preview-tcp", "127.0.0.1:0"]);
+        let parsed = Arguments::try_parse_from(arguments.clone()).unwrap();
+        assert!(build_frame_preview_config(&parsed).is_err());
+
+        arguments.extend([
+            "--frame-preview-max-header-bytes",
+            "8192",
+            "--frame-preview-max-jpeg-bytes",
+            "4194304",
+            "--frame-preview-max-concurrent-encodes",
+            "1",
+            "--frame-preview-jpeg-quality",
+            "85",
+            "--frame-preview-request-timeout-ms",
+            "1000",
+            "--frame-preview-write-timeout-ms",
+            "2000",
+        ]);
+        let parsed = Arguments::try_parse_from(arguments.clone()).unwrap();
+        let preview = build_frame_preview_config(&parsed).unwrap().unwrap();
+        assert_eq!(preview.maximum_header_bytes, 8192);
+        assert_eq!(preview.maximum_jpeg_bytes, 4_194_304);
+        assert!(preview.calibration_control.is_none());
+
+        let address_position = arguments
+            .iter()
+            .position(|argument| *argument == "127.0.0.1:0")
+            .unwrap();
+        arguments[address_position] = "0.0.0.0:0";
+        let parsed = Arguments::try_parse_from(arguments).unwrap();
+        assert!(build_frame_preview_config(&parsed).is_err());
+    }
+
+    #[test]
+    fn live_cli_requires_complete_calibration_store_settings_and_builds_rust_store_config() {
+        let mut arguments = supervisor_arguments();
+        arguments.extend([
+            "--frame-preview-tcp",
+            "127.0.0.1:0",
+            "--frame-preview-max-header-bytes",
+            "8192",
+            "--frame-preview-max-jpeg-bytes",
+            "4194304",
+            "--frame-preview-max-concurrent-encodes",
+            "1",
+            "--frame-preview-jpeg-quality",
+            "85",
+            "--frame-preview-request-timeout-ms",
+            "1000",
+            "--frame-preview-write-timeout-ms",
+            "2000",
+            "--frame-preview-calibration-store-path",
+            "/tmp/billiards-table-calibration.json",
+        ]);
+        let parsed = Arguments::try_parse_from(arguments.clone()).unwrap();
+        assert!(build_frame_preview_config(&parsed).is_err());
+        arguments.extend([
+            "--frame-preview-calibration-store-lock-timeout-ms",
+            "250",
+            "--frame-preview-calibration-store-max-file-bytes",
+            "65536",
+            "--frame-preview-calibration-max-request-bytes",
+            "16384",
+        ]);
+        let parsed = Arguments::try_parse_from(arguments).unwrap();
+        let preview = build_frame_preview_config(&parsed).unwrap().unwrap();
+        let control = preview.calibration_control.unwrap();
+        assert_eq!(control.maximum_request_bytes, 16_384);
+    }
+
+    #[test]
     fn live_cli_requires_one_shot_capture_settings_stdin() {
         let mut arguments = supervisor_arguments();
         let flag_position = arguments
@@ -624,6 +921,37 @@ mod tests {
             build_capture_source_factory(&parsed, request.as_bytes(), false).unwrap(),
             LiveCaptureSourceFactory::GstreamerPhysical(_)
         ));
+    }
+
+    #[cfg(feature = "camera-gstreamer-source")]
+    #[test]
+    fn remote_mjpeg_source_factory_requires_explicit_url_and_source_identity() {
+        let mut arguments = supervisor_arguments();
+        arguments.extend(http_mjpeg_helper_arguments());
+        arguments.extend([
+            "--capture-http-mjpeg-url",
+            "http://127.0.0.1:8001/stream.mjpg",
+        ]);
+        let parsed = Arguments::try_parse_from(arguments).unwrap();
+        assert!(matches!(
+            build_capture_source_factory(&parsed, http_mjpeg_capture_settings().as_bytes(), false)
+                .unwrap(),
+            LiveCaptureSourceFactory::GstreamerHttpMjpeg(_)
+        ));
+
+        let mut invalid_url = supervisor_arguments();
+        invalid_url.extend(http_mjpeg_helper_arguments());
+        invalid_url.extend([
+            "--capture-http-mjpeg-url",
+            "http://user:pass@127.0.0.1/stream.mjpg",
+        ]);
+        let parsed = Arguments::try_parse_from(invalid_url).unwrap();
+        assert!(build_capture_source_factory(
+            &parsed,
+            http_mjpeg_capture_settings().as_bytes(),
+            false
+        )
+        .is_err());
     }
 
     #[cfg(feature = "camera-gstreamer-source")]
@@ -677,6 +1005,30 @@ mod tests {
         ]
     }
 
+    #[cfg(feature = "camera-gstreamer-source")]
+    fn http_mjpeg_helper_arguments() -> Vec<&'static str> {
+        vec![
+            "--capture-source",
+            "gstreamer-http-mjpeg",
+            "--capture-helper-executable",
+            "/opt/billiards/billiards-perception-gstreamer-probe",
+            "--capture-helper-ready-record-max-bytes",
+            "4096",
+            "--capture-helper-frame-header-max-bytes",
+            "4096",
+            "--capture-helper-slow-reader-delay-ms",
+            "0",
+            "--capture-helper-pull-timeout-ms",
+            "2000",
+            "--capture-helper-readiness-timeout-ms",
+            "5000",
+            "--capture-helper-child-exit-timeout-ms",
+            "3000",
+            "--capture-helper-child-exit-poll-interval-ms",
+            "5",
+        ]
+    }
+
     fn physical_capture_settings() -> String {
         let mut request: serde_json::Value = serde_json::from_str(include_str!(
             "../contracts/capture-settings/v3/capture-settings-default.json"
@@ -684,6 +1036,18 @@ mod tests {
         .unwrap();
         request["requested"]["device_id"] =
             serde_json::Value::String(format!("gstreamer-device-v1:{}", "a".repeat(64)));
+        serde_json::to_string(&request).unwrap()
+    }
+
+    #[cfg(feature = "camera-gstreamer-source")]
+    fn http_mjpeg_capture_settings() -> String {
+        let mut request: serde_json::Value = serde_json::from_str(include_str!(
+            "../contracts/capture-settings/v3/capture-settings-default.json"
+        ))
+        .unwrap();
+        request["requested"]["device_id"] = serde_json::Value::String(
+            billiards_perception::gstreamer_capture_source::HTTP_MJPEG_STREAM_DEVICE_ID.to_owned(),
+        );
         serde_json::to_string(&request).unwrap()
     }
 

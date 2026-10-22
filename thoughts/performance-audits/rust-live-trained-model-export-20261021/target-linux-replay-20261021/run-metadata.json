@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "run_id": "rust-live-trained-model-export-20261021-target-linux-replay",
+  "run_date": "2026-10-21",
+  "status": "completed_cpu_recorded_image_replay",
+  "build": {
+    "host": "development Mac with Apple M4",
+    "container_image_family": "Ubuntu 24.04",
+    "toolchain": "Rust 1.99.1",
+    "target_triple": "x86_64-unknown-linux-gnu",
+    "binary_sha256": "71e867cac2d95dcb2f70a963acdeda429a5bfcfa77125140309f57fdb167d8d8",
+    "binary_path_on_target": "/home/jchadwick/billiards-rust-video-audit-20261021/bin/billiards-perception-infer"
+  },
+  "source": {
+    "git_revision": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "working_tree_was_dirty": true,
+    "deployed_perception_tree_sha256": "0d300b1d7163b12a4115adc9cc9e253711b7cb13e36cc38c8346e228521eda3e",
+    "tree_hash_method": "sorted relative file path and file bytes, excluding files under a directory named target; independently computed on build host and target"
+  },
+  "target": {
+    "address": "192.168.1.31",
+    "os": "Ubuntu 24.04.2 LTS",
+    "architecture": "x86_64",
+    "cpu": "Intel Core i5-8600T @ 2.30 GHz",
+    "logical_cpus": 6,
+    "memory_gib": 15,
+    "coral_usb_device_seen": true,
+    "coral_runtime_used": false,
+    "edge_tpu_provider_used": false
+  },
+  "input": {
+    "filename": "full_table.mp4",
+    "sha256": "a1de2fe82fe5eb4c8722c4b64b7b5d416cead997c7cab491efa9975f8325c3a3",
+    "format": "H.264, 3840x2160, 30 fps",
+    "duration_seconds": 339.733333,
+    "replayed_source_interval_seconds": [
+      120,
+      180
+    ],
+    "extracted_frame_count": 1800,
+    "extracted_image_format": "JPEG",
+    "replay_timestamps": "synthetic monotonic frame arrival, not camera exposure time",
+    "frame_content_hashes": "per-image SHA-256 values are recorded in full-table-segment-paced-report.json"
+  },
+  "model": {
+    "onnx_sha256": "7beb3af7923290a5524fe1744de13bd66f4e43ea8a5048347bc8a12c51a1e4b5",
+    "checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "manifest_sha256": "74c229ff058ec138b6194593921e5768dbeada092440ffd2c2a9f84e6b0dc707",
+    "classes": [
+      "cue",
+      "ball"
+    ],
+    "input_shape": [
+      1,
+      3,
+      1280,
+      1280
+    ]
+  },
+  "runtime": {
+    "binding": "ort 2.0.0-rc.15",
+    "requested_provider": "CPUExecutionProvider",
+    "observed_provider_counts": {
+      "CPUExecutionProvider": 219
+    },
+    "confidence": 0.4,
+    "iou": 0.45,
+    "warmup_inferences": 200,
+    "requested_replay_fps": 30,
+    "frame_policy": "latest frame replaces pending frame when inference falls behind",
+    "detection_batch_export": "synchronous JSONL during replay"
+  },
+  "results": {
+    "scheduled_frames": 1800,
+    "decoded_frames": 1800,
+    "processed_frames": 274,
+    "replaced_pending_frames": 1526,
+    "processed_fps": 2.6420116833160012,
+    "source_to_inference_complete_p95_ms": 443.785981,
+    "image_pipeline_end_to_end_p95_ms": 479.998,
+    "wall_seconds_including_warmup": 152.45,
+    "user_cpu_seconds": 584.86,
+    "system_cpu_seconds": 51.35,
+    "sampled_rss_peak_kib_approx": 364112
+  },
+  "scope_limits": [
+    "The FastAPI service and web frontend were not started.",
+    "No physical camera was connected, and no camera capture timestamps were measured.",
+    "The Coral was not enabled; this is a CPU-only result.",
+    "No headless client receipt or WebSocket delivery was measured.",
+    "The source clip lacks temporal ground truth; accuracy cannot be inferred from detection counts.",
+    "The detector emits generic ball and cue classes and cannot identify numbered balls.",
+    "Table calibration and ball-center error were not measured."
+  ],
+  "follow_up_application_integration": {
+    "run_id": "rust-openvino-api-frontend-smoke-20261021",
+    "report": "openvino-runtime-ab/app-integration/report.md",
+    "providers": [
+      "cpu",
+      "openvino"
+    ],
+    "state_messages_received": {
+      "cpu": 18,
+      "openvino": 22
+    },
+    "full_replay_end_to_end_performance_measured": false
+  }
+}

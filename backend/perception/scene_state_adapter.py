@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from backend.core.constants_4k import BALL_RADIUS_4K, CANONICAL_HEIGHT, CANONICAL_WIDTH
 
@@ -125,6 +126,10 @@ class SceneSnapshotStateAdapter:
         source_timestamp_kind = ":".join(
             str(source_timestamp.get(field))
             for field in ("clock", "domain_id", "stage")
+        )
+        frame_publication_age, frame_age_status = _frame_age_at_publication(
+            source_timestamp,
+            snapshot.get("published_at"),
         )
 
         scale_x = CANONICAL_WIDTH / source_width
@@ -313,6 +318,8 @@ class SceneSnapshotStateAdapter:
             "source_timestamp_domain_id": source_timestamp.get("domain_id"),
             "source_timestamp_is_exposure": source_timestamp.get("stage") == "exposure",
             "published_at": snapshot.get("published_at"),
+            "frame_publication_age_status": frame_age_status,
+            "frame_age_basis": "source_timestamp_to_snapshot_publication",
             "engine_instance_id": snapshot.get("engine_instance_id"),
             "snapshot_revision": snapshot.get("snapshot_revision"),
             "transport_sequence": snapshot.get("transport_sequence"),
@@ -335,6 +342,8 @@ class SceneSnapshotStateAdapter:
                 "snapshot_revision": snapshot.get("snapshot_revision"),
             },
         }
+        if frame_publication_age is not None:
+            observation_status["frame_publication_age_seconds"] = frame_publication_age
         return SceneStatePayload(
             balls=balls,
             observation_status=observation_status,
@@ -369,6 +378,7 @@ class SceneSnapshotStatePublisher:
         table: dict[str, Any] | None = None,
         game_type: str | None = None,
         received_at: datetime | None = None,
+        received_monotonic_ns: int | None = None,
     ) -> bool:
         """Publish one successful source observation without a Core round trip."""
         payload = self._adapter.adapt(
@@ -378,6 +388,9 @@ class SceneSnapshotStatePublisher:
         )
         if payload is None:
             return False
+        _advance_frame_age_after_ingress(
+            payload.observation_status, received_monotonic_ns
+        )
         localization_received_at = received_at or datetime.now(timezone.utc)
         if (
             localization_received_at.tzinfo is None
@@ -434,6 +447,149 @@ class SceneSnapshotStatePublisher:
             game_type=payload.game_type,
         )
         return True
+
+    async def publish_native_state(
+        self,
+        delivery: Mapping[str, Any],
+        *,
+        received_at: datetime,
+        received_monotonic_ns: int,
+    ) -> Literal["localization", "health", "ignored"]:
+        """Cache and relay Rust-owned public state without adapting the scene.
+
+        The service adds only gateway-local receipt times needed by HTTP
+        bootstrap and client delivery. Identity, public coordinates, stale and
+        expired semantics, and per-ball source provenance come from Rust.
+        """
+        if delivery.get("delivery_type") != "billiards_public_state_delivery":
+            raise SceneStateCompatibilityError(
+                "native public-state delivery discriminator is unsupported"
+            )
+        snapshot = _mapping(delivery.get("source_snapshot"), "source_snapshot")
+        current_state_value = delivery.get("current_state")
+        if current_state_value is None:
+            if snapshot.get("update_kind") == "annotation":
+                return "ignored"
+            raise SceneStateCompatibilityError(
+                "native public-state delivery has no current state"
+            )
+        current_state = _mapping(current_state_value, "current_state")
+        state_payload = _mapping(current_state.get("payload"), "current_state.payload")
+        balls_value = state_payload.get("balls")
+        if not isinstance(balls_value, list) or not all(
+            isinstance(ball, dict) for ball in balls_value
+        ):
+            raise SceneStateCompatibilityError(
+                "native public-state balls must be an array of objects"
+            )
+        observation_status = _mapping(
+            state_payload.get("observation_status"),
+            "current_state.payload.observation_status",
+        )
+        source = _mapping(snapshot.get("source"), "source_snapshot.source")
+        engine_instance_id = _identifier(
+            snapshot.get("engine_instance_id"),
+            "source_snapshot.engine_instance_id",
+        )
+        session_id = _identifier(source.get("session_id"), "source.session_id")
+        if (
+            observation_status.get("engine_instance_id") != engine_instance_id
+            or observation_status.get("source_session_id") != session_id
+        ):
+            raise SceneStateCompatibilityError(
+                "native state identity differs from the paired source snapshot"
+            )
+        freshness = current_state.get("freshness")
+        if freshness not in {"fresh", "stale", "expired"}:
+            raise SceneStateCompatibilityError(
+                "native public-state freshness is not recognized"
+            )
+        identity = (engine_instance_id, session_id)
+        successful_observation = (
+            snapshot.get("update_kind") == "observation"
+            and snapshot.get("outcome") == "success"
+        )
+        localization = successful_observation and freshness == "fresh"
+        health = not localization and snapshot.get("update_kind") != "annotation"
+        if not localization and not health:
+            return "ignored"
+
+        if (
+            received_at.tzinfo is None
+            or received_at.utcoffset() is None
+            or isinstance(received_monotonic_ns, bool)
+            or not isinstance(received_monotonic_ns, int)
+            or received_monotonic_ns < 0
+        ):
+            raise ValueError("native state gateway receipt timestamps are invalid")
+        received_at = received_at.astimezone(timezone.utc)
+        payload = SceneStatePayload(
+            balls=deepcopy(balls_value),
+            observation_status=deepcopy(dict(observation_status)),
+            table=deepcopy(state_payload.get("table")),
+            game_type=state_payload.get("game_type"),
+        )
+        _advance_frame_age_after_ingress(
+            payload.observation_status, received_monotonic_ns
+        )
+
+        previous_identity = self._last_identity
+        previous_read_model = self._read_model
+        if identity != previous_identity:
+            self._last_successful_payload = None
+        self._last_identity = identity
+        if localization:
+            self._last_successful_payload = payload
+
+        previous_balls = (
+            {ball["id"]: ball for ball in previous_read_model.payload.balls}
+            if previous_read_model is not None and identity == previous_identity
+            else {}
+        )
+        previous_ball_receipts = (
+            previous_read_model.ball_localization_received_at
+            if previous_read_model is not None and identity == previous_identity
+            else {}
+        )
+        ball_receipts: dict[str, datetime] = {}
+        for ball in payload.balls:
+            ball_id = str(ball["id"])
+            previous_ball = previous_balls.get(ball_id)
+            previous_receipt = previous_ball_receipts.get(ball_id)
+            if (
+                previous_ball is not None
+                and previous_receipt is not None
+                and previous_ball.get("source_observation")
+                == ball.get("source_observation")
+            ):
+                ball_receipts[ball_id] = previous_receipt
+            else:
+                ball_receipts[ball_id] = received_at
+        localization_received_at = (
+            received_at
+            if localization
+            else (
+                previous_read_model.localization_received_at
+                if previous_read_model is not None and identity == previous_identity
+                else None
+            )
+        )
+        published_at = datetime.now(timezone.utc)
+        self._read_model = SceneStateReadModel(
+            payload=payload,
+            updated_at=published_at,
+            localization_received_at=localization_received_at,
+            ball_localization_received_at=ball_receipts,
+        )
+        await self._broadcaster.broadcast_game_state(
+            balls=payload.balls,
+            cue=None,
+            table=payload.table,
+            timestamp=published_at,
+            observation_status=payload.observation_status,
+            game_type=payload.game_type,
+        )
+        return "localization" if localization else "health"
 
     async def publish_health(self, snapshot: Mapping[str, Any]) -> bool:
         """Publish a health failure as stale/unavailable cached state.
@@ -576,6 +732,9 @@ class SceneSnapshotStatePublisher:
             "source_timestamp_domain_id",
             "source_timestamp_is_exposure",
             "published_at",
+            "frame_publication_age_seconds",
+            "frame_publication_age_status",
+            "frame_age_basis",
             "snapshot_revision",
             "transport_sequence",
         ):
@@ -652,6 +811,103 @@ def _mapping(value: Any, path: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise SceneStateCompatibilityError(f"{path} must be an object")
     return value
+
+
+def _frame_age_at_publication(
+    source_timestamp: Mapping[str, Any], published_at_value: Any
+) -> tuple[float | None, str]:
+    """Calculate age only when source and snapshot ticks share a clock domain.
+
+    The Rust capture path labels its process-local monotonic timestamps with
+    the same producer domain when it synthesizes a host read-completion time.
+    Real camera timestamps may use another clock; those remain explicitly
+    unavailable instead of comparing unrelated counters.
+    """
+    published_at = (
+        published_at_value if isinstance(published_at_value, Mapping) else None
+    )
+    if published_at is None:
+        return None, "publication_timestamp_unavailable"
+    if (
+        source_timestamp.get("clock") != "monotonic"
+        or published_at.get("clock") != "monotonic"
+        or source_timestamp.get("unit") != "nanoseconds"
+        or published_at.get("unit") != "nanoseconds"
+        or published_at.get("stage") != "snapshot_publication"
+    ):
+        return None, "comparable_monotonic_clock_unavailable"
+    source_domain = source_timestamp.get("domain_id")
+    if (
+        not isinstance(source_domain, str)
+        or not source_domain
+        or published_at.get("domain_id") != source_domain
+    ):
+        return None, "clock_domain_mismatch"
+
+    published_ticks = published_at.get("ticks")
+    if (
+        not isinstance(published_ticks, str)
+        or re.fullmatch(r"[0-9]+", published_ticks) is None
+    ):
+        return None, "publication_timestamp_invalid"
+    source_ticks = source_timestamp.get("ticks")
+    if (
+        not isinstance(source_ticks, str)
+        or re.fullmatch(r"[0-9]+", source_ticks) is None
+    ):
+        return None, "source_timestamp_invalid"
+
+    elapsed_ns = int(published_ticks) - int(source_ticks)
+    if elapsed_ns < 0:
+        return None, "publication_precedes_source"
+    return elapsed_ns / 1_000_000_000, "available"
+
+
+def _advance_frame_age_after_ingress(
+    observation_status: dict[str, Any], received_monotonic_ns: int | None
+) -> None:
+    """Carry producer-measured age across Python's local ingress boundary.
+
+    Producer monotonic ticks cannot be compared with this Python process. The
+    age at scene publication is comparable as a duration, however, so add only
+    Python's monotonic elapsed time since local receipt. This keeps TCP receive
+    and worker scheduling delay from resetting the apparent observation age.
+    """
+    age_at_publication = observation_status.get("frame_publication_age_seconds")
+    if (
+        age_at_publication is None
+        or isinstance(age_at_publication, bool)
+        or not isinstance(age_at_publication, (int, float))
+        or not math.isfinite(age_at_publication)
+        or age_at_publication < 0
+    ):
+        return
+    if (
+        isinstance(received_monotonic_ns, bool)
+        or not isinstance(received_monotonic_ns, int)
+        or received_monotonic_ns <= 0
+    ):
+        observation_status.pop("frame_publication_age_seconds", None)
+        observation_status["frame_publication_age_status"] = (
+            "local_ingress_clock_unavailable"
+        )
+        return
+    try:
+        elapsed_ns = time.monotonic_ns() - received_monotonic_ns
+    except (OSError, RuntimeError):
+        elapsed_ns = -1
+    if elapsed_ns < 0:
+        observation_status.pop("frame_publication_age_seconds", None)
+        observation_status["frame_publication_age_status"] = (
+            "local_ingress_clock_invalid"
+        )
+        return
+    advanced_age = float(age_at_publication) + elapsed_ns / 1_000_000_000
+    if not math.isfinite(advanced_age):
+        observation_status.pop("frame_publication_age_seconds", None)
+        observation_status["frame_publication_age_status"] = "local_ingress_age_invalid"
+        return
+    observation_status["frame_publication_age_seconds"] = advanced_age
 
 
 def _payload_identity(payload: SceneStatePayload) -> tuple[str, str] | None:

@@ -3,9 +3,9 @@
 import argparse
 import logging
 import os
+from pathlib import Path
 from typing import Any, NoReturn
 
-from backend.api.main import app, lifespan
 from backend.config import Config
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="config.json",
-        help="Path to configuration file (default: ./config.json)",
+        default=None,
+        help=(
+            "Path to configuration file (Python mode defaults to ./config.json; "
+            "Rust mode requires this or BILLIARDS_CONFIG_PATH)"
+        ),
     )
     parser.add_argument(
         "--performance-audit",
@@ -58,15 +61,28 @@ def main() -> NoReturn:
     # Parse command-line arguments
     args = parse_args()
 
-    # Set the config file path before any imports that might use config
-    Config.set_config_file(args.config)
+    # Select and load configuration before importing the API or its consumers.
+    # Forward the resolved path because Uvicorn imports the app by module name.
+    authority_mode = os.getenv("BILLIARDS_CONFIG_AUTHORITY", "").strip().lower()
+    selected_config_path = args.config or os.getenv("BILLIARDS_CONFIG_PATH")
+    if selected_config_path is None and authority_mode != "rust":
+        selected_config_path = "config.json"
+    if selected_config_path is not None:
+        os.environ["BILLIARDS_CONFIG_PATH"] = str(
+            Path(selected_config_path).expanduser().resolve()
+        )
+    bootstrap = getattr(Config, "bootstrap_from_environment", None)
+    if callable(bootstrap):
+        config = bootstrap(selected_config_path)
+    else:  # Compatibility for older injected Config implementations in embedders.
+        if selected_config_path is None:
+            raise ValueError("The configuration file path is not configured")
+        Config.set_config_file(selected_config_path)
+        config = Config()
     if getattr(args, "performance_audit", False):
         # Uvicorn imports the application in its serving process. Keep this
         # override process-local and avoid persisting a diagnostic setting.
         os.environ["BT_PERFORMANCE_AUDIT"] = "1"
-
-    # Get the config instance for convenience
-    config = Config()
 
     # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
     # which is called during the FastAPI lifespan startup

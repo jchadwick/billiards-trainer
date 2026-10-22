@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "run_id": "frame-engine-api-smoke-20261020-r2",
+  "recorded_at_utc": "2026-10-20T17:34:54.538812+00:00",
+  "purpose": "Corrected integration smoke for the reusable in-memory Rust frame inference path; not a performance qualification",
+  "revision": {
+    "git_head": "e748c0f99e8e8c089633aa282154a05697adb243",
+    "dirty_worktree": true
+  },
+  "host": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "architecture": "arm64",
+    "hardware": "Apple M4 Max"
+  },
+  "runtime": {
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Homebrew)",
+    "onnx_runtime_binding": "ort 2.0.0-rc.15",
+    "requested_provider": "cpu",
+    "observed_providers": [
+      "CPUExecutionProvider"
+    ],
+    "provider_node_counts": {
+      "CPUExecutionProvider": 214
+    }
+  },
+  "input": {
+    "path": "backend/vision/test_data",
+    "workload": "ten unpaced 3840x2160 recorded PNG/JPEG stills",
+    "image_hashes_in": "audit-report.json"
+  },
+  "model": {
+    "source_checkpoint": "models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "temporary_onnx_sha256": "9f74835dd9b855dafebb536a3aca41a2ef3a2f97c3703c7429427ed365c92cdd",
+    "onnx_export_manifest": "export-manifest.json"
+  },
+  "configuration": {
+    "provider": "cpu",
+    "source_image_space": "raw",
+    "image_size": 1280,
+    "confidence": 0.4,
+    "iou": 0.45,
+    "max_detections": 300,
+    "intra_op_threads": null,
+    "warmup_runs": 1,
+    "replay_rate_fps": null
+  },
+  "timings_ms": {
+    "image_count": 10,
+    "provider_probe_session_init_ms": 16.5485,
+    "provider_probe_inference_ms": 65.05812499999999,
+    "measurement_session_init_ms": 11.591458000000001,
+    "warmup_total_ms": 50.024958,
+    "total_recorded_image_ms": 904.035833,
+    "summed_image_pipeline_ms": 903.4908769999998,
+    "mean_image_decode_ms": 40.5713209,
+    "mean_preprocess_ms": 9.7002916,
+    "mean_inference_ms": 39.988096,
+    "mean_decode_and_nms_ms": 0.0893792,
+    "mean_end_to_end_ms": 90.34908769999998,
+    "batch_export_ms": 0.48520800000000003
+  },
+  "comparison": {
+    "matched_detections": 73,
+    "unmatched_candidate_detections": 0,
+    "unmatched_reference_detections": 0,
+    "maximum_center_difference_px": 0.03251198245689458,
+    "equivalence_report": "thoughts/performance-audits/frame-engine-api-smoke-20261020-r2/equivalence/equivalence-20261020T173421.814570Z.json"
+  },
+  "measurement_note": "Provider probe and measurement session initialization include ORT session creation and signature validation only. Manifest and model/checkpoint hash verification happened once before both measurements. The earlier first-run measurement_session_init_ms value is superseded because it included provenance hashing.",
+  "limitations": [
+    "Ten unpaced still-image samples do not establish tail latency, camera freshness, or production throughput.",
+    "No camera capture, physical Linux device, temporal labels, or calibrated position accuracy was measured.",
+    "The model classes remain generic cue and ball and do not establish numbered-ball identity.",
+    "The model still-image detector equivalence does not establish ground-truth accuracy."
+  ],
+  "artifacts": [
+    "audit-report.json",
+    "detection-batches.jsonl",
+    "provider-profile.json_2026-10-20_13-34-12_744.json",
+    "export-manifest.json",
+    "equivalence/equivalence-20261020T173421.814570Z.json",
+    "equivalence/equivalence-20261020T173421.814570Z.md",
+    "report.md"
+  ]
+}

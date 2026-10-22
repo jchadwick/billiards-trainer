@@ -393,26 +393,35 @@ export class AxiosClient {
   }
 }
 
-// Validate environment variables
-const validateEnvVars = () => {
-  if (!import.meta.env.VITE_API_BASE_URL) {
-    throw new Error(
-      "VITE_API_BASE_URL is not defined in environment variables"
-    );
-  }
-
-  console.log({
-    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
-  });
+/**
+ * Prefer an explicit API origin for split frontend/backend development. A
+ * prebuilt client served by the Rust gateway defaults to its own origin so a
+ * bundle can move between a developer machine and the target without baking
+ * either machine's address into the JavaScript assets.
+ */
+export const resolveApiBaseUrl = (
+  configuredBaseUrl: string | undefined,
+  browserOrigin: string
+): string => {
+  const configured = configuredBaseUrl?.trim();
+  return configured || browserOrigin;
 };
 
-// Validate on module load
-validateEnvVars();
+const apiBaseUrl = resolveApiBaseUrl(
+  import.meta.env.VITE_API_BASE_URL,
+  typeof window === "undefined" ? "" : window.location.origin
+);
+
+if (!apiBaseUrl) {
+  throw new Error(
+    "API origin is unavailable; configure VITE_API_BASE_URL when building outside a browser"
+  );
+}
 
 // Create and export singleton instance
 const axiosClient = new AxiosClient({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  wsBaseURL: import.meta.env.VITE_API_BASE_URL.replace(/^http/, "ws"),
+  baseURL: apiBaseUrl,
+  wsBaseURL: apiBaseUrl.replace(/^http/, "ws"),
   timeout: 30000,
   retryAttempts: 3,
   retryDelay: 1000,

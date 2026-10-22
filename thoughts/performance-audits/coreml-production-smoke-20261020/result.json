@@ -1,0 +1,149 @@
+{
+  "captured_at_utc": "2026-10-20T13:05:57.025893+00:00",
+  "configured": {
+    "auto_fallback": false,
+    "confidence": 0.4,
+    "device": "auto",
+    "iou": 0.45,
+    "model_path": "models/billiards-yolov8n.mlpackage"
+  },
+  "input": {
+    "path": "backend/vision/test_data/multiple_balls.png",
+    "sha256": "e2cfcaef233cc819e1e679e28aafcbf46b88ce68da5c324e8d4b5ab6610151bd",
+    "shape_bgr": [
+      2160,
+      3840,
+      3
+    ]
+  },
+  "label_comparison": {
+    "caveat": "single image-plane annotation; not physical or temporal accuracy",
+    "center_error_px": [
+      5.328461316365065,
+      1.7712213300432935,
+      2.899124867955704,
+      4.161249812256114,
+      0.39601136347331983
+    ],
+    "label_count": 5,
+    "matched_count": 5,
+    "max_center_error_px": 5.328461316365065,
+    "mean_center_error_px": 2.9112137380186995,
+    "within_2px": 2,
+    "within_5px": 4
+  },
+  "model": {
+    "class_names": {
+      "0": "cue",
+      "1": "ball"
+    },
+    "file_count": 3,
+    "sha256_tree": "a18334e92e24e6c9e4e59a8c4977e9aa3f33d6ec141834f8ac3c860f57261d92"
+  },
+  "platform": {
+    "machine": "arm64",
+    "python": "3.11.14",
+    "system": "Darwin"
+  },
+  "result": {
+    "detection_count": 5,
+    "detections": [
+      {
+        "center": [
+          1182.75,
+          1482.0
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93603515625
+      },
+      {
+        "center": [
+          3369.0,
+          1663.5
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93603515625
+      },
+      {
+        "center": [
+          1864.5,
+          596.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93408203125
+      },
+      {
+        "center": [
+          3594.0,
+          341.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.93359375
+      },
+      {
+        "center": [
+          565.125,
+          491.25
+        ],
+        "class_id": 1,
+        "class_name": "ball",
+        "confidence": 0.91943359375
+      }
+    ],
+    "repeat_detection_count": 5,
+    "status": "detections"
+  },
+  "runtime": {
+    "autobackend_flags": {
+      "coreml": null,
+      "onnx": null,
+      "pt": null
+    },
+    "backend_class": "AutoBackend",
+    "backend_identity": "Ultralytics AutoBackend with CoreMLTools MLModel",
+    "compute_unit_policy": "ComputeUnit.CPU_AND_NE",
+    "coreml_model_type": "MLModel",
+    "effective_backend": "coreml",
+    "effective_device": null,
+    "model_format": "mlpackage",
+    "model_loaded": true,
+    "physical_compute_unit_utilization": "unavailable",
+    "preprocessed_tensor": {
+      "dtype": "torch.float32",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "shape": [
+        1,
+        3,
+        1280,
+        1280
+      ]
+    },
+    "requested_device_after_auto_selection": "coreml",
+    "settings": {
+      "batch": 1,
+      "conf": 0.4,
+      "device": null,
+      "imgsz": [
+        1280,
+        1280
+      ],
+      "iou": 0.45,
+      "max_det": 300,
+      "rect": true
+    }
+  },
+  "schema_version": 1,
+  "scope": "production-configured Python detector smoke; direct image-to-detector path, not complete VisionModule state publication",
+  "versions": {
+    "coremltools": "9.0",
+    "numpy": "2.3.5",
+    "opencv-python": "5.0.0.93",
+    "torch": "2.14.1",
+    "ultralytics": "8.4.182"
+  }
+}
