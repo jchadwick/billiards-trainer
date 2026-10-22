@@ -1,9 +1,11 @@
 use std::time::Duration;
+use std::{fs, process::Stdio};
 
 use billiards_perception::performance_audit_receiver::{connect_and_collect, StateReceiverConfig};
 use futures_util::SinkExt;
 use serde_json::json;
 use tokio::net::TcpListener;
+use tokio::process::Command;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 fn state_message(sequence: u64, frame_id: &str) -> String {
@@ -90,4 +92,61 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         output.report.cross_process_source_to_receipt_latency.status,
         "unavailable_unverified_clock"
     );
+}
+
+#[tokio::test]
+async fn command_exports_versioned_json_and_bounded_jsonl_details() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(state_message(1, "42").into()))
+            .await
+            .unwrap();
+        socket.close(None).await.unwrap();
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let report_path = directory.path().join("audit.json");
+    let details_path = directory.path().join("states.jsonl");
+    let result = Command::new(env!("CARGO_BIN_EXE_billiards-performance-audit"))
+        .args([
+            "--url",
+            &format!("ws://{address}/state"),
+            "--duration-seconds",
+            "2",
+            "--output-json",
+            report_path.to_str().unwrap(),
+            "--details-jsonl",
+            details_path.to_str().unwrap(),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .unwrap();
+    server.await.unwrap();
+
+    assert!(
+        result.status.success(),
+        "command failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("audit complete"));
+
+    let report: serde_json::Value =
+        serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
+    assert_eq!(report["report"]["schema_version"], 1);
+    assert_eq!(report["report"]["counts"]["state_messages"], 1);
+    assert_eq!(report["retained_samples"].as_array().unwrap().len(), 1);
+
+    let details = fs::read_to_string(details_path).unwrap();
+    let samples: Vec<serde_json::Value> = details
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(samples.len(), 1);
+    assert_eq!(samples[0]["source_frame_id"], "42");
 }

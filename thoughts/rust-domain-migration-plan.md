@@ -133,6 +133,20 @@ verified calibration and labels.
 
 ## Current implementation status
 
+- **2026-10-22 Rust audit-tooling slice:** ADR-0082 records the boundary of
+  portable shell for thin development glue and Rust for stateful or complex
+  tooling. Commit `77147f5` adds `billiards-performance-audit`, a bounded
+  anonymous WebSocket state receiver with source identity/freshness/order
+  accounting, receiver-local timing, and versioned JSON/JSONL output. The Rust
+  all-target suite passes (226 library tests plus the integration targets), as
+  do formatting and strict Clippy. This is one building block, not collector
+  parity: the existing 5,221-line Python collector still owns trajectory and
+  producer-audit analysis, resource sampling, provenance, replay/run
+  orchestration, cross-run comparison, accuracy reporting, and Markdown output.
+  Keep it as the independent reference until those responsibilities are
+  ported and compared on shared fixtures. The receiver's loopback tests use a
+  local test peer; no new full-app live audit or performance baseline was run.
+
 - **2026-10-22 Mac recorded-video live smoke:** On the development M4 Max, the
   Rust gateway and supervised live detector used the real two-class ONNX
   export and source checkpoint with the paced shell MJPEG fixture

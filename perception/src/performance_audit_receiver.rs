@@ -268,8 +268,8 @@ pub fn validate_websocket_url(url: &str) -> Result<()> {
         bail!("WebSocket URL must use ws://; secure or authenticated endpoints are not supported by this local audit tool");
     };
     let authority = authority_and_path.split('/').next().unwrap_or_default();
-    if authority.is_empty() || authority.contains('@') || url.contains('#') {
-        bail!("WebSocket URL must have a host and contain no userinfo or fragment");
+    if authority.is_empty() || authority.contains('@') || url.contains('#') || url.contains('?') {
+        bail!("WebSocket URL must have a host and contain no userinfo, query, or fragment");
     }
     if url.len() > 4096 {
         bail!("WebSocket URL exceeds the maximum length of 4096 bytes");
@@ -792,6 +792,7 @@ mod tests {
             "wss://localhost/state",
             "ws://user:secret@localhost/state",
             "ws://localhost/state#fragment",
+            "ws://localhost/state?token=secret",
             "ws:///state",
         ] {
             assert!(validate_websocket_url(url).is_err(), "accepted {url}");

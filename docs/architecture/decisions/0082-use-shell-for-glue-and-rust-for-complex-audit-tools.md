@@ -86,19 +86,42 @@ Rejected because one wholesale rewrite would change the implementation and
 measurement semantics at once, making regressions harder to distinguish from
 intentional corrections. Port one contract-tested responsibility at a time.
 
+## Implementation status
+
+The first Rust slice is committed as `77147f5`. The
+`billiards-performance-audit` command receives anonymous plain-WebSocket state
+messages, tracks bounded source-identity and stream-order windows, freshness,
+producer-reported read-completion-to-publication age, and receiver-local state
+intervals. It can emit a versioned JSON report and bounded JSONL state details.
+The command rejects URL userinfo, query strings, and fragments, and it does not
+support authentication headers or credentials.
+
+This is a state-receiver component, not a replacement for the existing
+`backend/tools/collect_performance_audit.py` workflow. Trajectory collection,
+producer timing/export analysis, process-resource sampling, configuration and
+hardware provenance, input replay orchestration, cross-run comparison,
+accuracy evaluation, and the final Markdown report remain Python-owned and are
+required parity work. The Python collector must remain until those contracts
+have Rust implementations and differential fixtures. The Rust receiver's
+real-socket tests use a loopback test peer; the new command has not yet been
+qualified against the full application process or as a performance baseline.
+
 ## Verification
 
-- Rust tests cover malformed and oversized messages, fresh and repeated source
-  identities, stream order and gaps, bounded retention, and unavailable clock
-  comparisons.
-- A local real-WebSocket test exercises the subscriber against the Rust
-  gateway, including startup readiness and connection termination.
-- Differential fixtures compare Rust summaries with the retained Python
-  reference on the same versioned state messages; inconclusive or unsupported
-  measurements remain explicitly unavailable.
-- Rust formatting, strict Clippy, all-target tests, and ADR validation pass.
-- A recorded-video live smoke validates integration only; it does not establish
-  detector accuracy or a performance baseline.
+- Rust unit and integration tests cover malformed and bounded configuration,
+  rejected credential-bearing URLs, fresh/stale/repeated source identities,
+  camera-session restarts, stream order and gaps, bounded retention, JSON/JSONL
+  command output, and unavailable cross-process clock comparisons.
+- The integration test opens a real loopback WebSocket connection and exercises
+  both the library API and the executable. It does not claim full gateway or
+  live-model qualification.
+- Rust formatting, strict Clippy, and the all-target test suite pass.
+- The recorded-video live smoke in the migration plan validates integration
+  only; it does not establish detector accuracy or a sustained performance
+  baseline.
+- Differential fixtures, full collector parity, measured instrumentation
+  overhead, and ADR validation remain required before retiring the Python
+  collector.
 
 ## Related records
 
