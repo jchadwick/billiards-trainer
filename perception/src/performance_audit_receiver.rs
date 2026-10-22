@@ -498,9 +498,7 @@ impl StateAccumulator {
             (Some(engine), Some(session)) => Some(format!("{engine}\u{1f}{session}")),
             _ => None,
         };
-        let numeric_frame = source_frame_id
-            .as_deref()
-            .and_then(|value| value.parse().ok());
+        let numeric_frame = source_frame_id.as_deref().and_then(numeric_frame_sequence);
         let freshness_status = string_at(status, "freshness_status");
         let is_fresh = freshness_status.as_deref() == Some("fresh");
         let fresh_source = self.source.record(
@@ -718,6 +716,17 @@ fn string_value(value: &Value) -> Option<String> {
     }
 }
 
+/// Rust scene IDs use `frame-N` (zero-padded in replay). Accept the trailing
+/// decimal sequence as the source-frame counter while keeping the full ID for
+/// deduplication. Bare numeric IDs remain supported for older publishers.
+fn numeric_frame_sequence(frame_id: &str) -> Option<u64> {
+    let sequence = frame_id.rsplit('-').next()?;
+    if sequence.is_empty() || !sequence.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    sequence.parse().ok()
+}
+
 fn unsigned_at(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }
@@ -741,8 +750,8 @@ pub fn receiver_wall_time_ms() -> Option<u128> {
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_websocket_url, SequenceAccumulator, SourceAccumulator, StateAccumulator,
-        StateReceiverConfig,
+        numeric_frame_sequence, validate_websocket_url, SequenceAccumulator, SourceAccumulator,
+        StateAccumulator, StateReceiverConfig,
     };
     use serde_json::json;
     use std::time::{Duration, Instant};
@@ -910,6 +919,54 @@ mod tests {
         assert!(source.record(Some("session-b/3"), Some(3), Some("session-b"), true, 8));
         assert_eq!(source.frame_gaps, 1);
         assert_eq!(source.missing_frames, 1);
+    }
+
+    #[test]
+    fn extracts_numeric_suffix_from_rust_frame_identity_for_gap_accounting() {
+        let mut accumulator = StateAccumulator::new(8);
+        for (sequence, frame_id) in [
+            (1, "frame-000100"),
+            (2, "frame-000103"),
+            (3, "frame-000104"),
+        ] {
+            accumulator.record_text(
+                &state_message(sequence, frame_id, "fresh", 0.01),
+                Duration::from_millis(sequence),
+            );
+        }
+        let output = accumulator.finish(
+            "start".to_owned(),
+            "finish".to_owned(),
+            Duration::from_secs(1),
+            "peer_closed",
+            8,
+        );
+        assert_eq!(
+            output.report.source_observations.source_frame_sequence_gaps,
+            1
+        );
+        assert_eq!(
+            output
+                .report
+                .source_observations
+                .missing_source_frame_sequence_total,
+            2
+        );
+    }
+
+    #[test]
+    fn source_frame_counter_parser_accepts_supported_forms_and_rejects_others() {
+        for (frame_id, expected) in [
+            ("42", Some(42)),
+            ("frame-000042", Some(42)),
+            ("camera-frame-42", Some(42)),
+            ("frame-", None),
+            ("frame-x", None),
+            ("frame-42x", None),
+            ("frame-18446744073709551616", None),
+        ] {
+            assert_eq!(numeric_frame_sequence(frame_id), expected, "{frame_id}");
+        }
     }
 
     #[test]
