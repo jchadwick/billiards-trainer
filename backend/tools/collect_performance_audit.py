@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Collect fresh-state delivery measurements from the running local service.
+"""Run the off-device state and Rust live-camera qualification tools.
 
-Start the backend with ``python -m backend.main --config <path> --performance-audit``
-first. Pass the same ``--config`` path to this collector so the report hashes the
-model and recorded input that the service actually uses.
-This headless subscriber measures state receipt independently from trajectory
-and MJPEG video clients. Repeated runs reconnect to avoid carrying connection
-state from one sample window into the next.
+This script is a measurement harness, not an application server. The
+``--rust-live-qualification`` mode starts the Rust live process with explicit
+camera settings. The generic WebSocket audit mode is retained for compatibility
+testing and requires its corresponding audit endpoints; it does not instrument
+the supported Rust gateway. Repeated runs reconnect to avoid carrying
+connection state from one sample window into the next.
 """
 
 from __future__ import annotations

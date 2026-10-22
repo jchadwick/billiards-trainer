@@ -13,7 +13,7 @@ permissions: {}
 
 jobs:
   build:
-    name: Build container images (no publishing)
+    name: Build Rust application image (no publishing)
     runs-on: ubuntu-latest
     steps:
       - name: Fetch public source without credentials
@@ -33,22 +33,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build backend image locally
+      - name: Build Rust server and embedded browser bundle locally
         uses: docker/build-push-action@v5
         with:
-          context: ./backend
+          context: .
           file: ./backend/Dockerfile
-          target: production
+          target: runtime
           push: false
           load: true
-          tags: billiards-trainer-backend:ci
-
-      - name: Build frontend image locally
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend/web
-          file: ./frontend/web/Dockerfile
-          target: production
-          push: false
-          load: true
-          tags: billiards-trainer-frontend:ci
+          tags: billiards-trainer:ci

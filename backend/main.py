@@ -1,119 +1,26 @@
-"""Main entry point for the billiards trainer application."""
+"""Retired Python application-server entry point.
 
-import argparse
-import logging
-import os
-from pathlib import Path
-from typing import Any, NoReturn
+The FastAPI modules remain available to offline compatibility tests, but the
+supported application server is the Rust ``billiards-server`` binary. Keeping
+this small module turns old launch commands into an actionable migration hint
+instead of silently starting a second server implementation.
+"""
 
-from backend.config import Config
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
-
-
-def build_uvicorn_options(
-    host: str, port: int, log_level: str, reload: bool
-) -> dict[str, Any]:
-    """Build server options without Uvicorn's implicit proxy-header rewriting.
-
-    Client IP forwarding is evaluated by the WebSocket limiter against its
-    configured trusted proxy networks. Uvicorn must leave the transport peer
-    untouched so an untrusted forwarded header cannot influence that check.
-    """
-    return {
-        "host": host,
-        "port": port,
-        "log_level": log_level,
-        "reload": reload,
-        "proxy_headers": False,
-        "forwarded_allow_ips": "",
-    }
-
-
-def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns:
-        Parsed arguments
-    """
-    parser = argparse.ArgumentParser(
-        description="Billiards Trainer - AI-powered billiards training system"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=None,
-        help=(
-            "Path to configuration file (Python mode defaults to ./config.json; "
-            "Rust mode requires this or BILLIARDS_CONFIG_PATH)"
-        ),
-    )
-    parser.add_argument(
-        "--performance-audit",
-        action="store_true",
-        help="Enable opt-in performance audit instrumentation for this process",
-    )
-    return parser.parse_args()
+import sys
+from typing import NoReturn
 
 
 def main() -> NoReturn:
-    """Main entry point for the application."""
-    # Parse command-line arguments
-    args = parse_args()
-
-    # Select and load configuration before importing the API or its consumers.
-    # Forward the resolved path because Uvicorn imports the app by module name.
-    authority_mode = os.getenv("BILLIARDS_CONFIG_AUTHORITY", "").strip().lower()
-    selected_config_path = args.config or os.getenv("BILLIARDS_CONFIG_PATH")
-    if selected_config_path is None and authority_mode != "rust":
-        selected_config_path = "config.json"
-    if selected_config_path is not None:
-        os.environ["BILLIARDS_CONFIG_PATH"] = str(
-            Path(selected_config_path).expanduser().resolve()
-        )
-    bootstrap = getattr(Config, "bootstrap_from_environment", None)
-    if callable(bootstrap):
-        config = bootstrap(selected_config_path)
-    else:  # Compatibility for older injected Config implementations in embedders.
-        if selected_config_path is None:
-            raise ValueError("The configuration file path is not configured")
-        Config.set_config_file(selected_config_path)
-        config = Config()
-    if getattr(args, "performance_audit", False):
-        # Uvicorn imports the application in its serving process. Keep this
-        # override process-local and avoid persisting a diagnostic setting.
-        os.environ["BT_PERFORMANCE_AUDIT"] = "1"
-
-    # Note: Signal handlers are set up in api.shutdown.setup_signal_handlers()
-    # which is called during the FastAPI lifespan startup
-
-    # Get API server settings from configuration
-    api_host = config.get("api.server.host", "0.0.0.0")
-    api_port = int(os.getenv("API_PORT", str(config.get("api.server.port", 8000))))
-    reload = config.get("api.server.reload", False)
-    log_level = config.get(
-        "api.server.log_level", config.get("logging.level", "info")
-    ).lower()
-
-    logger.info(f"Starting Billiards Trainer on {api_host}:{api_port}")
-    logger.info(f"Log level: {log_level}")
-    logger.info(f"Reload: {reload}")
-
-    # Start the API server (this never returns normally)
-    import uvicorn
-
-    uvicorn.run(
-        "backend.api.main:app",
-        **build_uvicorn_options(
-            host=api_host,
-            port=api_port,
-            log_level=log_level,
-            reload=reload,
-        ),
+    """Reject the retired Python server command with Rust startup guidance."""
+    print(
+        "The Python application server has been retired. "
+        "Use 'make run' to start the Rust server with live capture, or "
+        "'make run-api' to start the Rust gateway without live capture.",
+        file=sys.stderr,
     )
-
-    # This line should never be reached, but satisfies type checker
-    raise SystemExit(0)
+    raise SystemExit(2)
 
 
 if __name__ == "__main__":

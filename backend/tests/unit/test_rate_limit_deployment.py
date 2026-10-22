@@ -1,7 +1,8 @@
 """Deployment launcher tests for single-worker table ownership."""
 
+import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -72,46 +73,44 @@ def test_checked_in_service_uses_single_process_and_optional_redis_environment()
     assert "--workers 4" not in service
 
 
-def test_launcher_disables_implicit_uvicorn_proxy_header_rewriting(monkeypatch):
-    import uvicorn
-
-    import backend.main as app_launcher
-
-    class FakeConfig:
-        @staticmethod
-        def set_config_file(path):
-            assert path == "test-config.json"
-
-        @staticmethod
-        def get(path, default=None):
-            return {
-                "api.server.host": "127.0.0.1",
-                "api.server.port": 8123,
-                "api.server.reload": False,
-                "api.server.log_level": "warning",
-            }.get(path, default)
-
-    captured = {}
-
-    def capture_run(app, **options):
-        captured["app"] = app
-        captured.update(options)
-
-    monkeypatch.setattr(
-        app_launcher,
-        "parse_args",
-        lambda: SimpleNamespace(config="test-config.json"),
+def test_docker_ci_builds_the_repository_root_rust_runtime_image():
+    workflow_file = (
+        Path(__file__).resolve().parents[3]
+        / ".github"
+        / "workflows"
+        / "docker-build-deploy.yml"
     )
-    monkeypatch.setattr(app_launcher, "Config", FakeConfig)
-    monkeypatch.setattr(uvicorn, "run", capture_run)
+    workflow = workflow_file.read_text(encoding="utf-8")
 
-    with pytest.raises(SystemExit) as error:
-        app_launcher.main()
-    assert error.value.code == 0
+    assert "context: ." in workflow
+    assert "file: ./backend/Dockerfile" in workflow
+    assert "target: runtime" in workflow
+    assert "./frontend/web/Dockerfile" not in workflow
+    assert "billiards-trainer:ci" in workflow
 
-    assert captured["app"] == "backend.api.main:app"
-    assert captured["proxy_headers"] is False
-    assert captured["forwarded_allow_ips"] == ""
+
+@pytest.mark.parametrize(
+    ("module", "rust_commands"),
+    [
+        ("backend.main", ("make run", "make run-api")),
+        ("backend.dev_server", ("make run", "make run-api")),
+        ("backend.video", ("make run",)),
+    ],
+)
+def test_python_application_server_launchers_are_retired(module, rust_commands):
+    result = subprocess.run(
+        [sys.executable, "-m", module],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=15,
+    )
+
+    assert result.returncode == 2
+    assert "Python" in result.stderr
+    assert "retired" in result.stderr
+    for command in rust_commands:
+        assert command in result.stderr
 
 
 def test_checked_in_and_generated_nginx_configs_match_websocket_routes():

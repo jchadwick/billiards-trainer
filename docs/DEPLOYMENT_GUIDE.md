@@ -13,7 +13,7 @@ From the repository root:
 ```bash
 docker compose build
 docker compose up -d backend
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/health/live
 docker compose logs -f backend
 docker compose down
 ```

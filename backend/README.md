@@ -82,7 +82,7 @@ backend/
 │   ├── preprocessing/# Image preprocessing
 │   └── tracking/     # Object tracking (Kalman filter)
 ├── integration_service.py  # Coordinates all modules
-└── dev_server.py     # Development server entry point
+└── dev_server.py     # Offline FastAPI compatibility fixture (CLI retired)
 ```
 
 ### Data Flow
@@ -868,9 +868,8 @@ make run
 # Use video debugger for vision issues
 python tools/video_debugger.py video.mp4 --log-level DEBUG
 
-# Profile performance
-python -m cProfile -o profile.stats backend/dev_server.py
-python -m pstats profile.stats
+# The supported app server is Rust. Profile Python only when investigating an
+# offline model/evaluation tool, not to estimate application-server performance.
 ```
 
 ### Common Issues

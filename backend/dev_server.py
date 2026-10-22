@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Development server script for the Billiards Trainer API."""
+"""Retained FastAPI compatibility fixture; its server launcher is retired."""
 
 from __future__ import annotations
 
 import logging
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 # FastAPI inspects postponed endpoint annotations at runtime, so this import is
 # required outside TYPE_CHECKING even though the name is only used as a type.
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_simple_app() -> FastAPI:
-    """Create a simplified FastAPI application for development."""
+    """Create a FastAPI compatibility fixture for offline tests only."""
     import json
     from datetime import datetime
 
@@ -159,119 +159,16 @@ def create_simple_app() -> FastAPI:
     return app
 
 
-def run_dev_server(
-    host: str | None = None,
-    port: int | None = None,
-    reload: bool | None = None,
-    log_level: str | None = None,
-) -> None:
-    """Run the development server with hot reload."""
-    try:
-        import uvicorn
-
-        # Use config defaults if not provided
-        if host is None:
-            host = config.get("development.server.host", "0.0.0.0")
-        if port is None:
-            port = config.get("development.server.port", 8000)
-        if reload is None:
-            reload = config.get("development.server.reload", True)
-        if log_level is None:
-            log_level = config.get("development.server.log_level", "info")
-
-        access_log = config.get("development.server.access_log", True)
-
-        logger.info("Starting Billiards Trainer API development server...")
-        logger.info(f"Server will be available at http://{host}:{port}")
-        logger.info(f"API documentation available at http://localhost:{port}/docs")
-
-        # Create the app
-        app = create_simple_app()
-
-        # Run with uvicorn
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            reload=reload,
-            log_level=log_level,
-            access_log=access_log,
-        )
-
-    except ImportError:
-        logger.error("uvicorn is required to run the development server")
-        logger.error("Install it with: pip install uvicorn[standard]")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Failed to start development server: {e}")
-        sys.exit(1)
-
-
-def run_production_app() -> None:
-    """Attempt to run the full production application."""
-    try:
-        logger.info("Attempting to import full application...")
-
-        # Try to import the full application
-        from backend.api.main import app
-
-        logger.info("✅ Full application imported successfully!")
-        logger.info("Starting production-like server...")
-
-        import uvicorn
-
-        # Use config for production settings
-        host = config.get("api.server.host", "0.0.0.0")
-        port = config.get("api.server.port", 8000)
-        log_level = config.get("api.server.log_level", "info")
-        access_log = config.get("development.server.access_log", True)
-
-        uvicorn.run(
-            app, host=host, port=port, log_level=log_level, access_log=access_log
-        )
-
-    except Exception as e:
-        logger.error(f"❌ Failed to import/run full application: {e}")
-        logger.info("Falling back to simplified development server...")
-        run_dev_server()
+def main() -> NoReturn:
+    """Reject the retired Python development-server command."""
+    print(
+        "The Python development server has been retired. "
+        "Use 'make run' for the Rust application or 'make run-api' for the "
+        "Rust gateway without live capture.",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
 if __name__ == "__main__":
-    import argparse
-
-    # Get defaults from config
-    default_host = config.get("development.server.host", "0.0.0.0")
-    default_port = config.get("development.server.port", 8000)
-    default_log_level = config.get("development.server.log_level", "info")
-
-    parser = argparse.ArgumentParser(
-        description="Billiards Trainer API Development Server"
-    )
-    parser.add_argument("--host", default=default_host, help="Host to bind to")
-    parser.add_argument(
-        "--port", type=int, default=default_port, help="Port to bind to"
-    )
-    parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
-    parser.add_argument("--log-level", default=default_log_level, help="Log level")
-    parser.add_argument(
-        "--simple", action="store_true", help="Use simple app instead of full app"
-    )
-    parser.add_argument(
-        "--production", action="store_true", help="Try to run full production app"
-    )
-
-    args = parser.parse_args()
-
-    if args.simple:
-        logger.info("Starting simplified development server...")
-        run_dev_server(
-            host=args.host,
-            port=args.port,
-            reload=not args.no_reload,
-            log_level=args.log_level,
-        )
-    elif args.production:
-        run_production_app()
-    else:
-        # Default: try production first, fallback to simple
-        run_production_app()
+    main()

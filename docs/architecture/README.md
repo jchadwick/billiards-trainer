@@ -35,6 +35,9 @@ handling. The browser remains HTML/JavaScript/CSS; no Rust/WASM client is
 planned. ADR-0074 serves game-session metadata and reset directly from the Rust
 gateway while keeping metadata failures separate from ball localization.
 Ball-number classification remains excluded because it is nonfunctional.
+ADR-0080 makes the Rust gateway the only supported application server entry
+point across development and deployment; Python API modules remain available
+only as offline compatibility references and test fixtures.
 ADR-0076 extends replay-v2 to accept the versioned Rust public-state envelope
 while preserving raw snapshot compatibility and receiver-local freshness.
 ADRs 0009 and 0014
@@ -220,6 +223,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0077](decisions/0077-use-a-bounded-remote-mjpeg-source-for-local-rust-qualification.md) | Use a bounded remote MJPEG source for local Rust qualification | Accepted | Mac-first capture qualification | Five 1280×720 RGB8 frames and a live Rust detector→gateway smoke pass; sampled state stayed fresh at roughly 100–180 ms, while table calibration and accuracy ground truth remain open |
 | [0078](decisions/0078-serve-the-prebuilt-browser-client-from-the-rust-gateway.md) | Serve the prebuilt browser client from the Rust gateway | Accepted | Rust static delivery | Safe asset delivery and SPA routing pass; the live-only client and configured remote MJPEG viewer work on Mac, while Rust-owned physical-camera video remains open |
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
+| [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

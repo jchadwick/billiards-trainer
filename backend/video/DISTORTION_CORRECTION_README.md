@@ -1,8 +1,17 @@
-# Video Module Distortion Correction
+# Legacy Python Distortion-Correction Reference
+
+> This describes a historical Python-only video feature. `python -m
+> backend.video` is retired, and the current Rust capture pipeline does not
+> read these `video.*` settings or use this Python calibration implementation.
+> Lens-distortion correction has not been migrated; do not assume it is active
+> in the Rust live application.
 
 ## Overview
 
-The Video Module now includes built-in camera distortion correction that automatically undistorts frames before writing them to shared memory. This ensures all downstream consumers (Vision Module, API, etc.) receive corrected frames without needing to implement their own correction.
+The historical Python Video Module included camera distortion correction that
+undistorted frames before writing them to shared memory. This behavior is
+documented here for migration reference and is not part of the current Rust
+runtime.
 
 ## Features
 
@@ -27,11 +36,10 @@ Edit `config.json`:
 }
 ```
 
-### 2. Run Video Module
+### 2. Historical Python runtime
 
-```bash
-python -m backend.video
-```
+The former Python video process is retired. Run the supported Rust application
+with `make run`; this does not enable the legacy `video.*` distortion settings.
 
 Expected output:
 ```
@@ -243,11 +251,8 @@ print(f'✓ Calibration path: {config.get(\"video.calibration_file_path\")}')
 
 ### Integration Test
 ```bash
-# Start video module with calibration
-python -m backend.video
-
-# In another terminal, check logs
-tail -f logs/video.log | grep -E "(calibration|undistortion)"
+# Historical Python verification steps are retained as implementation notes;
+# the retired Python video process cannot be started from this checkout.
 ```
 
 ### Visual Verification

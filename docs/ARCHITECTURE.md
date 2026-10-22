@@ -1,5 +1,12 @@
 # Billiards Trainer System Architecture
 
+> **Historical reference:** This document describes the earlier modular Python
+> and separate-service design. It is not the current runtime architecture.
+> The supported application is a Rust server that hosts the standard browser
+> client; see the [current system integration guide](SYSTEM_INTEGRATION.md),
+> [Rust API reference](API_REFERENCE.md), and
+> [architecture decision register](architecture/README.md).
+
 ## System Architecture Overview
 
 The Billiards Trainer system follows a modular, microservices-inspired architecture with clear separation of concerns between computer vision processing, user interface, and augmented reality display components. The architecture prioritizes real-time performance, scalability, and maintainability.

@@ -45,7 +45,7 @@ esac
 
 echo "Waiting for the local backend health endpoint"
 for attempt in {1..30}; do
-    if curl --fail --silent http://localhost:8000/api/v1/health >/dev/null; then
+    if curl --fail --silent http://localhost:8000/api/v1/health/live >/dev/null; then
         echo "Local service is healthy at http://localhost:8000"
         exit 0
     fi

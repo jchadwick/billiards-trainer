@@ -1,5 +1,14 @@
 # Repeatable real-time performance audit
 
+> **Rust migration status:** `backend.main` and `backend.dev_server` no longer
+> launch an application server. The generic API audit workflow below describes
+> the retained Python reference service and its endpoints; it is not a
+> supported way to measure the Rust application. The Python collector remains
+> an off-device test tool. Its `--rust-live-qualification` mode starts and
+> measures the Rust live process directly, but currently requires an
+> explicitly selected local GStreamer camera. End-to-end audit wiring through
+> the Rust gateway, including remote-MJPEG replay, remains open.
+
 This workflow measures fresh, correct state delivery on one development
 machine. It separates vision and state production, trajectory work, and video
 viewer interference. The measurements support a ranked investigation backlog;
@@ -11,18 +20,18 @@ deadline for reporting misses, not a result or a guarantee.
 
 ## Opt in
 
-Audit collection is off by default. A normal application start creates no audit
-recorder, sampling thread, bounded event queue, or exporter. Start the backend
-with:
+Audit collection is off by default. The former Python server flag
+`python -m backend.main --performance-audit` is retired. For the current direct
+Rust live-camera measurement mode, inspect the offline collector's explicit
+camera-profile arguments with:
 
 ```bash
-uv run python -m backend.main --performance-audit
+uv run python backend/tools/collect_performance_audit.py --help
 ```
 
-The process-local switch is inherited by the video capture process and is not
-saved to `config.json`. Alternatively, set `performance_audit.enabled` to
-`true` in the selected configuration. The launch switch and configuration
-switch activate collection; each domain switch then controls its own events.
+This collector is a test tool, not an application service. The general API
+audit settings below describe the retained compatibility workflow; they do not
+turn on instrumentation in the supported Rust gateway.
 
 | Setting | Default | Purpose |
 | --- | ---: | --- |
@@ -75,9 +84,11 @@ cannot select a frame before `get_latest_frame()` returns its identity, so
 `camera_frame_queue_retrieval_seconds` is explicitly unavailable rather than
 timing every empty polling iteration.
 
-The API status endpoint is
-`GET /api/v1/vision/performance/audit`. When state profiling is enabled,
-`GET /api/v1/vision/performance` shows the current profiler window.
+The compatibility API status endpoints are
+`GET /api/v1/vision/performance/audit` and
+`GET /api/v1/vision/performance`. The supported Rust gateway does not currently
+expose these endpoints; use the direct Rust live-camera qualification mode
+above when its local-camera requirements fit the test.
 
 The headless collector accepts both Python state identities and native Rust
 scene identities. Rust observations retain engine, session, and full frame ID;
@@ -125,39 +136,21 @@ short corpus.
 
 ## Run the live delivery audit
 
-The collector uses a headless WebSocket subscriber and defaults to the local
-state stream. Its defaults are 30 seconds of warm-up and three 120-second
-measurements:
+The retired compatibility-service collector uses a headless WebSocket
+subscriber and defaults to the local state stream. Its defaults are 30 seconds
+of warm-up and three 120-second measurements. It requires the compatibility
+server's audit status endpoints and cannot collect a Rust gateway audit until
+that integration is implemented. Use `--help` to inspect the available
+off-device qualification modes; no Python server startup command is supported.
 
-```bash
-uv run python backend/tools/collect_performance_audit.py
-```
+The following instrumentation-overhead procedure applies only to the retained
+Python compatibility service. Its server-start commands are retired and it
+must not be used to select optimizations for the Rust product runtime. A
+matched Rust gateway baseline and instrumentation-enabled run are still
+required before drawing those conclusions.
 
-For comparable instrumentation-overhead runs, first start the backend with
-audit disabled and save a baseline:
-
-```bash
-BT_PERFORMANCE_AUDIT_CLOCKS=1 uv run python -m backend.main
-uv run python backend/tools/collect_performance_audit.py \
-  --scenario instrumentation-off --quiet
-```
-
-Then restart with the audit enabled and point the collector at the baseline
-`summary.json`:
-
-```bash
-uv run python -m backend.main --performance-audit
-uv run python backend/tools/collect_performance_audit.py \
-  --scenario state-audit-only \
-  --compare-with thoughts/performance-audits/<baseline-run-id>/summary.json
-```
-
-For the instrumentation-off baseline, set
-`BT_PERFORMANCE_AUDIT_CLOCKS=1` when starting the backend. This enables only a
-monotonic publication timestamp in the existing shared-memory frame metadata;
-it creates no recorder, queue, sampler, or exporter. The state audit enables
-the same timestamp automatically, so the baseline and measured run use the
-same source-clock path. Leave the variable unset for normal startup.
+The `BT_PERFORMANCE_AUDIT_CLOCKS` instructions below apply only to the legacy
+Python producer. They do not configure the Rust application.
 
 The comparison is inconclusive unless it has at least three repetitions on the
 same host and hardware, matching source revision and dirty-worktree contents,
