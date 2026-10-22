@@ -195,8 +195,12 @@ bounded best-effort application semantics, not reliable delivery or a hard
 camera-to-display deadline: one in-flight JPEG may already be accepted into
 the TCP stack when a slow viewer is disconnected. The
 configured 0.5-second state age is an operational starting point, not a
-qualified latency target. For the supervised physical-camera helper, age
-starts when the parent finishes reading a complete frame record; pipeline PTS
+qualified latency target. The Rust gateway uses this validated setting as its
+default stale threshold when `--stale-after-ms` is omitted; the CLI value is an
+explicit development or deployment override. This keeps gateway publication
+freshness aligned with the browser and live pipeline. For the supervised
+physical-camera helper, freshness age starts when the parent finishes reading a
+complete frame record; pipeline PTS
 is not verified as a comparable acquisition clock and is discarded. TCP bytes
 already accepted by a kernel or remote client cannot be recalled. Physical-
 camera freshness, camera-to-display latency, and location accuracy remain to

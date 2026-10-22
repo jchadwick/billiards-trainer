@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use billiards_perception::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
 use billiards_perception::server::{
     run_with_live, LiveProcessLaunchOptions, ServerConfig, DEFAULT_MAX_CONFIGURATION_REQUESTS,
 };
@@ -42,9 +43,9 @@ struct ServerArgs {
     /// Deadline for reading each framed TCP header or body.
     #[arg(long, default_value_t = 2_000)]
     tcp_read_timeout_ms: u64,
-    /// Mark locations stale after this many milliseconds without fresh localization.
-    #[arg(long, default_value_t = 100)]
-    stale_after_ms: u64,
+    /// Override the configured maximum observation age used to mark locations stale.
+    #[arg(long)]
+    stale_after_ms: Option<u64>,
     /// Remove cached locations after this many milliseconds without localization.
     #[arg(long, default_value_t = 1_000)]
     expire_after_ms: u64,
@@ -78,6 +79,7 @@ impl ServerArgs {
     }
 
     fn config(self) -> Result<ServerConfig, String> {
+        let stale_after = self.configured_stale_after()?;
         let config = ServerConfig {
             http_bind: self.http_bind,
             http_port: self.http_port,
@@ -88,7 +90,7 @@ impl ServerArgs {
             project_root: self.project_root,
             web_root: self.web_root,
             tcp_read_timeout: Duration::from_millis(self.tcp_read_timeout_ms),
-            stale_after: Duration::from_millis(self.stale_after_ms),
+            stale_after,
             expire_after: Duration::from_millis(self.expire_after_ms),
             websocket_send_deadline: Duration::from_millis(self.websocket_send_deadline_ms),
             maximum_websocket_clients: self.maximum_websocket_clients,
@@ -96,6 +98,35 @@ impl ServerArgs {
         };
         config.validate()?;
         Ok(config)
+    }
+
+    fn configured_stale_after(&self) -> Result<Duration, String> {
+        if let Some(milliseconds) = self.stale_after_ms {
+            return Ok(Duration::from_millis(milliseconds));
+        }
+
+        let Some(configuration_path) = self.configuration.as_ref() else {
+            return Ok(ServerConfig::default().stale_after);
+        };
+        let authority =
+            ConfigurationAuthority::new(configuration_path.clone(), AuthorityLimits::default())?;
+        let effective = authority.effective_configuration()?;
+        let seconds = effective
+            .pointer("/perception/freshness/maximum_observation_age_seconds")
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| {
+                "configuration is missing perception.freshness.maximum_observation_age_seconds"
+                    .to_owned()
+            })?;
+        if !seconds.is_finite() || seconds <= 0.0 {
+            return Err(
+                "perception.freshness.maximum_observation_age_seconds must be finite and positive"
+                    .to_owned(),
+            );
+        }
+        Duration::try_from_secs_f64(seconds).map_err(|error| {
+            format!("perception.freshness.maximum_observation_age_seconds is out of range: {error}")
+        })
     }
 }
 
@@ -111,6 +142,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 mod tests {
     use super::ServerArgs;
     use clap::Parser;
+    use serde_json::Value;
+    use std::fs;
+    use std::time::Duration;
 
     #[test]
     fn cli_exposes_local_safe_defaults_and_rejects_non_loopback_ingress() {
@@ -123,6 +157,7 @@ mod tests {
         assert!(config.project_root.is_none());
         assert!(config.web_root.is_none());
         assert_eq!(config.maximum_configuration_requests, 4);
+        assert_eq!(config.stale_after, Duration::from_millis(100));
 
         let args = ServerArgs::try_parse_from([
             "billiards-server",
@@ -196,5 +231,55 @@ mod tests {
         assert_eq!(config.web_root.as_deref(), Some(web_root.path()));
         assert_eq!(config.stale_after.as_millis(), 200);
         assert_eq!(config.maximum_configuration_requests, 8);
+    }
+
+    #[test]
+    fn configured_freshness_sets_gateway_stale_threshold() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let mut document: Value = serde_json::from_str(include_str!(
+            "../../contracts/configuration/v1/defaults.json"
+        ))
+        .unwrap();
+        document["perception"]["freshness"]["maximum_observation_age_seconds"] =
+            serde_json::json!(0.25);
+        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            args.config().unwrap().stale_after,
+            Duration::from_millis(250)
+        );
+    }
+
+    #[test]
+    fn explicit_stale_threshold_overrides_configured_freshness() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let mut document: Value = serde_json::from_str(include_str!(
+            "../../contracts/configuration/v1/defaults.json"
+        ))
+        .unwrap();
+        document["perception"]["freshness"]["maximum_observation_age_seconds"] =
+            serde_json::json!(0.25);
+        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--stale-after-ms",
+            "200",
+        ])
+        .unwrap();
+        assert_eq!(
+            args.config().unwrap().stale_after,
+            Duration::from_millis(200)
+        );
     }
 }

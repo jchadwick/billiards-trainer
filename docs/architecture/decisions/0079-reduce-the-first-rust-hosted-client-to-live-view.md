@@ -1,6 +1,6 @@
 # ADR-0079: Reduce the first Rust-hosted client to the live view
 
-- Status: Accepted
+- Status: accepted
 - Date: 2026-10-22
 - Deciders: Project maintainers
 - Supersedes: None
