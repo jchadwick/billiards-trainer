@@ -58,6 +58,10 @@ path = "src/bin/capture_transport_bench.rs"
 name = "billiards-perception-receive-detection-batches"
 path = "src/bin/detection_batch_receiver.rs"
 
+[[bin]]
+name = "billiards-performance-audit"
+path = "src/bin/performance_audit.rs"
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }
@@ -83,9 +87,9 @@ serde_yaml_ng = "0.10"
 signal-hook = "=0.4.5"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake"] }
 libc = "0.2"
 
 [dev-dependencies]
 socket2 = "0.6"
-tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake"] }
 tower = { version = "0.5", features = ["util"] }
