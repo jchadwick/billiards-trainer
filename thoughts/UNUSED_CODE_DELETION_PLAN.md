@@ -257,8 +257,11 @@ These are valuable for development workflows:
 
 #### `backend/tools/watch_performance.py`
 
-- **Purpose**: Real-time performance monitoring dashboard
-- **Recommendation**: ✅ **KEEP** - Active monitoring tool
+- **Status**: Retired on 2026-10-22. It polled the legacy Python-only
+  `/api/v1/vision/performance` endpoint, which the Rust gateway does not serve.
+- **Replacement**: [`scripts/watch-rust-readiness.sh`](../scripts/watch-rust-readiness.sh)
+  polls the Rust readiness endpoint. It reports readiness only, not
+  performance; use Rust replay/audit reports for performance measurements.
 
 ---
 

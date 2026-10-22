@@ -1959,3 +1959,9 @@ receipt details, JSONL payloads, and versioned JSON report. Its contract and
 real-socket tests now run in Rust; shared schema fixtures and the model
 equivalence scorer remain Python as independent compatibility/evaluation
 tools. Simple build and test wrappers remain shell/Make tooling.
+
+**Legacy performance watcher retirement (2026-10-22):** the Python watcher
+polled a performance route that is absent from the Rust gateway and advertised
+the retired Python server as its remedy. It is removed and replaced with a
+portable shell readiness watcher for `/api/v1/health/ready`; the shell tool
+does not claim to provide performance metrics.

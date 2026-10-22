@@ -436,7 +436,7 @@ class VisionModule:
                 )
             else:
                 logger.info(
-                    "Performance profiler enabled (API-only mode, use watch_performance.py to monitor)"
+                    "Performance profiler enabled (API-only compatibility mode)"
                 )
             self._attach_profiler_to_detector()
         elif self.audit_recorder is not None:
