@@ -7,8 +7,11 @@ configuration and calibration authority, game state, physics and prediction.
 The current Python backend is a temporary gateway during staged migration and
 will be removed from the deployed server after Rust service parity and operating
 gates pass. Keep the browser application as HTML/JavaScript/CSS; do not convert
-it to Rust/WASM. Python remains an allowed off-device development tool for model
-training/export, annotation, reference inference and acceptance tests.
+it to Rust/WASM. Python remains an allowed off-device tool for model
+training/export, annotation, and independent reference inference. Thin
+development glue uses portable shell scripts; complex, stateful acceptance and
+audit tools migrate to Rust, with Python retained only as a differential
+reference until parity gates pass.
 Ball-number classification is explicitly excluded because it currently does
 not work; nullable number fields may remain in shared contracts. Preserve the
 existing browser API while server ownership migrates; defer any necessary web
@@ -129,6 +132,24 @@ verified calibration and labels.
    Rust/WASM framework is selected or planned.
 
 ## Current implementation status
+
+- **2026-10-22 Mac recorded-video live smoke:** On the development M4 Max, the
+  Rust gateway and supervised live detector used the real two-class ONNX
+  export and source checkpoint with the paced shell MJPEG fixture
+  (`test_data/demo2_short.mp4`, 1280×720 at 30 FPS). At revision
+  `621f80d50554517b2fff282db98b2e133467ba8d`, the gateway became ready and a
+  short WebSocket sample delivered 10 state messages covering 7 distinct
+  transport frames, with 11–12 reported balls and `fresh` observation status.
+  Sampled read-completion-to-publication ages were about 98 ms. The input,
+  ONNX, and checkpoint SHA-256 values are respectively
+  `4e09e30c49fed7e134f43f276c629394c209757e0440958a51ab148f12f6e388`,
+  `7beb3af7923290a5524fe1744de13bd66f4e43ea8a5048347bc8a12c51a1e4b5`, and
+  `f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e`.
+  This is a short functional smoke, not accuracy, camera-exposure latency, or
+  sustained performance evidence. The remote target MJPEG endpoint initially
+  returned data and the isolated helper decoded three frames, but later
+  connection attempts timed out before the live detector received a first
+  frame; do not treat the remote source as qualified by this run.
 
 - **2026-10-22 Rust gateway foundation (accepted):** ADR-0068 adds a separately
   launchable Axum/Tokio service on an alternate port. It accepts the existing

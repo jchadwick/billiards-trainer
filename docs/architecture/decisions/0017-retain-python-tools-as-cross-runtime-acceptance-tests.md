@@ -1,10 +1,10 @@
-# ADR-0017: Retain Python tools as cross-runtime acceptance tests
+# ADR-0017: Retain Python tools as cross-runtime acceptance references
 
-- Status: proposed
+- Status: superseded
 - Date: 2026-10-19
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0082
 
 ## Context
 
@@ -17,12 +17,15 @@ fine performance attribution.
 
 ## Decision
 
-Keep Python as the external evaluation and acceptance harness for both
-implementations. Add selectable engine adapters to existing tools; preserve
-scoring/report formats and real-socket receiver semantics. Keep Python unit
-tests for retained code and reference inference. Write Rust tests for new
+Retain the Python implementation as an independent, off-device evaluation and
+acceptance reference while significant audit tooling is migrated to Rust. Add
+selectable engine adapters where useful; preserve scoring/report formats and
+real-socket receiver semantics during the transition. Keep Python unit tests
+for retained code and reference inference. Write Rust tests for new
 ownership/time/geometry/tracking/runtime logic instead of translating all
-pytest tests mechanically.
+pytest tests mechanically. ADR-0082 supersedes Python as the long-term
+implementation language for complex audit tools, but retains the differential
+reference until Rust parity and retirement checks pass.
 
 Promote observable replay, ordering, freshness, restart and slow-client assertions
 into language-neutral fixtures and black-box tests of selected executables.

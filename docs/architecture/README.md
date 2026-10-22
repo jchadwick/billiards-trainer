@@ -20,9 +20,10 @@ loopback transport. ADR-0028 supersedes only ADR-0025's handshake epoch
 behavior and extends its no-authentication decision across repository-controlled
 build and deployment workflows. ADR-0066 sets the destination: all deployed
 server-side components run in Rust, while the browser application remains
-HTML, JavaScript, and CSS. The Python service is a migration bridge; Python
-training, annotation, differential, and acceptance tools may remain off the
-deployed server. ADR-0064 is superseded because it selected a Rust/WASM browser
+HTML, JavaScript, and CSS. The Python service is a migration bridge. Python
+training and annotation workflows remain off-device; complex audit tooling
+migrates to Rust under ADR-0082, with Python retained temporarily as an
+independent differential reference. ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
 transition. ADR-0067 assigns game-session metadata and reset persistence to an
@@ -169,7 +170,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0014](decisions/0014-python-owned-revisioned-configuration-and-calibration.md) | Historical Python-owned configuration proposal | Superseded by 0056 | 1/4/5 | Retain versioned requests and revision acknowledgments; native configuration/calibration replacement remains required |
 | [0015](decisions/0015-exclusive-camera-ownership-and-owned-frame-buffers.md) | One acquisition owner and owned in-process frames | Proposed | 5 | Device-independent envelope/mailbox semantics are tested; physical camera modes, release/restart/handover and target-platform behavior remain open |
 | [0016](decisions/0016-prioritize-localization-and-isolate-optional-consumers.md) | Continuous localization with independently bounded optional work | Proposed | 3 | Dense-motion accuracy, blocked-consumer/interference tests and preserved prediction lifecycle |
-| [0017](decisions/0017-retain-python-tools-as-cross-runtime-acceptance-tests.md) | Reuse Python scoring/tools as external runtime acceptance harness | Proposed | 0/2 | Shared real-adapter/black-box tests and versioned accuracy/performance results |
+| [0017](decisions/0017-retain-python-tools-as-cross-runtime-acceptance-tests.md) | Retain Python scoring/tools as temporary differential references | Superseded by 0082 | 0/2 | Python reference remains until equivalent Rust contract and real-socket coverage passes |
 | [0018](decisions/0018-capability-gated-reversible-rollout-on-macos-and-linux.md) | Qualified platform/provider capabilities and reversible cutover | Proposed | 4 onward | Explicit replay/live readiness, target-hardware qualification and exercised rollback |
 | [0019](decisions/0019-asynchronous-ball-identity-separate-from-location-tracks.md) | Asynchronous number evidence separate from location and track identity | Proposed | 7 | Held-out identity accuracy/unknown rate, provenance and localization interference checks |
 | [0020](decisions/0020-deduplicate-polled-source-observations-before-state-updates.md) | Process each source observation once; preserve freshness across repeated polls | Accepted | 0 | Same-frame replay leaves Core and receipt freshness unchanged; new frame and restarted writer are accepted |
@@ -234,6 +235,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 | [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
+| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Keep shell launch/readiness helpers; migrate bounded stateful audit collection and reporting to Rust, preserving Python as an independent reference until parity |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and
