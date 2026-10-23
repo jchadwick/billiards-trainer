@@ -22,7 +22,7 @@ commands or baselines.
 | Rust configuration/session one-shot authorities | Keep | They are called by the gateway and have bounded protocols; they are runtime components rather than experiments. |
 | `perception/contracts/public-state/generate_fixtures.py` | Keep as migration-only test oracle | Captures the actual Python adapter output used for Rust differential fixtures. It is not a server/runtime tool and should be removed when the compatibility oracle and its fixtures are re-baselined. |
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
-| Python FastAPI profiler/status endpoints | Test-only legacy reference; not operational tools | The FastAPI package is explicitly offline differential-test code and is not installed or runnable as the application server. These endpoints and the Python profiler do not measure the Rust runtime; keep only while Python compatibility tests require them, then remove with that test surface. |
+| Python FastAPI profiler/status endpoints | Retain only with the Python compatibility test surface | The FastAPI package is explicitly offline differential-test code and is not installed or runnable as the application server. These endpoints do not measure the Rust runtime; remove them with the compatibility fixture if that surface is retired. Never use their data for Rust performance or accuracy claims. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, readiness watcher, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. |
 | `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
@@ -115,6 +115,10 @@ commands or baselines.
   Python FastAPI app exists only for offline compatibility tests. This pass
   classifies them accurately but leaves them attached to that compatibility
   test surface; they are not evidence for Rust behavior.
+- The Python `PerformanceProfiler` and event collector are retained only inside
+  the offline compatibility reference. They have no supported application
+  server or Rust consumer and do not produce Rust performance evidence. Remove
+  them when the remaining Python compatibility surface is retired.
 - The unused root and vision-specific pip requirement manifests, an unused
   deployment backup utility, a TPU diagnostic for the old Python detector, and
   redundant deployment/setup aliases.
@@ -130,16 +134,13 @@ commands or baselines.
   project documentation is Markdown and generated Rust API docs use `cargo doc`.
 - The redundant Python test extra; the development extra already includes the
   test runner. Heavy Ultralytics/ONNX/CoreML export packages are isolated behind
-  `make install-model-tools` so frame extraction does not install that stack.
+  `make install-model-tools` so dataset merging does not install that stack.
 
 ## Gaps and follow-up priorities
 
 1. Measure browser/video-viewer interference separately. Current live audit
    receipts do not represent browser rendering or physical display latency.
-2. Decide when to remove the remaining Python FastAPI compatibility test
-   surface, including its profiler and diagnostic routes; it is not an
-   operational backend service or Rust performance tool.
-3. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+2. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
 
 The recorded-video command's real-detector runs are functionality and
