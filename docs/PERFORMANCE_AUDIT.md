@@ -65,6 +65,15 @@ cargo run --locked --manifest-path perception/Cargo.toml \
   --bin billiards-performance-audit-server-summary -- --help
 ```
 
+The `billiards-performance-audit-delivery-summary` command separately computes
+state and trajectory publication-to-receipt, socket-send-to-receipt, and
+component-age summaries. It only subtracts producer and receiver timestamps
+when each side reports exactly one matching verified OS monotonic clock
+domain. Its JSON Lines protocol starts with a config record, then accepts
+`client` or `server` event records; it uses the same documented input bounds.
+The Python collector keeps collection-window selection and delegates these
+joins and percentiles to the Rust command.
+
 Python still owns event collection and clock-window selection,
 warm-up/repetition orchestration, trajectory subscriptions, provenance,
 cross-run comparison, accuracy evaluation, and Markdown rendering. Those

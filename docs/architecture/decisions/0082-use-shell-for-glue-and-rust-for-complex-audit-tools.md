@@ -145,6 +145,20 @@ before launching the command and normalizes non-finite floats to JSON null.
 Rejecting booleans corrects the Python `bool`-is-`int` edge case in the former
 reducer so flags cannot appear as timing or resource measurements.
 
+Commits `f445a07` and `b0be61a` move delivery-latency correlation and
+statistics into the Rust library and the
+`billiards-performance-audit-delivery-summary` command. The reducer joins state
+and trajectory publication, socket completion, and client receipt by domain,
+sequence, and client identity; it subtracts producer/receiver monotonic
+timestamps only when both sides report the same single verified OS clock
+domain. The Python collector still selects the event window and supplies the
+read-only clock identity for baselines where instrumentation is off, then
+delegates bounded JSON Lines input to Rust. A shared fixture checks the full
+report, including overlapping state/trajectory sequence numbers, deadline
+misses, component ages and clock labeling. Invalid boolean timestamps, metrics
+and client identities are ignored. The command shares the 1 MiB per-line,
+200,000-event and 128 MiB total-input defaults.
+
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
@@ -161,15 +175,19 @@ reducer so flags cannot appear as timing or resource measurements.
 - The server-event reducer matches a shared golden fixture across stage work,
   trajectory outcomes, unique source observations, resource trends, and viewer
   records. Its JSON Lines command also rejects malformed and over-limit input.
-- The backend performance collector's 58 focused unit tests pass, including
-  execution through the Rust reducer, and its Ruff, Black, and mypy checks pass.
+- Both Rust reducers match shared golden fixtures; the delivery reducer also
+  covers mismatched clocks, instrumentation-off clock identity, malformed
+  booleans and bounded command input. The backend performance collector's 60
+  focused unit tests pass through the Rust bridges, and Ruff, Black, and mypy
+  pass.
 - Rust formatting, strict Clippy, and the all-target test suite pass.
 - The recorded-video live smoke in the migration plan validates integration
   only; it does not establish detector accuracy or a sustained performance
   baseline.
-- One shared reducer fixture now passes; differential coverage for remaining
-  collector behavior, full collector parity, measured instrumentation overhead
-  and final retirement remain required before removing the Python collector.
+- The shared server-event and delivery-latency reducer fixtures pass;
+  differential coverage for remaining collector behavior, full collector
+  parity, measured instrumentation overhead and final retirement remain
+  required before removing the Python collector.
 
 ## Related records
 
