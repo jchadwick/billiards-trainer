@@ -563,7 +563,11 @@ fn runtime() -> CaptureRuntimeCoordinator {
 fn wait_for_active_report(
     coordinator: &mut CaptureRuntimeCoordinator,
 ) -> billiards_perception::capture::CaptureSessionReport {
-    let deadline = Instant::now() + Duration::from_secs(2);
+    // Opening the helper includes process scheduling and initializing
+    // GStreamer before it can publish verified source metadata. Reuse the
+    // helper's configured readiness deadline, with a small observation margin,
+    // rather than imposing a shorter integration-test deadline.
+    let deadline = Instant::now() + READINESS_TIMEOUT + Duration::from_secs(2);
     loop {
         if let Some(report) = coordinator.active_source_report() {
             return report;
