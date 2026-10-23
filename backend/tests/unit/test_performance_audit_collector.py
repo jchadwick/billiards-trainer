@@ -147,6 +147,42 @@ def _rust_timing_summary_executable() -> Path:
     return executable
 
 
+@lru_cache(maxsize=1)
+def _rust_resource_sampler_executable() -> Path:
+    """Build and return this checkout's native resource helper."""
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(collector.ROOT / "perception" / "Cargo.toml"),
+            "--bin",
+            "billiards-performance-audit-resources",
+        ],
+        cwd=collector.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+    target_directory = (
+        Path(configured_target_dir).expanduser()
+        if configured_target_dir
+        else collector.ROOT / "perception" / "target"
+    )
+    if not target_directory.is_absolute():
+        target_directory = collector.ROOT / target_directory
+    executable_name = "billiards-performance-audit-resources"
+    if os.name == "nt":
+        executable_name += ".exe"
+    executable = target_directory / "debug" / executable_name
+    assert executable.is_file()
+    assert os.name == "nt" or os.access(executable, os.X_OK)
+    return executable
+
+
 def _capture_transport_args(
     output_root: Path, *, include_executable: bool = True
 ) -> list[str]:
@@ -1834,62 +1870,94 @@ def test_rust_live_state_accumulator_bounds_deduplication_and_accepts_zero_times
     assert summary["state_trace_truncated"] is True
 
 
-def test_rust_live_child_resource_sampler_reports_bounded_process_samples() -> None:
-    class FakeProcess:
-        def __init__(self, _process_id: int) -> None:
-            self.cpu_calls = 0
-            self.memory_calls = 0
+def test_rust_live_child_resource_sampler_uses_native_bounded_helper() -> None:
+    async def run_sampler() -> dict[str, Any]:
+        sampler = collector.RustLiveChildResourceSampler(
+            process_id=os.getpid(),
+            interval_seconds=0.2,
+            maximum_samples=2,
+            startup_timeout_seconds=5,
+            write_timeout_seconds=5,
+            executable=_rust_resource_sampler_executable(),
+        )
+        await sampler.start()
+        await asyncio.sleep(0.65)
+        await sampler.close()
+        return sampler.summary()
 
-        def cpu_percent(self, *, interval: None = None) -> float:
-            self.cpu_calls += 1
-            return float(self.cpu_calls * 10)
-
-        def memory_info(self) -> Any:
-            self.memory_calls += 1
-            return SimpleNamespace(rss=self.memory_calls * 100)
-
-        def cpu_times(self) -> Any:
-            return SimpleNamespace(user=float(self.cpu_calls), system=0.5)
-
-    class RecordingRecorder:
-        def __init__(self) -> None:
-            self.events: list[dict[str, Any]] = []
-
-        def record(self, event: dict[str, Any]) -> bool:
-            self.events.append(event)
-            return True
-
-    recorder = RecordingRecorder()
-    sampler = collector.RustLiveChildResourceSampler(
-        cast("AsyncAuditRecorder", recorder),
-        process_id=9876,
-        interval_seconds=1,
-        maximum_samples=2,
-        process_factory=FakeProcess,
-    )
-    sampler._sample_once()
-    sampler._sample_once()
-    sampler._sample_once()
-    summary = sampler.summary()
-    sampler.close()
+    summary = asyncio.run(run_sampler())
 
     assert summary["status"] == "available"
     assert summary["process_role"] == "rust_live_inference_child"
-    assert summary["process_id"] == 9876
-    assert summary["sample_count"] == 3
+    assert summary["process_id"] == os.getpid()
+    assert summary["process_start_time_unix_seconds"] is not None
+    assert summary["sample_count"] >= 2
     assert summary["retained_sample_count"] == 2
     assert summary["samples_truncated"] is True
-    assert summary["cpu_percent"]["p50"] == 30
-    assert summary["cpu_percent"]["p95"] == 40
-    assert summary["cpu_time_seconds"]["delta"] == 1
-    assert summary["resident_memory_bytes"]["minimum"] == 200
-    assert summary["resident_memory_bytes"]["maximum"] == 300
-    assert summary["resident_memory_bytes"]["delta"] == 100
-    assert all(event["process_id"] == 9876 for event in recorder.events)
-    assert all(
-        event["sampled_process_role"] == "rust_live_inference_child"
-        for event in recorder.events
+    assert summary["statistics_window"] == "retained_tail"
+    assert summary["process_identity_resolution"] == (
+        "pid_plus_sysinfo_start_time_unix_seconds"
     )
+    assert summary["cpu_time_seconds"]["first"] is not None
+    assert summary["resident_memory_bytes"]["maximum"] > 0
+    assert all(
+        sample["clock"] == "resource_sampler_process_monotonic"
+        for sample in summary["retained_samples"]
+    )
+
+
+def test_rust_live_child_resource_sampler_failure_is_explicit() -> None:
+    async def run_sampler() -> dict[str, Any]:
+        sampler = collector.RustLiveChildResourceSampler(
+            process_id=os.getpid(),
+            interval_seconds=1,
+            maximum_samples=100_000,
+            startup_timeout_seconds=0.2,
+            write_timeout_seconds=0.2,
+            executable=Path("/missing/billiards-performance-audit-resources"),
+        )
+        await sampler.start()
+        await sampler.close()
+        return sampler.summary()
+
+    summary = asyncio.run(run_sampler())
+    assert summary["status"] == "unavailable"
+    assert "does not exist" in summary["unavailable_reason"]
+    assert summary["retention_limit"] == 50_000
+    assert summary["requested_retention_limit"] == 100_000
+
+
+def test_rust_live_child_resource_sampler_cancellation_reaps_helper(
+    tmp_path: Path,
+) -> None:
+    helper = tmp_path / "blocked-resource-helper.sh"
+    helper.write_text(
+        "#!/bin/sh\n"
+        'printf \'{"kind":"ready","schema_version":2}\\n\'\n'
+        "exec sleep 30\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o700)
+
+    async def cancel_during_startup() -> int:
+        sampler = collector.RustLiveChildResourceSampler(
+            process_id=os.getpid(),
+            interval_seconds=1,
+            maximum_samples=2,
+            startup_timeout_seconds=5,
+            write_timeout_seconds=1,
+            executable=helper,
+        )
+        start_task = asyncio.create_task(sampler.start())
+        await asyncio.sleep(0.05)
+        start_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await start_task
+        assert sampler._process is not None
+        assert sampler._process.returncode is not None
+        return sampler._process.returncode
+
+    assert asyncio.run(cancel_during_startup()) != 0
 
 
 def test_rust_live_timing_audit_flag_requires_live_qualification() -> None:
@@ -2275,16 +2343,16 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
     assert repetition["rust_live_audit_ingress"]["status"] == expected_status
     assert timing["status"] == expected_status
     assert timing["producer_dropped_records"] == producer_dropped_records
-    assert resources["status"] == "available"
+    assert resources["status"] == "unavailable"
+    assert "at least" in resources["unavailable_reason"]
     assert resources["process_role"] == "rust_live_inference_child"
     assert resources["process_id"] == os.getpid()
-    assert resources["sample_count"] >= 1
-    assert resources["resident_memory_bytes"]["count"] >= 1
+    assert resources["sample_count"] == 0
     assert timing["state_timing_correlation"]["matched_frames"] == 3
     assert timing["state_timing_correlation"]["duplicate_timing_frame_records"] == 1
     assert timing["stage_durations_ms"]["inference"]["p95"] == 2.4
     assert timing["matched_scene_socket_write_durations_ms"]["written"]["count"] == 4
-    assert summary["event_export"]["written_events"] == (4 + resources["sample_count"])
+    assert summary["event_export"]["written_events"] == 4
     assert summary["rust_pipeline_timing_event_export"]["written_events"] == 10
     assert (
         timing["association_capacity_pressure"]["measured_window_pressure_frames"] == 1

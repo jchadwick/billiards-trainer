@@ -4,8 +4,10 @@
 //! process inspection cannot block the WebSocket state receiver. Process CPU
 //! percentage is reported using `sysinfo`'s per-core percentage semantics;
 //! accumulated CPU milliseconds and resident memory bytes are retained as
-//! separate measurements. The sampler binds itself to the process start time
-//! observed at startup so a reused PID cannot silently join two runs.
+//! separate measurements. It compares the process ID and `sysinfo` start time
+//! observed at startup to detect PID reuse. `sysinfo` exposes start time only
+//! at whole-second resolution, so reuse within the same second is ambiguous and
+//! reported as an identity-resolution limitation.
 
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -76,6 +78,8 @@ pub struct ProcessResourceSummary {
     pub unavailable_reason: Option<String>,
     pub process_id: u32,
     pub process_start_time_unix_seconds: Option<u64>,
+    pub process_identity_resolution: &'static str,
+    pub process_identity_resolution_note: &'static str,
     pub sample_interval_ms: u64,
     pub sample_count: u64,
     pub available_sample_count: u64,
@@ -83,10 +87,18 @@ pub struct ProcessResourceSummary {
     pub retained_sample_count: usize,
     pub retention_limit: usize,
     pub samples_truncated: bool,
+    /// `retained_tail` when older samples were dropped, otherwise `all_samples`.
+    pub statistics_window: &'static str,
     pub cpu_percent_per_core: PercentileSummary,
     pub accumulated_cpu_time_ms: ResourceDelta,
     pub resident_memory_bytes: ResourceRange,
     pub retained_samples: Vec<ProcessResourceSample>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProcessResourceSamplerReadiness {
+    pub process_id: u32,
+    pub process_start_time_unix_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -111,6 +123,7 @@ pub struct ProcessResourceSampler {
     config: ProcessResourceSamplerConfig,
     state: Arc<Mutex<Accumulator>>,
     stop_sender: Option<Sender<()>>,
+    ready_receiver: Receiver<ProcessResourceSamplerReadiness>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -119,18 +132,32 @@ impl ProcessResourceSampler {
         config.validate()?;
         let state = Arc::new(Mutex::new(Accumulator::new(config.maximum_samples)));
         let (stop_sender, stop_receiver) = mpsc::channel();
+        let (ready_sender, ready_receiver) = mpsc::channel();
         let worker_state = Arc::clone(&state);
         let worker_config = config.clone();
         let worker = thread::Builder::new()
             .name(format!("performance-audit-resources-{}", config.process_id))
-            .spawn(move || sample_loop(worker_config, worker_state, stop_receiver))
+            .spawn(move || sample_loop(worker_config, worker_state, stop_receiver, ready_sender))
             .context("could not start process resource sampler")?;
         Ok(Self {
             config,
             state,
             stop_sender: Some(stop_sender),
+            ready_receiver,
             worker: Some(worker),
         })
+    }
+
+    /// Wait until process identity and the helper-local monotonic baseline are
+    /// initialized. This is separate from spawning the worker so callers can
+    /// avoid starting a measured window before resource sampling is ready.
+    pub fn wait_until_ready(&self, timeout: Duration) -> Result<ProcessResourceSamplerReadiness> {
+        if timeout.is_zero() {
+            bail!("resource sampler readiness timeout must be positive");
+        }
+        self.ready_receiver
+            .recv_timeout(timeout)
+            .context("process resource sampler did not become ready before the deadline")
     }
 
     /// Stop and join the worker. Repeated calls are safe.
@@ -230,6 +257,8 @@ impl Accumulator {
             unavailable_reason,
             process_id: config.process_id,
             process_start_time_unix_seconds: self.process_start_time_unix_seconds,
+            process_identity_resolution: "pid_plus_sysinfo_start_time_unix_seconds",
+            process_identity_resolution_note: "sysinfo start time has one-second resolution; PID reuse within the same second may be indistinguishable",
             sample_interval_ms: duration_millis(config.sample_interval),
             sample_count: self.sample_count,
             available_sample_count: self.available_sample_count,
@@ -237,6 +266,11 @@ impl Accumulator {
             retained_sample_count: retained_samples.len(),
             retention_limit: config.maximum_samples,
             samples_truncated: self.sample_count > retained_samples.len() as u64,
+            statistics_window: if self.sample_count > retained_samples.len() as u64 {
+                "retained_tail"
+            } else {
+                "all_samples"
+            },
             cpu_percent_per_core: percentile_summary(cpu),
             accumulated_cpu_time_ms: resource_delta(cpu_time),
             resident_memory_bytes: resource_range(memory),
@@ -249,6 +283,7 @@ fn sample_loop(
     config: ProcessResourceSamplerConfig,
     state: Arc<Mutex<Accumulator>>,
     stop_receiver: Receiver<()>,
+    ready_sender: Sender<ProcessResourceSamplerReadiness>,
 ) {
     let pid = Pid::from_u32(config.process_id);
     let mut system = System::new_with_specifics(
@@ -265,6 +300,10 @@ fn sample_loop(
         state_guard.process_start_time_unix_seconds = Some(start_time);
     }
     let started = Instant::now();
+    let _ = ready_sender.send(ProcessResourceSamplerReadiness {
+        process_id: config.process_id,
+        process_start_time_unix_seconds: expected_start_time,
+    });
 
     loop {
         match stop_receiver.recv_timeout(config.sample_interval) {
@@ -431,6 +470,7 @@ mod tests {
         assert_eq!(summary.unavailable_sample_count, 1);
         assert_eq!(summary.retained_sample_count, 3);
         assert!(summary.samples_truncated);
+        assert_eq!(summary.statistics_window, "retained_tail");
         assert_eq!(summary.retained_samples[0].elapsed_ms, 2.0);
         assert_eq!(summary.cpu_percent_per_core.p50, Some(60.0));
         assert_eq!(summary.accumulated_cpu_time_ms.delta, Some(30));
@@ -446,6 +486,7 @@ mod tests {
         let empty = Accumulator::new(4).summary(&config(4));
         assert_eq!(empty.status, "unavailable");
         assert_eq!(empty.cpu_percent_per_core.count, 0);
+        assert_eq!(empty.statistics_window, "all_samples");
         assert_eq!(
             empty.unavailable_reason.as_deref(),
             Some("no resource samples were collected")
@@ -467,6 +508,11 @@ mod tests {
             maximum_samples: 4,
         })
         .expect("sampler should start");
+        let readiness = sampler
+            .wait_until_ready(Duration::from_secs(5))
+            .expect("sampler should bind process identity before readiness");
+        assert_eq!(readiness.process_id, std::process::id());
+        assert!(readiness.process_start_time_unix_seconds.is_some());
         thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL * 2 + Duration::from_millis(50));
         sampler.stop().expect("sampler should stop cleanly");
         let summary = sampler.summary();

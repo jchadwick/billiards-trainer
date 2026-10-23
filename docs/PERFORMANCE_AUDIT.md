@@ -51,7 +51,7 @@ Resource sampling is opt-in, runs on its own worker thread, binds to the
 observed process start-time value, and retains no more than the configured
 sample limit. It reports per-core CPU percentage, accumulated CPU
 milliseconds, resident-memory bytes, unavailable samples, and retention loss.
-Reports with this optional section use schema version 2. This receiver slice
+Reports with this optional section use schema version 3. This receiver slice
 does not yet replace Python's warm-up/repetition orchestration, trajectory and
 viewer measurement, provenance collection, cross-run comparisons, or Markdown
 report.
@@ -337,12 +337,20 @@ replacements.
 The opt-in Rust physical-camera qualification is a state-only supervisor run,
 separate from the API delivery audit. It requires an explicit capture profile
 and a Rust live settings file. During the measured window it samples the Rust
-inference child process (CPU utilization, CPU time, and RSS) on the configured
+inference child process through the native `billiards-performance-audit-resources`
+helper (CPU utilization, CPU time, and RSS) on the configured
 `performance_audit.resource_sample_interval_seconds` interval. Override the
 interval for this mode with `--rust-live-resource-sample-interval`. The report
-retains bounded samples and summarizes them per repetition; missing process
-identity or unsupported resource sampling is reported as unavailable. This
-mode does not include the API, frontend, trajectory, or video viewers.
+retains at most 50,000 sample details per repetition and summarizes them; if
+`history_size` requests more, the effective and requested retention limits are
+both reported. The helper returns a bounded JSON line (16 MiB maximum). Sample
+timestamps remain in its own monotonic domain and are not compared with state
+receipt times. The report labels whether CPU percentiles and first/last/range
+statistics cover all samples or only the retained tail. `sysinfo` exposes
+process start time at one-second resolution, so PID reuse within the same second
+can be indistinguishable. Missing process identity, oversized helper output, or
+unsupported resource sampling is reported as unavailable. This mode does not
+include the API, frontend, trajectory, or video viewers.
 
 The same run enables receiver-side scene transport counters after warm-up and
 turns them off at the end of the measured window. It reports accepted snapshot

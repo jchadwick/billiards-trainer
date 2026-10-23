@@ -13,9 +13,9 @@ The user has directed that simple development orchestration use shell scripts
 where practical, while complicated or significant tooling should also migrate
 to Rust. The existing performance-audit collector is a substantial Python
 program: it consumes live WebSocket state, tracks observation identity and
-freshness, bounds long-run samples, collects process resources, starts a Rust
-live process, and writes versioned reports. Shell is not a suitable replacement
-for those stateful protocols and measurements.
+freshness, bounds long-run samples, collects process resources for its generic
+audit modes, starts a Rust live process, and writes versioned reports. Shell is
+not a suitable replacement for those stateful protocols and measurements.
 
 The Python collector also contains useful independent measurement semantics.
 Changing its implementation and the Rust runtime together could silently change
@@ -111,10 +111,24 @@ observed process start-time value, respects the CPU sampler's minimum refresh
 interval, keeps a bounded tail, reports total and retained counts, and marks
 inaccessible or changed processes unavailable. The
 sampler is absent unless `--resource-process-id` is supplied. Its optional
-report section advances the receiver report to schema version 2. A thin
+report section advances the receiver report to schema version 3. A thin
 `scripts/performance-audit-state.sh` wrapper locates the Rust manifest and
-passes arguments through unchanged. This does not yet remove the Python
-resource sampler in the older orchestrator.
+passes arguments through unchanged.
+
+The Rust live-camera qualification now uses a second small Rust executable,
+`billiards-performance-audit-resources`, to sample its supervised inference
+child. The Python orchestration starts this helper after warm-up and stops it
+before child shutdown. It announces readiness only after process identity and
+its monotonic baseline are initialized. Its control stream accepts bounded JSON
+Lines, its summary line is capped at 16 MiB, and it retains at most 50,000
+sample details; the report records requested/effective retention and labels
+statistics as all-sample or retained-tail. Sample elapsed times remain in the
+helper's monotonic clock domain. `sysinfo` reports process start time at
+one-second resolution, so same-second PID reuse remains ambiguous and is
+reported explicitly. This removes the Python `psutil` sampling thread from
+Rust live qualification only. The larger Python collector, its generic audit
+modes, and report orchestration remain and must be migrated only after their
+evidence contracts have Rust parity.
 
 ## Verification
 
@@ -126,6 +140,9 @@ resource sampler in the older orchestrator.
 - The integration test opens a real loopback WebSocket connection and exercises
   both the library API and the executable. It does not claim full gateway or
   live-model qualification.
+- The native live-qualification helper is exercised as a real child process,
+  including its ready/start/stop protocol, bounded sample details, process
+  identity, memory sample, and failure fallback in the Python coordinator.
 - Rust formatting, strict Clippy, and the all-target test suite pass.
 - The recorded-video live smoke in the migration plan validates integration
   only; it does not establish detector accuracy or a sustained performance

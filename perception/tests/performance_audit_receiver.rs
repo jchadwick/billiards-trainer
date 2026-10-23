@@ -146,10 +146,18 @@ async fn command_exports_versioned_json_and_bounded_jsonl_details() {
 
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
-    assert_eq!(report["report"]["schema_version"], 2);
+    assert_eq!(report["report"]["schema_version"], 3);
     assert_eq!(report["report"]["counts"]["state_messages"], 1);
     assert_eq!(report["retained_samples"].as_array().unwrap().len(), 1);
     assert_eq!(report["report"]["process_resources"]["status"], "available");
+    assert_eq!(
+        report["report"]["process_resources"]["statistics_window"],
+        "all_samples"
+    );
+    assert_eq!(
+        report["report"]["process_resources"]["process_identity_resolution"],
+        "pid_plus_sysinfo_start_time_unix_seconds"
+    );
     assert!(
         report["report"]["process_resources"]["sample_count"]
             .as_u64()

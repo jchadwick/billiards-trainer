@@ -23,7 +23,9 @@ server-side components run in Rust, while the browser application remains
 HTML, JavaScript, and CSS. The Python service is a migration bridge. Python
 training and annotation workflows remain off-device; complex audit tooling
 migrates to Rust under ADR-0082, with Python retained temporarily as an
-independent differential reference. ADR-0064 is superseded because it selected a Rust/WASM browser
+independent differential reference. Rust now samples process resources for
+Rust live qualification, while the rest of the audit collector remains Python.
+ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
 transition. ADR-0067 assigns game-session metadata and reset persistence to an
@@ -235,7 +237,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 | [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
-| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust receiver now has optional bounded process CPU/RSS sampling; full orchestration, producer timing, replay, provenance, comparison, accuracy evaluation, and report parity remain |
+| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust receiver and live qualification have bounded process CPU/RSS sampling; full orchestration, replay, provenance, comparison, accuracy evaluation, and report parity remain |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

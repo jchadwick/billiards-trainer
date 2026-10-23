@@ -22,7 +22,7 @@ use crate::process_resource_sampler::{
     ProcessResourceSampler, ProcessResourceSamplerConfig, ProcessResourceSummary,
 };
 
-pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 2;
+pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 3;
 pub const DEFAULT_MAXIMUM_MESSAGE_BYTES: usize = 1_048_576;
 pub const MAXIMUM_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SAMPLES: usize = 10_000;

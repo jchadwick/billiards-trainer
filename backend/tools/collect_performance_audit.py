@@ -1096,16 +1096,22 @@ class RustLiveTimingSummaryBridge:
 
 
 class RustLiveChildResourceSampler:
-    """Sample a supervised Rust child off the event loop with bounded retention."""
+    """Control the native bounded sampler for one supervised Rust child."""
+
+    _EXECUTABLE_NAME = "billiards-performance-audit-resources"
+    _PROTOCOL_SCHEMA_VERSION = 2
+    _MAXIMUM_LINE_BYTES = 16 * 1024 * 1024
+    _MAXIMUM_RETAINED_SAMPLES = 50_000
 
     def __init__(
         self,
-        recorder: AsyncAuditRecorder,
         *,
         process_id: int,
         interval_seconds: float,
         maximum_samples: int,
-        process_factory: Callable[[int], Any] | None = None,
+        startup_timeout_seconds: float,
+        write_timeout_seconds: float,
+        executable: str | Path | None = None,
     ) -> None:
         if (
             isinstance(process_id, bool)
@@ -1126,175 +1132,342 @@ class RustLiveChildResourceSampler:
             or maximum_samples < 1
         ):
             raise ValueError("maximum resource samples must be positive")
-        self._recorder = recorder
+        if not math.isfinite(startup_timeout_seconds) or startup_timeout_seconds <= 0:
+            raise ValueError("resource sampler startup timeout must be positive")
+        if not math.isfinite(write_timeout_seconds) or write_timeout_seconds <= 0:
+            raise ValueError("resource sampler write timeout must be positive")
         self._process_id = process_id
         self._interval_seconds = interval_seconds
-        self._samples: deque[dict[str, Any]] = deque(maxlen=maximum_samples)
-        self._sample_count = 0
-        self._available_sample_count = 0
-        self._unavailable_sample_count = 0
-        self._process: Any = None
-        self._unavailable_reason: str | None = None
-        self._stop = threading.Event()
-        self._samples_lock = threading.Lock()
-        self._thread: threading.Thread | None = None
-        try:
-            if process_factory is None:
-                import psutil
+        self._requested_maximum_samples = maximum_samples
+        self._maximum_samples = min(maximum_samples, self._MAXIMUM_RETAINED_SAMPLES)
+        self._startup_timeout_seconds = startup_timeout_seconds
+        self._write_timeout_seconds = write_timeout_seconds
+        self._configured_executable = executable
+        self._process: asyncio.subprocess.Process | None = None
+        self._started = False
+        self._closed = False
+        self._failure: str | None = None
+        self._native_summary: dict[str, Any] | None = None
+        self._started_process_start_time: int | None = None
 
-                process_factory = psutil.Process
-            self._process = process_factory(process_id)
-            self._process.cpu_percent(interval=None)
-        except Exception as error:
-            self._unavailable_reason = f"{type(error).__name__}: {error}"
-
-    def start(self) -> None:
-        """Begin periodic sampling after the measured window has warmed up."""
-        if self._thread is not None:
-            raise RuntimeError("resource sampler has already started")
-        self._thread = threading.Thread(
-            target=self._run,
-            name=f"rust-live-resources-{self._process_id}",
-            daemon=True,
+    @classmethod
+    def resolve_executable(cls, configured: str | Path | None = None) -> Path:
+        """Find an explicit executable, current Cargo artifact, or PATH entry."""
+        executable_name = cls._EXECUTABLE_NAME + (".exe" if os.name == "nt" else "")
+        if configured is not None:
+            path = Path(configured).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"resource sampler executable does not exist: {path}"
+                )
+            if os.name != "nt" and not os.access(path, os.X_OK):
+                raise PermissionError(
+                    f"resource sampler executable is not executable: {path}"
+                )
+            return path
+        configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+        target_directories = [
+            Path(configured_target_dir).expanduser() if configured_target_dir else None,
+            ROOT / "perception" / "target",
+            ROOT / "target",
+        ]
+        for target_directory in target_directories:
+            if target_directory is None:
+                continue
+            if not target_directory.is_absolute():
+                target_directory = Path.cwd() / target_directory
+            for profile in ("release", "debug"):
+                candidate = target_directory / profile / executable_name
+                if candidate.is_file() and (
+                    os.name == "nt" or os.access(candidate, os.X_OK)
+                ):
+                    return candidate.resolve()
+        on_path = shutil.which(executable_name)
+        if on_path:
+            return Path(on_path).resolve()
+        raise FileNotFoundError(
+            f"could not find {executable_name} on PATH or in Cargo target directories; "
+            f"build it with `cargo build --locked --manifest-path "
+            f"{ROOT / 'perception' / 'Cargo.toml'} --bin {cls._EXECUTABLE_NAME}`"
         )
-        self._thread.start()
 
-    def close(self) -> None:
-        """Stop sampling promptly before the supervised process is terminated."""
-        self._stop.set()
-        if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=max(0.1, self._interval_seconds * 2))
+    async def start(self) -> None:
+        """Start the native helper and begin sampling after its ready handshake."""
+        if self._process is not None or self._closed:
+            return
+        try:
+            executable = self.resolve_executable(self._configured_executable)
+            process = await asyncio.create_subprocess_exec(
+                str(executable),
+                "--process-id",
+                str(self._process_id),
+                "--sample-interval-ms",
+                str(max(1, round(self._interval_seconds * 1000))),
+                "--maximum-samples",
+                str(self._maximum_samples),
+                "--startup-timeout-ms",
+                str(max(1, round(self._startup_timeout_seconds * 1000))),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=self._MAXIMUM_LINE_BYTES,
+            )
+            self._process = process
+            await self._read_message("ready", self._startup_timeout_seconds)
+            await self._send_control("start")
+            started = await self._read_message("started", self._startup_timeout_seconds)
+            if started.get("process_id") != self._process_id:
+                raise ValueError("native sampler started with a different process ID")
+            process_start_time = started.get("process_start_time_unix_seconds")
+            if process_start_time is not None and (
+                isinstance(process_start_time, bool)
+                or not isinstance(process_start_time, int)
+            ):
+                raise ValueError(
+                    "native sampler returned an invalid process start time"
+                )
+            self._started_process_start_time = process_start_time
+            self._started = True
+        except asyncio.CancelledError:
+            await self._stop_process_shielded()
+            raise
+        except (OSError, ValueError, RuntimeError, asyncio.TimeoutError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+            await self._stop_process()
+
+    async def close(self) -> None:
+        """Stop sampling and retain the bounded native result."""
+        if self._closed:
+            return
+        self._closed = True
+        process = self._process
+        if process is None:
+            return
+        try:
+            if self._started and self._failure is None:
+                await self._send_control("stop")
+                message = await self._read_message(
+                    "summary", self._write_timeout_seconds
+                )
+                summary = message.get("summary")
+                if not isinstance(summary, dict):
+                    raise ValueError("native resource summary has an invalid shape")
+                if summary.get("process_id") != self._process_id:
+                    raise ValueError("native sampler summarized a different process ID")
+                if (
+                    summary.get("process_start_time_unix_seconds")
+                    != self._started_process_start_time
+                ):
+                    raise ValueError(
+                        "native sampler process identity changed during sampling"
+                    )
+                self._native_summary = summary
+            await asyncio.wait_for(process.wait(), timeout=self._write_timeout_seconds)
+            stderr = b""
+            if process.stderr is not None:
+                stderr = await process.stderr.read()
+            if process.returncode != 0:
+                detail = stderr.decode("utf-8", errors="replace")[-4096:]
+                raise RuntimeError(
+                    f"native resource sampler exited with status {process.returncode}: {detail}"
+                )
+        except asyncio.CancelledError:
+            await self._stop_process_shielded()
+            raise
+        except (OSError, ValueError, RuntimeError, asyncio.TimeoutError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+            await self._stop_process_shielded()
+
+    async def _send_control(self, kind: str) -> None:
+        process = self._process
+        if process is None or process.stdin is None:
+            raise RuntimeError("native resource sampler control pipe is unavailable")
+        message = json.dumps({"kind": kind}, separators=(",", ":")).encode() + b"\n"
+        process.stdin.write(message)
+        await asyncio.wait_for(
+            process.stdin.drain(), timeout=self._write_timeout_seconds
+        )
+
+    async def _read_message(
+        self, expected_kind: str, timeout_seconds: float
+    ) -> dict[str, Any]:
+        process = self._process
+        if process is None or process.stdout is None:
+            raise RuntimeError("native resource sampler output pipe is unavailable")
+        line = await asyncio.wait_for(
+            process.stdout.readline(), timeout=timeout_seconds
+        )
+        if not line:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    "native resource sampler closed its output before the "
+                    f"{expected_kind!r} message"
+                ) from None
+            detail = ""
+            if process.stderr is not None:
+                detail = (await process.stderr.read()).decode(
+                    "utf-8", errors="replace"
+                )[-4096:]
+            raise RuntimeError(
+                "native resource sampler exited before the "
+                f"{expected_kind!r} message"
+                + (f": {detail.strip()}" if detail.strip() else "")
+            )
+        if len(line) > self._MAXIMUM_LINE_BYTES:
+            raise RuntimeError("native resource sampler returned an oversized message")
+        message = json.loads(line)
+        if (
+            not isinstance(message, dict)
+            or message.get("schema_version") != self._PROTOCOL_SCHEMA_VERSION
+            or message.get("kind") != expected_kind
+        ):
+            raise ValueError(
+                f"native resource sampler did not return {expected_kind!r}"
+            )
+        return message
+
+    async def _stop_process(self) -> None:
+        process = self._process
+        if process is None or process.returncode is not None:
+            return
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=self._write_timeout_seconds)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+
+    async def _stop_process_shielded(self) -> None:
+        cleanup = asyncio.create_task(self._stop_process())
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
+
+    def _record_failure(self, message: str) -> None:
+        if self._failure is None:
+            self._failure = message
 
     def summary(self) -> dict[str, Any]:
-        """Summarize retained CPU and RSS samples, exposing retention loss."""
-        with self._samples_lock:
-            samples = list(self._samples)
-            sample_count = self._sample_count
-            available_sample_count = self._available_sample_count
-            unavailable_sample_count = self._unavailable_sample_count
-        summary_status = (
-            "unavailable"
-            if available_sample_count == 0
-            else ("partial" if unavailable_sample_count > 0 else "available")
-        )
-        unavailable_reason = self._unavailable_reason
-        if not samples and unavailable_reason is None:
-            unavailable_reason = (
-                "no samples were collected during the measurement window"
-            )
-        cpu_percent = [
-            float(sample["cpu_percent"])
+        """Adapt native resource metrics to the established report shape."""
+        native = self._native_summary
+        if native is None:
+            reason = self._failure or "native resource sampler returned no summary"
+            return {
+                "status": "unavailable",
+                "unavailable_reason": reason,
+                "process_role": "rust_live_inference_child",
+                "process_id": self._process_id,
+                "process_identity_resolution": "unavailable",
+                "process_identity_resolution_note": None,
+                "sample_count": 0,
+                "available_sample_count": 0,
+                "unavailable_sample_count": 0,
+                "retained_sample_count": 0,
+                "retention_limit": self._maximum_samples,
+                "requested_retention_limit": self._requested_maximum_samples,
+                "samples_truncated": False,
+                "statistics_window": "unavailable",
+                "cpu_percent": {
+                    "count": 0,
+                    "p50": None,
+                    "p95": None,
+                    "p99": None,
+                    "maximum": None,
+                },
+                "cpu_time_seconds": {"first": None, "last": None, "delta": None},
+                "resident_memory_bytes": {
+                    "count": 0,
+                    "first": None,
+                    "last": None,
+                    "minimum": None,
+                    "maximum": None,
+                    "delta": None,
+                },
+                "retained_samples": [],
+            }
+
+        cpu_time = native.get("accumulated_cpu_time_ms", {})
+        if not isinstance(cpu_time, dict):
+            cpu_time = {}
+        memory = native.get("resident_memory_bytes", {})
+        if not isinstance(memory, dict):
+            memory = {}
+        samples = native.get("retained_samples", [])
+        if not isinstance(samples, list):
+            samples = []
+
+        def milliseconds_to_seconds(value: Any) -> float | None:
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value / 1000
+            return None
+
+        retained_samples = [
+            {
+                "elapsed_ms": sample.get("elapsed_ms"),
+                "status": sample.get("status"),
+                "unavailable_reason": sample.get("unavailable_reason"),
+                "cpu_percent": sample.get("cpu_percent_per_core"),
+                "cpu_time_seconds": milliseconds_to_seconds(
+                    sample.get("accumulated_cpu_time_ms")
+                ),
+                "resident_memory_bytes": sample.get("resident_memory_bytes"),
+                "clock": "resource_sampler_process_monotonic",
+            }
             for sample in samples
-            if isinstance(sample.get("cpu_percent"), (int, float))
-            and not isinstance(sample.get("cpu_percent"), bool)
-            and math.isfinite(sample["cpu_percent"])
-        ]
-        cpu_times = [
-            float(sample["cpu_time_seconds"])
-            for sample in samples
-            if isinstance(sample.get("cpu_time_seconds"), (int, float))
-            and not isinstance(sample.get("cpu_time_seconds"), bool)
-            and math.isfinite(sample["cpu_time_seconds"])
-        ]
-        memory = [
-            int(sample["resident_memory_bytes"])
-            for sample in samples
-            if isinstance(sample.get("resident_memory_bytes"), int)
-            and not isinstance(sample.get("resident_memory_bytes"), bool)
+            if isinstance(sample, dict)
         ]
         return {
-            "status": summary_status,
-            "unavailable_reason": unavailable_reason,
+            "status": native.get("status", "unavailable"),
+            "unavailable_reason": native.get("unavailable_reason"),
             "process_role": "rust_live_inference_child",
-            "process_id": self._process_id,
-            "sample_count": sample_count,
-            "available_sample_count": available_sample_count,
-            "unavailable_sample_count": unavailable_sample_count,
-            "retained_sample_count": len(samples),
-            "retention_limit": self._samples.maxlen,
-            "samples_truncated": sample_count > len(samples),
-            "cpu_percent": {
-                "count": len(cpu_percent),
-                "p50": percentile(cpu_percent, 0.50),
-                "p95": percentile(cpu_percent, 0.95),
-                "p99": percentile(cpu_percent, 0.99),
-                "maximum": max(cpu_percent) if cpu_percent else None,
-            },
+            "process_id": native.get("process_id", self._process_id),
+            "process_start_time_unix_seconds": native.get(
+                "process_start_time_unix_seconds"
+            ),
+            "process_identity_resolution": native.get(
+                "process_identity_resolution", "unavailable"
+            ),
+            "process_identity_resolution_note": native.get(
+                "process_identity_resolution_note"
+            ),
+            "sample_interval_ms": native.get(
+                "sample_interval_ms", round(self._interval_seconds * 1000)
+            ),
+            "sample_count": native.get("sample_count", 0),
+            "available_sample_count": native.get("available_sample_count", 0),
+            "unavailable_sample_count": native.get("unavailable_sample_count", 0),
+            "retained_sample_count": native.get("retained_sample_count", 0),
+            "retention_limit": native.get("retention_limit", self._maximum_samples),
+            "requested_retention_limit": self._requested_maximum_samples,
+            "samples_truncated": native.get("samples_truncated", False),
+            "statistics_window": native.get("statistics_window", "unavailable"),
+            "cpu_percent": native.get(
+                "cpu_percent_per_core",
+                {"count": 0, "p50": None, "p95": None, "p99": None, "maximum": None},
+            ),
             "cpu_time_seconds": {
-                "first": cpu_times[0] if cpu_times else None,
-                "last": cpu_times[-1] if cpu_times else None,
-                "delta": cpu_times[-1] - cpu_times[0] if len(cpu_times) > 1 else None,
+                "first": milliseconds_to_seconds(cpu_time.get("first")),
+                "last": milliseconds_to_seconds(cpu_time.get("last")),
+                "delta": milliseconds_to_seconds(cpu_time.get("delta")),
             },
             "resident_memory_bytes": {
-                "count": len(memory),
-                "first": memory[0] if memory else None,
-                "last": memory[-1] if memory else None,
-                "minimum": min(memory) if memory else None,
-                "maximum": max(memory) if memory else None,
-                "delta": memory[-1] - memory[0] if len(memory) > 1 else None,
+                "count": sum(
+                    sample.get("resident_memory_bytes") is not None
+                    for sample in samples
+                    if isinstance(sample, dict)
+                ),
+                "first": memory.get("first"),
+                "last": memory.get("last"),
+                "minimum": memory.get("minimum"),
+                "maximum": memory.get("maximum"),
+                "delta": memory.get("delta"),
             },
+            "retained_samples": retained_samples,
         }
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            self._sample_once()
-            if self._stop.wait(self._interval_seconds):
-                return
-
-    def _sample_once(self) -> None:
-        sampled_ns = time.perf_counter_ns()
-        event: dict[str, Any] = {
-            "event_type": "process_resource_sample",
-            "sampled_process_role": "rust_live_inference_child",
-            "process_id": self._process_id,
-            "host_id": socket.gethostname(),
-            "event_monotonic_ns": sampled_ns,
-            "sampled_monotonic_ns": sampled_ns,
-        }
-        if self._process is None:
-            event.update(
-                {
-                    "resource_measurement_status": "unavailable",
-                    "resource_measurement_error": self._unavailable_reason,
-                    "cpu_percent": None,
-                    "cpu_time_seconds": None,
-                    "resident_memory_bytes": None,
-                }
-            )
-        else:
-            try:
-                cpu_percent = self._process.cpu_percent(interval=None)
-                memory_bytes = self._process.memory_info().rss
-                cpu_times = self._process.cpu_times()
-                event.update(
-                    {
-                        "resource_measurement_status": "available",
-                        "cpu_percent": cpu_percent,
-                        "cpu_time_seconds": float(cpu_times.user + cpu_times.system),
-                        "resident_memory_bytes": memory_bytes,
-                    }
-                )
-            except Exception as error:
-                message = f"{type(error).__name__}: {error}"
-                event.update(
-                    {
-                        "resource_measurement_status": "unavailable",
-                        "resource_measurement_error": message,
-                        "cpu_percent": None,
-                        "cpu_time_seconds": None,
-                        "resident_memory_bytes": None,
-                    }
-                )
-                if self._unavailable_reason is None:
-                    self._unavailable_reason = message
-        with self._samples_lock:
-            self._sample_count += 1
-            if event["resource_measurement_status"] == "available":
-                self._available_sample_count += 1
-            else:
-                self._unavailable_sample_count += 1
-            self._samples.append(event)
-        self._recorder.record(event)
 
 
 class RustLiveQualificationBroadcaster:
@@ -3907,6 +4080,7 @@ async def _collect_rust_live_qualification_repetition(
     supervisor_factory: Callable[..., Any] | None = None,
     timing_summary_bridge_factory: Callable[..., Any] | None = None,
     timing_summary_executable: str | Path | None = None,
+    resource_sampler_executable: str | Path | None = None,
 ) -> dict[str, Any]:
     """Measure one bounded live-camera run through the established supervisor."""
     from backend.perception.rust_live_supervisor import (
@@ -4014,12 +4188,14 @@ async def _collect_rust_live_qualification_repetition(
         process_id = getattr(supervisor, "process_id", None)
         if isinstance(process_id, int) and not isinstance(process_id, bool):
             resource_sampler = RustLiveChildResourceSampler(
-                recorder,
                 process_id=process_id,
                 interval_seconds=resource_sample_interval_seconds,
                 maximum_samples=history_size,
+                startup_timeout_seconds=settings.startup_timeout_seconds,
+                write_timeout_seconds=settings.write_timeout_ms / 1000,
+                executable=resource_sampler_executable,
             )
-            resource_sampler.start()
+            await resource_sampler.start()
         elif process_id is not None:
             resource_summary["unavailable_reason"] = (
                 "supervisor exposed an invalid child process id"
@@ -4078,7 +4254,7 @@ async def _collect_rust_live_qualification_repetition(
                 await timing_bridge.end_measurement(measurement_ended_ns)
         try:
             if resource_sampler is not None:
-                resource_sampler.close()
+                await resource_sampler.close()
                 resource_summary = resource_sampler.summary()
         finally:
             try:
@@ -4370,10 +4546,10 @@ def _rust_live_qualification_markdown(report: dict[str, Any]) -> str:
             "",
             "## Rust child resources",
             "",
-            "CPU utilization and resident memory are sampled only during each measured window. Sample retention is bounded; unavailable measurements remain explicit.",
+            "CPU utilization and resident memory are sampled only during each measured window. When the detail limit is reached, summary statistics describe the retained tail; the table shows the exact statistics window. Unavailable measurements remain explicit.",
             "",
-            "| Repetition | Status | Samples | CPU p50 / p95 / p99 (%) | CPU time delta (s) | RSS min / max (MiB) | RSS first→last delta (MiB) |",
-            "|---:|---|---:|---:|---:|---:|---:|",
+            "| Repetition | Status | Retained / total samples | Statistics window | CPU p50 / p95 / p99 (%) | CPU time delta (s) | RSS min / max (MiB) | RSS first→last delta (MiB) |",
+            "|---:|---|---:|---|---:|---:|---:|---:|",
         ]
     )
     for run in report["repetitions"]:
@@ -4381,11 +4557,17 @@ def _rust_live_qualification_markdown(report: dict[str, Any]) -> str:
         cpu = resources.get("cpu_percent", {})
         cpu_time = resources.get("cpu_time_seconds", {})
         memory = resources.get("resident_memory_bytes", {})
+        statistics_window = resources.get("statistics_window", "unavailable")
         lines.append(
-            "| {repetition} | {status} | {samples} | {cpu} | {cpu_delta} | {memory_range} | {memory_delta} |".format(
+            "| {repetition} | {status} | {retained} / {total} | {window} | {cpu} | {cpu_delta} | {memory_range} | {memory_delta} |".format(
                 repetition=run["repetition"],
                 status=resources.get("status", "unavailable"),
-                samples=resources.get("sample_count", 0),
+                retained=resources.get("retained_sample_count", 0),
+                total=resources.get("sample_count", 0),
+                window={
+                    "all_samples": "all samples",
+                    "retained_tail": "retained tail",
+                }.get(statistics_window, statistics_window),
                 cpu=" / ".join(
                     f"{value:.1f}" if isinstance(value, (int, float)) else "unavailable"
                     for value in (cpu.get("p50"), cpu.get("p95"), cpu.get("p99"))
@@ -4631,6 +4813,9 @@ async def _run_rust_live_qualification(
                     timing_summary_executable=getattr(
                         args, "rust_live_timing_summary_executable", None
                     ),
+                    resource_sampler_executable=getattr(
+                        args, "rust_live_resource_sampler_executable", None
+                    ),
                 )
             )
         capture_transport_summary = None
@@ -4770,6 +4955,11 @@ async def _run_rust_live_qualification(
                         str(args.rust_live_timing_summary_executable)
                         if timing_audit_enabled
                         and getattr(args, "rust_live_timing_summary_executable", None)
+                        else None
+                    ),
+                    "rust_live_resource_sampler_executable": (
+                        str(args.rust_live_resource_sampler_executable)
+                        if getattr(args, "rust_live_resource_sampler_executable", None)
                         else None
                     ),
                 },
@@ -5168,6 +5358,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Optional path to the Rust timing-summary executable; otherwise the "
+            "collector searches PATH and existing Cargo debug/release artifacts"
+        ),
+    )
+    parser.add_argument(
+        "--rust-live-resource-sampler-executable",
+        type=Path,
+        help=(
+            "Optional path to the Rust process-resource sampler; otherwise the "
             "collector searches PATH and existing Cargo debug/release artifacts"
         ),
     )
