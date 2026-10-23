@@ -50,6 +50,7 @@ fn real_detector_and_injected_source_complete_v3_startup_scene_delivery_and_rele
     std::fs::write(
         format!("{}.manifest.json", onnx_path.display()),
         serde_json::to_vec(&json!({
+            "manifest_schema_version": 1,
             "source_model": { "sha256": sha256_file(&checkpoint_path) },
             "exported_model": {
                 "path": "tiny-two-class.onnx",

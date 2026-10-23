@@ -10,6 +10,9 @@ import pytest
 
 from tools import export_high_res_model as export_tool
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+MODEL_EXPORT_CONTRACT = REPOSITORY_ROOT / "perception/contracts/model-export/v1"
+
 
 class FakeYOLO:
     """Small controllable export double; no weights or export runtimes required."""
@@ -27,7 +30,7 @@ class FakeYOLO:
     def export(self, **options):
         self.export_calls.append(options)
         destination = self.model_path.with_suffix(".onnx")
-        destination.write_bytes(b"deterministic onnx artifact")
+        destination.write_bytes(b"deterministic onnx artifact\n")
         return str(destination)
 
 
@@ -77,6 +80,42 @@ def test_export_uses_explicit_source_and_writes_hash_lineage_manifest(
     assert options["simplify"] is False
     assert source.read_bytes() == b"source checkpoint contents"
     assert list(output.glob(".yolo-export-*")) == []
+
+
+def test_export_output_matches_the_shared_rust_manifest_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "billiards-yolov8n.pt"
+    source.write_bytes(
+        (MODEL_EXPORT_CONTRACT / "source-checkpoint.fixture").read_bytes()
+    )
+    expected = json.loads(
+        (MODEL_EXPORT_CONTRACT / "manifest-contract.json").read_text(encoding="utf-8")
+    )
+    monkeypatch.setattr(export_tool, "YOLO", FakeYOLO)
+
+    artifact = Path(
+        export_tool.export_high_res_model(source, output_dir=tmp_path / "exports")
+    )
+    manifest = json.loads(Path(f"{artifact}.manifest.json").read_text(encoding="utf-8"))
+    produced_contract = {
+        "manifest_schema_version": manifest["manifest_schema_version"],
+        "source_model": {"sha256": manifest["source_model"]["sha256"]},
+        "exported_model": {
+            "path": manifest["exported_model"]["path"],
+            "sha256": manifest["exported_model"]["sha256"],
+        },
+        "model": {
+            "class_count": manifest["model"]["class_count"],
+            "class_names": manifest["model"]["class_names"],
+        },
+    }
+
+    assert (
+        artifact.read_bytes()
+        == (MODEL_EXPORT_CONTRACT / "exported-model.fixture").read_bytes()
+    )
+    assert produced_contract == expected
 
 
 def test_export_requires_an_explicit_existing_pt_checkpoint(tmp_path: Path):
@@ -180,7 +219,7 @@ def test_successful_overwrite_replaces_model_and_manifest_together(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
     assert exported == artifact
-    assert artifact.read_bytes() == b"deterministic onnx artifact"
+    assert artifact.read_bytes() == b"deterministic onnx artifact\n"
     assert (
         manifest["exported_model"]["sha256"]
         == hashlib.sha256(artifact.read_bytes()).hexdigest()

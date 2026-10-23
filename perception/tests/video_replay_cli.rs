@@ -163,6 +163,7 @@ fn write_model_manifest(model: &Path, checkpoint: &Path) {
         model.file_name().unwrap().to_string_lossy()
     ));
     let manifest = serde_json::json!({
+        "manifest_schema_version": 1,
         "source_model": { "sha256": sha256_file(checkpoint) },
         "exported_model": {
             "path": model.file_name().unwrap().to_string_lossy(),

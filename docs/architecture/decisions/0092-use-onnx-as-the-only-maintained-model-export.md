@@ -30,6 +30,8 @@ the model-export extra. Keep ONNX as the shared model artifact for macOS and
 Linux Rust inference, including the direct OpenVINO backend. Retain Python
 CoreML detector code only as offline compatibility reference until that
 reference is removed; do not describe it as an active model-export workflow.
+The exporter and Rust runtime share the v1 lineage manifest contract. Rust
+rejects manifests with an unsupported schema version before loading the model.
 
 ## Consequences
 
@@ -58,8 +60,11 @@ historical evidence.
 ## Verification
 
 - `backend/tests/unit/test_model_export_tool.py` verifies explicit checkpoint
-  lineage, ONNX output, bounded replacement, and that the removed CoreML CLI
-  option is rejected.
+  lineage, ONNX output, the shared v1 contract fixture, bounded replacement,
+  and that the removed CoreML CLI option is rejected.
+- The Rust model loader verifies the same shared manifest and artifact hashes,
+  accepts the supported v1 schema, and rejects an unknown version.
+- Shared fixture and test instructions: [model export manifest v1](../../../perception/contracts/model-export/v1/README.md).
 - `uv lock --check` verifies the model-export dependency lock after removing
   `coremltools` from that extra.
 - A Rust model-load/replay smoke against the generated ONNX artifact remains

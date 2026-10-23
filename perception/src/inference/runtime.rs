@@ -43,6 +43,7 @@ use super::{decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, P
 const INPUT_NAME: &str = "images";
 const OUTPUT_NAME: &str = "output0";
 const EXPECTED_CLASS_COUNT: usize = 2;
+const MODEL_EXPORT_MANIFEST_SCHEMA_VERSION: u32 = 1;
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 /// Default per-video input size bound for recorded-video audit runs.
 pub const DEFAULT_VIDEO_MAXIMUM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
@@ -714,6 +715,7 @@ struct FrameResult {
 
 #[derive(Debug, Deserialize)]
 struct ExportManifest {
+    manifest_schema_version: u32,
     source_model: SourceModelManifest,
     exported_model: ExportedModelManifest,
     model: ModelManifest,
@@ -2521,6 +2523,11 @@ fn load_and_verify_manifest(
     let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
     let manifest: ExportManifest = serde_json::from_slice(&manifest_bytes)
         .with_context(|| format!("invalid export manifest: {}", manifest_path.display()))?;
+    ensure!(
+        manifest.manifest_schema_version == MODEL_EXPORT_MANIFEST_SCHEMA_VERSION,
+        "unsupported ONNX export manifest schema version: {}",
+        manifest.manifest_schema_version
+    );
     let actual_model_hash = sha256_file(model_path)?;
     ensure!(
         manifest.exported_model.sha256 == actual_model_hash,
@@ -3547,6 +3554,7 @@ mod tests {
         fs::write(&onnx_path, b"onnx test bytes").unwrap();
         fs::write(&source_path, b"source checkpoint test bytes").unwrap();
         let manifest = serde_json::json!({
+            "manifest_schema_version": 1,
             "source_model": { "sha256": super::sha256_file(&source_path).unwrap() },
             "exported_model": {
                 "path": "model.onnx",
@@ -3574,6 +3582,48 @@ mod tests {
         fs::write(&onnx_path, b"different ONNX artifact").unwrap();
         let error = load_and_verify_manifest(&onnx_path, &source_path).unwrap_err();
         assert!(error.to_string().contains("exported ONNX hash"));
+    }
+
+    #[test]
+    fn manifest_v1_contract_fixture_is_accepted_and_unknown_versions_are_rejected() {
+        let fixture_directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts/model-export/v1");
+        let temporary = tempfile::tempdir().unwrap();
+        let model_path = temporary.path().join("billiards-yolov8n.onnx");
+        let source_path = temporary.path().join("billiards-yolov8n.pt");
+        fs::copy(
+            fixture_directory.join("exported-model.fixture"),
+            &model_path,
+        )
+        .unwrap();
+        fs::copy(
+            fixture_directory.join("source-checkpoint.fixture"),
+            &source_path,
+        )
+        .unwrap();
+        let manifest_path = PathBuf::from(format!("{}.manifest.json", model_path.display()));
+        fs::copy(
+            fixture_directory.join("manifest-contract.json"),
+            &manifest_path,
+        )
+        .unwrap();
+
+        let loaded = load_and_verify_manifest(&model_path, &source_path).unwrap();
+        assert_eq!(loaded.class_names, ["cue", "ball"]);
+        assert_eq!(loaded.artifact_sha256, sha256_file(&model_path).unwrap());
+        assert_eq!(
+            loaded.source_checkpoint_sha256,
+            sha256_file(&source_path).unwrap()
+        );
+
+        let mut unsupported: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap())
+            .expect("shared manifest fixture is valid JSON");
+        unsupported["manifest_schema_version"] = serde_json::json!(2);
+        fs::write(&manifest_path, serde_json::to_vec(&unsupported).unwrap()).unwrap();
+        let error = load_and_verify_manifest(&model_path, &source_path).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unsupported ONNX export manifest schema version: 2"));
     }
 
     #[test]
@@ -3911,6 +3961,7 @@ mod tests {
         fs::write(
             manifest_path,
             serde_json::to_vec(&json!({
+                "manifest_schema_version": 1,
                 "source_model": { "sha256": sha256_file(&checkpoint_path).unwrap() },
                 "exported_model": {
                     "path": "tiny-two-class.onnx",

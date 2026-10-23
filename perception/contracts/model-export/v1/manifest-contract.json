@@ -1,0 +1,17 @@
+{
+  "manifest_schema_version": 1,
+  "source_model": {
+    "sha256": "898bbd1de13954d8cae8a07f24dc0a2941832517888e50147b532df17a84101e"
+  },
+  "exported_model": {
+    "path": "billiards-yolov8n.onnx",
+    "sha256": "c8f7b6c3abd5436f088cbb74f638e471365a135228ddaf91a407164f0e35e9f5"
+  },
+  "model": {
+    "class_count": 2,
+    "class_names": [
+      { "id": 0, "name": "cue" },
+      { "id": 1, "name": "ball" }
+    ]
+  }
+}

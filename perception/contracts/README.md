@@ -1,8 +1,18 @@
 # Perception contracts
 
-Contracts in this directory define the process-neutral boundary between the
-primary perception engine and the retained Python gateway. Versioned schemas
-are immutable once published; incompatible semantics require a new version.
+Contracts in this directory define the process-neutral boundaries used by the
+Rust runtime and its offline tools. Retained Python compatibility code consumes
+only the contracts explicitly covered by its tests. Versioned schemas are
+immutable once published; incompatible semantics require a new version.
+
+## ONNX model export manifest v1
+
+The retained Python model-export utility and the Rust model loader share a
+versioned lineage contract. It pins the source-checkpoint and ONNX hashes plus
+the ordered class map; exporter metadata may add fields without changing those
+required semantics. Rust rejects unsupported schema versions. The deterministic
+[v1 contract fixture](model-export/v1/README.md) is consumed by both languages;
+its fake files are parser/hash fixtures, not inference weights.
 
 ## Scene snapshot v1
 
