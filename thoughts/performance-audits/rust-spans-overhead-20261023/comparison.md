@@ -75,12 +75,16 @@ The mailbox-residence follow-up is recorded in
 [rust-mailbox-overhead-20261023](../rust-mailbox-overhead-20261023/comparison.md).
 It used the same live workload with the additional audit-only dequeue clock and
 showed that mailbox residence accounts for nearly all of the pre-inference
-delay. The next useful experiments are:
+delay. The 20 fps sampling comparison is recorded in
+[camera-rate-20261023](../camera-rate-20261023/comparison.md); on the looped
+MJPEG source it nearly matched delivered unique updates to the configured rate
+and reduced source-frame replacement substantially. The next useful experiments
+are:
 
-1. Compare 30 fps with 20 fps and a lower detector input size on the same paced
-   clip, retaining latest-frame behavior and measuring unique observations,
-   freshness, and drops. Treat any model-size choice as provisional until
-   reviewed temporal labels confirm accuracy during motion and occlusion.
+1. Qualify 20 fps and the nearest supported higher rate on the Linux target's
+   physical webcam, then pair the settings with reviewed temporal labels for
+   moving and occluded balls. The network fixture does not establish that the
+   physical camera supports an exact 20 fps mode.
 2. Build a shared-frame fan-out fixture and headless-browser run before making
    claims about video viewer interference.
 3. Run the separate 20-minute bounded-memory audit and, later, qualify on the
