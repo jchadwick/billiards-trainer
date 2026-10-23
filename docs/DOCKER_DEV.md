@@ -1,9 +1,9 @@
 # Local development
 
 The supported app runtime is Rust. Python remains available for compatibility
-tests, dataset/calibration authoring, and optional model export; it is not
-needed to launch the server. The browser client remains HTML/CSS/JavaScript
-built from the React/TypeScript source.
+and reference tests, plus optional ONNX model export; it is not needed to
+launch the server. The browser client remains HTML/CSS/JavaScript built from
+the React/TypeScript source.
 
 ## Run the Rust application from source
 
@@ -56,7 +56,9 @@ configuration and model mounts are described in [DOCKER.md](DOCKER.md).
 
 ## Optional Python tools
 
-Python remains for compatibility/reference tests and optional model export.
+Python remains for compatibility/reference tests and optional ONNX model
+export. Dataset preparation and standalone calibration-authoring workflows
+are retired; Rust owns temporal evaluation and live calibration.
 Install the lighter workflow with `make install-python-tools`; use
 `make install-model-tools` only when exporting the ONNX model used by the Rust
 runtime. Both install targets use the checked-in `uv.lock`; install `uv` first.

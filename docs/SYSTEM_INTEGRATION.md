@@ -1,8 +1,8 @@
 # System Integration
 
 The supported application runtime is Rust. The browser remains a standard
-HTML/JavaScript/CSS client; Python modules remain as compatibility code and
-offline model/data/calibration authoring tools, and are not launched by the
+HTML/JavaScript/CSS client. Python modules remain compatibility/reference code
+and an optional ONNX model-export tool; they are not launched by the
 application.
 
 ## Runtime components
@@ -16,9 +16,9 @@ application.
   bundle is static content served by `billiards-server`; Node is not required
   by the deployed application.
 - Python API modules remain for compatibility tests and legacy references;
-  offline tools author model/data/calibration inputs. `python -m backend.main` and
-  `python -m backend.dev_server` are retired commands and do not start a
-  service.
+  the optional exporter creates ONNX inputs consumed by Rust.
+  `python -m backend.main` and `python -m backend.dev_server` are retired
+  commands and do not start a service.
 
 ## Run locally
 

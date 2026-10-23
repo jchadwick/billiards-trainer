@@ -18,8 +18,8 @@
 # Default target
 .DEFAULT_GOAL := help
 
-# The supported application runtime is Rust. Python remains for offline
-# compatibility tests and optional model/data authoring.
+# The supported application runtime is Rust. Python remains for compatibility
+# and reference tests plus optional ONNX model export.
 PYTHON_VENV_DIR ?= .venv
 PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
 UV ?= uv
@@ -64,7 +64,7 @@ help: ## Show this help message
 
 install-python-tools: python-venv ## Install retained Python compatibility and reference-test dependencies
 	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --extra python-tooling --extra dev
-	@echo "$(GREEN)Optional Python authoring and compatibility-test dependencies installed.$(RESET)"
+	@echo "$(GREEN)Optional Python compatibility and reference-test dependencies installed.$(RESET)"
 
 install-model-tools: python-venv ## Install only optional model-export dependencies
 	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --inexact --extra model-export
