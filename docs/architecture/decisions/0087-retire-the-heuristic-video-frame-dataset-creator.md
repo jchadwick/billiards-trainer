@@ -1,10 +1,10 @@
 # ADR-0087: Retire the heuristic video frame dataset creator
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: ADR-0085's dataset-frame-extraction disposition only
-- Superseded by: None
+- Superseded by: ADR-0089 for the dataset-merger disposition only
 
 ## Context
 

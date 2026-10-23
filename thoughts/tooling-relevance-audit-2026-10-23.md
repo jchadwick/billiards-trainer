@@ -27,9 +27,10 @@ commands or baselines.
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, readiness watcher, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. |
 | `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. Rust needs the ONNX size to match `perception.rust_live.image_size` and verifies model/checkpoint hashes. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
-| `tools/merge_yolo_datasets.py` | Keep as generic preparation only | Class-name remapping and safe output handling are directly tested; it prepares reviewed data and does not create labels. Its sorted IDs do not guarantee the Rust live `cue_class_id`/`ball_class_id` contract, so a merged dataset must be checked for class order before training/export. |
+| `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
+| `frontend/web` | Keep as the minimal operator client | ADR-0090 keeps `/live` with direct MJPEG and a state-only reconnecting WebSocket. Legacy configuration, diagnostics, monitoring, navigation, generic video controls, persistence, and their tests were unreachable from the route graph and were removed. |
 | Projector client and UDP test senders | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Its tests validate local payload/coordinate behavior only; they do not exercise capture, detection, or browser delivery. ADR-0086 preserves it as a distinct projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retire | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
 
@@ -58,8 +59,21 @@ commands or baselines.
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
 | `scripts/verify-development-setup.sh`, `watch-rust-readiness.sh` | Keep: development operations | Check required local tooling and wait for explicit Rust readiness respectively; they do not perform accuracy or performance analysis. |
-| `tools/merge_yolo_datasets.py` | Keep | The generic class-map merge behavior and safe output handling are directly unit-tested; it does not make or repair labels. |
 | `tools/export_high_res_model.py` | Keep | Creates lineage-bound ONNX/CoreML artifacts with focused tests; ONNX is consumed by Rust, while CoreML only serves the Python compatibility detector. |
+
+## Browser client tools
+
+| Tool or package | Disposition | Evidence and boundary |
+| --- | --- | --- |
+| Vitest 5, Testing Library, jsdom, TypeScript typecheck, Vite build/serve | Keep | The focused suite covers `/live` freshness, 16-ball slots, direct stream URL handling, coordinate mapping, and state-WebSocket behavior; the built assets are served by Rust. |
+| Orphan Playwright diagnostic spec and `@playwright/test` | Retired | It targeted a nonexistent route, had no runner/configuration, and made no assertions about the live client. It did not provide browser E2E evidence. |
+| React Query, TanStack devtools, Chart.js, `web-vitals`, Tailwind/PostCSS, and duplicate scripts | Retired | No imports or application consumers remained after the client was reduced to `/live`; explicit CSS replaces the utility framework. The earlier forms-plugin note was stale: no plugin remained in the active config or dependency manifest. |
+| Browser E2E against real Rust state plus MJPEG | Gap; not represented by unit tests | The retained tests use controlled stream/socket inputs. Add a focused browser smoke test when an owned local integration fixture exists. |
+
+The locked browser dependency tree reports **zero npm audit vulnerabilities** in
+both production and development dependencies. Retiring the vulnerable Tailwind
+3 build chain avoided carrying seven development-only advisories through a
+major CSS-framework migration.
 
 ## Retired in this pass
 
@@ -78,11 +92,11 @@ commands or baselines.
   that encoded a 19-class workflow, clamped labels to 16 classes, or ignored the
   dataset manifest. Ball-number classification remains explicitly outside the
   migration.
-- The unowned video frame dataset creator. Its random and hybrid strategies
-  have invalid count edge cases, its frame timing was approximate, its
-  heuristic metadata was not ground truth, and no focused extraction test or
-  active caller supported retaining it. Keep the tested dataset merger and
-  lineage-bound model exporter instead.
+- The unowned video frame dataset creator and generic dataset merger. The
+  creator had invalid count edges and heuristic timing; the merger had no
+  workflow caller and could silently assign class IDs that conflict with Rust
+  runtime semantics. Keep the lineage-bound model exporter and reviewed
+  temporal-label workflow instead.
 - The one-image ball-grid distortion experiment. Its guide reported roughly
   360 px RMS and coefficients at clamp limits, which is not acceptable evidence
   for camera correction or precise ball positions.
@@ -127,13 +141,13 @@ commands or baselines.
   compatibility color calibration imports it.
 - The project now declares Python 3.10 as its minimum because the retained
   ONNX Runtime dependency no longer resolves for Python 3.9. The heavy model
-  exporter stack is an explicit extra and install target; dataset helpers keep
-  using the smaller base tooling set.
+  exporter stack is an explicit extra and install target; the retired dataset
+  merger no longer motivates a Python tooling install path.
 - Obsolete profiler-only dependency groups and Sphinx build dependencies;
   project documentation is Markdown and generated Rust API docs use `cargo doc`.
 - The redundant Python test extra; the development extra already includes the
   test runner. Heavy Ultralytics/ONNX/CoreML export packages are isolated behind
-  `make install-model-tools` so dataset merging does not install that stack.
+  `make install-model-tools` for the retained model-export workflow.
 
 ## Gaps and follow-up priorities
 
@@ -147,16 +161,11 @@ commands or baselines.
    so live startup needs a reviewed export and explicit config before it can
    run. Export at 1280 to match Rust's default input size, and verify model
    class IDs against configured cue/ball IDs.
-4. The dataset merger remains generic preparation, not a safe Rust detector
-   training pipeline: alphabetic IDs can disagree with Rust's configured cue
-   and ball IDs, and a tested three-class result is rejected by the two-class
-   live runtime. Keep it out of the production model workflow until its output
-   manifest is checked against the runtime class ontology.
-5. The Python calibration-bundle helper has test callers but no live Rust
+4. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
    calibration schema and Rust-consumed fixture.
-6. CoreML export creates an artifact the Rust runtime cannot consume. It is
+5. CoreML export creates an artifact the Rust runtime cannot consume. It is
    retained only for the offline Python detector reference; remove its format
    branch and export dependency when that reference no longer needs CoreML.
 
@@ -172,13 +181,20 @@ permanent ffmpeg/model end-to-end test.
 
 ## Verification performed
 
-- ADR validation: 88 records accepted.
-- Python backend tests: 2,844 passed, 2 skipped (the skips require external
+- ADR validation: 90 records accepted.
+- Python backend tests after retiring the isolated dataset merger: 2,840 passed,
+  2 skipped (the skips require external
   recorded model inputs).
 - Python backend coverage: 82.55%, above the configured 80% gate.
 - Rust `cargo test --locked --all-targets --quiet`: passed, including 306
   library tests and the binary/integration targets.
-- Browser tests: 70 passed.
+- Browser tests after the `/live`-only trim: 16 passed across 7 focused files.
+- Browser TypeScript typecheck and production Vite build passed; the app now
+  retains direct MJPEG, reconnecting state WebSocket, current-state freshness,
+  16 fixed ball slots, and coordinate mapping. There is no real-browser E2E
+  test against a running Rust process and MJPEG stream.
+- Frontend npm audit: zero vulnerabilities for both the full locked dependency
+  tree and the production-only dependency tree.
 - Production build: `make build` passed for the browser client and Rust runtime.
 - Model-export utility tests: 7 passed, including lazy optional dependency
   loading and the actionable missing-Ultralytics path.
@@ -202,7 +218,11 @@ permanent ffmpeg/model end-to-end test.
   there were no callers or extraction tests and inspecting its invalid count
   edge cases. Dataset-merge tests remain the verification for the supported
   dataset preparation path.
-- This pass's backend verification: `make test-python` passed all 2,844 tests
+- This pass's backend verification: `make test-python` passed all 2,840 tests
   with the configured coverage gate; Ruff, strict mypy, Black, isort, and ADR
   validation passed. The dedicated shell workflow syntax-checked all 11
   tracked scripts and its YAML parsed successfully.
+- The live-only browser client and disconnected dataset-merger retirement
+  passed the combined Rust/browser/Python test run. The frontend passed its
+  TypeScript check and production build, and the 90-record ADR register passed
+  structure and cross-reference validation.
