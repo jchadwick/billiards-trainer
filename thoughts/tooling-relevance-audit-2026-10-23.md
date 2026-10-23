@@ -279,3 +279,7 @@ path remain untested.
   release tools and returned CLI help successfully. The browser workflow also
   passed locally: `npm ci`, all 16 Vitest tests, TypeScript typecheck, and the
   production build; npm reported zero vulnerabilities.
+- The consolidated `make test-all` entry point passed after the cleanup: 306
+  default-feature Rust tests, 318 production-camera-feature Rust tests, all 16
+  browser tests, and 2,837 Python tests with two model-dependent skips at
+  82.55% coverage.
