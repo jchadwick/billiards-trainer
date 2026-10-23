@@ -402,7 +402,6 @@ fn main() -> Result<()> {
         .as_ref()
         .map(|output| match &output.destination {
             SceneSnapshotOutputDestination::JsonlFile { path } => path.clone(),
-            SceneSnapshotOutputDestination::LoopbackTcp { .. } => unreachable!(),
         });
     let scored_video_path = arguments.video.clone();
     let ffprobe_for_scoring = arguments.ffprobe.clone();
@@ -419,15 +418,10 @@ fn main() -> Result<()> {
             max_detections: arguments.max_detections,
             intra_op_threads: arguments.intra_op_threads,
             warmup_runs: arguments.warmup_runs,
-            retained_provider_profile: None,
-            dump_preprocessed_directory: None,
             source_image_space: source_image_space.into(),
             detection_batch_output: batch_output,
             calibration,
             scene_snapshot_output: scene_output,
-            replay_rate_fps: None,
-            replay_repeat_count: 1,
-            maximum_replay_frames: None,
         },
         video_stream_ordinal: arguments.video_stream_ordinal,
         ffprobe_executable: arguments.ffprobe,
@@ -942,7 +936,6 @@ fn scene_snapshot_output_options(
     Ok(Some(SceneSnapshotOutputOptions {
         destination: SceneSnapshotOutputDestination::JsonlFile { path },
         tracking,
-        delivery_schema_version: None,
     }))
 }
 

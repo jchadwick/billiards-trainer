@@ -46,9 +46,8 @@ under that section. Reject unknown sections, empty bodies and a wrapped scalar
 before authority validation. Before both validation-only and mutating flows,
 compare requested changes to the current stored configuration and reject
 changes to `perception.rust_live.executable_path`,
-`perception.rust_live.capture_helper_executable_path` and
-`perception.rust_replay.executable_path`. Repeating their current values is
-allowed. Forced updates do not bypass this guard.
+`perception.rust_live.capture_helper_executable_path`. Repeating their current
+values is allowed. Forced updates do not bypass this guard.
 
 Serialize updates within one gateway instance with a mutation mutex, and run
 the complete file-backed workflow on Tokio's blocking pool under the shared

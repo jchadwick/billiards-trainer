@@ -1,16 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, ensure, Context, Result};
-use image::{ImageReader, RgbImage};
+use image::RgbImage;
 use openvino::{Core, DeviceType, ElementType, InferRequest, RwPropertyKey, Tensor};
 use ort::environment::Environment;
 use ort::ep::{ExecutionProvider, CPU};
@@ -30,11 +29,6 @@ use crate::detection_batch::{
     MAX_IDENTIFIER_CHARACTERS,
 };
 use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext, GeometryError};
-use crate::public_state::PublicStateConfig;
-use crate::public_state_lifecycle::{
-    CurrentSceneState, PublicStateDeliveryV1, SceneStateLifecycle, StateLifecycleConfig,
-};
-use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
 use crate::{
     calibration::{TableCalibrationV1, ValidatedTableCalibrationV1},
@@ -43,17 +37,12 @@ use crate::{
 
 use crate::video_timeline::{parse_ffprobe_timeline, VideoTimeline, VideoTimelineLimits};
 
-use super::{
-    decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, LetterboxGeometry,
-    PreparedInput,
-};
+use super::{decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, PreparedInput};
 
 const INPUT_NAME: &str = "images";
 const OUTPUT_NAME: &str = "output0";
 const EXPECTED_CLASS_COUNT: usize = 2;
-const SUPPORTED_IMAGE_EXTENSIONS: [&str; 2] = ["jpg", "png"];
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
-const PUBLIC_STATE_DELIVERY_SCHEMA_VERSION: u8 = 1;
 /// Default per-video input size bound for recorded-video audit runs.
 pub const DEFAULT_VIDEO_MAXIMUM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// Default cap for metadata emitted by a full-stream ffprobe frame scan.
@@ -116,7 +105,6 @@ pub struct FrameInferenceOutput {
 pub struct FrameInferenceEngine {
     session: InferenceSession,
     _environment: Environment,
-    input_shape: Vec<i64>,
     expected_output_shape: Vec<i64>,
     class_names: Vec<String>,
     image_size: usize,
@@ -161,7 +149,7 @@ impl FrameInferenceEngine {
             options.intra_op_threads,
             None,
         )?;
-        let (input_shape, actual_output_shape) =
+        let actual_output_shape =
             validate_session(&session, options.image_size, &model_contract.class_names)?;
         ensure!(
             actual_output_shape == expected_output_shape,
@@ -194,7 +182,6 @@ impl FrameInferenceEngine {
             Self {
                 session,
                 _environment: environment,
-                input_shape,
                 expected_output_shape,
                 class_names: model_contract.class_names,
                 image_size: options.image_size as usize,
@@ -290,16 +277,12 @@ impl FrameInferenceEngine {
         self.requested_provider
     }
 
-    fn input_shape(&self) -> &[i64] {
-        &self.input_shape
-    }
-
     fn output_shape(&self) -> &[i64] {
         &self.expected_output_shape
     }
 }
 
-/// All runtime-affecting inference options are explicit in the audit result.
+/// Inference and artifact settings shared by recorded-video replay.
 #[derive(Debug, Clone)]
 pub struct AuditOptions {
     pub onnx_path: PathBuf,
@@ -312,12 +295,10 @@ pub struct AuditOptions {
     pub max_detections: usize,
     pub intra_op_threads: Option<usize>,
     pub warmup_runs: usize,
-    pub retained_provider_profile: Option<PathBuf>,
-    pub dump_preprocessed_directory: Option<PathBuf>,
     /// Source image coordinate space. This describes the input image bytes;
     /// letterbox resizing is later reversed before detector positions publish.
     pub source_image_space: ImageSpace,
-    /// Optional file or loopback TCP sink; synchronous delivery time is reported separately.
+    /// Optional JSONL artifact; write time is tracked separately from inference.
     pub detection_batch_output: Option<BatchOutputOptions>,
     /// Optional diagnostic geometry pass. It requires detection-batch output
     /// so the calibrated measurements are reproducible from retained input.
@@ -325,15 +306,6 @@ pub struct AuditOptions {
     /// Optional paced scene-snapshot replay. It requires detection-batch
     /// output so tracks can always be reconstructed from raw observations.
     pub scene_snapshot_output: Option<SceneSnapshotOutputOptions>,
-    /// Optional source presentation rate. When set, replay uses a one-frame
-    /// latest-work mailbox so inference overload replaces stale pending input.
-    pub replay_rate_fps: Option<f64>,
-    /// Number of times the recorded corpus is presented during paced replay.
-    /// Repeated corpus entries get fresh synthetic source frame indexes.
-    pub replay_repeat_count: usize,
-    /// Hard limit on scheduled paced frames. Required when replaying a corpus
-    /// more than once so accidental long runs fail before inference starts.
-    pub maximum_replay_frames: Option<usize>,
 }
 
 /// Schedule policy for saved-video replay. Real-time mode follows the source
@@ -349,8 +321,7 @@ pub enum VideoReplayMode {
 /// Limits and evidence outputs for a bounded saved-video audit.
 #[derive(Debug, Clone)]
 pub struct VideoReplayOptions {
-    /// Shared model, provider, tracking, and output settings. `input_path` is
-    /// the video file; still-image replay fields must remain unset.
+    /// Model, provider, tracking, and output settings. `input_path` is the video.
     pub audit: AuditOptions,
     /// Ordinal among video streams, matching temporal annotation metadata.
     pub video_stream_ordinal: u32,
@@ -374,26 +345,12 @@ pub struct VideoReplayOptions {
 pub struct SceneSnapshotOutputOptions {
     pub destination: SceneSnapshotOutputDestination,
     pub tracking: TrackingConfigV1,
-    /// Explicit schema selection for native current-state TCP delivery.
-    /// JSONL remains raw scene-snapshot v1 and therefore must leave this unset.
-    pub delivery_schema_version: Option<u8>,
 }
 
-/// Recorded-replay scene output. TCP export uses a bounded latest-only worker
-/// so socket delays do not run on the inference thread.
+/// Recorded-video scene snapshots are emitted as JSONL artifacts.
 #[derive(Debug, Clone)]
 pub enum SceneSnapshotOutputDestination {
-    JsonlFile {
-        path: PathBuf,
-    },
-    LoopbackTcp {
-        address: SocketAddr,
-        maximum_message_bytes: usize,
-        connect_timeout: Duration,
-        write_timeout: Duration,
-        reconnect_initial_delay: Duration,
-        reconnect_maximum_delay: Duration,
-    },
+    JsonlFile { path: PathBuf },
 }
 
 /// Explicit identities and destination for per-frame contract output.
@@ -471,7 +428,7 @@ impl CalibrationAuditOptions {
     }
 }
 
-/// Explicit inference backend policy for this recorded-image audit.
+/// Explicit inference backend policy for live and recorded-video inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderSelection {
@@ -507,25 +464,6 @@ impl ProviderSelection {
             ),
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-pub struct AuditReport {
-    pub schema_version: u32,
-    pub workload: &'static str,
-    pub parity_scope: &'static str,
-    pub model: ModelReport,
-    pub runtime: RuntimeReport,
-    pub preprocessing: PreprocessingReport,
-    pub settings: SettingsReport,
-    pub timings: RunTimings,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detection_batch_output: Option<BatchOutputReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub calibration: Option<CalibrationAuditReport>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scene_snapshot_output: Option<SceneSnapshotOutputReport>,
-    pub results: Vec<ImageResult>,
 }
 
 /// Versioned evidence from a predecoded recorded-video run. Replay metrics
@@ -658,38 +596,6 @@ pub struct VideoReplayArtifactsReport {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SceneSnapshotOutputReport {
-    pub destination: String,
-    pub format: &'static str,
-    pub mode: &'static str,
-    pub snapshot_count: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub maximum_message_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_timeout_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub write_timeout_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transport: Option<SceneTransportStats>,
-    pub ball_class_id: u32,
-    pub cue_class_id: Option<u32>,
-    pub camera_profile_id: String,
-    pub association_gate_px: f64,
-    pub association_prediction_horizon_ms: f64,
-    pub lost_after_ms: f64,
-    pub maximum_track_age_ms: f64,
-    pub maximum_active_tracks: usize,
-    pub recent_observation_capacity: usize,
-    pub configuration_revision: u64,
-    pub rectification_revision: u64,
-    pub mean_tracking_ms: f64,
-    pub mean_encode_enqueue_ms: f64,
-    pub source_time: &'static str,
-}
-
-#[derive(Debug, Serialize)]
 pub struct CalibrationAuditReport {
     pub bundle_path: String,
     pub bundle_sha256: String,
@@ -733,159 +639,7 @@ pub struct CalibratedMeasurement {
     pub center_table_mm: crate::calibration::TablePointMm,
 }
 
-#[derive(Debug, Serialize)]
-pub struct BatchOutputReport {
-    pub destination: String,
-    pub format: &'static str,
-    pub mode: &'static str,
-    pub engine_instance_id: String,
-    pub source_session_id: String,
-    pub batch_count: usize,
-    pub source_time: &'static str,
-}
-
 type DetectionBatchSink = BufWriter<fs::File>;
-
-#[derive(Debug, Serialize)]
-pub struct ModelReport {
-    pub onnx_path: String,
-    pub onnx_sha256: String,
-    pub source_checkpoint_path: String,
-    pub source_checkpoint_sha256: String,
-    pub manifest_path: String,
-    pub input_name: String,
-    pub input_shape: Vec<i64>,
-    pub output_name: String,
-    pub output_shape: Vec<i64>,
-    pub class_names: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RuntimeReport {
-    pub binding: &'static str,
-    pub binding_version: &'static str,
-    pub requested_execution_provider: &'static str,
-    pub observed_execution_providers: Vec<String>,
-    pub provider_evidence: &'static str,
-    pub provider_event_count: usize,
-    pub provider_node_counts: BTreeMap<String, usize>,
-    pub retained_profile_path: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PreprocessingReport {
-    pub color_order: &'static str,
-    pub layout: &'static str,
-    pub dtype: &'static str,
-    pub normalization: &'static str,
-    pub resize: &'static str,
-    pub padding: &'static str,
-    pub parity_note: &'static str,
-    pub optional_tensor_dump_format: &'static str,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SettingsReport {
-    pub provider: ProviderSelection,
-    pub source_image_space: ImageSpace,
-    pub image_size: u32,
-    pub confidence: f32,
-    pub iou: f32,
-    pub max_detections: usize,
-    pub intra_op_threads: Option<usize>,
-    pub warmup_runs: usize,
-    pub replay_rate_fps: Option<f64>,
-    pub replay_repeat_count: usize,
-    pub maximum_replay_frames: Option<usize>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct RunTimings {
-    pub image_count: usize,
-    pub provider_probe_session_init_ms: f64,
-    pub provider_probe_inference_ms: f64,
-    pub measurement_session_init_ms: f64,
-    pub warmup_total_ms: f64,
-    pub total_recorded_image_ms: f64,
-    pub summed_image_pipeline_ms: f64,
-    pub mean_image_decode_ms: f64,
-    pub mean_preprocess_ms: f64,
-    pub mean_inference_ms: f64,
-    pub mean_decode_and_nms_ms: f64,
-    pub mean_end_to_end_ms: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mean_scene_tracking_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mean_scene_encode_enqueue_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mean_calibration_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_to_calibration_complete_ms: Option<LatencyPercentiles>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub batch_export_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub paced_replay: Option<PacedReplayReport>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ImageResult {
-    pub path: String,
-    /// Zero-based scheduled source index. Repeated corpus entries receive new
-    /// indexes, while gaps expose latest-frame drops.
-    pub source_frame_index: usize,
-    pub encoded_image_sha256: String,
-    pub source_width: u32,
-    pub source_height: u32,
-    pub letterbox: LetterboxGeometry,
-    pub timings: ImageTimings,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_schedule_lateness_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_to_inference_start_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_to_inference_complete_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_to_calibration_complete_ms: Option<f64>,
-    pub preprocessed_tensor_path: Option<String>,
-    pub detections: Vec<Detection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub calibration: Option<FrameCalibrationReport>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct PacedReplayReport {
-    pub requested_source_fps: f64,
-    pub corpus_frame_count: usize,
-    pub replay_repeat_count: usize,
-    pub scheduled_frame_count: usize,
-    pub decoded_frame_count: usize,
-    pub processed_frame_count: usize,
-    /// Fixed half-open source interval `[replay_start, replay_start + scheduled_frame_count / requested_source_fps)`.
-    /// Both throughput rates below use this exact duration and count only
-    /// events whose monotonic event time falls inside it.
-    pub measurement_window_duration_ms: f64,
-    /// Successfully decoded and offered inputs whose decode-complete event
-    /// occurred inside the fixed measurement window.
-    pub decoded_frame_count_in_measurement_window: usize,
-    /// Successful inference outputs whose inference-complete event occurred
-    /// inside the same fixed measurement window.
-    pub inference_complete_frame_count_in_measurement_window: usize,
-    /// Inputs decoded after the measurement window ended while the producer
-    /// was finishing its scheduled work.
-    pub decoded_frame_count_after_measurement_window: usize,
-    /// Successful inference outputs completed after the measurement window,
-    /// including work drained after the replay source finished.
-    pub inference_complete_frame_count_after_measurement_window: usize,
-    pub replaced_pending_frame_count: usize,
-    pub source_schedule_deadline_misses: usize,
-    pub mean_source_schedule_lateness_ms: f64,
-    pub maximum_source_schedule_lateness_ms: f64,
-    pub observed_source_fps: Option<f64>,
-    pub processed_frame_fps: f64,
-    pub source_to_inference_start_ms: LatencyPercentiles,
-    pub source_to_inference_complete_ms: LatencyPercentiles,
-}
-
 #[derive(Debug, Serialize)]
 pub struct LatencyPercentiles {
     pub sample_count: usize,
@@ -895,7 +649,7 @@ pub struct LatencyPercentiles {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ImageTimings {
+struct FrameTimings {
     pub image_decode_ms: f64,
     pub preprocess_ms: f64,
     pub inference_ms: f64,
@@ -907,6 +661,15 @@ pub struct ImageTimings {
     pub scene_tracking_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scene_encode_enqueue_ms: Option<f64>,
+}
+
+struct FrameResult {
+    timings: FrameTimings,
+    source_to_inference_start_ms: Option<f64>,
+    source_to_inference_complete_ms: Option<f64>,
+    source_to_calibration_complete_ms: Option<f64>,
+    detections: Vec<Detection>,
+    calibration: Option<FrameCalibrationReport>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -952,7 +715,6 @@ struct ProviderEvidence {
     observed_providers: Vec<String>,
     event_count: usize,
     node_counts: BTreeMap<String, usize>,
-    retained_profile_path: Option<PathBuf>,
 }
 
 struct TimedInput {
@@ -960,36 +722,6 @@ struct TimedInput {
     prepared: PreparedInput,
     decode_ms: f64,
     preprocess_ms: f64,
-}
-
-struct DecodedReplayFrame {
-    source_index: usize,
-    path: PathBuf,
-    encoded_image_sha256: String,
-    image: RgbImage,
-    decode_ms: f64,
-    scheduled_at: Instant,
-    source_arrived_at: Instant,
-}
-
-#[derive(Default)]
-struct PacedMailboxState {
-    latest: Option<DecodedReplayFrame>,
-    closed: bool,
-    cancelled: bool,
-    producer_error: Option<String>,
-    decoded_frame_count: usize,
-    replaced_pending_frame_count: usize,
-    source_schedule_deadline_misses: usize,
-    total_source_schedule_lateness_ms: f64,
-    maximum_source_schedule_lateness_ms: f64,
-    rate_counts: PacedReplayRateCounts,
-}
-
-#[derive(Clone, Default)]
-struct PacedReplayMailbox {
-    shared: Arc<(Mutex<PacedMailboxState>, Condvar)>,
-    measurement_window: Option<PacedReplayMeasurementWindow>,
 }
 
 /// One immutable time interval shared by the replay source and inference
@@ -1026,42 +758,9 @@ fn frames_per_second(frame_count: usize, window: PacedReplayMeasurementWindow) -
     frame_count as f64 / window.duration().as_secs_f64()
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-struct PacedReplayRateCounts {
-    decoded_in_measurement_window: usize,
-    decoded_after_measurement_window: usize,
-    inference_complete_in_measurement_window: usize,
-    inference_complete_after_measurement_window: usize,
-}
-
-impl PacedReplayRateCounts {
-    fn record_decoded(&mut self, event_at: Instant, window: PacedReplayMeasurementWindow) {
-        debug_assert!(event_at >= window.start);
-        if window.contains(event_at) {
-            self.decoded_in_measurement_window += 1;
-        } else if event_at >= window.end {
-            self.decoded_after_measurement_window += 1;
-        }
-    }
-
-    fn record_inference_complete(
-        &mut self,
-        event_at: Instant,
-        window: PacedReplayMeasurementWindow,
-    ) {
-        debug_assert!(event_at >= window.start);
-        if window.contains(event_at) {
-            self.inference_complete_in_measurement_window += 1;
-        } else if event_at >= window.end {
-            self.inference_complete_after_measurement_window += 1;
-        }
-    }
-}
-
 struct FrameToProcess {
     source_index: usize,
     path: PathBuf,
-    encoded_image_sha256: String,
     timed_input: TimedInput,
     scheduled_at: Option<Instant>,
     source_arrived_at: Option<Instant>,
@@ -1076,300 +775,17 @@ struct FrameProcessContext<'a> {
     batch_sink: &'a mut Option<DetectionBatchSink>,
     scene_output: &'a mut Option<SceneSnapshotOutputRuntime>,
     batch_clock_origin: Instant,
-    preprocessed_directory: Option<&'a Path>,
 }
 
 struct SceneSnapshotOutputRuntime {
-    destination: String,
-    format: &'static str,
-    connect_ms: Option<f64>,
-    maximum_message_bytes: Option<usize>,
-    connect_timeout_ms: Option<f64>,
-    write_timeout_ms: Option<f64>,
     tracker: SceneTrackerV1,
-    lifecycle: Option<SceneStateLifecycle>,
     sink: SceneSnapshotSink,
     snapshot_count: usize,
     total_tracking_ms: f64,
-    total_encode_enqueue_ms: f64,
-    transport_stats: Option<SceneTransportStats>,
 }
 
 enum SceneSnapshotSink {
     Jsonl(BufWriter<fs::File>),
-    LoopbackTcp {
-        writer: LatestSceneWriter,
-        maximum_message_bytes: usize,
-    },
-}
-
-impl SceneSnapshotOutputRuntime {
-    fn finish(&mut self) {
-        if let SceneSnapshotSink::LoopbackTcp { writer, .. } = &mut self.sink {
-            self.transport_stats = Some(writer.shutdown());
-        }
-    }
-}
-
-/// Run unpaced inference over one image or a directory of PNG/JPEG images.
-///
-/// A short profiling session first records actual ONNX Runtime node-provider
-/// events. Timed results then come from a second, non-profiled session so that
-/// ORT trace collection does not contaminate the reported per-image timings.
-pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
-    validate_options(options)?;
-    let image_paths = collect_images(&options.input_path)?;
-    let paced_scheduled_frame_count = options
-        .replay_rate_fps
-        .map(|_| {
-            validate_replay_frame_budget(
-                image_paths.len(),
-                options.replay_repeat_count,
-                options.maximum_replay_frames,
-            )
-        })
-        .transpose()?;
-    let manifest = load_and_verify_manifest(&options.onnx_path, &options.source_checkpoint_path)?;
-    if let Some(scene_output) = &options.scene_snapshot_output {
-        ensure!(
-            (scene_output.tracking.ball_class_id() as usize) < manifest.class_names.len(),
-            "scene tracking ball class ID is absent from the model manifest"
-        );
-        if let Some(cue_class_id) = scene_output.tracking.cue_class_id() {
-            ensure!(
-                (cue_class_id as usize) < manifest.class_names.len(),
-                "scene tracking cue class ID is absent from the model manifest"
-            );
-        }
-    }
-    let onnx_sha256 = manifest.artifact_sha256.clone();
-    let expected_output_shape = vec![
-        1_i64,
-        (4 + manifest.class_names.len()) as i64,
-        expected_anchor_count(options.image_size)? as i64,
-    ];
-
-    let environment = ort::init()
-        .with_name("billiards-perception-recorded-image-audit")
-        .with_telemetry(false)
-        .build()
-        .context("failed to initialize ONNX Runtime")?;
-
-    let first = load_and_prepare(&image_paths[0], options.image_size)?.prepared;
-    let (profile_evidence, provider_probe_session_init_ms, provider_probe_inference_ms, first) =
-        profile_provider(
-            &environment,
-            options,
-            &manifest.class_names,
-            &expected_output_shape,
-            first,
-        )?;
-
-    let (mut inference_engine, measurement_session_init_ms) =
-        FrameInferenceEngine::from_verified_model(
-            environment.clone(),
-            FrameInferenceOptions {
-                onnx_path: options.onnx_path.clone(),
-                source_checkpoint_path: options.source_checkpoint_path.clone(),
-                provider: options.provider,
-                image_size: options.image_size,
-                confidence: options.confidence,
-                iou: options.iou,
-                max_detections: options.max_detections,
-                intra_op_threads: options.intra_op_threads,
-            },
-            manifest.clone(),
-        )?;
-    ensure!(
-        inference_engine.output_shape() == expected_output_shape,
-        "measurement output signature changed after provider probe: {:?}",
-        inference_engine.output_shape()
-    );
-    let input_shape = inference_engine.input_shape().to_vec();
-    let output_shape = inference_engine.output_shape().to_vec();
-    let warmup_start = Instant::now();
-    for _ in 0..options.warmup_runs {
-        let _ = inference_engine.infer_prepared(&first)?;
-    }
-    let warmup_total_ms = elapsed_ms(warmup_start);
-
-    if let Some(directory) = &options.dump_preprocessed_directory {
-        fs::create_dir_all(directory).with_context(|| {
-            format!(
-                "failed to create preprocessed tensor directory {}",
-                directory.display()
-            )
-        })?;
-    }
-    // Hashes are provenance, not a measured inference stage. Calculate them
-    // before the recorded-image timing window.
-    let image_hashes = image_paths
-        .iter()
-        .map(|path| sha256_file(path))
-        .collect::<Result<Vec<_>>>()?;
-
-    let mut batch_sink = options
-        .detection_batch_output
-        .as_ref()
-        .map(open_detection_batch_sink)
-        .transpose()?;
-    let mut scene_output = options
-        .scene_snapshot_output
-        .as_ref()
-        .map(|scene_options| {
-            let batch_options = options
-                .detection_batch_output
-                .as_ref()
-                .context("scene snapshot output requires producer identity")?;
-            open_scene_snapshot_output(scene_options, batch_options)
-        })
-        .transpose()?;
-    let measured_start = Instant::now();
-    let mut context = FrameProcessContext {
-        inference_engine: &mut inference_engine,
-        class_names: &manifest.class_names,
-        options,
-        onnx_sha256: &onnx_sha256,
-        source_checkpoint_sha256: &manifest.source_checkpoint_sha256,
-        batch_sink: &mut batch_sink,
-        scene_output: &mut scene_output,
-        batch_clock_origin: measured_start,
-        preprocessed_directory: options.dump_preprocessed_directory.as_deref(),
-    };
-    let (results, batch_export_ms, paced_replay, total_recorded_image_ms) =
-        if let Some(requested_fps) = options.replay_rate_fps {
-            let scheduled_frame_count = paced_scheduled_frame_count
-                .context("paced replay frame count was not validated")?;
-            run_paced_replay(
-                &image_paths,
-                &image_hashes,
-                requested_fps,
-                options.replay_repeat_count,
-                scheduled_frame_count,
-                measured_start,
-                &mut context,
-            )?
-        } else {
-            let mut results = Vec::with_capacity(image_paths.len());
-            let mut batch_export_ms = 0.0;
-            for (index, (path, image_hash)) in image_paths.iter().zip(image_hashes).enumerate() {
-                let timed_input = load_and_prepare(path, options.image_size)?;
-                let (result, export_ms, _) = process_frame(
-                    &mut context,
-                    FrameToProcess {
-                        source_index: index,
-                        path: path.clone(),
-                        encoded_image_sha256: image_hash,
-                        timed_input,
-                        scheduled_at: None,
-                        source_arrived_at: None,
-                    },
-                    index + 1,
-                )?;
-                results.push(result);
-                batch_export_ms += export_ms;
-            }
-            (results, batch_export_ms, None, elapsed_ms(measured_start))
-        };
-
-    if let Some(scene_runtime) = scene_output.as_mut() {
-        scene_runtime.finish();
-    }
-    let run_timings = summarize_timings(
-        &results,
-        provider_probe_session_init_ms,
-        provider_probe_inference_ms,
-        measurement_session_init_ms,
-        warmup_total_ms,
-        total_recorded_image_ms,
-        batch_sink.is_some().then_some(batch_export_ms),
-        paced_replay,
-    );
-
-    let detection_batch_output = options
-        .detection_batch_output
-        .as_ref()
-        .map(|batch_options| BatchOutputReport {
-            destination: batch_options.jsonl_path.display().to_string(),
-            format: "newline_delimited_json",
-            mode: batch_output_mode(options.replay_rate_fps.is_some()),
-            engine_instance_id: batch_options.engine_instance_id.clone(),
-            source_session_id: batch_options.source_session_id.clone(),
-            batch_count: results.len(),
-            source_time: if options.replay_rate_fps.is_some() {
-                "synthetic_monotonic_frame_arrival"
-            } else {
-                "unavailable_for_still_image_replay"
-            },
-        });
-    let calibration = options.calibration.as_ref().map(|calibration_options| {
-        summarize_calibration(calibration_options, options.source_image_space, &results)
-    });
-    let scene_snapshot_output = options
-        .scene_snapshot_output
-        .as_ref()
-        .zip(scene_output.as_ref())
-        .map(|(output_options, runtime)| summarize_scene_snapshot_output(output_options, runtime));
-
-    Ok(AuditReport {
-        schema_version: 1,
-        workload: if options.replay_rate_fps.is_some() {
-            "recorded_images_paced_latest_frame"
-        } else {
-            "recorded_static_images_unpaced"
-        },
-        parity_scope: "1280-square Ultralytics equivalence harness; the configured CoreML package declares a fixed 1280-square input, but package lineage and CoreML-versus-ONNX parity remain unverified",
-        model: ModelReport {
-            onnx_path: options.onnx_path.display().to_string(),
-            onnx_sha256,
-            source_checkpoint_path: options.source_checkpoint_path.display().to_string(),
-            source_checkpoint_sha256: manifest.source_checkpoint_sha256,
-            manifest_path: manifest.manifest_path.display().to_string(),
-            input_name: INPUT_NAME.to_owned(),
-            input_shape,
-            output_name: OUTPUT_NAME.to_owned(),
-            output_shape,
-            class_names: manifest.class_names,
-        },
-        runtime: RuntimeReport {
-            binding: options.provider.binding().0,
-            binding_version: options.provider.binding().1,
-            requested_execution_provider: options.provider.requested_provider_name(),
-            observed_execution_providers: profile_evidence.observed_providers,
-            provider_evidence: options.provider.binding().2,
-            provider_event_count: profile_evidence.event_count,
-            provider_node_counts: profile_evidence.node_counts,
-            retained_profile_path: profile_evidence.retained_profile_path.map(|path| path.display().to_string()),
-        },
-        preprocessing: PreprocessingReport {
-            color_order: "RGB",
-            layout: "NCHW",
-            dtype: "float32",
-            normalization: "[0, 1]",
-            resize: "aspect-preserving OpenCV INTER_LINEAR half-pixel sampling approximation",
-            padding: "centered RGB=(114,114,114), fixed square, no stride auto-padding",
-            parity_note: "PNG/JPEG are decoded by image-rs; this path is an OpenCV-compatible approximation until tensor comparison against the repository still-image fixtures is recorded, and JPEG decoder differences may remain",
-            optional_tensor_dump_format: "raw little-endian float32 NCHW [1,3,image_size,image_size]",
-        },
-        settings: SettingsReport {
-            provider: options.provider,
-            source_image_space: options.source_image_space,
-            image_size: options.image_size,
-            confidence: options.confidence,
-            iou: options.iou,
-            max_detections: options.max_detections,
-            intra_op_threads: options.intra_op_threads,
-            warmup_runs: options.warmup_runs,
-            replay_rate_fps: options.replay_rate_fps,
-            replay_repeat_count: options.replay_repeat_count,
-            maximum_replay_frames: options.maximum_replay_frames,
-        },
-        timings: run_timings,
-        detection_batch_output,
-        calibration,
-        scene_snapshot_output,
-        results,
-    })
 }
 
 /// Run the current Rust detector against one selected video stream. Video is
@@ -1380,14 +796,6 @@ pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
 pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport> {
     let audit = &options.audit;
     validate_video_audit_options(audit)?;
-    ensure!(
-        audit.replay_rate_fps.is_none() && audit.replay_repeat_count == 1,
-        "video replay uses source PTS and does not accept still-image replay rate or repeat options"
-    );
-    ensure!(
-        audit.dump_preprocessed_directory.is_none(),
-        "video replay does not support per-frame tensor dumps"
-    );
     ensure!(
         options.maximum_video_bytes > 0
             && options.maximum_probe_json_bytes > 0
@@ -1400,16 +808,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     ensure!(
         options.details_jsonl_path.is_some() || options.maximum_detail_records == 0,
         "a nonzero detail-record limit requires a detail JSONL destination"
-    );
-    ensure!(
-        matches!(
-            audit
-                .scene_snapshot_output
-                .as_ref()
-                .map(|output| &output.destination),
-            None | Some(SceneSnapshotOutputDestination::JsonlFile { .. })
-        ),
-        "recorded-video audits support file-based scene-snapshot output only"
     );
 
     let video_path = &audit.input_path;
@@ -1572,13 +970,7 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     let mut scene_output = audit
         .scene_snapshot_output
         .as_ref()
-        .map(|scene_options| {
-            let batch_options = audit
-                .detection_batch_output
-                .as_ref()
-                .context("scene output requires detection-batch producer identity")?;
-            open_scene_snapshot_output(scene_options, batch_options)
-        })
+        .map(open_scene_snapshot_output)
         .transpose()?;
     let mut detail_writer = options
         .details_jsonl_path
@@ -1603,7 +995,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         batch_sink: &mut batch_sink,
         scene_output: &mut scene_output,
         batch_clock_origin: measurement_started,
-        preprocessed_directory: None,
     };
     let mut next_source_index = 0usize;
     let mut processed_source_frames = 0usize;
@@ -1666,7 +1057,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             FrameToProcess {
                 source_index,
                 path: video_path.clone(),
-                encoded_image_sha256: String::new(),
                 timed_input,
                 scheduled_at: source_scheduled_at,
                 source_arrived_at,
@@ -1737,9 +1127,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         writer
             .flush()
             .context("failed to flush video detail trace")?;
-    }
-    if let Some(scene_runtime) = scene_output.as_mut() {
-        scene_runtime.finish();
     }
     let measured_wall_ms = elapsed_ms(measurement_started);
     let processed_observations_per_second = match options.mode {
@@ -1873,7 +1260,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                     SceneSnapshotOutputDestination::JsonlFile { path } => {
                         path.display().to_string()
                     }
-                    SceneSnapshotOutputDestination::LoopbackTcp { .. } => unreachable!(),
                 }
             }),
             scene_snapshot_count,
@@ -2430,7 +1816,7 @@ struct VideoFrameDetail<'a> {
     source_frame_id: String,
     source_to_inference_start_ms: Option<f64>,
     source_to_inference_complete_ms: Option<f64>,
-    timings: &'a ImageTimings,
+    timings: &'a FrameTimings,
     detections: &'a [Detection],
 }
 
@@ -2438,7 +1824,7 @@ fn write_video_detail<W: Write>(
     writer: &mut W,
     source_frame_index: usize,
     source_pts_seconds: f64,
-    result: &ImageResult,
+    result: &FrameResult,
 ) -> Result<()> {
     let detail = VideoFrameDetail {
         source_frame_index,
@@ -2469,7 +1855,7 @@ fn process_frame(
     context: &mut FrameProcessContext<'_>,
     frame: FrameToProcess,
     batch_sequence: usize,
-) -> Result<(ImageResult, f64, Instant)> {
+) -> Result<(FrameResult, f64, Instant)> {
     let inference_start = Instant::now();
     let inference_output = context
         .inference_engine
@@ -2483,14 +1869,6 @@ fn process_frame(
         + frame.timed_input.preprocess_ms
         + inference_ms
         + decode_and_nms_ms;
-    let source_schedule_lateness_ms = frame.scheduled_at.map(|scheduled_at| {
-        frame
-            .source_arrived_at
-            .unwrap_or(scheduled_at)
-            .saturating_duration_since(scheduled_at)
-            .as_secs_f64()
-            * 1000.0
-    });
     // Only a paced source has a meaningful presentation/arrival-to-inference
     // latency. Capacity replay still supplies a local monotonic arrival to the
     // tracker, but its timestamps are not a freshness measurement.
@@ -2584,53 +1962,21 @@ fn process_frame(
                 .process_with_precalibrated_batch(&batch, published_at, calibrated_for_scene)
                 .context("failed to produce tracked scene snapshot")?;
             scene_tracking_ms = Some(elapsed_ms(tracking_start));
-
-            // Tracking requires a valid timestamp to build its transactional
-            // snapshot. Replace that provisional value with the publisher's
-            // actual monotonic time immediately before serialization.
             snapshot.published_at = scene_publication_timestamp(
                 context.batch_clock_origin,
                 &output_options.engine_instance_id,
             )?;
-            let current_state = if let Some(lifecycle) = scene_runtime.lifecycle.as_mut() {
-                let source_arrived_at = frame
-                    .source_arrived_at
-                    .context("paced scene output is missing replay-local arrival time")?;
-                ingest_replay_scene(
-                    lifecycle,
-                    &snapshot,
-                    context.batch_clock_origin,
-                    source_arrived_at,
-                    Instant::now(),
-                )?
-            } else {
-                None
-            };
             let export_start = Instant::now();
-            write_scene_snapshot(&mut scene_runtime.sink, &snapshot, current_state.as_ref())?;
+            write_scene_snapshot(&mut scene_runtime.sink, &snapshot)?;
             scene_encode_enqueue_ms = Some(elapsed_ms(export_start));
             scene_runtime.snapshot_count += 1;
             scene_runtime.total_tracking_ms += scene_tracking_ms.unwrap_or_default();
-            scene_runtime.total_encode_enqueue_ms += scene_encode_enqueue_ms.unwrap_or_default();
         }
     }
 
-    let preprocessed_tensor_path = context
-        .preprocessed_directory
-        .map(|directory| directory.join(format!("input-{:05}.f32le", frame.source_index)));
-    if let Some(tensor_path) = &preprocessed_tensor_path {
-        write_nchw_float32(tensor_path, &frame.timed_input.prepared.values)?;
-    }
-
     Ok((
-        ImageResult {
-            path: frame.path.display().to_string(),
-            source_frame_index: frame.source_index,
-            encoded_image_sha256: frame.encoded_image_sha256,
-            source_width: frame.timed_input.image.width(),
-            source_height: frame.timed_input.image.height(),
-            letterbox: frame.timed_input.prepared.geometry,
-            timings: ImageTimings {
+        FrameResult {
+            timings: FrameTimings {
                 image_decode_ms: frame.timed_input.decode_ms,
                 preprocess_ms: frame.timed_input.preprocess_ms,
                 inference_ms,
@@ -2640,12 +1986,9 @@ fn process_frame(
                 scene_tracking_ms,
                 scene_encode_enqueue_ms,
             },
-            source_schedule_lateness_ms,
             source_to_inference_start_ms,
             source_to_inference_complete_ms,
             source_to_calibration_complete_ms,
-            preprocessed_tensor_path: preprocessed_tensor_path
-                .map(|path| path.display().to_string()),
             detections,
             calibration: calibration_report,
         },
@@ -2699,353 +2042,6 @@ fn calibration_report_from_geometry_result(
     }
 }
 
-fn run_paced_replay(
-    image_paths: &[PathBuf],
-    image_hashes: &[String],
-    requested_fps: f64,
-    replay_repeat_count: usize,
-    scheduled_frame_count: usize,
-    replay_started: Instant,
-    context: &mut FrameProcessContext<'_>,
-) -> Result<(Vec<ImageResult>, f64, Option<PacedReplayReport>, f64)> {
-    ensure!(
-        image_paths.len() == image_hashes.len(),
-        "paced replay image/hash counts differ"
-    );
-    let frame_period = replay_frame_period(requested_fps)?;
-    let window_frame_count = u32::try_from(scheduled_frame_count)
-        .context("paced replay measurement window frame count exceeds u32::MAX")?;
-    let measurement_window_duration = frame_period
-        .checked_mul(window_frame_count)
-        .context("paced replay measurement window exceeds the monotonic clock range")?;
-    let measurement_window =
-        PacedReplayMeasurementWindow::new(replay_started, measurement_window_duration)?;
-
-    let mailbox = PacedReplayMailbox::with_measurement_window(measurement_window);
-    let producer_mailbox = mailbox.clone();
-    let producer_paths = image_paths.to_vec();
-    let producer_hashes = image_hashes.to_vec();
-    let producer = thread::Builder::new()
-        .name("paced-image-replay-source".to_owned())
-        .spawn(move || {
-            let result = produce_paced_frames(
-                &producer_mailbox,
-                &producer_paths,
-                &producer_hashes,
-                replay_repeat_count,
-                scheduled_frame_count,
-                replay_started,
-                frame_period,
-            );
-            producer_mailbox.finish(result.as_ref().err().map(|error| format!("{error:#}")));
-            result.map_err(|error| format!("{error:#}"))
-        })
-        .context("failed to start paced replay source thread")?;
-
-    // A configured replay may span hours. Grow report storage only as frames
-    // are actually processed rather than reserving the entire scheduled run.
-    let mut results = Vec::with_capacity(scheduled_frame_count.min(1024));
-    let mut batch_export_ms = 0.0;
-    let mut source_to_inference_start_samples_ms =
-        Vec::with_capacity(scheduled_frame_count.min(1024));
-    let mut source_to_inference_complete_samples_ms =
-        Vec::with_capacity(scheduled_frame_count.min(1024));
-    let processing_result = (|| -> Result<()> {
-        loop {
-            let Some(frame) = mailbox.take_latest()? else {
-                break;
-            };
-            let source_index = frame.source_index;
-            let timed_input =
-                prepare_decoded_image(frame.image, frame.decode_ms, context.options.image_size)?;
-            let (result, export_ms, inference_completed_at) = process_frame(
-                context,
-                FrameToProcess {
-                    source_index,
-                    path: frame.path,
-                    encoded_image_sha256: frame.encoded_image_sha256,
-                    timed_input,
-                    scheduled_at: Some(frame.scheduled_at),
-                    source_arrived_at: Some(frame.source_arrived_at),
-                },
-                results.len() + 1,
-            )?;
-            mailbox.record_inference_complete(inference_completed_at)?;
-            if let Some(latency) = result.source_to_inference_start_ms {
-                source_to_inference_start_samples_ms.push(latency);
-            }
-            if let Some(latency) = result.source_to_inference_complete_ms {
-                source_to_inference_complete_samples_ms.push(latency);
-            }
-            results.push(result);
-            batch_export_ms += export_ms;
-        }
-        Ok(())
-    })();
-    if processing_result.is_err() {
-        mailbox.cancel();
-    }
-    let producer_result = producer
-        .join()
-        .map_err(|_| anyhow::anyhow!("paced replay source thread panicked"))?;
-    processing_result?;
-    producer_result.map_err(anyhow::Error::msg)?;
-
-    let total_recorded_image_ms = elapsed_ms(replay_started);
-    let state = mailbox.snapshot()?;
-    ensure!(
-        state.rate_counts.decoded_in_measurement_window
-            + state.rate_counts.decoded_after_measurement_window
-            == state.decoded_frame_count,
-        "paced replay decoded-frame measurement accounting is incomplete"
-    );
-    ensure!(
-        state.rate_counts.inference_complete_in_measurement_window
-            + state
-                .rate_counts
-                .inference_complete_after_measurement_window
-            == results.len(),
-        "paced replay inference-completion measurement accounting is incomplete"
-    );
-    let measurement_window_seconds = measurement_window.duration().as_secs_f64();
-    let observed_source_fps = Some(frames_per_second(
-        state.rate_counts.decoded_in_measurement_window,
-        measurement_window,
-    ));
-    let processed_frame_fps = frames_per_second(
-        state.rate_counts.inference_complete_in_measurement_window,
-        measurement_window,
-    );
-    let report = PacedReplayReport {
-        requested_source_fps: requested_fps,
-        corpus_frame_count: image_paths.len(),
-        replay_repeat_count,
-        scheduled_frame_count,
-        decoded_frame_count: state.decoded_frame_count,
-        processed_frame_count: results.len(),
-        measurement_window_duration_ms: measurement_window_seconds * 1000.0,
-        decoded_frame_count_in_measurement_window: state.rate_counts.decoded_in_measurement_window,
-        inference_complete_frame_count_in_measurement_window: state
-            .rate_counts
-            .inference_complete_in_measurement_window,
-        decoded_frame_count_after_measurement_window: state
-            .rate_counts
-            .decoded_after_measurement_window,
-        inference_complete_frame_count_after_measurement_window: state
-            .rate_counts
-            .inference_complete_after_measurement_window,
-        replaced_pending_frame_count: state.replaced_pending_frame_count,
-        source_schedule_deadline_misses: state.source_schedule_deadline_misses,
-        mean_source_schedule_lateness_ms: if state.decoded_frame_count > 0 {
-            state.total_source_schedule_lateness_ms / state.decoded_frame_count as f64
-        } else {
-            0.0
-        },
-        maximum_source_schedule_lateness_ms: state.maximum_source_schedule_lateness_ms,
-        observed_source_fps,
-        processed_frame_fps,
-        source_to_inference_start_ms: percentile_summary(source_to_inference_start_samples_ms),
-        source_to_inference_complete_ms: percentile_summary(
-            source_to_inference_complete_samples_ms,
-        ),
-    };
-    Ok((
-        results,
-        batch_export_ms,
-        Some(report),
-        total_recorded_image_ms,
-    ))
-}
-
-fn produce_paced_frames(
-    mailbox: &PacedReplayMailbox,
-    image_paths: &[PathBuf],
-    image_hashes: &[String],
-    replay_repeat_count: usize,
-    scheduled_frame_count: usize,
-    replay_started: Instant,
-    frame_period: Duration,
-) -> Result<()> {
-    ensure!(
-        image_paths.len() == image_hashes.len(),
-        "paced replay image/hash counts differ"
-    );
-    ensure!(
-        !image_paths.is_empty(),
-        "paced replay input corpus is empty"
-    );
-    ensure!(
-        image_paths.len().checked_mul(replay_repeat_count) == Some(scheduled_frame_count),
-        "paced replay scheduled frame count does not match its corpus and repeat count"
-    );
-    for source_index in 0..scheduled_frame_count {
-        let corpus_index = source_index % image_paths.len();
-        let path = &image_paths[corpus_index];
-        let image_hash = &image_hashes[corpus_index];
-        let frame_index = u32::try_from(source_index)
-            .context("paced replay supports at most u32::MAX input frame indexes")?;
-        let schedule_offset = frame_period
-            .checked_mul(frame_index)
-            .context("paced replay schedule exceeds the monotonic clock range")?;
-        let scheduled_at = replay_started
-            .checked_add(schedule_offset)
-            .context("paced replay schedule exceeds the monotonic clock range")?;
-        if !mailbox.wait_until(scheduled_at)? {
-            break;
-        }
-        let (image, decode_ms) = load_rgb_image(path)?;
-        let source_arrived_at = Instant::now();
-        mailbox.offer(
-            DecodedReplayFrame {
-                source_index,
-                path: path.clone(),
-                encoded_image_sha256: image_hash.clone(),
-                image,
-                decode_ms,
-                scheduled_at,
-                source_arrived_at,
-            },
-            frame_period,
-        )?;
-    }
-    Ok(())
-}
-
-impl PacedReplayMailbox {
-    fn with_measurement_window(measurement_window: PacedReplayMeasurementWindow) -> Self {
-        Self {
-            shared: Arc::default(),
-            measurement_window: Some(measurement_window),
-        }
-    }
-
-    fn wait_until(&self, target: Instant) -> Result<bool> {
-        let (lock, changed) = &*self.shared;
-        let mut state = lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-        loop {
-            if state.cancelled {
-                return Ok(false);
-            }
-            let remaining = target.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Ok(true);
-            }
-            let (new_state, _) = changed
-                .wait_timeout(state, remaining)
-                .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-            state = new_state;
-        }
-    }
-
-    fn offer(&self, frame: DecodedReplayFrame, frame_period: Duration) -> Result<()> {
-        let (lock, changed) = &*self.shared;
-        let mut state = lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-        if state.cancelled {
-            return Ok(());
-        }
-        let lateness = frame
-            .source_arrived_at
-            .saturating_duration_since(frame.scheduled_at);
-        let lateness_ms = lateness.as_secs_f64() * 1000.0;
-        state.decoded_frame_count += 1;
-        if let Some(window) = self.measurement_window {
-            state
-                .rate_counts
-                .record_decoded(frame.source_arrived_at, window);
-        }
-        state.total_source_schedule_lateness_ms += lateness_ms;
-        state.maximum_source_schedule_lateness_ms =
-            state.maximum_source_schedule_lateness_ms.max(lateness_ms);
-        if lateness > frame_period {
-            state.source_schedule_deadline_misses += 1;
-        }
-        if state.latest.replace(frame).is_some() {
-            state.replaced_pending_frame_count += 1;
-        }
-        changed.notify_one();
-        Ok(())
-    }
-
-    fn record_inference_complete(&self, event_at: Instant) -> Result<()> {
-        if let Some(window) = self.measurement_window {
-            let (lock, _) = &*self.shared;
-            let mut state = lock
-                .lock()
-                .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-            state
-                .rate_counts
-                .record_inference_complete(event_at, window);
-        }
-        Ok(())
-    }
-
-    fn take_latest(&self) -> Result<Option<DecodedReplayFrame>> {
-        let (lock, changed) = &*self.shared;
-        let mut state = lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-        loop {
-            if let Some(frame) = state.latest.take() {
-                return Ok(Some(frame));
-            }
-            if state.closed {
-                if let Some(error) = &state.producer_error {
-                    bail!("paced replay source failed: {error}");
-                }
-                return Ok(None);
-            }
-            state = changed
-                .wait(state)
-                .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-        }
-    }
-
-    fn finish(&self, producer_error: Option<String>) {
-        let (lock, changed) = &*self.shared;
-        if let Ok(mut state) = lock.lock() {
-            state.producer_error = producer_error;
-            state.closed = true;
-            changed.notify_all();
-        }
-    }
-
-    fn cancel(&self) {
-        let (lock, changed) = &*self.shared;
-        if let Ok(mut state) = lock.lock() {
-            state.cancelled = true;
-            changed.notify_all();
-        }
-    }
-
-    fn snapshot(&self) -> Result<PacedMailboxStateSnapshot> {
-        let (lock, _) = &*self.shared;
-        let state = lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("paced replay mailbox lock was poisoned"))?;
-        Ok(PacedMailboxStateSnapshot {
-            decoded_frame_count: state.decoded_frame_count,
-            replaced_pending_frame_count: state.replaced_pending_frame_count,
-            source_schedule_deadline_misses: state.source_schedule_deadline_misses,
-            total_source_schedule_lateness_ms: state.total_source_schedule_lateness_ms,
-            maximum_source_schedule_lateness_ms: state.maximum_source_schedule_lateness_ms,
-            rate_counts: state.rate_counts,
-        })
-    }
-}
-
-struct PacedMailboxStateSnapshot {
-    decoded_frame_count: usize,
-    replaced_pending_frame_count: usize,
-    source_schedule_deadline_misses: usize,
-    total_source_schedule_lateness_ms: f64,
-    maximum_source_schedule_lateness_ms: f64,
-    rate_counts: PacedReplayRateCounts,
-}
-
 fn percentile_summary(mut samples_ms: Vec<f64>) -> LatencyPercentiles {
     samples_ms.sort_by(f64::total_cmp);
     let percentile = |fraction: f64| {
@@ -3064,71 +2060,7 @@ fn percentile_summary(mut samples_ms: Vec<f64>) -> LatencyPercentiles {
     }
 }
 
-fn replay_frame_period(requested_fps: f64) -> Result<Duration> {
-    ensure!(
-        requested_fps.is_finite() && requested_fps > 0.0,
-        "paced replay rate must be finite and positive"
-    );
-    let period = Duration::try_from_secs_f64(1.0 / requested_fps)
-        .context("paced replay rate cannot be represented as a frame period")?;
-    ensure!(
-        !period.is_zero(),
-        "paced replay rate exceeds monotonic clock resolution"
-    );
-    Ok(period)
-}
-
-/// Resolve and validate the finite schedule for one paced recorded replay.
-/// The source-frame wire contract uses a u32 index, and repeated corpora need
-/// an explicit cap so short input recordings cannot accidentally run forever.
-fn validate_replay_frame_budget(
-    corpus_frame_count: usize,
-    replay_repeat_count: usize,
-    maximum_replay_frames: Option<usize>,
-) -> Result<usize> {
-    ensure!(corpus_frame_count > 0, "paced replay input corpus is empty");
-    ensure!(
-        replay_repeat_count > 0,
-        "replay repeat count must be positive"
-    );
-    let scheduled_frame_count = corpus_frame_count
-        .checked_mul(replay_repeat_count)
-        .context("paced replay scheduled frame count overflows this platform")?;
-    ensure!(
-        scheduled_frame_count <= u32::MAX as usize,
-        "paced replay supports at most u32::MAX scheduled frames"
-    );
-    if replay_repeat_count > 1 {
-        ensure!(
-            maximum_replay_frames.is_some(),
-            "repeated paced replay requires --maximum-replay-frames"
-        );
-    }
-    if let Some(maximum_replay_frames) = maximum_replay_frames {
-        ensure!(
-            maximum_replay_frames > 0,
-            "maximum replay frame count must be positive"
-        );
-        ensure!(
-            scheduled_frame_count <= maximum_replay_frames,
-            "paced replay schedules {scheduled_frame_count} frames, exceeding the configured maximum of {maximum_replay_frames}"
-        );
-    }
-    Ok(scheduled_frame_count)
-}
-
-fn validate_options(options: &AuditOptions) -> Result<()> {
-    validate_audit_options(options, false)
-}
-
 fn validate_video_audit_options(options: &AuditOptions) -> Result<()> {
-    validate_audit_options(options, true)
-}
-
-fn validate_audit_options(
-    options: &AuditOptions,
-    video_source_timestamps_available: bool,
-) -> Result<()> {
     ensure!(
         options.onnx_path.is_file(),
         "ONNX model does not exist: {}",
@@ -3146,31 +2078,9 @@ fn validate_audit_options(
         options.max_detections,
         options.intra_op_threads,
     )?;
-    ensure!(
-        options.replay_repeat_count > 0,
-        "replay repeat count must be positive"
-    );
-    if let Some(maximum_replay_frames) = options.maximum_replay_frames {
-        ensure!(
-            maximum_replay_frames > 0,
-            "maximum replay frame count must be positive"
-        );
-    }
-    if let Some(replay_rate_fps) = options.replay_rate_fps {
-        replay_frame_period(replay_rate_fps)?;
-    } else {
-        ensure!(
-            options.replay_repeat_count == 1,
-            "repeated recorded input requires --replay-rate-fps"
-        );
-    }
     if let Some(batch_output) = &options.detection_batch_output {
         validate_batch_identifier(&batch_output.engine_instance_id, "engine instance ID")?;
         validate_batch_identifier(&batch_output.source_session_id, "source session ID")?;
-        ensure!(
-            options.max_detections <= u32::MAX as usize,
-            "maximum detections exceeds the batch contract limit"
-        );
         ensure!(
             !batch_output.jsonl_path.exists(),
             "detection batch output already exists: {}",
@@ -3210,67 +2120,21 @@ fn validate_audit_options(
             options.detection_batch_output.is_some(),
             "scene snapshot output requires detection-batch output to preserve raw observations"
         );
+        let SceneSnapshotOutputDestination::JsonlFile { path } = &scene_output.destination;
         ensure!(
-            options.replay_rate_fps.is_some() || video_source_timestamps_available,
-            "scene snapshot output requires paced replay so source timestamps are available"
+            !path.exists(),
+            "scene snapshot output already exists: {}",
+            path.display()
         );
-        match &scene_output.destination {
-            SceneSnapshotOutputDestination::JsonlFile { path } => {
-                ensure!(
-                    scene_output.delivery_schema_version.is_none(),
-                    "native public-state delivery schema selection is supported only for TCP output"
-                );
-                ensure!(
-                    !path.exists(),
-                    "scene snapshot output already exists: {}",
-                    path.display()
-                );
-                if let Some(BatchOutputOptions {
-                    jsonl_path: batch_path,
-                    ..
-                }) = &options.detection_batch_output
-                {
-                    ensure!(
-                        batch_path != path,
-                        "detection batch and scene snapshot output must use different paths"
-                    );
-                }
-            }
-            SceneSnapshotOutputDestination::LoopbackTcp {
-                address,
-                maximum_message_bytes,
-                connect_timeout,
-                write_timeout,
-                reconnect_initial_delay,
-                reconnect_maximum_delay,
-            } => {
-                ensure!(
-                    !video_source_timestamps_available,
-                    "recorded-video audits support file-based scene-snapshot output only"
-                );
-                ensure!(
-                    scene_output.delivery_schema_version
-                        == Some(PUBLIC_STATE_DELIVERY_SCHEMA_VERSION),
-                    "scene TCP output requires the supported public-state delivery schema version 1"
-                );
-                ensure!(
-                    address.ip().is_loopback(),
-                    "scene TCP address must be loopback"
-                );
-                ensure!(
-                    *maximum_message_bytes > 0 && *maximum_message_bytes <= u32::MAX as usize,
-                    "scene maximum framed message size must fit a non-zero u32"
-                );
-                ensure!(
-                    !connect_timeout.is_zero() && !write_timeout.is_zero(),
-                    "scene TCP connect and write timeouts must be positive"
-                );
-                ensure!(
-                    !reconnect_initial_delay.is_zero()
-                        && reconnect_initial_delay <= reconnect_maximum_delay,
-                    "scene TCP reconnect delays must be positive and initial cannot exceed maximum"
-                );
-            }
+        if let Some(BatchOutputOptions {
+            jsonl_path: batch_path,
+            ..
+        }) = &options.detection_batch_output
+        {
+            ensure!(
+                batch_path != path,
+                "detection batch and scene snapshot output must use different paths"
+            );
         }
         if let Some(calibration) = &options.calibration {
             validate_scene_calibration_context(&scene_output.tracking, calibration)?;
@@ -3380,128 +2244,33 @@ fn open_detection_batch_sink(options: &BatchOutputOptions) -> Result<DetectionBa
 
 fn open_scene_snapshot_output(
     options: &SceneSnapshotOutputOptions,
-    batch_options: &BatchOutputOptions,
 ) -> Result<SceneSnapshotOutputRuntime> {
-    match &options.destination {
-        SceneSnapshotOutputDestination::JsonlFile { .. } => ensure!(
-            options.delivery_schema_version.is_none(),
-            "native public-state delivery schema selection is supported only for TCP output"
-        ),
-        SceneSnapshotOutputDestination::LoopbackTcp { .. } => ensure!(
-            options.delivery_schema_version == Some(PUBLIC_STATE_DELIVERY_SCHEMA_VERSION),
-            "scene TCP output requires the supported public-state delivery schema version 1"
-        ),
-    }
-    let (
-        destination,
-        format,
-        sink,
-        connect_ms,
-        maximum_message_bytes,
-        connect_timeout_ms,
-        write_timeout_ms,
-    ) = match &options.destination {
-        SceneSnapshotOutputDestination::JsonlFile { path } => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!(
-                            "failed to create scene snapshot directory {}",
-                            parent.display()
-                        )
-                    })?;
-                }
-            }
-            let file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(path)
-                .with_context(|| {
-                    format!(
-                        "failed to create scene snapshot output {} without overwriting",
-                        path.display()
-                    )
-                })?;
-            (
-                path.display().to_string(),
-                "newline_delimited_scene_snapshot_v1",
-                SceneSnapshotSink::Jsonl(BufWriter::new(file)),
-                None,
-                None,
-                None,
-                None,
-            )
-        }
-        SceneSnapshotOutputDestination::LoopbackTcp {
-            address,
-            maximum_message_bytes,
-            connect_timeout,
-            write_timeout,
-            reconnect_initial_delay,
-            reconnect_maximum_delay,
-        } => {
-            ensure!(
-                address.ip().is_loopback(),
-                "scene TCP address must be loopback"
-            );
-            let writer = LatestSceneWriter::start(SceneTransportConfig {
-                address: *address,
-                maximum_message_bytes: *maximum_message_bytes,
-                public_state_delivery_enabled: true,
-                connect_timeout: *connect_timeout,
-                write_timeout: *write_timeout,
-                reconnect_initial_delay: *reconnect_initial_delay,
-                reconnect_maximum_delay: *reconnect_maximum_delay,
-            })?;
-            (
-                format!("tcp://{address}"),
-                "length_framed_json_public_state_delivery_v1",
-                SceneSnapshotSink::LoopbackTcp {
-                    writer,
-                    maximum_message_bytes: *maximum_message_bytes,
-                },
-                None,
-                Some(*maximum_message_bytes),
-                Some(connect_timeout.as_secs_f64() * 1000.0),
-                Some(write_timeout.as_secs_f64() * 1000.0),
-            )
-        }
-    };
-    let lifecycle = match &options.destination {
-        SceneSnapshotOutputDestination::JsonlFile { .. } => None,
-        SceneSnapshotOutputDestination::LoopbackTcp { .. } => {
-            ensure!(
-                options.delivery_schema_version == Some(PUBLIC_STATE_DELIVERY_SCHEMA_VERSION),
-                "scene TCP output requires the supported public-state delivery schema version 1"
-            );
-            let mut lifecycle = SceneStateLifecycle::new(
-                StateLifecycleConfig::default(),
-                PublicStateConfig::default(),
-            )
-            .context("failed to create replay public-state lifecycle")?;
-            lifecycle
-                .activate_source(
-                    batch_options.engine_instance_id.clone(),
-                    batch_options.source_session_id.clone(),
+    let SceneSnapshotOutputDestination::JsonlFile { path } = &options.destination;
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create scene snapshot directory {}",
+                    parent.display()
                 )
-                .context("failed to activate replay public-state producer identity")?;
-            Some(lifecycle)
+            })?;
         }
-    };
+    }
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| {
+            format!(
+                "failed to create scene snapshot output {} without overwriting",
+                path.display()
+            )
+        })?;
     Ok(SceneSnapshotOutputRuntime {
-        destination,
-        format,
-        connect_ms,
-        maximum_message_bytes,
-        connect_timeout_ms,
-        write_timeout_ms,
         tracker: SceneTrackerV1::new(options.tracking.clone()),
-        lifecycle,
-        sink,
+        sink: SceneSnapshotSink::Jsonl(BufWriter::new(file)),
         snapshot_count: 0,
         total_tracking_ms: 0.0,
-        total_encode_enqueue_ms: 0.0,
-        transport_stats: None,
     })
 }
 
@@ -3522,78 +2291,10 @@ fn write_scene_snapshot_jsonl<W: Write>(writer: &mut W, json: &[u8]) -> Result<(
     Ok(())
 }
 
-fn write_scene_snapshot(
-    sink: &mut SceneSnapshotSink,
-    snapshot: &SceneSnapshotV1,
-    current_state: Option<&CurrentSceneState>,
-) -> Result<()> {
+fn write_scene_snapshot(sink: &mut SceneSnapshotSink, snapshot: &SceneSnapshotV1) -> Result<()> {
     let json = encode_scene_snapshot_v1(snapshot).context("scene snapshot failed validation")?;
     match sink {
         SceneSnapshotSink::Jsonl(writer) => write_scene_snapshot_jsonl(writer, &json),
-        SceneSnapshotSink::LoopbackTcp {
-            writer,
-            maximum_message_bytes,
-        } => {
-            let delivery = PublicStateDeliveryV1::new(snapshot, current_state);
-            let delivery_json = serde_json::to_vec(&delivery)
-                .context("failed to encode public-state delivery v1")?;
-            ensure!(
-                delivery_json.len() <= *maximum_message_bytes,
-                "public-state delivery exceeds configured maximum message size"
-            );
-            writer.submit(
-                snapshot.transport_sequence,
-                &snapshot.engine_instance_id,
-                &snapshot.source.session_id,
-                delivery_json,
-            )
-        }
-    }
-}
-
-fn summarize_scene_snapshot_output(
-    options: &SceneSnapshotOutputOptions,
-    runtime: &SceneSnapshotOutputRuntime,
-) -> SceneSnapshotOutputReport {
-    let config = &options.tracking;
-    let sample_count = runtime.snapshot_count.max(1) as f64;
-    SceneSnapshotOutputReport {
-        destination: runtime.destination.clone(),
-        format: runtime.format,
-        mode: if runtime.maximum_message_bytes.is_some() {
-            "bounded_latest_only_asynchronous_native_public_state_delivery_during_paced_replay"
-        } else {
-            "synchronous_file_export_during_paced_replay"
-        },
-        snapshot_count: runtime.snapshot_count,
-        connect_ms: runtime.connect_ms,
-        maximum_message_bytes: runtime.maximum_message_bytes,
-        connect_timeout_ms: runtime.connect_timeout_ms,
-        write_timeout_ms: runtime.write_timeout_ms,
-        transport: runtime.transport_stats.clone(),
-        ball_class_id: config.ball_class_id(),
-        cue_class_id: config.cue_class_id(),
-        camera_profile_id: config.camera_profile_id().to_owned(),
-        association_gate_px: config.association_gate_px(),
-        association_prediction_horizon_ms: config.association_prediction_horizon().as_secs_f64()
-            * 1000.0,
-        lost_after_ms: config.lost_after().as_secs_f64() * 1000.0,
-        maximum_track_age_ms: config.maximum_track_age().as_secs_f64() * 1000.0,
-        maximum_active_tracks: config.maximum_active_tracks(),
-        recent_observation_capacity: config.recent_observation_capacity(),
-        configuration_revision: config.configuration_revision(),
-        rectification_revision: config.rectification_revision(),
-        mean_tracking_ms: runtime.total_tracking_ms / sample_count,
-        mean_encode_enqueue_ms: runtime.total_encode_enqueue_ms / sample_count,
-        source_time: "synthetic_monotonic_frame_arrival",
-    }
-}
-
-fn batch_output_mode(is_paced: bool) -> &'static str {
-    if is_paced {
-        "synchronous_export_during_paced_latest_frame_replay"
-    } else {
-        "synchronous_export_during_unpaced_static_replay"
     }
 }
 
@@ -3754,39 +2455,6 @@ fn scene_publication_timestamp(
     })
 }
 
-/// Apply the same current-state lifecycle as live capture, anchoring its
-/// receipt clock to replay-local arrival rather than inference completion.
-/// `now` is sampled after tracking and before delivery, so freshness includes
-/// image preparation, inference, and scene tracking latency.
-fn ingest_replay_scene(
-    lifecycle: &mut SceneStateLifecycle,
-    snapshot: &SceneSnapshotV1,
-    clock_origin: Instant,
-    source_arrived_at: Instant,
-    now: Instant,
-) -> Result<Option<CurrentSceneState>> {
-    let received_monotonic_ns = replay_monotonic_ns(clock_origin, source_arrived_at)?;
-    let now_monotonic_ns = replay_monotonic_ns(clock_origin, now)?;
-    lifecycle
-        .ingest(
-            snapshot,
-            received_monotonic_ns,
-            now_monotonic_ns,
-            None,
-            None,
-        )
-        .context("failed to apply replay scene to Rust public-state lifecycle")?;
-    lifecycle
-        .current(now_monotonic_ns)
-        .context("failed to read replay public-state lifecycle")
-}
-
-fn replay_monotonic_ns(origin: Instant, at: Instant) -> Result<u128> {
-    at.checked_duration_since(origin)
-        .context("replay-local monotonic timestamp precedes its clock origin")
-        .map(|elapsed| elapsed.as_nanos())
-}
-
 fn write_detection_batch_line<W: Write>(writer: &mut W, batch: &DetectionBatchV1) -> Result<()> {
     let json = encode_detection_batch_v1(batch).context("detection batch failed validation")?;
     writer
@@ -3797,59 +2465,6 @@ fn write_detection_batch_line<W: Write>(writer: &mut W, batch: &DetectionBatchV1
         .context("failed to write detection batch delimiter")?;
     writer.flush().context("failed to flush detection batch")?;
     Ok(())
-}
-
-fn collect_images(path: &Path) -> Result<Vec<PathBuf>> {
-    ensure!(
-        path.exists(),
-        "input path does not exist: {}",
-        path.display()
-    );
-    let mut images = Vec::new();
-    if path.is_file() {
-        ensure!(
-            is_supported_image(path),
-            "input file must be a .png, .jpg, or .jpeg image: {}",
-            path.display()
-        );
-        images.push(path.to_path_buf());
-    } else {
-        collect_directory_images(path, &mut images)?;
-        images.sort();
-    }
-    ensure!(
-        !images.is_empty(),
-        "no PNG/JPEG images found under {}",
-        path.display()
-    );
-    Ok(images)
-}
-
-fn collect_directory_images(directory: &Path, images: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(directory)
-        .with_context(|| format!("failed to read {}", directory.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_directory_images(&path, images)?;
-        } else if is_supported_image(&path) {
-            images.push(path);
-        }
-    }
-    Ok(())
-}
-
-fn is_supported_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .map(|extension| {
-            SUPPORTED_IMAGE_EXTENSIONS
-                .iter()
-                .any(|supported| extension.eq_ignore_ascii_case(supported))
-                || extension.eq_ignore_ascii_case("jpeg")
-        })
-        .unwrap_or(false)
 }
 
 fn load_and_verify_manifest(
@@ -4147,7 +2762,7 @@ fn validate_session(
     session: &InferenceSession,
     image_size: u32,
     class_names: &[String],
-) -> Result<(Vec<i64>, Vec<i64>)> {
+) -> Result<Vec<i64>> {
     let (input_name, input_shape, output_name, output_shape) = match session {
         InferenceSession::Ort(session) => {
             ensure!(
@@ -4200,7 +2815,7 @@ fn validate_session(
         output_shape == expected_output,
         "unexpected ONNX output shape {output_shape:?}; expected {expected_output:?}"
     );
-    Ok((input_shape, output_shape))
+    Ok(output_shape)
 }
 
 fn tensor_shape(value_type: &ValueType, role: &str) -> Result<Vec<i64>> {
@@ -4238,13 +2853,9 @@ fn profile_provider(
     sample: PreparedInput,
 ) -> Result<(ProviderEvidence, f64, f64, PreparedInput)> {
     if options.provider == ProviderSelection::Openvino {
-        ensure!(
-            options.retained_provider_profile.is_none(),
-            "retained ONNX Runtime provider profiles are unavailable for the native OpenVINO backend"
-        );
         let init_start = Instant::now();
         let mut session = create_session(environment, options, None)?;
-        let (_, output_shape) = validate_session(&session, options.image_size, class_names)?;
+        let output_shape = validate_session(&session, options.image_size, class_names)?;
         ensure!(
             output_shape == expected_output_shape,
             "OpenVINO output signature is unexpected: {output_shape:?}"
@@ -4263,7 +2874,6 @@ fn profile_provider(
                 observed_providers: vec!["OpenVINO CPU (native)".to_owned()],
                 event_count: 0,
                 node_counts: BTreeMap::new(),
-                retained_profile_path: None,
             },
             session_init_ms,
             inference_ms,
@@ -4273,27 +2883,11 @@ fn profile_provider(
 
     let temporary_directory =
         tempfile::tempdir().context("failed to create ORT profile scratch directory")?;
-    let scratch_profile = temporary_directory.path().join("provider-profile.json");
-    let profile_path = options
-        .retained_provider_profile
-        .as_deref()
-        .unwrap_or(&scratch_profile);
-    if let Some(parent) = options
-        .retained_provider_profile
-        .as_ref()
-        .and_then(|path| path.parent())
-    {
-        fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "failed to create provider trace directory {}",
-                parent.display()
-            )
-        })?;
-    }
+    let profile_path = temporary_directory.path().join("provider-profile.json");
 
     let init_start = Instant::now();
-    let mut session = create_session(environment, options, Some(profile_path))?;
-    let (_, output_shape) = validate_session(&session, options.image_size, class_names)?;
+    let mut session = create_session(environment, options, Some(&profile_path))?;
+    let output_shape = validate_session(&session, options.image_size, class_names)?;
     ensure!(
         output_shape == expected_output_shape,
         "provider probe output signature is unexpected: {output_shape:?}"
@@ -4322,17 +2916,11 @@ fn profile_provider(
     })?;
     let (observed_providers, event_count, node_counts) = parse_provider_profile(&profile)?;
 
-    let retained_profile_path = if options.retained_provider_profile.is_some() {
-        Some(profile_path)
-    } else {
-        None
-    };
     Ok((
         ProviderEvidence {
             observed_providers,
             event_count,
             node_counts,
-            retained_profile_path,
         },
         session_init_ms,
         inference_ms,
@@ -4437,23 +3025,6 @@ fn run_session(
     }
 }
 
-fn load_and_prepare(path: &Path, image_size: u32) -> Result<TimedInput> {
-    let (image, decode_ms) = load_rgb_image(path)?;
-    prepare_decoded_image(image, decode_ms, image_size)
-}
-
-fn load_rgb_image(path: &Path) -> Result<(RgbImage, f64)> {
-    let decode_start = Instant::now();
-    let image = ImageReader::open(path)
-        .with_context(|| format!("failed to open input image {}", path.display()))?
-        .with_guessed_format()
-        .context("failed to identify input image format")?
-        .decode()
-        .with_context(|| format!("failed to decode input image {}", path.display()))?
-        .to_rgb8();
-    Ok((image, elapsed_ms(decode_start)))
-}
-
 fn prepare_decoded_image(image: RgbImage, decode_ms: f64, image_size: u32) -> Result<TimedInput> {
     let preprocess_start = Instant::now();
     let prepared = prepare_rgb_image(&image, image_size)?;
@@ -4473,36 +3044,6 @@ fn sha256_file(path: &Path) -> Result<String> {
     std::io::copy(&mut file, &mut hasher)
         .with_context(|| format!("failed to hash {}", path.display()))?;
     Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn summarize_calibration(
-    options: &CalibrationAuditOptions,
-    applied_image_space: ImageSpace,
-    results: &[ImageResult],
-) -> CalibrationAuditReport {
-    let calibrated_frame_count = results
-        .iter()
-        .filter(|result| {
-            result
-                .calibration
-                .as_ref()
-                .is_some_and(|frame| matches!(frame.status, CalibrationStatus::Valid))
-        })
-        .count();
-    let calibrated_detection_count = results
-        .iter()
-        .filter_map(|result| result.calibration.as_ref())
-        .filter_map(|frame| frame.measurements.as_ref())
-        .map(Vec::len)
-        .sum();
-
-    summarize_calibration_counts(
-        options,
-        applied_image_space,
-        results.len(),
-        calibrated_frame_count,
-        calibrated_detection_count,
-    )
 }
 
 fn summarize_calibration_counts(
@@ -4558,96 +3099,6 @@ fn paced_source_to_calibration_latency_ms(
         })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn summarize_timings(
-    results: &[ImageResult],
-    provider_probe_session_init_ms: f64,
-    provider_probe_inference_ms: f64,
-    measurement_session_init_ms: f64,
-    warmup_total_ms: f64,
-    total_recorded_image_ms: f64,
-    batch_export_ms: Option<f64>,
-    paced_replay: Option<PacedReplayReport>,
-) -> RunTimings {
-    let count = results.len().max(1) as f64;
-    let mean = |select: fn(&ImageTimings) -> f64| {
-        results
-            .iter()
-            .map(|result| select(&result.timings))
-            .sum::<f64>()
-            / count
-    };
-    let optional_mean = |select: fn(&ImageTimings) -> Option<f64>| {
-        let samples = results
-            .iter()
-            .filter_map(|result| select(&result.timings))
-            .collect::<Vec<_>>();
-        (!samples.is_empty()).then(|| samples.iter().sum::<f64>() / samples.len() as f64)
-    };
-    RunTimings {
-        image_count: results.len(),
-        provider_probe_session_init_ms,
-        provider_probe_inference_ms,
-        measurement_session_init_ms,
-        warmup_total_ms,
-        total_recorded_image_ms,
-        summed_image_pipeline_ms: results
-            .iter()
-            .map(|result| result.timings.end_to_end_ms)
-            .sum(),
-        mean_image_decode_ms: mean(|timing| timing.image_decode_ms),
-        mean_preprocess_ms: mean(|timing| timing.preprocess_ms),
-        mean_inference_ms: mean(|timing| timing.inference_ms),
-        mean_decode_and_nms_ms: mean(|timing| timing.decode_and_nms_ms),
-        mean_end_to_end_ms: mean(|timing| timing.end_to_end_ms),
-        mean_scene_tracking_ms: optional_mean(|timing| timing.scene_tracking_ms),
-        mean_scene_encode_enqueue_ms: optional_mean(|timing| timing.scene_encode_enqueue_ms),
-        mean_calibration_ms: results
-            .iter()
-            .filter_map(|result| result.timings.calibration_ms)
-            .reduce(|total, sample| total + sample)
-            .map(|total| {
-                let sample_count = results
-                    .iter()
-                    .filter(|result| result.timings.calibration_ms.is_some())
-                    .count();
-                total / sample_count as f64
-            }),
-        source_to_calibration_complete_ms: results
-            .iter()
-            .any(|result| result.calibration.is_some())
-            .then(|| {
-                percentile_summary(
-                    results
-                        .iter()
-                        .filter_map(|result| result.source_to_calibration_complete_ms)
-                        .collect(),
-                )
-            }),
-        batch_export_ms,
-        paced_replay,
-    }
-}
-
-fn write_nchw_float32(path: &Path, values: &[f32]) -> Result<()> {
-    use std::io::{BufWriter, Write};
-
-    let mut file = fs::File::create(path)
-        .with_context(|| format!("failed to create preprocessed tensor {}", path.display()))?;
-    let mut writer = BufWriter::new(&mut file);
-    let mut bytes = Vec::with_capacity(1024 * std::mem::size_of::<f32>());
-    for chunk in values.chunks(1024) {
-        bytes.clear();
-        for value in chunk {
-            bytes.extend_from_slice(&value.to_le_bytes());
-        }
-        writer
-            .write_all(&bytes)
-            .with_context(|| format!("failed to write preprocessed tensor {}", path.display()))?;
-    }
-    Ok(())
-}
-
 fn elapsed_ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
 }
@@ -4657,32 +3108,24 @@ mod tests {
     use super::{
         build_detection_batch, calibration_latency_summary, calibration_report_for_batch,
         checked_duration_from_seconds, completed_after_source_deadline, expected_anchor_count,
-        find_versioned_openvino_c_library, frames_per_second, ingest_replay_scene,
-        latest_due_source_index, load_and_verify_manifest, open_detection_batch_sink,
-        open_scene_snapshot_output, paced_source_to_calibration_latency_ms, parse_provider_profile,
-        percentile_summary, produce_paced_frames, replay_frame_period, run_bounded_command,
-        sha256_file, timeline_media_duration, validate_batch_identifier,
+        find_versioned_openvino_c_library, latest_due_source_index, load_and_verify_manifest,
+        open_detection_batch_sink, open_scene_snapshot_output,
+        paced_source_to_calibration_latency_ms, parse_provider_profile, percentile_summary,
+        run_bounded_command, sha256_file, timeline_media_duration, validate_batch_identifier,
         validate_frame_inference_options, validate_inference_parameters,
-        validate_replay_frame_budget, validate_scene_calibration_context,
-        versioned_openvino_library_version, write_detection_batch_line, write_nchw_float32,
-        write_scene_snapshot, write_scene_snapshot_line, AuditOptions, BatchOutputOptions,
-        CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame, FrameInferenceEngine,
-        FrameInferenceOptions, PacedReplayMailbox, PacedReplayMeasurementWindow,
-        PacedReplayRateCounts, ProviderSelection, SceneSnapshotOutputDestination,
+        validate_scene_calibration_context, versioned_openvino_library_version,
+        write_detection_batch_line, write_scene_snapshot_line, AuditOptions, BatchOutputOptions,
+        CalibrationAuditOptions, CalibrationStatus, FrameInferenceEngine, FrameInferenceOptions,
+        PacedReplayMeasurementWindow, ProviderSelection, SceneSnapshotOutputDestination,
         SceneSnapshotOutputOptions, VideoReplayMode, VideoTimeline,
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
-    use crate::public_state::PublicStateConfig;
-    use crate::public_state_lifecycle::{
-        SceneStateLifecycle, StateFreshness, StateLifecycleConfig,
-    };
     use crate::tracking::TrackingConfigV1;
     use image::{Rgb, RgbImage};
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
     use std::fs;
-    use std::net::TcpListener;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -4710,15 +3153,10 @@ mod tests {
                 max_detections: 300,
                 intra_op_threads: None,
                 warmup_runs: 1,
-                retained_provider_profile: None,
-                dump_preprocessed_directory: None,
                 source_image_space: ImageSpace::Raw,
                 detection_batch_output: None,
                 calibration: None,
                 scene_snapshot_output: None,
-                replay_rate_fps: None,
-                replay_repeat_count: 1,
-                maximum_replay_frames: None,
             },
             BatchOutputOptions {
                 jsonl_path: PathBuf::from("batches.jsonl"),
@@ -4900,17 +3338,6 @@ mod tests {
     }
 
     #[test]
-    fn paced_replay_period_rejects_invalid_or_unrepresentable_rates() {
-        assert_eq!(
-            replay_frame_period(25.0).unwrap(),
-            Duration::from_millis(40)
-        );
-        assert!(replay_frame_period(0.0).is_err());
-        assert!(replay_frame_period(f64::INFINITY).is_err());
-        assert!(replay_frame_period(1.0e12).is_err());
-    }
-
-    #[test]
     fn video_latest_frame_schedule_keeps_the_newest_due_source_index() {
         let pts = [0.0, 0.04, 0.08, 0.12, 0.20];
         assert_eq!(latest_due_source_index(&pts, 0, 0.0), 0);
@@ -5035,186 +3462,6 @@ mod tests {
     }
 
     #[test]
-    fn paced_rates_use_matching_event_counts_and_exclude_slow_drain() {
-        let start = Instant::now();
-        let window = PacedReplayMeasurementWindow::new(start, Duration::from_millis(100)).unwrap();
-        let mut counts = PacedReplayRateCounts::default();
-
-        // Three images finish decoding during the source window. Two more are
-        // decoded after its fixed end while the paced producer catches up.
-        for offset_ms in [0, 20, 99, 100, 140] {
-            counts.record_decoded(start + Duration::from_millis(offset_ms), window);
-        }
-        // Two inference results complete inside the same interval. The later
-        // results belong to drain, even though they contribute to total
-        // processed_frame_count and the latency distribution.
-        for offset_ms in [40, 80, 100, 150] {
-            counts.record_inference_complete(start + Duration::from_millis(offset_ms), window);
-        }
-
-        assert_eq!(counts.decoded_in_measurement_window, 3);
-        assert_eq!(counts.decoded_after_measurement_window, 2);
-        assert_eq!(counts.inference_complete_in_measurement_window, 2);
-        assert_eq!(counts.inference_complete_after_measurement_window, 2);
-
-        let received_fps = frames_per_second(counts.decoded_in_measurement_window, window);
-        let processed_fps =
-            frames_per_second(counts.inference_complete_in_measurement_window, window);
-        assert_eq!(received_fps, 30.0);
-        assert_eq!(processed_fps, 20.0);
-        assert!(processed_fps <= received_fps);
-    }
-
-    #[test]
-    fn paced_replay_frame_budget_requires_a_cap_for_repeated_input() {
-        assert_eq!(validate_replay_frame_budget(2, 3, Some(6)).unwrap(), 6);
-        assert_eq!(validate_replay_frame_budget(2, 1, None).unwrap(), 2);
-        assert!(validate_replay_frame_budget(2, 3, None).is_err());
-        assert!(validate_replay_frame_budget(2, 3, Some(5)).is_err());
-        assert!(validate_replay_frame_budget(2, 0, Some(10)).is_err());
-        assert!(validate_replay_frame_budget(0, 1, Some(10)).is_err());
-        assert!(validate_replay_frame_budget(2, 3, Some(0)).is_err());
-        assert!(validate_replay_frame_budget(usize::MAX, 2, Some(10)).is_err());
-    }
-
-    #[test]
-    fn paced_replay_repeats_recorded_images_with_fresh_source_indexes() {
-        let directory = tempfile::tempdir().unwrap();
-        let image_paths = (0..2)
-            .map(|index| {
-                let path = directory.path().join(format!("frame-{index}.png"));
-                RgbImage::from_pixel(2, 2, Rgb([index as u8, 0, 0]))
-                    .save(&path)
-                    .unwrap();
-                path
-            })
-            .collect::<Vec<_>>();
-        let image_hashes = vec!["hash-a".to_owned(), "hash-b".to_owned()];
-        let mailbox = PacedReplayMailbox::default();
-
-        produce_paced_frames(
-            &mailbox,
-            &image_paths,
-            &image_hashes,
-            3,
-            6,
-            Instant::now(),
-            Duration::ZERO,
-        )
-        .unwrap();
-        mailbox.finish(None);
-
-        let latest = mailbox.take_latest().unwrap().unwrap();
-        assert_eq!(latest.source_index, 5);
-        assert_eq!(latest.path, image_paths[1]);
-        assert_eq!(latest.encoded_image_sha256, "hash-b");
-        assert_eq!(latest.image.get_pixel(0, 0), &Rgb([1, 0, 0]));
-        assert!(mailbox.take_latest().unwrap().is_none());
-
-        let stats = mailbox.snapshot().unwrap();
-        assert_eq!(stats.decoded_frame_count, 6);
-        assert_eq!(stats.replaced_pending_frame_count, 5);
-    }
-
-    #[test]
-    fn paced_replay_schedule_stays_continuous_across_repeated_corpus_cycles() {
-        let directory = tempfile::tempdir().unwrap();
-        let image_paths = (0..2)
-            .map(|index| {
-                let path = directory.path().join(format!("frame-{index}.png"));
-                RgbImage::from_pixel(2, 2, Rgb([index as u8, 0, 0]))
-                    .save(&path)
-                    .unwrap();
-                path
-            })
-            .collect::<Vec<_>>();
-        let image_hashes = vec!["hash-a".to_owned(), "hash-b".to_owned()];
-        let mailbox = PacedReplayMailbox::default();
-        let replay_started = Instant::now();
-        let frame_period = Duration::from_millis(100);
-        let producer_mailbox = mailbox.clone();
-        let producer_paths = image_paths.clone();
-        let producer_hashes = image_hashes.clone();
-        let producer = std::thread::spawn(move || {
-            let result = produce_paced_frames(
-                &producer_mailbox,
-                &producer_paths,
-                &producer_hashes,
-                3,
-                6,
-                replay_started,
-                frame_period,
-            );
-            producer_mailbox.finish(result.as_ref().err().map(ToString::to_string));
-            result
-        });
-
-        let mut frames = Vec::new();
-        while let Some(frame) = mailbox.take_latest().unwrap() {
-            frames.push(frame);
-        }
-        producer.join().unwrap().unwrap();
-
-        assert_eq!(frames.len(), 6);
-        for (source_index, frame) in frames.iter().enumerate() {
-            let corpus_index = source_index % image_paths.len();
-            assert_eq!(frame.source_index, source_index);
-            assert_eq!(frame.path, image_paths[corpus_index]);
-            assert_eq!(frame.encoded_image_sha256, image_hashes[corpus_index]);
-            assert_eq!(
-                frame.scheduled_at.duration_since(replay_started),
-                frame_period * source_index as u32
-            );
-        }
-        assert_eq!(
-            frames[4]
-                .scheduled_at
-                .duration_since(frames[3].scheduled_at),
-            frame_period
-        );
-        let stats = mailbox.snapshot().unwrap();
-        assert_eq!(stats.decoded_frame_count, 6);
-        assert_eq!(stats.replaced_pending_frame_count, 0);
-    }
-
-    #[test]
-    fn latest_frame_mailbox_replaces_stale_pending_input_and_counts_misses() {
-        let mailbox = PacedReplayMailbox::default();
-        let base = Instant::now();
-        let period = Duration::from_millis(33);
-        for (source_index, lateness) in [Duration::from_millis(35), Duration::from_millis(2)]
-            .into_iter()
-            .enumerate()
-        {
-            mailbox
-                .offer(
-                    DecodedReplayFrame {
-                        source_index,
-                        path: PathBuf::from(format!("frame-{source_index}.png")),
-                        encoded_image_sha256: format!("hash-{source_index}"),
-                        image: image::RgbImage::new(1, 1),
-                        decode_ms: 0.0,
-                        scheduled_at: base,
-                        source_arrived_at: base + lateness,
-                    },
-                    period,
-                )
-                .unwrap();
-        }
-        let latest = mailbox.take_latest().unwrap().unwrap();
-        assert_eq!(latest.source_index, 1);
-        assert_eq!(latest.path, PathBuf::from("frame-1.png"));
-        mailbox.finish(None);
-        assert!(mailbox.take_latest().unwrap().is_none());
-
-        let stats = mailbox.snapshot().unwrap();
-        assert_eq!(stats.decoded_frame_count, 2);
-        assert_eq!(stats.replaced_pending_frame_count, 1);
-        assert_eq!(stats.source_schedule_deadline_misses, 1);
-        assert_eq!(stats.maximum_source_schedule_lateness_ms, 35.0);
-    }
-
-    #[test]
     fn percentile_summary_uses_nearest_rank_and_reports_empty_samples() {
         let result = percentile_summary(vec![4.0, 1.0, 3.0, 2.0]);
         assert_eq!(result.sample_count, 4);
@@ -5249,17 +3496,6 @@ mod tests {
         assert!(providers.is_empty());
         assert_eq!(events, 0);
         assert!(counts.is_empty());
-    }
-
-    #[test]
-    fn optional_tensor_export_is_little_endian_float32() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("input.f32le");
-        write_nchw_float32(&path, &[1.0, -2.5]).unwrap();
-        assert_eq!(
-            std::fs::read(path).unwrap(),
-            [1.0_f32.to_le_bytes(), (-2.5_f32).to_le_bytes()].concat()
-        );
     }
 
     #[test]
@@ -5530,127 +3766,6 @@ mod tests {
     }
 
     #[test]
-    fn paced_tcp_scene_output_wraps_the_raw_snapshot_and_native_current_state() {
-        const MAXIMUM_MESSAGE_BYTES: usize = 64 * 1024;
-
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let receiver = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let hello: Value = serde_json::from_slice(
-                &crate::framing::read_framed_message(&mut stream, MAXIMUM_MESSAGE_BYTES).unwrap(),
-            )
-            .unwrap();
-            assert_eq!(hello["protocol_version"], 2);
-            let ready = serde_json::to_vec(&json!({
-                "type": "ready",
-                "protocol_version": 2,
-                "last_transport_sequence": null,
-            }))
-            .unwrap();
-            crate::framing::write_framed_message(&mut stream, &ready, MAXIMUM_MESSAGE_BYTES)
-                .unwrap();
-            serde_json::from_slice::<Value>(
-                &crate::framing::read_framed_message(&mut stream, MAXIMUM_MESSAGE_BYTES).unwrap(),
-            )
-            .unwrap()
-        });
-
-        let snapshot = crate::decode_scene_snapshot_v1(TRACKED_SCENE_FIXTURE.as_bytes()).unwrap();
-        let (_, mut batch_output) = batch_options();
-        batch_output.engine_instance_id = snapshot.engine_instance_id.clone();
-        batch_output.source_session_id = snapshot.source.session_id.clone();
-        let tracking = TrackingConfigV1::new(
-            1,
-            None,
-            "camera-test",
-            12.0,
-            Duration::from_millis(50),
-            Duration::from_millis(200),
-            Duration::from_millis(1000),
-            24,
-            32,
-            1,
-            1,
-        )
-        .unwrap();
-        let options = SceneSnapshotOutputOptions {
-            destination: SceneSnapshotOutputDestination::LoopbackTcp {
-                address,
-                maximum_message_bytes: MAXIMUM_MESSAGE_BYTES,
-                connect_timeout: Duration::from_millis(500),
-                write_timeout: Duration::from_millis(500),
-                reconnect_initial_delay: Duration::from_millis(10),
-                reconnect_maximum_delay: Duration::from_millis(50),
-            },
-            tracking,
-            delivery_schema_version: Some(1),
-        };
-        let mut output = open_scene_snapshot_output(&options, &batch_output).unwrap();
-        let raw_json = crate::encode_scene_snapshot_v1(&snapshot).unwrap();
-        let raw_value: Value = serde_json::from_slice(&raw_json).unwrap();
-        let clock_origin = Instant::now();
-        let state = ingest_replay_scene(
-            output.lifecycle.as_mut().unwrap(),
-            &snapshot,
-            clock_origin,
-            clock_origin + Duration::from_millis(1),
-            clock_origin + Duration::from_millis(2),
-        )
-        .unwrap()
-        .unwrap();
-        let expected_state = serde_json::to_value(&state).unwrap();
-
-        write_scene_snapshot(&mut output.sink, &snapshot, Some(&state)).unwrap();
-        output.finish();
-        let delivery = receiver.join().unwrap();
-
-        assert_eq!(delivery["delivery_type"], "billiards_public_state_delivery");
-        assert_eq!(delivery["delivery_schema_version"], 1);
-        assert_eq!(delivery["source_snapshot"], raw_value);
-        assert_eq!(delivery["current_state"], expected_state);
-        assert_eq!(delivery["current_state"]["freshness"], "fresh");
-    }
-
-    #[test]
-    fn replay_arrival_before_slow_inference_expires_old_coordinates() {
-        let snapshot = crate::decode_scene_snapshot_v1(TRACKED_SCENE_FIXTURE.as_bytes()).unwrap();
-        let mut lifecycle = SceneStateLifecycle::new(
-            StateLifecycleConfig {
-                stale_after_ns: 20,
-                expire_after_ns: 40,
-                maximum_balls: 64,
-            },
-            PublicStateConfig::default(),
-        )
-        .unwrap();
-        lifecycle
-            .activate_source(
-                snapshot.engine_instance_id.clone(),
-                snapshot.source.session_id.clone(),
-            )
-            .unwrap();
-        let clock_origin = Instant::now();
-        let state = ingest_replay_scene(
-            &mut lifecycle,
-            &snapshot,
-            clock_origin,
-            clock_origin + Duration::from_nanos(10),
-            clock_origin + Duration::from_nanos(70),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(state.freshness, StateFreshness::Expired);
-        assert_eq!(state.localization_age_ns, Some(60));
-        assert!(state.payload.balls.is_empty());
-        assert_eq!(
-            state.payload.observation_status["freshness_status"],
-            "expired"
-        );
-    }
-
-    #[test]
     fn scene_output_creation_never_overwrites_an_existing_file() {
         let directory = tempfile::tempdir().unwrap();
         let options = SceneSnapshotOutputOptions {
@@ -5671,12 +3786,10 @@ mod tests {
                 1,
             )
             .unwrap(),
-            delivery_schema_version: None,
         };
-        let (_, batch_output) = batch_options();
-        let output = open_scene_snapshot_output(&options, &batch_output).unwrap();
+        let output = open_scene_snapshot_output(&options).unwrap();
         drop(output);
-        assert!(open_scene_snapshot_output(&options, &batch_output).is_err());
+        assert!(open_scene_snapshot_output(&options).is_err());
     }
 
     #[test]

@@ -27,7 +27,7 @@ class PerceptionProviderError(RuntimeError):
 def require_api_provider(
     configuration: ConfigurationReader,
 ) -> PerceptionProvider:
-    """Resolve the selected mode before starting any perception path.
+    """Resolve the only supported perception provider before API startup.
 
     The Python compatibility API may supervise Rust perception for contract
     tests, but it may never start the retired Python perception pipeline.
@@ -52,14 +52,4 @@ def require_api_provider(
     except ValueError as error:
         raise PerceptionProviderError("perception.provider must be 'rust'") from error
 
-    default_mode = perception_defaults.get("mode")
-    if not isinstance(default_mode, str):
-        raise PerceptionProviderError(
-            "bundled configuration default perception.mode must be a string"
-        )
-    configured_mode = configuration.get("perception.mode", default_mode)
-    if configured_mode not in {"live", "recorded_replay"}:
-        raise PerceptionProviderError(
-            "perception.mode must be either 'live' or 'recorded_replay'"
-        )
     return provider

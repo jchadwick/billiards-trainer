@@ -6,20 +6,17 @@ publish = false
 
 [features]
 default = []
-# Synthetic-only GStreamer helper probe; never registered as the live source.
+# Build the supervised GStreamer capture helper. The physical source is gated
+# separately below; this feature also supports deterministic/network test inputs.
 camera-gstreamer-probe = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
 # DeviceMonitor-based inventory only. This does not construct a source element
-# or open a camera pipeline and is intentionally separate from the synthetic
-# capture probe and the live binary.
+# or open a camera pipeline and is intentionally separate from the supervised
+# capture helper and live source.
 camera-gstreamer-discovery = ["dep:gstreamer"]
 # Opt-in supervised physical source. The feature adds an explicit
 # `gstreamer-physical` choice to the live executable; its normal default stays
 # unavailable, and physical capture also requires a stable discovery selector.
 camera-gstreamer-source = ["camera-gstreamer-probe", "camera-gstreamer-discovery"]
-
-[[bin]]
-name = "billiards-perception-infer"
-path = "src/main.rs"
 
 [[bin]]
 name = "billiards-perception-video-replay"

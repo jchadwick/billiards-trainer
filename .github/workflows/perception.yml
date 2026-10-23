@@ -92,8 +92,8 @@ jobs:
       - name: Run unit, contract, and fixture inference tests
         run: cargo test --locked --all-targets
 
-      - name: Build optimized inference executable
-        run: cargo build --locked --release --bin billiards-perception-infer
+      - name: Build optimized recorded-video audit executable
+        run: cargo build --locked --release --bin billiards-perception-video-replay
 
       - name: Build optimized live-runtime executable
         run: cargo build --locked --release --features camera-gstreamer-source --bin billiards-perception-live

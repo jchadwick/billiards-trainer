@@ -6,9 +6,9 @@
 - Supersedes: ADR-0025 for handshake and producer-epoch behavior only
 - Superseded by: None
 
-> ADR-0030 adds a request-bound capture acknowledgement for live-mode startup.
-> This record continues to govern the v2 producer-epoch handshake used by
-> recorded replay.
+> ADR-0030 adds a request-bound capture acknowledgement for live startup.
+> ADR-0094 later retired replay-v2 ingress. This record's no-authentication
+> rule and producer-epoch semantics apply to the active live-v3 scene path.
 
 ## Context
 

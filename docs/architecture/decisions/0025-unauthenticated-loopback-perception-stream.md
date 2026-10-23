@@ -6,6 +6,10 @@
 - Supersedes: ADR-0011
 - Superseded by: ADR-0028 for handshake and producer-epoch behavior only
 
+> Current status: the no-authentication decision remains active. Python replay
+> supervision and replay-v2 ingress cited in this historical evidence were
+> removed by ADR-0094; the Rust live-v3 producer is the current scene path.
+
 > ADR-0028 supersedes this record's handshake and producer-epoch details. Its
 > prohibition on authentication remains active and is reaffirmed by ADR-0028.
 > ADR-0028 extends the prohibition to repository-controlled build and
@@ -97,9 +101,8 @@ not an authentication substitute.
   rejection; one absolute deadline bounds each complete handshake and scene
   frame, including peers that trickle partial bytes. After a slow handshake,
   the newest waiting scene replaces the not-yet-written older scene.
-- `backend/tests/unit/test_rust_replay_supervisor.py` verifies the supervised
-  child publishes through this handshake without credential environment
-  variables or command-line secrets.
+- Historical Python replay-supervisor tests verified the retired replay child
+  used no credential environment variables or command-line secrets.
 - Provider/API lifecycle tests verify local API startup has no auth dependency.
 - An opt-in black-box integration test runs the real Rust inference executable
   with the unauthenticated handshake and checks that model-backed observations
@@ -108,12 +111,12 @@ not an authentication substitute.
   paths and auth-only setup have been removed. Header redaction is retained as
   logging hygiene, not an auth feature.
 
-Implementation evidence (2026-10-20): the Python ingress and Rust sender now
+Historical implementation evidence (2026-10-20): the Python ingress and Rust sender
 exchange an identity-scoped hello/ready handshake, and the supervisor no longer
 creates or passes a launch credential. The API OpenAPI/CORS contract is covered
 by `backend/tests/unit/api/test_local_access_contract.py`; ingress and child
-lifecycle behavior are covered by `backend/tests/unit/test_scene_snapshot_ingress.py`
-and `backend/tests/unit/test_rust_replay_supervisor.py`. The full backend suite
+lifecycle behavior were covered by the then-current scene-ingress and replay-
+supervisor suites. The full backend suite
 passed 1,394 tests with one model-dependent replay skipped; Rust formatting,
 strict Clippy, and 99 tests passed. Frontend Vitest passed 42 tests and the Vite
 production bundle built. Project-wide TypeScript typecheck remains red on

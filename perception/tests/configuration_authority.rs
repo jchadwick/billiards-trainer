@@ -49,7 +49,7 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
             .as_array()
             .unwrap()
             .len()
-            >= 7
+            >= 6
     );
     let defaults = call(&authority, request("defaults"));
     assert_eq!(

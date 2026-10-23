@@ -1,10 +1,21 @@
 # ADR-0050: Normalize audit evidence across Python and Rust runtimes
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: ADR-0049
-- Superseded by: None
+- Superseded by: ADR-0085 for cross-runtime collector implementation
+
+## Implementation status (2026-10-23)
+
+ADR-0085 retired the Python collector and its Python/Rust envelope-normalizing
+path. The evidence semantics remain in force for the Rust audit: distinguish
+fresh observed frames from cached or failed updates, preserve native source
+identity, disclose unavailable measurements, and never subtract timestamps from
+unverified clock domains. The maintained audit now consumes Rust state
+directly; it does not support Python envelope normalization or cross-runtime
+overhead comparison. The historical collector schema and its tests are not a
+current output contract.
 
 ## Context
 
@@ -88,12 +99,15 @@ inconclusive.
 
 ## Verification
 
-- Collector unit tests cover legacy and Rust envelopes, complete/repeated
-  observation accounting, cached-versus-fresh throughput, timestamp-stage
-  preservation, replay/model/executable hashes, and unavailable Git identity.
+- Before the collector was retired, its unit tests covered legacy and Rust
+  envelopes, complete/repeated observation accounting, cached-versus-fresh
+  throughput, timestamp-stage preservation, replay/model/executable hashes,
+  and unavailable Git identity. These are historical differential tests, not
+  a maintained Python compatibility requirement.
 - The target API smoke artifact records a native binary hash, model and source
   checkpoint hashes, replay-directory hash, Rust source identities, and the
   limitation that the finite replay outlasted the measurement's active source
   window.
-- Run the focused collector tests, backend suite, lint, type checks, and ADR
-  validator.
+- Rust audit tests and the repository checks validate the current native
+  identity, freshness, timing, and provenance behavior; do not run the retired
+  collector tests as a current acceptance gate.

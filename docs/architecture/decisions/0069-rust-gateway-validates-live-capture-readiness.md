@@ -8,8 +8,12 @@
 
 ## Context
 
-The Rust localization gateway currently accepts replay-v2 scene snapshots but
-rejects the live-v3 producer handshake. Live capture already sends a
+ADR-0094 later removed replay-v2 ingress after its only maintained producer
+was retired. The decision below remains active for live-v3 readiness only;
+recorded-video evaluation is an offline artifact workflow.
+
+At the time of this decision, the Rust localization gateway accepted replay-v2
+scene snapshots but rejected the live-v3 producer handshake. Live capture sent a
 request-bound capture-session acknowledgement before reading frames. The
 transitional Python gateway validates that acknowledgement against the active
 revisioned configuration and verifies that delivered snapshots belong to the
@@ -25,10 +29,11 @@ authentication.
 
 ## Decision
 
-Extend the Rust gateway to accept both replay-v2 and live-v3 producers. Replay
-uses the existing identity handshake and accepts raw scene-v1 messages;
-ADR-0076 separately extends replay-v2 to accept the versioned public-state
-envelope used by paced replay. Live-v3 must include the strict capture-session
+At the time of this decision, extend the Rust gateway to accept replay-v2 and
+live-v3 producers. Replay used an identity handshake and raw scene-v1 messages;
+ADR-0076 later added the versioned public-state envelope. ADR-0094 retired that
+replay ingress. The current gateway accepts live-v3 only, which must include
+the strict capture-session
 acknowledgement contract. The gateway obtains the effective capture-settings
 v3 request and current
 configuration revision from the existing Rust `ConfigurationAuthority`,
@@ -67,18 +72,18 @@ or authentication boundary.
   survive the process boundary.
 - All server freshness decisions use a valid receiver-local monotonic clock.
 - The HTML/JavaScript/CSS browser remains unchanged through this server
-  migration step, and replay-v2 remains available for bounded local testing.
+  migration step. Replay-v2 was later retired by ADR-0094.
 - No credential, token, or authentication layer is introduced.
 
 ### Negative
 
 - The Rust gateway needs an explicit active configuration path to accept live
-  producers. A replay-only development instance may still omit it.
+  producers. A gateway-only development instance may omit it.
 - A live producer cannot become ready if configuration authority or source
   acknowledgement evidence is unavailable; operators receive a failed
   handshake rather than a Python fallback.
-- The gateway must implement strict validation for two ingress contracts and
-  keep compatibility tests against the Python receiver until cutover.
+- The gateway initially implemented two ingress contracts; ADR-0094 later
+  removed replay-v2, leaving strict live-v3 validation.
 - Receiver-local freshness starts at the Rust gateway boundary. Exact camera
   exposure-to-gateway latency is available only when the source timestamp is
   comparable and verified; shared-memory publication time remains labeled as
@@ -113,11 +118,10 @@ are newly sampled locally.
 
 ## Verification
 
-The gateway supports replay-v2 and live-v3 on the existing bounded loopback
-scene listener. Its binary accepts an explicit `--config` path for live
-capture; the reusable library config may leave that path absent to support
-replay-only tests. Regression coverage verifies strict acknowledgement
-validation, stale and mismatched request rejection, source identity and
+The current gateway supports live-v3 only on the existing bounded loopback
+scene listener. Its binary requires an explicit `--config` path for live
+capture. Regression coverage verifies strict acknowledgement validation,
+stale and mismatched request rejection, source identity and
 geometry checks, receiver-derived ball state, preserved table/game metadata,
 receiver-local freshness, producer restart epochs, and compatibility with the
 existing HTTP/WebSocket fixtures. On the development Mac, `cargo test

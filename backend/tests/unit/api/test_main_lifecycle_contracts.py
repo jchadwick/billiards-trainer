@@ -183,64 +183,6 @@ def test_middleware_configuration_uses_environment_specific_and_nested_values() 
 
 
 @pytest.mark.asyncio
-async def test_rust_replay_lifespan_uses_one_publisher_and_closes_supervisor(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    state, health, shutdown_names = _install_lifecycle_stubs(monkeypatch)
-    runtime_events: list[str] = []
-    publisher = object()
-
-    class ReplaySupervisorStub:
-        def __init__(self, _settings: Any, actual_publisher: Any) -> None:
-            assert actual_publisher is publisher
-
-        async def start(self) -> Any:
-            runtime_events.append("started")
-            return SimpleNamespace(first_observation_received=True)
-
-        async def close(self) -> None:
-            runtime_events.append("closed")
-
-    monkeypatch.setattr(
-        api_main,
-        "require_api_provider",
-        lambda _configuration: PerceptionProvider.RUST,
-    )
-    monkeypatch.setattr(
-        api_main,
-        "RustReplaySettings",
-        SimpleNamespace(from_configuration=lambda _c: object()),
-    )
-    monkeypatch.setattr(api_main, "RustReplaySupervisor", ReplaySupervisorStub)
-    monkeypatch.setattr(
-        api_main,
-        "SceneSnapshotStatePublisher",
-        lambda broadcaster: publisher,
-    )
-    app = create_compatibility_app(
-        {
-            "development_mode": True,
-            "perception": {"mode": "recorded_replay"},
-        }
-    )
-
-    async with api_main.lifespan(app):
-        assert state.is_healthy
-        assert state.perception_runtime is not None
-        assert state.scene_state_publisher is publisher
-        assert state.core_module is None
-        assert state.vision_module is None
-        assert state.integration_service is None
-        assert health.registered is not None
-        assert health.registered["vision_module"] is None
-
-    assert runtime_events == ["started", "closed"]
-    assert state.perception_runtime is None
-    assert state.scene_state_publisher is None
-    assert shutdown_names == ["websocket", "config"]
-
-
-@pytest.mark.asyncio
 async def test_rust_live_lifespan_starts_only_rust_perception_and_closes_supervisor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -289,52 +231,6 @@ async def test_rust_live_lifespan_starts_only_rust_perception_and_closes_supervi
     assert state.perception_runtime is None
     assert state.scene_state_publisher is None
     assert shutdown_names == ["websocket", "config"]
-
-
-@pytest.mark.asyncio
-async def test_replay_without_first_observation_fails_startup_and_runs_cleanup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    state, health, _shutdown_names = _install_lifecycle_stubs(monkeypatch)
-    closed: list[bool] = []
-
-    class ReplaySupervisorStub:
-        def __init__(self, _settings: Any, _publisher: Any) -> None:
-            pass
-
-        async def start(self) -> Any:
-            return SimpleNamespace(first_observation_received=False)
-
-        async def close(self) -> None:
-            closed.append(True)
-
-    monkeypatch.setattr(
-        api_main,
-        "require_api_provider",
-        lambda _configuration: PerceptionProvider.RUST,
-    )
-    monkeypatch.setattr(
-        api_main,
-        "RustReplaySettings",
-        SimpleNamespace(from_configuration=lambda _c: object()),
-    )
-    monkeypatch.setattr(api_main, "RustReplaySupervisor", ReplaySupervisorStub)
-    monkeypatch.setattr(api_main, "SceneSnapshotStatePublisher", lambda _b: object())
-    app = create_compatibility_app(
-        {
-            "development_mode": True,
-            "perception": {"mode": "recorded_replay"},
-        }
-    )
-
-    with pytest.raises(RuntimeError, match="without a usable observation"):
-        async with api_main.lifespan(app):
-            pytest.fail("startup must fail before yielding")
-
-    assert closed == [True]
-    assert not state.is_healthy
-    assert state.perception_runtime is None
-    assert health.stop_monitoring.await_count == 1
 
 
 @pytest.mark.asyncio

@@ -23,10 +23,9 @@ const CONFIGURATION_VALIDATION_MESSAGE: &str = "Configuration file validation co
 const ALLOWED_IMPORT_EXTENSIONS: [&str; 3] = ["json", "yaml", "yml"];
 // Leave room for the authority protocol fields wrapped around an HTTP JSON body.
 const CONFIGURATION_PROTOCOL_ENVELOPE_RESERVE_BYTES: usize = 256;
-const DEPLOYMENT_EXECUTABLE_FIELDS: [&str; 3] = [
+const DEPLOYMENT_EXECUTABLE_FIELDS: [&str; 2] = [
     "perception.rust_live.executable_path",
     "perception.rust_live.capture_helper_executable_path",
-    "perception.rust_replay.executable_path",
 ];
 const RESTART_REQUIRED_PREFIXES: [&str; 14] = [
     "perception.",

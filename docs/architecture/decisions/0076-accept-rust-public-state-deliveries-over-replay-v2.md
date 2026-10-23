@@ -1,10 +1,14 @@
 # ADR-0076: Accept Rust public-state deliveries over replay-v2
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-22
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0094
+
+> Historical decision: the gateway replay-v2 ingress described below has been
+> removed. ADR-0094 preserves offline video-replay artifacts and live-v3 scene
+> ingress, but does not provide API replay publication.
 
 ## Context
 

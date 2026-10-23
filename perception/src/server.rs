@@ -1,11 +1,10 @@
-//! Side-by-side Rust HTTP/WebSocket gateway for replay and live scene snapshots.
+//! Rust HTTP/WebSocket gateway for live scene snapshots.
 //!
-//! Replay-v2 works without runtime configuration. Live-v3 is accepted only
-//! when the gateway can resolve the active Rust-owned capture settings and
-//! validate the producer's request-bound readiness acknowledgement. The
-//! optional live mode supervises the Rust detector directly; the browser
-//! remains HTML/JavaScript/CSS and keeps its ordinary JSON-over-HTTP/WebSocket
-//! contract.
+//! Scene ingress is accepted only when the gateway can resolve the active
+//! Rust-owned capture settings and validate the producer's request-bound
+//! readiness acknowledgement. The gateway can supervise the Rust detector
+//! directly; the browser remains HTML/JavaScript/CSS and keeps its ordinary
+//! JSON-over-HTTP/WebSocket contract.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -42,9 +41,8 @@ use crate::public_state_lifecycle::{
     CurrentSceneState, IngestOutcome, SceneStateLifecycle, SourceStateMetadata, StateFreshness,
     StateLifecycleConfig,
 };
-use crate::{decode_scene_snapshot_v1, SceneSnapshotV1};
+use crate::SceneSnapshotV1;
 
-const REPLAY_PROTOCOL_VERSION: u8 = 2;
 const LIVE_PROTOCOL_VERSION: u8 = 3;
 const MAX_IDENTIFIER_CHARACTERS: usize = 128;
 const DEFAULT_HTTP_PORT: u16 = 8001;
@@ -69,7 +67,7 @@ pub struct ServerConfig {
     /// `None` uses the service process working directory.
     pub project_root: Option<PathBuf>,
     pub maximum_scene_bytes: usize,
-    /// Active unified config. Replay can run without it; live-v3 readiness cannot.
+    /// Active unified config required for live-v3 ingress and configuration routes.
     pub configuration_path: Option<PathBuf>,
     pub tcp_read_timeout: Duration,
     pub stale_after: Duration,
@@ -82,8 +80,8 @@ pub struct ServerConfig {
     pub web_root: Option<PathBuf>,
 }
 
-/// Optional live detector launch policy kept separate from replay-only server
-/// settings, so tests and replay tools remain independent of camera hardware.
+/// Optional live detector launch policy. Tests and offline replay tools can
+/// exercise their own boundaries without launching camera hardware.
 #[derive(Debug, Clone, Default)]
 pub struct LiveProcessLaunchOptions {
     pub enabled: bool,
@@ -121,13 +119,9 @@ impl ServerConfig {
         if !self.scene_bind.is_loopback() {
             return Err("scene bind address must be loopback".into());
         }
-        if self.maximum_scene_bytes < maximum_v2_handshake_size()
-            || self.maximum_scene_bytes > MAXIMUM_SCENE_BYTES_LIMIT
-        {
+        if !(1..=MAXIMUM_SCENE_BYTES_LIMIT).contains(&self.maximum_scene_bytes) {
             return Err(format!(
-                "maximum scene bytes must be between {} and {}",
-                maximum_v2_handshake_size(),
-                MAXIMUM_SCENE_BYTES_LIMIT
+                "maximum scene bytes must be between 1 and {MAXIMUM_SCENE_BYTES_LIMIT}"
             ));
         }
         if self
@@ -210,18 +204,6 @@ fn validate_duration(
         ));
     }
     Ok(())
-}
-
-fn maximum_v2_handshake_size() -> usize {
-    let hello = json!({
-        "type": "hello",
-        "protocol_version": REPLAY_PROTOCOL_VERSION,
-        "engine_instance_id": "e".repeat(MAX_IDENTIFIER_CHARACTERS),
-        "source_session_id": "s".repeat(MAX_IDENTIFIER_CHARACTERS),
-    });
-    serde_json::to_vec(&hello)
-        .expect("fixed handshake is serializable")
-        .len()
 }
 
 #[derive(Clone)]
@@ -414,6 +396,7 @@ impl Gateway {
         ))
     }
 
+    #[cfg(test)]
     fn accept_scene(&self, snapshot: SceneSnapshotV1) -> Result<(), String> {
         self.accept_scene_with_capture_age(snapshot, 0, HashMap::new(), None, None)
     }
@@ -594,30 +577,6 @@ impl Gateway {
         Ok(())
     }
 
-    fn acknowledge_producer<W: Write>(
-        &self,
-        writer: &mut W,
-        engine: String,
-        session: String,
-    ) -> Result<(), String> {
-        let watermark = self.producer_watermark(&engine, &session);
-        let ready = json!({
-            "type": "ready",
-            "protocol_version": REPLAY_PROTOCOL_VERSION,
-            "last_transport_sequence": watermark,
-        });
-        write_framed_message(
-            writer,
-            &serde_json::to_vec(&ready).map_err(|error| error.to_string())?,
-            self.inner.config.maximum_scene_bytes,
-        )
-        .map_err(|error| error.to_string())?;
-        // A failed ready write leaves the current epoch and positions intact.
-        self.activate_producer_epoch(engine, session)?;
-        lock_unpoisoned(&self.inner.state).live_source_geometry = None;
-        Ok(())
-    }
-
     fn handle_producer(&self, mut stream: std::net::TcpStream) -> Result<(), String> {
         let _ = stream.set_nodelay(true);
         stream
@@ -631,48 +590,15 @@ impl Gateway {
             .map_err(|error| format!("could not set scene write timeout: {error}"))?;
         let hello_bytes = read_framed_message(&mut stream, self.inner.config.maximum_scene_bytes)
             .map_err(|error| error.to_string())?;
-        let hello_value: Value = serde_json::from_slice(&hello_bytes)
-            .map_err(|error| format!("invalid scene producer hello: {error}"))?;
-        match hello_value.get("protocol_version").and_then(Value::as_u64) {
-            Some(version) if version == u64::from(REPLAY_PROTOCOL_VERSION) => {
-                let hello: ProducerHello = serde_json::from_slice(&hello_bytes)
-                    .map_err(|error| format!("invalid replay v2 hello: {error}"))?;
-                validate_identifier(&hello.engine_instance_id, "engine instance ID")?;
-                validate_identifier(&hello.source_session_id, "source session ID")?;
-                if hello.message_type != "hello"
-                    || hello.protocol_version != REPLAY_PROTOCOL_VERSION
-                {
-                    return Err("replay v2 hello type or version is invalid".into());
-                }
-                let engine_instance_id = hello.engine_instance_id;
-                let source_session_id = hello.source_session_id;
-                self.acknowledge_producer(
-                    &mut stream,
-                    engine_instance_id.clone(),
-                    source_session_id.clone(),
-                )?;
+        let capture_settings = self.resolve_live_capture_settings()?;
+        let handshake = validate_live_v3_hello(&hello_bytes, &capture_settings)
+            .map_err(|error| error.to_string())?;
+        self.acknowledge_live_producer(&mut stream, &handshake)?;
 
-                loop {
-                    let bytes =
-                        read_framed_message(&mut stream, self.inner.config.maximum_scene_bytes)
-                            .map_err(|error| error.to_string())?;
-                    self.accept_replay_payload(&bytes, &engine_instance_id, &source_session_id)?;
-                }
-            }
-            Some(version) if version == u64::from(LIVE_PROTOCOL_VERSION) => {
-                let capture_settings = self.resolve_live_capture_settings()?;
-                let handshake = validate_live_v3_hello(&hello_bytes, &capture_settings)
-                    .map_err(|error| error.to_string())?;
-                self.acknowledge_live_producer(&mut stream, &handshake)?;
-
-                loop {
-                    let bytes =
-                        read_framed_message(&mut stream, self.inner.config.maximum_scene_bytes)
-                            .map_err(|error| error.to_string())?;
-                    self.accept_live_delivery(&bytes, &handshake)?;
-                }
-            }
-            _ => Err("unsupported scene producer protocol version".into()),
+        loop {
+            let bytes = read_framed_message(&mut stream, self.inner.config.maximum_scene_bytes)
+                .map_err(|error| error.to_string())?;
+            self.accept_live_delivery(&bytes, &handshake)?;
         }
     }
 
@@ -703,68 +629,6 @@ impl Gateway {
         // Public ball fields are rebuilt by the same Rust lifecycle adapter;
         // carry only non-scene metadata and elapsed age durations across the
         // process boundary. Producer monotonic instants are never reused.
-        let (localization_age_offset_ns, ball_age_offsets_ns, table, game_type) =
-            match delivery.current_state {
-                Some(current) => (
-                    current.localization_age_ns.unwrap_or_default(),
-                    current.ball_age_ns,
-                    current.payload.table,
-                    current.payload.game_type,
-                ),
-                None => (0, HashMap::new(), None, None),
-            };
-        self.accept_scene_with_capture_age(
-            snapshot,
-            localization_age_offset_ns,
-            ball_age_offsets_ns,
-            table,
-            game_type,
-        )
-    }
-
-    /// Accept the two explicitly versioned replay-v2 payload forms.
-    ///
-    /// Historical producers send raw scene-v1 snapshots. Paced Rust replay
-    /// sends the public-state v1 envelope so lifecycle ages and optional
-    /// metadata survive delivery. Both are bound to the identity from the
-    /// replay hello, and both pass through this gateway's own lifecycle.
-    fn accept_replay_payload(
-        &self,
-        bytes: &[u8],
-        engine_instance_id: &str,
-        source_session_id: &str,
-    ) -> Result<(), String> {
-        let value: Value = serde_json::from_slice(bytes)
-            .map_err(|error| format!("invalid replay-v2 scene payload: {error}"))?;
-        if value.get("delivery_type").is_none() {
-            let snapshot = decode_scene_snapshot_v1(bytes)
-                .map_err(|error| format!("invalid scene snapshot: {error}"))?;
-            if snapshot.engine_instance_id != engine_instance_id
-                || snapshot.source.session_id != source_session_id
-            {
-                return Err("scene identity differs from the replay-v2 hello".into());
-            }
-            return self.accept_scene(snapshot);
-        }
-
-        let delivery: PublicStateDeliveryInput = serde_json::from_value(value)
-            .map_err(|error| format!("invalid replay public-state delivery v1: {error}"))?;
-        if delivery.delivery_type != "billiards_public_state_delivery"
-            || delivery.delivery_schema_version != 1
-        {
-            return Err("unsupported replay public-state delivery contract".into());
-        }
-        let snapshot = delivery.source_snapshot;
-        snapshot
-            .validate()
-            .map_err(|error| format!("invalid replay source scene snapshot: {error}"))?;
-        if snapshot.engine_instance_id != engine_instance_id
-            || snapshot.source.session_id != source_session_id
-        {
-            return Err("scene identity differs from the replay-v2 hello".into());
-        }
-        validate_live_public_state(&snapshot, delivery.current_state.as_ref())?;
-
         let (localization_age_offset_ns, ball_age_offsets_ns, table, game_type) =
             match delivery.current_state {
                 Some(current) => (
@@ -917,16 +781,6 @@ impl Drop for ActiveProducerGuard {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProducerHello {
-    #[serde(rename = "type")]
-    message_type: String,
-    protocol_version: u8,
-    engine_instance_id: String,
-    source_session_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PublicStateDeliveryInput {
     delivery_type: String,
     delivery_schema_version: u8,
@@ -1074,16 +928,6 @@ fn validate_live_public_ball(
         {
             return Err("public ball identity evidence is invalid".into());
         }
-    }
-    Ok(())
-}
-
-fn validate_identifier(value: &str, name: &str) -> Result<(), String> {
-    if value.is_empty()
-        || value.chars().count() > MAX_IDENTIFIER_CHARACTERS
-        || value.chars().any(char::is_control)
-    {
-        return Err(format!("{name} must be a bounded printable identity"));
     }
     Ok(())
 }
@@ -1416,7 +1260,7 @@ async fn run_freshness_scheduler(gateway: Gateway) {
     }
 }
 
-/// Start HTTP and replay-v2/live-v3 loopback scene listeners until shutdown.
+/// Start HTTP and live-v3 loopback scene listeners until shutdown.
 pub async fn run(config: ServerConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     run_with_live(config, LiveProcessLaunchOptions::default()).await
 }
@@ -1436,7 +1280,7 @@ pub async fn run_with_live(
     let scene_address = scene_listener.local_addr()?;
     let http_address = http_listener.local_addr()?;
     eprintln!("billiards Rust gateway HTTP listening on {http_address}");
-    eprintln!("replay v2 / live v3 scene ingress listening on {scene_address}");
+    eprintln!("live v3 scene ingress listening on {scene_address}");
     let live_process = if live_options.enabled {
         let authority = gateway
             .inner
@@ -1641,7 +1485,7 @@ mod tests {
     }
 
     fn fixture_scene() -> SceneSnapshotV1 {
-        decode_scene_snapshot_v1(include_bytes!(
+        crate::decode_scene_snapshot_v1(include_bytes!(
             "../contracts/v1/scene-rust-tracked-success.json"
         ))
         .unwrap()
@@ -1672,21 +1516,6 @@ mod tests {
         payload
     }
 
-    async fn hello(stream: &mut TcpStream, engine: &str, session: &str) -> Value {
-        send_frame(
-            stream,
-            &serde_json::to_vec(&json!({
-                "type":"hello",
-                "protocol_version":2,
-                "engine_instance_id":engine,
-                "source_session_id":session,
-            }))
-            .unwrap(),
-        )
-        .await;
-        serde_json::from_slice(&read_frame(stream).await).unwrap()
-    }
-
     fn scene_for(engine: &str, session: &str, sequence: u64, frame: &str) -> SceneSnapshotV1 {
         let mut scene = fixture_scene();
         scene.engine_instance_id = engine.into();
@@ -1704,7 +1533,7 @@ mod tests {
         scene
     }
 
-    fn replay_public_state_delivery(scene: &SceneSnapshotV1) -> Vec<u8> {
+    fn public_state_delivery(scene: &SceneSnapshotV1) -> Vec<u8> {
         let mut lifecycle = SceneStateLifecycle::default();
         lifecycle
             .activate_source(&scene.engine_instance_id, &scene.source.session_id)
@@ -1818,10 +1647,6 @@ mod tests {
         }
     }
 
-    async fn send_scene(stream: &mut TcpStream, scene: &SceneSnapshotV1) {
-        send_frame(stream, &serde_json::to_vec(scene).unwrap()).await;
-    }
-
     async fn get_json(router: Router, path: &str) -> (StatusCode, Value) {
         let response = router
             .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
@@ -1876,7 +1701,7 @@ mod tests {
                 ..test_config()
             },
             ServerConfig {
-                maximum_scene_bytes: 1,
+                maximum_scene_bytes: 0,
                 ..test_config()
             },
             ServerConfig {
@@ -1934,6 +1759,8 @@ mod tests {
         let gateway = Gateway::new(ServerConfig {
             configuration_path: Some(configuration_path),
             project_root: Some(directory.path().to_path_buf()),
+            stale_after: Duration::from_secs(30),
+            expire_after: Duration::from_secs(60),
             ..test_config()
         })
         .unwrap();
@@ -2039,103 +1866,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replay_v2_public_state_delivery_reaches_http_with_receiver_local_freshness() {
+    async fn accepted_scene_is_available_over_http_and_latest_only_websocket() {
         let gateway = Gateway::new(test_config()).unwrap();
-        let scene_address = start_ingress(gateway.clone()).await;
-        let engine = "engine-paced-replay";
-        let session = "session-paced-replay";
-        let mut producer = TcpStream::connect(scene_address).await.unwrap();
-        let ready = hello(&mut producer, engine, session).await;
-        assert_eq!(ready["protocol_version"], REPLAY_PROTOCOL_VERSION);
-
-        let scene = scene_for(engine, session, 1, "frame-paced-replay");
-        let delivery = replay_public_state_delivery(&scene);
-        let sent: Value = serde_json::from_slice(&delivery).unwrap();
-        assert_eq!(sent["delivery_type"], "billiards_public_state_delivery");
-        assert_eq!(sent["delivery_schema_version"], 1);
-        send_frame(&mut producer, &delivery).await;
-
-        let response = tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                let (status, body) = get_json(gateway.router(), "/api/v1/game/state").await;
-                if status == StatusCode::OK {
-                    break body;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("public-state replay should become available over HTTP");
-        assert_eq!(response["perception_source"], "rust_scene");
-        assert_eq!(response["frame_number"], 1);
-        assert_eq!(
-            response["balls"].as_array().unwrap().len(),
-            scene.balls.len()
-        );
-        assert_eq!(response["observation_status"]["source_session_id"], session);
-        assert_eq!(response["observation_status"]["freshness_status"], "fresh");
-        producer.shutdown().await.unwrap();
-    }
-
-    #[test]
-    fn replay_public_state_delivery_requires_v1_and_hello_bound_identity() {
-        let gateway = Gateway::new(test_config()).unwrap();
-        let scene = scene_for(
-            "engine-replay-envelope",
-            "session-replay-envelope",
-            1,
-            "frame-1",
-        );
-        let mut delivery: Value =
-            serde_json::from_slice(&replay_public_state_delivery(&scene)).unwrap();
-
-        delivery["delivery_schema_version"] = json!(2);
-        let error = gateway
-            .accept_replay_payload(
-                &serde_json::to_vec(&delivery).unwrap(),
-                &scene.engine_instance_id,
-                &scene.source.session_id,
-            )
-            .unwrap_err();
-        assert!(error.contains("unsupported replay public-state delivery contract"));
-
-        delivery["delivery_schema_version"] = json!(1);
-        let error = gateway
-            .accept_replay_payload(
-                &serde_json::to_vec(&delivery).unwrap(),
-                "another-engine",
-                &scene.source.session_id,
-            )
-            .unwrap_err();
-        assert!(error.contains("scene identity differs from the replay-v2 hello"));
-
-        let error = gateway
-            .accept_replay_payload(
-                &serde_json::to_vec(&scene).unwrap(),
-                "another-engine",
-                &scene.source.session_id,
-            )
-            .unwrap_err();
-        assert!(error.contains("scene identity differs from the replay-v2 hello"));
-    }
-
-    #[tokio::test]
-    async fn replay_v2_scene_is_available_over_http_and_latest_only_websocket() {
-        let gateway = Gateway::new(test_config()).unwrap();
-        let scene_address = start_ingress(gateway.clone()).await;
-        let mut producer = TcpStream::connect(scene_address).await.unwrap();
+        let engine = "engine-rust-stage2-a";
+        let session = "replay-session-01";
+        gateway
+            .activate_producer_epoch(engine.into(), session.into())
+            .unwrap();
         let scene = fixture_scene();
-        let ready = hello(
-            &mut producer,
-            &scene.engine_instance_id,
-            &scene.source.session_id,
-        )
-        .await;
-        assert_eq!(
-            ready,
-            json!({"type":"ready","protocol_version":2,"last_transport_sequence":null})
-        );
-        send_scene(&mut producer, &scene).await;
+        gateway.accept_scene(scene).unwrap();
 
         let response = tokio::time::timeout(Duration::from_secs(1), async {
             loop {
@@ -2354,13 +2093,8 @@ mod tests {
         );
         assert_fixture_fields(&normalized_envelope, &normalized_contract, "state");
 
-        let mut next_scene = scene_for("engine-a", "session-a", 2, "frame-2");
-        next_scene.engine_instance_id = "engine-rust-stage2-a".into();
-        next_scene.source.session_id = "replay-session-01".into();
-        for ball in &mut next_scene.balls {
-            ball.last_observation.session_id = "replay-session-01".into();
-        }
-        send_scene(&mut producer, &next_scene).await;
+        let next_scene = scene_for(engine, session, 2, "frame-2");
+        gateway.accept_scene(next_scene).unwrap();
         let next = tokio::time::timeout(Duration::from_secs(1), client.next())
             .await
             .unwrap()
@@ -2463,7 +2197,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_ready_write_does_not_commit_a_new_producer_epoch() {
+    fn failed_live_ready_write_does_not_commit_a_new_producer_epoch() {
         struct FailedWriter;
         impl Write for FailedWriter {
             fn write(&mut self, _bytes: &[u8]) -> std::io::Result<usize> {
@@ -2478,7 +2212,23 @@ mod tests {
             }
         }
 
-        let gateway = Gateway::new(test_config()).unwrap();
+        let (directory, configuration_path) = live_test_configuration();
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(configuration_path),
+            project_root: Some(directory.path().to_path_buf()),
+            ..test_config()
+        })
+        .unwrap();
+        let settings = gateway.resolve_live_capture_settings().unwrap();
+        let hello = json!({
+            "type": "hello",
+            "protocol_version": LIVE_PROTOCOL_VERSION,
+            "engine_instance_id": "engine-b",
+            "source_session_id": "session-b",
+            "capture_session_ack": live_acknowledgement(&settings, "session-b"),
+        });
+        let handshake =
+            validate_live_v3_hello(&serde_json::to_vec(&hello).unwrap(), &settings).unwrap();
         gateway
             .activate_producer_epoch("engine-a".into(), "session-a".into())
             .unwrap();
@@ -2487,7 +2237,7 @@ mod tests {
             .unwrap();
 
         assert!(gateway
-            .acknowledge_producer(&mut FailedWriter, "engine-b".into(), "session-b".into(),)
+            .acknowledge_live_producer(&mut FailedWriter, &handshake)
             .is_err());
         let retained = gateway.snapshot_now().unwrap();
         assert_eq!(
@@ -2497,11 +2247,12 @@ mod tests {
 
         let mut ready = Vec::new();
         gateway
-            .acknowledge_producer(&mut ready, "engine-b".into(), "session-b".into())
+            .acknowledge_live_producer(&mut ready, &handshake)
             .unwrap();
         assert!(gateway.snapshot_now().is_none());
         let length = u32::from_be_bytes(ready[..4].try_into().unwrap()) as usize;
         let response: Value = serde_json::from_slice(&ready[4..4 + length]).unwrap();
+        assert_eq!(response["protocol_version"], LIVE_PROTOCOL_VERSION);
         assert_eq!(response["last_transport_sequence"], Value::Null);
     }
 
@@ -2720,6 +2471,44 @@ mod tests {
         stream.shutdown().await.unwrap();
     }
 
+    #[test]
+    fn live_delivery_rejects_unsupported_versions_and_wrong_source_identity() {
+        let (directory, configuration_path) = live_test_configuration();
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(configuration_path),
+            project_root: Some(directory.path().to_path_buf()),
+            ..test_config()
+        })
+        .unwrap();
+        let settings = gateway.resolve_live_capture_settings().unwrap();
+        let engine = "engine-live-contract";
+        let session = "session-live-contract";
+        let hello = json!({
+            "type": "hello",
+            "protocol_version": LIVE_PROTOCOL_VERSION,
+            "engine_instance_id": engine,
+            "source_session_id": session,
+            "capture_session_ack": live_acknowledgement(&settings, session),
+        });
+        let handshake =
+            validate_live_v3_hello(&serde_json::to_vec(&hello).unwrap(), &settings).unwrap();
+        let scene = scene_for(engine, session, 1, "frame-live-contract");
+        let mut delivery: Value = serde_json::from_slice(&public_state_delivery(&scene)).unwrap();
+
+        delivery["delivery_schema_version"] = json!(2);
+        let error = gateway
+            .accept_live_delivery(&serde_json::to_vec(&delivery).unwrap(), &handshake)
+            .unwrap_err();
+        assert!(error.contains("unsupported public-state delivery contract"));
+
+        delivery["delivery_schema_version"] = json!(1);
+        delivery["source_snapshot"]["engine_instance_id"] = json!("another-engine");
+        let error = gateway
+            .accept_live_delivery(&serde_json::to_vec(&delivery).unwrap(), &handshake)
+            .unwrap_err();
+        assert!(error.contains("scene identity differs from the acknowledged live source"));
+    }
+
     #[tokio::test]
     async fn live_v3_rejects_stale_acknowledgement_before_ready() {
         let (directory, configuration_path) = live_test_configuration();
@@ -2759,7 +2548,7 @@ mod tests {
     }
 
     #[test]
-    fn replay_only_gateway_refuses_to_resolve_live_capture_settings() {
+    fn live_gateway_requires_configured_capture_settings() {
         let gateway = Gateway::new(test_config()).unwrap();
         assert!(gateway
             .resolve_live_capture_settings()
@@ -2772,7 +2561,13 @@ mod tests {
         let gateway = Gateway::new(test_config()).unwrap();
         let address = start_ingress(gateway.clone()).await;
         let mut producer = TcpStream::connect(address).await.unwrap();
-        hello(&mut producer, "engine-a", "session-a").await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !gateway.inner.producer_connected.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         gateway.shutdown();
 
         let mut byte = [0_u8; 1];
@@ -2795,128 +2590,63 @@ mod tests {
     #[tokio::test]
     async fn identity_restart_clears_old_localization_and_starts_new_sequence_epoch() {
         let gateway = Gateway::new(test_config()).unwrap();
-        let address = start_ingress(gateway.clone()).await;
-        let mut first = TcpStream::connect(address).await.unwrap();
-        hello(&mut first, "engine-a", "session-a").await;
-        send_scene(
-            &mut first,
-            &scene_for("engine-a", "session-a", 4, "frame-a"),
-        )
-        .await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if gateway.snapshot_now().is_some() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        gateway
+            .activate_producer_epoch("engine-a".into(), "session-a".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-a", "session-a", 4, "frame-a"))
+            .unwrap();
+        assert!(gateway.snapshot_now().is_some());
 
-        drop(first);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        let mut second = TcpStream::connect(address).await.unwrap();
-        let ready = hello(&mut second, "engine-b", "session-b").await;
-        assert_eq!(ready["last_transport_sequence"], Value::Null);
+        gateway
+            .activate_producer_epoch("engine-b".into(), "session-b".into())
+            .unwrap();
         assert!(gateway.snapshot_now().is_none());
-        send_scene(
-            &mut second,
-            &scene_for("engine-b", "session-b", 1, "frame-1"),
-        )
-        .await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if gateway.snapshot_now().is_some_and(|state| {
-                    state.current.payload.observation_status["engine_instance_id"] == "engine-b"
-                }) {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-b", "session-b", 1, "frame-1"))
+            .unwrap();
+        let state = gateway.snapshot_now().unwrap();
+        assert_eq!(
+            state.current.payload.observation_status["engine_instance_id"],
+            "engine-b"
+        );
     }
 
     #[tokio::test]
     async fn lifecycle_rejects_invalid_identity_order_and_duplicate_observation() {
         let gateway = Gateway::new(test_config()).unwrap();
-        let address = start_ingress(gateway.clone()).await;
-        let mut producer = TcpStream::connect(address).await.unwrap();
-        hello(&mut producer, "engine-a", "session-a").await;
-        send_scene(
-            &mut producer,
-            &scene_for("wrong-engine", "session-a", 1, "frame-1"),
-        )
-        .await;
-        let mut byte = [0];
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), producer.read(&mut byte))
-                .await
-                .unwrap()
-                .is_ok()
-        );
+        gateway
+            .activate_producer_epoch("engine-a".into(), "session-a".into())
+            .unwrap();
+        let wrong_identity = gateway
+            .accept_scene(scene_for("wrong-engine", "session-a", 1, "frame-1"))
+            .unwrap_err();
+        assert!(wrong_identity.contains("active source"));
         assert!(gateway.snapshot_now().is_none());
 
-        let mut producer = TcpStream::connect(address).await.unwrap();
-        hello(&mut producer, "engine-b", "session-b").await;
+        gateway
+            .activate_producer_epoch("engine-b".into(), "session-b".into())
+            .unwrap();
         let first = scene_for("engine-b", "session-b", 1, "frame-1");
-        send_scene(&mut producer, &first).await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if gateway.snapshot_now().is_some() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        let out_of_order = scene_for("engine-b", "session-b", 1, "frame-2");
-        send_scene(&mut producer, &out_of_order).await;
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), producer.read(&mut byte))
-                .await
+        gateway.accept_scene(first).unwrap();
+        let duplicate_sequence = scene_for("engine-b", "session-b", 1, "frame-2");
+        let duplicate = gateway.accept_scene(duplicate_sequence).unwrap_err();
+        assert!(duplicate.contains("sequence"));
+        let stale_sequence = scene_for("engine-b", "session-b", 2, "frame-1");
+        let stale_frame = gateway.accept_scene(stale_sequence).unwrap_err();
+        assert!(stale_frame.contains("already accepted"));
+        gateway
+            .accept_scene(scene_for("engine-b", "session-b", 2, "frame-2"))
+            .unwrap();
+        assert_eq!(
+            gateway
+                .snapshot_now()
                 .unwrap()
-                .is_ok_and(|read| read == 0)
+                .current
+                .payload
+                .observation_status["source_frame_id"],
+            "frame-2"
         );
-
-        let mut reconnect = TcpStream::connect(address).await.unwrap();
-        let ack = hello(&mut reconnect, "engine-b", "session-b").await;
-        assert_eq!(ack["last_transport_sequence"], 1);
-        send_scene(
-            &mut reconnect,
-            &scene_for("engine-b", "session-b", 2, "frame-1"),
-        )
-        .await;
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), reconnect.read(&mut byte))
-                .await
-                .unwrap()
-                .is_ok_and(|read| read == 0)
-        );
-
-        let mut reconnect = TcpStream::connect(address).await.unwrap();
-        let ack = hello(&mut reconnect, "engine-b", "session-b").await;
-        assert_eq!(ack["last_transport_sequence"], 1);
-        send_scene(
-            &mut reconnect,
-            &scene_for("engine-b", "session-b", 2, "frame-2"),
-        )
-        .await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if gateway.snapshot_now().is_some_and(|state| {
-                    state.current.payload.observation_status["source_frame_id"] == "frame-2"
-                }) {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
     }
 
     #[tokio::test]
@@ -2972,24 +2702,12 @@ mod tests {
             ..test_config()
         };
         let gateway = Gateway::new(config).unwrap();
-        let scene_address = start_ingress(gateway.clone()).await;
-        let mut producer = TcpStream::connect(scene_address).await.unwrap();
-        hello(&mut producer, "engine-a", "session-a").await;
-        send_scene(
-            &mut producer,
-            &scene_for("engine-a", "session-a", 1, "frame-1"),
-        )
-        .await;
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                if gateway.snapshot_now().is_some() {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
+        gateway
+            .activate_producer_epoch("engine-a".into(), "session-a".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-a", "session-a", 1, "frame-1"))
+            .unwrap();
 
         let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let http_address = http_listener.local_addr().unwrap();
@@ -3129,7 +2847,7 @@ mod tests {
         assert_eq!(health["status"], "alive");
 
         let next_sequence = queued_sequence + 1;
-        send_scene(&mut producer, &dense_scene(next_sequence)).await;
+        gateway.accept_scene(dense_scene(next_sequence)).unwrap();
         let next = tokio::time::timeout(Duration::from_secs(1), responsive_client.next())
             .await
             .unwrap()

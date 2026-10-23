@@ -1,10 +1,19 @@
 # ADR-0053: Use five-percent default detail sampling for performance audit
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0085 for collector sampling and report implementation
+
+## Implementation status (2026-10-23)
+
+The 5% ratio applied to detail sampling in the now-retired Python collector.
+The maintained Rust audit uses explicit bounded sample retention and does not
+apply that fractional sampling default. The old Mac A/B reports remain useful
+historical evidence for that collector configuration, but they do not qualify
+the current Rust instrumentation overhead. Default-off operation, bounded
+retention, and explicit loss disclosure remain required Rust audit contracts.
 
 ## Context
 
@@ -59,11 +68,9 @@ useful sample for stage percentiles and delivery categories.
 
 ## Verification
 
-- `backend/tests/integration/test_websocket_delivery.py::test_audit_activation_refreshes_sampling_from_selected_config` verifies
-  that the WebSocket sampler uses the selected runtime configuration instead
-  of a value cached before `--config` is applied.
-- `backend/tests/unit/test_performance_audit_collector.py` verifies source
-  freshness fallback and observation accounting for live state messages.
+- The former Python tests verified runtime-selected sample configuration,
+  source freshness fallback, and observation accounting. They were retired
+  with the collector and are historical, not a current acceptance gate.
 - The matched off/on reports are
   [`20261021-212120-6a414523`](../../../thoughts/performance-audits/local-sampled-instrumentation-ab/matched-5pct-config-refresh/20261021-212120-6a414523/report.md)
   and

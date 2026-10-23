@@ -9,6 +9,12 @@
 > authoring remain off-device. Live performance and temporal localization
 > evaluation are Rust-owned under ADR-0085. Ball-number classification remains
 > excluded.
+>
+> As of 2026-10-23, the deployed Python API gateway has also been replaced by
+> Rust; the remaining Python API is an offline compatibility reference and
+> test fixture. The API recorded-replay mode and Rust replay-v2 gateway ingress
+> were retired under ADR-0094. Dated progress entries below preserve historical
+> implementation states and are not current runtime instructions.
 
 ## Outcome and verification strategy
 

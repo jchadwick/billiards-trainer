@@ -65,7 +65,6 @@ _DEPLOYMENT_EXECUTABLE_FIELDS = frozenset(
     {
         "perception.rust_live.executable_path",
         "perception.rust_live.capture_helper_executable_path",
-        "perception.rust_replay.executable_path",
     }
 )
 

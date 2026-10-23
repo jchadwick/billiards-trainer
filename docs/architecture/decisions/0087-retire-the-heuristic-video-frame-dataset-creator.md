@@ -6,6 +6,14 @@
 - Supersedes: ADR-0085's dataset-frame-extraction disposition only
 - Superseded by: ADR-0089 for the dataset-merger disposition only
 
+## Implementation status (2026-10-23)
+
+Retirement of `tools/dataset_creator.py` and its usage guide remains in force.
+ADR-0089 supersedes only ADR-0087's temporary decision to retain the generic
+dataset merger; that merger is retired as well. The frame-extractor rationale
+and retirement are unchanged, and the lineage-bound ONNX model exporter and
+reviewed temporal-label workflow remain separate supported authoring tools.
+
 ## Context
 
 ADR-0085 retained `tools/dataset_creator.py` as an optional way to extract

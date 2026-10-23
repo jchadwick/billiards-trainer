@@ -1,15 +1,24 @@
-# Rust perception and live pipeline
+# Rust runtime and perception tools
 
-This directory contains the supported Rust perception implementation and its
-development CLIs. `billiards-server` supervises the Rust live detector and
-serves the browser application; `billiards-perception-infer` is a still-image
-diagnostic with detection-batch JSONL artifacts and optional scene-state TCP
-output, not a live benchmark. Physical GStreamer capture remains an opt-in
-qualification path. Use the Rust live audit and temporal evaluator described in
-[`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md) for current runtime
-and labeled-accuracy evidence. Historical prototype notes below may describe
-the former Python compatibility supervisor; they are not the supported server
-entry point.
+This crate contains the supported server-side runtime and the maintained
+perception tools. `billiards-server` serves the browser application and owns
+the application lifecycle; `billiards-perception-live` runs live capture and
+detection through the supervised GStreamer helper. The physical-camera source
+is feature-gated and still requires hardware qualification on each target.
+
+Use `billiards-performance-audit-run` for live state delivery and freshness,
+`billiards-perception-video-replay` for recorded-video detector freshness or
+capacity, and `billiards-temporal-evaluate` for accuracy against reviewed
+labels. Their distinct evidence boundaries and commands are documented in
+[`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md). There is no
+maintained still-image inference CLI: a still image cannot establish live
+freshness or temporal accuracy, and the old command duplicated shared inference
+paths without a distinct supported workflow.
+
+The current model reports generic `cue` and `ball` classes only. Numbered-ball
+identity such as 6/7/8-ball classification remains outside the supported model
+contract. Historical prototype notes may describe the former Python
+compatibility supervisor; they are not the supported server entry point.
 
 ## Reusable RGB-frame inference
 
@@ -35,8 +44,8 @@ sustained freshness still require qualification on the intended hardware.
 
 The integration test loads a small deterministic ONNX fixture to exercise
 manifest validation, tensor creation, session execution, output validation,
-and decoding without network access or a large model artifact. Recorded-image
-inference uses this same frame engine. A historical ten-still comparison with
+and decoding without network access or a large model artifact. Recorded-video
+replay uses this same frame engine. A historical ten-still comparison with
 the Python scorer remains in the audit archive; that scorer has been retired.
 The small unpaced run is integration evidence, not a live freshness or
 performance qualification.
@@ -103,9 +112,10 @@ request, uses an
 enumerated stable selector, validates negotiated input/output geometry, and
 does not write camera controls. A short macOS smoke verified frame delivery
 and child shutdown with the built-in camera, but did not verify table accuracy,
-driver-level frame age, sustained operation, or Linux behavior. Preview and
-calibration handover remain unimplemented, so Rust live stays unavailable to
-normal provider selection.
+driver-level frame age, sustained operation, or Linux behavior. The live path
+is available through the Rust gateway when validated live configuration and
+the required GStreamer feature are selected. Preview-to-calibration-to-live
+activation and physical accuracy/freshness qualification remain open.
 
 ## Opt-in camera discovery
 
@@ -192,248 +202,41 @@ it does not qualify a selected camera adapter, provider launch, live freshness,
 or hardware. Detector resize/tensor work is not covered by the capture RGB
 allocation budget.
 
-## Recorded-image inference
+## Recorded-video replay and accuracy evaluation
 
-The `billiards-perception-infer` binary runs one PNG/JPEG image or every PNG/JPEG
-under a directory. It requires explicit model paths, provider policy,
-image-size, confidence, and IoU arguments, and emits a versioned JSON report to
-stdout. It can also retain the JSON report and the ONNX Runtime profile used to
-identify the providers that actually executed nodes.
+`billiards-perception-video-replay` reuses the inference engine used by live
+capture. Select `realtime-latest-frame` to replay source presentation timing
+with latest-frame replacement, or `capacity` to decode and process every source
+frame as quickly as possible. The two modes answer different questions. Replay
+predecodes into a bounded RGB spool, so it does not measure camera acquisition
+or live decoder contention; use the live performance audit for end-to-end state
+delivery. See [`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md) for
+the maintained commands, defaults, report fields, and interpretation limits.
 
-Unpaced replay measures capacity by processing every image in order. Add
-`--replay-rate-fps <rate>` for synthetic real-time pacing with a one-frame
-latest-work mailbox. While inference is busy, a newer decoded input replaces a
-pending one; source-frame IDs and replacement counts expose those skips. The
-reported source timestamp is synthetic monotonic `frame_arrival` after image
-decoding, never camera exposure time. The requested cadence, source-read
-lateness, source-to-inference-start and source-to-inference-complete timings
-are reported separately. Detection-batch JSONL output is synchronous and can
-delay the measured consumer.
+The video-replay command records model and video hashes, selected stream,
+effective inference settings, provider, revision/worktree identity, replacement
+counts, and timing distributions. Optional bounded traces and JSONL detection
+or scene artifacts support deeper analysis. Calibration can add table-space
+coordinates only when the bundle, source image space, camera profile, and
+applied revisions agree. Scene artifacts can be scored with reviewed temporal
+annotations; without those labels, localization accuracy is unavailable.
 
-Optional detection-batch v1 output writes one complete record per image to a
-new `--detection-batches-jsonl PATH` artifact. It requires
-`--engine-instance-id ID` and `--source-session-id ID`.
+Use `billiards-temporal-import-cvat` to import explicitly reviewed CVAT video
+annotations and `billiards-temporal-evaluate` to score scene snapshots against
+them. The annotation must refer to the exact video and stream geometry. V2
+physical-coordinate scoring requires independently measured table coordinates,
+stated uncertainty, and an explicit millimeter match gate. The repository does
+not currently contain representative held-out temporal and physical labels, so
+no production accuracy claim is supported.
 
-For an experimental tracked-scene replay, add `--scene-snapshots-jsonl PATH`
-or the `--scene-snapshots-tcp 127.0.0.1:PORT` destination and
-provide every `--tracking-*` policy setting shown below. This mode requires
-paced replay and detection-batch output, preserves raw detector batches, and
-builds one validated scene-snapshot v1 record for each processed frame. The
-source time remains synthetic post-decode `frame_arrival`; `snapshot_publication`
-is captured after tracking, immediately before encoding. Without a calibration
-bundle, table coordinates remain unavailable. A configured but incompatible
-calibration produces a degraded scene with image measurements retained and
-table measurements empty.
-
-TCP scene output serializes on the inference thread and submits to a bounded
-latest-only slot serviced by a dedicated writer. At most one frame is pending
-while one can be in flight; a newer pending frame replaces the older one. The
-writer reconnects with capped exponential backoff (defaults: 100 ms initial,
-2,000 ms maximum). The protocol-version 2 hello carries the engine-instance
-and source-session IDs already present in each scene, so the ready response
-includes a watermark only for the matching producer epoch. These IDs are data
-provenance, not authentication credentials. A changed engine or source session
-starts a fresh receiver sequence epoch and clears stale queued scene state.
-After reconnect, only a newer latest snapshot is sent.
-The report distinguishes queued records and successful local socket writes from
-receiver acceptance; the receiver's own counters are authoritative for accepted
-snapshots. The handshake carries no credential. The Rust gateway accepts
-replay-v2 deliveries and publishes them through its HTTP state read model and
-WebSocket stream. Those scenes do not enter Core physics, and replay does not
-own a live camera or provide preview/predictions. Scene JSONL remains
-synchronously flushed per frame in the still-image CLI.
-
-```bash
-cargo run --release --manifest-path perception/Cargo.toml --bin billiards-perception-infer -- \
-  --onnx /tmp/billiards-onnx/model.onnx \
-  --source-checkpoint models/billiards-yolov8n.pt \
-  --input backend/vision/test_data \
-  --provider cpu \
-  --image-size 1280 \
-  --confidence 0.4 \
-  --iou 0.45 \
-  --replay-rate-fps 30 \
-  --detection-batches-jsonl /tmp/billiards-batches.jsonl \
-  --engine-instance-id scene-audit-01 \
-  --source-session-id recording-01 \
-  --scene-snapshots-jsonl /tmp/billiards-scenes.jsonl \
-  --tracking-ball-class-id 1 \
-  --tracking-cue-class-id 0 \
-  --tracking-camera-profile-id camera-profile-a \
-  --tracking-association-gate-px 18.5 \
-  --tracking-association-prediction-horizon-ms 50 \
-  --tracking-lost-after-ms 200 \
-  --tracking-maximum-track-age-ms 1000 \
-  --tracking-maximum-active-tracks 24 \
-  --tracking-recent-observation-capacity 32 \
-  --tracking-configuration-revision 1 \
-  --tracking-rectification-revision 1
-```
-
-The explicit tracking numbers above are an example audit configuration, not
-recommended production thresholds. Add `--calibration-bundle`,
-`--source-image-space`, and all three applied camera/revision arguments to test
-physical coordinates. The bundle must match source image space, dimensions,
-camera profile, and applied revisions exactly. The report records effective
-tracking settings, per-frame tracking and encode/enqueue time, scene count and skips through
-the associated source-frame IDs. Temporal tracking accuracy, held-out physical
-position error, slow-client isolation and platform qualification remain open.
-
-For TCP scene output, replace the JSONL option with
-`--scene-snapshots-tcp 127.0.0.1:PORT` and provide
-`--scene-snapshots-max-message-bytes`, `--scene-snapshots-connect-timeout-ms`,
-and `--scene-snapshots-write-timeout-ms`. The reconnect settings default to
-100 ms and 2,000 ms and can be overridden with
-`--scene-snapshots-reconnect-initial-delay-ms` and
-`--scene-snapshots-reconnect-maximum-delay-ms`. The receiver must be an
-application-owned `SceneSnapshotIngress` using protocol version 2; a standalone
-operator-facing receiver command has not been added yet.
-`mean_encode_enqueue_ms` measures serialization plus bounded queue submission,
-not socket delivery.
-
-All requested output paths are created without overwriting existing data. Detection-batch JSONL is a local artifact for replay inspection and accuracy workflows; it is not a live-client transport. Use the Rust live audit and its headless state subscriber for live delivery evidence.
-
-Unpaced still images preserve
-`source.timestamp: null`; paced replay publishes synthetic `frame_arrival`
-timestamps from the Rust monotonic domain. Frame IDs follow original input
-order and are scoped by the supplied source session and engine instance.
-
-Build and test from the repository root:
-
-```bash
-cargo fmt --manifest-path perception/Cargo.toml -- --check
-cargo test --manifest-path perception/Cargo.toml
-cargo clippy --manifest-path perception/Cargo.toml --all-targets -- -D warnings
-```
-
-Export the current trained checkpoint to a temporary directory with the
-retained exporter. The model remains outside this repository. The runtime
-requires the explicit source checkpoint to verify its hash, the exported ONNX
-hash, and the manifest class map:
-
-```bash
-uv run --project . python tools/export_high_res_model.py \
-  --model models/billiards-yolov8n.pt \
-  --output-dir /tmp/billiards-onnx \
-  --imgsz 1280
-
-cargo run --release --manifest-path perception/Cargo.toml --bin billiards-perception-infer -- \
-  --onnx /tmp/billiards-onnx/billiards-yolov8n.onnx \
-  --source-checkpoint models/billiards-yolov8n.pt \
-  --input backend/vision/test_data \
-  --provider cpu \
-  --image-size 1280 \
-  --confidence 0.4 \
-  --iou 0.45 \
-  --max-detections 300 \
-  --dump-preprocessed-directory /tmp/billiards-rust-inputs \
-  --detection-batches-jsonl /tmp/billiards-detection-batches.jsonl \
-  --engine-instance-id rust-audit-20261020-01 \
-  --source-session-id recording-20261020-01 \
-  --output-json /tmp/billiards-rust-inference.json \
-  --retain-provider-profile /tmp/billiards-ort-profile.json
-```
-
-Confidence, IoU, model image size, model paths, and provider policy are
-required; the `0.4`, `0.45`, and `1280` values above are for the existing
-equivalence harness, not recommended production thresholds. `--max-detections`
-defaults to 300 to match
-the common Ultralytics cap; the chosen value is recorded. `--warmup-runs`
-defaults to one and can be set to zero. `--intra-op-threads` is optional; when
-omitted, the selected backend chooses its own thread settings and the report
-records that it was omitted. OpenVINO applies an explicit value to its CPU
-inference-thread property; ONNX Runtime applies it as its intra-op thread count.
-
-The runtime accepts only the exported single-image signature (`images` float32
-NCHW input and `output0` float32 `[1, 6, N]` output), and verifies it against
-the fixed input size and the two contiguous classes in the export manifest.
-Unexpected names, shapes, dtypes, and non-finite outputs fail the run. The
-current checkpoint provides generic `cue` and `ball` classes only. It does not
-identify numbered balls such as the 6, 7, or 8 ball.
-
-The Rust preprocessor performs aspect-preserving, centered letterboxing,
-OpenCV-style half-pixel bilinear sampling, RGB channel ordering, NCHW layout,
-and `[0,1]` normalization. It decodes files with `image-rs`. In the current
-10-image comparison, all nine PNG tensors matched the Ultralytics/OpenCV
-reference exactly, while the JPEG tensor differed due to decoder behavior.
-See the [recorded-image prototype report](../thoughts/performance-audits/rust-inference-prototype-20261020/report.md)
-before treating this as preprocessing parity. The CoreML package discussed in
-older reports belongs to the offline Python compatibility detector; the
-maintained exporter and Rust runtime use the verified ONNX artifact.
-
-`--dump-preprocessed-directory` optionally writes raw little-endian float32
-NCHW tensors, with each path recorded in the JSON result. Load them with NumPy
-as `np.fromfile(path, dtype="<f4").reshape(1, 3, image_size, image_size)` and
-compare directly with the Python/OpenCV input tensor.
-
-One isolated `grid.jpg` comparison found 695,791 of 8,294,400 decoded pixels
-with at least one channel differing between `image-rs` and OpenCV; mean
-absolute channel difference was 0.06365/255 and maximum was 3/255. This is
-single-image decoder evidence, not detection-accuracy evidence, and does not
-justify adding another decoder. The one-off raw-byte probe was retired; the
-input and result hashes are preserved in the
-[raw decoder comparison](../thoughts/performance-audits/rust-inference-prototype-20261020/evidence/raw-jpeg-decoder-comparison.json).
-
-The Rust runtime verifies that the ONNX input size matches the configured
-inference size and that its manifest names the matching source checkpoint.
-Historical Python CoreML package metadata has no verified source manifest and
-does not establish CoreML-versus-ONNX parity. The recorded still-image results
-are static, unpaced image processing, not camera-to-client latency, temporal
-accuracy, or real-time capacity evidence.
-
-`--provider cpu` disables automatic accelerators and requests the CPU provider.
-`--provider auto` explicitly selects ONNX Runtime's max-efficiency device
-policy. On macOS this can partition the graph between CoreML and CPU; node
-provider evidence is reported rather than assuming the policy's preferred
-provider ran every node. That provider-policy observation does not qualify a
-different model, host, or localization workload.
-
-OpenVINO is an explicit runtime choice in normal macOS and Linux builds. Build
-the inference executable with
-`cargo build --release --manifest-path perception/Cargo.toml --bin billiards-perception-infer`
-and select it with `--provider openvino`; API replay continues to default to
-`cpu`. This selection uses the direct OpenVINO Runtime C API through
-`openvino-rs`, not ONNX Runtime's OpenVINO execution provider. The model remains
-the same verified ONNX export, and preprocessing, decoding, calibration, and
-scene publication are shared with the ONNX Runtime path. The backend targets
-the OpenVINO CPU device and maps an explicit inference-thread setting to
-OpenVINO's `INFERENCE_NUM_THREADS` CPU property.
-
-The binary is built with runtime linking, so OpenVINO need not be installed on
-the build host. At launch, OpenVINO Runtime 2025.1 or newer must be discoverable
-through the platform environment (`LD_LIBRARY_PATH` on Linux or
-`DYLD_LIBRARY_PATH` on macOS), an OpenVINO install directory, or a supported
-standard installation path. The Rust supervisor forwards the platform library
-path only for an explicit OpenVINO selection. In container deployments, the
-OpenVINO runtime must be installed in or mounted into the API container itself;
-a host installation alone is invisible to the isolated child process. The
-current API image does not package OpenVINO by default. Missing or incompatible
-runtime libraries fail the request; it never silently falls back to CPU.
-Actual Apple-Silicon runtime execution still needs a host smoke test. See
+The model exporter at `tools/export_high_res_model.py` produces the verified
+ONNX artifact consumed by Rust. The current model detects generic `cue` and
+`ball` classes only; numbered-ball classification is outside its contract.
+OpenVINO is an explicit CPU inference backend on macOS and Linux, while CPU and
+automatic-provider policies use ONNX Runtime. Provider selection and model
+loadability do not establish equivalent accuracy or target-machine speed; see
 [ADR-0045](../docs/architecture/decisions/0045-use-the-native-openvino-runtime-backend-for-openvino-selection.md)
-for the decision and qualification requirements. ADR-0043's target A/B
-measured the earlier ONNX Runtime provider implementation and does not qualify
-this native backend.
-
-Runtime provenance identifies `openvino-rs` and the native CPU backend. This
-API does not expose ONNX Runtime per-node provider assignment, so OpenVINO node
-counts and retained ORT provider traces are unavailable; the audit says so
-explicitly rather than implying graph partition or fallback evidence. The safe
-OpenVINO tensor API copies prepared input into the persistent native input
-tensor, and that copy is included in inference timing. CPU and auto continue to
-use ONNX Runtime `2.0.0-rc.15` with the bundled ONNX Runtime 1.31 distribution.
-Their short profiling session and separate measurement session remain
-unchanged.
-This is a prototype choice, not an approved dependency or deployment strategy.
-The observed macOS auto-policy profile is evidence for this one model/runtime
-combination; it does not establish localization accuracy or target Linux
-performance.
-
-The existing scene snapshot contract and four-byte framing tests remain
-available through `cargo test`. Socket ownership, camera acquisition,
-transport backpressure, production accuracy acceptance, and macOS/Linux
-qualification are subsequent migration stages governed by the architecture
-records in [`../docs/architecture/`](../docs/architecture/README.md).
+and the specific run reports for the evidence and limits.
 
 ## Capture implementation limits
 
@@ -449,9 +252,10 @@ semantics. See the [v3 contract](contracts/capture-settings/v3/README.md).
 
 The frame envelope, mailbox, and fake-source worker described above preserve
 source timestamp semantics and exercise software ownership sequencing. They do
-not acquire a camera, connect to inference or the API, or qualify physical
-capture-buffer reuse. The executable remains recorded-image-only; no camera
-library or platform adapter has been selected.
+not qualify physical capture-buffer reuse. The live executable and supervised
+GStreamer helper are implemented; enabling the physical source requires the
+`camera-gstreamer-source` feature. Fake and network-stream tests prove software
+wiring only, not driver timing or physical table accuracy.
 
 The mailbox bounds pending frame count, and the per-frame maximum bounds each
 application-owned RGB8 vector. The one-session receiver API allows one active

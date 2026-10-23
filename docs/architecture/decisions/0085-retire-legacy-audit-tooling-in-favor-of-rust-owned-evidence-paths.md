@@ -4,7 +4,7 @@
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: ADR-0082
-- Superseded by: ADR-0087 for dataset-frame extraction, ADR-0088 for Python profiler/status retention, ADR-0089 for generic dataset-merger retention, and ADR-0092 for CoreML-export retention
+- Superseded by: ADR-0087 for dataset-frame extraction, ADR-0088 for Python profiler/status retention, ADR-0089 for generic dataset-merger retention, ADR-0092 for CoreML-export retention, and ADR-0094 for obsolete still-image and API replay tooling
 
 ## Context
 
@@ -161,3 +161,10 @@ the unowned heuristic `dataset_creator.py` was retired after review found
 invalid count edge cases, approximate timestamps, and no focused extraction
 tests or active callers. Dataset merging and model export remain separate
 supported authoring tools; all other ADR-0085 decisions remain in force.
+
+ADR-0094 supersedes this record only for the standalone still-image inference
+CLI, the broken Python API replay supervisor/configuration, and the orphaned
+replay-v2 TCP ingress. The shared `FrameInferenceEngine`, recorded-video
+replay, live runtime, and JSONL, calibration, and temporal-evaluation APIs
+remain supported; the video evaluator is an offline artifact workflow and is
+not a gateway state producer.

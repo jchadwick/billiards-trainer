@@ -242,7 +242,6 @@ def test_video_stream_backpressure_limit_rejects_invalid_values(value: Any) -> N
 
 def test_perception_provider_configuration_is_explicit_and_validated() -> None:
     assert load_schema_reference()["perception"]["provider"] == "rust"
-    assert load_schema_reference()["perception"]["mode"] == "live"
     assert (
         load_schema_reference()["vision"]["camera"]["control_policy"]
         == "source_defaults"
@@ -254,15 +253,16 @@ def test_perception_provider_configuration_is_explicit_and_validated() -> None:
     errors, _ = validate_configuration({"perception": {"provider": "python"}})
     assert {error["field"] for error in errors} == {"perception.provider"}
 
-    for mode in ("live", "recorded_replay"):
-        errors, _ = validate_configuration({"perception": {"mode": mode}})
-        assert errors == []
-
     errors, _ = validate_configuration({"perception": {"provider": "automatic"}})
     assert {error["field"] for error in errors} == {"perception.provider"}
 
-    errors, _ = validate_configuration({"perception": {"mode": "automatic"}})
-    assert {error["field"] for error in errors} == {"perception.mode"}
+    for retired_setting in (
+        {"mode": "recorded_replay"},
+        {"rust_replay": {"replay_repeat_count": 1}},
+    ):
+        errors, _ = validate_configuration({"perception": retired_setting})
+        assert len(errors) == 1
+        assert errors[0]["field"].startswith("perception.")
 
     for policy in ("source_defaults", "require"):
         errors, _ = validate_configuration(

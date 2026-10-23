@@ -6,6 +6,10 @@
 - Supersedes: None
 - Superseded by: None
 
+> Current status: live source-health reporting is owned by the Rust gateway
+> and live supervisor. The Python replay-supervisor and API lifecycle evidence
+> from the original migration is historical; ADR-0094 removed that path.
+
 ## Context
 
 The Rust replay process can produce a valid localization and then stop or fail.
@@ -106,9 +110,7 @@ identity already retains the last actual source frame for provenance.
 ## Related decisions and implementation tracking
 
 This decision extends ADR-0010's stale/failure semantics and ADR-0024's shared
-scene read model. ADR-0025 continues to prohibit authentication. Implementation
-is in `backend/perception/scene_state_worker.py`,
-`backend/perception/rust_replay_supervisor.py`,
-`backend/api/routes/health.py`, and the scene HTTP converter/response model.
-The integration evidence is in
-`backend/tests/integration/test_rust_api_lifecycle.py`.
+scene read model. ADR-0025 continues to prohibit authentication. Current live
+health behavior is in `perception/src/server.rs` and
+`perception/src/live_supervisor.rs`; the former Python replay supervisor and
+API lifecycle suite were retired by ADR-0094.

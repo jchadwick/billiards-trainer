@@ -691,8 +691,9 @@ async def video_stream(
     Provides real-time video stream from the Video Module via shared memory IPC.
     Supports high concurrency (10+ clients) with minimal CPU overhead per client.
 
-    Prerequisites:
-        - Video Module must be running: python -m backend.video
+    Compatibility only: the Python shared-memory capture publisher is retired.
+    Production MJPEG is provided directly by the Rust server's configured
+    capture source.
 
     Query Parameters:
         quality: JPEG compression quality (uses config default if not specified)
@@ -963,8 +964,9 @@ async def generate_mjpeg_stream_from_shm(
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    "Video Module is not running. "
-                    "Start it with: python -m backend.video"
+                    "Video Module is not running. This legacy shared-memory "
+                    "endpoint cannot launch capture; use the Rust server's "
+                    "configured live source."
                 ),
             )
 
@@ -1107,8 +1109,9 @@ async def video_stream_shm(
     enabling high-concurrency streaming (10+ clients) with minimal CPU overhead
     per client. Each client gets an independent SharedMemoryFrameReader.
 
-    Prerequisites:
-        - Video Module must be running: python -m backend.video
+    Compatibility only: the Python shared-memory capture publisher is retired.
+    Production MJPEG is provided directly by the Rust server's configured
+    capture source.
 
     Query Parameters:
         quality: JPEG compression quality (1-100, default: 85)

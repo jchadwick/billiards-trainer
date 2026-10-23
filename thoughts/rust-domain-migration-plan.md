@@ -1,14 +1,27 @@
 # Migrate all deployed server services to Rust and retain the standard web client
 
+## Current status — 2026-10-23
+
+The Rust gateway is the only supported deployed server and owns live capture,
+state publication, configuration, calibration, game-session state, and static
+web delivery. The retained Python API/package is an offline compatibility
+reference and test fixture, not a running server or migration bridge. Its
+recorded-replay mode and the gateway's replay-v2 scene ingress were retired by
+[ADR-0094](../docs/architecture/decisions/0094-retire-obsolete-inference-and-replay-tools.md).
+Saved-video evaluation remains a standalone Rust artifact workflow. The
+HTML/JavaScript/CSS browser client remains in place. Dated implementation notes
+below preserve their historical state and should not be read as current
+runtime guidance.
+
 Destination: every deployed server component runs in Rust, including the final
 HTTP/WebSocket service, static-asset delivery, process/device supervision,
 camera capture, image processing and inference, localization/tracking,
 configuration and calibration authority, game state, physics and prediction.
-The current Python backend is a temporary gateway during staged migration and
-will be removed from the deployed server after Rust service parity and operating
-gates pass. Keep the browser application as HTML/JavaScript/CSS; do not convert
-it to Rust/WASM. Python remains an allowed off-device tool for model
-training/export, annotation, and independent reference inference. Thin
+The Python backend was a temporary gateway during staged migration; the Rust
+server is now the supported deployed service. Retained Python modules exist
+only as offline compatibility references and test fixtures. Keep the browser
+application as HTML/JavaScript/CSS; do not convert it to Rust/WASM. Python
+remains an off-device tool for model export and annotation. Thin
 development glue uses portable shell scripts; complex, stateful acceptance and
 audit tools migrate to Rust, with Python retained only as a differential
 reference until parity gates pass.

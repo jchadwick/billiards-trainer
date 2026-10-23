@@ -359,7 +359,6 @@ async fn deployment_executable_changes_are_rejected_even_when_forced_or_validati
     for path in [
         "perception.rust_live.executable_path",
         "perception.rust_live.capture_helper_executable_path",
-        "perception.rust_replay.executable_path",
     ] {
         let directory = tempdir().unwrap();
         let gateway = gateway_with_config_path(Some(directory.path().join("config.json")));

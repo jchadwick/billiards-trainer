@@ -477,7 +477,8 @@ class VisionModule:
                 logger.error(f"Failed to attach to Video Module: {e}")
                 raise VisionModuleError(
                     f"Failed to attach to Video Module via shared memory: {e}\n"
-                    f"Make sure the Video Module is running: python -m backend.video"
+                    "The legacy Python capture publisher is retired; use the "
+                    "Rust server with a configured live source."
                 ) from e
 
             logger.info("Video source started, initializing vision module state")

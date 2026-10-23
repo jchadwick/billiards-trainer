@@ -338,8 +338,8 @@ def test_rust_import_uses_replace_or_merge_validation_and_force() -> None:
 def test_rust_import_cannot_replace_deployment_executable_paths() -> None:
     facade = _RustConfigFacade()
     payload = (
-        b'{"perception":{"rust_replay":'
-        b'{"executable_path":"/tmp/untrusted-replay-binary"}}}'
+        b'{"perception":{"rust_live":'
+        b'{"capture_helper_executable_path":"/tmp/untrusted-helper"}}}'
     )
 
     with pytest.raises(HTTPException) as error:
@@ -354,7 +354,9 @@ def test_rust_import_cannot_replace_deployment_executable_paths() -> None:
         )
 
     assert error.value.status_code == 422
-    assert error.value.detail["fields"] == ["perception.rust_replay.executable_path"]
+    assert error.value.detail["fields"] == [
+        "perception.rust_live.capture_helper_executable_path"
+    ]
     assert facade.apply_calls == []
     assert facade.replace_calls == []
 

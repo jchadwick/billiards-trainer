@@ -24,10 +24,6 @@ from backend.perception.rust_game_session import (
     RustGameSessionAuthoritySettings,
 )
 from backend.perception.rust_live_supervisor import RustLiveSettings, RustLiveSupervisor
-from backend.perception.rust_replay_supervisor import (
-    RustReplaySettings,
-    RustReplaySupervisor,
-)
 from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
 from backend.system.health_monitor import health_monitor
 
@@ -351,44 +347,25 @@ async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
         # Start WebSocket system services
         await initialize_websocket_system()
 
-        if runtime_config.get("perception.mode", "live") == "live":
-            # Rust owns the sole capture and localization publisher.
-            publisher = SceneSnapshotStatePublisher(message_broadcaster)
-            app_state.scene_state_publisher = publisher
-            live_settings = RustLiveSettings.from_configuration(runtime_config)
-            app_state.game_session_authority = _create_rust_game_session_authority(
-                runtime_config, live_settings
+        # Rust owns the sole live capture and localization publisher. Recorded
+        # video analysis is an offline CLI workflow, never an API source mode.
+        publisher = SceneSnapshotStatePublisher(message_broadcaster)
+        app_state.scene_state_publisher = publisher
+        live_settings = RustLiveSettings.from_configuration(runtime_config)
+        app_state.game_session_authority = _create_rust_game_session_authority(
+            runtime_config, live_settings
+        )
+        live_supervisor = RustLiveSupervisor(live_settings, publisher)
+        app_state.perception_runtime = live_supervisor
+        live_status = await live_supervisor.start()
+        if not live_status.ready:
+            raise RuntimeError(
+                "Rust live startup completed without a healthy localization"
             )
-            live_supervisor = RustLiveSupervisor(live_settings, publisher)
-            app_state.perception_runtime = live_supervisor
-            live_status = await live_supervisor.start()
-            if not live_status.ready:
-                raise RuntimeError(
-                    "Rust live startup completed without a healthy localization"
-                )
-            logger.info(
-                "Rust live capture published its first localization; "
-                "no secondary perception publisher was started"
-            )
-        else:
-            # Recorded replay is the only publisher in this branch.
-            publisher = SceneSnapshotStatePublisher(message_broadcaster)
-            app_state.scene_state_publisher = publisher
-            replay_settings = RustReplaySettings.from_configuration(runtime_config)
-            app_state.game_session_authority = _create_rust_game_session_authority(
-                runtime_config, replay_settings
-            )
-            replay_supervisor = RustReplaySupervisor(replay_settings, publisher)
-            app_state.perception_runtime = replay_supervisor
-            replay_status = await replay_supervisor.start()
-            logger.info(
-                "Rust recorded replay published its first localization; "
-                "live camera, preview and predictions remain unavailable"
-            )
-            if not replay_status.first_observation_received:
-                raise RuntimeError(
-                    "Rust replay startup completed without a usable observation"
-                )
+        logger.info(
+            "Rust live capture published its first localization; "
+            "no secondary perception publisher was started"
+        )
 
         # Register components with health monitor
         logger.info("Registering components with health monitor...")
@@ -436,7 +413,7 @@ async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
             try:
                 await app_state.perception_runtime.close()
             except Exception:
-                logger.exception("Error stopping Rust replay provider")
+                logger.exception("Error stopping Rust live provider")
         app_state.perception_runtime = None
         app_state.scene_state_publisher = None
         app_state.game_session_authority = None

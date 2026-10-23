@@ -6,6 +6,9 @@
 - Supersedes: None
 - Superseded by: None
 
+> Current status: the live-v3 acknowledgement remains active. Its historical
+> recorded-replay v2 compatibility note was retired by ADR-0094.
+
 ## Context
 
 At the time of this decision, Python resolved one immutable, revisioned

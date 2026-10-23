@@ -82,7 +82,7 @@ struct PendingSnapshot {
     frame_id: Option<String>,
     write_attempt: u64,
     /// Live capture snapshots are useful only until this local monotonic
-    /// deadline. Recorded replay leaves this unset to preserve its semantics.
+    /// deadline. Offline video replay does not use this live scene transport.
     freshness_deadline: Option<Instant>,
     payload: Vec<u8>,
 }
@@ -118,13 +118,14 @@ pub struct LatestSceneWriter {
 }
 
 impl LatestSceneWriter {
-    pub fn start(config: SceneTransportConfig) -> Result<Self> {
+    #[cfg(test)]
+    fn start(config: SceneTransportConfig) -> Result<Self> {
         Self::start_with_audit(config, None)
     }
 
-    /// Start the existing newest-only scene transport with an optional
-    /// independent timing side channel. The audit handle is absent in normal
-    /// operation, so no audit resources are created in the worker path.
+    /// Start the newest-only scene transport with an optional independent
+    /// timing side channel. The audit handle is absent in normal operation,
+    /// so no audit resources are created in the worker path.
     pub(crate) fn start_with_audit(
         config: SceneTransportConfig,
         audit: Option<LiveAuditRecorder>,
@@ -148,7 +149,7 @@ impl LatestSceneWriter {
     /// Bind one already-preflighted live source to this transport and wait for
     /// the receiver to validate its request-bound acknowledgement. This runs
     /// on the dedicated writer thread and must complete before capture reads
-    /// begin. Recorded replay continues to use [`Self::start`] and protocol v2.
+    /// begin.
     pub fn bind_live_session<A>(
         &self,
         engine_instance_id: &str,
@@ -197,7 +198,8 @@ impl LatestSceneWriter {
     }
 
     /// Enqueue a complete snapshot without waiting for network I/O.
-    pub fn submit(
+    #[cfg(test)]
+    fn submit(
         &self,
         sequence: u64,
         engine_instance_id: &str,
@@ -216,8 +218,7 @@ impl LatestSceneWriter {
     /// Enqueue a live capture snapshot with an absolute source-frame
     /// freshness deadline. The deadline is anchored to capture read completion
     /// so submission overhead, reconnect, and socket-write time all consume
-    /// the same end-to-end budget. Replay callers intentionally use the
-    /// deadline-free submission method above.
+    /// the same end-to-end freshness budget.
     pub(crate) fn submit_live_with_frame_id_and_deadline(
         &self,
         sequence: u64,
@@ -237,6 +238,7 @@ impl LatestSceneWriter {
         )
     }
 
+    #[cfg(test)]
     fn submit_with_optional_frame_id(
         &self,
         sequence: u64,

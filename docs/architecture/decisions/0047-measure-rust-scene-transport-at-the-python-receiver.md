@@ -1,10 +1,22 @@
 # ADR-0047: Measure Rust scene transport at the Python receiver
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0085 for the Python collector implementation only
+
+## Implementation status (2026-10-23)
+
+ADR-0085 retired the Python receiver/collector path. The bounded measurement
+contract remains useful if transport cost becomes a measured bottleneck:
+collect aggregate payload sizes, accepted-message counts, sequence gaps, and
+latest-only queue pressure within an opt-in local-monotonic window, without
+retaining per-frame payload history or changing delivery semantics. The
+maintained Rust live audit currently reports bounded state counts, ordering and
+source gaps, freshness, source identity, and receipt timing. It does not report
+payload-byte distributions or server-side ingress replacement/high-water
+statistics; those measurements are unavailable, not implicitly zero.
 
 ## Context
 

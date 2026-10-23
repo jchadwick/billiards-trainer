@@ -89,7 +89,7 @@ dev: setup-dirs ## Setup Rust and browser development dependencies without Pytho
 
 setup-dirs: ## Create necessary directories
 	@echo "$(BLUE)Creating project directories...$(RESET)"
-	@mkdir -p $(LOGS_DIR) $(DATA_DIR) $(TEMP_DIR) debug_images
+	@mkdir -p $(LOGS_DIR) $(DATA_DIR) $(TEMP_DIR)
 	@touch $(LOGS_DIR)/.gitkeep $(DATA_DIR)/.gitkeep $(TEMP_DIR)/.gitkeep
 	@echo "$(GREEN)Directories created!$(RESET)"
 
@@ -238,7 +238,6 @@ clean-data: ## Clean data and temporary files
 	@echo "$(BLUE)Cleaning data files...$(RESET)"
 	rm -rf $(DATA_DIR)/*
 	rm -rf $(TEMP_DIR)/*
-	rm -rf debug_images/*
 	@echo "$(GREEN)Data files cleaned!$(RESET)"
 
 clean-frontend: ## Clean frontend build artifacts

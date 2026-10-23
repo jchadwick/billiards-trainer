@@ -1,10 +1,10 @@
 # ADR-0061: Use the Rust public-state lifecycle for paced replay
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-22
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0094 for the API replay and gateway delivery path
 
 ## Context
 

@@ -26,13 +26,13 @@ struct ServerArgs {
     /// Scene ingress interface. Must be loopback.
     #[arg(long, default_value = "127.0.0.1")]
     scene_bind: IpAddr,
-    /// Loopback scene ingress port for replay-v2 and live-v3 producers.
+    /// Loopback scene ingress port for the live-v3 producer.
     #[arg(long, default_value_t = 49_321)]
     scene_port: u16,
     /// Maximum payload size for one framed scene message, excluding its header (hard limit: 32 MiB).
     #[arg(long, default_value_t = 262_144)]
     maximum_scene_bytes: usize,
-    /// Active configuration file. Required for live capture and configuration HTTP routes; replay-only mode may omit it.
+    /// Active configuration file. Required for live capture and configuration HTTP routes.
     #[arg(long = "config")]
     configuration: Option<PathBuf>,
     /// Deployment project/data root. Relative state-store paths stay inside it; defaults to the service working directory.

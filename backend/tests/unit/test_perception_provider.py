@@ -21,19 +21,13 @@ class ConfigStub:
         provider: Any = None,
         *,
         configured: bool = False,
-        mode: Any = None,
-        mode_configured: bool = False,
     ) -> None:
         self._provider = provider
         self._configured = configured
-        self._mode = mode
-        self._mode_configured = mode_configured
 
     def get(self, key: str, default: Any = None) -> Any:
         if key == "perception.provider":
             return self._provider if self._configured else default
-        if key == "perception.mode":
-            return self._mode if self._mode_configured else default
         raise AssertionError(f"Unexpected configuration key: {key}")
 
 
@@ -41,14 +35,9 @@ def test_missing_provider_setting_uses_the_rust_live_default() -> None:
     assert require_api_provider(ConfigStub()) is PerceptionProvider.RUST
 
 
-def test_rust_provider_supports_live_and_explicit_recorded_replay_modes() -> None:
+def test_rust_provider_is_the_only_supported_api_provider() -> None:
     configuration = ConfigStub("rust", configured=True)
     assert require_api_provider(configuration) is PerceptionProvider.RUST
-
-    replay_configuration = ConfigStub(
-        "rust", configured=True, mode="recorded_replay", mode_configured=True
-    )
-    assert require_api_provider(replay_configuration) is PerceptionProvider.RUST
 
 
 @pytest.mark.parametrize("provider", [None, 12, "automatic", "python"])

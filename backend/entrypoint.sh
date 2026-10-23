@@ -14,6 +14,19 @@ LIVE_EXECUTABLE=${LIVE_EXECUTABLE:-/app/bin/billiards-perception-live}
 CAPTURE_HELPER_EXECUTABLE=${CAPTURE_HELPER_EXECUTABLE:-/app/bin/billiards-perception-gstreamer-probe}
 START_LIVE=${START_LIVE:-true}
 
+case "$START_LIVE" in
+    true|1|yes)
+        LIVE_ENABLED=true
+        ;;
+    false|0|no)
+        LIVE_ENABLED=false
+        ;;
+    *)
+        echo "START_LIVE must be true/false, 1/0, or yes/no (got: $START_LIVE)" >&2
+        exit 2
+        ;;
+esac
+
 mkdir -p "$PROJECT_ROOT" /app/config /app/data /app/logs /app/temp
 
 if [ ! -d "$WEB_ROOT" ]; then
@@ -31,15 +44,15 @@ set -- \
 
 if [ -f "$CONFIG_FILE" ]; then
     set -- "$@" --config "$CONFIG_FILE"
-elif [ "$START_LIVE" = "true" ]; then
+elif [ "$LIVE_ENABLED" = true ]; then
     echo "Live capture requires a mounted configuration file: $CONFIG_FILE" >&2
     exit 1
 else
-    echo "No configuration file found; starting in replay-only mode without config APIs."
+    echo "No configuration file found; starting gateway-only without config APIs."
 fi
 
-case "$START_LIVE" in
-    true|1|yes)
+case "$LIVE_ENABLED" in
+    true)
         if [ ! -x "$LIVE_EXECUTABLE" ]; then
             echo "Rust live detector is not executable: $LIVE_EXECUTABLE" >&2
             exit 1
@@ -53,14 +66,10 @@ case "$START_LIVE" in
             --live-executable "$LIVE_EXECUTABLE" \
             --capture-helper-executable "$CAPTURE_HELPER_EXECUTABLE"
         ;;
-    false|0|no)
-        ;;
-    *)
-        echo "START_LIVE must be true/false, 1/0, or yes/no (got: $START_LIVE)" >&2
-        exit 2
+    false)
         ;;
 esac
 
 echo "Starting Rust billiards server on ${HTTP_BIND}:${HTTP_PORT}."
-echo "Project root: ${PROJECT_ROOT}; static client: ${WEB_ROOT}; live capture: ${START_LIVE}."
+echo "Project root: ${PROJECT_ROOT}; static client: ${WEB_ROOT}; live capture: ${LIVE_ENABLED}."
 exec /app/bin/billiards-server "$@"

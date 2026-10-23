@@ -14,9 +14,9 @@ commands or baselines.
 | --- | --- | --- |
 | `billiards-server`, `billiards-perception-live`, and supervised capture helper | Keep | These are supported Rust runtime processes with lifecycle or integration coverage. |
 | Rust configuration-authority CLI | Keep as developer utility | `make config-check` uses the bounded one-shot validator; the running Rust gateway uses `ConfigurationAuthority` in-process, and the CLI has process-level tests. |
-| Rust game-session-authority CLI | Keep only as a Python compatibility subprocess | Its only caller is the retained Python compatibility API. The supported Rust gateway uses `GameSessionStore` in-process; the CLI is not part of the supported Rust runtime and lacks a dedicated binary process test. |
+| Rust game-session-authority CLI | Keep only while the offline Python compatibility fixture is retained | The Python route/reference uses it in compatibility tests; the supported Rust gateway uses `GameSessionStore` in-process. It is not a product runtime command and should be retired with the Python compatibility reference. |
 | Rust camera discovery | Keep | Read-only inventory helps select a camera without opening it; useful operational diagnostic. |
-| Rust still-image inference | Keep as diagnostic | Useful to inspect a model and decoder; still images do not establish live capacity, freshness, or accuracy. |
+| Rust still-image inference and Python API replay mode | Retire | The image CLI had no supported caller or deployed role. The Python replay supervisor launched that removed binary with an incompatible interface, and its fake-child tests concealed the break. Replay-v2 gateway ingress and repeat-count config had no current producer after retirement. Shared engine tests, live tests, and offline saved-video evaluation preserve supported evidence workflows. |
 | Rust live performance audit | Keep as canonical | Measures state delivery and optional detector timings with bounded artifacts. |
 | Rust recorded-video replay (`billiards-perception-video-replay`) | Keep as canonical, narrowly scoped | PTS-paced latest-frame mode measures detector-side freshness; unpaced mode measures processing capacity. It reuses current Rust inference and optional temporal scoring, but predecodes video and does not represent live camera/decoder contention or browser rendering. |
 | Rust temporal label importer/evaluator | Keep as canonical | Imports reviewed video labels and scores temporally aligned state. V1 remains pixel-only; v2 adds independently measured table coordinates with explicit uncertainty and a required millimeter gate. Recorded-video calibration feeds this scorer, but held-out physical accuracy evidence still needs to be collected. |
@@ -25,7 +25,7 @@ commands or baselines.
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
-| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries so managed measurements do not use debug artifacts. |
+| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; it tests the HTTP-MJPEG ingest path but does not simulate camera exposure, driver buffering, or a physical camera. |
 | `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Export alone does not establish parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
@@ -42,9 +42,9 @@ commands or baselines.
 | `billiards-perception-live` | Keep: product runtime | Owns the live perception process contract and composes capture, inference, calibration, tracking, and audit boundaries; lifecycle and live integration tests cover current behavior. |
 | `billiards-perception-gstreamer-probe` | Keep: product capture helper | Despite its name, this is the supervised GStreamer capture helper selected by deployment and the live supervisor. Its helper/source protocols and lifecycle tests now run with the exact `camera-gstreamer-source` feature used by production; physical-camera qualification remains a separate gap. |
 | `billiards-perception-config` | Keep: developer validation command | `make config-check` invokes it for explicit configuration validation. Runtime configuration reads and updates use the library in-process through the Rust gateway; binary process contracts cover its one-shot protocol. |
-| `billiards-perception-game-session` | Keep: Python compatibility adapter only | The Python compatibility route invokes it through `backend/perception/rust_game_session.py`. The Rust gateway uses the session store directly in-process; this binary is not part of the supported runtime and its lifecycle is not separately tested as a process. |
+| `billiards-perception-game-session` | Keep only for offline compatibility tests | The old Python route reaches it through `backend/perception/rust_game_session.py`; that route is assembled only by the test fixture. The Rust gateway uses the session store directly in-process, so this binary is not a product runtime dependency. |
 | `billiards-perception-camera-discovery` | Keep: read-only diagnostic | Reports enumerated video sources without opening a device. It has bounded output and command tests, and answers a different operational question from capture qualification. |
-| `billiards-perception-infer` | Keep: narrow model diagnostic | Runs current Rust inference on PNG/JPEG inputs and can produce raw detection/scene JSONL. It is useful for model-load and pre/post-processing smoke checks, but is not the canonical video freshness or temporal accuracy tool. Its unsupported batch-TCP mode was removed. |
+| `billiards-perception-infer` | Retired in this pass | Its only callers were its source, tests, and documentation. The shared inference engine remains covered by live and video-replay tests. The CLI-specific image directory replay, synthetic pacing, raw tensor dumps, retained provider profile, and replay-v2 TCP bridge did not add a validated workflow. |
 | `billiards-perception-video-replay` | Keep: canonical saved-video detector audit | Reuses production Rust inference with PTS-paced latest-frame and unpaced capacity modes. It reports decoder/model provenance, bounded traces and accuracy when reviewed labels are supplied; it does not measure live camera or browser delay. |
 | `billiards-performance-audit-run` | Keep: canonical live delivery audit | Measures live state freshness, throughput, gaps, client receipt and optional trajectory/resource interference using bounded artifacts. Browser rendering remains outside its evidence boundary. |
 | `billiards-temporal-evaluate` | Keep: accuracy authority | Scores scene observations against video-bound reviewed annotations, including localization, tracking, cue, and freshness metrics. Unlabeled runs cannot establish accuracy. |
@@ -57,7 +57,7 @@ commands or baselines.
 | `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; the local deployment tests reject legacy executables. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
-| `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
+| `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG and restarts for a reconnecting client. It can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | Root `Makefile` | Keep the focused build/test/run/deploy interface; remove the false `install` alias and broad process kill | `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. Local builds now reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
 | `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. The release build now passes `cargo build --locked`; staging and process lifecycle still need behavioral tests beyond source-contract assertions. |
@@ -124,6 +124,24 @@ major CSS-framework migration.
   equivalence workflow; the current video path writes bounded JSONL, and live
   state receipt is covered by the scene transport and performance-audit
   subscriber.
+- The Rust `billiards-perception-infer` still-image command and its unique
+  synthetic-paced replay path. It duplicated the shared inference engine and
+  lacked a current workflow caller; video replay now owns recorded input, while
+  the live audit owns state delivery. Still-image tensor dumps, provider-profile
+  retention, and replay-v2 TCP scene output were not retained because no
+  supported end-to-end workflow depended on them. The shared engine, provider
+  selection, calibration, tracking, and JSONL artifact code used by video
+  replay remain.
+- The Python API's `recorded_replay` mode, its supervisor, fake-child and
+  integration tests, repeat-count settings, and stale executable-path
+  protection. Those tests never launched the current video-replay CLI, whose
+  artifact workflow cannot act as an API publisher. The Rust gateway's unused
+  replay-v2 TCP ingress was also removed; live-v3 is its only scene producer
+  protocol. ADR-0094 records the decision and retained boundaries.
+- The Python compatibility API's `/debug/ball-detection` static-page route.
+  Its referenced `backend/static/debug/ball-detection.html` did not exist, the
+  supported Rust server never registered the route, and no test asserted it.
+  The route and test-fixture registration were removed.
 - The Python grid-calibration command and its stale guides. The purported
   automatic detector was a stub, and manual-corner YAML output did not configure
   the Rust live calibration bundle.
@@ -144,6 +162,10 @@ major CSS-framework migration.
   cleanup-plan, and cleanup-verification notes that pointed to removed tools,
   nonexistent tests, the retired Python runtime, or unsupported accuracy claims.
   Current decisions live in ADRs and the maintained performance/tool audit.
+- Unlinked Python shared-memory capture and streaming plans, setup guides, and
+  distortion experiments. Their `python -m backend.video` instructions point
+  to a retired launcher; current capture and direct MJPEG delivery are owned by
+  the Rust server. The migration ADRs and this audit retain the useful history.
 - Root `PROMPT.md`, `PROMPT - visualizer.md`, and `PLAN.md`, whose instructions
   described the retired Python/LOVE2D architecture and contradicted the current
   Rust runtime and `/live` browser workflow.
@@ -176,6 +198,11 @@ major CSS-framework migration.
 - The redundant Python test extra; the development extra already includes the
   test runner. Heavy Ultralytics/ONNX/CoreML export packages are isolated behind
   `make install-model-tools` for the retained model-export workflow.
+- The unreferenced `frontend/web/Dockerfile.dev`, which had no Make, Compose,
+  CI, or documented workflow caller and used an unlocked dependency install.
+- The orphaned `backend/HEALTH_MONITORING.md`, whose test command referenced a
+  deleted file and described the retired Python deployment. Current runtime
+  health evidence belongs to the Rust gateway contracts.
 
 ## Gaps and follow-up priorities
 
@@ -342,3 +369,16 @@ path remain untested.
   tests, strict Clippy, formatting, `git diff --check`, and all 93 ADR checks.
   No held-out independent physical label set exists yet, so no physical
   accuracy or production-readiness claim is supported.
+
+### Final cross-project verification (2026-10-23)
+
+- `make test-all` passed the Rust default and production GStreamer-feature
+  suites, the browser suite (16 tests), and the Python compatibility suite
+  (2,827 passed, 1 skipped) at 82.48% coverage, above its configured 80% gate.
+- `make format-check` and `make lint` passed, including strict Rust Clippy;
+  the 94 Architecture Decision Records validate, shell syntax checks pass, and
+  `git diff --check` is clean.
+- `make build` passed the browser production bundle and Rust server, live
+  perception, and supervised GStreamer capture binaries. These checks establish
+  build and contract integrity, not physical-camera qualification, detector
+  accuracy, or browser-rendering latency.

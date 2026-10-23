@@ -1,4 +1,4 @@
-//! Verified two-class YOLO inference and recorded-image replay.
+//! Verified two-class YOLO inference for live frames and recorded-video replay.
 //!
 //! The reusable frame engine deliberately fails closed on model signatures
 //! that differ from the verified export contract. The sibling
@@ -13,9 +13,9 @@ mod runtime;
 pub use decode::{decode_yolo_v8_output, Detection};
 pub use preprocess::{prepare_rgb8, prepare_rgb_image, LetterboxGeometry, PreparedInput};
 pub use runtime::{
-    run_audit, run_video_audit, AuditOptions, AuditReport, BatchOutputOptions,
-    CalibrationAuditOptions, FrameInferenceEngine, FrameInferenceOptions, FrameInferenceOutput,
-    FrameInferenceTimings, LatencyPercentiles, ProviderSelection, SceneSnapshotOutputDestination,
+    run_video_audit, AuditOptions, BatchOutputOptions, CalibrationAuditOptions,
+    FrameInferenceEngine, FrameInferenceOptions, FrameInferenceOutput, FrameInferenceTimings,
+    LatencyPercentiles, ProviderSelection, SceneSnapshotOutputDestination,
     SceneSnapshotOutputOptions, VideoReplayMeasurementReport, VideoReplayMode, VideoReplayOptions,
     VideoReplayReport, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,

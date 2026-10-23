@@ -30,11 +30,12 @@ must record provider-node assignment and any CPU fallback.
 ## Decision
 
 Compile the ONNX Runtime OpenVINO bindings in every normal Rust build. Provider
-selection remains a runtime choice: the inference binary accepts
-`--provider openvino`, and the API's explicit Rust replay configuration accepts
-`perception.rust_replay.provider = "openvino"` and passes that exact value to
-the child. The default remains `cpu`, and there is no silent fallback when the
-requested provider cannot be loaded. A platform must provide an ONNX Runtime
+selection remains a runtime choice: the former inference binary accepted
+`--provider openvino`, and the former API replay configuration passed
+`perception.rust_replay.provider = "openvino"` to its child. ADR-0094 removed
+that replay configuration; current live selection uses
+`perception.rust_live.provider`. The default remains `cpu`, and there is no
+silent fallback when the requested provider cannot be loaded. A platform must provide an ONNX Runtime
 OpenVINO provider library compatible with its ONNX Runtime and OpenVINO runtime.
 
 The initial provider configuration targets OpenVINO's CPU device. It does not

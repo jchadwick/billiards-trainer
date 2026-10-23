@@ -6,6 +6,16 @@
 - Supersedes: None
 - Superseded by: None
 
+## Implementation status (2026-10-23)
+
+The bounded Rust timing side channel and Rust live audit runner remain the
+supported implementation. The Python compatibility collector and its tests,
+referenced in the original verification notes, were retired by ADR-0085; they
+are not a current integration or acceptance requirement. The original matched
+Mac comparison is historical evidence and does not qualify current Rust
+instrumentation overhead. Rust audit-off/on qualification remains necessary
+for any materially changed audit configuration or runtime.
+
 ## Context
 
 The opt-in Rust live path can deliver fresh scene snapshots, and the native
@@ -135,8 +145,9 @@ optimizations would be selected from intuition rather than evidence.
   correlate matching scene and timing identities within exact monotonic
   measurement windows, report unmatched records and exporter loss, preserve
   partial status without a footer, and verify that no RGB/image bytes are
-  stored. Python compatibility collector tests remain for the legacy API,
-  trajectory, and viewer scenarios.
+  stored. The former Python collector integration tests are historical;
+  trajectory receipt and viewer-interference coverage must come from maintained
+  Rust tools or remain explicitly unavailable.
 - With the option disabled, run the same live tests and confirm no audit
   socket, queue, task, or worker is created. Run matched live audit-off/on
   repetitions; instrumentation is trusted only within the configured overhead

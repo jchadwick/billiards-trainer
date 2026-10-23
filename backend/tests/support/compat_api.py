@@ -23,7 +23,7 @@ from backend.api.routes import (
     calibration,
 )
 from backend.api.routes import config as config_routes
-from backend.api.routes import debug, game, health, logs, stream, vision
+from backend.api.routes import game, health, logs, stream, vision
 from backend.api.websocket.endpoints import websocket_router
 
 
@@ -81,7 +81,6 @@ def create_compatibility_app(
     app.include_router(game.router, prefix="/api/v1")
     app.include_router(stream.router, prefix="/api/v1")
     app.include_router(logs.router, prefix="/api/v1")
-    app.include_router(debug.router, prefix="/api/v1")
     app.include_router(websocket_router, prefix="/api/v1/websocket")
 
     @app.get("/api")

@@ -145,6 +145,22 @@ labels, the report explicitly marks accuracy unavailable. A replay with
 synthetic or incomplete labels is plumbing validation only; it cannot support
 a production setting recommendation.
 
+## Network-capture fixture
+
+For a software-only check of the Rust HTTP-MJPEG capture path, start
+`scripts/serve-test-video-mjpeg.sh`. It streams `test_data/demo2_short.mp4` at
+the recording's frame rate over one-client HTTP multipart MJPEG, then reopens
+the listener when the client disconnects. Set `BILLIARDS_TEST_VIDEO` to select
+a different recording. Set `vision.camera.device_id` in the Rust configuration
+to the fixture's `/stream.mjpg` URL and run the normal live audit against that
+system.
+
+This fixture validates network-source ingest and the application pipeline. The
+video is transcoded to MJPEG, and its timestamps do not represent camera
+exposure or driver-buffer age; it cannot qualify physical capture or replace
+recorded-video replay for controlled detector comparisons. It is a manual
+development fixture rather than a second benchmark harness.
+
 ## Limits and interpretation
 
 - Prior Python collector, Python detector-profile benchmark, and their Rust

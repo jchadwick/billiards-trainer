@@ -96,7 +96,7 @@ struct FrameHeader<'a> {
 
 fn main() {
     if let Err(error) = run(Args::parse()) {
-        eprintln!("GStreamer capture probe failed: {error:#}");
+        eprintln!("GStreamer capture helper failed: {error:#}");
         process::exit(2);
     }
 }

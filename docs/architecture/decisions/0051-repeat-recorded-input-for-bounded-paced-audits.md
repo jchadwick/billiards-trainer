@@ -1,10 +1,18 @@
 # ADR-0051: Repeat recorded input for bounded paced audits
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0094
+
+## Implementation status (2026-10-23)
+
+ADR-0094 retired the repeat-count feature with the API replay supervisor that
+consumed it. The Rust unit tests, Python supervisor tests and API smoke below
+are historical evidence only. The current saved-video evaluator runs its
+recording according to its explicit pacing/capacity mode and does not repeat
+the corpus.
 
 ## Context
 
@@ -65,11 +73,13 @@ report.
 
 - Rust tests verify monotonic frame identity across repeated cycles, source-hash
   reuse, finite schedule counts, and rejection above the configured frame cap.
-- Python supervisor tests verify validated configuration and shell-free
-  forwarding of the repeat and cap settings.
-- A short API replay smoke receives states beyond one corpus duration; the
-  existing collector records the finite workload and labels repeated-content
-  evidence separately from accuracy claims.
+- Before the Python supervisor was retired, its tests verified validated
+  configuration and shell-free forwarding of the repeat and cap settings; this
+  forwarding path is historical.
+- A short API replay smoke received states beyond one corpus duration and its
+  former collector labeled repeated-content evidence separately from accuracy
+  claims. This smoke is historical; the runtime repeat contract is covered by
+  Rust tests.
 - On the Linux test host, a 30-frame corpus repeated ten times at five frames
   per second completed cleanly and published 221 states out of 300 scheduled
   slots. The short client window reports message and unique-observation rates,

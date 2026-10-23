@@ -35,7 +35,7 @@ strictly read-only.
 
 Add `GET /api/v1/config` and `GET /api/v1/config/schema` to the Rust gateway,
 backed directly by the existing `ConfigurationAuthority`. Require an explicit
-configuration path for these routes. A replay-only gateway without that path
+configuration path for these routes. A gateway-only process without that path
 returns the established sanitized service-unavailable envelope; it does not
 silently load another file or fall back to Python.
 
@@ -79,8 +79,9 @@ infer a mutation revision policy from these read endpoints.
 
 ### Negative
 
-- A side-by-side Rust gateway without `--config` cannot serve configuration
-  reads, even though replay and scene state can run without that option.
+- A gateway-only Rust process without `--config` cannot serve configuration
+  reads. Live supervision and configuration routes both require the configured
+  Rust authority.
 - A snapshot can perform the existing legacy-revision migration and create a
   lock file; operational documentation must not characterize this endpoint as
   a purely read-only filesystem operation.

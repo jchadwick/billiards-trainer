@@ -1328,19 +1328,15 @@ fn validate_cross_field_rules(document: &Value, schema: &Value, errors: &mut Vec
 }
 
 fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
-    for path in [
-        "perception.rust_replay.image_size",
-        "perception.rust_live.image_size",
-    ] {
-        if let Some(size) = value_at_path(document, path).and_then(Value::as_u64) {
-            if size % 32 != 0 {
-                errors.push(validation_error(
-                    path,
-                    "Image size must be divisible by 32",
-                    &Value::from(size),
-                    "integer multiple of 32",
-                ));
-            }
+    let path = "perception.rust_live.image_size";
+    if let Some(size) = value_at_path(document, path).and_then(Value::as_u64) {
+        if size % 32 != 0 {
+            errors.push(validation_error(
+                path,
+                "Image size must be divisible by 32",
+                &Value::from(size),
+                "integer multiple of 32",
+            ));
         }
     }
     let control_enabled = value_at_path(

@@ -34,10 +34,6 @@
   "perception": {
     "freshness": {
       "maximum_observation_age_seconds": 0.5
-    },
-    "rust_replay": {
-      "replay_repeat_count": 1,
-      "maximum_replay_frames": 100000
     }
   },
   "game_session": {

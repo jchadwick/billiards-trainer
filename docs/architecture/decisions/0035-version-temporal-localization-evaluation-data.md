@@ -6,6 +6,17 @@
 - Supersedes: None
 - Superseded by: None
 
+## Implementation status (2026-10-23)
+
+The versioned annotation and scoring contract remains accepted. Rust's
+`billiards-temporal-evaluate` is the maintained scorer, and Rust recorded-video
+replay can emit scene snapshots and evaluate them against reviewed labels. The
+Python replay adapter, scorer, and CVAT importer mentioned in the original
+implementation notes have been retired; those parity results are historical.
+The golden report retained by Rust tests is a fixed compatibility fixture, not
+a runnable Python evaluation path. Held-out temporal and physical labels are
+still required before making production accuracy claims.
+
 ## Context
 
 Current benchmark ground truth annotates isolated still images. It can measure
@@ -133,8 +144,10 @@ risks for near-real-time table localization.
 ### Create a separate Rust benchmark
 
 Rejected because it would duplicate annotation and matching semantics across
-engines. The existing Python benchmark remains the acceptance harness; Rust
-results are adapted into its engine-neutral frame schema.
+engines. At the time of this decision, the Python benchmark was the acceptance
+harness and Rust results were adapted into its engine-neutral frame schema. The
+maintained implementation is now Rust-only, as recorded in the implementation
+status above.
 
 ## Verification
 
@@ -143,15 +156,17 @@ results are adapted into its engine-neutral frame schema.
 - Deterministic sequences verify one-to-one matching, misses on missing frames,
   track switches, occlusion/reacquisition, cue endpoint/angle error, freshness
   age, and calibration/session boundary handling.
-- A Python replay with temporal annotations reports labeled metrics and retains
-  still-image and runtime metrics; without labels, the temporal result is
-  explicitly unavailable.
+- Before the Python adapter was retired, a Python replay with temporal
+  annotations reported labeled metrics; that result is historical. Current
+  Rust replay/evaluator tests verify labeled reports and explicitly unavailable
+  metrics when reviewed labels are absent.
 - The Rust scene-snapshot adapter validates the shared scene schema, maps the
   one-based replay frame ID to the annotation index, and uses annotation
   presentation time instead of Rust monotonic ticks.
-- Rust and Python normalized records pass through the same scorer. Only current
-  source-frame measurements in raw image coordinates count as detections;
-  cached tracks and non-observation scene updates do not.
+- Rust scene records are scored in raw image coordinates. Only current
+  source-frame measurements count as detections; cached tracks and
+  non-observation scene updates do not. Cross-runtime parity results are
+  historical and there is no maintained Python scoring adapter.
 - The command-line Rust evaluator binds labels to the exact video hash and
   geometry. Cross-engine ranking remains unavailable until held-out temporal
   annotations are available and exercised.
@@ -171,9 +186,9 @@ results are adapted into its engine-neutral frame schema.
 
 ## Implementation tracking
 
-The backend temporal evaluator, Python replay adapter, Rust scene-snapshot
-adapter, and Rust CVAT Video 1.1 import tool are implemented. The importer
-requires a separate fully reviewed frame list and never promotes interpolated
-track positions to ground truth. Dataset creation/review and held-out
-temporal/physical labels remain follow-up work. The existing still dataset and
-recorded performance audit are preserved.
+The Rust temporal evaluator, Rust scene-snapshot adapter, Rust CVAT Video 1.1
+import tool, and recorded-video replay integration are implemented. The
+importer requires a separate fully reviewed frame list and never promotes
+interpolated track positions to ground truth. Python adapters are retired.
+Dataset creation/review and held-out temporal/physical labels remain follow-up
+work. The existing still dataset and recorded performance audit are preserved.

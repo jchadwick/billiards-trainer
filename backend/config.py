@@ -77,14 +77,6 @@ _CROSS_FIELD_RULES: list[dict[str, Any]] = [
     },
     {
         "fields": [
-            "perception.rust_replay.reconnect_initial_delay_ms",
-            "perception.rust_replay.reconnect_maximum_delay_ms",
-        ],
-        "rule": "Rust replay maximum reconnect delay must be at least the initial delay",
-        "kind": "nondecreasing",
-    },
-    {
-        "fields": [
             "perception.rust_live.reconnect_initial_delay_ms",
             "perception.rust_live.reconnect_maximum_delay_ms",
         ],
@@ -133,7 +125,6 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "projector.display.resolution[]": (1, None),
     "vision.detection.yolo_confidence": (0, 1),
     "vision.detection.yolo_nms_threshold": (0, 1),
-    "perception.rust_replay.image_size": (32, None),
     "perception.rust_live.image_size": (32, None),
     "perception.capture.maximum_rgb_frame_bytes": (1, 1_073_741_824),
     "perception.capture.maximum_aggregate_rgb_frame_bytes": (1, 1_073_741_824),
@@ -141,8 +132,6 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "perception.capture.rectification_revision": (0, _MAX_SAFE_JSON_INTEGER),
     "perception.capture.calibration_revision": (0, _MAX_SAFE_JSON_INTEGER),
     "metadata.configuration_revision": (1, _MAX_SAFE_JSON_INTEGER),
-    "perception.rust_replay.confidence": (0, 1),
-    "perception.rust_replay.iou": (0, 1),
     "perception.rust_live.confidence": (0, 1),
     "perception.rust_live.iou": (0, 1),
     "game_session.maximum_request_bytes": (128, 65_536),
@@ -191,26 +180,6 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "perception.rust_live.capture_helper_readiness_timeout_ms": (1, None),
     "perception.rust_live.capture_helper_child_exit_timeout_ms": (1, None),
     "perception.rust_live.capture_helper_child_exit_poll_interval_ms": (1, None),
-    "perception.rust_replay.warmup_runs": (0, None),
-    "perception.rust_replay.public_state_delivery_schema_version": (1, 1),
-    "perception.rust_replay.replay_repeat_count": (1, None),
-    "perception.rust_replay.maximum_replay_frames": (1, 4294967295),
-    "perception.rust_replay.ball_class_id": (0, None),
-    "perception.rust_replay.cue_class_id": (0, None),
-    "perception.rust_replay.association_prediction_horizon_ms": (1, None),
-    "perception.rust_replay.lost_after_ms": (1, None),
-    "perception.rust_replay.maximum_track_age_ms": (1, None),
-    "perception.rust_replay.maximum_active_tracks": (1, None),
-    "perception.rust_replay.recent_observation_capacity": (1, None),
-    "perception.rust_replay.configuration_revision": (0, None),
-    "perception.rust_replay.rectification_revision": (0, None),
-    "perception.rust_replay.port": (0, 65535),
-    "perception.rust_replay.maximum_message_bytes": (1, 4294967295),
-    "perception.rust_replay.connect_timeout_ms": (1, None),
-    "perception.rust_replay.write_timeout_ms": (1, None),
-    "perception.rust_replay.reconnect_initial_delay_ms": (1, None),
-    "perception.rust_replay.reconnect_maximum_delay_ms": (1, None),
-    "perception.rust_replay.maximum_detection_batch_output_bytes": (1, None),
     "api.stream.quality.default_jpeg_quality": (1, 100),
     "api.stream.quality.websocket_jpeg_quality": (1, 100),
     "api.stream.quality.single_frame_jpeg_quality": (1, 100),
@@ -252,13 +221,6 @@ _EXCLUSIVE_MINIMUMS: dict[str, float] = {
     "integration.broadcast_retry_base_delay_sec": 0,
     "integration.circuit_breaker_timeout_sec": 0,
     "integration.max_ball_velocity_4k_px_per_s": 0,
-    "perception.rust_replay.replay_rate_fps": 0,
-    "perception.rust_replay.association_gate_px": 0,
-    "perception.rust_replay.read_timeout_seconds": 0,
-    "perception.rust_replay.source_silence_timeout_seconds": 0,
-    "perception.rust_replay.startup_timeout_seconds": 0,
-    "perception.rust_replay.stop_timeout_seconds": 0,
-    "perception.rust_replay.output_limit_poll_interval_seconds": 0,
     "perception.rust_live.association_gate_px": 0,
     "perception.rust_live.read_timeout_seconds": 0,
     "perception.rust_live.source_silence_timeout_seconds": 0,
@@ -280,10 +242,7 @@ _ENUM_VALUES: dict[str, tuple[str, ...]] = {
     "api.rate_limiting.store": ("memory", "redis"),
     "integration.trajectory_quality": ("low", "medium", "high", "ultra"),
     "perception.provider": ("rust",),
-    "perception.mode": ("live", "recorded_replay"),
-    "perception.rust_replay.provider": ("cpu", "auto", "openvino"),
     "perception.rust_live.provider": ("cpu", "auto", "openvino"),
-    "perception.rust_replay.source_image_space": ("raw", "rectified"),
     "perception.capture.image_space": ("raw", "rectified"),
     "perception.capture.timestamp_semantics": ("read_completion_only",),
 }
@@ -694,21 +653,6 @@ def validate_configuration(
                     "values satisfying cross-field rule",
                 )
             )
-
-    replay_image_size = _dig(combined, "perception.rust_replay.image_size")
-    if (
-        isinstance(replay_image_size, int)
-        and not isinstance(replay_image_size, bool)
-        and replay_image_size % 32 != 0
-    ):
-        errors.append(
-            _error(
-                "perception.rust_replay.image_size",
-                "Rust replay image_size must be divisible by 32",
-                replay_image_size,
-                "integer multiple of 32",
-            )
-        )
 
     live_image_size = _dig(combined, "perception.rust_live.image_size")
     if (

@@ -6,6 +6,10 @@
 - Supersedes: None
 - Superseded by: None
 
+> Current status: the state-evidence contract remains active in the Rust
+> gateway. The Python API lifecycle suite cited below was retired with the
+> compatibility replay path by ADR-0094; Rust server tests cover live delivery.
+
 ## Context
 
 Rust scene localization is published on the existing `state` WebSocket stream
@@ -108,7 +112,7 @@ This decision implements the Stage 4 public state contract in the
 Implementation is in `backend/api/websocket/schemas.py`; versioned fixtures and
 tests are in `backend/tests/fixtures/contracts/v1/` and
 `backend/tests/integration/test_websocket_scene_contract.py`. The configured
-application lifecycle path is exercised in
-`backend/tests/integration/test_rust_api_lifecycle.py`. The existing scene
-publisher and real-socket behavior remain covered by
+Rust application lifecycle is exercised by tests in
+`perception/src/server.rs` and `perception/src/public_state_lifecycle.rs`. The
+offline Python compatibility scene publisher remains covered by
 `backend/tests/integration/test_pipeline_replay.py`.

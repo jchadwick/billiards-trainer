@@ -20,10 +20,10 @@ loopback transport. ADR-0028 supersedes only ADR-0025's handshake epoch
 behavior and extends its no-authentication decision across repository-controlled
 build and deployment workflows. ADR-0066 sets the destination: all deployed
 server-side components run in Rust, while the browser application remains
-HTML, JavaScript, and CSS. The Python service is a migration bridge. Model
-training, dataset preparation, and other annotation workflows remain
-off-device. The retained Python FastAPI package is an offline compatibility
-test reference, not a running migration bridge. The reviewed temporal-label
+HTML, JavaScript, and CSS. That server migration is complete; the retained
+Python FastAPI package is only an offline compatibility reference and test
+fixture, not a deployed service or migration bridge. Model training, dataset
+preparation, and other annotation workflows remain off-device. The reviewed temporal-label
 importer is Rust under ADR-0083. ADR-0088 removes the Python compatibility
 profiler, fake diagnostics route, their hooks, and their configuration; the
 Rust live, saved-video, and temporal evaluation commands remain the supported
@@ -73,8 +73,12 @@ does not currently enforce the legacy per-IP attempt quota; revisit that bound
 before expanding beyond the trusted local-network deployment assumption.
 ADR-0005's Python rate-limiter design remains historical for the offline
 reference suite and is superseded for supported-runtime enforcement by ADR-0081.
-ADR-0076 extends replay-v2 to accept the versioned Rust public-state envelope
-while preserving raw snapshot compatibility and receiver-local freshness.
+ADR-0094 retires the obsolete still-image inference executable, the Python API
+recorded-replay mode that depended on it, and the Rust replay-v2 scene ingress
+that no longer has a producer. Saved-video replay remains an offline artifact
+and accuracy-evaluation workflow; it does not publish through the gateway.
+ADRs 0061 and 0076 are superseded by that removal. ADR-0069 remains active for
+the live-v3 readiness handshake only.
 ADRs 0009 and 0014
 are superseded for permanent domain ownership;
 ADR-0012 and 0015–0019 remain **proposals** written before the corresponding
@@ -83,20 +87,24 @@ ADR-0027 is accepted for
 post-readiness source-health reporting. ADR-0029 is accepted for source-reported
 camera-control readbacks. ADR-0030 is accepted for request-bound live startup
 acknowledgements; the contract and opt-in sender/receiver handshake are
-implemented, while live-provider and application wiring remain work.
+implemented and wired through the Rust gateway's supervised live-start path.
+Physical-camera readiness, sustained freshness, accuracy, and target-platform
+qualification remain open.
 ADR-0031 is accepted for a Rust-owned live capture runtime that composes the
 validated request, source preflight, live acknowledgement, frame pipeline, and
 bounded shutdown while keeping concrete camera selection separate.
-ADR-0032's process-contract decisions remain in force under its partial
-supersession by ADR-0057: the Rust configuration authority builds one exact
-capture-settings request, which the Python supervisor passes to the Rust child
-and binds to its source acknowledgement. ADR-0057 allows explicit Rust live
-selection for qualification behind the service, with Python still the bundled
-default and platform/accuracy qualification still required. ADR-0058 moves
-live public-state conversion and freshness lifecycle into Rust while
-preserving the raw scene contract.
-ADR-0061 extends that lifecycle to paced Rust replay while preserving raw JSONL;
-the configured Python provider remains present as the reference/default path.
+ADR-0032's exact-request, readiness, and shutdown contracts remain in force as
+Rust-owned gateway and capture-supervisor behavior; its Python process
+supervisor has been retired. ADR-0057's provider-selection gate described the
+former Python-service transition and is historical; the Rust gateway is now the
+supported application server and Rust owns deployed live capture and state
+publication. Platform, freshness, and accuracy qualification still matter.
+ADR-0058 moves live public-state conversion and freshness lifecycle into Rust
+while preserving the raw scene contract. ADR-0061's paced-replay public-state
+gateway path has been retired by ADR-0094; the saved-video evaluator still
+preserves raw JSONL artifacts. The former Python provider is retired, and
+Python API modules remain only offline compatibility references and test
+fixtures.
 ADR-0059 assigns table-plane solving to Rust with exact capture provenance,
 and ADR-0060 assigns persistence to a revisioned Rust store. ADR-0062 defines a
 bounded Rust-owned current-frame preview for provenance-bearing calibration;
@@ -104,17 +112,21 @@ ADR-0063 supersedes its latest-frame submission rule and validates stable active
 capture context so frozen images remain usable as capture advances. Preview UI
 integration now uses the Rust frame and maps source pixels; Rust calibration
 submission, store-to-live activation and physical accuracy qualification remain
-open. ADR-0033 accepts
-a dedicated Rust live executable and injected-source runner, separate from the
-recorded-image evaluator. The runner is tested with the real ONNX model and a
-deterministic source; the standalone binary still fails closed because no
-qualified camera adapter is registered, and production API wiring remains open.
+open. ADR-0033 accepts a dedicated Rust live executable and injected-source
+runner, separate from recorded-video replay. The runner is tested with the
+real ONNX model and a deterministic source. The Rust gateway's `--start-live`
+path supervises it, and builds with the physical-source feature register the
+GStreamer capture helper. Builds without that feature still fail closed.
+Physical accuracy, sustained freshness, source release, and target-platform
+qualification remain open.
 ADR-0036 is accepted for evaluating native camera backends behind a supervised,
 killable helper process, with synthetic and opt-in physical GStreamer paths.
-The physical path remains a prototype only; it does not register a production
-backend. Device cancellation/release, sustained freshness, accuracy, and
-macOS/Linux hardware qualification remain open; exact camera-control readbacks
-are required only for explicit control requests.
+The physical GStreamer backend is explicitly registered behind its build
+feature and stable camera selection; that registration makes it available for
+qualification, not a validated production-capture guarantee. Device
+cancellation/release, sustained freshness, accuracy, and macOS/Linux hardware
+qualification remain open; exact camera-control readbacks are required only
+for explicit control requests.
 ADR-0037's non-capturing GStreamer DeviceMonitor inventory remains in force;
 ADR-0040 supersedes its response identity fields with a versioned stable capture
 selector. The size-bounded inventory still does not qualify capture or change
@@ -133,11 +145,13 @@ ADR-0075 adds the exact-node sysfs/udev fallback for containers that do not
 mount those links. The selector schema, hash, and exact-match rules remain from
 ADR-0040. Neither decision enables arbitrary/default camera selection.
 ADR-0041 accepts a default-off, bounded Rust timing side channel for correlating
-live pipeline stage costs with scene receipt. Rust spans/export and the Python
-collector are implemented and tested without changing the public scene schema
-or adding authentication. A three-run-per-condition development-Mac A/B had
-point estimates within the 2% overhead budget and no audit loss, but variation
-left the budget qualification inconclusive; target live overhead remains open.
+live pipeline stage costs with scene receipt. Rust spans/export and the Rust
+live audit runner are implemented without changing the public scene schema or
+adding authentication. The Python collector described in the original
+qualification was retired by ADR-0085. A three-run-per-condition
+development-Mac A/B had point estimates within the 2% overhead budget and no
+audit loss, but variation left the budget qualification inconclusive; target
+live overhead remains open.
 ADR-0042 accepts deterministic eviction of old unmatched tracks under valid
 capacity pressure so current measured locations continue to publish. Tracker
 and capture-pipeline tests cover the behavior; temporal identity accuracy and
@@ -151,8 +165,8 @@ passes and its static CPU comparison has matching detection counts; labeled
 accuracy and full-replay client latency remain open.
 ADR-0044 accepts one detector source setting whose integer or HTTP(S) URI
 selects local-device or MJPEG reading, plus a distinct runtime viewer URL for
-browser-reachable streaming. Python capture and frontend selection are wired;
-the Rust live MJPEG adapter and target camera qualification remain open.
+browser-reachable streaming. Rust capture-source routing and frontend viewer
+selection are implemented; qualification on the target camera remains open.
 ADR-0045 accepts the direct OpenVINO Runtime backend for explicit selection;
 bounded Apple Silicon and Linux runtime/model comparisons now pass, while
 API-container state delivery is smoke-tested but below the requested 5 Hz;
@@ -162,9 +176,9 @@ segments for the supervised camera helper without claiming exposure timing.
 ADRs 0047 and 0048 accept receiver-side scene-transport measurement and an
 audit-only trajectory-workload control. ADR-0049 is superseded by ADR-0050,
 which accepts normalized Python/Rust audit evidence and fresh-observation
-counting. ADR-0051 accepts bounded repeat counts for paced replay; Rust/Python
-tests and a short repeated-corpus API replay smoke pass, and repeated imagery
-remains load evidence rather than accuracy evidence. ADR-0052 accepts
+counting. ADR-0051's bounded repeat-count feature and its API replay smoke
+were retired by ADR-0094; the old test and smoke results remain historical
+evidence. ADR-0052 accepts
 latest-value, best-effort semantics for perception state across the pipeline.
 Browser WebSocket and local TCP remain transport choices, not a promise to
 deliver every frame; single-slot live-frame admission, stale-before-Core
@@ -208,53 +222,53 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0027](decisions/0027-explicit-perception-source-health-after-readiness.md) | Report source freshness and process outcome; keep stale HTTP state explicit | Accepted | 4 | Anonymous lifecycle test covers child failure, source health, source silence, and nullable stale frame number |
 | [0028](decisions/0028-epoch-scoped-unauthenticated-scene-transport.md) | Scope reconnect watermarks to producer epochs; keep app, IPC, and project automation credential-free | Accepted | 4/5 | Rust/Python tests cover same/new epochs; API, workflow, and local-only deployment tests cover no-auth behavior |
 | [0029](decisions/0029-source-reported-camera-control-readback.md) | Separate camera-control readback from requested values and capability declarations | Accepted | 5 | Rust reports preserve applied/unsupported/unknown states; live-readiness preflight rejects mismatched required controls |
-| [0030](decisions/0030-request-bound-capture-acknowledgement-for-live-startup.md) | Bind live startup readiness to the exact request and source-session report | Accepted | 4/5 | Rust and Python v3 handshake implemented and tested; live provider, Python process wiring, and hardware qualification remain |
+| [0030](decisions/0030-request-bound-capture-acknowledgement-for-live-startup.md) | Bind live startup readiness to the exact request and source-session report | Accepted | 4/5 | Rust v3 handshake binds readiness to the exact capture request; Python-side compatibility wiring is historical; physical camera and platform qualification remain |
 | [0031](decisions/0031-rust-live-capture-runtime-composition.md) | Compose request validation, source ownership, v3 readiness and perception in one Rust runtime | Accepted | 5 | Injected-source lifecycle and handshake tests pass; concrete camera adapter, application wiring, and platform qualification remain |
-| [0032](decisions/0032-python-supervisor-validates-rust-live-startup.md) | Python supervises Rust live startup with one request and validates source readiness | Superseded by 0057 (selection gate only) | 5 | Exact request delivery, bounded settings, model/tracking arguments, request-bound v3 acknowledgement, first usable scene and ordered shutdown deadlines remain active |
+| [0032](decisions/0032-python-supervisor-validates-rust-live-startup.md) | Historical Python supervisor process contract; preserve its request/readiness invariants in Rust | Superseded by 0057 for provider selection; Python supervisor retired by the Rust server migration | Historical | Exact request delivery, bounded settings, request-bound v3 acknowledgement, first usable scene and ordered shutdown remain Rust-owned contracts; hardware and accuracy qualification remain |
 | [0033](decisions/0033-separate-rust-live-capture-process-from-replay-evaluator.md) | Keep persistent live capture in a separate Rust executable with an injected source factory | Accepted | 5 | Real-model deterministic-source process test verifies v3 readiness, scene identity and release; a qualified camera adapter and target-device tests remain |
 | [0034](decisions/0034-separate-camera-input-mode-from-emitted-rgb-frame-geometry.md) | Keep raw camera mode separate from emitted RGB8 frame geometry in capture-settings v2 | Accepted | 1/5 | Python/Rust v1 compatibility and v2 default/transformed fixtures validate; acknowledgement and per-frame geometry are checked; hardware adapter qualification remains |
-| [0035](decisions/0035-version-temporal-localization-evaluation-data.md) | Score versioned temporal labels through one engine-neutral localization evaluator | Accepted | 3/8 | Strict CVAT Video 1.1 importer records explicit review and source-video provenance; Python and Rust adapters share scoring; held-out temporal/physical labels remain required for accuracy claims |
+| [0035](decisions/0035-version-temporal-localization-evaluation-data.md) | Score versioned temporal labels through one engine-neutral localization evaluator | Accepted | 3/8 | Rust temporal evaluation and reviewed CVAT import are canonical; retired Python scorer/importer parity is historical; held-out temporal/physical labels remain required for accuracy claims |
 | [0036](decisions/0036-contain-native-camera-capture-in-a-supervised-helper-process.md) | Isolate native capture and use feature-gated GStreamer for physical qualification | Superseded by 0057 (selection gate only) | 5 | Helper isolation remains; explicit API selection is now allowed for qualification; Linux hardware, sustained freshness, and production accuracy remain open ([report](../../thoughts/performance-audits/20261021-103042-aeb9f8d8/report.md)) |
 | [0037](decisions/0037-non-capturing-cross-platform-camera-discovery-probe.md) | Enumerate camera metadata without opening a device | Superseded by 0040 for response identity fields | 5 | Bounded inventory and no-open semantics remain; selector shape is defined by ADR-0040 |
 | [0038](decisions/0038-use-platform-native-camera-control-readbacks-behind-the-capture-helper.md) | Use native control readbacks for explicitly configured controls inside the supervised helper | Proposed | 5 | Generic default-control behavior is handled by ADR-0039; explicit control adapters, value units, and target hardware still need qualification |
 | [0039](decisions/0039-represent-driver-default-camera-controls-explicitly-in-capture-settings-v3.md) | Represent no-write OS/driver defaults explicitly while retaining strict optional controls | Accepted | 5 | Cross-runtime v3 request/ack implementation and source-default hardware qualification remain |
-| [0040](decisions/0040-version-stable-camera-capture-selectors.md) | Give stable provider identities a bounded selector without changing capture-settings v1/v2/v3 | Superseded by 0054 for Linux identity resolution | 5 | Selector schema, hash, exact selection, and Python v3 bridge remain active |
-| [0041](decisions/0041-bound-opt-in-live-pipeline-timing-export.md) | Export correlated Rust live-stage timings over a bounded opt-in side channel | Accepted | 5 | Rust spans/export and Python collector tests pass; development-Mac A/B point estimates are within budget but statistically inconclusive; target live overhead remains open ([target replay limits](../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/report.md)) |
+| [0040](decisions/0040-version-stable-camera-capture-selectors.md) | Give stable provider identities a bounded selector without changing capture-settings v1/v2/v3 | Superseded by 0054 for Linux identity resolution | 5 | Selector schema, hash, and exact selection remain active in the Rust configuration and capture path; physical-device qualification remains |
+| [0041](decisions/0041-bound-opt-in-live-pipeline-timing-export.md) | Export correlated Rust live-stage timings over a bounded opt-in side channel | Accepted | 5 | Rust spans and Rust live audit tests pass; the Python collector is retired; development-Mac A/B point estimates are within budget but statistically inconclusive; target live overhead remains open ([target replay limits](../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/report.md)) |
 | [0042](decisions/0042-preserve-live-localization-under-bounded-tracker-pressure.md) | Evict unmatched tracking history under valid capacity pressure and preserve current measured locations | Accepted | 3/5 | Tracker and capture-pipeline tests cover deterministic eviction, degraded state, and continued localization; temporal accuracy and physical-camera pressure remain open |
 | [0043](decisions/0043-runtime-selectable-openvino-for-rust-onnx.md) | Earlier ONNX Runtime OpenVINO execution-provider experiment | Superseded by 0045 | Historical | Target provider run and A/B are preserved as historical evidence; they do not qualify the native backend |
-| [0044](decisions/0044-infer-camera-source-from-source-value-and-separate-viewer-url.md) | Infer detector input type from `vision.camera.device_id`; keep browser URL independently configurable | Accepted | 5 | Python URI/device routing, runtime viewer selection, config validation, and freshness-bounded queue tests pass; Rust stream adapter and target hardware remain open |
+| [0044](decisions/0044-infer-camera-source-from-source-value-and-separate-viewer-url.md) | Infer detector input type from `vision.camera.device_id`; keep browser URL independently configurable | Accepted | 5 | Rust URI/device routing, runtime viewer selection, config validation, and freshness-bounded queues are implemented; target camera qualification remains open |
 | [0045](decisions/0045-use-the-native-openvino-runtime-backend-for-openvino-selection.md) | Use the native OpenVINO Runtime backend for explicit OpenVINO selection | Accepted | 3/3 | Bounded Linux and Apple Silicon runtime/model smokes, 30-frame CPU/native output comparisons, and target API state delivery pass; 5 Hz freshness, labeled temporal accuracy, and Rust server-stage telemetry remain open ([Linux report](../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/native-openvino-runtime-20261021/report.md), [Apple Silicon report](../../thoughts/performance-audits/native-openvino-macos-runtime-20261021/report.md), [target replay notes](../../thoughts/performance-audits/target-rust-replay-smoke-20261021/target-smoke-notes.md)) |
 | [0046](decisions/0046-segment-supervised-camera-capture-timing.md) | Segment supervised camera capture timing across process boundaries | Accepted | 5 | Timed helper stages and parent framed-read completion use separate process-local durations; camera exposure remains unavailable; verify timed/legacy protocol and audit-disabled paths |
-| [0047](decisions/0047-measure-rust-scene-transport-at-the-python-receiver.md) | Measure Rust scene transport at the Python receiver | Accepted | Audit | Opt-in bounded counters report accepted snapshots, payload sizes, gaps and latest-only queue pressure without changing the Rust wire protocol |
+| [0047](decisions/0047-measure-rust-scene-transport-at-the-python-receiver.md) | Historical Python-receiver transport audit contract | Superseded by 0085 for collector implementation | Audit | Rust audit retains bounded ordering, gap, freshness, and source-identity measurements; payload-size distributions and server-side latest-queue pressure are not currently reported |
 | [0048](decisions/0048-isolate-trajectory-workload-during-state-path-audits.md) | Isolate trajectory workload during state-path audits | Accepted | Audit | State-only runs suppress prediction admission only while audit control is active, preserving Core updates and production prediction behavior |
 | [0049](decisions/0049-explicit-performance-audit-count-semantics.md) | Make performance audit count semantics explicit | Superseded by 0050 | Audit | Historical sampling and retained-event counting policy; use ADR-0050's normalized fresh-observation and source-update metrics |
-| [0050](decisions/0050-normalize-audit-evidence-across-python-and-rust-runtimes.md) | Normalize audit evidence across Python and Rust runtimes | Accepted | Audit | Collector preserves each runtime's source identity, separates fresh observations from cached/failed updates, and reports unavailable clock or repository identity explicitly |
-| [0051](decisions/0051-repeat-recorded-input-for-bounded-paced-audits.md) | Repeat recorded input for bounded paced audits | Accepted | Audit | Configurable repeats assign monotonically increasing synthetic frame indexes and require a maximum frame cap; Rust/Python tests and a bounded repeated-corpus API smoke pass; longer audit windows remain |
+| [0050](decisions/0050-normalize-audit-evidence-across-python-and-rust-runtimes.md) | Preserve fresh-observation and clock semantics in audit evidence | Superseded by 0085 for cross-runtime collector implementation | Audit | Rust audit counts unique observed source frames, separates cached/failed updates, and leaves incomparable cross-process latency unavailable; Python envelope normalization is retired |
+| [0051](decisions/0051-repeat-recorded-input-for-bounded-paced-audits.md) | Repeat recorded input for bounded paced audits | Superseded by 0094 | Historical audit feature | Repeat-count configuration and API replay supervision were removed; saved-video evaluation still supports paced and unpaced single-corpus analysis |
 | [0052](decisions/0052-latest-state-best-effort-freshness.md) | Prefer the latest state throughout the perception pipeline | Accepted | 3–6 | Backend flood/slow-consumer and stale-before-Core tests plus frontend freshness/order tests pass; target freshness, physical-camera age, and location accuracy remain to be qualified |
-| [0053](decisions/0053-use-five-percent-default-detail-sampling-for-performance-audit.md) | Use five-percent default detail sampling for performance audit | Accepted | Audit | Same-input three-run instrumentation comparison stays within the overhead budget on the development Mac; other providers and physical cameras remain unqualified |
+| [0053](decisions/0053-use-five-percent-default-detail-sampling-for-performance-audit.md) | Historical 5% detail-sampling setting for the retired Python collector | Superseded by 0085 for collector implementation | Historical | Rust audit uses explicit bounded retention rather than the former collector's sampling ratio; the old instrumentation comparison is historical and does not qualify current Rust overhead |
 | [0054](decisions/0054-resolve-linux-camera-selectors-from-stable-os-links.md) | Resolve Linux camera selectors from stable OS links when GStreamer reports a transient V4L node | Superseded by 0075 | 5 | Direct stable-link matching remains active; container fallback is now defined by ADR-0075 |
-| [0055](decisions/0055-export-timing-evidence-for-stale-live-observations.md) | Export stage timing evidence when live inference is rejected as stale | Accepted | Audit | V3 Rust/Python contract reports capture, inference and freshness durations without publishing stale states; target timing attribution and live readiness remain open |
+| [0055](decisions/0055-export-timing-evidence-for-stale-live-observations.md) | Export stage timing evidence when live inference is rejected as stale | Accepted | Audit | Rust v3 timing contract reports capture, inference, and freshness durations without publishing stale states; target timing attribution and live readiness remain open |
 | [0056](decisions/0056-retain-the-python-api-gateway-while-migrating-domain-logic-to-rust.md) | Retain Python HTTP/WebSocket gateway; migrate all application-domain logic to Rust | Superseded by 0064 | Runtime ownership | Historical migration boundary; Python gateway was a staged destination before ADR-0066 moved the full server to Rust |
-| [0057](decisions/0057-allow-explicit-rust-live-perception-behind-the-python-service.md) | Allow explicit Rust live perception behind the Python service | Accepted | Runtime selection | Live path is reachable through the API without Python Core/Vision/integration ownership; stable selector, model/helper validation and first-localization readiness remain mandatory; physical accuracy, freshness, and sustained qualification remain open |
-| [0058](decisions/0058-use-rust-lifecycle-for-live-public-state.md) | Use the Rust lifecycle for live public state | Accepted | Live state ownership | Rust emits versioned public-state delivery with unchanged raw scene; Python validates/caches/relays; target live qualification remains open |
+| [0057](decisions/0057-allow-explicit-rust-live-perception-behind-the-python-service.md) | Historical transition to Rust live perception; retain explicit provider readiness gates | Accepted | Runtime selection | Rust owns live provider selection and capture readiness; stable selector, model/helper validation, and first-localization readiness remain mandatory; physical accuracy, freshness, and sustained qualification remain open |
+| [0058](decisions/0058-use-rust-lifecycle-for-live-public-state.md) | Use the Rust lifecycle for live public state | Accepted | Live state ownership | Rust owns versioned public-state delivery and validation while preserving the raw scene contract; target live qualification remains open |
 | [0059](decisions/0059-solve-table-calibration-in-rust-with-capture-provenance.md) | Solve table calibration in Rust with capture provenance | Accepted | Calibration authority | Rust solves provenance-bound v1 homographies; atomic persistence, route delegation, and physical calibration accuracy remain open |
 | [0060](decisions/0060-store-table-calibration-as-rust-owned-revisioned-state.md) | Store table calibration as Rust-owned revisioned state | Accepted | Calibration authority | Rust store and capture-control protocol are wired; bounded FastAPI snapshot/save proxy passes focused tests; browser authoring integration and macOS/Linux filesystem qualification remain open |
-| [0061](decisions/0061-use-rust-public-state-lifecycle-for-paced-replay.md) | Use Rust public-state lifecycle for paced replay | Accepted | Replay state ownership | Rust paced TCP replay emits native lifecycle delivery while raw JSONL remains unchanged; Python validates and relays through HTTP/WebSocket; real-model replay freshness evidence remains open |
+| [0061](decisions/0061-use-rust-public-state-lifecycle-for-paced-replay.md) | Use Rust public-state lifecycle for paced replay | Superseded by 0094 | Historical replay state ownership | The API replay branch and gateway lifecycle delivery were removed; standalone video replay retains JSONL and accuracy artifacts |
 | [0062](decisions/0062-serve-a-bounded-rust-owned-current-frame-for-calibration.md) | Serve a bounded Rust-owned current frame for calibration | Accepted | Calibration provenance | One-slot Rust preview, bounded on-demand encoding and descriptor-bound source-pixel calibration; gateway/UI integration and camera qualification remain open |
 | [0063](decisions/0063-validate-calibration-against-stable-capture-context.md) | Validate calibration against stable capture context | Accepted | Calibration authority | Frozen-frame selections are checked against the active stable session context and store CAS; gateway/UI integration and physical accuracy remain open |
 | [0064](decisions/0064-defer-rust-web-client-and-exclude-ball-number-classification.md) | Defer Rust/WASM browser client to the final stage and exclude ball-number classification | Superseded by 0066 | Migration scope | Historical scope; classifier remains excluded, but the browser stays HTML/JavaScript/CSS and all server services move to Rust |
 | [0065](decisions/0065-move-unified-runtime-configuration-authority-to-rust.md) | Move unified runtime configuration authority to Rust | Accepted | Configuration authority | One revisioned Rust owner for defaults, validation, atomic persistence, and production v3 capture-request construction; all configuration file routes now use the Rust gateway, while desired/applied revision tracking remains |
-| [0066](decisions/0066-run-server-services-in-rust-and-retain-the-standard-web-client.md) | Run server services in Rust and retain the standard web client | Accepted | Deployment/runtime boundary | Replace the Python service after Rust routes, lifecycle, and operations pass compatibility and platform gates; keep the browser HTML/JavaScript/CSS and defer integration work until server qualification |
+| [0066](decisions/0066-run-server-services-in-rust-and-retain-the-standard-web-client.md) | Run server services in Rust and retain the standard web client | Accepted | Deployment/runtime boundary | Rust is the only supported server runtime under ADR-0080; the browser remains HTML/JavaScript/CSS, with platform qualification tracked separately |
 | [0067](decisions/0067-own-game-session-metadata-in-rust.md) | Own game-session metadata in Rust | Accepted | Game state | Bounded revisioned Rust metadata store and reset adapter leave scene locations/calibration untouched; history/events/export and final in-process Rust gateway integration remain open |
-| [0068](decisions/0068-introduce-a-rust-latest-state-http-and-websocket-gateway.md) | Introduce a Rust latest-state HTTP and WebSocket gateway | Accepted | Gateway foundation | 186 Rust library tests plus all targets, strict Clippy/fmt, three real slow-reader stress passes, and a standalone replay-v2-to-HTTP process smoke pass; Python remains active and live camera, full-route, deployment, and platform gates remain open |
-| [0069](decisions/0069-rust-gateway-validates-live-capture-readiness.md) | Validate live capture readiness in the Rust gateway | Accepted | Gateway live ingress | Require revision-bound v3 acknowledgement from Rust configuration authority; retain browser contract and rebase freshness to receiver-local monotonic time |
+| [0068](decisions/0068-introduce-a-rust-latest-state-http-and-websocket-gateway.md) | Introduce a Rust latest-state HTTP and WebSocket gateway | Accepted | Gateway foundation | Foundation-stage tests and replay smoke are historical; ADR-0080 makes the Rust gateway the only supported application server, with live hardware qualification tracked separately |
+| [0069](decisions/0069-rust-gateway-validates-live-capture-readiness.md) | Validate live capture readiness in the Rust gateway | Partially superseded by 0094 | Gateway live ingress | Its replay-v2 ingress was removed; live-v3 still requires the revision-bound acknowledgement and receiver-local freshness |
 | [0070](decisions/0070-serve-configuration-reads-from-rust.md) | Serve configuration reads from the Rust gateway | Accepted | Gateway configuration reads | Preserve current config/schema response shapes, run file authority on bounded blocking workers, and retain anonymous access; reset is in 0072 and import/export are in 0073 |
-| [0071](decisions/0071-serve-configuration-updates-from-rust.md) | Serve configuration updates from the Rust gateway | Accepted | Gateway configuration update route | Preserve browser update/validation contracts, guard deployment executable paths, serialize bounded mutations and commit against the original revision; reset is in 0072 and import/export are in 0073 |
+| [0071](decisions/0071-serve-configuration-updates-from-rust.md) | Serve configuration updates from the Rust gateway | Accepted | Gateway configuration update route | Preserve browser update/validation contracts, guard live/capture-helper executable paths, serialize bounded mutations and commit against the original revision; reset is in 0072 and import/export are in 0073 |
 | [0072](decisions/0072-serve-configuration-reset-from-rust.md) | Serve configuration reset from the Rust gateway | Accepted | Gateway configuration reset route | Preserve anonymous all/user/section semantics and response envelopes using authority CAS; import/export are in 0073, while remaining route parity and cutover stay open |
 | [0073](decisions/0073-serve-configuration-import-and-export-from-the-rust-gateway.md) | Serve configuration import and export from the Rust gateway | Accepted | Gateway configuration import/export | Preserve multipart, JSON/YAML, checksum and download contracts with bounded parsing/output, validation, mutation CAS and executable-path protection; existing browser remains HTML/JavaScript/CSS |
 | [0074](decisions/0074-serve-game-session-state-directly-from-the-rust-gateway.md) | Serve game-session state directly from the Rust gateway | Accepted | Gateway game-state metadata and reset | Read the revisioned store on bounded blocking work using a securely opened root and root-anchored, no-follow file access; keep optional failures from suppressing localization and preserve the current scene on reset |
 | [0075](decisions/0075-resolve-containerized-linux-camera-identities-from-udev-records.md) | Resolve containerized Linux camera identities from udev records | Accepted | Linux camera identity | Preserve exact stable selector by binding the sysfs device number to its udev V4L alias when `/dev/v4l` is not mounted; target helper must still capture a valid first frame |
-| [0076](decisions/0076-accept-rust-public-state-deliveries-over-replay-v2.md) | Accept Rust public-state deliveries over replay-v2 | Accepted | Gateway replay ingress | Preserve raw v1 payloads and accept strict lifecycle envelopes from paced Rust replay; rebase elapsed ages locally and leave live-v3 readiness unchanged |
+| [0076](decisions/0076-accept-rust-public-state-deliveries-over-replay-v2.md) | Accept Rust public-state deliveries over replay-v2 | Superseded by 0094 | Historical gateway replay ingress | The replay-v2 producer and envelope path were removed with the orphaned API replay mode; live-v3 remains the only scene ingress |
 | [0077](decisions/0077-use-a-bounded-remote-mjpeg-source-for-local-rust-qualification.md) | Use a bounded remote MJPEG source for local Rust qualification | Accepted | Mac-first capture qualification | Five 1280×720 RGB8 frames and a live Rust detector→gateway smoke pass; sampled state stayed fresh at roughly 100–180 ms, while table calibration and accuracy ground truth remain open |
 | [0078](decisions/0078-serve-the-prebuilt-browser-client-from-the-rust-gateway.md) | Serve the prebuilt browser client from the Rust gateway | Accepted | Rust static delivery | Safe asset delivery and SPA routing pass; the live-only client and configured remote MJPEG viewer work on Mac, while Rust-owned physical-camera video remains open |
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
@@ -263,7 +277,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Superseded by 0085 | Audit tooling migration | Shell/Rust ownership split remains; temporary Python collector retention ended when the Rust live audit and temporal-label path became canonical |
 | [0083](decisions/0083-import-reviewed-temporal-annotations-with-rust.md) | Import reviewed temporal annotations with Rust | Accepted | Temporal label authoring | Rust CLI validates reviewed CVAT keyframes, video identity and timing with bounded inputs and atomic output; generated-video Python/Rust parity passed and the Python importer was retired |
 | [0084](decisions/0084-replay-recorded-video-with-rust-perception.md) | Replay recorded video with Rust perception | Accepted | Saved-video evaluation | PTS-paced latest-frame and unpaced capacity modes run through current Rust inference; predecode excludes live codec contention and labels are still required for accuracy claims |
-| [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Partially superseded by 0087 (dataset extraction), 0088 (Python profiler/status retirement), 0089 (dataset-merger retirement), and 0092 (CoreML export) | Tooling scope | Rust owns live, saved-video, and labeled temporal evidence; the ONNX-only model exporter remains as Python authoring glue, while viewer interference and representative accuracy evidence remain open |
+| [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Partially superseded by 0087 (dataset extraction), 0088 (Python profiler/status retirement), 0089 (dataset-merger retirement), 0092 (CoreML export), and 0094 (inference/replay tooling) | Tooling scope | Rust owns live, saved-video, and labeled temporal evidence; the ONNX-only model exporter remains as Python authoring glue, while viewer interference and representative accuracy evidence remain open |
 | [0086](decisions/0086-retire-the-incomplete-native-visualizer.md) | Retire the incomplete native visualizer | Superseded for projector test tooling by 0091 | Client scope | Retire the disconnected trajectory-only LÖVE client; retain the native projector, with its tooling later narrowed by 0091 |
 | [0087](decisions/0087-retire-the-heuristic-video-frame-dataset-creator.md) | Retire the heuristic video frame dataset creator | Partially superseded by 0089 (dataset-merger retirement) | Dataset tooling | Remove the unowned, untested frame sampler; its temporary dataset-merger retention is superseded, while lineage-bound model export remains |
 | [0088](decisions/0088-retire-python-performance-instrumentation-and-fake-diagnostics.md) | Retire Python performance instrumentation and fake diagnostics | Accepted | Measurement ownership | Remove retired-pipeline profiler/status endpoints, audit hooks, and configuration; preserve real health and delivery contracts and use Rust audit tools |
@@ -272,6 +286,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0091](decisions/0091-retire-disconnected-projector-tooling.md) | Retire disconnected projector tooling | Accepted | Projector tooling | Remove fake UDP senders, unused Docker dev image and love.js packaging; retain the native projector and Lua coordinate-contract checks |
 | [0092](decisions/0092-use-onnx-as-the-only-maintained-model-export.md) | Use ONNX as the only maintained model export | Accepted | Model authoring | Retire the unused CoreML exporter branch and its model-export dependency; keep the lineage-bound ONNX artifact for Rust CPU, auto, and OpenVINO inference |
 | [0093](decisions/0093-score-temporal-localization-in-physical-table-coordinates.md) | Score temporal localization in physical table coordinates | Accepted | Accuracy evaluation | Preserve pixel-only v1 labels; v2 requires complete independently measured table-space labels per scored frame and an explicit millimeter match gate; production evidence remains open |
+| [0094](decisions/0094-retire-obsolete-inference-and-replay-tools.md) | Retire obsolete inference and replay tools | Accepted | Tooling scope | Remove the still-image CLI and orphaned API replay/replay-v2 ingress/configuration; preserve shared inference, live capture, and standalone recorded-video/JSONL/temporal evaluation |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

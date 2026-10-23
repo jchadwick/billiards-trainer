@@ -19,7 +19,6 @@ set these paths in the mounted configuration, relative to the application root
 {
   "perception": {
     "provider": "rust",
-    "mode": "live",
     "rust_live": {
       "onnx_path": "models/billiards-yolov8n.onnx",
       "source_checkpoint_path": "models/billiards-yolov8n.pt"
@@ -56,7 +55,7 @@ API_PORT=8080 docker compose up -d backend
 ```
 
 Set `START_LIVE=false` to run the Rust gateway without opening a camera. This
-mode is useful for gateway/replay integration checks and does not perform live
+mode is useful for gateway/API integration checks and does not perform live
 detection. The scene-ingress TCP listener remains loopback-only inside the
 container and is not published as a host port.
 
