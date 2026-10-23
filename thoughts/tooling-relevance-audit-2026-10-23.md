@@ -46,7 +46,7 @@ commands or baselines.
 | `billiards-perception-camera-discovery` | Keep: read-only diagnostic | Reports enumerated video sources without opening a device. It has bounded output and command tests, and answers a different operational question from capture qualification. |
 | `billiards-perception-infer` | Retired in this pass | Its only callers were its source, tests, and documentation. The shared inference engine remains covered by live and video-replay tests. The CLI-specific image directory replay, synthetic pacing, raw tensor dumps, retained provider profile, and replay-v2 TCP bridge did not add a validated workflow. |
 | `billiards-perception-video-replay` | Keep: canonical saved-video detector audit | Reuses production Rust inference with PTS-paced latest-frame and unpaced capacity modes. It reports decoder/model provenance, bounded traces and accuracy when reviewed labels are supplied; it does not measure live camera or browser delay. |
-| `billiards-performance-audit-run` | Keep: canonical live delivery audit | Measures live state freshness, throughput, gaps, client receipt and optional trajectory/resource interference using bounded artifacts. Browser rendering remains outside its evidence boundary. |
+| `billiards-performance-audit-run` | Keep: canonical live delivery audit | Measures live state freshness, throughput, gaps, client receipt, optional trajectory receipt collection, and managed detector-process resources using bounded artifacts. Trajectory receipt collection does not enable/disable prediction computation, and browser rendering remains outside its evidence boundary. |
 | `billiards-temporal-evaluate` | Keep: accuracy authority | Scores scene observations against video-bound reviewed annotations, including localization, tracking, cue, and freshness metrics. Unlabeled runs cannot establish accuracy. |
 | `billiards-temporal-import-cvat` | Keep: annotation adapter | Imports reviewed CVAT Video 1.1 keyframes into the bounded, video-bound annotation contract; it converts labels and does not author or validate their truth. |
 
@@ -258,6 +258,17 @@ not a physical webcam, and supplies no temporal ground truth. See
 [the camera-rate comparison](performance-audits/camera-rate-20261023/comparison.md).
 The fixture exercises the Rust HTTP-MJPEG helper; it does not establish camera
 exposure age, webcam support for an exact 20 fps mode, or Linux target behavior.
+
+The separate [20-minute bounded-memory soak](performance-audits/live-bounded-soak-20261023/comparison.md)
+completed 1,200 measured seconds with all state receipts retained and 1,189
+available one-second detector-process resource samples. Detector RSS stayed
+between 253.4 and 299.5 MiB and ended below its initial sample. The detector
+used about 4.6 logical CPU cores at p95 on the development Mac. Ball state was
+marked cached in 8,293 of 26,374 messages; this is not an accuracy result and
+requires temporal labels. The optional timing trace hit its configured 64 MiB
+retention bound and evicted 14,270 records, with no producer or queue drops, so
+the long-run stage-distribution section is partial. This run does not qualify
+the physical Linux camera, browser interference, or detection accuracy.
 
 The repository acceptance run passed the Rust tests, GStreamer camera-feature
 tests, browser tests and typecheck, and retained Python compatibility tests:
