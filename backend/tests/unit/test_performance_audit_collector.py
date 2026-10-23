@@ -1,6 +1,7 @@
 """Tests for state stream identity and loss accounting."""
 
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -1612,6 +1613,66 @@ def test_instrumentation_overhead_requires_matched_off_and_state_only_runs(
     assert result["same_input_hash"] is False
 
 
+def test_rust_overhead_comparison_matches_fixture_and_outcome_messages(
+    tmp_path: Path,
+) -> None:
+    fixture_path = (
+        collector.ROOT
+        / "perception"
+        / "tests"
+        / "fixtures"
+        / "overhead-comparison.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    input_document = fixture["input"]
+    baseline_path = tmp_path / "baseline.json"
+
+    def compare(document: dict[str, Any]) -> dict[str, Any]:
+        baseline_path.write_text(
+            json.dumps(
+                {
+                    "metadata": document["baseline_metadata"],
+                    "repetitions": document["baseline_repetitions"],
+                }
+            ),
+            encoding="utf-8",
+        )
+        return _compare_overhead(
+            baseline_path,
+            document["current_repetitions"],
+            document["current_metadata"],
+            document["budget_percent"],
+            minimum_repetitions=document["minimum_repetitions"],
+            minimum_delivery_samples=document["minimum_delivery_samples"],
+        )
+
+    expected = copy.deepcopy(fixture["expected"])
+    expected["baseline_summary"] = str(baseline_path)
+    assert compare(input_document) == expected
+
+    over_budget = copy.deepcopy(input_document)
+    for run in over_budget["current_repetitions"]:
+        run["unique_observations_per_second"] = 90.0
+        run["source_publication_to_client_receipt_ms"]["p95"] = 120.0
+    over_budget_result = compare(over_budget)
+    assert over_budget_result is not None
+    assert over_budget_result["status"] == "over_budget"
+    assert over_budget_result["interpretation"] == (
+        "Instrumentation overhead exceeds the configured budget."
+    )
+
+    insufficient = copy.deepcopy(input_document)
+    insufficient["current_repetitions"][0]["source_publication_to_client_receipt_ms"][
+        "count"
+    ] = 99
+    inconclusive_result = compare(insufficient)
+    assert inconclusive_result is not None
+    assert inconclusive_result["status"] == "inconclusive"
+    assert inconclusive_result["interpretation"].startswith(
+        "No performance recommendation"
+    )
+
+
 def test_capture_transport_benchmark_is_opt_in_by_default() -> None:
     args = build_parser().parse_args([])
     assert args.capture_transport_benchmark_executable is None
@@ -2295,6 +2356,9 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
             self.records_written += 1
 
         async def _emit_measurements(self) -> None:
+            broadcaster = self.publisher._broadcaster
+            while not broadcaster._measurement_open:
+                await asyncio.sleep(0.001)
             for frame_number in (2, 4, 3, 4):
                 await asyncio.sleep(0.004)
                 scene = _qualification_scene(frame_number)
@@ -2411,7 +2475,7 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
             "--warmup",
             "0",
             "--duration",
-            "0.05",
+            "0.2",
             "--rust-live-resource-sample-interval",
             "0.005",
             "--repetitions",

@@ -182,6 +182,8 @@
     "resource_sample_interval_seconds": 1.0,
     "latency_reference_budget_ms": 50.0,
     "instrumentation_overhead_budget_percent": 2.0,
+    "minimum_overhead_repetitions": 3,
+    "minimum_overhead_delivery_samples": 100,
     "output_directory": "thoughts/performance-audits"
   },
   "vision": {

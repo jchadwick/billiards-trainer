@@ -253,6 +253,8 @@ _NUMERIC_RANGES: dict[str, tuple[float | None, float | None]] = {
     "performance_audit.resource_sample_interval_seconds": (0.01, None),
     "performance_audit.latency_reference_budget_ms": (0, None),
     "performance_audit.instrumentation_overhead_budget_percent": (0, None),
+    "performance_audit.minimum_overhead_repetitions": (1, 10_000),
+    "performance_audit.minimum_overhead_delivery_samples": (1, 10_000_000),
 }
 _EXCLUSIVE_MINIMUMS: dict[str, float] = {
     "core.physics.time_step": 0,

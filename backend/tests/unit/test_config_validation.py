@@ -649,6 +649,23 @@ def test_rate_limit_store_timeout_must_be_positive_and_finite(timeout: float) ->
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("minimum_overhead_repetitions", 0),
+        ("minimum_overhead_delivery_samples", -1),
+        ("minimum_overhead_repetitions", 1.5),
+        ("minimum_overhead_delivery_samples", True),
+    ],
+)
+def test_overhead_evidence_thresholds_require_positive_integers(
+    field: str, value: Any
+) -> None:
+    errors, _ = validate_configuration({"performance_audit": {field: value}})
+
+    assert f"performance_audit.{field}" in {error["field"] for error in errors}
+
+
+@pytest.mark.parametrize(
     ("candidate", "expected_field"),
     [
         (

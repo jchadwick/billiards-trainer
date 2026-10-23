@@ -2230,236 +2230,91 @@ def _compare_overhead(
     repetitions: list[dict[str, Any]],
     metadata: dict[str, Any],
     budget_percent: float,
+    *,
+    minimum_repetitions: int | None = None,
+    minimum_delivery_samples: int | None = None,
 ) -> dict[str, Any] | None:
-    """Compare instrumentation-on runs with an instrumentation-off report."""
+    """Load the baseline in Python and delegate comparison decisions to Rust."""
     if baseline_path is None:
         return None
     try:
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"could not read baseline summary {baseline_path}: {error}")
-
-    def average(runs: list[dict[str, Any]], field: str) -> float | None:
-        values = [
-            float(run[field])
-            for run in runs
-            if isinstance(run.get(field), (int, float)) and math.isfinite(run[field])
-        ]
-        return sum(values) / len(values) if values else None
-
-    def average_source_delivery_p95(runs: list[dict[str, Any]]) -> float | None:
-        values = [
-            float(run["source_publication_to_client_receipt_ms"]["p95"])
-            for run in runs
-            if isinstance(run.get("source_publication_to_client_receipt_ms"), dict)
-            and isinstance(
-                run["source_publication_to_client_receipt_ms"].get("p95"),
-                (int, float),
-            )
-        ]
-        return sum(values) / len(values) if values else None
-
-    baseline_runs = baseline.get("repetitions", [])
-    current_throughput = average(repetitions, "unique_observations_per_second")
-    baseline_throughput = average(baseline_runs, "unique_observations_per_second")
-    current_p95 = average_source_delivery_p95(repetitions)
-    baseline_p95 = average_source_delivery_p95(baseline_runs)
-    throughput_change = (
-        (current_throughput - baseline_throughput) / baseline_throughput * 100
-        if current_throughput is not None and baseline_throughput
-        else None
-    )
-    p95_change = (
-        (current_p95 - baseline_p95) / baseline_p95 * 100
-        if current_p95 is not None and baseline_p95
-        else None
-    )
-
-    current_configuration = metadata.get("effective_configuration", {})
+    if not isinstance(baseline, dict):
+        raise ValueError(f"baseline summary {baseline_path} must contain an object")
     baseline_metadata = baseline.get("metadata", {})
-    baseline_configuration = baseline_metadata.get("effective_configuration", {})
-    comparable_keys = (
-        "camera",
-        "detection",
-        "processing",
-        "vision_performance",
-        "video",
-        "calibration",
-        "websocket_delivery",
-        "stream_quality",
-    )
-    same_configuration = all(
-        current_configuration.get(key) == baseline_configuration.get(key)
-        for key in comparable_keys
-    )
-    activation_keys = {
-        "enabled",
-        "state_enabled",
-        "trajectory_enabled",
-        "viewers_enabled",
-    }
-
-    def audit_settings(configuration: dict[str, Any]) -> dict[str, Any]:
-        audit = configuration.get("performance_audit", {})
-        if not isinstance(audit, dict):
-            return {}
-        return {
-            key: value for key, value in audit.items() if key not in activation_keys
-        }
-
-    same_audit_configuration = audit_settings(current_configuration) == audit_settings(
-        baseline_configuration
-    )
-
-    def workload_signature(run: dict[str, Any]) -> tuple[Any, ...]:
-        video_viewer = run.get("video_viewer")
-        video_url = video_viewer.get("url") if isinstance(video_viewer, dict) else None
-        streams = run.get("streams")
-        normalized_streams = tuple(sorted(streams)) if isinstance(streams, list) else ()
-        return (
-            normalized_streams,
-            video_url,
-            run.get("subscriber_delay_ms"),
-            run.get("warmup_seconds"),
-            run.get("requested_measured_seconds"),
+    baseline_repetitions = baseline.get("repetitions", [])
+    if not isinstance(baseline_metadata, dict):
+        raise ValueError(f"baseline summary {baseline_path} metadata must be an object")
+    if not isinstance(baseline_repetitions, list) or not all(
+        isinstance(run, dict) for run in baseline_repetitions
+    ):
+        raise ValueError(
+            f"baseline summary {baseline_path} repetitions must be objects"
+        )
+    if minimum_repetitions is None:
+        minimum_repetitions = int(
+            config.get("performance_audit.minimum_overhead_repetitions", 3)
+        )
+    if minimum_delivery_samples is None:
+        minimum_delivery_samples = int(
+            config.get("performance_audit.minimum_overhead_delivery_samples", 100)
         )
 
-    current_workloads = {workload_signature(run) for run in repetitions}
-    baseline_workloads = {workload_signature(run) for run in baseline_runs}
-    same_workload = (
-        len(current_workloads) == 1
-        and len(baseline_workloads) == 1
-        and current_workloads == baseline_workloads
-        and all(bool(workload[0]) for workload in current_workloads)
-    )
-    reference_workload = same_workload and all(
-        workload[0] == ("state",) and workload[1] is None and workload[2] == 0.0
-        for workload in current_workloads
-    )
-    current_collector_settings = {
-        json.dumps(run.get("collector_settings"), sort_keys=True)
-        for run in repetitions
-        if isinstance(run.get("collector_settings"), dict)
-    }
-    baseline_collector_settings = {
-        json.dumps(run.get("collector_settings"), sort_keys=True)
-        for run in baseline_runs
-        if isinstance(run.get("collector_settings"), dict)
-    }
-    same_collector_settings = (
-        len(current_collector_settings) == 1
-        and len(baseline_collector_settings) == 1
-        and current_collector_settings == baseline_collector_settings
-    )
-    model_hash = metadata.get("model", {}).get("sha256")
-    baseline_model_hash = baseline_metadata.get("model", {}).get("sha256")
-    same_model = bool(
-        isinstance(model_hash, str) and model_hash and model_hash == baseline_model_hash
-    )
-    input_hash = metadata.get("configured_video_input", {}).get("sha256")
-    baseline_input_hash = baseline_metadata.get("configured_video_input", {}).get(
-        "sha256"
-    )
-    same_input = bool(
-        isinstance(input_hash, str) and input_hash and input_hash == baseline_input_hash
-    )
-    same_revision = bool(
-        isinstance(metadata.get("revision"), str)
-        and metadata.get("revision")
-        and metadata.get("revision") == baseline_metadata.get("revision")
-    )
-    same_dirty_worktree = bool(
-        isinstance(metadata.get("dirty_worktree_sha256"), str)
-        and metadata.get("dirty_worktree_sha256")
-        and metadata.get("dirty_worktree_sha256")
-        == baseline_metadata.get("dirty_worktree_sha256")
-    )
-    current_domains = [run.get("server_audit_domains") for run in repetitions]
-    baseline_domains = [run.get("server_audit_domains") for run in baseline_runs]
-    baseline_instrumentation_off = bool(baseline_domains) and all(
-        isinstance(domains, dict) and not any(domains.values())
-        for domains in baseline_domains
-    )
-    current_state_only = bool(current_domains) and all(
-        domains == {"state": True, "trajectory": False, "viewers": False}
-        for domains in current_domains
-    )
-    same_machine = (
-        metadata.get("host") == baseline_metadata.get("host")
-        and metadata.get("platform") == baseline_metadata.get("platform")
-        and metadata.get("processor") == baseline_metadata.get("processor")
-        and metadata.get("hardware") == baseline_metadata.get("hardware")
-    )
-    enough_data = (
-        len(repetitions) >= 3
-        and len(baseline_runs) >= 3
-        and min(
-            [
-                run.get("source_publication_to_client_receipt_ms", {}).get("count", 0)
-                for run in [*repetitions, *baseline_runs]
-            ],
-            default=0,
-        )
-        >= 100
-    )
-    passes_budget = (
-        throughput_change is not None
-        and p95_change is not None
-        and throughput_change >= -budget_percent
-        and p95_change <= budget_percent
-    )
-    comparable = (
-        same_machine
-        and baseline_instrumentation_off
-        and current_state_only
-        and same_revision
-        and same_dirty_worktree
-        and same_configuration
-        and same_audit_configuration
-        and same_workload
-        and reference_workload
-        and same_collector_settings
-        and same_model
-        and same_input
-    )
-    return {
+    comparison = {
         "baseline_summary": str(baseline_path),
-        "same_revision": same_revision,
-        "same_dirty_worktree": same_dirty_worktree,
-        "same_model_hash": same_model,
-        "same_input_hash": same_input,
-        "same_relevant_configuration": same_configuration,
-        "same_audit_configuration": same_audit_configuration,
-        "same_collector_settings": same_collector_settings,
-        "same_workload": same_workload,
-        "reference_state_only_workload": reference_workload,
-        "same_machine": same_machine,
-        "baseline_instrumentation_off": baseline_instrumentation_off,
-        "current_state_audit_only": current_state_only,
-        "unique_observation_throughput_change_percent": throughput_change,
-        "source_publication_to_client_receipt_p95_change_percent": p95_change,
-        "overhead_budget_percent": budget_percent,
-        "enough_repetitions_and_samples": enough_data,
-        "status": (
-            "pass"
-            if enough_data and comparable and passes_budget
-            else (
-                "inconclusive"
-                if not enough_data
-                or not comparable
-                or current_throughput is None
-                or baseline_throughput is None
-                or current_p95 is None
-                or baseline_p95 is None
-                else "over_budget"
-            )
-        ),
-        "interpretation": (
-            "Instrumentation overhead is within the configured budget."
-            if passes_budget
-            else "No performance recommendation until longer or better-matched runs meet the acceptance budget."
-        ),
+        "current_metadata": metadata,
+        "current_repetitions": repetitions,
+        "baseline_metadata": baseline_metadata,
+        "baseline_repetitions": baseline_repetitions,
+        "budget_percent": budget_percent,
+        "minimum_repetitions": minimum_repetitions,
+        "minimum_delivery_samples": minimum_delivery_samples,
     }
+    payload = json.dumps(
+        _finite_audit_json_value(comparison),
+        allow_nan=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    maximum_input_bytes = 134_217_728
+    if len(payload) > maximum_input_bytes:
+        raise ValueError(
+            "overhead comparison input exceeds the Rust summarizer's "
+            f"{maximum_input_bytes}-byte limit"
+        )
+
+    result = subprocess.run(
+        [
+            str(
+                _rust_audit_summary_executable(
+                    "billiards-performance-audit-overhead-summary",
+                    os.environ.get("PERFORMANCE_AUDIT_OVERHEAD_SUMMARY_EXECUTABLE"),
+                )
+            )
+        ],
+        input=payload,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Rust audit overhead summarizer failed"
+            + (f": {detail}" if detail else f" with exit status {result.returncode}")
+        )
+    try:
+        summary = json.loads(result.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            "Rust audit overhead summarizer returned invalid JSON"
+        ) from error
+    if not isinstance(summary, dict):
+        raise RuntimeError(
+            "Rust audit overhead summarizer returned a non-object summary"
+        )
+    return summary
 
 
 class VideoLoad:
