@@ -141,19 +141,21 @@ verified calibration and labels.
   Rust. Commits `6feb7e7` and `8e74dff` add the native server-event reducer and
   route the Python collector through it. Commits `f445a07` and `b0be61a` add
   the native delivery-latency reducer and route the collector through it too.
-  Shared golden fixtures check the complete server-event and delivery-latency
-  summaries, including clock comparability, state and trajectory correlation,
-  deadline misses, component age, unique observations, resource trends, and
-  viewers. The Rust all-target suite passes 250 library tests plus the
-  integration targets; strict Clippy and formatting pass. The collector-specific
-  Python suite passes all 60 tests, plus Ruff, Black, and mypy. The 5,074-line
-  Python collector still owns event-file collection and clock-window selection,
-  warm-up/repetition and replay orchestration, trajectory subscriptions,
-  provenance, cross-run comparison, accuracy evaluation, and Markdown output.
-  Keep it until these remaining contracts have Rust implementations and
-  differential coverage.
-  This work did not run a new full-app audit or establish a new performance
-  baseline.
+  Commit `4eacd09` adds the native instrumentation-overhead comparison and a
+  shell entry point for direct use. Shared golden fixtures check the full
+  server-event and delivery-latency summaries and the overhead-comparison
+  outcome, including clock comparability, state and trajectory correlation,
+  deadline misses, component age, unique observations, resource trends,
+  workload matching, evidence thresholds, and pass/over-budget/inconclusive
+  status. The Rust all-target suite passes 253 library tests plus the
+  integration targets; strict Clippy and formatting pass. The focused
+  collector/configuration suite passes 148 tests, plus Ruff, Black, and mypy.
+  The 5,074-line Python collector still owns event-file collection and
+  clock-window selection, warm-up/repetition and replay orchestration,
+  trajectory subscriptions, provenance and baseline selection, accuracy
+  evaluation, and Markdown output. Keep it until these remaining contracts have
+  Rust implementations and differential coverage. This tooling slice did not
+  run a new full-app audit or establish a sustained performance baseline.
 
 - **2026-10-22 Mac recorded-video live smoke:** On the development M4 Max, the
   Rust gateway and supervised live detector used the real two-class ONNX

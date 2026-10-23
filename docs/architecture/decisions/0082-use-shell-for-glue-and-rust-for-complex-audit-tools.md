@@ -98,12 +98,12 @@ support authentication headers or credentials.
 
 The collector is still not replaced. Trajectory collection, producer
 timing/export analysis, configuration and hardware provenance, input replay
-orchestration, cross-run comparison, accuracy evaluation, and the final
-Markdown report remain Python-owned and are required parity work. The Python
-collector must remain until those contracts have Rust implementations and
-differential fixtures. The Rust receiver's real-socket tests use a loopback
-test peer; the command has not yet been qualified against the full application
-process or as a performance baseline.
+orchestration, baseline selection, accuracy evaluation, and the final Markdown
+report remain Python-owned and are required parity work. The Python collector
+must remain until those contracts have Rust implementations and differential
+fixtures. The Rust receiver's real-socket tests use a loopback test peer; the
+command has not yet been qualified against the full application process or as
+a performance baseline.
 
 This slice adds optional process CPU and resident-memory sampling to the
 Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the
@@ -159,6 +159,19 @@ misses, component ages and clock labeling. Invalid boolean timestamps, metrics
 and client identities are ignored. The command shares the 1 MiB per-line,
 200,000-event and 128 MiB total-input defaults.
 
+Commit `4eacd09` moves the instrumentation-overhead decision into the Rust
+library and `billiards-performance-audit-overhead-summary` command. The Python
+collector continues to load the selected baseline report and assemble bounded
+comparison input. Rust checks repetition and delivery-sample minimums, machine
+and workload identity, source/model/worktree hashes, relevant and audit
+configuration, collector settings, throughput change, and p95 delivery change.
+The minimum evidence requirements are validated settings with defaults of
+three repetitions and 100 delivery samples per run. The reducer reports an
+inconclusive interpretation whenever evidence or comparability is insufficient,
+even if one metric happens to be within budget. A thin
+`scripts/performance-audit-overhead-summary.sh` wrapper exposes the native
+command for direct development use.
+
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
@@ -175,19 +188,20 @@ and client identities are ignored. The command shares the 1 MiB per-line,
 - The server-event reducer matches a shared golden fixture across stage work,
   trajectory outcomes, unique source observations, resource trends, and viewer
   records. Its JSON Lines command also rejects malformed and over-limit input.
-- Both Rust reducers match shared golden fixtures; the delivery reducer also
-  covers mismatched clocks, instrumentation-off clock identity, malformed
-  booleans and bounded command input. The backend performance collector's 60
-  focused unit tests pass through the Rust bridges, and Ruff, Black, and mypy
-  pass.
+- The server-event, delivery-latency, and overhead reducers match shared golden
+  fixtures. Their tests cover mismatched clocks, instrumentation-off clock
+  identity, malformed booleans, comparison pass/over-budget/inconclusive
+  results, and bounded command input. The focused collector/configuration
+  suite passes 148 tests, and Ruff, Black, and mypy pass.
+- The overhead shell entry point resolves and runs from outside the repository
+  root.
 - Rust formatting, strict Clippy, and the all-target test suite pass.
 - The recorded-video live smoke in the migration plan validates integration
   only; it does not establish detector accuracy or a sustained performance
   baseline.
-- The shared server-event and delivery-latency reducer fixtures pass;
-  differential coverage for remaining collector behavior, full collector
-  parity, measured instrumentation overhead and final retirement remain
-  required before removing the Python collector.
+- The shared reducer fixtures pass; differential coverage for remaining
+  collector behavior, full collector parity, measured instrumentation overhead
+  and final retirement remain required before removing the Python collector.
 
 ## Related records
 

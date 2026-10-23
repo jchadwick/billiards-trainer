@@ -33,7 +33,7 @@ This collector is a test tool, not an application service. The general API
 audit settings below describe the retained compatibility workflow; they do not
 turn on instrumentation in the supported Rust gateway.
 
-The native `billiards-performance-audit` receiver and server-event reducer are
+The native `billiards-performance-audit` receiver and summary reducers are
 being expanded in Rust one audited contract at a time. Invoke the thin shell
 entry point for a live state stream:
 
@@ -74,10 +74,25 @@ domain. Its JSON Lines protocol starts with a config record, then accepts
 The Python collector keeps collection-window selection and delegates these
 joins and percentiles to the Rust command.
 
+The `billiards-performance-audit-overhead-summary` command compares matched
+instrumentation-off and state-only runs. The thin shell entry point accepts its
+bounded JSON comparison document on stdin:
+
+```bash
+scripts/performance-audit-overhead-summary.sh \
+  < /path/to/overhead-comparison.json
+```
+
+It checks workload, machine, revision, model, input, relevant configuration,
+collector settings, repetition count, and delivery sample count before it
+reports whether instrumentation stays within budget. The Python collector
+still selects the baseline report and assembles the comparison document, then
+delegates the decision to Rust.
+
 Python still owns event collection and clock-window selection,
 warm-up/repetition orchestration, trajectory subscriptions, provenance,
-cross-run comparison, accuracy evaluation, and Markdown rendering. Those
-responsibilities remain migration work; this reducer does not change the
+baseline selection, accuracy evaluation, and Markdown rendering. Those
+responsibilities remain migration work; the Rust reducers do not change the
 measurement window or capture path.
 
 | Setting | Default | Purpose |
@@ -101,6 +116,8 @@ measurement window or capture path.
 | `performance_audit.resource_sample_interval_seconds` | `1.0` | CPU, memory, event-loop, and task sample interval |
 | `performance_audit.latency_reference_budget_ms` | `50.0` | Reference deadline used for miss counts |
 | `performance_audit.instrumentation_overhead_budget_percent` | `2.0` | Maximum accepted throughput loss or p95 increase |
+| `performance_audit.minimum_overhead_repetitions` | `3` | Minimum measured runs required in each overhead-comparison arm; maximum `10000` |
+| `performance_audit.minimum_overhead_delivery_samples` | `100` | Minimum source-to-client latency samples required in every compared run; maximum `10000000` |
 | `performance_audit.output_directory` | `thoughts/performance-audits` | Run reports and per-process event files |
 
 The shared configuration validator checks these values before accepting a
