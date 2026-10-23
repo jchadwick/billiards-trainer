@@ -48,7 +48,6 @@ Calibration requests keep their paired values explicit: `screen_position` is a s
 ## Repository-specific inputs
 
 - `config.json` and `backend/config_schema_defaults.json` define the configured table corners and marker dots as coordinates from a 640 × 360 reference image. Every point currently carries `[6, 6]`, and the table section records `calibration_resolution_width: 640` and `calibration_resolution_height: 360`. Vision consumers must use the point's own scale; the resolution settings alone do not authorize reconstructing a missing scale.
-- Checked-in JSON fixtures in `backend/vision/test_data/` describe 3840 × 2160 images. Their top-level `coordinate_space: "4k_canonical"` and `coordinate_scale: [1, 1]` apply to all nested image-space points, boxes, radii, corners, and bounds. The CVAT `annotations.xml` source retains its own native format.
 - YOLO label coordinates are normalized relative to the exact source image dimensions as required by the label format. Convert using those dimensions at the detector boundary; do not treat normalized labels as pixel positions or guess dimensions from the values.
 - The web frontend normalizes received image points and extents to canonical image space, then maps canonical values into the active video frame and canvas. Keep rendering dimensions separate from source-image dimensions.
 - The projector and visualizer have their own coordinate contracts for table-normalized and projector spaces. Do not reinterpret those values as image pixels; follow their declared space and scale metadata.
