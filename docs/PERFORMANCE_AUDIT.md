@@ -18,6 +18,11 @@ State correctness is the first gate, followed by fresh-state latency and unique
 source-observation throughput. The configured 50 ms value is a reference
 deadline for reporting misses, not a result or a guarantee.
 
+The legacy `backend/tools/quick_perf_check.py` has been retired. Its synthetic
+all-zero image and Python detector timings did not qualify the supported Rust
+runtime. Use the managed live audit below to measure the complete Rust service;
+an isolated detector microbenchmark remains a separate future tool.
+
 ## Development-machine integration smoke
 
 The managed Rust live path was exercised against the target machine's remote

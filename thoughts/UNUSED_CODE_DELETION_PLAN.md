@@ -252,10 +252,14 @@ These are valuable for development workflows:
 
 #### `backend/tools/quick_perf_check.py`
 
-- **Purpose**: Quick performance verification
-- **Recommendation**: ✅ **KEEP** - Useful dev tool
-
-#### `backend/tools/watch_performance.py`
+- **Status**: Retired during the Rust migration. The check repeatedly runs the
+  legacy Python detector against an all-zero synthetic image and a fixed 15 FPS
+  target, then recommends MPS/CoreML. Those results do not qualify the current
+  Rust live path, and no active caller or test uses this script.
+- **Replacement**: [`scripts/performance-audit-live.sh`](../scripts/performance-audit-live.sh)
+  runs the Rust gateway and detector together and measures fresh published
+  state. It does not replace an isolated detector microbenchmark; build a
+  representative-input Rust benchmark only if a later investigation needs one.
 
 - **Status**: Retired on 2026-10-22. It polled the legacy Python-only
   `/api/v1/vision/performance` endpoint, which the Rust gateway does not serve.
