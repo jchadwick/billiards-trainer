@@ -9,7 +9,6 @@ A modular, extensible projector application for the Billiards Trainer system bui
 - **Hot Reload**: Modify modules without restarting (Ctrl+R)
 - **Calibration System**: 4-point perspective transformation
 - **Trajectory Visualization**: Real-time ball path rendering
-- **60+ FPS Performance**: Optimized for real-time projection
 
 ## Installation
 
@@ -27,19 +26,6 @@ love --version
 ```bash
 cd frontend/projector
 love .
-```
-
-### Creating Standalone Executable
-
-```bash
-# Create fused executable
-cd frontend/projector
-zip -r projector.love . -x "*.git*"
-cat /usr/bin/love projector.love > projector
-chmod +x projector
-
-# Run standalone
-./projector
 ```
 
 ## Usage

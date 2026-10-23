@@ -1,4 +1,4 @@
-# ADR-0091: Retire disconnected projector test and browser packaging tools
+# ADR-0091: Retire disconnected projector tooling
 
 - Status: accepted
 - Date: 2026-10-23
@@ -15,7 +15,11 @@ checked those same fabricated payloads, not capture, detection, or delivery
 from the product. A shell helper launched the disconnected sender and used a
 broad process-name kill. The optional love.js packaging path built a separate
 browser artifact without the product's HTML/JavaScript/CSS client, WebSocket,
-or state contract.
+or state contract. An additional Docker development image had no caller,
+build instructions, or test coverage and restarted the graphical client on
+every filesystem change. The README also described a fused binary using a
+Linux-specific `/usr/bin/love` path despite the documented Mac and Linux
+support.
 
 The projector application remains a distinct native client with a possible
 future projection use case. Its Lua coordinate-contract tests validate a
@@ -24,8 +28,9 @@ browser client remains `frontend/web`.
 
 ## Decision
 
-Remove the Python UDP sender tests, the combined local test launcher, and the
-love.js browser-packaging workflow and its documentation. Keep the native LÖVE
+Remove the Python UDP sender tests, combined local test launcher, unreferenced
+Docker development image, unsupported fused-binary instructions, and love.js
+browser-packaging workflow with its documentation. Keep the native LÖVE
 application, local run helper, and hardware-free Lua coordinate-contract test.
 Do not replace the removed fake transport with Rust code: it would only test a
 protocol with no production publisher. Restore end-to-end projector testing
@@ -40,7 +45,8 @@ when a supported backend-to-projector adapter has an owned transport contract.
 - The repository has one maintained browser application, the actual
   HTML/JavaScript/CSS `/live` client.
 - Projector-specific test and packaging workflows no longer add Python,
-  Node-based WASM packaging, or unowned fake data paths.
+  Node-based WASM packaging, unowned fake data paths, or an unused container
+  and platform-specific packaging recipe.
 
 ### Negative
 
@@ -62,6 +68,6 @@ an unconnected demonstration as product coverage.
 - `lua frontend/projector/test_coordinate_contract.lua` passes.
 - `luac -p frontend/projector/core/coordinate_contract.lua` passes.
 - Repository search finds no live references to the removed sender, launcher,
-  or browser-packaging workflow.
+  dev-container, fused-binary recipe, or browser-packaging workflow.
 - Rust, browser, backend-compatibility, shell, and ADR checks pass after the
   retirement.

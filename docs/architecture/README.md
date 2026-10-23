@@ -43,8 +43,9 @@ retired. Python profiler/status endpoints are retired rather than retained in
 the offline test reference. ADR-0086 also retires the
 disconnected LÖVE trajectory visualizer;
 the supported browser client remains the `/live` application and the separate
-native projector remains available. ADR-0091 removes its synthetic sender and
-love.js packaging workflows while preserving Lua coordinate-contract checks.
+native projector remains available. ADR-0091 removes its synthetic sender,
+unused Docker development image, and love.js packaging workflow while
+preserving Lua coordinate-contract checks.
 ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
@@ -266,7 +267,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0088](decisions/0088-retire-python-performance-instrumentation-and-fake-diagnostics.md) | Retire Python performance instrumentation and fake diagnostics | Accepted | Measurement ownership | Remove retired-pipeline profiler/status endpoints, audit hooks, and configuration; preserve real health and delivery contracts and use Rust audit tools |
 | [0089](decisions/0089-retire-disconnected-dataset-merger.md) | Retire disconnected dataset merger | Accepted | Dataset tooling | Remove an isolated generic merger whose class ordering can conflict with Rust runtime semantics; retain only lineage-bound model export and reviewed temporal labeling |
 | [0090](decisions/0090-keep-browser-client-focused-on-live-detection.md) | Keep browser client focused on live detection | Accepted | Browser client scope | Retain direct MJPEG, reconnecting state WebSocket, freshness and coordinate handling; remove unreachable UI surfaces and keep HTML/JS/CSS |
-| [0091](decisions/0091-retire-disconnected-projector-test-and-browser-packaging-tools.md) | Retire disconnected projector test and browser packaging tools | Accepted | Projector tooling | Remove fake UDP senders and love.js packaging; retain the native projector and Lua coordinate-contract checks |
+| [0091](decisions/0091-retire-disconnected-projector-tooling.md) | Retire disconnected projector tooling | Accepted | Projector tooling | Remove fake UDP senders, unused Docker dev image and love.js packaging; retain the native projector and Lua coordinate-contract checks |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

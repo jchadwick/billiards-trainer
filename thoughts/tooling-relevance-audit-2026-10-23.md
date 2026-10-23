@@ -31,7 +31,7 @@ commands or baselines.
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
 | `frontend/web` | Keep as the minimal operator client | ADR-0090 keeps `/live` with direct MJPEG and a state-only reconnecting WebSocket. Legacy configuration, diagnostics, monitoring, navigation, generic video controls, persistence, and their tests were unreachable from the route graph and were removed. |
-| Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; its fake Python sender tests and unrelated love.js browser package are retired under ADR-0091. ADR-0086 still preserves the native projection use case. |
+| Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; fake Python senders, an unused Docker dev image, unsupported fused-binary instructions, and the unrelated love.js browser package are retired under ADR-0091. ADR-0086 still preserves the native projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retire | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
 
 ## Already-ported Rust executables, evaluated individually
@@ -117,11 +117,12 @@ major CSS-framework migration.
   runner, focused implementation notes, and its Make targets. Keep the distinct
   projector client.
 - The Python projector UDP message generators and their self-referential tests,
-  the combined local launcher with broad process killing, and the optional
-  love.js browser packager. The fake sender did not exercise product capture,
-  detection, or delivery, and the generated browser artifact was not the
-  supported HTML/JavaScript/CSS client. Keep the native projector and its Lua
-  coordinate-contract check under ADR-0091.
+  the combined local launcher with broad process killing, an unreferenced
+  Docker dev image, unsupported Linux-only fused-binary instructions, and the
+  optional love.js browser packager. The fake sender did not exercise product
+  capture, detection, or delivery, and the generated browser artifact was not
+  the supported HTML/JavaScript/CSS client. Keep the native projector and its
+  Lua coordinate-contract check under ADR-0091.
 - Obsolete 2024/2025 ball-event, Hough/YOLO tuning, missing-test, table-detector,
   cleanup-plan, and cleanup-verification notes that pointed to removed tools,
   nonexistent tests, the retired Python runtime, or unsupported accuracy claims.
