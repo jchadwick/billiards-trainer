@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -57,6 +58,27 @@ def _native_delivery() -> dict[str, Any]:
             "freshness": "fresh",
         },
     }
+
+
+def test_all_checked_in_public_state_fixtures_match_python_adapter() -> None:
+    """Keep all checked-in cross-runtime examples tied to adapter behavior."""
+    fixture_root = PUBLIC_STATE_FIXTURE.parent
+    fixtures: list[tuple[Path, dict[str, Any]]] = []
+    for path in sorted(fixture_root.glob("*.json")):
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(value, dict) and {"scene", "table", "game_type", "expected"} <= (
+            value.keys()
+        ):
+            fixtures.append((path, value))
+
+    assert len(fixtures) == 35, "every versioned public-state fixture must be tested"
+    adapter = SceneSnapshotStateAdapter()
+    for path, fixture in fixtures:
+        payload = adapter.adapt(
+            fixture["scene"], table=fixture["table"], game_type=fixture["game_type"]
+        )
+        actual = asdict(payload) if payload is not None else None
+        assert actual == fixture["expected"], path.name
 
 
 def test_adapter_preserves_observation_identity_and_units() -> None:

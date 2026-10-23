@@ -645,7 +645,7 @@ class MathUtils:
         if len(values) != len(weights) or len(values) == 0:
             return 0.0
 
-        weighted_sum = sum(v * w for v, w in zip(values, weights))
+        weighted_sum = sum(v * w for v, w in zip(values, weights, strict=False))
         weight_sum = sum(weights)
 
         if MathUtils.approximately_zero(weight_sum):

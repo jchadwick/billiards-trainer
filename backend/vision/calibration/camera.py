@@ -448,7 +448,7 @@ class CameraCalibrator:
             Updated table transformation
         """
         adjusted_corners = []
-        for (x, y), (dx, dy) in zip(initial_corners, adjustment_vectors):
+        for (x, y), (dx, dy) in zip(initial_corners, adjustment_vectors, strict=False):
             adjusted_corners.append((x + dx, y + dy))
 
         return self.calibrate_table_transform(image, adjusted_corners)
@@ -476,7 +476,9 @@ class CameraCalibrator:
         pixel_errors = []
         world_errors = []
 
-        for world_pt, pixel_pt in zip(known_world_points, known_pixel_points):
+        for world_pt, pixel_pt in zip(
+            known_world_points, known_pixel_points, strict=False
+        ):
             # World to pixel error
             projected_pixel = self.world_to_pixel(world_pt)
             if projected_pixel:

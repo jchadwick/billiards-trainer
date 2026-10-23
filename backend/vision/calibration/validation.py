@@ -565,7 +565,9 @@ class CalibrationValidator:
 
             # Test reverse transformation
             reverse_errors = []
-            for expected_world, test_pixel in zip(expected_world_points, test_points):
+            for expected_world, test_pixel in zip(
+                expected_world_points, test_points, strict=False
+            ):
                 # Convert world to pixel
                 calculated_pixel = geometry_calibrator.world_to_pixel_coordinates(
                     expected_world
@@ -842,7 +844,7 @@ class CalibrationValidator:
 
         # Calculate average distance between corresponding corners
         errors = []
-        for det_corner, exp_corner in zip(detected, expected):
+        for det_corner, exp_corner in zip(detected, expected, strict=False):
             error = np.linalg.norm(np.array(det_corner) - np.array(exp_corner))
             errors.append(error)
 

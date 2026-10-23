@@ -865,7 +865,7 @@ class PlayingAreaCornersRequest(BaseModel):
         for point in [*self.corners, *(self.marker_dots or [])]:
             if any(
                 abs(actual - expected) > 1e-6
-                for actual, expected in zip(point.scale, expected_scale)
+                for actual, expected in zip(point.scale, expected_scale, strict=False)
             ):
                 raise ValueError(
                     "Point scale must map the declared calibration resolution to canonical 4K"

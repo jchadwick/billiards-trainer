@@ -105,7 +105,7 @@ def test_calibration_capture_uses_canonical_pixels_for_homography(
     target_points = [(0.1, 0.1), (2.1, 0.1), (2.1, 1.1), (0.1, 1.1)]
 
     for index, ((x, y), (world_x, world_y)) in enumerate(
-        zip(source_points, target_points)
+        zip(source_points, target_points, strict=False)
     ):
         result = asyncio.run(
             calibration_routes.capture_calibration_point(
@@ -211,7 +211,7 @@ def test_calibration_validation_returns_scaled_image_and_meter_world_points(
             "confidence": 0.9,
         }
         for index, ((screen_x, screen_y), (world_x, world_y)) in enumerate(
-            zip(screen_points, world_points)
+            zip(screen_points, world_points, strict=False)
         )
     ]
     monkeypatch.setattr(

@@ -39,14 +39,12 @@ python-tooling = [
     "numpy>=1.24.0",
     "psutil>=5.9.0",
     "scikit-learn>=1.3.0",
-    "Pillow>=10.0.0",
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "websockets>=11.0",
     "python-multipart>=0.0.6",
     "pydantic>=2.0.0",
     "PyYAML>=6.0",
-    "python-dotenv>=1.0.0",
     "jsonschema>=4.17.0",
     "scipy>=1.10.0",
     # The retained macOS-only compatibility detector can still load existing
@@ -118,7 +116,7 @@ known_third_party = ["cv2", "numpy", "fastapi", "pydantic", "sklearn"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 88
 
 [tool.ruff.lint]
@@ -182,6 +180,8 @@ ignore = [
     "SIM117", # multiple with statements
     "TID252", # Prefer absolute imports over relative imports from parent modules
     "UP035", # Deprecated typing imports (Dict, List, etc.) - grandfathered in existing code
+    "UP007", # Keep established Union spelling in retained compatibility modules
+    "UP045", # Keep established Optional spelling in retained compatibility modules
 ]
 
 [tool.ruff.lint.pydocstyle]

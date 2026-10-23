@@ -509,7 +509,7 @@ class ObjectTracker:
         unmatched_tracks = set(range(len(self.tracks)))
 
         for cost_matrix_row_idx, detection_idx in zip(
-            cost_matrix_row_indices, detection_indices
+            cost_matrix_row_indices, detection_indices, strict=False
         ):
             # Map from cost matrix row index to actual track index
             actual_track_idx = valid_track_indices[cost_matrix_row_idx]

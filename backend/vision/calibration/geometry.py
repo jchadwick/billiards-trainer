@@ -637,7 +637,9 @@ class GeometricCalibrator:
 
         # Calculate errors
         errors: list[float] = []
-        for converted, expected in zip(converted_points, expected_world_points):
+        for converted, expected in zip(
+            converted_points, expected_world_points, strict=False
+        ):
             error = np.linalg.norm(np.array(converted) - np.array(expected))
             errors.append(float(error))
 

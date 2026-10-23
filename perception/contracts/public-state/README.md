@@ -23,6 +23,11 @@ and non-observation/non-success suppression. Invalid scenes are exercised in
 Rust tests because the native boundary validates the complete typed contract
 before attempting conversion.
 
+The Python compatibility suite compares all 35 checked-in expected payloads
+against the current adapter, so fixture drift is detected without manually
+running the generator. Regenerate only when intentionally changing this public
+state contract, then review the JSON changes alongside the Rust contract tests.
+
 `lifecycle-policy-v1.json` supplies the validated defaults for bounded cached
 state: 100 ms before positions become stale, 1 second before cached positions
 are cleared, and at most 64 balls. Callers can provide explicit validated

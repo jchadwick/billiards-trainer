@@ -641,9 +641,13 @@ def validate_configuration(
         ):
             continue
         if rule["kind"] == "strictly_increasing":
-            valid = all(left < right for left, right in zip(values, values[1:]))
+            valid = all(
+                left < right for left, right in zip(values, values[1:], strict=False)
+            )
         else:
-            valid = all(left <= right for left, right in zip(values, values[1:]))
+            valid = all(
+                left <= right for left, right in zip(values, values[1:], strict=False)
+            )
         if not valid:
             errors.append(
                 _error(

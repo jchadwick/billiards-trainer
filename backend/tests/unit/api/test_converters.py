@@ -1283,7 +1283,9 @@ class TestValidationFunctions:
         assert result.state_confidence == sample_game_state.state_confidence
         assert result.is_valid is True
         assert [ball.id for ball in result.balls] == ["cue", "ball_1"]
-        for actual, expected in zip(result.balls, sample_game_state.balls):
+        for actual, expected in zip(
+            result.balls, sample_game_state.balls, strict=False
+        ):
             assert actual.position == expected.position
             assert actual.velocity == expected.velocity
             assert actual.number == expected.number
