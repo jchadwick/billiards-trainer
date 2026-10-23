@@ -237,16 +237,9 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
-    "vision: marks tests as computer vision tests",
-    "api: marks tests as API tests",
-    "projector: marks tests as projector tests",
-    "hardware: marks tests that require hardware (camera/projector)",
-    "performance: marks tests as performance tests",
     "system: marks tests as end-to-end system tests",
-    "network: marks tests that require network access",
     "model_assets: replay requiring an explicitly configured installed detector model",
 ]
 asyncio_mode = "auto"

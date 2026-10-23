@@ -14,7 +14,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-vision test-api test-coverage test-fast lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -69,8 +69,8 @@ install-python-tools: python-venv ## Install Python compatibility, tests, data, 
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev]"
 	@echo "$(GREEN)Optional Python authoring and compatibility-test dependencies installed.$(RESET)"
 
-install-model-tools: python-venv ## Install heavy optional model-export dependencies
-	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,model-export]"
+install-model-tools: python-venv ## Install only optional model-export dependencies
+	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[model-export]"
 	@echo "$(GREEN)Optional ONNX/CoreML model-export dependencies installed.$(RESET)"
 
 python-venv: ## Create the optional Python tooling environment
@@ -151,21 +151,9 @@ test-integration: ## Run integration tests only
 	@echo "$(BLUE)Running integration tests...$(RESET)"
 	$(PYTHON) -m pytest -m "integration"
 
-test-vision: ## Run computer vision tests
-	@echo "$(BLUE)Running vision tests...$(RESET)"
-	$(PYTHON) -m pytest -m "vision"
-
-test-api: ## Run API tests
-	@echo "$(BLUE)Running API tests...$(RESET)"
-	$(PYTHON) -m pytest -m "api"
-
 test-coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(RESET)"
 	$(PYTHON) -m pytest --cov=backend --cov-report=html --cov-report=term-missing
-
-test-fast: ## Run fast tests only (exclude slow tests)
-	@echo "$(BLUE)Running fast tests...$(RESET)"
-	$(PYTHON) -m pytest -m "not slow"
 
 # ===== Build =====
 
@@ -214,8 +202,6 @@ run-frontend: ## Run frontend dev server only
 
 config-check: ## Validate configuration files
 	@echo "$(BLUE)Checking configuration files...$(RESET)"
-	@node -e 'JSON.parse(require("node:fs").readFileSync("$(RUST_CONFIG)", "utf8"));' \
-		&& echo "$(GREEN)Rust configuration JSON is valid$(RESET)"
 	@temporary_store=$$(mktemp -d) && trap 'rm -rf "$$temporary_store"' EXIT && \
 		node --input-type=module -e 'import fs from "node:fs"; const data=JSON.parse(fs.readFileSync("$(RUST_CONFIG)", "utf8")); process.stdout.write(JSON.stringify({protocol_version:1,operation:"validate",merge:false,data})+"\n");' | \
 		cargo run --quiet --manifest-path $(RUST_MANIFEST) --bin billiards-perception-config -- --config "$$temporary_store/validation.json" | \
