@@ -1,10 +1,11 @@
 //! Separately launchable Rust localization gateway for side-by-side migration.
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use billiards_perception::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
+use billiards_perception::live_audit::LiveAuditConfig;
 use billiards_perception::server::{
     run_with_live, LiveProcessLaunchOptions, ServerConfig, DEFAULT_MAX_CONFIGURATION_REQUESTS,
 };
@@ -67,15 +68,68 @@ struct ServerArgs {
     /// Override the colocated GStreamer capture helper executable.
     #[arg(long)]
     capture_helper_executable: Option<PathBuf>,
+    /// Optional loopback receiver for bounded live timing records.
+    /// All --live-audit-* settings must be supplied together with --start-live.
+    #[arg(long)]
+    live_audit_tcp: Option<SocketAddr>,
+    /// Maximum number of queued audit records (1..=4096).
+    #[arg(long)]
+    live_audit_queue_capacity: Option<usize>,
+    /// Maximum audit record size in bytes (1024..=1048576).
+    #[arg(long)]
+    live_audit_max_record_bytes: Option<usize>,
+    /// Audit receiver connect deadline in milliseconds.
+    #[arg(long)]
+    live_audit_connect_timeout_ms: Option<u64>,
+    /// Audit socket write deadline in milliseconds.
+    #[arg(long)]
+    live_audit_write_timeout_ms: Option<u64>,
 }
 
 impl ServerArgs {
-    fn live_options(&self) -> LiveProcessLaunchOptions {
-        LiveProcessLaunchOptions {
+    fn live_options(&self) -> Result<LiveProcessLaunchOptions, String> {
+        let audit_config = self.live_audit_config()?;
+        Ok(LiveProcessLaunchOptions {
             enabled: self.start_live,
             executable_path: self.live_executable.clone(),
             capture_helper_path: self.capture_helper_executable.clone(),
+            audit_config,
+        })
+    }
+
+    fn live_audit_config(&self) -> Result<Option<LiveAuditConfig>, String> {
+        let supplied = [
+            self.live_audit_tcp.is_some(),
+            self.live_audit_queue_capacity.is_some(),
+            self.live_audit_max_record_bytes.is_some(),
+            self.live_audit_connect_timeout_ms.is_some(),
+            self.live_audit_write_timeout_ms.is_some(),
+        ];
+        if supplied.iter().all(|value| !value) {
+            return Ok(None);
         }
+        if !self.start_live {
+            return Err("--live-audit-* settings require --start-live".to_owned());
+        }
+        if !supplied.iter().all(|value| *value) {
+            return Err("all --live-audit-* settings must be supplied together".to_owned());
+        }
+
+        let config = LiveAuditConfig {
+            address: self.live_audit_tcp.expect("validated above"),
+            queue_capacity: self.live_audit_queue_capacity.expect("validated above"),
+            maximum_record_bytes: self.live_audit_max_record_bytes.expect("validated above"),
+            connect_timeout: Duration::from_millis(
+                self.live_audit_connect_timeout_ms.expect("validated above"),
+            ),
+            write_timeout: Duration::from_millis(
+                self.live_audit_write_timeout_ms.expect("validated above"),
+            ),
+        };
+        config
+            .validate()
+            .map_err(|error| format!("invalid live audit settings: {error}"))?;
+        Ok(Some(config))
     }
 
     fn config(self) -> Result<ServerConfig, String> {
@@ -133,7 +187,7 @@ impl ServerArgs {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let arguments = ServerArgs::parse();
-    let live_options = arguments.live_options();
+    let live_options = arguments.live_options().map_err(std::io::Error::other)?;
     let config = arguments.config().map_err(std::io::Error::other)?;
     run_with_live(config, live_options).await
 }
@@ -149,6 +203,7 @@ mod tests {
     #[test]
     fn cli_exposes_local_safe_defaults_and_rejects_non_loopback_ingress() {
         let args = ServerArgs::try_parse_from(["billiards-server"]).unwrap();
+        assert!(args.live_options().unwrap().audit_config.is_none());
         let config = args.config().unwrap();
         assert_eq!(config.http_port, 8001);
         assert_eq!(config.scene_port, 49_321);
@@ -168,7 +223,7 @@ mod tests {
             "/opt/billiards/bin/camera-helper",
         ])
         .unwrap();
-        let live = args.live_options();
+        let live = args.live_options().unwrap();
         assert!(live.enabled);
         assert_eq!(
             live.executable_path.as_deref(),
@@ -189,6 +244,91 @@ mod tests {
             .config()
             .unwrap_err()
             .contains("project root must be an absolute"));
+    }
+
+    #[test]
+    fn live_audit_cli_is_all_or_none_opt_in_and_loopback_only() {
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--start-live",
+            "--live-audit-tcp",
+            "127.0.0.1:49322",
+            "--live-audit-queue-capacity",
+            "37",
+            "--live-audit-max-record-bytes",
+            "8192",
+            "--live-audit-connect-timeout-ms",
+            "1250",
+            "--live-audit-write-timeout-ms",
+            "875",
+        ])
+        .unwrap();
+        let audit = args.live_options().unwrap().audit_config.unwrap();
+        assert_eq!(audit.address, "127.0.0.1:49322".parse().unwrap());
+        assert_eq!(audit.queue_capacity, 37);
+        assert_eq!(audit.maximum_record_bytes, 8_192);
+        assert_eq!(audit.connect_timeout, Duration::from_millis(1_250));
+        assert_eq!(audit.write_timeout, Duration::from_millis(875));
+
+        let args =
+            ServerArgs::try_parse_from(["billiards-server", "--live-audit-tcp", "127.0.0.1:49322"])
+                .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("require --start-live"));
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--start-live",
+            "--live-audit-tcp",
+            "127.0.0.1:49322",
+        ])
+        .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("must be supplied together"));
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--start-live",
+            "--live-audit-tcp",
+            "0.0.0.0:49322",
+            "--live-audit-queue-capacity",
+            "37",
+            "--live-audit-max-record-bytes",
+            "8192",
+            "--live-audit-connect-timeout-ms",
+            "1250",
+            "--live-audit-write-timeout-ms",
+            "875",
+        ])
+        .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("must be loopback"));
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--start-live",
+            "--live-audit-tcp",
+            "127.0.0.1:49322",
+            "--live-audit-queue-capacity",
+            "0",
+            "--live-audit-max-record-bytes",
+            "8192",
+            "--live-audit-connect-timeout-ms",
+            "1250",
+            "--live-audit-write-timeout-ms",
+            "875",
+        ])
+        .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("queue capacity must be between"));
     }
 
     #[test]

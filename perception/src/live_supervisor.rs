@@ -20,6 +20,7 @@ use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 use crate::capture_settings_wire::build_capture_settings_v3;
+use crate::live_audit::LiveAuditConfig;
 
 const PHYSICAL_SELECTOR_PREFIX: &str = "gstreamer-device-v1:";
 
@@ -110,6 +111,7 @@ impl LiveProcessConfig {
         scene_address: SocketAddr,
         live_executable_override: Option<&Path>,
         capture_helper_override: Option<&Path>,
+        audit_config: Option<LiveAuditConfig>,
     ) -> Result<Self, String> {
         if !project_root.is_absolute() {
             return Err("live process project root must be absolute".to_owned());
@@ -117,6 +119,11 @@ impl LiveProcessConfig {
         let project_root = project_root
             .canonicalize()
             .map_err(|error| format!("could not resolve project root: {error}"))?;
+        if let Some(config) = audit_config {
+            config
+                .validate()
+                .map_err(|error| format!("invalid live audit configuration: {error}"))?;
+        }
         let live = object_at(configuration, "perception.rust_live")?;
         let capture_settings = build_capture_settings_v3(configuration)
             .map_err(|error| format!("could not resolve live capture settings: {error}"))?;
@@ -238,6 +245,7 @@ impl LiveProcessConfig {
             "scene-snapshots-tcp",
             scene_address.to_string(),
         );
+        append_live_audit_arguments(&mut arguments, audit_config);
         push_argument(
             &mut arguments,
             "startup-timeout-ms",
@@ -404,6 +412,35 @@ impl LiveProcessConfig {
         drop(stdin);
         Ok(child)
     }
+}
+
+/// Forward the complete audit configuration as detector arguments. With no
+/// configuration, the child receives no audit flags and creates no recorder.
+fn append_live_audit_arguments(arguments: &mut Vec<String>, config: Option<LiveAuditConfig>) {
+    let Some(config) = config else {
+        return;
+    };
+    push_argument(arguments, "live-audit-tcp", config.address.to_string());
+    push_argument(
+        arguments,
+        "live-audit-queue-capacity",
+        config.queue_capacity.to_string(),
+    );
+    push_argument(
+        arguments,
+        "live-audit-max-record-bytes",
+        config.maximum_record_bytes.to_string(),
+    );
+    push_argument(
+        arguments,
+        "live-audit-connect-timeout-ms",
+        config.connect_timeout.as_millis().to_string(),
+    );
+    push_argument(
+        arguments,
+        "live-audit-write-timeout-ms",
+        config.write_timeout.as_millis().to_string(),
+    );
 }
 
 /// Translate gateway frame-preview settings into the detector's actual CLI
@@ -668,6 +705,7 @@ async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
 #[cfg(test)]
 mod tests {
     use super::{resolve_live_executables, stop_child, LiveProcessConfig};
+    use crate::live_audit::LiveAuditConfig;
     use std::net::SocketAddr;
     use std::path::Path;
     use std::time::Duration;
@@ -752,6 +790,7 @@ mod tests {
             "127.0.0.1:49321".parse::<SocketAddr>().unwrap(),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -782,6 +821,67 @@ mod tests {
             .contains(&"--capture-settings-stdin".to_owned()));
         assert!(config.arguments.contains(&"--onnx".to_owned()));
         assert!(config.arguments.contains(&"--source-checkpoint".to_owned()));
+        assert!(!config
+            .arguments
+            .iter()
+            .any(|argument| argument.starts_with("--live-audit-")));
+    }
+
+    #[test]
+    fn forwards_exact_live_audit_configuration_to_detector() {
+        let project = tempfile::tempdir().unwrap();
+        let configuration = remote_stream_config();
+        let audit = LiveAuditConfig {
+            address: "127.0.0.1:49322".parse().unwrap(),
+            queue_capacity: 37,
+            maximum_record_bytes: 8_192,
+            connect_timeout: Duration::from_millis(1_250),
+            write_timeout: Duration::from_millis(875),
+        };
+        let config = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+            Some(audit),
+        )
+        .unwrap();
+        for (flag, expected) in [
+            ("--live-audit-tcp", "127.0.0.1:49322"),
+            ("--live-audit-queue-capacity", "37"),
+            ("--live-audit-max-record-bytes", "8192"),
+            ("--live-audit-connect-timeout-ms", "1250"),
+            ("--live-audit-write-timeout-ms", "875"),
+        ] {
+            assert!(config
+                .arguments
+                .windows(2)
+                .any(|pair| pair == [flag, expected]));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_live_audit_configuration_before_spawn() {
+        let project = tempfile::tempdir().unwrap();
+        let configuration = remote_stream_config();
+        let error = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+            Some(LiveAuditConfig {
+                address: "0.0.0.0:49322".parse().unwrap(),
+                queue_capacity: 37,
+                maximum_record_bytes: 8_192,
+                connect_timeout: Duration::from_millis(1_250),
+                write_timeout: Duration::from_millis(875),
+            }),
+        )
+        .unwrap_err();
+        assert!(error.contains("invalid live audit configuration"));
+        assert!(error.contains("must be loopback"));
     }
 
     #[test]
@@ -793,6 +893,7 @@ mod tests {
             &configuration,
             project.path(),
             "127.0.0.1:49321".parse().unwrap(),
+            None,
             None,
             None,
         )
@@ -830,6 +931,7 @@ mod tests {
             "127.0.0.1:49321".parse().unwrap(),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -852,6 +954,7 @@ mod tests {
             "127.0.0.1:49321".parse().unwrap(),
             None,
             None,
+            None,
         )
         .unwrap_err();
 
@@ -867,6 +970,7 @@ mod tests {
             &configuration,
             project.path(),
             "127.0.0.1:49321".parse().unwrap(),
+            None,
             None,
             None,
         )

@@ -104,6 +104,41 @@ profile identities described above. External state streams do not disclose
 detector identity; network input-video hashing and accuracy evidence remain
 unavailable in either mode.
 
+For a managed Rust live server, `--live-pipeline-timing-audit` also enables a
+bounded loopback side channel from the detector. The runner binds the receiver
+before starting the server and supplies the ephemeral endpoint and validated
+limits to the child. The option requires `--server-executable` and a forwarded
+`--start-live`. With the option omitted, neither process opens the timing
+socket or allocates its timing-retention queue. The shell entry point accepts
+the same Rust CLI options:
+
+```bash
+scripts/performance-audit-live.sh \
+  --url ws://127.0.0.1:8001/api/v1/websocket/ws \
+  --server-argument=--config \
+  --server-argument=/path/to/live-config.json \
+  --server-argument=--project-root \
+  --server-argument=/path/to/project \
+  --server-argument=--http-port \
+  --server-argument=8001 \
+  --server-argument=--start-live \
+  --live-pipeline-timing-audit \
+  --warmup-seconds 0 --duration-seconds 30 --repetitions 1
+```
+
+The producer queue defaults to 2,048 records and 64 KiB per record. The
+runner retains at most 200,000 records or 128 MiB across the run; the receiver
+accepts one loopback producer. Producer connect and write deadlines default to
+1,000 ms. The queue, record, retention, and deadline bounds are configurable
+with the corresponding `--live-audit-*` options. The receiver uses its own
+monotonic clock domain and records the exact measurement-window boundaries;
+producer timestamps are retained as separate fields and never subtracted from
+state-receiver timestamps. Every measured window gets a timing summary and
+bounded JSONL detail file under `runs/`. Missing producer footer, producer or
+receiver loss, or incomplete state/timing identity joins marks evidence
+partial. These records measure detector stages, but do not supply temporal
+ground truth or camera exposure timestamps.
+
 Run a short smoke check or the standard repeated audit with:
 
 ```bash
@@ -205,10 +240,13 @@ The protocol requires one `config` record first, zero or more
 `trajectory_receipt` records containing the collector's flattened receipt
 event, and one final `finish` record with duration and optional loss counts.
 
-Python still owns event collection and clock-window selection,
-warm-up/repetition orchestration, trajectory WebSocket subscription,
-provenance, baseline selection, accuracy evaluation, and Markdown rendering. Those
-responsibilities remain migration work; the Rust reducers do not change the
+The compatibility collector retains Python event collection and clock-window
+selection, warm-up/repetition orchestration, trajectory WebSocket subscription,
+provenance, baseline selection, accuracy evaluation, and Markdown rendering
+for its legacy API, trajectory, and viewer scenarios. The managed state-only
+workflow, its optional detector timing receiver, correlation, provenance, and
+Markdown/JSON report generation are Rust-owned. The compatibility
+responsibilities remain migration work; the Rust reducers do not change their
 measurement window or capture path.
 
 | Setting | Default | Purpose |

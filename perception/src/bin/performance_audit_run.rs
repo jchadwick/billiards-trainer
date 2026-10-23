@@ -8,8 +8,12 @@ use billiards_perception::performance_audit_receiver::{
     StateReceiverConfig, DEFAULT_MAXIMUM_MESSAGE_BYTES, DEFAULT_MAXIMUM_SAMPLES,
 };
 use billiards_perception::performance_audit_runner::{
-    run_state_audit, ManagedServerConfig, StateAuditRunConfig, DEFAULT_MEASURED_SECONDS,
-    DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS,
+    run_state_audit, LivePipelineTimingAuditConfig, ManagedServerConfig, StateAuditRunConfig,
+    DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT, DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES,
+    DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY, DEFAULT_LIVE_AUDIT_RETAINED_BYTES,
+    DEFAULT_LIVE_AUDIT_RETAINED_RECORDS, DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT,
+    DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
+    DEFAULT_WARMUP_SECONDS,
 };
 use clap::Parser;
 
@@ -99,6 +103,34 @@ struct Arguments {
     /// Grace period for the managed server to shut down after the audit.
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(1..), requires = "server_executable")]
     server_shutdown_timeout_seconds: u64,
+
+    /// Capture correlated detector timing records from a managed live server.
+    #[arg(long, requires = "server_executable")]
+    live_pipeline_timing_audit: bool,
+
+    /// Bounded receiver and producer queue capacity for live timing records.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY as u64, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    live_audit_queue_capacity: u64,
+
+    /// Maximum framed live timing record accepted from the detector.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES as u64, value_parser = clap::value_parser!(u64).range(1024..=1048576))]
+    live_audit_max_record_bytes: u64,
+
+    /// Maximum detailed timing records retained for a complete managed run.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_RETAINED_RECORDS as u64, value_parser = clap::value_parser!(u64).range(1..=1000000))]
+    live_audit_retained_records: u64,
+
+    /// Maximum bytes retained for detailed timing records.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_RETAINED_BYTES as u64, value_parser = clap::value_parser!(u64).range(1..=536870912))]
+    live_audit_retained_bytes: u64,
+
+    /// Producer connection deadline for the loopback timing side channel.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT.as_millis() as u64, value_parser = clap::value_parser!(u64).range(1..))]
+    live_audit_connect_timeout_ms: u64,
+
+    /// Producer write deadline for the loopback timing side channel.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT.as_millis() as u64, value_parser = clap::value_parser!(u64).range(1..))]
+    live_audit_write_timeout_ms: u64,
 }
 
 #[tokio::main]
@@ -114,6 +146,18 @@ async fn main() -> Result<()> {
             readiness_probe_interval: Duration::from_millis(arguments.readiness_probe_interval_ms),
             shutdown_timeout: Duration::from_secs(arguments.server_shutdown_timeout_seconds),
         });
+    let live_pipeline_timing_audit = if arguments.live_pipeline_timing_audit {
+        Some(LivePipelineTimingAuditConfig {
+            queue_capacity: usize::try_from(arguments.live_audit_queue_capacity)?,
+            maximum_record_bytes: usize::try_from(arguments.live_audit_max_record_bytes)?,
+            maximum_retained_records: usize::try_from(arguments.live_audit_retained_records)?,
+            maximum_retained_bytes: usize::try_from(arguments.live_audit_retained_bytes)?,
+            connect_timeout: Duration::from_millis(arguments.live_audit_connect_timeout_ms),
+            write_timeout: Duration::from_millis(arguments.live_audit_write_timeout_ms),
+        })
+    } else {
+        None
+    };
     let config = StateAuditRunConfig {
         url: arguments.url,
         warmup: Duration::from_secs(arguments.warmup_seconds),
@@ -135,6 +179,7 @@ async fn main() -> Result<()> {
             resource_sample_interval: Duration::from_millis(arguments.resource_sample_interval_ms),
         },
         managed_server,
+        live_pipeline_timing_audit,
     };
     let directory = run_state_audit(&config).await?;
     println!("audit artifacts: {}", directory.display());
@@ -180,5 +225,27 @@ mod tests {
             "--server-argument=--start-live",
         ]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cli_accepts_live_timing_opt_in_for_a_managed_server() {
+        let arguments = Arguments::try_parse_from([
+            "billiards-performance-audit-run",
+            "--url",
+            "ws://127.0.0.1:8080/state",
+            "--server-executable",
+            "target/debug/billiards-server",
+            "--server-argument=--start-live",
+            "--live-pipeline-timing-audit",
+            "--live-audit-queue-capacity",
+            "128",
+            "--live-audit-max-record-bytes",
+            "8192",
+        ])
+        .unwrap();
+
+        assert!(arguments.live_pipeline_timing_audit);
+        assert_eq!(arguments.live_audit_queue_capacity, 128);
+        assert_eq!(arguments.live_audit_max_record_bytes, 8192);
     }
 }

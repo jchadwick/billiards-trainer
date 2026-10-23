@@ -34,6 +34,7 @@ use crate::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
 use crate::framing::{read_framed_message, write_framed_message};
 use crate::game_session::GameSessionStore;
 use crate::game_session_http::GameSessionHttpState;
+use crate::live_audit::LiveAuditConfig;
 use crate::live_handshake::{validate_live_v3_hello, ValidatedLiveHandshake};
 use crate::live_supervisor::LiveProcessConfig;
 use crate::public_state::PublicStateConfig;
@@ -88,6 +89,9 @@ pub struct LiveProcessLaunchOptions {
     pub enabled: bool,
     pub executable_path: Option<PathBuf>,
     pub capture_helper_path: Option<PathBuf>,
+    /// Optional bounded timing side channel. `None` keeps the detector's
+    /// recorder, queue, and exporter completely disabled.
+    pub audit_config: Option<LiveAuditConfig>,
 }
 
 impl Default for ServerConfig {
@@ -1453,6 +1457,7 @@ pub async fn run_with_live(
                 scene_address,
                 live_options.executable_path.as_deref(),
                 live_options.capture_helper_path.as_deref(),
+                live_options.audit_config,
             )
             .map_err(std::io::Error::other)?,
         )

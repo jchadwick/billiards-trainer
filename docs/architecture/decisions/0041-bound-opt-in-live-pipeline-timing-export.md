@@ -8,9 +8,9 @@
 
 ## Context
 
-The opt-in Rust live path can deliver fresh scene snapshots, and the Python
-audit collector measures local state receipt, ordering, gaps, and bounded export
-loss. A matched development-Mac instrumentation comparison completed with three
+The opt-in Rust live path can deliver fresh scene snapshots, and the native
+Rust managed audit runner measures local state receipt, ordering, gaps, and
+bounded export loss. A matched development-Mac instrumentation comparison completed with three
 120-second runs per condition: throughput was 19.413 states/s off and 19.253
 states/s on (0.82% point-estimate reduction); mean p95 receipt interval was
 54.371 ms off and 54.886 ms on (0.515 ms increase). No audit records were lost.
@@ -40,9 +40,11 @@ credentials or an authentication handshake.
 
 Add an opt-in, versioned Rust live-audit side channel separate from the public
 scene stream. When disabled, the live executable creates no audit queue, writer
-thread, listener, samples, or exporter. When enabled by the local qualification
-runner, the Python supervisor starts a loopback-only receiver before launching
-the child and passes its endpoint and validated bounds explicitly.
+thread, listener, samples, or exporter. When enabled by the native managed
+qualification runner, it starts a bounded loopback-only receiver before
+launching the live gateway and passes the receiver endpoint and validated
+bounds explicitly to the gateway. The gateway forwards those settings to its
+live detector child.
 
 The live process emits length-prefixed JSON records through a bounded queue to
 a dedicated writer thread. The per-frame hot path uses non-blocking enqueue;
@@ -58,13 +60,13 @@ as unavailable; `0` is reserved for an observed zero duration.
 
 On graceful shutdown, the child sends a final versioned summary with pipeline
 skip/error counters, scene transport counters, exporter loss, and whether the
-stream ended cleanly. If the child is killed or the footer is absent, the
-collector marks the run partial and does not infer zero loss. Python correlates
-audit records with received states by engine, source-session, source-frame, and
+stream ended cleanly. If the child is killed or the footer is absent, the Rust
+runner marks the run partial and does not infer zero loss. It correlates audit
+records with received states by engine, source-session, source-frame, and
 transport-sequence identity, then reports unmatched and dropped records beside
 scene ingress and publication counts. This path is available only to the
-explicit performance-audit tool; normal provider selection and the public scene
-schema remain unchanged.
+explicit native performance-audit tool; normal provider selection and the
+public scene schema remain unchanged.
 
 The receiver binds only to loopback and uses an ephemeral port. No
 authentication, TLS, tokens, or authorization contract is added. Identifiers
@@ -88,7 +90,7 @@ and are not a security boundary.
 ### Negative
 
 - The side channel adds protocol, receiver lifecycle, and shutdown/footer
-  handling across Rust and Python.
+  handling across the Rust gateway, detector, and audit runner.
 - Measurement and record construction have non-zero cost when enabled; matched
   audit-off/audit-on runs must quantify that overhead before results are used
   to rank small optimizations.
@@ -129,10 +131,12 @@ optimizations would be selected from intuition rather than evidence.
 - Rust process tests exercise a slow or disconnected loopback receiver,
   message-size/deadline bounds, graceful footer and counter delivery, and
   forced process exit with an absent footer.
-- Python supervisor/collector tests reject malformed and oversized records,
-  correlate matching scene and timing identities, report unmatched records and
-  exporter loss, preserve partial status without a footer, and verify that no
-  RGB/image bytes are stored.
+- Rust receiver and runner tests reject malformed and oversized records,
+  correlate matching scene and timing identities within exact monotonic
+  measurement windows, report unmatched records and exporter loss, preserve
+  partial status without a footer, and verify that no RGB/image bytes are
+  stored. Python compatibility collector tests remain for the legacy API,
+  trajectory, and viewer scenarios.
 - With the option disabled, run the same live tests and confirm no audit
   socket, queue, task, or worker is created. Run matched live audit-off/on
   repetitions; instrumentation is trusted only within the configured overhead

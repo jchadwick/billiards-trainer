@@ -103,6 +103,12 @@ pub struct StateReceiverOutput {
     /// A sliding, bounded detail window. The total message counters in the
     /// report continue to increase after this list reaches its configured cap.
     pub retained_samples: Vec<StateSample>,
+    /// Local monotonic boundaries after WebSocket negotiation. These fields
+    /// are internal coordination data and are omitted from JSON reports.
+    #[serde(skip)]
+    pub measurement_started_at: Option<Instant>,
+    #[serde(skip)]
+    pub measurement_ended_at: Option<Instant>,
 }
 
 #[derive(Debug, Serialize)]
@@ -385,7 +391,8 @@ where
         }
     };
 
-    let elapsed = started.elapsed();
+    let measurement_ended_at = Instant::now();
+    let elapsed = measurement_ended_at.saturating_duration_since(started);
     let _ = sender.close().await;
     let finished_at_utc = utc_now();
     let process_resources = resource_sampler
@@ -395,14 +402,17 @@ where
             Ok::<ProcessResourceSummary, anyhow::Error>(sampler.summary())
         })
         .transpose()?;
-    Ok(accumulator.finish(
+    let mut output = accumulator.finish(
         started_at_utc,
         finished_at_utc,
         elapsed,
         termination_reason,
         config.maximum_samples,
         process_resources,
-    ))
+    );
+    output.measurement_started_at = Some(started);
+    output.measurement_ended_at = Some(measurement_ended_at);
+    Ok(output)
 }
 
 /// Negotiate the compatibility API's explicit state subscription while
@@ -1028,6 +1038,8 @@ impl StateAccumulator {
         StateReceiverOutput {
             report,
             retained_samples: self.samples.into_iter().collect(),
+            measurement_started_at: None,
+            measurement_ended_at: None,
         }
     }
 }

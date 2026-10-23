@@ -8,7 +8,8 @@
 //! server's effective configuration and model/runtime files.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
@@ -20,6 +21,10 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::live_timing_accumulator::RustLiveTimingAccumulator;
+use crate::managed_live_audit::{
+    ManagedLiveAuditReceiver, ManagedLiveAuditReceiverConfig, ManagedLiveAuditSnapshot,
+};
 use crate::performance_audit_receiver::{
     connect_and_collect, connect_and_wait_for_first_fresh_observed_localization,
     validate_websocket_url, StateReceiverConfig, StateReceiverOutput, StateReceiverReport,
@@ -30,7 +35,13 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 3;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 4;
+pub const DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY: usize = 2_048;
+pub const DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES: usize = 64 * 1024;
+pub const DEFAULT_LIVE_AUDIT_RETAINED_RECORDS: usize = 200_000;
+pub const DEFAULT_LIVE_AUDIT_RETAINED_BYTES: usize = 128 * 1024 * 1024;
+pub const DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT: Duration = Duration::from_millis(1_000);
+pub const DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT: Duration = Duration::from_millis(1_000);
 const MAXIMUM_REPETITIONS: usize = 1_000;
 const PROVENANCE_HASH_BUFFER_SIZE: usize = 64 * 1024;
 
@@ -45,10 +56,80 @@ pub struct StateAuditRunConfig {
     pub soak_duration: Duration,
     pub output_root: PathBuf,
     pub receiver: StateReceiverConfig,
+    /// Optional live-detector stage timing side channel. `None` allocates no
+    /// listener, queue, tasks, or detailed timing retention.
+    pub live_pipeline_timing_audit: Option<LivePipelineTimingAuditConfig>,
     /// Optional application server child. Its first observed localization
     /// gates warm-up and measurements, and the child is always reaped before
     /// this command exits.
     pub managed_server: Option<ManagedServerConfig>,
+}
+
+/// Explicit resource bounds for the optional live-pipeline timing channel.
+#[derive(Debug, Clone)]
+pub struct LivePipelineTimingAuditConfig {
+    pub queue_capacity: usize,
+    pub maximum_record_bytes: usize,
+    pub maximum_retained_records: usize,
+    pub maximum_retained_bytes: usize,
+    pub connect_timeout: Duration,
+    pub write_timeout: Duration,
+}
+
+impl Default for LivePipelineTimingAuditConfig {
+    fn default() -> Self {
+        Self {
+            queue_capacity: DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY,
+            maximum_record_bytes: DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES,
+            maximum_retained_records: DEFAULT_LIVE_AUDIT_RETAINED_RECORDS,
+            maximum_retained_bytes: DEFAULT_LIVE_AUDIT_RETAINED_BYTES,
+            connect_timeout: DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT,
+            write_timeout: DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT,
+        }
+    }
+}
+
+impl LivePipelineTimingAuditConfig {
+    fn validate(&self) -> Result<()> {
+        if self.connect_timeout.as_millis() == 0 || self.write_timeout.as_millis() == 0 {
+            bail!("live timing producer deadlines must be at least one millisecond");
+        }
+        if Instant::now().checked_add(self.connect_timeout).is_none()
+            || Instant::now().checked_add(self.write_timeout).is_none()
+        {
+            bail!("live timing producer deadlines exceed the platform clock range");
+        }
+        if self.connect_timeout.as_millis() > u64::MAX as u128
+            || self.write_timeout.as_millis() > u64::MAX as u128
+        {
+            bail!("live timing producer deadlines exceed the server CLI limit");
+        }
+        if !(1..=crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY).contains(&self.queue_capacity) {
+            bail!(
+                "live timing queue capacity must be between 1 and {}",
+                crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY
+            );
+        }
+        if !(crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES
+            ..=crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES)
+            .contains(&self.maximum_record_bytes)
+        {
+            bail!(
+                "live timing record limit must be between {} and {} bytes",
+                crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES,
+                crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES
+            );
+        }
+        ManagedLiveAuditReceiverConfig {
+            address: SocketAddr::from(([127, 0, 0, 1], 0)),
+            maximum_record_bytes: self.maximum_record_bytes,
+            queue_capacity: self.queue_capacity,
+            maximum_retained_records: self.maximum_retained_records,
+            maximum_retained_bytes: self.maximum_retained_bytes,
+            maximum_connections: 1,
+        }
+        .validate()
+    }
 }
 
 /// Launch and lifecycle limits for a locally managed Rust application server.
@@ -94,6 +175,24 @@ impl StateAuditRunConfig {
         self.receiver.validate()?;
         if let Some(server) = &self.managed_server {
             server.validate(&self.url)?;
+            let has_live_audit_arguments = server
+                .arguments
+                .iter()
+                .any(|argument| argument.starts_with("--live-audit-"));
+            if has_live_audit_arguments {
+                bail!("managed --live-audit-* arguments are reserved for --live-pipeline-timing-audit");
+            }
+        }
+        if let Some(timing) = &self.live_pipeline_timing_audit {
+            timing.validate()?;
+            if !self.managed_server.as_ref().is_some_and(|server| {
+                server
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "--start-live")
+            }) {
+                bail!("live pipeline timing audit requires a managed server with --start-live");
+            }
         }
         if self.measured.is_zero() {
             bail!("measured duration must be positive");
@@ -141,8 +240,24 @@ pub struct StateAuditRunReport {
     pub warmup: Option<WarmupSummary>,
     pub measured_runs: Vec<MeasuredRunReference>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_pipeline_timing: Option<ManagedLivePipelineTimingSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub managed_server: Option<ManagedServerRunMetadata>,
     pub limitations: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagedLivePipelineTimingSummary {
+    pub status: &'static str,
+    pub listener_address: String,
+    pub measurement_clock_domain_id: String,
+    pub stream_counts: crate::managed_live_audit::ManagedLiveAuditStreamCounts,
+    pub producer_footer: Option<serde_json::Value>,
+    pub losses: crate::managed_live_audit::ManagedLiveAuditLosses,
+    pub retained_record_count: usize,
+    pub retained_record_bytes: usize,
+    pub maximum_retained_records: usize,
+    pub maximum_retained_bytes: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -212,6 +327,18 @@ pub struct EffectiveRunConfiguration {
     pub maximum_samples_per_run: usize,
     pub resource_process_id: Option<u32>,
     pub resource_sample_interval_ms: u128,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_pipeline_timing_audit: Option<EffectiveLivePipelineTimingConfiguration>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EffectiveLivePipelineTimingConfiguration {
+    pub queue_capacity: usize,
+    pub maximum_record_bytes: usize,
+    pub maximum_retained_records: usize,
+    pub maximum_retained_bytes: usize,
+    pub connect_timeout_ms: u128,
+    pub write_timeout_ms: u128,
 }
 
 #[derive(Debug, Serialize)]
@@ -254,6 +381,35 @@ pub struct MeasuredRunReference {
     pub report_path: String,
     pub details_path: String,
     pub report: StateReceiverReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_timing_summary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_timing_details_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_timing_summary: Option<serde_json::Value>,
+}
+
+struct WindowTimingInput {
+    repetition: usize,
+    started_at_tick_ns: u64,
+    ended_at_tick_ns: u64,
+    details_path: PathBuf,
+    state_trace_truncated: bool,
+}
+
+struct RunWindowsOutput {
+    report: StateAuditRunReport,
+    timing_inputs: Vec<WindowTimingInput>,
+}
+
+struct WindowRunParameters<'a> {
+    config: &'a StateAuditRunConfig,
+    run_directory: &'a Path,
+    run_id: &'a str,
+    started_at_utc: String,
+    environment: RunEnvironment,
+    input: InputMetadata,
+    live_audit_receiver: Option<&'a ManagedLiveAuditReceiver>,
 }
 
 /// Run the configured warm-up and state-only measurement windows.
@@ -282,9 +438,31 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
 
     let mut child = None;
     let mut managed_metadata = None;
+    let mut live_audit_receiver: Option<ManagedLiveAuditReceiver> = None;
     let result = async {
+        if let Some(timing) = &config.live_pipeline_timing_audit {
+            let receiver_config = ManagedLiveAuditReceiverConfig {
+                address: SocketAddr::from(([127, 0, 0, 1], 0)),
+                maximum_record_bytes: timing.maximum_record_bytes,
+                queue_capacity: timing.queue_capacity,
+                maximum_retained_records: timing.maximum_retained_records,
+                maximum_retained_bytes: timing.maximum_retained_bytes,
+                maximum_connections: 1,
+            };
+            live_audit_receiver = Some(
+                ManagedLiveAuditReceiver::bind(receiver_config)
+                    .await
+                    .context("could not start the bounded live-timing receiver")?,
+            );
+        }
         if let Some(launch) = &config.managed_server {
-            let running = spawn_managed_server(launch)?;
+            let live_audit_arguments =
+                match (&config.live_pipeline_timing_audit, &live_audit_receiver) {
+                    (Some(timing), Some(receiver)) => Some((timing, receiver.listener_address())),
+                    (None, None) => None,
+                    _ => bail!("live timing receiver and producer configuration diverged"),
+                };
+            let running = spawn_managed_server(launch, live_audit_arguments)?;
             let started = running.started;
             child = Some(running.child);
             managed_metadata = Some(running.metadata);
@@ -308,26 +486,33 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
             }
         }
 
-        let mut report = if let Some(managed_child) = &mut child {
+        let RunWindowsOutput {
+            mut report,
+            timing_inputs,
+        } = if let Some(managed_child) = &mut child {
             run_windows_while_server_alive(
-                config,
-                &run_directory,
-                &run_id,
-                started_at_utc.clone(),
-                environment,
-                input,
+                WindowRunParameters {
+                    config,
+                    run_directory: &run_directory,
+                    run_id: &run_id,
+                    started_at_utc: started_at_utc.clone(),
+                    environment,
+                    input,
+                    live_audit_receiver: live_audit_receiver.as_ref(),
+                },
                 managed_child,
             )
             .await?
         } else {
-            run_windows(
+            run_windows(WindowRunParameters {
                 config,
-                &run_directory,
-                &run_id,
-                started_at_utc.clone(),
+                run_directory: &run_directory,
+                run_id: &run_id,
+                started_at_utc: started_at_utc.clone(),
                 environment,
                 input,
-            )
+                live_audit_receiver: None,
+            })
             .await?
         };
 
@@ -338,6 +523,39 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
         ) {
             metadata.shutdown =
                 Some(stop_managed_server(managed_child, metadata.process_id, launch).await?);
+        }
+        if let Some(receiver) = live_audit_receiver.take() {
+            let snapshot = receiver
+                .shutdown()
+                .await
+                .context("could not drain the managed live-timing receiver")?;
+            for timing_input in &timing_inputs {
+                let run = report
+                    .measured_runs
+                    .get_mut(timing_input.repetition.saturating_sub(1))
+                    .context("timing window did not have a matching measured run")?;
+                let (summary, detail_records) = summarize_live_timing_window(
+                    &snapshot,
+                    timing_input,
+                    config
+                        .live_pipeline_timing_audit
+                        .as_ref()
+                        .map_or(config.receiver.maximum_samples, |timing| {
+                            timing.maximum_retained_records
+                        }),
+                    &snapshot.measurement_clock_domain_id,
+                )?;
+                let (summary_path, details_path) = write_live_timing_artifacts(
+                    &run_directory,
+                    timing_input.repetition,
+                    &summary,
+                    &detail_records,
+                )?;
+                run.live_timing_summary_path = Some(summary_path);
+                run.live_timing_details_path = Some(details_path);
+                run.live_timing_summary = Some(summary);
+            }
+            report.live_pipeline_timing = Some(summarize_live_timing_receiver(&snapshot));
         }
         report.managed_server = managed_metadata.take();
         write_report_artifacts(&run_directory, &report)?;
@@ -358,6 +576,19 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                         stop_managed_server(managed_child, metadata.process_id, launch)
                             .await
                             .ok();
+                }
+            }
+            if let Some(receiver) = live_audit_receiver.take() {
+                if let Ok(snapshot) = receiver.shutdown().await {
+                    let failure_path = run_directory.join("failure-live-audit.json");
+                    if let Ok(file) = create_new_output(&failure_path, "live audit failure detail")
+                    {
+                        let mut writer = BufWriter::new(file);
+                        let summary = summarize_live_timing_receiver(&snapshot);
+                        let _ = serde_json::to_writer_pretty(&mut writer, &summary);
+                        let _ = writer.write_all(b"\n");
+                        let _ = writer.flush();
+                    }
                 }
             }
             let failure_path = run_directory.join("failure.json");
@@ -387,11 +618,18 @@ struct FirstLocalizationReadiness {
     source_frame_id: Option<String>,
 }
 
-fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedServer> {
+fn spawn_managed_server(
+    config: &ManagedServerConfig,
+    live_audit: Option<(&LivePipelineTimingAuditConfig, SocketAddr)>,
+) -> Result<RunningManagedServer> {
     let live_provenance = managed_live_provenance(config)?;
+    let mut effective_arguments = config.arguments.clone();
+    if let Some((timing, address)) = live_audit {
+        append_live_timing_server_arguments(&mut effective_arguments, timing, address);
+    }
     let mut command = tokio::process::Command::new(&config.executable);
     command
-        .args(&config.arguments)
+        .args(&effective_arguments)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -415,9 +653,9 @@ fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedSe
         )
     })?;
     let process_id = child.id();
-    let argument_count = config.arguments.len();
+    let argument_count = effective_arguments.len();
     let mut argument_hasher = Sha256::new();
-    for argument in &config.arguments {
+    for argument in &effective_arguments {
         argument_hasher.update((argument.len() as u64).to_be_bytes());
         argument_hasher.update(argument.as_bytes());
     }
@@ -439,6 +677,35 @@ fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedSe
         },
         started: Instant::now(),
     })
+}
+
+fn append_live_timing_server_arguments(
+    arguments: &mut Vec<String>,
+    timing: &LivePipelineTimingAuditConfig,
+    address: SocketAddr,
+) {
+    for (flag, value) in [
+        ("--live-audit-tcp", address.to_string()),
+        (
+            "--live-audit-queue-capacity",
+            timing.queue_capacity.to_string(),
+        ),
+        (
+            "--live-audit-max-record-bytes",
+            timing.maximum_record_bytes.to_string(),
+        ),
+        (
+            "--live-audit-connect-timeout-ms",
+            timing.connect_timeout.as_millis().to_string(),
+        ),
+        (
+            "--live-audit-write-timeout-ms",
+            timing.write_timeout.as_millis().to_string(),
+        ),
+    ] {
+        arguments.push(flag.to_owned());
+        arguments.push(value);
+    }
 }
 
 fn managed_live_provenance(server: &ManagedServerConfig) -> Result<Option<ManagedLiveProvenance>> {
@@ -720,16 +987,11 @@ async fn wait_for_first_localization(
 }
 
 async fn run_windows_while_server_alive(
-    config: &StateAuditRunConfig,
-    run_directory: &Path,
-    run_id: &str,
-    started_at_utc: String,
-    environment: RunEnvironment,
-    input: InputMetadata,
+    parameters: WindowRunParameters<'_>,
     child: &mut tokio::process::Child,
-) -> Result<StateAuditRunReport> {
+) -> Result<RunWindowsOutput> {
     tokio::select! {
-        result = run_windows(config, run_directory, run_id, started_at_utc, environment, input) => result,
+        result = run_windows(parameters) => result,
         status = child.wait() => {
             let status = status.context("could not wait for managed server process")?;
             bail!("managed server exited during the audit windows: {status}");
@@ -901,14 +1163,16 @@ fn validate_loopback_websocket_url(url: &str) -> Result<()> {
     Ok(())
 }
 
-async fn run_windows(
-    config: &StateAuditRunConfig,
-    run_directory: &Path,
-    run_id: &str,
-    started_at_utc: String,
-    environment: RunEnvironment,
-    input: InputMetadata,
-) -> Result<StateAuditRunReport> {
+async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOutput> {
+    let WindowRunParameters {
+        config,
+        run_directory,
+        run_id,
+        started_at_utc,
+        environment,
+        input,
+        live_audit_receiver,
+    } = parameters;
     let warmup = if config.warmup.is_zero() {
         None
     } else {
@@ -939,6 +1203,7 @@ async fn run_windows(
     };
 
     let mut measured_runs = Vec::with_capacity(config.measurement_count());
+    let mut timing_inputs = Vec::with_capacity(config.measurement_count());
     for repetition in 1..=config.measurement_count() {
         let measured_duration = config.measurement_duration();
         eprintln!(
@@ -952,6 +1217,12 @@ async fn run_windows(
         let output = connect_and_collect(&config.url, &receiver)
             .await
             .with_context(|| format!("state audit measured run {repetition} failed"))?;
+        let timing_started_at_tick_ns = live_audit_receiver
+            .zip(output.measurement_started_at)
+            .map(|(audit, started)| audit.measurement_clock_tick_at(started));
+        let timing_ended_at_tick_ns = live_audit_receiver
+            .zip(output.measurement_ended_at)
+            .map(|(audit, ended)| audit.measurement_clock_tick_at(ended));
         if config.managed_server.is_some()
             && output.report.freshness.unique_observed_source_observations == 0
         {
@@ -964,7 +1235,25 @@ async fn run_windows(
             report_path,
             details_path,
             report: output.report,
+            live_timing_summary_path: None,
+            live_timing_details_path: None,
+            live_timing_summary: None,
         });
+        if let (Some(started_at_tick_ns), Some(ended_at_tick_ns)) =
+            (timing_started_at_tick_ns, timing_ended_at_tick_ns)
+        {
+            timing_inputs.push(WindowTimingInput {
+                repetition,
+                started_at_tick_ns,
+                ended_at_tick_ns,
+                details_path: run_directory
+                    .join("runs")
+                    .join(format!("run-{repetition:03}.jsonl")),
+                state_trace_truncated: measured_runs
+                    .last()
+                    .is_some_and(|run| run.report.detail_retention.state_samples_truncated),
+            });
+        }
     }
 
     let configuration = EffectiveRunConfiguration {
@@ -984,6 +1273,16 @@ async fn run_windows(
         maximum_samples_per_run: config.receiver.maximum_samples,
         resource_process_id: config.receiver.resource_sample_process_id,
         resource_sample_interval_ms: config.receiver.resource_sample_interval.as_millis(),
+        live_pipeline_timing_audit: config.live_pipeline_timing_audit.as_ref().map(|timing| {
+            EffectiveLivePipelineTimingConfiguration {
+                queue_capacity: timing.queue_capacity,
+                maximum_record_bytes: timing.maximum_record_bytes,
+                maximum_retained_records: timing.maximum_retained_records,
+                maximum_retained_bytes: timing.maximum_retained_bytes,
+                connect_timeout_ms: timing.connect_timeout.as_millis(),
+                write_timeout_ms: timing.write_timeout.as_millis(),
+            }
+        }),
     };
     let mut limitations = vec![
         "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
@@ -1001,24 +1300,31 @@ async fn run_windows(
         );
     }
     if config.managed_server.is_some() {
+        limitations.push("Managed-server mode qualifies state delivery and process lifecycle; inference-process resource sampling is not yet included.");
+    }
+    if config.live_pipeline_timing_audit.is_some() {
         limitations.push(
-            "Managed-server mode qualifies state delivery and process lifecycle; inference-process resource sampling is not yet included.",
+            "Live-pipeline timing is diagnostic and opt-in; it does not provide temporal ground-truth accuracy evidence or camera-exposure timing.",
         );
     }
-    Ok(StateAuditRunReport {
-        schema_version: RUN_REPORT_SCHEMA_VERSION,
-        tool: "billiards-performance-audit-run",
-        run_id: run_id.to_owned(),
-        mode: if config.soak { "soak" } else { "repeated" },
-        started_at_utc,
-        finished_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
-        configuration,
-        environment,
-        input,
-        warmup,
-        measured_runs,
-        managed_server: None,
-        limitations,
+    Ok(RunWindowsOutput {
+        report: StateAuditRunReport {
+            schema_version: RUN_REPORT_SCHEMA_VERSION,
+            tool: "billiards-performance-audit-run",
+            run_id: run_id.to_owned(),
+            mode: if config.soak { "soak" } else { "repeated" },
+            started_at_utc,
+            finished_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            configuration,
+            environment,
+            input,
+            warmup,
+            measured_runs,
+            live_pipeline_timing: None,
+            managed_server: None,
+            limitations,
+        },
+        timing_inputs,
     })
 }
 
@@ -1043,6 +1349,207 @@ fn create_run_directory(output_root: &Path) -> Result<PathBuf> {
         }
     }
     bail!("could not allocate a unique audit run directory")
+}
+
+fn summarize_live_timing_window(
+    snapshot: &ManagedLiveAuditSnapshot,
+    input: &WindowTimingInput,
+    maximum_samples: usize,
+    clock_domain_id: &str,
+) -> Result<(serde_json::Value, Vec<serde_json::Value>)> {
+    let mut accumulator = RustLiveTimingAccumulator::new(maximum_samples)?;
+    accumulator.begin_measurement(input.started_at_tick_ns);
+    let mut detail_records = Vec::new();
+    for received in &snapshot.retained_records {
+        if received.received_at_tick_ns < input.started_at_tick_ns
+            || received.received_at_tick_ns > input.ended_at_tick_ns
+        {
+            continue;
+        }
+        let mut record = received.record.clone();
+        if let Some(object) = record.as_object_mut() {
+            object.insert(
+                "audit_receiver_monotonic_ns".to_owned(),
+                serde_json::json!(received.received_at_tick_ns),
+            );
+        }
+        accumulator.add(record.clone());
+        detail_records.push(record);
+    }
+    // The producer footer is emitted after all measurements, when the managed
+    // process shuts down. Include it for completeness status without moving it
+    // into the measured window or joining it to a state frame.
+    if let Some(footer) = &snapshot.producer_footer {
+        let mut footer = footer.clone();
+        if let Some(object) = footer.as_object_mut() {
+            object.insert(
+                "audit_receiver_monotonic_ns".to_owned(),
+                serde_json::json!(snapshot.measurement_clock_tick_ns),
+            );
+        }
+        accumulator.add(footer.clone());
+        detail_records.push(footer);
+    }
+    accumulator.end_measurement(input.ended_at_tick_ns);
+
+    let state_trace = timing_state_trace(&input.details_path, maximum_samples)?;
+    let mut summary = accumulator.summary(&state_trace, input.state_trace_truncated);
+    if let Some(window) = summary
+        .get_mut("measurement_monotonic_window_ns")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        window.insert(
+            "clock".to_owned(),
+            serde_json::json!("managed_live_audit_receiver_monotonic"),
+        );
+        window.insert(
+            "clock_domain_id".to_owned(),
+            serde_json::json!(clock_domain_id),
+        );
+    }
+    if let Some(object) = summary.as_object_mut() {
+        object.insert(
+            "receiver_loss_counts_run_total".to_owned(),
+            serde_json::to_value(&snapshot.losses)
+                .context("could not serialize live timing receiver loss counts")?,
+        );
+        let receiver = summarize_live_timing_receiver(snapshot);
+        let trace_truncated = object
+            .get("state_timing_correlation")
+            .and_then(|value| value.get("timing_trace_truncated"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if receiver.status != "complete" || trace_truncated {
+            object.insert("status".to_owned(), serde_json::json!("partial"));
+        }
+    }
+    Ok((summary, detail_records))
+}
+
+fn timing_state_trace(path: &Path, maximum_samples: usize) -> Result<Vec<serde_json::Value>> {
+    let file = File::open(path)
+        .with_context(|| format!("could not open state detail trace {}", path.display()))?;
+    let mut trace = Vec::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let line =
+            line.with_context(|| format!("could not read state detail trace {}", path.display()))?;
+        let sample: serde_json::Value = serde_json::from_str(&line).with_context(|| {
+            format!(
+                "invalid state detail JSON at {}:{}",
+                path.display(),
+                line_index + 1
+            )
+        })?;
+        let Some(identity) = sample
+            .get("observation_identity")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        if sample
+            .get("ball_positions_status")
+            .and_then(serde_json::Value::as_str)
+            != Some("observed")
+        {
+            continue;
+        }
+        let mut fields = identity.split('\u{1f}');
+        let (Some(engine), Some(session), Some(frame), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        let Some(sequence) = sample
+            .get("transport_sequence")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            continue;
+        };
+        trace.push(serde_json::json!({
+            "engine_instance_id": engine,
+            "source_session_id": session,
+            "source_frame_id": frame,
+            "source_transport_sequence": sequence,
+        }));
+        if trace.len() >= maximum_samples {
+            break;
+        }
+    }
+    Ok(trace)
+}
+
+fn summarize_live_timing_receiver(
+    snapshot: &ManagedLiveAuditSnapshot,
+) -> ManagedLivePipelineTimingSummary {
+    let footer_complete = snapshot.producer_footer.as_ref().is_some_and(|footer| {
+        footer
+            .get("export_status")
+            .and_then(serde_json::Value::as_str)
+            == Some("complete")
+            && footer
+                .get("dropped_records")
+                .and_then(serde_json::Value::as_u64)
+                == Some(0)
+    });
+    let receiver_losses = &snapshot.losses;
+    let receiver_loss_free = receiver_losses.malformed_records == 0
+        && receiver_losses.oversized_records == 0
+        && receiver_losses.queue_dropped_records == 0
+        && receiver_losses.retention_evictions == 0
+        && receiver_losses.retention_oversize_drops == 0
+        && receiver_losses.connection_limit_drops == 0;
+    ManagedLivePipelineTimingSummary {
+        status: if footer_complete && receiver_loss_free {
+            "complete"
+        } else {
+            "partial"
+        },
+        listener_address: snapshot.listener_address.to_string(),
+        measurement_clock_domain_id: snapshot.measurement_clock_domain_id.clone(),
+        stream_counts: snapshot.stream_counts.clone(),
+        producer_footer: snapshot.producer_footer.clone(),
+        losses: receiver_losses.clone(),
+        retained_record_count: snapshot.retained_records.len(),
+        retained_record_bytes: snapshot.retained_record_bytes,
+        maximum_retained_records: snapshot.maximum_retained_records,
+        maximum_retained_bytes: snapshot.maximum_retained_bytes,
+    }
+}
+
+fn write_live_timing_artifacts(
+    run_directory: &Path,
+    repetition: usize,
+    summary: &serde_json::Value,
+    detail_records: &[serde_json::Value],
+) -> Result<(String, String)> {
+    let summary_relative = format!("runs/run-{repetition:03}-live-pipeline-timing.json");
+    let details_relative = format!("runs/run-{repetition:03}-live-pipeline-timing.jsonl");
+    let summary_path = run_directory.join(&summary_relative);
+    let summary_file = create_new_output(&summary_path, "live pipeline timing summary")?;
+    let mut summary_writer = BufWriter::new(summary_file);
+    serde_json::to_writer_pretty(
+        &mut summary_writer,
+        &serde_json::json!({
+            "schema_version": RUN_REPORT_SCHEMA_VERSION,
+            "tool": "billiards-performance-audit-run",
+            "repetition": repetition,
+            "summary": summary,
+        }),
+    )
+    .context("could not serialize live timing window summary")?;
+    summary_writer.write_all(b"\n")?;
+    summary_writer.flush()?;
+
+    let details_path = run_directory.join(&details_relative);
+    let details_file = create_new_output(&details_path, "live pipeline timing details")?;
+    let mut details_writer = BufWriter::new(details_file);
+    for record in detail_records {
+        serde_json::to_writer(&mut details_writer, record)
+            .context("could not serialize live timing event")?;
+        details_writer.write_all(b"\n")?;
+    }
+    details_writer.flush()?;
+    Ok((summary_relative, details_relative))
 }
 
 fn write_window_artifacts(
@@ -1127,6 +1634,45 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
             optional_ms(timing.p95),
             optional_ms(timing.p99),
         ));
+    }
+    if let Some(live_timing) = &report.live_pipeline_timing {
+        output.push_str(&format!(
+            "\n## Live pipeline timing\n\nReceiver status: **{}**. {} records were received and {} remain in the bounded detail tail; receiver losses: malformed {}, oversized {}, queue-dropped {}, retention-evicted {}. Clock domain: `{}`.\n\n",
+            live_timing.status,
+            live_timing.stream_counts.valid_records,
+            live_timing.retained_record_count,
+            live_timing.losses.malformed_records,
+            live_timing.losses.oversized_records,
+            live_timing.losses.queue_dropped_records,
+            live_timing.losses.retention_evictions,
+            live_timing.measurement_clock_domain_id,
+        ));
+        output.push_str(
+            "| Run | Timing status | Matched frames | Inference p95 (ms) | Timing details |\n| ---: | :--- | ---: | ---: | :--- |\n",
+        );
+        for run in &report.measured_runs {
+            let summary = run.live_timing_summary.as_ref();
+            let status = summary
+                .and_then(|summary| summary.get("status"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unavailable");
+            let matched_frames = summary
+                .and_then(|summary| summary.pointer("/state_timing_correlation/matched_frames"))
+                .and_then(serde_json::Value::as_u64)
+                .map_or_else(|| "unavailable".to_owned(), |count| count.to_string());
+            let inference_p95 = summary
+                .and_then(|summary| summary.pointer("/stage_durations_ms/inference/p95"))
+                .and_then(serde_json::Value::as_f64)
+                .map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"));
+            let detail_link = run
+                .live_timing_details_path
+                .as_deref()
+                .map_or_else(|| "unavailable".to_owned(), |path| format!("`{path}`"));
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} |\n",
+                run.repetition, status, matched_frames, inference_p95, detail_link,
+            ));
+        }
     }
     output.push_str("\n## Provenance\n\n");
     output.push_str(&format!(
@@ -1237,10 +1783,11 @@ fn create_new_output(path: &Path, label: &str) -> Result<File> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_environment, managed_live_provenance, render_markdown, ManagedLiveProvenance,
-        ManagedServerConfig, ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig,
-        StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS,
-        DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
+        collect_environment, managed_live_provenance, render_markdown,
+        LivePipelineTimingAuditConfig, ManagedLiveProvenance, ManagedServerConfig,
+        ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig, StateAuditRunReport,
+        DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
+        DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
     };
     use crate::performance_audit_receiver::StateReceiverConfig;
     use serde_json::{json, Value};
@@ -1258,6 +1805,7 @@ mod tests {
             output_root: PathBuf::from(DEFAULT_OUTPUT_ROOT),
             receiver: StateReceiverConfig::default(),
             managed_server: None,
+            live_pipeline_timing_audit: None,
         }
     }
 
@@ -1310,6 +1858,115 @@ mod tests {
         valid.url = "ws://127.0.0.1:8001/api/v1/websocket/ws".to_owned();
         valid.managed_server.as_mut().unwrap().startup_timeout = Duration::ZERO;
         assert!(valid.validate().is_err());
+    }
+
+    #[test]
+    fn live_timing_is_opt_in_and_requires_a_managed_live_server() {
+        let mut invalid = config();
+        invalid.live_pipeline_timing_audit = Some(LivePipelineTimingAuditConfig::default());
+        assert!(invalid
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires a managed server with --start-live"));
+
+        invalid.managed_server = Some(ManagedServerConfig {
+            executable: PathBuf::from("billiards-server"),
+            arguments: vec!["--start-live".to_owned()],
+            working_directory: None,
+            startup_timeout: Duration::from_secs(60),
+            readiness_probe_interval: Duration::from_millis(250),
+            shutdown_timeout: Duration::from_secs(10),
+        });
+        assert!(invalid.validate().is_ok());
+
+        invalid
+            .live_pipeline_timing_audit
+            .as_mut()
+            .unwrap()
+            .maximum_record_bytes = usize::MAX;
+        assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn managed_live_timing_joins_exact_window_records_to_observed_state_identity() {
+        use super::{summarize_live_timing_window, WindowTimingInput};
+        use crate::managed_live_audit::{
+            ManagedLiveAuditLosses, ManagedLiveAuditSnapshot, ManagedLiveAuditStreamCounts,
+            ReceivedAuditRecord,
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let state_details = directory.path().join("state.jsonl");
+        std::fs::write(
+            &state_details,
+            format!(
+                "{}\n",
+                json!({
+                    "observation_identity": "engine-a\u{1f}session-a\u{1f}frame-1",
+                    "ball_positions_status": "observed",
+                    "transport_sequence": 7,
+                })
+            ),
+        )
+        .unwrap();
+        let record = json!({
+            "record_type": "frame",
+            "engine_instance_id": "engine-a",
+            "source_session_id": "session-a",
+            "frame_id": "frame-1",
+            "transport_sequence": 7,
+            "durations_ms": { "inference": 2.5 },
+        });
+        let snapshot = ManagedLiveAuditSnapshot {
+            listener_address: "127.0.0.1:9000".parse().unwrap(),
+            measurement_clock_domain_id: "test-clock-domain".to_owned(),
+            measurement_clock_tick_ns: 250,
+            stream_counts: ManagedLiveAuditStreamCounts {
+                framed_messages: 2,
+                valid_records: 2,
+                records_by_type: Default::default(),
+            },
+            producer_footer: Some(json!({
+                "record_type": "footer",
+                "export_status": "complete",
+                "dropped_records": 0,
+            })),
+            losses: ManagedLiveAuditLosses::default(),
+            retained_records: vec![ReceivedAuditRecord {
+                received_at_tick_ns: 150,
+                record: record.clone(),
+            }],
+            retained_record_bytes: 100,
+            maximum_retained_records: 100,
+            maximum_retained_bytes: 4096,
+        };
+        let input = WindowTimingInput {
+            repetition: 1,
+            started_at_tick_ns: 100,
+            ended_at_tick_ns: 200,
+            details_path: state_details,
+            state_trace_truncated: false,
+        };
+
+        let (summary, detail_records) = summarize_live_timing_window(
+            &snapshot,
+            &input,
+            100,
+            &snapshot.measurement_clock_domain_id,
+        )
+        .unwrap();
+
+        assert_eq!(summary["status"], "complete");
+        assert_eq!(summary["state_timing_correlation"]["matched_frames"], 1);
+        assert_eq!(summary["stage_durations_ms"]["inference"]["count"], 1);
+        assert_eq!(
+            summary["measurement_monotonic_window_ns"]["clock_domain_id"],
+            "test-clock-domain"
+        );
+        assert_eq!(detail_records.len(), 2, "frame plus post-window footer");
+        assert_eq!(detail_records[0]["audit_receiver_monotonic_ns"], 150);
+        assert_eq!(detail_records[1]["audit_receiver_monotonic_ns"], 250);
     }
 
     #[test]
@@ -1442,6 +2099,7 @@ mod tests {
                 maximum_samples_per_run: 10_000,
                 resource_process_id: None,
                 resource_sample_interval_ms: 1_000,
+                live_pipeline_timing_audit: None,
             },
             environment: collect_environment(),
             input: super::InputMetadata {
@@ -1454,6 +2112,7 @@ mod tests {
             },
             warmup: None,
             measured_runs: Vec::new(),
+            live_pipeline_timing: None,
             managed_server: Some(ManagedServerRunMetadata {
                 executable: "billiards-server".to_owned(),
                 process_id: Some(123),
@@ -1527,7 +2186,7 @@ mod tests {
             readiness_probe_interval: Duration::from_millis(20),
             shutdown_timeout: Duration::from_secs(1),
         };
-        let mut running = super::spawn_managed_server(&launch).unwrap();
+        let mut running = super::spawn_managed_server(&launch, None).unwrap();
         let process_group_id = running.metadata.process_id.unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let child_pid = loop {
@@ -1581,7 +2240,7 @@ mod tests {
             readiness_probe_interval: Duration::from_millis(20),
             shutdown_timeout: Duration::from_millis(150),
         };
-        let mut running = super::spawn_managed_server(&launch).unwrap();
+        let mut running = super::spawn_managed_server(&launch, None).unwrap();
         let process_group_id = running.metadata.process_id.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
         while !child_pid_path.is_file() {
