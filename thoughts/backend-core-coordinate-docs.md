@@ -18,7 +18,9 @@ link to the current contract.
 Verification performed:
 
 - Current executable Python examples were run against the repository modules.
-- Illustrative snippets in `backend/core/SPECS.md` were syntax-checked.
+- Illustrative snippets in the then-current `backend/core/SPECS.md` were
+  syntax-checked. That historical Python specification has since been removed;
+  current coordinate behavior is defined by the Rust contract and its tests.
 - The core documentation was scanned for bare `Vector2D(x, y)` examples; the
   only direct construction now passes explicit scale metadata.
 - The edits passed a CRLF-aware `git diff --check`.

@@ -34,7 +34,7 @@ class ErrorResponse(BaseModel):
     method: Optional[str] = Field(default=None, description="HTTP method")
 
 
-# Error code mappings from SPECS.md
+# Keep this mapping aligned with the public API error envelope.
 class ErrorCodeDetails(TypedDict):
     """Status and safe public message for a registered API error code."""
 

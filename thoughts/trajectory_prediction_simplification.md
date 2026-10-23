@@ -1,5 +1,9 @@
 # Trajectory Prediction Simplification
 
+> Historical change record for the Python compatibility reference. Its former
+> `backend/core/SPECS.md` link is retired; current behavior is defined by the
+> Rust runtime contracts and ADRs.
+
 ## Summary
 
 Simplified the billiards trainer shot prediction system to focus on core trajectory prediction only, removing advanced features for a Phase 1 implementation.

@@ -997,29 +997,12 @@ except ValidationError as e:
 
 ### 10. Comprehensive Module Specifications
 
-**What v2 has:** Detailed SPECS.md for each module with:
-- Module purpose and boundaries
-- Functional requirements (numbered FR-XXX-000)
-- Data models
-- API contracts
-- Testing requirements
-- Non-requirements (what module does NOT do)
-
-**Current state:** Some docs exist but inconsistent
-
-**Recommendation:** Create/update SPECS.md for each module
-- `backend/vision/SPECS.md`
-- `backend/core/SPECS.md`
-- `backend/api/SPECS.md`
-- `backend/streaming/SPECS.md`
-
-**Effort:** 15-20 hours
-**ROI:** Medium-High for team collaboration
-**Benefits:**
-- Clear module boundaries
-- Prevents scope creep
-- Easier onboarding
-- Refactoring guide
+**Historical recommendation — superseded.** The proposed Python module specs
+were removed after the server and perception paths moved to Rust. The old files
+described retired Python launchers, a proposed multi-consumer streaming
+service, and behavior not supported by the current application. Use the
+versioned contracts, current runtime docs, and accepted ADRs as sources of
+truth; do not recreate these Python `SPECS.md` files.
 
 ---
 
