@@ -6,7 +6,7 @@
 //! producer monotonic timestamp from a receiver clock: the current live
 //! envelope does not establish that those clocks share an origin.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
@@ -22,7 +22,7 @@ use crate::process_resource_sampler::{
     ProcessResourceSampler, ProcessResourceSamplerConfig, ProcessResourceSummary,
 };
 
-pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 3;
+pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 4;
 pub const DEFAULT_MAXIMUM_MESSAGE_BYTES: usize = 1_048_576;
 pub const MAXIMUM_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SAMPLES: usize = 10_000;
@@ -116,6 +116,8 @@ pub struct StateReceiverReport {
     pub termination_reason: &'static str,
     pub counts: MessageCounts,
     pub freshness: FreshnessCounts,
+    pub completeness: CompletenessCounts,
+    pub component_observation_status_counts: BTreeMap<String, BTreeMap<String, u64>>,
     pub stream_order: SequenceSummary,
     pub source_observations: SourceObservationSummary,
     pub timing: TimingSummary,
@@ -141,6 +143,17 @@ pub struct FreshnessCounts {
     pub stale_state_messages: u64,
     pub unknown_freshness_state_messages: u64,
     pub fresh_unique_source_observations: u64,
+    pub unique_source_frame_updates: u64,
+    pub unique_observed_source_observations: u64,
+    pub cached_or_failed_source_updates: u64,
+    pub unknown_source_freshness_updates: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CompletenessCounts {
+    pub complete_state_messages: u64,
+    pub incomplete_state_messages: u64,
+    pub uncorrelated_state_messages: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,8 +174,14 @@ pub struct SourceObservationSummary {
     pub messages_without_source_identity: u64,
     pub identity_window_capacity: usize,
     pub identity_window_evictions: u64,
+    pub uncorrelated_state_messages: u64,
     pub source_frame_sequence_gaps: u64,
     pub missing_source_frame_sequence_total: u64,
+    pub source_sequence_restarts: u64,
+    pub source_out_of_order_messages: u64,
+    pub repeated_numeric_source_frames: u64,
+    pub source_sequence_window_capacity: usize,
+    pub source_sequence_window_evictions: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -205,9 +224,15 @@ pub struct StateSample {
     pub transport_sequence: Option<u64>,
     pub observation_identity: Option<String>,
     pub source_frame_id: Option<String>,
+    pub source_frame_number: Option<u64>,
+    pub vision_instance_id: Option<String>,
+    pub source_process_id: Option<Value>,
+    pub source_timestamp: Option<Value>,
     pub source_timestamp_kind: Option<String>,
     pub freshness_status: Option<String>,
     pub ball_positions_status: Option<String>,
+    pub component_status: BTreeMap<String, String>,
+    pub state_complete: bool,
     pub ball_count: Option<u64>,
     pub configuration_revision: Option<u64>,
     pub rectification_revision: Option<u64>,
@@ -421,6 +446,17 @@ struct MutableFreshness {
     stale_state_messages: u64,
     unknown_freshness_state_messages: u64,
     fresh_unique_source_observations: u64,
+    unique_source_frame_updates: u64,
+    unique_observed_source_observations: u64,
+    cached_or_failed_source_updates: u64,
+    unknown_source_freshness_updates: u64,
+}
+
+#[derive(Debug, Default)]
+struct MutableCompleteness {
+    complete_state_messages: u64,
+    incomplete_state_messages: u64,
+    uncorrelated_state_messages: u64,
 }
 
 #[derive(Debug, Default)]
@@ -465,25 +501,28 @@ struct SourceAccumulator {
     unique: u64,
     repeated: u64,
     unavailable: u64,
-    evictions: u64,
+    identity_evictions: u64,
     frame_gaps: u64,
     missing_frames: u64,
-    last_numeric_frame: Option<u64>,
-    last_numeric_scope: Option<String>,
+    sequence_restarts: u64,
+    sequence_out_of_order: u64,
+    repeated_numeric_frames: u64,
+    sequence_evictions: u64,
+    sequence_frames: HashMap<String, SourceFrameWatermark>,
+    sequence_order: VecDeque<String>,
     identities: HashSet<String>,
     identity_order: VecDeque<String>,
     fresh_identities: HashSet<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SourceFrameWatermark {
+    frame: u64,
+    publication_timestamp: Option<f64>,
+}
+
 impl SourceAccumulator {
-    fn record(
-        &mut self,
-        identity: Option<&str>,
-        numeric_frame: Option<u64>,
-        scope: Option<&str>,
-        is_fresh: bool,
-        capacity: usize,
-    ) -> bool {
+    fn record(&mut self, identity: Option<&str>, is_fresh: bool, capacity: usize) -> bool {
         let Some(identity) = identity else {
             self.unavailable = self.unavailable.saturating_add(1);
             return false;
@@ -497,34 +536,79 @@ impl SourceAccumulator {
                 if let Some(evicted) = self.identity_order.pop_front() {
                     self.identities.remove(&evicted);
                     self.fresh_identities.remove(&evicted);
-                    self.evictions = self.evictions.saturating_add(1);
+                    self.identity_evictions = self.identity_evictions.saturating_add(1);
                 }
             }
             self.identities.insert(identity.to_owned());
             self.identity_order.push_back(identity.to_owned());
             self.unique = self.unique.saturating_add(1);
         }
-        let fresh_unique = is_fresh && self.fresh_identities.insert(identity.to_owned());
-        if is_new_identity {
-            if let Some(frame) = numeric_frame {
-                // Frame numbers commonly restart when the camera/session restarts.
-                // Never report a gap across unrelated source identity scopes.
-                if self.last_numeric_scope.as_deref() != scope {
-                    self.last_numeric_frame = None;
-                    self.last_numeric_scope = scope.map(str::to_owned);
+        is_fresh && self.fresh_identities.insert(identity.to_owned())
+    }
+
+    fn record_source_frame(
+        &mut self,
+        scope: Option<&str>,
+        frame: Option<u64>,
+        timestamp_kind: Option<&str>,
+        timestamp: Option<f64>,
+        capacity: usize,
+    ) -> bool {
+        let (Some(scope), Some(frame)) = (scope, frame) else {
+            return false;
+        };
+        if let Some(watermark) = self.sequence_frames.get(scope).copied() {
+            let is_publication_timestamp = timestamp_kind == Some("shared_memory_publication");
+            if is_publication_timestamp
+                && matches!(
+                    (watermark.publication_timestamp, timestamp),
+                    (Some(previous), Some(current)) if current < previous
+                )
+            {
+                self.sequence_out_of_order = self.sequence_out_of_order.saturating_add(1);
+                return false;
+            }
+
+            let is_restart = is_publication_timestamp
+                && matches!(
+                    (watermark.publication_timestamp, timestamp),
+                    (Some(previous), Some(current)) if current > previous
+                )
+                && frame <= watermark.frame;
+            if is_restart {
+                self.sequence_restarts = self.sequence_restarts.saturating_add(1);
+            } else if frame > watermark.frame {
+                let missing = frame.saturating_sub(watermark.frame).saturating_sub(1);
+                if missing > 0 {
+                    self.frame_gaps = self.frame_gaps.saturating_add(1);
+                    self.missing_frames = self.missing_frames.saturating_add(missing);
                 }
-                if let Some(previous) = self.last_numeric_frame {
-                    let missing = frame.saturating_sub(previous).saturating_sub(1);
-                    if frame > previous && missing > 0 {
-                        self.frame_gaps = self.frame_gaps.saturating_add(1);
-                        self.missing_frames = self.missing_frames.saturating_add(missing);
-                    }
-                }
-                self.last_numeric_frame =
-                    Some(self.last_numeric_frame.map_or(frame, |old| old.max(frame)));
+            } else if frame == watermark.frame {
+                self.repeated_numeric_frames = self.repeated_numeric_frames.saturating_add(1);
+                return false;
+            } else {
+                self.sequence_out_of_order = self.sequence_out_of_order.saturating_add(1);
+                return false;
+            }
+        } else if self.sequence_frames.len() == capacity {
+            if let Some(evicted) = self.sequence_order.pop_front() {
+                self.sequence_frames.remove(&evicted);
+                self.sequence_evictions = self.sequence_evictions.saturating_add(1);
             }
         }
-        fresh_unique
+
+        let is_new_scope = !self.sequence_frames.contains_key(scope);
+        self.sequence_frames.insert(
+            scope.to_owned(),
+            SourceFrameWatermark {
+                frame,
+                publication_timestamp: timestamp,
+            },
+        );
+        if is_new_scope {
+            self.sequence_order.push_back(scope.to_owned());
+        }
+        true
     }
 }
 
@@ -532,6 +616,8 @@ impl SourceAccumulator {
 struct StateAccumulator {
     counts: MutableCounts,
     freshness: MutableFreshness,
+    completeness: MutableCompleteness,
+    component_status_counts: BTreeMap<String, BTreeMap<String, u64>>,
     sequence: SequenceAccumulator,
     source: SourceAccumulator,
     last_state_receive: Option<Duration>,
@@ -548,6 +634,8 @@ impl StateAccumulator {
         Self {
             counts: MutableCounts::default(),
             freshness: MutableFreshness::default(),
+            completeness: MutableCompleteness::default(),
+            component_status_counts: BTreeMap::new(),
             sequence: SequenceAccumulator::default(),
             source: SourceAccumulator::default(),
             last_state_receive: None,
@@ -600,12 +688,19 @@ impl StateAccumulator {
             .get("observation_status")
             .or_else(|| data.get("status"))
             .unwrap_or(&Value::Null);
+        let stream_sequence =
+            unsigned_at(&message, "sequence").or_else(|| unsigned_at(data, "sequence"));
         let identity_value = status.get("observation_identity").unwrap_or(&Value::Null);
         let engine_id = identity_value
             .get("engine_instance_id")
             .or_else(|| status.get("engine_instance_id"))
             .or_else(|| status.get("vision_instance_id"))
             .and_then(Value::as_str);
+        let vision_instance_id = status
+            .get("vision_instance_id")
+            .and_then(Value::as_str)
+            .or(engine_id)
+            .map(str::to_owned);
         let session_id = identity_value
             .get("session_id")
             .or_else(|| status.get("source_session_id"))
@@ -621,20 +716,105 @@ impl StateAccumulator {
             }
             _ => None,
         };
-        let source_scope = match (engine_id, session_id) {
-            (Some(engine), Some(session)) => Some(format!("{engine}\u{1f}{session}")),
-            _ => None,
-        };
-        let numeric_frame = source_frame_id.as_deref().and_then(numeric_frame_sequence);
+        let source_process_id = status.get("source_process_id").cloned();
+        let process_scope = source_process_id
+            .as_ref()
+            .map(Value::to_string)
+            .unwrap_or_else(|| "unknown".to_owned());
+        let source_scope = format!(
+            "{}\u{1f}{}\u{1f}{}",
+            vision_instance_id.as_deref().unwrap_or("unknown"),
+            process_scope,
+            session_id.unwrap_or("unknown")
+        );
+        let source_frame_number = unsigned_at(status, "source_frame_number")
+            .or_else(|| source_frame_id.as_deref().and_then(numeric_frame_sequence));
+        let source_timestamp = status
+            .get("source_timestamp")
+            .or_else(|| status.get("ball_observation_source_timestamp"))
+            .filter(|value| value.is_number())
+            .cloned();
+        let numeric_source_timestamp = source_timestamp
+            .as_ref()
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite());
+        let source_timestamp_kind = string_at(status, "source_timestamp_kind")
+            .or_else(|| string_at(status, "ball_observation_source_timestamp_kind"));
+        let component_status = component_status(status);
+        let balls_status = component_status.get("balls").map(String::as_str);
         let freshness_status = string_at(status, "freshness_status");
         let is_fresh = freshness_status.as_deref() == Some("fresh");
         let fresh_source = self.source.record(
             observation_identity.as_deref(),
-            numeric_frame,
-            source_scope.as_deref(),
             is_fresh,
             self.maximum_samples,
         );
+
+        let unique_source_frame = self.source.record_source_frame(
+            Some(&source_scope),
+            source_frame_number,
+            source_timestamp_kind.as_deref(),
+            numeric_source_timestamp,
+            self.maximum_samples,
+        );
+        if unique_source_frame {
+            self.freshness.unique_source_frame_updates =
+                self.freshness.unique_source_frame_updates.saturating_add(1);
+            match balls_status {
+                Some("observed") => {
+                    self.freshness.unique_observed_source_observations = self
+                        .freshness
+                        .unique_observed_source_observations
+                        .saturating_add(1);
+                }
+                Some("cached" | "failed" | "skipped" | "unavailable") => {
+                    self.freshness.cached_or_failed_source_updates = self
+                        .freshness
+                        .cached_or_failed_source_updates
+                        .saturating_add(1);
+                }
+                _ => {
+                    self.freshness.unknown_source_freshness_updates = self
+                        .freshness
+                        .unknown_source_freshness_updates
+                        .saturating_add(1);
+                }
+            }
+        }
+
+        for (component, status) in &component_status {
+            let counts = self
+                .component_status_counts
+                .entry(component.clone())
+                .or_default();
+            let count = counts.entry(status.clone()).or_default();
+            *count = count.saturating_add(1);
+        }
+
+        let has_source_identity = engine_id.is_some()
+            && session_id.is_some()
+            && source_frame_id
+                .as_deref()
+                .is_some_and(|frame| !frame.is_empty());
+        let state_complete = stream_sequence.is_some()
+            && data.get("balls").and_then(Value::as_array).is_some()
+            && status.is_object()
+            && (has_source_identity || source_frame_number.is_some());
+        if state_complete {
+            self.completeness.complete_state_messages =
+                self.completeness.complete_state_messages.saturating_add(1);
+        } else {
+            self.completeness.incomplete_state_messages = self
+                .completeness
+                .incomplete_state_messages
+                .saturating_add(1);
+        }
+        if source_frame_number.is_none() {
+            self.completeness.uncorrelated_state_messages = self
+                .completeness
+                .uncorrelated_state_messages
+                .saturating_add(1);
+        }
 
         match freshness_status.as_deref() {
             Some("fresh") => {
@@ -659,8 +839,6 @@ impl StateAccumulator {
             }
         }
 
-        let stream_sequence =
-            unsigned_at(&message, "sequence").or_else(|| unsigned_at(data, "sequence"));
         self.sequence.record(stream_sequence);
         let transport_sequence =
             unsigned_at(status, "transport_sequence").or_else(|| unsigned_at(data, "frame_number"));
@@ -684,11 +862,15 @@ impl StateAccumulator {
             transport_sequence,
             observation_identity,
             source_frame_id,
-            source_timestamp_kind: string_at(status, "source_timestamp_kind")
-                .or_else(|| string_at(status, "ball_observation_source_timestamp_kind")),
+            source_frame_number,
+            vision_instance_id,
+            source_process_id,
+            source_timestamp,
+            source_timestamp_kind,
             freshness_status,
-            ball_positions_status: string_at(status, "ball_positions_status")
-                .or_else(|| string_at(status, "ball_detection_status")),
+            ball_positions_status: balls_status.map(str::to_owned),
+            component_status,
+            state_complete,
             ball_count,
             configuration_revision: unsigned_at(status, "configuration_revision"),
             rectification_revision: unsigned_at(status, "rectification_revision"),
@@ -737,7 +919,19 @@ impl StateAccumulator {
                 stale_state_messages: self.freshness.stale_state_messages,
                 unknown_freshness_state_messages: self.freshness.unknown_freshness_state_messages,
                 fresh_unique_source_observations: self.freshness.fresh_unique_source_observations,
+                unique_source_frame_updates: self.freshness.unique_source_frame_updates,
+                unique_observed_source_observations: self
+                    .freshness
+                    .unique_observed_source_observations,
+                cached_or_failed_source_updates: self.freshness.cached_or_failed_source_updates,
+                unknown_source_freshness_updates: self.freshness.unknown_source_freshness_updates,
             },
+            completeness: CompletenessCounts {
+                complete_state_messages: self.completeness.complete_state_messages,
+                incomplete_state_messages: self.completeness.incomplete_state_messages,
+                uncorrelated_state_messages: self.completeness.uncorrelated_state_messages,
+            },
+            component_observation_status_counts: self.component_status_counts,
             stream_order: SequenceSummary {
                 messages_with_sequence: self.sequence.messages_with_sequence,
                 sequence_gaps: self.sequence.gaps,
@@ -752,9 +946,15 @@ impl StateAccumulator {
                 repeated_source_observations_within_window: self.source.repeated,
                 messages_without_source_identity: self.source.unavailable,
                 identity_window_capacity: maximum_samples,
-                identity_window_evictions: self.source.evictions,
+                identity_window_evictions: self.source.identity_evictions,
+                uncorrelated_state_messages: self.completeness.uncorrelated_state_messages,
                 source_frame_sequence_gaps: self.source.frame_gaps,
                 missing_source_frame_sequence_total: self.source.missing_frames,
+                source_sequence_restarts: self.source.sequence_restarts,
+                source_out_of_order_messages: self.source.sequence_out_of_order,
+                repeated_numeric_source_frames: self.source.repeated_numeric_frames,
+                source_sequence_window_capacity: maximum_samples,
+                source_sequence_window_evictions: self.source.sequence_evictions,
             },
             timing: TimingSummary {
                 read_completion_to_publication_age_ms: percentile_summary(
@@ -838,6 +1038,40 @@ fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Normalize the supported legacy top-level status fields into the component
+/// map used by the API collector. Explicit component entries take precedence.
+fn component_status(status: &Value) -> BTreeMap<String, String> {
+    let mut components = BTreeMap::new();
+    if let Some(object) = status
+        .get("component_observation_status")
+        .and_then(Value::as_object)
+    {
+        for (component, value) in object {
+            if let Some(value) = value.as_str() {
+                components.insert(component.clone(), value.to_owned());
+            }
+        }
+    }
+
+    for (component, keys) in [
+        ("balls", ["ball_positions_status", "ball_detection_status"]),
+        ("cue", ["cue_detection_status", ""]),
+        ("motion", ["motion_monitor_status", ""]),
+    ] {
+        if components.contains_key(component) {
+            continue;
+        }
+        if let Some(value) = keys
+            .iter()
+            .filter(|key| !key.is_empty())
+            .find_map(|key| string_at(status, key))
+        {
+            components.insert(component.to_owned(), value);
+        }
+    }
+    components
+}
+
 fn string_value(value: &Value) -> Option<String> {
     match value {
         Value::String(value) => Some(value.clone()),
@@ -880,8 +1114,8 @@ pub fn receiver_wall_time_ms() -> Option<u128> {
 #[cfg(test)]
 mod tests {
     use super::{
-        numeric_frame_sequence, validate_websocket_url, SequenceAccumulator, SourceAccumulator,
-        StateAccumulator, StateReceiverConfig,
+        component_status, numeric_frame_sequence, validate_websocket_url, SequenceAccumulator,
+        SourceAccumulator, StateAccumulator, StateReceiverConfig,
     };
     use serde_json::json;
     use std::time::{Duration, Instant};
@@ -982,6 +1216,17 @@ mod tests {
         assert_eq!(output.report.counts.state_messages, 3);
         assert_eq!(output.report.freshness.fresh_state_messages, 3);
         assert_eq!(output.report.freshness.fresh_unique_source_observations, 2);
+        assert_eq!(output.report.freshness.unique_source_frame_updates, 2);
+        assert_eq!(
+            output.report.freshness.unique_observed_source_observations,
+            2
+        );
+        assert_eq!(output.report.completeness.complete_state_messages, 3);
+        assert_eq!(output.report.completeness.incomplete_state_messages, 0);
+        assert_eq!(
+            output.report.component_observation_status_counts["balls"]["observed"],
+            3
+        );
         assert_eq!(
             output
                 .report
@@ -1044,29 +1289,63 @@ mod tests {
         assert_eq!(output.report.stream_order.out_of_order_sequences, 1);
         assert_eq!(output.report.freshness.stale_state_messages, 1);
         assert_eq!(output.report.freshness.unknown_freshness_state_messages, 1);
+        assert_eq!(output.report.completeness.complete_state_messages, 4);
+        assert_eq!(
+            output.report.freshness.unique_observed_source_observations,
+            3
+        );
     }
 
     #[test]
     fn bounded_identity_window_discloses_eviction() {
         let mut source = SourceAccumulator::default();
-        assert!(source.record(Some("one"), Some(1), Some("camera-a"), true, 2));
-        assert!(source.record(Some("two"), Some(2), Some("camera-a"), true, 2));
-        assert!(!source.record(Some("one"), Some(1), Some("camera-a"), true, 2));
-        assert!(source.record(Some("three"), Some(3), Some("camera-a"), true, 2));
-        assert!(source.record(Some("one"), Some(1), Some("camera-a"), true, 2));
-        assert_eq!(source.evictions, 2);
+        assert!(source.record(Some("one"), true, 2));
+        assert!(source.record(Some("two"), true, 2));
+        assert!(!source.record(Some("one"), true, 2));
+        assert!(source.record(Some("three"), true, 2));
+        assert!(source.record(Some("one"), true, 2));
+        assert_eq!(source.identity_evictions, 2);
         assert_eq!(source.unique, 4);
     }
 
     #[test]
     fn camera_restart_does_not_create_cross_session_frame_gap() {
         let mut source = SourceAccumulator::default();
-        assert!(source.record(Some("session-a/100"), Some(100), Some("session-a"), true, 8));
-        assert!(source.record(Some("session-b/1"), Some(1), Some("session-b"), true, 8));
+        assert!(source.record_source_frame(Some("session-a"), Some(100), None, None, 8));
+        assert!(source.record_source_frame(Some("session-b"), Some(1), None, None, 8));
         assert_eq!(source.frame_gaps, 0);
-        assert!(source.record(Some("session-b/3"), Some(3), Some("session-b"), true, 8));
+        assert!(source.record_source_frame(Some("session-b"), Some(3), None, None, 8));
         assert_eq!(source.frame_gaps, 1);
         assert_eq!(source.missing_frames, 1);
+    }
+
+    #[test]
+    fn publication_timestamp_distinguishes_source_restart_from_delayed_frames() {
+        let mut source = SourceAccumulator::default();
+        let mut new_frames = 0;
+        for (frame, timestamp) in [
+            (900, 100.0),
+            (901, 100.1),
+            (2, 101.0),
+            (3, 101.1),
+            (902, 100.2),
+            (3, 101.1),
+        ] {
+            if source.record_source_frame(
+                Some("vision-a|101|session-a"),
+                Some(frame),
+                Some("shared_memory_publication"),
+                Some(timestamp),
+                8,
+            ) {
+                new_frames += 1;
+            }
+        }
+        assert_eq!(new_frames, 4);
+        assert_eq!(source.sequence_restarts, 1);
+        assert_eq!(source.frame_gaps, 0);
+        assert_eq!(source.sequence_out_of_order, 1);
+        assert_eq!(source.repeated_numeric_frames, 1);
     }
 
     #[test]
@@ -1116,6 +1395,45 @@ mod tests {
         ] {
             assert_eq!(numeric_frame_sequence(frame_id), expected, "{frame_id}");
         }
+    }
+
+    #[test]
+    fn component_status_preserves_explicit_entries_and_fills_legacy_fields() {
+        let statuses = component_status(&json!({
+            "component_observation_status": {"balls": "cached", "custom": "ready"},
+            "ball_positions_status": "observed",
+            "cue_detection_status": "failed",
+            "motion_monitor_status": "skipped"
+        }));
+        assert_eq!(statuses.get("balls").map(String::as_str), Some("cached"));
+        assert_eq!(statuses.get("cue").map(String::as_str), Some("failed"));
+        assert_eq!(statuses.get("motion").map(String::as_str), Some("skipped"));
+        assert_eq!(statuses.get("custom").map(String::as_str), Some("ready"));
+    }
+
+    #[test]
+    fn complete_identity_without_numeric_frame_is_complete_but_uncorrelated_for_ordering() {
+        let mut accumulator = StateAccumulator::new(4);
+        accumulator.record_text(
+            &state_message(1, "camera-frame-alpha", "fresh", 0.01),
+            Duration::from_millis(1),
+        );
+        let output = accumulator.finish(
+            "start".to_owned(),
+            "finish".to_owned(),
+            Duration::from_secs(1),
+            "peer_closed",
+            4,
+            None,
+        );
+
+        assert_eq!(output.report.completeness.complete_state_messages, 1);
+        assert_eq!(output.report.completeness.uncorrelated_state_messages, 1);
+        assert_eq!(output.report.freshness.unique_source_frame_updates, 0);
+        assert_eq!(
+            output.report.freshness.unique_observed_source_observations,
+            0
+        );
     }
 
     #[test]

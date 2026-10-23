@@ -55,7 +55,10 @@ Resource sampling is opt-in, runs on its own worker thread, binds to the
 observed process start-time value, and retains no more than the configured
 sample limit. It reports per-core CPU percentage, accumulated CPU
 milliseconds, resident-memory bytes, unavailable samples, and retention loss.
-Reports with this optional section use schema version 3. The
+The receiver reports complete/incomplete and uncorrelated states, component
+status totals, unique observed frames, repeats, frame gaps, source restarts,
+and out-of-order frames. Schema version 4 adds this source and completeness
+evidence. Resource-enabled reports use the same schema version. The
 `billiards-performance-audit-server-summary` binary reduces retained server
 JSONL events for vision, integration, delivery, video, trajectory, process
 resources, and viewers. The Python collector now calls that Rust reducer after

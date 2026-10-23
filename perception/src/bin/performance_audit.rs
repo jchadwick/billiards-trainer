@@ -120,12 +120,16 @@ fn print_final_summary(output: &StateReceiverOutput) {
     let report = &output.report;
     let elapsed = report.elapsed_seconds;
     let states_per_second = rate(report.counts.state_messages, elapsed);
-    let unique_per_second = rate(report.freshness.fresh_unique_source_observations, elapsed);
+    let unique_per_second = rate(
+        report.freshness.unique_observed_source_observations,
+        elapsed,
+    );
     println!(
-        "audit complete: {:.2}s, {} state messages ({states_per_second:.2}/s), {} fresh unique source observations ({unique_per_second:.2}/s), {} stale, {} source identities unavailable, termination={}",
+        "audit complete: {:.2}s, {} state messages ({states_per_second:.2}/s), {} unique observed source frames ({unique_per_second:.2}/s), {} incomplete states, {} stale, {} source identities unavailable, termination={}",
         elapsed,
         report.counts.state_messages,
-        report.freshness.fresh_unique_source_observations,
+        report.freshness.unique_observed_source_observations,
+        report.completeness.incomplete_state_messages,
         report.freshness.stale_state_messages,
         report.source_observations.messages_without_source_identity,
         report.termination_reason,

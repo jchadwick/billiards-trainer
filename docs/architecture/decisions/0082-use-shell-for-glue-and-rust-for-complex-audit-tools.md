@@ -102,6 +102,11 @@ WebSocket control frames, and still accepts the Rust gateway's immediate
 push-style state stream. Loopback real-socket tests exercise both contracts;
 qualification against a running application remains outstanding. The
 heartbeat defaults to 20 seconds and is configurable on the Rust CLI.
+The version-4 report distinguishes unique observed source frames from repeated
+state publication, counts complete and uncorrelated messages, normalizes
+component observation statuses, and detects bounded source gaps, restarts,
+duplicates, and out-of-order delivery. Source ordering and identity windows
+disclose their capacities and evictions.
 
 The collector is still not replaced. Trajectory collection, producer
 timing/export analysis, configuration and hardware provenance, input replay
@@ -118,7 +123,8 @@ observed process start-time value, respects the CPU sampler's minimum refresh
 interval, keeps a bounded tail, reports total and retained counts, and marks
 inaccessible or changed processes unavailable. The
 sampler is absent unless `--resource-process-id` is supplied. Its optional
-report section advances the receiver report to schema version 3. A thin
+report section was schema version 3 before source/completeness fields were
+added in schema version 4. A thin
 `scripts/performance-audit-state.sh` wrapper locates the Rust manifest and
 passes arguments through unchanged.
 

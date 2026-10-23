@@ -68,6 +68,17 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
     assert_eq!(output.report.counts.state_messages, 2);
     assert_eq!(output.report.freshness.fresh_state_messages, 2);
     assert_eq!(output.report.freshness.fresh_unique_source_observations, 2);
+    assert_eq!(output.report.freshness.unique_source_frame_updates, 2);
+    assert_eq!(
+        output.report.freshness.unique_observed_source_observations,
+        2
+    );
+    assert_eq!(output.report.completeness.complete_state_messages, 2);
+    assert_eq!(output.report.completeness.incomplete_state_messages, 0);
+    assert_eq!(
+        output.report.component_observation_status_counts["balls"]["observed"],
+        2
+    );
     assert_eq!(output.report.stream_order.sequence_gaps, 1);
     assert_eq!(output.report.stream_order.missing_sequence_total, 1);
     assert_eq!(
@@ -234,7 +245,7 @@ async fn command_exports_versioned_json_and_bounded_jsonl_details() {
 
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
-    assert_eq!(report["report"]["schema_version"], 3);
+    assert_eq!(report["report"]["schema_version"], 4);
     assert_eq!(report["report"]["counts"]["state_messages"], 1);
     assert_eq!(report["retained_samples"].as_array().unwrap().len(), 1);
     assert_eq!(report["report"]["process_resources"]["status"], "available");
