@@ -118,7 +118,6 @@ jobs:
       - name: Run backend tests with coverage
         run: >-
           uv run --locked --no-sync python -m pytest backend/tests
-          -m "not model_assets"
           --cov-report=xml:backend/coverage.xml
           --cov-report=html:backend/coverage-html
           --junitxml=backend/junit.xml

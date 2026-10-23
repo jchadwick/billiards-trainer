@@ -248,7 +248,6 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "system: marks tests as end-to-end system tests",
-    "model_assets: replay requiring an explicitly configured installed detector model",
 ]
 asyncio_mode = "auto"
 timeout = 30
