@@ -16,7 +16,7 @@ web_changed=0
 shell_changed=0
 while IFS= read -r path; do
   case "${path}" in
-    perception/Cargo.toml|perception/Cargo.lock|perception/src/*.rs|perception/src/**/*.rs)
+    perception/*)
       rust_changed=1
       ;;
     frontend/web/src/*|frontend/web/package.json|frontend/web/package-lock.json|frontend/web/tsconfig*.json)
