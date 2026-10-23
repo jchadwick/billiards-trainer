@@ -60,7 +60,7 @@ commands or baselines.
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG. The smoke test simulates listener exit/restart and child shutdown; it does not create an HTTP client or validate multipart parsing. The fixture can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
-| `make security-check` | Keep, fail closed | It composes independent Rust and browser dependency checks; `cargo-audit` is required, and a missing Rust audit tool fails instead of reporting a misleading successful partial check. `make test-tooling` covers both its failure and dispatch paths. |
+| `make security-check` | Keep, fail closed | It composes independent Rust and browser dependency checks; `cargo-audit` is required, and a missing Rust audit tool fails instead of reporting a misleading successful partial check. `make test-tooling` covers both its failure and dispatch paths. A temporary local installation allowed the full check to run; RustSec reports one unmaintained `unsafe-libyaml` dependency through `serde_yaml_ng`, while the browser audit reports zero vulnerabilities. |
 | `backend/README.md` and `backend/requirements.txt` | Retire | The 936-line README described retired Python launchers and workflows; the unbounded requirements file duplicated and diverged from `pyproject.toml`. Current setup instructions use the root runtime guide and the checked-in Python lock. |
 | Python module `SPECS.md` files and streaming implementation guide | Retire | Their 2,014 lines prescribed an unimplemented multi-stream Python service, described retired vision commands, and included production claims for numbered-ball recognition. Current API, coordinate, runtime, and ADR documents are authoritative. |
 | Root `Makefile` | Keep the focused build/test/run/deploy interface; remove false aliases and broad process killing | `make run` builds the browser and all colocated live processes; `make run-api` builds the browser and gateway without camera libraries or capture processes. Cargo build/run/config commands now pass `--locked`, and Makefile changes trigger Rust checks. `make test-all` covers Rust, web, Python compatibility, tooling, and distribution tests; optional Docker startup is a separate `make docker-smoke` target invoked in CI. `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. The duplicate `quickstart` and network-fetched `docs-serve` targets were removed. Local builds reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
@@ -606,10 +606,10 @@ path remain untested.
   validation of all 98 ADRs passed.
 - Remaining evidence gaps are not tool-retirement candidates: no held-out
   temporal labels establish localization accuracy, no physical Linux webcam
-  run qualifies camera timing/provider behavior, no browser E2E run measures
-  viewer interference, and `cargo-audit` is unavailable on this Mac. The Rust
-  dependency check correctly fails closed when that auditor is missing; the
-  browser dependency audit reports zero vulnerabilities.
+  run qualifies camera timing/provider behavior, and no browser E2E run measures
+  viewer interference. The Rust dependency audit reports an unmaintained YAML
+  parser dependency but no vulnerable crate advisory; the browser audit reports
+  zero vulnerabilities.
 
 ### Follow-up after applying the full tool evaluation (2026-10-23)
 
@@ -637,19 +637,30 @@ path remain untested.
   loopback port, waits for its actual healthcheck, confirms `/live` serves the
   web application, and removes its container. It does not mount data or
   qualify a camera.
-- Verification for this follow-up: all 2,822 Python tests passed at 82.51%
+- `cargo-audit` was installed only under a temporary `/tmp` prefix for this
+  run, then `make security-check` passed. RustSec reports `unsafe-libyaml
+  0.2.11` as unmaintained through `serde_yaml_ng`; it did not report a known
+  vulnerability. Replace or remove YAML parsing only after preserving the
+  configuration upload/export contract. The default developer setup still
+  requires installing `cargo-audit` explicitly, and its check fails closed
+  when absent.
+- Verification for this follow-up: all 2,823 Python tests passed at 82.51%
   coverage; Ruff, strict mypy, Black, isort, and `uv lock --check` passed. The
   process-level game-session test passed; the Rust pre-commit all-target suite
   passed with 320 library tests and all binary/integration targets. The
   deployment contract tests passed (11), Compose configuration and workflow
   YAML parsed, `make help` passed, and a fresh local Docker image build plus
   container health/`/live` smoke passed. `make build-rust`, `make config-check`,
-  and the gateway-only CLI smoke also passed.
+  the gateway-only CLI smoke, and `make security-check` also passed (one
+  unmaintained Rust dependency warning).
 - Remaining tool and system limitations: the Docker workflow still rebuilds
   the image for every branch push and pull request, including documentation-only
   changes; path filtering could reduce CI cost while preserving tag builds.
+  GitHub warns that path-filtered workflows can leave required checks pending
+  when skipped, so verify branch-protection requirements before changing this
+  trigger ([workflow path-filter behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushpull_requestpull_request_targetpaths)).
   `make check-env` warns instead of failing when GStreamer is absent so the
   gateway-only workflow remains usable. Accuracy ground truth, physical Linux
   camera/provider qualification, numbered-ball identity, browser rendering
-  interference, and the unavailable local `cargo-audit` executable remain
-  separate evidence gaps.
+  interference, and a future maintained YAML parser choice remain separate
+  evidence gaps.
