@@ -133,19 +133,24 @@ verified calibration and labels.
 
 ## Current implementation status
 
-- **2026-10-22 Rust audit-tooling slice:** ADR-0082 records the boundary of
-  portable shell for thin development glue and Rust for stateful or complex
-  tooling. Commit `77147f5` adds `billiards-performance-audit`, a bounded
-  anonymous WebSocket state receiver with source identity/freshness/order
-  accounting, receiver-local timing, and versioned JSON/JSONL output. The Rust
-  all-target suite passes (226 library tests plus the integration targets), as
-  do formatting and strict Clippy. This is one building block, not collector
-  parity: the existing 5,221-line Python collector still owns trajectory and
-  producer-audit analysis, resource sampling, provenance, replay/run
-  orchestration, cross-run comparison, accuracy reporting, and Markdown output.
-  Keep it as the independent reference until those responsibilities are
-  ported and compared on shared fixtures. The receiver's loopback tests use a
-  local test peer; no new full-app live audit or performance baseline was run.
+- **2026-10-22 Rust audit-tooling migration:** ADR-0082 sets portable shell as
+  thin development glue and Rust as the owner for stateful or complex tools.
+  Commits `77147f5` and `341bc05` add the bounded WebSocket state receiver and
+  opt-in process-resource collection. Commits `19aab7a`, `2bd9046`, and
+  `2747095` move live qualification resource sampling and timing reduction to
+  Rust. Commits `6feb7e7` and `8e74dff` add the native server-event reducer and
+  route the Python collector through it. A shared golden fixture checks the
+  full reducer output for vision, integration, state delivery, video,
+  trajectory outcomes, process resources, and viewers. The Rust all-target
+  suite passes 246 library tests plus the integration targets; strict Clippy
+  and formatting pass. The collector-specific Python suite passes all 58
+  tests, plus Ruff, Black, and mypy. The 5,186-line Python collector still owns
+  event-file collection and clock-window selection, warm-up/repetition and
+  replay orchestration, trajectory subscriptions, provenance, cross-run
+  comparison, accuracy evaluation, and Markdown output. Keep it until these
+  remaining contracts have Rust implementations and differential coverage.
+  This work did not run a new full-app audit or establish a new performance
+  baseline.
 
 - **2026-10-22 Mac recorded-video live smoke:** On the development M4 Max, the
   Rust gateway and supervised live detector used the real two-class ONNX

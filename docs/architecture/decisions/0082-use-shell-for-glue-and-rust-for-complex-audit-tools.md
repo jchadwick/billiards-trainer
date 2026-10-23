@@ -130,6 +130,21 @@ Rust live qualification only. The larger Python collector, its generic audit
 modes, and report orchestration remain and must be migrated only after their
 evidence contracts have Rust parity.
 
+Commits `6feb7e7` and `8e74dff` move the server-event summary reducer into the
+Rust library and `billiards-performance-audit-server-summary` command. It
+reduces retained JSON Lines events for vision, integration, state delivery,
+video, trajectory, resources and viewers. The Rust unit and command tests use a
+shared fixture whose expected summary was produced by the retained Python
+implementation. The Python collector now delegates this reducer after it has
+selected the same-clock measurement window; collection, clock selection,
+export-status merging and Markdown rendering remain owned by Python. The
+command rejects boolean metric values and bounds each line, event count and
+total input size. Its defaults are 1 MiB per line, 200,000 events and 128 MiB
+total input. The Python bridge enforces the same event and total-input bounds
+before launching the command and normalizes non-finite floats to JSON null.
+Rejecting booleans corrects the Python `bool`-is-`int` edge case in the former
+reducer so flags cannot appear as timing or resource measurements.
+
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
@@ -143,13 +158,18 @@ evidence contracts have Rust parity.
 - The native live-qualification helper is exercised as a real child process,
   including its ready/start/stop protocol, bounded sample details, process
   identity, memory sample, and failure fallback in the Python coordinator.
+- The server-event reducer matches a shared golden fixture across stage work,
+  trajectory outcomes, unique source observations, resource trends, and viewer
+  records. Its JSON Lines command also rejects malformed and over-limit input.
+- The backend performance collector's 58 focused unit tests pass, including
+  execution through the Rust reducer, and its Ruff, Black, and mypy checks pass.
 - Rust formatting, strict Clippy, and the all-target test suite pass.
 - The recorded-video live smoke in the migration plan validates integration
   only; it does not establish detector accuracy or a sustained performance
   baseline.
-- Differential fixtures, full collector parity, measured instrumentation
-  overhead, and ADR validation remain required before retiring the Python
-  collector.
+- One shared reducer fixture now passes; differential coverage for remaining
+  collector behavior, full collector parity, measured instrumentation overhead
+  and final retirement remain required before removing the Python collector.
 
 ## Related records
 

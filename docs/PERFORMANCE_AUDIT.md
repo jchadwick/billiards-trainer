@@ -33,9 +33,9 @@ This collector is a test tool, not an application service. The general API
 audit settings below describe the retained compatibility workflow; they do not
 turn on instrumentation in the supported Rust gateway.
 
-The native `billiards-performance-audit` receiver is being expanded in Rust
-one audited contract at a time. Invoke its thin shell entry point for a live
-state stream:
+The native `billiards-performance-audit` receiver and server-event reducer are
+being expanded in Rust one audited contract at a time. Invoke the thin shell
+entry point for a live state stream:
 
 ```bash
 scripts/performance-audit-state.sh \
@@ -51,10 +51,25 @@ Resource sampling is opt-in, runs on its own worker thread, binds to the
 observed process start-time value, and retains no more than the configured
 sample limit. It reports per-core CPU percentage, accumulated CPU
 milliseconds, resident-memory bytes, unavailable samples, and retention loss.
-Reports with this optional section use schema version 3. This receiver slice
-does not yet replace Python's warm-up/repetition orchestration, trajectory and
-viewer measurement, provenance collection, cross-run comparisons, or Markdown
-report.
+Reports with this optional section use schema version 3. The
+`billiards-performance-audit-server-summary` binary reduces retained server
+JSONL events for vision, integration, delivery, video, trajectory, process
+resources, and viewers. The Python collector now calls that Rust reducer after
+applying its existing comparable-clock measurement window. A shared golden
+fixture checks its output against the former Python reducer. Its input defaults
+are 1 MiB per line, 200,000 events, and 128 MiB total; boolean values are not
+accepted as numeric measurements. Inspect its configurable limits with:
+
+```bash
+cargo run --locked --manifest-path perception/Cargo.toml \
+  --bin billiards-performance-audit-server-summary -- --help
+```
+
+Python still owns event collection and clock-window selection,
+warm-up/repetition orchestration, trajectory subscriptions, provenance,
+cross-run comparison, accuracy evaluation, and Markdown rendering. Those
+responsibilities remain migration work; this reducer does not change the
+measurement window or capture path.
 
 | Setting | Default | Purpose |
 | --- | ---: | --- |
