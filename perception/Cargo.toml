@@ -25,6 +25,10 @@ name = "billiards-perception-infer"
 path = "src/main.rs"
 
 [[bin]]
+name = "billiards-perception-video-replay"
+path = "src/bin/video_replay.rs"
+
+[[bin]]
 name = "billiards-perception-live"
 path = "src/live_main.rs"
 
