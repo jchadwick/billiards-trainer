@@ -1689,18 +1689,20 @@ held-out temporal labels yet, so this is adapter verification only: it does not
 establish Rust temporal accuracy, live-camera freshness, calibrated physical
 position accuracy, or performance improvement.
 
-**CVAT temporal-label import path (2026-10-21):** ADR-0035 now includes the
-authoring contract and its human-review limit. The new
-`backend/tools/import_cvat_video_temporal_annotations.py` converts CVAT Video
-1.1 tracks into the shared schema only for frame ordinals listed in a separate
-fully-reviewed JSON file. Every active ball/cue track must have an explicit
-keyframe on each selected frame; interpolated positions are rejected. The tool
-uses source-video geometry and `ffprobe` best-effort presentation timestamps,
+**CVAT temporal-label import path (started 2026-10-21; migrated 2026-10-23):**
+ADR-0035 defines the authoring contract and its human-review limit. The Rust
+`billiards-temporal-import-cvat` command converts CVAT Video 1.1 tracks into
+the shared schema only for frame ordinals listed in a separate fully-reviewed
+JSON file. Every active ball/cue track must have an explicit keyframe on each
+selected frame; interpolated positions are rejected. The tool uses
+source-video geometry and `ffprobe` best-effort presentation timestamps,
 records the PTS origin and source hashes, supports a source-frame offset and an
 optional calibration/session epoch sidecar, and preserves ball track IDs only
 as location continuity labels. The input video stream index is configurable
 (default 0) and is recorded in provenance. Ball-number identity remains outside
-this contract. A visible cue requires a two-point tip-to-butt polyline.
+this contract. A visible cue requires a two-point tip-to-butt polyline. The
+former Python implementation and its tests were retired after output parity
+with the Rust command passed on a generated video.
 
 The source-video hash must be captured in the task-creation record and passed to
 the importer as `--expected-video-sha256`; CVAT XML itself does not contain that
@@ -1714,7 +1716,7 @@ of only the frame ordinals that have been fully checked (including empty-table
 frames), then run:
 
 ```sh
-python3 -m backend.tools.import_cvat_video_temporal_annotations \
+scripts/import-cvat-temporal-annotations.sh \
   --video capture.mp4 \
   --expected-video-sha256 RECORDED_VIDEO_SHA256 \
   --cvat-xml annotations.xml \
@@ -1736,17 +1738,22 @@ Replace `RECORDED_VIDEO_SHA256` with that exact 64-character digest; add
 `--allow-empty-ball-sequence` only when the reviewed sequence intentionally
 contains no balls.
 
-Verification: 21 focused importer tests pass; the complete backend suite passes
-1,629 tests with two model-dependent skips, and full backend Ruff, Black, isort
-and strict mypy checks pass. A generated three-frame video was
-successfully imported using the installed `ffprobe`, confirming actual PTS
-handling as well as mocked edge-case tests. The configured 80% repository
-coverage threshold remains a separate known shortfall; this run used the same
-coverage-disabled full-suite invocation as the preceding work. There are still
-no held-out temporal labels, so no temporal production accuracy result can be
-reported. Next evidence needed is a provenance-cleared clip with independently
-reviewed dense-motion, aiming, occlusion, settlement, interruption/restart and
-calibration-change frames, followed by annotation QA and cross-engine scoring.
+At the original Python implementation checkpoint, the importer passed 21
+focused tests and the backend suite reported 1,629 passes; its 80% coverage
+shortfall was a known issue at that time and has since been cleared by the
+later 80.24% checkpoint above. The Rust importer now has ten focused tests, and
+the complete Rust suite, formatting, and strict Clippy checks pass. Python and
+Rust produced identical annotation documents from the same generated
+100×80 three-frame H.264 input using installed `ffprobe` (video SHA-256
+`f21ab49b65c0b2eedc677eb3128df5e38dc96b0ce77021c96613d769d8794a76`). A second
+`f21ab49b65c0b2eedc677eb3128df5e38dc96b0ce77021c96613d769d8794a76`). A
+second write was refused without replacing the output. The Python importer and
+its tests are retired; the shell wrapper now invokes the Rust CLI. There are
+still no held-out temporal labels, so no temporal production accuracy result
+can be reported. Next evidence needed is a provenance-cleared clip with
+independently reviewed dense-motion, aiming, occlusion, settlement,
+interruption/restart and calibration-change frames, followed by annotation QA
+and cross-engine scoring.
 
 **Synthetic capture helper connected to the Rust worker (2026-10-21):** The
 GStreamer probe now has a bounded schema-v1 readiness preface emitted only

@@ -51,6 +51,12 @@ loss-reporting, clock, and provenance semantics. Python model training and
 annotation tools remain outside this tooling migration. No authentication or
 credential mechanism is introduced.
 
+**Scope update (2026-10-23, ADR-0083):** the reviewed CVAT temporal localization
+importer is a separate, accuracy-critical tooling responsibility and is now
+owned by Rust. Its Python reference and Python-only tests were removed after
+the Rust output matched on a generated video using real `ffprobe`. This does
+not move model training, dataset preparation, or other annotation workflows.
+
 ## Consequences
 
 ### Positive

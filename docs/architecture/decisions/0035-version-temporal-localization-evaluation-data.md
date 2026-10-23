@@ -155,21 +155,24 @@ results are adapted into its engine-neutral frame schema.
 - The command-line Rust evaluator binds labels to the exact video hash and
   geometry. Cross-engine ranking remains unavailable until held-out temporal
   annotations are available and exercised.
-- `backend/tools/import_cvat_video_temporal_annotations.py` converts only
-  explicitly reviewed CVAT keyframes. Deterministic tests cover presentation
-  timeline normalization, offsets, stable identities, ball lifecycle, cue
-  endpoints, epoch events, invalid geometry, and rejection of unreviewed
-  interpolation. Additional checks cover the recorded source SHA-256, exact CVAT
-  task frame count and geometry, configured labels, empty-ball opt-in, and
-  selected stream provenance. A generated video was also imported through
-  installed `ffprobe`.
+- `billiards-temporal-import-cvat` and
+  `scripts/import-cvat-temporal-annotations.sh` convert only explicitly
+  reviewed CVAT keyframes. Rust tests cover PTS normalization, offsets, stable
+  identities, ball lifecycle, cue endpoint ordering, epoch events, invalid
+  geometry, and rejection of unreviewed interpolation. Additional checks cover
+  source SHA-256, CVAT task frame count and geometry, configured labels,
+  empty-ball opt-in, selected-stream provenance, input bounds, `ffprobe`
+  timeout/output limits, and atomic no-clobber output. Before retirement, the
+  Python reference passed 21 tests; Rust and Python then produced semantically
+  identical documents from the same generated three-frame video using the
+  installed `ffprobe`. The Python importer and its tests have been retired.
 - `python3 /Users/jchadwick/.agents/skills/manage-architecture-decisions/scripts/validate_adrs.py docs/architecture/decisions`
   validates the decision register.
 
 ## Implementation tracking
 
 The backend temporal evaluator, Python replay adapter, Rust scene-snapshot
-adapter, and strict CVAT Video 1.1 import tool are implemented. The importer
+adapter, and Rust CVAT Video 1.1 import tool are implemented. The importer
 requires a separate fully reviewed frame list and never promotes interpolated
 track positions to ground truth. Dataset creation/review and held-out
 temporal/physical labels remain follow-up work. The existing still dataset and

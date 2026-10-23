@@ -20,10 +20,12 @@ loopback transport. ADR-0028 supersedes only ADR-0025's handshake epoch
 behavior and extends its no-authentication decision across repository-controlled
 build and deployment workflows. ADR-0066 sets the destination: all deployed
 server-side components run in Rust, while the browser application remains
-HTML, JavaScript, and CSS. The Python service is a migration bridge. Python
-training and annotation workflows remain off-device; complex audit tooling
-migrates to Rust under ADR-0082, with Python retained temporarily as an
-independent differential reference. Rust now samples process resources,
+HTML, JavaScript, and CSS. The Python service is a migration bridge. Model
+training, dataset preparation, and other annotation workflows remain
+off-device. The reviewed temporal-label importer is Rust under ADR-0083.
+Complex audit tooling migrates to Rust under ADR-0082, with Python retained
+temporarily as an independent differential reference where parity work remains.
+Rust now samples process resources,
 collects state and optional trajectory receipts in the repeatable audit runner,
 and owns the server-event, delivery-latency, and instrumentation-overhead
 reducers. Viewer workload, event-window and clock joins, baseline selection,
@@ -244,6 +246,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 | [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
 | [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust runner collects state and optional trajectory over one WebSocket with bounded summaries/details, slow-subscriber experiments, managed lifecycle/resources, provenance and Markdown; viewer scenarios, event-window/clock joins, baseline selection, full camera provenance and accuracy orchestration remain Python |
+| [0083](decisions/0083-import-reviewed-temporal-annotations-with-rust.md) | Import reviewed temporal annotations with Rust | Accepted | Temporal label authoring | Rust CLI validates reviewed CVAT keyframes, video identity and timing with bounded inputs and atomic output; generated-video Python/Rust parity passed and the Python importer was retired |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and
