@@ -25,7 +25,7 @@ commands or baselines.
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
-| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, readiness watcher, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. |
+| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries so managed measurements do not use debug artifacts. |
 | `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. Rust needs the ONNX size to match `perception.rust_live.image_size` and verifies model/checkpoint hashes. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
@@ -40,7 +40,7 @@ commands or baselines.
 | --- | --- | --- |
 | `billiards-server` | Keep: product runtime | Serves the HTML/JS/CSS application, API, and current scene read model; Rust HTTP/WebSocket integration tests exercise the real gateway contracts. |
 | `billiards-perception-live` | Keep: product runtime | Owns the live perception process contract and composes capture, inference, calibration, tracking, and audit boundaries; lifecycle and live integration tests cover current behavior. |
-| `billiards-perception-gstreamer-probe` | Keep: product capture helper | Despite its name, this is the supervised GStreamer capture helper selected by deployment and the live supervisor. Its helper/source protocols and lifecycle tests cover real subprocess behavior; physical-camera qualification remains a separate gap. |
+| `billiards-perception-gstreamer-probe` | Keep: product capture helper | Despite its name, this is the supervised GStreamer capture helper selected by deployment and the live supervisor. Its helper/source protocols and lifecycle tests now run with the exact `camera-gstreamer-source` feature used by production; physical-camera qualification remains a separate gap. |
 | `billiards-perception-config` | Keep: developer validation command | `make config-check` invokes it for explicit configuration validation. Runtime configuration reads and updates use the library in-process through the Rust gateway; binary process contracts cover its one-shot protocol. |
 | `billiards-perception-game-session` | Keep: Python compatibility adapter only | The Python compatibility route invokes it through `backend/perception/rust_game_session.py`. The Rust gateway uses the session store directly in-process; this binary is not part of the supported runtime and its lifecycle is not separately tested as a process. |
 | `billiards-perception-camera-discovery` | Keep: read-only diagnostic | Reports enumerated video sources without opening a device. It has bounded output and command tests, and answers a different operational question from capture qualification. |
@@ -58,7 +58,9 @@ commands or baselines.
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, one-window measurement, and recorded-video CLI; no separate measurement logic is duplicated in shell. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
-| `scripts/verify-development-setup.sh`, `watch-rust-readiness.sh` | Keep: development operations | Check required local tooling and wait for explicit Rust readiness respectively; they do not perform accuracy or performance analysis. |
+| `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
+| `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
+| `make test-rust-camera` | Keep: production feature test | Runs the all-target Rust suite with the exact physical GStreamer source feature enabled and uses a separate Cargo target directory. `make test-all` includes it; the ordinary feature-free `make test-rust` remains usable without native GStreamer development libraries. |
 | `tools/export_high_res_model.py` | Keep | Creates lineage-bound ONNX/CoreML artifacts with focused tests; ONNX is consumed by Rust, while CoreML only serves the Python compatibility detector. |
 
 ## Browser client tools
@@ -69,6 +71,7 @@ commands or baselines.
 | Orphan Playwright diagnostic spec and `@playwright/test` | Retired | It targeted a nonexistent route, had no runner/configuration, and made no assertions about the live client. It did not provide browser E2E evidence. |
 | React Query, TanStack devtools, Chart.js, `web-vitals`, Tailwind/PostCSS, and duplicate scripts | Retired | No imports or application consumers remained after the client was reduced to `/live`; explicit CSS replaces the utility framework. The earlier forms-plugin note was stale: no plugin remained in the active config or dependency manifest. |
 | Browser E2E against real Rust state plus MJPEG | Gap; not represented by unit tests | The retained tests use controlled stream/socket inputs. Add a focused browser smoke test when an owned local integration fixture exists. |
+| Browser CI | Keep: focused workflow | `.github/workflows/web.yml` triggers on `frontend/web/**` and runs locked dependency install, Vitest, TypeScript typecheck, and production build. It does not claim real-browser or live-camera E2E coverage. |
 
 The locked browser dependency tree reports **zero npm audit vulnerabilities** in
 both production and development dependencies. Retiring the vulnerable Tailwind
@@ -86,6 +89,16 @@ major CSS-framework migration.
   remain.
 - The duplicate one-window Rust performance-audit CLI was removed because the
   canonical runner already supports a single zero-warm-up measurement window.
+- Removed the no-caller Rust-readiness watcher, duplicate geometric-collision
+  shell wrapper, and duplicate backend-local Makefile. The root Makefile and
+  canonical managed audit now own those entry points.
+- Corrected root Python test targets to select their named test directories,
+  and removed zero-test pytest shortcuts. The CI workflow no longer points
+  Python linters at nonexistent projector Python files or filters out
+  unmarked integration/system cases. It runs the retained Python suite once
+  with coverage and runs the kept projector Lua coordinate contract directly.
+- Added a frontend-only CI workflow so `/live` tests, TypeScript validation, and
+  the production build run when browser sources change.
 - The one-off RGB decoder probe was removed after its diagnostic result was
   recorded; its input path is not used by live GStreamer capture.
 - Old training setup, label-fixing, label-validation, and YOLO training tools
@@ -249,3 +262,20 @@ path remain untested.
   syntax checks, shell syntax checks, whitespace validation, and the 91-record
   ADR validation passed. The isolated ffprobe-bound test and subsequent full
   Rust and repository suites passed.
+- The follow-up tool sweep removed the duplicate backend `Makefile`, collision
+  test wrapper, and unreferenced Rust-readiness watcher. The live audit wrapper
+  now builds release executables. CI now covers the retained Lua coordinate
+  test, lints only existing Python sources, and avoids rerunning integration
+  and system suites before the same tests run again under full coverage. The
+  production GStreamer feature is now exercised by both CI platform targets
+  and `make test-rust-camera`. Its first run exposed a helper-readiness wait
+  shorter than the configured source deadline; the test now derives its wait
+  from that configured deadline and passes.
+- Verification after that change: the retained Python suite passed 2,837 tests
+  with one model-dependent skip and one deselected model-assets case at 82.55%
+  coverage; Ruff, Black, isort, and strict mypy passed. The production-feature
+  Rust suite passed all targets, the projector Lua contract and syntax checks
+  passed, all workflow YAML files parsed, and the live audit wrapper built its
+  release tools and returned CLI help successfully. The browser workflow also
+  passed locally: `npm ci`, all 16 Vitest tests, TypeScript typecheck, and the
+  production build; npm reported zero vulnerabilities.

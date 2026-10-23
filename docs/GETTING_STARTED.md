@@ -63,7 +63,8 @@ make help              # Show available targets
 make dev               # Fetch Rust and browser dependencies
 make build             # Build the browser client and Rust application
 make test              # Run Rust and browser tests
-make test-all          # Also run retained Python compatibility tests
+make test-rust-camera  # Test the production GStreamer camera feature
+make test-all          # Also run camera-feature and retained Python tests
 make lint              # Check Rust and browser code
 make format            # Format Rust code
 make run               # Run the Rust server with live capture

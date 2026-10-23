@@ -49,14 +49,14 @@ scripts/performance-audit-live.sh \
   --sample-managed-live-process-resources
 ```
 
-The wrapper builds the Rust server, live detector, and GStreamer helper, then
-starts the Rust audit runner. Each `--server-argument` forwards one literal
-argument. Timing collection is opt-in; without it, the detector does not open
-the audit side channel or allocate its timing-retention queue. Timing records
-and state receipts retain separate monotonic clock domains, so the audit does
-not invent cross-process latency where clocks are not verified comparable.
-Losses, incomplete identity joins, detector restarts, and unavailable resource
-samples are disclosed in the report.
+The wrapper builds the Rust server, live detector, GStreamer helper, and audit
+runner in release mode before starting the run. Each `--server-argument`
+forwards one literal argument. Timing collection is opt-in; without it, the
+detector does not open the audit side channel or allocate its timing-retention
+queue. Timing records and state receipts retain separate monotonic clock
+domains, so the audit does not invent cross-process latency where clocks are not
+verified comparable. Losses, incomplete identity joins, detector restarts, and
+unavailable resource samples are disclosed in the report.
 
 For an interference comparison, hold the same input, model, camera settings,
 calibration, warm-up, and measurement windows constant. Compare state-only with
