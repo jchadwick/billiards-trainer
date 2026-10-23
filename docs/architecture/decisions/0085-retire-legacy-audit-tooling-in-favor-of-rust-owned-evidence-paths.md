@@ -155,3 +155,9 @@ The all-tools pass also removed the standalone detection-batch TCP receiver and
 its still-image sender option under ADR-0021. The detection-batch v1 contract
 and local JSONL artifacts remain; the retired receiver was not the live state
 transport or the headless subscriber used by the live audit.
+
+ADR-0087 supersedes this record's dataset-frame-extraction disposition only:
+the unowned heuristic `dataset_creator.py` was retired after review found
+invalid count edge cases, approximate timestamps, and no focused extraction
+tests or active callers. Dataset merging and model export remain separate
+supported authoring tools; all other ADR-0085 decisions remain in force.

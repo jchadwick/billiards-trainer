@@ -27,7 +27,7 @@ commands or baselines.
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, readiness watcher, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. |
 | `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Keep | Class-name remapping and safe output handling are directly tested; it prepares reviewed data and does not create labels. |
-| `tools/dataset_creator.py` | Conditional keep as optional frame extractor | It extracts candidate imagery for annotation, but no active caller was found beyond its own README. Quality/edge-case values are heuristics, timestamps are approximate, and extraction has no focused test; retain only if the annotation workflow still uses it. |
+| `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
 | Projector client and UDP test senders | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Its tests validate local payload/coordinate behavior only; they do not exercise capture, detection, or browser delivery. ADR-0086 preserves it as a distinct projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retire | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
@@ -57,7 +57,6 @@ commands or baselines.
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
 | `scripts/verify-development-setup.sh`, `watch-rust-readiness.sh` | Keep: development operations | Check required local tooling and wait for explicit Rust readiness respectively; they do not perform accuracy or performance analysis. |
-| `tools/dataset_creator.py` | Conditional keep | Extracts candidate frames for annotation, a useful capability absent from Rust; it has CLI help coverage but no focused extraction test. Keep it only while the annotation workflow uses it. |
 | `tools/merge_yolo_datasets.py` | Keep | The generic class-map merge behavior and safe output handling are directly unit-tested; it does not make or repair labels. |
 | `tools/export_high_res_model.py` | Keep | Creates lineage-bound ONNX/CoreML artifacts with focused tests; ONNX is consumed by Rust, while CoreML only serves the Python compatibility detector. |
 
@@ -78,6 +77,11 @@ commands or baselines.
   that encoded a 19-class workflow, clamped labels to 16 classes, or ignored the
   dataset manifest. Ball-number classification remains explicitly outside the
   migration.
+- The unowned video frame dataset creator. Its random and hybrid strategies
+  have invalid count edge cases, its frame timing was approximate, its
+  heuristic metadata was not ground truth, and no focused extraction test or
+  active caller supported retaining it. Keep the tested dataset merger and
+  lineage-bound model exporter instead.
 - The one-image ball-grid distortion experiment. Its guide reported roughly
   360 px RMS and coefficients at clamp limits, which is not acceptable evidence
   for camera correction or precise ball positions.
@@ -135,10 +139,7 @@ commands or baselines.
 2. Decide when to remove the remaining Python FastAPI compatibility test
    surface, including its profiler and diagnostic routes; it is not an
    operational backend service or Rust performance tool.
-3. Add focused deterministic extraction tests only if `dataset_creator.py`
-   remains an actively used annotation workflow. Do not treat its heuristic
-   scores or frame timestamps as ground truth.
-4. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+3. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
 
 The recorded-video command's real-detector runs are functionality and
@@ -178,3 +179,7 @@ permanent ffmpeg/model end-to-end test.
   batch export remains while the retired TCP option is absent. The two focused
   Python camera/color calibration modules also passed all 58 tests with
   coverage disabled for that focused run.
+- The dataset frame extractor and its stale guide were retired after confirming
+  there were no callers or extraction tests and inspecting its invalid count
+  edge cases. Dataset-merge tests remain the verification for the supported
+  dataset preparation path.
