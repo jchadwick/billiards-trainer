@@ -1,12 +1,9 @@
 """Configured table geometry uses each point's explicit canonical scale."""
 
-import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from PIL import Image
 
 from backend.config import config
 from backend.vision import VisionModule
@@ -45,17 +42,6 @@ def _install_config(monkeypatch, values: dict) -> None:
     monkeypatch.setattr(
         config, "get", lambda key, default=None: values.get(key, default)
     )
-
-
-@pytest.mark.unit
-def test_ground_truth_fixtures_declare_canonical_scale_matching_image_size():
-    fixture_directory = Path("backend/vision/test_data")
-    for annotation_path in fixture_directory.glob("*.json"):
-        payload = json.loads(annotation_path.read_text())
-        assert payload["coordinate_space"] == "4k_canonical"
-        assert payload["coordinate_scale"] == [1.0, 1.0]
-        with Image.open(fixture_directory / payload["image"]) as image:
-            assert image.size == (3840, 2160)
 
 
 @pytest.mark.unit

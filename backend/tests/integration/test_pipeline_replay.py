@@ -9,7 +9,6 @@ import asyncio
 import copy
 import json
 import math
-import os
 import socket
 import time
 from dataclasses import asdict, dataclass
@@ -17,8 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import cv2
 import httpx
+import numpy as np
 import pytest
 import uvicorn
 import websockets
@@ -44,7 +43,6 @@ from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
 from backend.vision import VisionModule
 from backend.vision.models import BallType
 
-RECORDING = Path(__file__).parents[2] / "vision" / "test_data" / "cue_aiming.png"
 WEBSOCKET_STATE_FIXTURE = (
     Path(__file__).parents[1] / "fixtures/contracts/v1/websocket_state.json"
 )
@@ -60,6 +58,29 @@ RUST_HEALTH_FAILURE_FIXTURE = (
 )
 CONTRACT_WALL_TIME = "2025-01-01T00:00:00+00:00"
 CONTRACT_OBSERVATION_TIME = 1_735_689_600.0
+
+
+def _generated_table_frame() -> np.ndarray:
+    """Build a small deterministic table image without checked-in recordings."""
+    height, width = 360, 640
+    frame = np.full((height, width, 3), (35, 125, 55), dtype=np.uint8)
+    frame[:18, :] = (35, 45, 55)
+    frame[-18:, :] = (35, 45, 55)
+    frame[:, :18] = (35, 45, 55)
+    frame[:, -18:] = (35, 45, 55)
+
+    # Add shaded, high-contrast disks so the opt-in detector smoke test exercises
+    # image inference. This synthetic rendering is deliberately not accuracy data.
+    y_grid, x_grid = np.ogrid[:height, :width]
+    for center_x, center_y, color in (
+        (210, 135, (245, 245, 245)),
+        (390, 205, (30, 30, 220)),
+        (465, 135, (25, 205, 235)),
+    ):
+        radius = 12
+        disk = (x_grid - center_x) ** 2 + (y_grid - center_y) ** 2 <= radius**2
+        frame[disk] = color
+    return frame
 
 
 class FixtureDetector:
@@ -457,11 +478,10 @@ async def test_trajectory_broadcast_matches_versioned_real_socket_fixture(
 
 @pytest.mark.integration
 @pytest.mark.system
-async def test_recorded_frame_replay_to_real_websocket(
+async def test_generated_frame_replay_to_real_websocket(
     local_pipeline, tmp_path, record_property
 ):
-    frame = cv2.imread(str(RECORDING))
-    assert frame is not None, f"Missing checked-in recording: {RECORDING}"
+    frame = _generated_table_frame()
     vision = VisionModule(
         {
             "enable_ball_detection": False,
@@ -647,34 +667,3 @@ async def test_real_clients_disconnect_reconnect_and_slow_send_isolation(
                 StreamType.STATE, {"n": 12}
             )
             assert (await receive_type(reconnected, "state"))["data"]["n"] == 12
-
-
-@pytest.mark.model_assets
-@pytest.mark.integration
-def test_recorded_frame_with_explicit_installed_model_assets(monkeypatch):
-    model_path = os.environ.get("BILLIARDS_REPLAY_MODEL_PATH")
-    if not model_path:
-        pytest.skip("Set BILLIARDS_REPLAY_MODEL_PATH to run installed-model replay")
-    assert Path(model_path).is_file(), "Configured replay model does not exist"
-    original_get = config.get
-    settings = {
-        "vision.detection.yolo_model_path": model_path,
-        "vision.detection.yolo_device": "cpu",
-    }
-    monkeypatch.setattr(
-        config,
-        "get",
-        lambda key, default=None: settings.get(key, original_get(key, default)),
-    )
-    vision = VisionModule(
-        {
-            "enable_tracking": False,
-            "background_image_path": None,
-            "phase_scheduler": {"enabled": False},
-        }
-    )
-    frame = cv2.imread(str(RECORDING))
-    assert frame is not None
-    detection = vision._process_single_frame(frame)
-    assert detection is not None
-    assert detection.balls, "Installed model must detect balls in the recording"

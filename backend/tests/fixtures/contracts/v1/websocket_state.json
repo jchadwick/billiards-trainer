@@ -86,8 +86,8 @@
       "real_world_dimensions": null,
       "real_world_dimensions_unit": "meters",
       "scale": [1.0, 1.0],
-      "source_resolution": [3840, 2160],
-      "source_to_canonical_scale": [1.0, 1.0],
+      "source_resolution": [640, 360],
+      "source_to_canonical_scale": [6.0, 6.0],
       "surface_color": [60, 200, 100],
       "width": 3840.0,
       "width_scale": [1.0, 1.0]
