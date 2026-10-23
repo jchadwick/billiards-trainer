@@ -816,8 +816,8 @@ pre-commit run --all-files
 
 Pytest configuration, registered markers, timeout, and the 80% coverage
 threshold are maintained in the root `pyproject.toml`. CI and pre-commit use
-Black 25.9.0. A local environment can run
-`make -f backend/tests/Makefile test-ci` for the same collection and coverage
+Black 25.9.0. The root Makefile provides the maintained test, lint, and format
+entry points; the commands above show the exact CI collection and coverage
 checks.
 
 ### Retained Python Internal Contracts
