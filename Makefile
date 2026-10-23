@@ -297,7 +297,6 @@ security-check-web: ## Audit browser dependencies
 
 test-tooling: ## Exercise developer tooling failure and command-routing behavior
 	bash scripts/tooling/tests/security-check-smoke.sh
-	bash scripts/tests/serve-test-video-mjpeg-smoke.sh
 
 check-env: ## Check Rust, Node.js, npm, and camera build prerequisites
 	@echo "$(BLUE)Environment Check:$(RESET)"

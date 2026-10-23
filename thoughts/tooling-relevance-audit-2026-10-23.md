@@ -26,7 +26,7 @@ commands or baselines.
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retired | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | Root `setup.sh` bootstrap wrapper | Retired in follow-up | It only preflighted commands and delegated to `make dev`, which already fetches Rust and browser dependencies, creates local directories, and runs `scripts/verify-development-setup.sh`. Getting Started now documents `make dev` directly; tracked-script CI still checks every remaining shell script. |
-| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; its fake-FFmpeg smoke test checks listener exit/restart and child shutdown, not real HTTP client disconnect or multipart decoding. It does not simulate camera exposure, driver buffering, or a physical camera. |
+| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` pre-encodes a saved video before launching the Rust shared-frame fan-out fixture, so multiple clients receive the same paced latest-frame stream without FFmpeg work during measurement. It does not simulate camera exposure, driver buffering, or physical capture. |
 | `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Overwrite restores the previous model/manifest pair if either staged promotion fails. The exporter and Rust loader consume the same v1 manifest fixture, and Rust rejects unknown schema versions. Export alone does not establish runtime parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
@@ -48,6 +48,7 @@ commands or baselines.
 | `billiards-perception-infer` | Retired in this pass | Its only callers were its source, tests, and documentation. The shared inference engine remains covered by live and video-replay tests. The CLI-specific image directory replay, synthetic pacing, raw tensor dumps, retained provider profile, and replay-v2 TCP bridge did not add a validated workflow. |
 | `billiards-perception-video-replay` | Keep: canonical saved-video detector audit | Reuses production Rust inference with PTS-paced latest-frame and unpaced capacity modes. It reports decoder/model provenance, bounded traces and accuracy when reviewed labels are supplied; it does not measure live camera or browser delay. |
 | `billiards-performance-audit-run` | Keep: canonical live state-delivery audit | Measures live state freshness, throughput, gaps, client receipt, and managed detector-process resources using bounded artifacts. Its independent `--gateway-websocket-timing-audit` path reports gateway selection, assembly, JSON, socket-send-call, coalescing, and loss data without merging detector PID/footer/clock ownership. The receiver-only trajectory branch was removed because the server has no trajectory producer; prediction work, viewer interference, true cross-process publication-to-client receipt, and browser rendering remain outside its evidence boundary. |
+| `billiards-mjpeg-fanout` | Keep: bounded local integration fixture | Preloads a configured JPEG corpus, paces a shared latest frame to multiple multipart MJPEG clients, and isolates slow readers through capacity-one latest-frame delivery. Seven loopback tests cover HTTP framing, ordering/coalescing, client limits, slow-reader isolation, bounds, and shutdown. It enables repeatable same-source viewer-on/off tests; it does not represent camera exposure, driver buffering, or physical capture. |
 | `billiards-temporal-evaluate` | Keep: accuracy authority | Scores scene observations against video-bound reviewed annotations, including localization, tracking, cue, and freshness metrics. Unlabeled runs cannot establish accuracy. |
 | `billiards-temporal-import-cvat` | Keep: annotation adapter | Imports reviewed CVAT Video 1.1 keyframes into the bounded, video-bound annotation contract; it converts labels and does not author or validate their truth. |
 
@@ -59,7 +60,7 @@ commands or baselines.
 | Docker/Compose image and Make targets | Keep as a separate optional Linux gateway/network-source lane | Compose has a stable configurable image name; `make docker-smoke` starts the actual image in gateway-only mode, checks the image healthcheck and `/live`, and removes the container. CI runs the same smoke after building. The service has no physical camera mapping, so this is not camera qualification or a substitute for native macOS packaging. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
-| `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG. The smoke test simulates listener exit/restart and child shutdown; it does not create an HTTP client or validate multipart parsing. The fixture can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
+| `scripts/serve-test-video-mjpeg.sh` | Keep: repeatable local network-capture fixture | Pre-encodes a saved video before measurement, applies configurable frame/corpus/client bounds, and launches the Rust shared-frame server for multiple MJPEG clients. The actual HTTP and shutdown contracts are tested with loopback sockets in Rust. This exercises network-source capture and software viewer interference, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | `make security-check` | Keep, fail closed | It composes independent Rust and browser dependency checks; `cargo-audit` is required, and a missing Rust audit tool fails instead of reporting a misleading successful partial check. `make test-tooling` covers both its failure and dispatch paths. A temporary local installation allowed the full check to run; RustSec reports one unmaintained `unsafe-libyaml` dependency through `serde_yaml_ng`, while the browser audit reports zero vulnerabilities. |
 | `backend/README.md` and `backend/requirements.txt` | Retire | The 936-line README described retired Python launchers and workflows; the unbounded requirements file duplicated and diverged from `pyproject.toml`. Current setup instructions use the root runtime guide and the checked-in Python lock. |
@@ -257,9 +258,10 @@ major CSS-framework migration.
   the supported route for detector evaluation.
 - Orphan Playwright result metadata in `frontend/web`; it had no active browser
   runner or route consumer.
-- The unused `quickstart` and `docs-serve` Make aliases, and the MJPEG smoke
-  test's inaccurate “client disconnect” claim. The smoke test simulates
-  listener child exit/restart and shutdown; it never connected an HTTP client.
+- The unused `quickstart` and `docs-serve` Make aliases. The original MJPEG
+  shell smoke simulated a fake FFmpeg process restart without connecting an
+  HTTP client; it was retired and the Rust fan-out tests now exercise real
+  loopback HTTP and multipart delivery.
 - The `model_assets` pytest marker and CI exclusion after its only marked test
   was retired. CI now collects and runs the complete retained backend suite.
 - The mismatch where `make run` did not build sibling live processes, even
@@ -381,9 +383,9 @@ path remain untested.
 - Public-state fixture generator: 35 differential cases generated.
 - `uv lock --check`, Docker Compose configuration, Make help output, supported
   offline-tool `--help` commands, and shell syntax checks passed.
-- `make test-tooling test-deploy` passed, including the MJPEG fixture's simulated
-  listener exit/restart and graceful child-process shutdown. The smoke does not
-  create an HTTP client or test client-disconnect handling.
+- At the time of this inventory, `make test-tooling test-deploy` passed with
+  the old fake MJPEG listener lifecycle smoke. That smoke was later removed
+  when it was replaced by real-socket tests in the Rust fan-out fixture.
 - Strict Rust Clippy, Make's isolated-target Rust test target, Python lint for
   backend/tools and backend type checks, browser typecheck/tests,
   ADR validation, lockfile check, public fixture generation, Docker Compose
@@ -740,7 +742,7 @@ The same relevance test was then applied to the already-ported Rust binaries,
 shell entry points, Make targets, deployment helpers, and optional native
 clients: keep a tool only when it has a current caller or a distinct
 commissioning, validation, packaging, or evidence role, and require a meaningful
-test or explicit evidence boundary. The ten current Rust binaries have those
+test or explicit evidence boundary. The eleven current Rust binaries have those
 roles; the still-image inference CLI and its orphaned reducers were previously
 retired. The live audit was the remaining exception: its `--include-trajectory`
 path only allocated a receiver and report for a stream the server does not
@@ -767,8 +769,33 @@ coordinate/syntax checks, Bash syntax checks, ADR validation (98 records), and
 `e2b184b`; the state-only Rust audit and its documentation are the next commit.
 
 The remaining audit gaps are evidence gaps, not abandoned tools: no reviewed
-temporal accuracy labels yet, no physical Linux-camera/provider qualification,
-and no browser-rendering or viewer-interference measurement. The MJPEG fixture
-smoke still tests listener lifecycle with fake FFmpeg rather than a real HTTP
-client; it remains useful for deterministic process-path tests but does not
-validate multipart parsing or disconnect behavior.
+temporal accuracy labels, no physical Linux-camera/provider qualification, and
+no browser-rendering measurement. The matched browser-on/off backend A/B has
+now run on the local Mac; its results and limits are in the
+[viewer-interference comparison](performance-audits/viewer-interference-20261023/comparison.md).
+Frontend unit tests still do not measure rendered frames.
+
+## 2026-10-23 follow-up: shared MJPEG fan-out fixture
+
+Replaced the single-client FFmpeg listener with a shell workflow that pre-encodes
+the selected recording once and launches the Rust `billiards-mjpeg-fanout`
+binary. The binary preloads a configured, size-bounded JPEG corpus, publishes
+at a configured cadence through a Tokio capacity-one `watch` channel, shares
+the same reference-counted frame bytes across bounded HTTP clients, and serves
+multipart MJPEG directly to both GStreamer and browser `<img>` clients. This
+removes runtime decode/encode contention from the detector/viewer comparison
+and prevents an unbounded per-client frame queue. It remains development
+tooling; production capture and viewer routes are unchanged.
+
+Verification: seven Rust tests pass over loopback TCP sockets, covering two
+clients receiving identical ordered frames, latest-frame coalescing, configured
+client-limit enforcement and release, multipart boundaries/content lengths,
+and a non-reading 8 MiB subscriber alongside a responsive client. Strict
+Clippy, Rust formatting, release build, a smoke request against an actual
+repository JPEG, and shutdown with an open stream passed. The old shell test
+that only simulated FFmpeg restart/shutdown was removed because it never
+exercised HTTP. This validates
+the fixture. The repeated live browser-on/off A/B shows no material backend
+slowdown on this Mac, while leaving browser rendering, system-wide viewer cost,
+physical capture, Linux behavior, and accuracy unmeasured; see the linked
+comparison for measurements and caveats.

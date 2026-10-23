@@ -1,0 +1,579 @@
+{
+  "repetition": 1,
+  "schema_version": 8,
+  "summary": {
+    "association_capacity_pressure": {
+      "malformed_pressure_outcome_records": 0,
+      "measured_window_evicted_tracks": 7,
+      "measured_window_pressure_frames": 7,
+      "measurement_status": "complete",
+      "run_total_evicted_tracks": 7,
+      "run_total_includes_warmup": true,
+      "run_total_pressure_frames": 7
+    },
+    "footer": {
+      "audit_receiver_monotonic_ns": 41224937375,
+      "clean_shutdown": true,
+      "dropped_records": 0,
+      "export_status": "complete",
+      "failed_observations": 0,
+      "gateway_websocket_send_deadlines": 0,
+      "gateway_websocket_send_failures": 0,
+      "gateway_websocket_send_successes": 0,
+      "pipeline_counters": {
+        "association_capacity_evictions": 7,
+        "association_capacity_pressure_frames": 7,
+        "duplicate_frames": 0,
+        "frames_received": 797,
+        "inference_failures": 0,
+        "inference_started": 797,
+        "out_of_order_frames": 0,
+        "preflight_rejections": 0,
+        "publication_failures": 0,
+        "scene_processing_failures": 0,
+        "scenes_submitted": 794,
+        "stale_frames": 3
+      },
+      "record_type": "footer",
+      "records_written_before_footer": 1598,
+      "rejected_observations": 0,
+      "scene_socket_write_failures": 0,
+      "scene_socket_write_successes": 794,
+      "scene_transport_counters": {
+        "connection_attempts": 1,
+        "connection_failures": 0,
+        "dropped_snapshots": 0,
+        "expired_snapshots": 0,
+        "last_written_sequence": 794,
+        "oversized_submissions": 0,
+        "queued_snapshots": 794,
+        "replaced_pending_snapshots": 0,
+        "successful_connections": 1,
+        "superseded_before_write_snapshots": 0,
+        "write_failures": 0,
+        "written_snapshots": 794
+      },
+      "schema_version": 5,
+      "skipped_observations": 3
+    },
+    "frame_timing": {
+      "dropped_span_records": 0,
+      "frame_elapsed_ms": {
+        "count": 405,
+        "p50": 45.582292,
+        "p95": 49.966208,
+        "p99": 82.527416,
+        "sample_limit": 200000
+      },
+      "frames_with_timing": 405,
+      "frames_without_timing": 0,
+      "invalid_clock_spans": 0,
+      "measurement_scope": "matched_timing_and_state_frames",
+      "span_durations_ms": {
+        "calibration": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.000125,
+            "p95": 0.00025,
+            "p99": 0.000333,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.000125,
+            "p95": 0.00025,
+            "p99": 0.000333,
+            "sample_limit": 200000
+          }
+        },
+        "capture_receiver_queue_wait": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.007416,
+            "p95": 0.019292,
+            "p99": 32.221958,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.007416,
+            "p95": 0.019292,
+            "p99": 32.221958,
+            "sample_limit": 200000
+          }
+        },
+        "decode_nms": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.089625,
+            "p95": 0.098208,
+            "p99": 0.104333,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.089625,
+            "p95": 0.098208,
+            "p99": 0.104333,
+            "sample_limit": 200000
+          }
+        },
+        "detector": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.001835,
+            "p95": 0.005084,
+            "p99": 0.007165,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 45.42175,
+            "p95": 48.054041,
+            "p99": 52.806333,
+            "sample_limit": 200000
+          }
+        },
+        "frame_processing": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.014791,
+            "p95": 0.017876,
+            "p99": 0.019,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 45.582167,
+            "p95": 49.966167,
+            "p99": 82.527375,
+            "sample_limit": 200000
+          }
+        },
+        "model_execute": {
+          "exclusive": {
+            "count": 405,
+            "p50": 44.338167,
+            "p95": 46.916417,
+            "p99": 51.725208,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 44.338167,
+            "p95": 46.916417,
+            "p99": 51.725208,
+            "sample_limit": 200000
+          }
+        },
+        "preprocess": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.995292,
+            "p95": 1.045791,
+            "p99": 1.070292,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.995292,
+            "p95": 1.045791,
+            "p99": 1.070292,
+            "sample_limit": 200000
+          }
+        },
+        "public_state_json_serialization": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.022125,
+            "p95": 0.026083,
+            "p99": 0.031375,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.022125,
+            "p95": 0.026083,
+            "p99": 0.031375,
+            "sample_limit": 200000
+          }
+        },
+        "public_state_lifecycle": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.0645,
+            "p95": 0.07625,
+            "p99": 0.082917,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.0645,
+            "p95": 0.07625,
+            "p99": 0.082917,
+            "sample_limit": 200000
+          }
+        },
+        "scene_json_serialization": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.019042,
+            "p95": 0.024542,
+            "p99": 0.027333,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.019042,
+            "p95": 0.024542,
+            "p99": 0.027333,
+            "sample_limit": 200000
+          }
+        },
+        "scene_queue_submit": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.003333,
+            "p95": 0.005958,
+            "p99": 0.007709,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.003333,
+            "p95": 0.005958,
+            "p99": 0.007709,
+            "sample_limit": 200000
+          }
+        },
+        "tracking_and_state_assembly": {
+          "exclusive": {
+            "count": 405,
+            "p50": 0.029708,
+            "p95": 0.036458,
+            "p99": 0.040708,
+            "sample_limit": 200000
+          },
+          "inclusive": {
+            "count": 405,
+            "p50": 0.029708,
+            "p95": 0.036458,
+            "p99": 0.040708,
+            "sample_limit": 200000
+          }
+        }
+      }
+    },
+    "managed_process_resource_sampling": {
+      "observed_process_ids": [
+        92424
+      ],
+      "restart_during_window": false,
+      "sampled_process_id": 92424,
+      "sampled_process_status": "available",
+      "status": "complete",
+      "unsampled_process_ids": []
+    },
+    "matched_detection_count": {
+      "count": 405,
+      "mean": 9.750617283950618
+    },
+    "matched_scene_socket_write_durations_ms": {
+      "failed": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "written": {
+        "count": 405,
+        "p50": 0.025041,
+        "p95": 0.033292,
+        "p99": 0.037959
+      }
+    },
+    "matched_track_count": {
+      "count": 405,
+      "mean": 9.427160493827161
+    },
+    "measurement_monotonic_window_ns": {
+      "applies_to": "audit record receive times and outcome window only",
+      "clock": "managed_live_audit_receiver_monotonic",
+      "clock_domain_id": "managed-live-audit-32ff90e5-0cd6-47f8-8880-b6307fafb78e",
+      "end": 41153586167,
+      "start": 11151343167
+    },
+    "observation_outcome_reasons_received": {
+      "association_capacity_pressure_evicted_1": 7,
+      "stale_after_inference": 2
+    },
+    "observation_outcomes_in_measurement_window": {
+      "degraded": 7,
+      "skipped": 2
+    },
+    "observation_outcomes_received": {
+      "degraded": 7,
+      "skipped": 2
+    },
+    "out_of_window_outcome_records": 0,
+    "producer_dropped_records": 0,
+    "receiver_loss_counts_run_total": {
+      "connection_limit_drops": 0,
+      "connection_task_failures": 0,
+      "malformed_records": 0,
+      "oversized_records": 0,
+      "queue_dropped_records": 0,
+      "retention_evictions": 0,
+      "retention_oversize_drops": 0,
+      "transport_errors": 0
+    },
+    "record_counts": {
+      "footer": 1,
+      "frame": 596,
+      "observation_outcome": 9,
+      "scene_socket_write": 596
+    },
+    "records_received": 1202,
+    "retained_records": 1202,
+    "retention_limit": 200000,
+    "scene_socket_write_attempts_received": 596,
+    "scene_socket_write_outcomes_received": {
+      "written": 596
+    },
+    "stage_durations_ms": {
+      "calibration": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "capture_helper_appsink_pull_wait": {
+        "count": 405,
+        "p50": 49.762875,
+        "p95": 50.734709,
+        "p99": 51.817917,
+        "sample_limit": 200000
+      },
+      "capture_helper_rgb_buffer_allocation": {
+        "count": 405,
+        "p50": 0.013541,
+        "p95": 0.01925,
+        "p99": 0.163166,
+        "sample_limit": 200000
+      },
+      "capture_helper_rgb_mapping_copy": {
+        "count": 405,
+        "p50": 0.036167,
+        "p95": 0.042125,
+        "p99": 0.0545,
+        "sample_limit": 200000
+      },
+      "capture_receiver_queue_wait": {
+        "count": 405,
+        "p50": 0.007416,
+        "p95": 0.019292,
+        "p99": 32.221958,
+        "sample_limit": 200000
+      },
+      "decode_and_nms": {
+        "count": 405,
+        "p50": 0.089708,
+        "p95": 0.098542,
+        "p99": 0.10437500000000001,
+        "sample_limit": 200000
+      },
+      "engine_total": {
+        "count": 405,
+        "p50": 45.421084,
+        "p95": 48.053708,
+        "p99": 52.806,
+        "sample_limit": 200000
+      },
+      "host_read_complete_to_inference_start": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "host_read_complete_to_scene_queue_submit": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "inference": {
+        "count": 405,
+        "p50": 44.338625,
+        "p95": 46.916917000000005,
+        "p99": 51.72575,
+        "sample_limit": 200000
+      },
+      "parent_framed_record_read": {
+        "count": 405,
+        "p50": 50.17175,
+        "p95": 51.157166,
+        "p99": 52.235708,
+        "sample_limit": 200000
+      },
+      "parent_record_read_complete_to_inference_start": {
+        "count": 405,
+        "p50": 0.011250000000000001,
+        "p95": 0.030667000000000003,
+        "p99": 32.2235,
+        "sample_limit": 200000
+      },
+      "parent_record_read_complete_to_scene_queue_submit": {
+        "count": 405,
+        "p50": 45.584042,
+        "p95": 49.96725,
+        "p99": 82.52862499999999,
+        "sample_limit": 200000
+      },
+      "preprocess": {
+        "count": 405,
+        "p50": 0.995334,
+        "p95": 1.0458749999999999,
+        "p99": 1.0703340000000001,
+        "sample_limit": 200000
+      },
+      "scene_json_serialization": {
+        "count": 405,
+        "p50": 0.041666999999999996,
+        "p95": 0.050459,
+        "p99": 0.05429200000000001,
+        "sample_limit": 200000
+      },
+      "scene_queue_submit": {
+        "count": 405,
+        "p50": 0.006542,
+        "p95": 0.009458,
+        "p99": 0.011083,
+        "sample_limit": 200000
+      },
+      "tracking_and_state_assembly": {
+        "count": 405,
+        "p50": 0.068834,
+        "p95": 0.082833,
+        "p99": 0.089916,
+        "sample_limit": 200000
+      }
+    },
+    "stale_inference_timing_ms": {
+      "deadline_overrun_ms": {
+        "count": 2,
+        "p50": 14.813834,
+        "p95": 40.525874999999985,
+        "p99": 40.525874999999985
+      },
+      "stage_durations_ms": {
+        "capture_helper_appsink_pull_wait": {
+          "count": 2,
+          "p50": 47.853708,
+          "p95": 57.05725,
+          "p99": 57.05725,
+          "sample_limit": 200000
+        },
+        "capture_helper_rgb_buffer_allocation": {
+          "count": 2,
+          "p50": 0.014167,
+          "p95": 0.030334,
+          "p99": 0.030334,
+          "sample_limit": 200000
+        },
+        "capture_helper_rgb_mapping_copy": {
+          "count": 2,
+          "p50": 0.041208,
+          "p95": 0.129833,
+          "p99": 0.129833,
+          "sample_limit": 200000
+        },
+        "capture_receiver_queue_wait": {
+          "count": 2,
+          "p50": 3.367208,
+          "p95": 40.208084,
+          "p99": 40.208084,
+          "sample_limit": 200000
+        },
+        "decode_and_nms": {
+          "count": 2,
+          "p50": 0.091917,
+          "p95": 0.093375,
+          "p99": 0.093375,
+          "sample_limit": 200000
+        },
+        "engine_total": {
+          "count": 2,
+          "p50": 74.602083,
+          "p95": 137.15604100000002,
+          "p99": 137.15604100000002,
+          "sample_limit": 200000
+        },
+        "inference": {
+          "count": 2,
+          "p50": 73.269792,
+          "p95": 136.04929199999998,
+          "p99": 136.04929199999998,
+          "sample_limit": 200000
+        },
+        "maximum_frame_age": {
+          "count": 2,
+          "p50": 100.0,
+          "p95": 100.0,
+          "p99": 100.0,
+          "sample_limit": 200000
+        },
+        "parent_framed_record_read": {
+          "count": 2,
+          "p50": 49.701375,
+          "p95": 57.561625,
+          "p99": 57.561625,
+          "sample_limit": 200000
+        },
+        "parent_record_read_complete_to_inference_complete": {
+          "count": 2,
+          "p50": 114.813834,
+          "p95": 140.52587499999998,
+          "p99": 140.52587499999998,
+          "sample_limit": 200000
+        },
+        "parent_record_read_complete_to_inference_start": {
+          "count": 2,
+          "p50": 3.369042,
+          "p95": 40.211125,
+          "p99": 40.211125,
+          "sample_limit": 200000
+        },
+        "preprocess": {
+          "count": 2,
+          "p50": 1.014375,
+          "p95": 1.2385,
+          "p99": 1.2385,
+          "sample_limit": 200000
+        }
+      },
+      "stale_outcomes": 2,
+      "timed_stale_outcomes": 2
+    },
+    "state_timing_correlation": {
+      "duplicate_timing_frame_records": 0,
+      "identity_fields": [
+        "engine_instance_id",
+        "source_session_id",
+        "source_frame_id",
+        "transport_sequence"
+      ],
+      "matched_frames": 405,
+      "measured_states_without_timing": 1,
+      "retained_measured_states": 406,
+      "retained_timing_frames": 596,
+      "state_trace_truncated": false,
+      "timing_frames_without_measured_state": 191,
+      "timing_trace_truncated": false
+    },
+    "status": "complete"
+  },
+  "tool": "billiards-performance-audit-run"
+}

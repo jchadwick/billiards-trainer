@@ -1,0 +1,367 @@
+{
+  "report": {
+    "completeness": {
+      "complete_state_messages": 597,
+      "incomplete_state_messages": 0,
+      "uncorrelated_state_messages": 0
+    },
+    "component_observation_status_counts": {
+      "balls": {
+        "cached": 191,
+        "observed": 406
+      },
+      "cue": {
+        "not_observed": 367,
+        "observed": 230
+      }
+    },
+    "counts": {
+      "binary_messages": 0,
+      "invalid_json_messages": 0,
+      "non_state_messages": 0,
+      "state_messages": 597,
+      "text_messages": 597
+    },
+    "cross_process_source_to_receipt_latency": {
+      "reason": "producer monotonic ticks are not proven comparable with the receiver clock",
+      "status": "unavailable_unverified_clock"
+    },
+    "detail_retention": {
+      "retained_state_samples": 597,
+      "sample_limit": 10000,
+      "state_samples_truncated": false
+    },
+    "elapsed_seconds": 30.002243,
+    "finished_at_utc": "2026-10-23T15:00:08.651Z",
+    "freshness": {
+      "cached_or_failed_source_updates": 184,
+      "fresh_state_messages": 590,
+      "fresh_unique_source_observations": 590,
+      "stale_state_messages": 7,
+      "unique_observed_source_observations": 406,
+      "unique_source_frame_updates": 590,
+      "unknown_freshness_state_messages": 0,
+      "unknown_source_freshness_updates": 0
+    },
+    "mode": "websocket_state_receiver",
+    "process_resources": {
+      "accumulated_cpu_time_ms": {
+        "delta": 113045,
+        "first": 43167,
+        "last": 156212
+      },
+      "available_sample_count": 29,
+      "cpu_percent_per_core": {
+        "count": 29,
+        "maximum": 425.47479248046875,
+        "p50": 403.5707702636719,
+        "p95": 419.3110656738281,
+        "p99": 425.47479248046875
+      },
+      "process_id": 92424,
+      "process_identity_resolution": "pid_plus_sysinfo_start_time_unix_seconds",
+      "process_identity_resolution_note": "sysinfo start time has one-second resolution; PID reuse within the same second may be indistinguishable",
+      "process_start_time_unix_seconds": 1792767567,
+      "resident_memory_bytes": {
+        "delta": -1982464,
+        "first": 286736384,
+        "last": 284753920,
+        "maximum": 287260672,
+        "minimum": 284360704
+      },
+      "retained_sample_count": 29,
+      "retained_samples": [
+        {
+          "accumulated_cpu_time_ms": 43167,
+          "cpu_percent_per_core": 398.5373840332031,
+          "elapsed_ms": 1005.1771249999999,
+          "resident_memory_bytes": 286736384,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 47177,
+          "cpu_percent_per_core": 403.5707702636719,
+          "elapsed_ms": 2010.3597080000002,
+          "resident_memory_bytes": 286949376,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 51144,
+          "cpu_percent_per_core": 398.7472839355469,
+          "elapsed_ms": 3015.531708,
+          "resident_memory_bytes": 286982144,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 55199,
+          "cpu_percent_per_core": 407.2027282714844,
+          "elapsed_ms": 4020.7214579999995,
+          "resident_memory_bytes": 286998528,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 59089,
+          "cpu_percent_per_core": 390.9842224121094,
+          "elapsed_ms": 5026.008041,
+          "resident_memory_bytes": 287113216,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 63025,
+          "cpu_percent_per_core": 394.7525329589844,
+          "elapsed_ms": 6031.172958,
+          "resident_memory_bytes": 287195136,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 67158,
+          "cpu_percent_per_core": 414.1282653808594,
+          "elapsed_ms": 7036.351375,
+          "resident_memory_bytes": 287211520,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 71095,
+          "cpu_percent_per_core": 396.810791015625,
+          "elapsed_ms": 8041.503125,
+          "resident_memory_bytes": 287244288,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 75044,
+          "cpu_percent_per_core": 396.934326171875,
+          "elapsed_ms": 9046.673458000001,
+          "resident_memory_bytes": 287260672,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 79059,
+          "cpu_percent_per_core": 404.6249084472656,
+          "elapsed_ms": 10051.82825,
+          "resident_memory_bytes": 284360704,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 83092,
+          "cpu_percent_per_core": 405.38275146484375,
+          "elapsed_ms": 11057.007666000001,
+          "resident_memory_bytes": 284377088,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 87216,
+          "cpu_percent_per_core": 414.4733581542969,
+          "elapsed_ms": 12062.188333,
+          "resident_memory_bytes": 284393472,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 91341,
+          "cpu_percent_per_core": 413.0492248535156,
+          "elapsed_ms": 13067.3475,
+          "resident_memory_bytes": 284409856,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 95433,
+          "cpu_percent_per_core": 411.58807373046875,
+          "elapsed_ms": 14069.381291,
+          "resident_memory_bytes": 284442624,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 99487,
+          "cpu_percent_per_core": 408.3009948730469,
+          "elapsed_ms": 15074.556166,
+          "resident_memory_bytes": 284459008,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 103435,
+          "cpu_percent_per_core": 398.4739074707031,
+          "elapsed_ms": 16074.946624999999,
+          "resident_memory_bytes": 284475392,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 107433,
+          "cpu_percent_per_core": 402.6675720214844,
+          "elapsed_ms": 17080.124832999998,
+          "resident_memory_bytes": 284491776,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 111448,
+          "cpu_percent_per_core": 404.44219970703125,
+          "elapsed_ms": 18085.312458,
+          "resident_memory_bytes": 284508160,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 115456,
+          "cpu_percent_per_core": 402.83282470703125,
+          "elapsed_ms": 19090.466625,
+          "resident_memory_bytes": 284557312,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 119558,
+          "cpu_percent_per_core": 411.3467712402344,
+          "elapsed_ms": 20095.648375,
+          "resident_memory_bytes": 284573696,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 123707,
+          "cpu_percent_per_core": 418.1363525390625,
+          "elapsed_ms": 21098.070375,
+          "resident_memory_bytes": 284590080,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 127801,
+          "cpu_percent_per_core": 409.99029541015625,
+          "elapsed_ms": 22103.277958,
+          "resident_memory_bytes": 284622848,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 131761,
+          "cpu_percent_per_core": 399.4519958496094,
+          "elapsed_ms": 23108.234625,
+          "resident_memory_bytes": 284639232,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 135717,
+          "cpu_percent_per_core": 399.0518798828125,
+          "elapsed_ms": 24113.401708,
+          "resident_memory_bytes": 284655616,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 139727,
+          "cpu_percent_per_core": 400.1079406738281,
+          "elapsed_ms": 25123.576083,
+          "resident_memory_bytes": 284672000,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 143717,
+          "cpu_percent_per_core": 399.6297607421875,
+          "elapsed_ms": 26133.752208,
+          "resident_memory_bytes": 284688384,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 147743,
+          "cpu_percent_per_core": 402.56329345703125,
+          "elapsed_ms": 27143.91375,
+          "resident_memory_bytes": 284721152,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 152007,
+          "cpu_percent_per_core": 425.47479248046875,
+          "elapsed_ms": 28154.075416,
+          "resident_memory_bytes": 284737536,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 156212,
+          "cpu_percent_per_core": 419.3110656738281,
+          "elapsed_ms": 29164.264666000003,
+          "resident_memory_bytes": 284753920,
+          "status": "available",
+          "unavailable_reason": null
+        }
+      ],
+      "retention_limit": 10000,
+      "sample_count": 29,
+      "sample_interval_ms": 1000,
+      "samples_truncated": false,
+      "statistics_window": "all_samples",
+      "status": "available",
+      "unavailable_reason": null,
+      "unavailable_sample_count": 0
+    },
+    "schema_version": 5,
+    "source_observations": {
+      "identity_window_capacity": 10000,
+      "identity_window_evictions": 0,
+      "messages_with_identity": 597,
+      "messages_without_source_identity": 0,
+      "missing_source_frame_sequence_total": 11,
+      "repeated_numeric_source_frames": 7,
+      "repeated_source_observations_within_window": 7,
+      "source_frame_sequence_gaps": 3,
+      "source_out_of_order_messages": 0,
+      "source_sequence_restarts": 0,
+      "source_sequence_window_capacity": 10000,
+      "source_sequence_window_evictions": 0,
+      "uncorrelated_state_messages": 0,
+      "unique_source_observations_within_window": 590
+    },
+    "started_at_utc": "2026-10-23T14:59:38.648Z",
+    "stream_order": {
+      "duplicate_high_water_sequences": 0,
+      "highest_sequence": 793,
+      "messages_with_sequence": 597,
+      "missing_sequence_total": 0,
+      "out_of_order_sequences": 0,
+      "sequence_gaps": 0
+    },
+    "termination_reason": "duration_elapsed",
+    "timing": {
+      "local_state_receive_interval_ms": {
+        "p50": 49.9815835,
+        "p95": 52.762875,
+        "p99": 54.74610829999998,
+        "retained_sample_count": 596,
+        "sample_count": 596,
+        "sample_limit": 10000,
+        "truncated": false
+      },
+      "read_completion_to_publication_age_ms": {
+        "p50": 45.4097085,
+        "p95": 48.53231075,
+        "p99": 75.62049637000005,
+        "retained_sample_count": 590,
+        "sample_count": 590,
+        "sample_limit": 10000,
+        "truncated": false
+      }
+    },
+    "tool": "billiards-performance-audit-run"
+  },
+  "schema_version": 5,
+  "tool": "billiards-performance-audit-run"
+}

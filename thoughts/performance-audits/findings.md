@@ -347,3 +347,25 @@ include source frames even when no scene was emitted, so missed output counts
 against freshness. These are still candidates until every frame is reviewed;
 no temporal labels exist yet, so detector accuracy remains unavailable and no
 production profile can be recommended.
+
+### 2026-10-23 follow-up: browser viewer interference
+
+A repeated local Mac A/B opened the `/live` browser viewer consuming the direct
+MJPEG stream while the Rust detector consumed the same 20 fps Rust fan-out
+fixture. Each arm used a 30-second warm-up and three 120-second measured runs
+with the same runtime revision, effective configuration, model, and camera
+profile. Backend state-message and unique observed-ball update rates, state
+receipt p95, read-completion-to-publication p95, model inference p95, and
+detector-child CPU showed small mixed changes. There is no evidence of a
+material backend viewer penalty in this run, and the result cannot exclude
+smaller effects because windows were not counterbalanced. See the
+[complete comparison](viewer-interference-20261023/comparison.md) and its
+[viewer-on report](viewer-interference-20261023/viewer-open/20261023-150130-b603254a/report.md)
+and [viewer-off report](viewer-interference-20261023/state-only/20261023-150811-2c5bdd9f/report.md).
+
+This is not a browser performance benchmark: browser/system-wide resource use
+and rendered FPS were not collected. It also does not qualify physical camera
+timing, Linux hardware, detector accuracy, or ball identity classification.
+The next higher-value follow-up is counterbalanced windows with browser process
+and frame-render measurements, after temporal labels and physical camera
+qualification become available.

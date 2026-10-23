@@ -8,8 +8,11 @@ temporal evaluator for accuracy against reviewed video labels. These answer
 different questions and must be run on the same model, input, calibration, and
 effective settings before comparing a change.
 
-The live audit does not measure browser rendering or physical display latency,
-does not capture viewer/video interference, and does not score accuracy.
+The live audit measures backend state delivery and optional pipeline timing. It
+does not measure browser rendering, physical display latency, or accuracy.
+Viewer interference has a separate shared-source comparison described below;
+that comparison measures backend changes while a browser viewer is open, not
+browser frame rate or total browser resource use.
 Recorded-video replay is available for PTS-paced freshness and unpaced detector
 capacity. It predecodes the selected stream into a bounded RGB spool, so it does
 not measure camera or live decoder delay and must not be presented as an online
@@ -176,19 +179,27 @@ recommendation.
 
 ## Network-capture fixture
 
-For a software-only check of the Rust HTTP-MJPEG capture path, start
-`scripts/serve-test-video-mjpeg.sh`. It streams `test_data/demo2_short.mp4` at
-the recording's frame rate over one-client HTTP multipart MJPEG, then reopens
-the listener when the client disconnects. Set `BILLIARDS_TEST_VIDEO` to select
-a different recording. Set `vision.camera.device_id` in the Rust configuration
-to the fixture's `/stream.mjpg` URL and run the normal live audit against that
-system.
+For software-only capture checks and detector/viewer interference experiments,
+start `scripts/serve-test-video-mjpeg.sh`. It pre-encodes the saved video before
+serving, then the Rust fixture paces a preloaded JPEG corpus and shares one
+capacity-one latest-frame value across HTTP multipart MJPEG clients. Point both
+`vision.camera.device_id` and `api.stream.viewer_url` at the fixture's
+`/stream.mjpg` URL to let GStreamer capture and the browser `<img>` consume the
+same stream. Set `BILLIARDS_TEST_VIDEO` to select a recording; use
+`BILLIARDS_TEST_VIDEO_FPS` to override its average frame rate.
 
-This fixture validates network-source ingest and the application pipeline. The
-video is transcoded to MJPEG, and its timestamps do not represent camera
-exposure or driver-buffer age; it cannot qualify physical capture or replace
-recorded-video replay for controlled detector comparisons. It is a manual
-development fixture rather than a second benchmark harness.
+Pre-encoding keeps FFmpeg decode/encode work outside the measured windows and
+the one producer sends the exact same JPEG frames to every client. This
+validates software fan-out, multipart delivery, and viewer workload
+interference. It still does not represent camera exposure or driver-buffer age,
+qualify physical capture, or replace recorded-video replay for controlled
+detector comparisons. The Rust fixture's real-socket tests exercise multipart
+parsing, two-client delivery, latest-frame coalescing, client bounds, and
+slow-reader isolation, and bounded shutdown with open streams. A repeated local
+Mac browser-on/off comparison is
+recorded in the [viewer-interference comparison](../thoughts/performance-audits/viewer-interference-20261023/comparison.md).
+It found no material backend slowdown, but does not establish browser rendering
+performance or small effects below the measurement noise.
 
 ## Limits and interpretation
 

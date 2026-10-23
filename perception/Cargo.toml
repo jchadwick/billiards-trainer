@@ -53,6 +53,10 @@ name = "billiards-performance-audit-run"
 path = "src/bin/performance_audit_run.rs"
 
 [[bin]]
+name = "billiards-mjpeg-fanout"
+path = "src/bin/mjpeg_fanout.rs"
+
+[[bin]]
 name = "billiards-temporal-evaluate"
 path = "src/bin/temporal_evaluate.rs"
 
