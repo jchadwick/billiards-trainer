@@ -55,6 +55,10 @@ cp "$PROJECT_ROOT/scripts/deploy/update.sh" "$REPO/scripts/deploy/update.sh"
 cp "$PROJECT_ROOT/scripts/deploy/distribution-marker.txt" "$REPO/scripts/deploy/distribution-marker.txt"
 cp "$PROJECT_ROOT/Makefile" "$REPO/Makefile"
 touch "$REPO/perception/Cargo.toml"
+printf '<!doctype html><title>currently served client</title>\n' > "$REPO/backend/static/index.html"
+printf 'preserve this build output\n' > "$REPO/backend/static/current-client.css"
+SERVED_CLIENT_SHA="$(sha256_file "$REPO/backend/static/index.html")"
+SERVED_ASSET_SHA="$(sha256_file "$REPO/backend/static/current-client.css")"
 
 cat > "$CONFIG_SOURCE" <<'JSON'
 {"vision":{"camera":{"video_file_path":null,"device_id":"http://127.0.0.1:8001/stream.mjpg"}},"perception":{"capture":{}}}
@@ -72,10 +76,19 @@ cat > "$FAKE_BIN/npm" <<'SCRIPT'
 set -euo pipefail
 case "$*" in
     ci) exit 0 ;;
-    "run build")
-        mkdir -p "$FAKE_REPOSITORY_ROOT/backend/static"
-        printf '<!doctype html><title>smoke client</title>\n' > "$FAKE_REPOSITORY_ROOT/backend/static/index.html"
-        printf 'body { color: #123; }\n' > "$FAKE_REPOSITORY_ROOT/backend/static/client.css"
+    "run build -- --outDir "*)
+        output_dir=""
+        for argument in "$@"; do
+            output_dir="$argument"
+        done
+        mkdir -p "$output_dir"
+        if [[ "${FAKE_NPM_FAIL:-false}" == true ]]; then
+            printf 'incomplete build output\n' > "$output_dir/index.html"
+            printf 'simulated partial frontend build failure\n' >&2
+            exit 72
+        fi
+        printf '<!doctype html><title>smoke client</title>\n' > "$output_dir/index.html"
+        printf 'body { color: #123; }\n' > "$output_dir/client.css"
         ;;
     *) printf 'unexpected npm arguments: %s\n' "$*" >&2; exit 64 ;;
 esac
@@ -158,6 +171,8 @@ assert_file "$DIST_DIR/models/billiards-yolov8n.onnx"
 assert_file "$DIST_DIR/models/billiards-yolov8n.onnx.manifest.json"
 assert_file "$DIST_DIR/models/billiards-yolov8n.pt"
 assert_file "$DIST_DIR/build-info.txt"
+[[ "$(sha256_file "$REPO/backend/static/index.html")" == "$SERVED_CLIENT_SHA" ]] || fail 'package build overwrote the currently served index.html'
+[[ "$(sha256_file "$REPO/backend/static/current-client.css")" == "$SERVED_ASSET_SHA" ]] || fail 'package build overwrote a currently served asset'
 [[ -x "$DIST_DIR/bin/billiards-server" ]] || fail 'packaged Rust binaries must be executable'
 [[ "$(jq -r '.perception.rust_live.onnx_path' "$DIST_DIR/config.json")" == models/billiards-yolov8n.onnx ]] || fail 'ONNX config path must be package-relative'
 [[ "$(jq -r '.perception.rust_live.source_checkpoint_path' "$DIST_DIR/config.json")" == models/billiards-yolov8n.pt ]] || fail 'checkpoint config path must be package-relative'
@@ -200,6 +215,18 @@ fi
 
 # A failed compiler invocation leaves the current package and its runtime data.
 printf '{"important":true}\n' > "$DIST_DIR/data/runtime-state.json"
+if run_build "$FAKE_BIN" FAKE_NPM_FAIL=true; then
+    fail 'builder unexpectedly succeeded with a partially failing frontend build'
+fi
+grep -q 'simulated partial frontend build failure' "$BUILD_LOG" || {
+    cat "$BUILD_LOG" >&2
+    fail 'builder did not reach the simulated frontend failure'
+}
+[[ -f "$DIST_DIR/data/runtime-state.json" ]] || fail 'failed frontend build removed current runtime state'
+[[ "$(sha256_file "$REPO/backend/static/index.html")" == "$SERVED_CLIENT_SHA" ]] || fail 'failed frontend build damaged the currently served index.html'
+[[ "$(sha256_file "$REPO/backend/static/current-client.css")" == "$SERVED_ASSET_SHA" ]] || fail 'failed frontend build damaged a currently served asset'
+assert_no_staging_dirs
+
 if run_build "$FAKE_BIN" FAKE_CARGO_FAIL=true; then
     fail 'builder unexpectedly succeeded with a failing Cargo stub'
 fi

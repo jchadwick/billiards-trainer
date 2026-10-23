@@ -39,8 +39,11 @@ failed systemd restart will not fall back to an unmanaged process.
 
 Exercise package creation/replacement/failure/rollback and updater process
 identity/shutdown/systemd branches through isolated shell tests using fake
-build tools and disposable processes. Keep the existing real Rust `run.sh`
-health/static/shutdown integration test as a separate layer.
+build tools and disposable processes. Build Vite output inside the package's
+temporary staging directory so a failed package build cannot partially replace
+the static client currently served from the development checkout. Keep the
+existing real Rust `run.sh` health/static/shutdown integration test as a
+separate layer.
 
 ## Consequences
 
@@ -78,7 +81,9 @@ possible without guessing which files are disposable.
 
 - `scripts/deploy/tests/build-dist-smoke.sh` verifies validation, package
   layout, relative configuration, permissions, safe replacement, preservation
-  of prior bundles, and rollback when the final rename fails.
+  of prior bundles, rollback when the final rename fails, and that a partial
+  frontend build failure leaves both the current distribution and
+  `backend/static` unchanged.
 - `scripts/deploy/tests/update-smoke.sh` verifies graceful and forced shutdown,
   no restart after a live process survives escalation, unrelated PID
   protection, stale PID cleanup, and systemd behavior.

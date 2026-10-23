@@ -53,6 +53,9 @@ The bundle contains:
 
 The builder stages the complete bundle beside the destination and replaces the
 previous distribution only after every build and packaging step succeeds. It
+builds the browser client directly inside that temporary staging directory, so
+a failed or interrupted package build cannot partially overwrite `backend/static`
+that another local server may currently be serving. It
 marks bundles it owns, refuses to replace an unmarked directory or symlink,
 and retains the previous marked bundle in a unique sibling backup directory
 after successful replacement. This preserves the previous configuration and
@@ -60,8 +63,9 @@ runtime data for recovery; inspect and remove those backups manually after
 confirming they are no longer needed. `make deploy-clean` removes only a
 distribution carrying the recognized ownership marker.
 Run `make test-deploy` to exercise package creation, replacement, rollback,
-cleanup, and updater shutdown behavior with isolated temporary bundles and
-processes; these tests do not need a camera or compiled Rust binaries.
+frontend-failure isolation, cleanup, and updater shutdown behavior with isolated
+temporary bundles and processes; these tests do not need a camera or compiled
+Rust binaries.
 
 ## Run and update
 

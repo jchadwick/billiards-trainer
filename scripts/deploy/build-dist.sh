@@ -104,9 +104,12 @@ printf '%s\n' 'Building retained HTML/JS/CSS client...'
 (
     cd "$PROJECT_ROOT/frontend/web"
     npm ci
-    npm run build
+    # Build directly into the package staging directory. The normal Vite
+    # output is backend/static, which the running development server may be
+    # serving; an interrupted build must not partially replace those assets.
+    npm run build -- --outDir "$STAGING/frontend"
 )
-[[ -f "$PROJECT_ROOT/backend/static/index.html" ]] || fail "frontend build completed without backend/static/index.html"
+[[ -f "$STAGING/frontend/index.html" ]] || fail "frontend build completed without a staged index.html"
 
 printf '%s\n' 'Building Rust server and live capture binaries...'
 (
@@ -145,7 +148,7 @@ else
     BUILD_DIR="$CARGO_OUTPUT_DIR/release"
 fi
 
-mkdir -p "$STAGING/bin" "$STAGING/frontend" "$STAGING/models" "$STAGING/data" "$STAGING/logs" "$STAGING/run" "$STAGING/backend/calibration_data"
+mkdir -p "$STAGING/bin" "$STAGING/models" "$STAGING/data" "$STAGING/logs" "$STAGING/run" "$STAGING/backend/calibration_data"
 for binary in billiards-server billiards-perception-live billiards-perception-gstreamer-probe; do
     require_file "$BUILD_DIR/$binary" "built Rust binary"
     install -m 0755 "$BUILD_DIR/$binary" "$STAGING/bin/$binary"
@@ -178,8 +181,7 @@ jq \
      .perception.rust_live.capture_helper_executable_path = $helper |
      .vision.camera.video_file_path = null' \
     "$CONFIG_SOURCE" > "$STAGING/config.json"
-cp -R "$PROJECT_ROOT/backend/static/." "$STAGING/frontend/"
-[[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after copying backend/static"
+[[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after the frontend build"
 install -m 0755 "$SCRIPT_DIR/run.sh" "$STAGING/run.sh"
 install -m 0755 "$SCRIPT_DIR/update.sh" "$STAGING/update.sh"
 install -m 0644 "$DISTRIBUTION_MARKER_SOURCE" "$STAGING/.billiards-distribution"
