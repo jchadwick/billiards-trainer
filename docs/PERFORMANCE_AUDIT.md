@@ -70,6 +70,22 @@ domains, so the audit does not invent cross-process latency where clocks are not
 verified comparable. Losses, incomplete identity joins, detector restarts, and
 unavailable resource samples are disclosed in the report.
 
+To audit the Rust gateway's per-client WebSocket selection, message assembly,
+JSON serialization, and deadline-bounded socket-send call independently, add
+`--gateway-websocket-timing-audit` to the same managed-server command. This
+requires `--start-live` on the managed server but does not require
+`--live-pipeline-timing-audit`. Gateway records use a second bounded receiver,
+footer, process identity, and monotonic clock domain; detector PID/resource
+sampling remains tied only to detector records. Each measured window receives
+separate `run-NNN-gateway-websocket-timing.json` and `.jsonl` artifacts and a
+separate Markdown report section. The socket-send duration is an application call
+boundary, not proof that the subscriber or display received the state. The
+runner reports publication-to-client receipt and physical display latency as
+unavailable because it has no verified shared clock/receipt correlation.
+Keep the input and workload fixed when comparing gateway timing on and off,
+and qualify instrumentation overhead against the 2% budget before using small
+stage differences to rank production changes.
+
 For an interference comparison, hold the same input, model, camera settings,
 calibration, warm-up, and measurement windows constant. `--include-trajectory`
 adds receiver-side trajectory subscription and receipt collection only. The

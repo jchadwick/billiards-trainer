@@ -7,7 +7,8 @@ use std::time::Duration;
 use billiards_perception::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
 use billiards_perception::live_audit::LiveAuditConfig;
 use billiards_perception::server::{
-    run_with_live, LiveProcessLaunchOptions, ServerConfig, DEFAULT_MAX_CONFIGURATION_REQUESTS,
+    run_with_live, GatewayAuditConfig, LiveProcessLaunchOptions, ServerConfig,
+    DEFAULT_MAX_CONFIGURATION_REQUESTS,
 };
 use clap::Parser;
 
@@ -84,17 +85,85 @@ struct ServerArgs {
     /// Audit socket write deadline in milliseconds.
     #[arg(long)]
     live_audit_write_timeout_ms: Option<u64>,
+    /// Optional loopback receiver for gateway WebSocket timing records.
+    /// This audit is independent of detector timing and does not require --start-live.
+    #[arg(long)]
+    gateway_audit_tcp: Option<SocketAddr>,
+    /// Maximum number of queued gateway audit records (1..=4096).
+    #[arg(long)]
+    gateway_audit_queue_capacity: Option<usize>,
+    /// Maximum gateway audit record size in bytes (1024..=1048576).
+    #[arg(long)]
+    gateway_audit_max_record_bytes: Option<usize>,
+    /// Gateway audit receiver connect deadline in milliseconds.
+    #[arg(long)]
+    gateway_audit_connect_timeout_ms: Option<u64>,
+    /// Gateway audit socket write deadline in milliseconds.
+    #[arg(long)]
+    gateway_audit_write_timeout_ms: Option<u64>,
+    /// Optional caller-supplied gateway audit run identity.
+    #[arg(long)]
+    gateway_audit_run_id: Option<String>,
 }
 
 impl ServerArgs {
     fn live_options(&self) -> Result<LiveProcessLaunchOptions, String> {
         let audit_config = self.live_audit_config()?;
+        let gateway_audit_config = self.gateway_audit_config()?;
         Ok(LiveProcessLaunchOptions {
             enabled: self.start_live,
             executable_path: self.live_executable.clone(),
             capture_helper_path: self.capture_helper_executable.clone(),
             audit_config,
+            gateway_audit_config,
         })
+    }
+
+    fn gateway_audit_config(&self) -> Result<Option<GatewayAuditConfig>, String> {
+        let supplied = [
+            self.gateway_audit_tcp.is_some(),
+            self.gateway_audit_queue_capacity.is_some(),
+            self.gateway_audit_max_record_bytes.is_some(),
+            self.gateway_audit_connect_timeout_ms.is_some(),
+            self.gateway_audit_write_timeout_ms.is_some(),
+        ];
+        if supplied.iter().all(|value| !value) {
+            if self.gateway_audit_run_id.is_some() {
+                return Err("--gateway-audit-run-id requires --gateway-audit-* settings".to_owned());
+            }
+            return Ok(None);
+        }
+        if !supplied.iter().all(|value| *value) {
+            return Err("all --gateway-audit-* settings must be supplied together".to_owned());
+        }
+
+        let exporter = LiveAuditConfig {
+            address: self.gateway_audit_tcp.expect("validated above"),
+            queue_capacity: self.gateway_audit_queue_capacity.expect("validated above"),
+            maximum_record_bytes: self
+                .gateway_audit_max_record_bytes
+                .expect("validated above"),
+            connect_timeout: Duration::from_millis(
+                self.gateway_audit_connect_timeout_ms
+                    .expect("validated above"),
+            ),
+            write_timeout: Duration::from_millis(
+                self.gateway_audit_write_timeout_ms
+                    .expect("validated above"),
+            ),
+        };
+        exporter
+            .validate()
+            .map_err(|error| format!("invalid gateway audit settings: {error}"))?;
+        let config = GatewayAuditConfig {
+            exporter,
+            run_id: self
+                .gateway_audit_run_id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        };
+        config.validate()?;
+        Ok(Some(config))
     }
 
     fn live_audit_config(&self) -> Result<Option<LiveAuditConfig>, String> {
@@ -204,6 +273,7 @@ mod tests {
     fn cli_exposes_local_safe_defaults_and_rejects_non_loopback_ingress() {
         let args = ServerArgs::try_parse_from(["billiards-server"]).unwrap();
         assert!(args.live_options().unwrap().audit_config.is_none());
+        assert!(args.live_options().unwrap().gateway_audit_config.is_none());
         let config = args.config().unwrap();
         assert_eq!(config.http_port, 8001);
         assert_eq!(config.scene_port, 49_321);
@@ -329,6 +399,67 @@ mod tests {
             .live_options()
             .unwrap_err()
             .contains("queue capacity must be between"));
+    }
+
+    #[test]
+    fn gateway_audit_cli_is_independent_of_live_detector_and_detector_audit() {
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--gateway-audit-tcp",
+            "127.0.0.1:49323",
+            "--gateway-audit-queue-capacity",
+            "41",
+            "--gateway-audit-max-record-bytes",
+            "8192",
+            "--gateway-audit-connect-timeout-ms",
+            "1200",
+            "--gateway-audit-write-timeout-ms",
+            "900",
+            "--gateway-audit-run-id",
+            "test-run",
+        ])
+        .unwrap();
+        let options = args.live_options().unwrap();
+        assert!(!options.enabled);
+        assert!(options.audit_config.is_none());
+        let gateway_audit = options.gateway_audit_config.unwrap();
+        assert_eq!(gateway_audit.run_id, "test-run");
+        assert_eq!(
+            gateway_audit.exporter.address,
+            "127.0.0.1:49323".parse().unwrap()
+        );
+        assert_eq!(gateway_audit.exporter.queue_capacity, 41);
+        assert_eq!(gateway_audit.exporter.maximum_record_bytes, 8192);
+        assert_eq!(
+            gateway_audit.exporter.connect_timeout,
+            Duration::from_millis(1200)
+        );
+        assert_eq!(
+            gateway_audit.exporter.write_timeout,
+            Duration::from_millis(900)
+        );
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--gateway-audit-tcp",
+            "127.0.0.1:49323",
+        ])
+        .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("must be supplied together"));
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--gateway-audit-run-id",
+            "orphan-run-id",
+        ])
+        .unwrap();
+        assert!(args
+            .live_options()
+            .unwrap_err()
+            .contains("requires --gateway-audit-*"));
     }
 
     #[test]

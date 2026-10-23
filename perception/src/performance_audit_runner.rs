@@ -35,7 +35,7 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 6;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 7;
 pub const DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY: usize = 2_048;
 pub const DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const DEFAULT_LIVE_AUDIT_RETAINED_RECORDS: usize = 200_000;
@@ -61,6 +61,9 @@ pub struct StateAuditRunConfig {
     /// Optional live-detector stage timing side channel. `None` allocates no
     /// listener, queue, tasks, or detailed timing retention.
     pub live_pipeline_timing_audit: Option<LivePipelineTimingAuditConfig>,
+    /// Optional independent timing stream for per-client gateway WebSocket
+    /// publication, serialization, and bounded send calls.
+    pub gateway_websocket_timing_audit: Option<GatewayWebSocketTimingAuditConfig>,
     /// Automatically sample the detector child whose PID is carried by the
     /// managed live timing stream. This is separate from sampling an
     /// externally supplied PID through `receiver.resource_sample_process_id`.
@@ -82,6 +85,46 @@ pub struct LivePipelineTimingAuditConfig {
     pub write_timeout: Duration,
 }
 
+/// Resource bounds for the gateway's independent WebSocket timing stream.
+/// This intentionally has its own configuration and receiver lifecycle so
+/// gateway records never affect detector process discovery or timing joins.
+#[derive(Debug, Clone)]
+pub struct GatewayWebSocketTimingAuditConfig {
+    pub queue_capacity: usize,
+    pub maximum_record_bytes: usize,
+    pub maximum_retained_records: usize,
+    pub maximum_retained_bytes: usize,
+    pub connect_timeout: Duration,
+    pub write_timeout: Duration,
+}
+
+impl Default for GatewayWebSocketTimingAuditConfig {
+    fn default() -> Self {
+        Self {
+            queue_capacity: DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY,
+            maximum_record_bytes: DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES,
+            maximum_retained_records: DEFAULT_LIVE_AUDIT_RETAINED_RECORDS,
+            maximum_retained_bytes: DEFAULT_LIVE_AUDIT_RETAINED_BYTES,
+            connect_timeout: DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT,
+            write_timeout: DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT,
+        }
+    }
+}
+
+impl GatewayWebSocketTimingAuditConfig {
+    fn validate(&self) -> Result<()> {
+        validate_timing_receiver_config(
+            self.queue_capacity,
+            self.maximum_record_bytes,
+            self.maximum_retained_records,
+            self.maximum_retained_bytes,
+            self.connect_timeout,
+            self.write_timeout,
+            "gateway timing",
+        )
+    }
+}
+
 impl Default for LivePipelineTimingAuditConfig {
     fn default() -> Self {
         Self {
@@ -97,45 +140,65 @@ impl Default for LivePipelineTimingAuditConfig {
 
 impl LivePipelineTimingAuditConfig {
     fn validate(&self) -> Result<()> {
-        if self.connect_timeout.as_millis() == 0 || self.write_timeout.as_millis() == 0 {
-            bail!("live timing producer deadlines must be at least one millisecond");
-        }
-        if Instant::now().checked_add(self.connect_timeout).is_none()
-            || Instant::now().checked_add(self.write_timeout).is_none()
-        {
-            bail!("live timing producer deadlines exceed the platform clock range");
-        }
-        if self.connect_timeout.as_millis() > u64::MAX as u128
-            || self.write_timeout.as_millis() > u64::MAX as u128
-        {
-            bail!("live timing producer deadlines exceed the server CLI limit");
-        }
-        if !(1..=crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY).contains(&self.queue_capacity) {
-            bail!(
-                "live timing queue capacity must be between 1 and {}",
-                crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY
-            );
-        }
-        if !(crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES
-            ..=crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES)
-            .contains(&self.maximum_record_bytes)
-        {
-            bail!(
-                "live timing record limit must be between {} and {} bytes",
-                crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES,
-                crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES
-            );
-        }
-        ManagedLiveAuditReceiverConfig {
-            address: SocketAddr::from(([127, 0, 0, 1], 0)),
-            maximum_record_bytes: self.maximum_record_bytes,
-            queue_capacity: self.queue_capacity,
-            maximum_retained_records: self.maximum_retained_records,
-            maximum_retained_bytes: self.maximum_retained_bytes,
-            maximum_connections: 1,
-        }
-        .validate()
+        validate_timing_receiver_config(
+            self.queue_capacity,
+            self.maximum_record_bytes,
+            self.maximum_retained_records,
+            self.maximum_retained_bytes,
+            self.connect_timeout,
+            self.write_timeout,
+            "live timing",
+        )
     }
+}
+
+fn validate_timing_receiver_config(
+    queue_capacity: usize,
+    maximum_record_bytes: usize,
+    maximum_retained_records: usize,
+    maximum_retained_bytes: usize,
+    connect_timeout: Duration,
+    write_timeout: Duration,
+    label: &str,
+) -> Result<()> {
+    if connect_timeout.as_millis() == 0 || write_timeout.as_millis() == 0 {
+        bail!("{label} producer deadlines must be at least one millisecond");
+    }
+    if Instant::now().checked_add(connect_timeout).is_none()
+        || Instant::now().checked_add(write_timeout).is_none()
+    {
+        bail!("{label} producer deadlines exceed the platform clock range");
+    }
+    if connect_timeout.as_millis() > u64::MAX as u128
+        || write_timeout.as_millis() > u64::MAX as u128
+    {
+        bail!("{label} producer deadlines exceed the server CLI limit");
+    }
+    if !(1..=crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY).contains(&queue_capacity) {
+        bail!(
+            "{label} queue capacity must be between 1 and {}",
+            crate::live_audit::MAX_LIVE_AUDIT_QUEUE_CAPACITY
+        );
+    }
+    if !(crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES
+        ..=crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES)
+        .contains(&maximum_record_bytes)
+    {
+        bail!(
+            "{label} record limit must be between {} and {} bytes",
+            crate::live_audit::MIN_LIVE_AUDIT_RECORD_BYTES,
+            crate::live_audit::MAX_LIVE_AUDIT_RECORD_BYTES
+        );
+    }
+    ManagedLiveAuditReceiverConfig {
+        address: SocketAddr::from(([127, 0, 0, 1], 0)),
+        maximum_record_bytes,
+        queue_capacity,
+        maximum_retained_records,
+        maximum_retained_bytes,
+        maximum_connections: 1,
+    }
+    .validate()
 }
 
 /// Launch and lifecycle limits for a locally managed Rust application server.
@@ -188,6 +251,13 @@ impl StateAuditRunConfig {
             if has_live_audit_arguments {
                 bail!("managed --live-audit-* arguments are reserved for --live-pipeline-timing-audit");
             }
+            if server
+                .arguments
+                .iter()
+                .any(|argument| argument.starts_with("--gateway-audit-"))
+            {
+                bail!("managed --gateway-audit-* arguments are reserved for --gateway-websocket-timing-audit");
+            }
         }
         if let Some(timing) = &self.live_pipeline_timing_audit {
             timing.validate()?;
@@ -198,6 +268,17 @@ impl StateAuditRunConfig {
                     .any(|argument| argument == "--start-live")
             }) {
                 bail!("live pipeline timing audit requires a managed server with --start-live");
+            }
+        }
+        if let Some(timing) = &self.gateway_websocket_timing_audit {
+            timing.validate()?;
+            if !self.managed_server.as_ref().is_some_and(|server| {
+                server
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "--start-live")
+            }) {
+                bail!("gateway WebSocket timing audit requires a managed server with --start-live");
             }
         }
         if self.sample_managed_live_process_resources {
@@ -258,6 +339,8 @@ pub struct StateAuditRunReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_pipeline_timing: Option<ManagedLivePipelineTimingSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_websocket_timing: Option<ManagedGatewayWebSocketTimingSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub managed_server: Option<ManagedServerRunMetadata>,
     pub limitations: Vec<&'static str>,
 }
@@ -274,6 +357,25 @@ pub struct ManagedLivePipelineTimingSummary {
     pub retained_record_bytes: usize,
     pub maximum_retained_records: usize,
     pub maximum_retained_bytes: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagedGatewayWebSocketTimingSummary {
+    pub status: &'static str,
+    pub run_id: String,
+    pub listener_address: String,
+    pub measurement_clock_domain_id: String,
+    pub stream_counts: crate::managed_live_audit::ManagedLiveAuditStreamCounts,
+    pub producer_footer: Option<serde_json::Value>,
+    pub footer_complete: bool,
+    pub losses: crate::managed_live_audit::ManagedLiveAuditLosses,
+    pub retained_record_count: usize,
+    pub retained_record_bytes: usize,
+    pub maximum_retained_records: usize,
+    pub maximum_retained_bytes: usize,
+    /// Gateway process IDs are recorded for provenance only and are never
+    /// used as detector resource-sampling targets.
+    pub producer_process_id: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -349,6 +451,8 @@ pub struct EffectiveRunConfiguration {
     pub managed_live_process_resource_sampling: Option<EffectiveManagedLiveResourceConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_pipeline_timing_audit: Option<EffectiveLivePipelineTimingConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_websocket_timing_audit: Option<EffectiveLivePipelineTimingConfiguration>,
 }
 
 #[derive(Debug, Serialize)]
@@ -425,6 +529,12 @@ pub struct MeasuredRunReference {
     pub live_timing_details_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_timing_summary: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_timing_summary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_timing_details_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_timing_summary: Option<serde_json::Value>,
 }
 
 struct WindowTimingInput {
@@ -437,9 +547,16 @@ struct WindowTimingInput {
     state_trace_truncated: bool,
 }
 
+struct GatewayWindowTimingInput {
+    repetition: usize,
+    started_at_tick_ns: u64,
+    ended_at_tick_ns: u64,
+}
+
 struct RunWindowsOutput {
     report: StateAuditRunReport,
     timing_inputs: Vec<WindowTimingInput>,
+    gateway_timing_inputs: Vec<GatewayWindowTimingInput>,
 }
 
 struct WindowRunParameters<'a> {
@@ -450,6 +567,7 @@ struct WindowRunParameters<'a> {
     environment: RunEnvironment,
     input: InputMetadata,
     live_audit_receiver: Option<&'a ManagedLiveAuditReceiver>,
+    gateway_audit_receiver: Option<&'a ManagedLiveAuditReceiver>,
 }
 
 /// Run the configured warm-up and state-delivery measurement windows.
@@ -483,6 +601,11 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
     let mut child = None;
     let mut managed_metadata = None;
     let mut live_audit_receiver: Option<ManagedLiveAuditReceiver> = None;
+    let mut gateway_audit_receiver: Option<ManagedLiveAuditReceiver> = None;
+    let gateway_audit_run_id = config
+        .gateway_websocket_timing_audit
+        .as_ref()
+        .map(|_| Uuid::new_v4().to_string());
     let result = async {
         if let Some(timing) = &config.live_pipeline_timing_audit {
             let receiver_config = ManagedLiveAuditReceiverConfig {
@@ -499,6 +622,21 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                     .context("could not start the bounded live-timing receiver")?,
             );
         }
+        if let Some(timing) = &config.gateway_websocket_timing_audit {
+            let receiver_config = ManagedLiveAuditReceiverConfig {
+                address: SocketAddr::from(([127, 0, 0, 1], 0)),
+                maximum_record_bytes: timing.maximum_record_bytes,
+                queue_capacity: timing.queue_capacity,
+                maximum_retained_records: timing.maximum_retained_records,
+                maximum_retained_bytes: timing.maximum_retained_bytes,
+                maximum_connections: 1,
+            };
+            gateway_audit_receiver = Some(
+                ManagedLiveAuditReceiver::bind(receiver_config)
+                    .await
+                    .context("could not start the bounded gateway-timing receiver")?,
+            );
+        }
         if let Some(launch) = &config.managed_server {
             let live_audit_arguments =
                 match (&config.live_pipeline_timing_audit, &live_audit_receiver) {
@@ -506,7 +644,19 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                     (None, None) => None,
                     _ => bail!("live timing receiver and producer configuration diverged"),
                 };
-            let running = spawn_managed_server(launch, live_audit_arguments)?;
+            let gateway_audit_arguments = match (
+                &config.gateway_websocket_timing_audit,
+                &gateway_audit_receiver,
+                gateway_audit_run_id.as_deref(),
+            ) {
+                (Some(timing), Some(receiver), Some(run_id)) => {
+                    Some((timing, receiver.listener_address(), run_id))
+                }
+                (None, None, None) => None,
+                _ => bail!("gateway timing receiver and producer configuration diverged"),
+            };
+            let running =
+                spawn_managed_server(launch, live_audit_arguments, gateway_audit_arguments)?;
             let started = running.started;
             child = Some(running.child);
             managed_metadata = Some(running.metadata);
@@ -533,6 +683,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
         let RunWindowsOutput {
             mut report,
             timing_inputs,
+            gateway_timing_inputs,
         } = if let Some(managed_child) = &mut child {
             run_windows_while_server_alive(
                 WindowRunParameters {
@@ -543,6 +694,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                     environment,
                     input,
                     live_audit_receiver: live_audit_receiver.as_ref(),
+                    gateway_audit_receiver: gateway_audit_receiver.as_ref(),
                 },
                 managed_child,
             )
@@ -556,6 +708,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                 environment,
                 input,
                 live_audit_receiver: None,
+                gateway_audit_receiver: None,
             })
             .await?
         };
@@ -602,6 +755,45 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
             }
             report.live_pipeline_timing = Some(summarize_live_timing_receiver(&snapshot));
         }
+        if let Some(receiver) = gateway_audit_receiver.take() {
+            // Stop/reap the managed child before draining so the gateway's
+            // independent exporter can emit its footer first.
+            let snapshot = receiver
+                .shutdown()
+                .await
+                .context("could not drain the managed gateway-timing receiver")?;
+            let run_id = gateway_audit_run_id
+                .as_deref()
+                .context("gateway timing run ID is missing")?;
+            for timing_input in &gateway_timing_inputs {
+                let run = report
+                    .measured_runs
+                    .get_mut(timing_input.repetition.saturating_sub(1))
+                    .context("gateway timing window did not have a matching measured run")?;
+                let (summary, detail_records) = summarize_gateway_timing_window(
+                    &snapshot,
+                    timing_input,
+                    config
+                        .gateway_websocket_timing_audit
+                        .as_ref()
+                        .map_or(config.receiver.maximum_samples, |timing| {
+                            timing.maximum_retained_records
+                        }),
+                    run_id,
+                );
+                let (summary_path, details_path) = write_gateway_timing_artifacts(
+                    &run_directory,
+                    timing_input.repetition,
+                    &summary,
+                    &detail_records,
+                )?;
+                run.gateway_timing_summary_path = Some(summary_path);
+                run.gateway_timing_details_path = Some(details_path);
+                run.gateway_timing_summary = Some(summary);
+            }
+            report.gateway_websocket_timing =
+                Some(summarize_gateway_timing_receiver(&snapshot, run_id));
+        }
         report.managed_server = managed_metadata.take();
         write_report_artifacts(&run_directory, &report)?;
         Ok::<PathBuf, anyhow::Error>(run_directory.clone())
@@ -630,6 +822,28 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                     {
                         let mut writer = BufWriter::new(file);
                         let summary = summarize_live_timing_receiver(&snapshot);
+                        let _ = serde_json::to_writer_pretty(&mut writer, &summary);
+                        let _ = writer.write_all(b"\n");
+                        let _ = writer.flush();
+                    }
+                }
+            }
+            if let Some(receiver) = gateway_audit_receiver.take() {
+                if let Ok(snapshot) = receiver.shutdown().await {
+                    let failure_path = run_directory.join("failure-gateway-audit.json");
+                    if let Ok(file) =
+                        create_new_output(&failure_path, "gateway audit failure detail")
+                    {
+                        let mut writer = BufWriter::new(file);
+                        let summary = gateway_audit_run_id.as_deref().map_or_else(
+                            || serde_json::json!({"schema_version": RUN_REPORT_SCHEMA_VERSION}),
+                            |run_id| {
+                                serde_json::to_value(summarize_gateway_timing_receiver(
+                                    &snapshot, run_id,
+                                ))
+                                .unwrap_or_else(|_| serde_json::json!({}))
+                            },
+                        );
                         let _ = serde_json::to_writer_pretty(&mut writer, &summary);
                         let _ = writer.write_all(b"\n");
                         let _ = writer.flush();
@@ -666,11 +880,15 @@ struct FirstLocalizationReadiness {
 fn spawn_managed_server(
     config: &ManagedServerConfig,
     live_audit: Option<(&LivePipelineTimingAuditConfig, SocketAddr)>,
+    gateway_audit: Option<(&GatewayWebSocketTimingAuditConfig, SocketAddr, &str)>,
 ) -> Result<RunningManagedServer> {
     let live_provenance = managed_live_provenance(config)?;
     let mut effective_arguments = config.arguments.clone();
     if let Some((timing, address)) = live_audit {
         append_live_timing_server_arguments(&mut effective_arguments, timing, address);
+    }
+    if let Some((timing, address, run_id)) = gateway_audit {
+        append_gateway_timing_server_arguments(&mut effective_arguments, timing, address, run_id);
     }
     let mut command = tokio::process::Command::new(&config.executable);
     command
@@ -747,6 +965,37 @@ fn append_live_timing_server_arguments(
             "--live-audit-write-timeout-ms",
             timing.write_timeout.as_millis().to_string(),
         ),
+    ] {
+        arguments.push(flag.to_owned());
+        arguments.push(value);
+    }
+}
+
+fn append_gateway_timing_server_arguments(
+    arguments: &mut Vec<String>,
+    timing: &GatewayWebSocketTimingAuditConfig,
+    address: SocketAddr,
+    run_id: &str,
+) {
+    for (flag, value) in [
+        ("--gateway-audit-tcp", address.to_string()),
+        (
+            "--gateway-audit-queue-capacity",
+            timing.queue_capacity.to_string(),
+        ),
+        (
+            "--gateway-audit-max-record-bytes",
+            timing.maximum_record_bytes.to_string(),
+        ),
+        (
+            "--gateway-audit-connect-timeout-ms",
+            timing.connect_timeout.as_millis().to_string(),
+        ),
+        (
+            "--gateway-audit-write-timeout-ms",
+            timing.write_timeout.as_millis().to_string(),
+        ),
+        ("--gateway-audit-run-id", run_id.to_owned()),
     ] {
         arguments.push(flag.to_owned());
         arguments.push(value);
@@ -1217,6 +1466,7 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         environment,
         input,
         live_audit_receiver,
+        gateway_audit_receiver,
     } = parameters;
     let warmup = if config.warmup.is_zero() {
         None
@@ -1254,6 +1504,7 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
 
     let mut measured_runs = Vec::with_capacity(config.measurement_count());
     let mut timing_inputs = Vec::with_capacity(config.measurement_count());
+    let mut gateway_timing_inputs = Vec::with_capacity(config.measurement_count());
     for repetition in 1..=config.measurement_count() {
         let measured_duration = config.measurement_duration();
         eprintln!(
@@ -1289,6 +1540,12 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         let timing_ended_at_tick_ns = live_audit_receiver
             .zip(output.measurement_ended_at)
             .map(|(audit, ended)| audit.measurement_clock_tick_at(ended));
+        let gateway_timing_started_at_tick_ns = gateway_audit_receiver
+            .zip(output.measurement_started_at)
+            .map(|(audit, started)| audit.measurement_clock_tick_at(started));
+        let gateway_timing_ended_at_tick_ns = gateway_audit_receiver
+            .zip(output.measurement_ended_at)
+            .map(|(audit, ended)| audit.measurement_clock_tick_at(ended));
         if config.managed_server.is_some()
             && output.report.freshness.unique_observed_source_observations == 0
         {
@@ -1321,6 +1578,9 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
             live_timing_summary_path: None,
             live_timing_details_path: None,
             live_timing_summary: None,
+            gateway_timing_summary_path: None,
+            gateway_timing_details_path: None,
+            gateway_timing_summary: None,
         });
         if let (Some(started_at_tick_ns), Some(ended_at_tick_ns)) =
             (timing_started_at_tick_ns, timing_ended_at_tick_ns)
@@ -1337,6 +1597,16 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
                 state_trace_truncated: measured_runs
                     .last()
                     .is_some_and(|run| run.report.detail_retention.state_samples_truncated),
+            });
+        }
+        if let (Some(started_at_tick_ns), Some(ended_at_tick_ns)) = (
+            gateway_timing_started_at_tick_ns,
+            gateway_timing_ended_at_tick_ns,
+        ) {
+            gateway_timing_inputs.push(GatewayWindowTimingInput {
+                repetition,
+                started_at_tick_ns,
+                ended_at_tick_ns,
             });
         }
     }
@@ -1378,6 +1648,16 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
                 write_timeout_ms: timing.write_timeout.as_millis(),
             }
         }),
+        gateway_websocket_timing_audit: config.gateway_websocket_timing_audit.as_ref().map(
+            |timing| EffectiveLivePipelineTimingConfiguration {
+                queue_capacity: timing.queue_capacity,
+                maximum_record_bytes: timing.maximum_record_bytes,
+                maximum_retained_records: timing.maximum_retained_records,
+                maximum_retained_bytes: timing.maximum_retained_bytes,
+                connect_timeout_ms: timing.connect_timeout.as_millis(),
+                write_timeout_ms: timing.write_timeout.as_millis(),
+            },
+        ),
     };
     let mut limitations = vec![
         "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
@@ -1406,6 +1686,14 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
             "Live-pipeline timing is diagnostic and opt-in; it does not provide temporal ground-truth accuracy evidence or camera-exposure timing.",
         );
     }
+    if config.gateway_websocket_timing_audit.is_some() {
+        limitations.push(
+            "Gateway timing reports publication-to-selection and application socket-send-call durations; actual client receipt and physical display latency are unavailable.",
+        );
+        limitations.push(
+            "Gateway timing uses an independent receiver clock domain and does not compare detector producer ticks or drive detector resource sampling.",
+        );
+    }
     if config.include_trajectory {
         limitations.push("Trajectory receipts report source and lifecycle metadata; full trajectory geometry, prediction quality, and ground-truth accuracy are not evaluated by this audit.");
         limitations.push("Cross-process trajectory age and publication-to-receipt latency remain unavailable because this audit does not verify a shared monotonic clock domain.");
@@ -1424,10 +1712,12 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
             warmup,
             measured_runs,
             live_pipeline_timing: None,
+            gateway_websocket_timing: None,
             managed_server: None,
             limitations,
         },
         timing_inputs,
+        gateway_timing_inputs,
     })
 }
 
@@ -1664,6 +1954,262 @@ fn summarize_live_timing_receiver(
     }
 }
 
+fn summarize_gateway_timing_receiver(
+    snapshot: &ManagedLiveAuditSnapshot,
+    run_id: &str,
+) -> ManagedGatewayWebSocketTimingSummary {
+    let footer_complete = snapshot.producer_footer.as_ref().is_some_and(|footer| {
+        footer
+            .get("export_status")
+            .and_then(serde_json::Value::as_str)
+            == Some("complete")
+            && footer
+                .get("dropped_records")
+                .and_then(serde_json::Value::as_u64)
+                == Some(0)
+    });
+    let losses = &snapshot.losses;
+    let receiver_loss_free = losses.malformed_records == 0
+        && losses.oversized_records == 0
+        && losses.queue_dropped_records == 0
+        && losses.retention_evictions == 0
+        && losses.retention_oversize_drops == 0
+        && losses.connection_limit_drops == 0
+        && losses.connection_task_failures == 0
+        && losses.transport_errors == 0;
+    ManagedGatewayWebSocketTimingSummary {
+        status: if footer_complete && receiver_loss_free {
+            "complete"
+        } else {
+            "partial"
+        },
+        run_id: run_id.to_owned(),
+        listener_address: snapshot.listener_address.to_string(),
+        measurement_clock_domain_id: snapshot.measurement_clock_domain_id.clone(),
+        stream_counts: snapshot.stream_counts.clone(),
+        producer_footer: snapshot.producer_footer.clone(),
+        footer_complete,
+        losses: losses.clone(),
+        retained_record_count: snapshot.retained_records.len(),
+        retained_record_bytes: snapshot.retained_record_bytes,
+        maximum_retained_records: snapshot.maximum_retained_records,
+        maximum_retained_bytes: snapshot.maximum_retained_bytes,
+        producer_process_id: snapshot.latest_producer_process_id,
+    }
+}
+
+fn summarize_gateway_timing_window(
+    snapshot: &ManagedLiveAuditSnapshot,
+    input: &GatewayWindowTimingInput,
+    maximum_samples: usize,
+    run_id: &str,
+) -> (serde_json::Value, Vec<serde_json::Value>) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let mut detail_records = Vec::new();
+    let mut outcomes = BTreeMap::<String, u64>::new();
+    let mut gateway_send_records = 0_u64;
+    let mut unique_publications = BTreeSet::<(u64, u64)>::new();
+    let mut client_ids = BTreeSet::<u64>::new();
+    let mut repeated_publications = 0_u64;
+    let mut repeated_source_observations = 0_u64;
+    let mut publication_sequence_gaps = 0_u64;
+    let mut source_sequence_gaps = 0_u64;
+    let mut payload_bytes = Vec::new();
+    let mut publication_to_selection = Vec::new();
+    let mut watch_wakeup_to_consume = Vec::new();
+    let mut message_assembly = Vec::new();
+    let mut json_serialization = Vec::new();
+    let mut socket_send_call = Vec::new();
+
+    // The record's sender clock is deliberately not used for window membership.
+    // All comparisons below use the gateway receiver's own monotonic tick.
+    for received in &snapshot.retained_records {
+        if received.received_at_tick_ns < input.started_at_tick_ns
+            || received.received_at_tick_ns > input.ended_at_tick_ns
+            || received
+                .record
+                .get("record_type")
+                .and_then(serde_json::Value::as_str)
+                != Some("gateway_websocket_send")
+        {
+            continue;
+        }
+        let record = &received.record;
+        gateway_send_records = gateway_send_records.saturating_add(1);
+        if let Some(objective_record) = record.as_object() {
+            if let Some(outcome) = objective_record
+                .get("outcome")
+                .and_then(serde_json::Value::as_str)
+            {
+                let count = outcomes.entry(outcome.to_owned()).or_default();
+                *count = count.saturating_add(1);
+            }
+        }
+        let client_id = record.get("client_id").and_then(serde_json::Value::as_u64);
+        let publication_sequence = record
+            .get("publication_sequence")
+            .and_then(serde_json::Value::as_u64);
+        if let (Some(client_id), Some(publication_sequence)) = (client_id, publication_sequence) {
+            client_ids.insert(client_id);
+            unique_publications.insert((client_id, publication_sequence));
+        }
+        repeated_publications = repeated_publications.saturating_add(u64::from(
+            record
+                .get("repeated_publication")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        ));
+        repeated_source_observations = repeated_source_observations.saturating_add(u64::from(
+            record
+                .get("repeated_source_observation")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        ));
+        publication_sequence_gaps = publication_sequence_gaps.saturating_add(
+            record
+                .get("publication_sequence_gap")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        );
+        source_sequence_gaps = source_sequence_gaps.saturating_add(
+            record
+                .get("source_sequence_gap")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+        );
+
+        push_nonnegative_number(
+            record,
+            "publication_to_selection_ms",
+            &mut publication_to_selection,
+        );
+        push_optional_nonnegative_number(
+            record,
+            "watch_wakeup_to_consume_ms",
+            &mut watch_wakeup_to_consume,
+        );
+        push_nonnegative_number(record, "message_assembly_ms", &mut message_assembly);
+        push_nonnegative_number(record, "json_serialization_ms", &mut json_serialization);
+        push_optional_nonnegative_number(record, "socket_send_call_ms", &mut socket_send_call);
+        if let Some(bytes) = record
+            .get("payload_bytes")
+            .and_then(serde_json::Value::as_u64)
+        {
+            payload_bytes.push(bytes as f64);
+        }
+        if detail_records.len() < maximum_samples {
+            let mut record = record.clone();
+            if let Some(object) = record.as_object_mut() {
+                object.insert(
+                    "audit_receiver_monotonic_ns".to_owned(),
+                    serde_json::json!(received.received_at_tick_ns),
+                );
+            }
+            detail_records.push(record);
+        }
+    }
+
+    if let Some(footer) = &snapshot.producer_footer {
+        if detail_records.len() < maximum_samples {
+            let mut footer = footer.clone();
+            if let Some(object) = footer.as_object_mut() {
+                object.insert(
+                    "audit_receiver_snapshot_tick_ns".to_owned(),
+                    serde_json::json!(snapshot.measurement_clock_tick_ns),
+                );
+            }
+            detail_records.push(footer);
+        }
+    }
+
+    let run_complete = summarize_gateway_timing_receiver(snapshot, run_id).status == "complete";
+    let status = if run_complete { "complete" } else { "partial" };
+    let summary = serde_json::json!({
+        "schema_version": RUN_REPORT_SCHEMA_VERSION,
+        "status": status,
+        "gateway_run_id": run_id,
+        "measurement_monotonic_window_ns": {
+            "clock": "gateway_audit_receiver_monotonic",
+            "clock_domain_id": snapshot.measurement_clock_domain_id,
+            "started_at": input.started_at_tick_ns,
+            "ended_at": input.ended_at_tick_ns,
+        },
+        "counts": {
+            "gateway_send_records": gateway_send_records,
+            "outcomes": outcomes,
+            "unique_client_publications": unique_publications.len(),
+            "connected_client_ids": client_ids.len(),
+            "repeated_publications": repeated_publications,
+            "repeated_source_observations": repeated_source_observations,
+            "publication_sequence_gaps": publication_sequence_gaps,
+            "source_sequence_gaps": source_sequence_gaps,
+        },
+        "latency_ms": {
+            "publication_to_selection": distribution_summary(publication_to_selection),
+            "watch_wakeup_to_consume": distribution_summary(watch_wakeup_to_consume),
+            "message_assembly": distribution_summary(message_assembly),
+            "json_serialization": distribution_summary(json_serialization),
+            "socket_send_call": distribution_summary(socket_send_call),
+        },
+        "payload_bytes": distribution_summary(payload_bytes),
+        "receiver_losses": snapshot.losses,
+        "footer_complete": summarize_gateway_timing_receiver(snapshot, run_id).footer_complete,
+        "footer": snapshot.producer_footer,
+        "retained_record_count": snapshot.retained_records.len(),
+        "retained_record_bytes": snapshot.retained_record_bytes,
+        "maximum_retained_records": snapshot.maximum_retained_records,
+        "maximum_retained_bytes": snapshot.maximum_retained_bytes,
+        "publication_to_client_receipt": {
+            "status": "unavailable",
+            "reason": "client receipt time is not observed in this gateway process or receiver clock domain",
+        },
+        "physical_display_latency": "unavailable",
+    });
+    (summary, detail_records)
+}
+
+fn push_nonnegative_number(record: &serde_json::Value, key: &str, values: &mut Vec<f64>) {
+    push_optional_nonnegative_number(record, key, values);
+}
+
+fn push_optional_nonnegative_number(record: &serde_json::Value, key: &str, values: &mut Vec<f64>) {
+    if let Some(value) = record
+        .get(key)
+        .and_then(serde_json::Value::as_f64)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+    {
+        values.push(value);
+    }
+}
+
+fn distribution_summary(mut values: Vec<f64>) -> serde_json::Value {
+    values.sort_by(f64::total_cmp);
+    let count = values.len();
+    if count == 0 {
+        return serde_json::json!({
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "mean": null,
+            "max": null,
+        });
+    }
+    let percentile = |percent: usize| {
+        let index = ((count * percent).div_ceil(100)).saturating_sub(1);
+        values[index.min(count - 1)]
+    };
+    serde_json::json!({
+        "count": count,
+        "p50": percentile(50),
+        "p95": percentile(95),
+        "p99": percentile(99),
+        "mean": values.iter().sum::<f64>() / count as f64,
+        "max": values.last().copied(),
+    })
+}
+
 fn write_live_timing_artifacts(
     run_directory: &Path,
     repetition: usize,
@@ -1694,6 +2240,42 @@ fn write_live_timing_artifacts(
     for record in detail_records {
         serde_json::to_writer(&mut details_writer, record)
             .context("could not serialize live timing event")?;
+        details_writer.write_all(b"\n")?;
+    }
+    details_writer.flush()?;
+    Ok((summary_relative, details_relative))
+}
+
+fn write_gateway_timing_artifacts(
+    run_directory: &Path,
+    repetition: usize,
+    summary: &serde_json::Value,
+    detail_records: &[serde_json::Value],
+) -> Result<(String, String)> {
+    let summary_relative = format!("runs/run-{repetition:03}-gateway-websocket-timing.json");
+    let details_relative = format!("runs/run-{repetition:03}-gateway-websocket-timing.jsonl");
+    let summary_path = run_directory.join(&summary_relative);
+    let summary_file = create_new_output(&summary_path, "gateway timing window summary")?;
+    let mut summary_writer = BufWriter::new(summary_file);
+    serde_json::to_writer_pretty(
+        &mut summary_writer,
+        &serde_json::json!({
+            "schema_version": RUN_REPORT_SCHEMA_VERSION,
+            "tool": "billiards-performance-audit-run",
+            "repetition": repetition,
+            "summary": summary,
+        }),
+    )
+    .context("could not serialize gateway timing window summary")?;
+    summary_writer.write_all(b"\n")?;
+    summary_writer.flush()?;
+
+    let details_path = run_directory.join(&details_relative);
+    let details_file = create_new_output(&details_path, "gateway timing window details")?;
+    let mut details_writer = BufWriter::new(details_file);
+    for record in detail_records {
+        serde_json::to_writer(&mut details_writer, record)
+            .context("could not serialize gateway timing event")?;
         details_writer.write_all(b"\n")?;
     }
     details_writer.flush()?;
@@ -1921,6 +2503,94 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
             ));
         }
     }
+    if let Some(gateway_timing) = &report.gateway_websocket_timing {
+        output.push_str(&format!(
+            "\n## Gateway WebSocket timing\n\nReceiver status: **{}**. Gateway run ID: `{}`. {} valid records were received and {} remain in the bounded detail tail; footer complete: **{}**. Receiver losses: malformed {}, oversized {}, queue-dropped {}, retention-evicted {}, transport errors {}. Measurement windows use receiver clock domain `{}`. Client receipt and physical display latency are unavailable.\n\n",
+            gateway_timing.status,
+            gateway_timing.run_id,
+            gateway_timing.stream_counts.valid_records,
+            gateway_timing.retained_record_count,
+            gateway_timing.footer_complete,
+            gateway_timing.losses.malformed_records,
+            gateway_timing.losses.oversized_records,
+            gateway_timing.losses.queue_dropped_records,
+            gateway_timing.losses.retention_evictions,
+            gateway_timing.losses.transport_errors,
+            gateway_timing.measurement_clock_domain_id,
+        ));
+        output.push_str(
+            "| Run | Status | Sends (sent / deadline / failed) | Selection p50 / p95 / p99 ms | Assembly p95 ms | JSON p95 ms | Socket-send p95 ms | Publication gaps / repeats | Source gaps / repeats | Payload mean / max bytes | Details |\n| ---: | :--- | :--- | :--- | ---: | ---: | ---: | :--- | :--- | :--- | :--- |\n",
+        );
+        for run in &report.measured_runs {
+            let summary = run.gateway_timing_summary.as_ref();
+            let lookup_u64 = |path: &str| {
+                summary
+                    .and_then(|value| value.pointer(path))
+                    .and_then(serde_json::Value::as_u64)
+            };
+            let lookup_ms = |path: &str| {
+                summary
+                    .and_then(|value| value.pointer(path))
+                    .and_then(serde_json::Value::as_f64)
+                    .map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"))
+            };
+            let status = summary
+                .and_then(|value| value.get("status"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unavailable");
+            let send_outcomes = format!(
+                "{} / {} / {}",
+                optional_count(lookup_u64("/counts/outcomes/sent")),
+                optional_count(lookup_u64("/counts/outcomes/deadline_exceeded")),
+                optional_count(Some(
+                    lookup_u64("/counts/outcomes/send_failed")
+                        .unwrap_or(0)
+                        .saturating_add(
+                            lookup_u64("/counts/outcomes/serialization_failed").unwrap_or(0),
+                        ),
+                )),
+            );
+            let selection = format!(
+                "{} / {} / {}",
+                lookup_ms("/latency_ms/publication_to_selection/p50"),
+                lookup_ms("/latency_ms/publication_to_selection/p95"),
+                lookup_ms("/latency_ms/publication_to_selection/p99"),
+            );
+            let publication = format!(
+                "{} / {}",
+                optional_count(lookup_u64("/counts/publication_sequence_gaps")),
+                optional_count(lookup_u64("/counts/repeated_publications")),
+            );
+            let source = format!(
+                "{} / {}",
+                optional_count(lookup_u64("/counts/source_sequence_gaps")),
+                optional_count(lookup_u64("/counts/repeated_source_observations")),
+            );
+            let payload = format!(
+                "{} / {}",
+                lookup_ms("/payload_bytes/mean"),
+                lookup_ms("/payload_bytes/max"),
+            );
+            let details = run
+                .gateway_timing_details_path
+                .as_deref()
+                .map_or("unavailable", |path| path);
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` |\n",
+                run.repetition,
+                status,
+                send_outcomes,
+                selection,
+                lookup_ms("/latency_ms/message_assembly/p95"),
+                lookup_ms("/latency_ms/json_serialization/p95"),
+                lookup_ms("/latency_ms/socket_send_call/p95"),
+                publication,
+                source,
+                payload,
+                details,
+            ));
+        }
+    }
     output.push_str("\n## Provenance\n\n");
     output.push_str(&format!(
         "- Input: `{}`\n- Revision: `{}`\n- Working tree dirty: `{}`\n- Platform: `{} {}`\n- Logical CPUs: `{}`\n- Total memory: `{}` bytes\n- Maximum retained samples per run: `{}`\n",
@@ -2043,10 +2713,10 @@ fn create_new_output(path: &Path, label: &str) -> Result<File> {
 mod tests {
     use super::{
         collect_environment, managed_live_provenance, render_markdown,
-        LivePipelineTimingAuditConfig, ManagedLiveProvenance, ManagedServerConfig,
-        ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig, StateAuditRunReport,
-        DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
-        DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
+        GatewayWebSocketTimingAuditConfig, LivePipelineTimingAuditConfig, ManagedLiveProvenance,
+        ManagedServerConfig, ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig,
+        StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS,
+        DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
     };
     use crate::performance_audit_receiver::StateReceiverConfig;
     use serde_json::{json, Value};
@@ -2066,6 +2736,7 @@ mod tests {
             include_trajectory: false,
             managed_server: None,
             live_pipeline_timing_audit: None,
+            gateway_websocket_timing_audit: None,
             sample_managed_live_process_resources: false,
         }
     }
@@ -2147,6 +2818,288 @@ mod tests {
             .unwrap()
             .maximum_record_bytes = usize::MAX;
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn gateway_timing_is_opt_in_and_independent_of_detector_timing() {
+        let mut config = config();
+        config.gateway_websocket_timing_audit = Some(GatewayWebSocketTimingAuditConfig::default());
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires a managed server with --start-live"));
+
+        config.managed_server = Some(ManagedServerConfig {
+            executable: PathBuf::from("billiards-server"),
+            arguments: vec!["--start-live".to_owned()],
+            working_directory: None,
+            startup_timeout: Duration::from_secs(60),
+            readiness_probe_interval: Duration::from_millis(250),
+            shutdown_timeout: Duration::from_secs(10),
+        });
+        assert!(config.validate().is_ok());
+        assert!(config.live_pipeline_timing_audit.is_none());
+
+        config
+            .gateway_websocket_timing_audit
+            .as_mut()
+            .unwrap()
+            .maximum_record_bytes = usize::MAX;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn gateway_server_flags_include_its_own_listener_and_run_identity() {
+        let mut arguments = Vec::new();
+        let timing = GatewayWebSocketTimingAuditConfig::default();
+        super::append_gateway_timing_server_arguments(
+            &mut arguments,
+            &timing,
+            "127.0.0.1:45678".parse().unwrap(),
+            "gateway-run-test",
+        );
+        assert_eq!(arguments[0], "--gateway-audit-tcp");
+        assert_eq!(arguments[1], "127.0.0.1:45678");
+        assert_eq!(arguments[arguments.len() - 2], "--gateway-audit-run-id");
+        assert_eq!(arguments[arguments.len() - 1], "gateway-run-test");
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument == "--live-audit-tcp"));
+    }
+
+    #[test]
+    fn gateway_window_summary_uses_receiver_clock_and_reports_outcomes_gaps_and_latency() {
+        use super::{summarize_gateway_timing_window, GatewayWindowTimingInput};
+        use crate::managed_live_audit::{
+            ManagedLiveAuditLosses, ManagedLiveAuditSnapshot, ManagedLiveAuditStreamCounts,
+            ReceivedAuditRecord,
+        };
+
+        let record =
+            |outcome: &str, sequence: u64, tick: u64, selection_ms: f64| ReceivedAuditRecord {
+                received_at_tick_ns: tick,
+                record: json!({
+                    "record_type": "gateway_websocket_send",
+                    "monotonic_clock_domain_id": "gateway-process-clock",
+                    "client_id": 7,
+                    "publication_sequence": sequence,
+                    "publication_to_selection_ms": selection_ms,
+                    "watch_wakeup_to_consume_ms": 1.0,
+                    "message_assembly_ms": 0.3,
+                    "json_serialization_ms": 0.4,
+                    "socket_send_call_ms": 2.0,
+                    "payload_bytes": 256,
+                    "outcome": outcome,
+                    "repeated_publication": sequence == 9,
+                    "repeated_source_observation": sequence == 9,
+                    "publication_sequence_gap": if sequence == 9 { 2 } else { 0 },
+                    "source_sequence_gap": if sequence == 9 {
+                        json!(1)
+                    } else {
+                        serde_json::Value::Null
+                    },
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "frame-a",
+                }),
+            };
+        let snapshot = ManagedLiveAuditSnapshot {
+            listener_address: "127.0.0.1:9001".parse().unwrap(),
+            measurement_clock_domain_id: "gateway-receiver-clock".to_owned(),
+            measurement_clock_tick_ns: 300,
+            latest_producer_process_id: Some(901),
+            producer_process_id_generation: 1,
+            stream_counts: ManagedLiveAuditStreamCounts {
+                framed_messages: 3,
+                valid_records: 3,
+                records_by_type: std::collections::BTreeMap::from([
+                    ("gateway_websocket_send".to_owned(), 2),
+                    ("footer".to_owned(), 1),
+                ]),
+            },
+            producer_footer: Some(json!({
+                "record_type": "footer",
+                "export_status": "complete",
+                "dropped_records": 0,
+                "gateway_websocket_send_successes": 1,
+                "gateway_websocket_send_deadlines": 1,
+            })),
+            losses: ManagedLiveAuditLosses::default(),
+            retained_records: vec![
+                record("sent", 8, 150, 10.0),
+                record("deadline_exceeded", 9, 180, 30.0),
+            ],
+            retained_record_bytes: 700,
+            maximum_retained_records: 100,
+            maximum_retained_bytes: 4096,
+        };
+        let input = GatewayWindowTimingInput {
+            repetition: 1,
+            started_at_tick_ns: 100,
+            ended_at_tick_ns: 200,
+        };
+
+        let (summary, details) =
+            summarize_gateway_timing_window(&snapshot, &input, 10, "gateway-run");
+
+        assert_eq!(summary["status"], "complete");
+        assert_eq!(
+            summary["measurement_monotonic_window_ns"]["clock_domain_id"],
+            "gateway-receiver-clock"
+        );
+        assert_eq!(summary["counts"]["gateway_send_records"], 2);
+        assert_eq!(summary["counts"]["outcomes"]["sent"], 1);
+        assert_eq!(summary["counts"]["outcomes"]["deadline_exceeded"], 1);
+        assert_eq!(summary["counts"]["publication_sequence_gaps"], 2);
+        assert_eq!(summary["counts"]["repeated_publications"], 1);
+        assert_eq!(summary["counts"]["source_sequence_gaps"], 1);
+        assert_eq!(
+            summary["latency_ms"]["publication_to_selection"]["p50"],
+            10.0
+        );
+        assert_eq!(
+            summary["latency_ms"]["publication_to_selection"]["p95"],
+            30.0
+        );
+        assert_eq!(summary["payload_bytes"]["max"], 256.0);
+        assert_eq!(
+            summary["publication_to_client_receipt"]["status"],
+            "unavailable"
+        );
+        assert_eq!(details.len(), 3, "two sends and the final producer footer");
+        assert_eq!(details[0]["audit_receiver_monotonic_ns"], 150);
+        assert_eq!(details[2]["record_type"], "footer");
+    }
+
+    #[tokio::test]
+    async fn gateway_receiver_drains_a_distinct_stream_and_keeps_its_pid_and_clock() {
+        use super::{summarize_gateway_timing_window, GatewayWindowTimingInput};
+        use crate::managed_live_audit::{ManagedLiveAuditReceiver, ManagedLiveAuditReceiverConfig};
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpStream;
+
+        async fn send_records(address: std::net::SocketAddr, records: &[serde_json::Value]) {
+            let mut stream = TcpStream::connect(address).await.unwrap();
+            for record in records {
+                let bytes = serde_json::to_vec(record).unwrap();
+                stream
+                    .write_all(&(bytes.len() as u32).to_be_bytes())
+                    .await
+                    .unwrap();
+                stream.write_all(&bytes).await.unwrap();
+            }
+            stream.shutdown().await.unwrap();
+        }
+
+        let detector = ManagedLiveAuditReceiver::bind(ManagedLiveAuditReceiverConfig::default())
+            .await
+            .unwrap();
+        let gateway = ManagedLiveAuditReceiver::bind(ManagedLiveAuditReceiverConfig::default())
+            .await
+            .unwrap();
+        let window_started = gateway.measurement_clock_tick_ns();
+        send_records(
+            detector.listener_address(),
+            &[
+                json!({"record_type":"frame", "process_id": 11}),
+                json!({
+                    "record_type":"footer",
+                    "process_id": 11,
+                    "export_status":"complete",
+                    "dropped_records": 0
+                }),
+            ],
+        )
+        .await;
+        send_records(
+            gateway.listener_address(),
+            &[
+                json!({
+                    "record_type":"gateway_websocket_send",
+                    "process_id": 22,
+                    "client_id": 4,
+                    "publication_sequence": 12,
+                    "publication_to_selection_ms": 4.5,
+                    "watch_wakeup_to_consume_ms": null,
+                    "message_assembly_ms": 0.2,
+                    "json_serialization_ms": 0.3,
+                    "socket_send_call_ms": 1.5,
+                    "payload_bytes": 128,
+                    "outcome":"sent",
+                    "publication_sequence_gap": 0,
+                    "source_sequence_gap": null,
+                    "repeated_publication": false,
+                    "repeated_source_observation": false
+                }),
+                json!({
+                    "record_type":"footer",
+                    "process_id": 22,
+                    "export_status":"complete",
+                    "dropped_records": 0
+                }),
+            ],
+        )
+        .await;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            if gateway.snapshot().await.stream_counts.valid_records >= 2 {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "gateway records were not received"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let window_ended = gateway.measurement_clock_tick_ns();
+        let detector_snapshot = detector.shutdown().await.unwrap();
+        let gateway_snapshot = gateway.shutdown().await.unwrap();
+
+        assert_eq!(detector_snapshot.latest_producer_process_id, Some(11));
+        assert_eq!(
+            detector_snapshot.stream_counts.records_by_type.get("frame"),
+            Some(&1)
+        );
+        assert!(!detector_snapshot
+            .stream_counts
+            .records_by_type
+            .contains_key("gateway_websocket_send"));
+        assert_eq!(gateway_snapshot.latest_producer_process_id, Some(22));
+        assert_eq!(
+            gateway_snapshot
+                .stream_counts
+                .records_by_type
+                .get("gateway_websocket_send"),
+            Some(&1)
+        );
+
+        let (summary, details) = summarize_gateway_timing_window(
+            &gateway_snapshot,
+            &GatewayWindowTimingInput {
+                repetition: 1,
+                started_at_tick_ns: window_started,
+                ended_at_tick_ns: window_ended,
+            },
+            10,
+            "gateway-run-isolated",
+        );
+        assert_eq!(summary["status"], "complete");
+        assert_eq!(
+            summary["measurement_monotonic_window_ns"]["clock_domain_id"],
+            gateway_snapshot.measurement_clock_domain_id
+        );
+        assert_eq!(summary["counts"]["gateway_send_records"], 1);
+        assert_eq!(
+            summary["latency_ms"]["publication_to_selection"]["p95"],
+            4.5
+        );
+        assert_eq!(
+            details.len(),
+            2,
+            "gateway details contain its own send plus footer"
+        );
     }
 
     #[test]
@@ -2466,6 +3419,14 @@ mod tests {
                 resource_sample_interval_ms: 1_000,
                 managed_live_process_resource_sampling: None,
                 live_pipeline_timing_audit: None,
+                gateway_websocket_timing_audit: Some(super::EffectiveLivePipelineTimingConfiguration {
+                    queue_capacity: 128,
+                    maximum_record_bytes: 65_536,
+                    maximum_retained_records: 100,
+                    maximum_retained_bytes: 4096,
+                    connect_timeout_ms: 1000,
+                    write_timeout_ms: 1000,
+                }),
             },
             environment: collect_environment(),
             input: super::InputMetadata {
@@ -2479,6 +3440,21 @@ mod tests {
             warmup: None,
             measured_runs: Vec::new(),
             live_pipeline_timing: None,
+            gateway_websocket_timing: Some(super::ManagedGatewayWebSocketTimingSummary {
+                status: "partial",
+                run_id: "gateway-run-test".to_owned(),
+                listener_address: "127.0.0.1:49152".to_owned(),
+                measurement_clock_domain_id: "gateway-clock-test".to_owned(),
+                stream_counts: crate::managed_live_audit::ManagedLiveAuditStreamCounts::default(),
+                producer_footer: None,
+                footer_complete: false,
+                losses: crate::managed_live_audit::ManagedLiveAuditLosses::default(),
+                retained_record_count: 0,
+                retained_record_bytes: 0,
+                maximum_retained_records: 100,
+                maximum_retained_bytes: 4096,
+                producer_process_id: Some(123),
+            }),
             managed_server: Some(ManagedServerRunMetadata {
                 executable: "billiards-server".to_owned(),
                 process_id: Some(123),
@@ -2524,6 +3500,8 @@ mod tests {
         assert!(markdown.contains("Working tree dirty"));
         assert!(markdown.contains("camera-profile-test"));
         assert!(markdown.contains("Detector model SHA-256: `model-hash`"));
+        assert!(markdown.contains("## Gateway WebSocket timing"));
+        assert!(markdown.contains("Client receipt and physical display latency are unavailable"));
     }
 
     #[cfg(unix)]
@@ -2552,7 +3530,7 @@ mod tests {
             readiness_probe_interval: Duration::from_millis(20),
             shutdown_timeout: Duration::from_secs(1),
         };
-        let mut running = super::spawn_managed_server(&launch, None).unwrap();
+        let mut running = super::spawn_managed_server(&launch, None, None).unwrap();
         let process_group_id = running.metadata.process_id.unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let child_pid = loop {
@@ -2606,7 +3584,7 @@ mod tests {
             readiness_probe_interval: Duration::from_millis(20),
             shutdown_timeout: Duration::from_millis(150),
         };
-        let mut running = super::spawn_managed_server(&launch, None).unwrap();
+        let mut running = super::spawn_managed_server(&launch, None, None).unwrap();
         let process_group_id = running.metadata.process_id.unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
         while !child_pid_path.is_file() {

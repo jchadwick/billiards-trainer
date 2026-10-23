@@ -537,9 +537,11 @@ async fn serve_connection(
         // malformed or future producer may send. Known exporter record names
         // retain their own counters; all other names share one stable bucket.
         let record_type = match record_type {
-            "frame" | "scene_socket_write" | "observation_outcome" | "footer" => {
-                record_type.to_owned()
-            }
+            "frame"
+            | "scene_socket_write"
+            | "observation_outcome"
+            | "gateway_websocket_send"
+            | "footer" => record_type.to_owned(),
             _ => OTHER_RECORD_TYPE.to_owned(),
         };
 

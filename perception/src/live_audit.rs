@@ -29,7 +29,7 @@ pub const MAX_LIVE_AUDIT_QUEUE_CAPACITY: usize = 4_096;
 /// and is capped so a malformed or future record cannot monopolize the writer.
 pub const MIN_LIVE_AUDIT_RECORD_BYTES: usize = 1_024;
 pub const MAX_LIVE_AUDIT_RECORD_BYTES: usize = 1_048_576;
-pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 4;
+pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 5;
 
 /// Explicit settings for the opt-in side channel. There are no implicit
 /// address, queue, framing, or deadline defaults.
@@ -139,6 +139,37 @@ pub(crate) struct LiveAuditSceneWrite<'a> {
     pub succeeded: bool,
 }
 
+/// Per-client gateway send timing measured only when gateway auditing is enabled.
+pub(crate) struct LiveAuditGatewayWebSocketSend<'a> {
+    pub run_id: &'a str,
+    pub gateway_instance_id: &'a str,
+    pub monotonic_clock_domain_id: &'a str,
+    pub client_id: u64,
+    pub publication_sequence: u64,
+    pub publication_to_selection_ms: f64,
+    /// `None` for the initial snapshot, which was selected before a watch wake.
+    pub watch_wakeup_to_consume_ms: Option<f64>,
+    pub message_assembly_ms: f64,
+    pub json_serialization_ms: f64,
+    pub socket_send_call_ms: Option<f64>,
+    pub payload_bytes: Option<usize>,
+    pub outcome: &'static str,
+    pub repeated_publication: bool,
+    pub repeated_source_observation: bool,
+    pub publication_sequence_gap: u64,
+    pub source_sequence_gap: Option<u64>,
+    pub engine_instance_id: Option<&'a str>,
+    pub source_session_id: Option<&'a str>,
+    pub source_frame_id: Option<&'a str>,
+    pub transport_sequence: Option<u64>,
+    pub snapshot_revision: Option<u64>,
+    pub configuration_revision: Option<u64>,
+    pub rectification_revision: Option<u64>,
+    pub calibration_revision: Option<u64>,
+    pub freshness: Option<&'a str>,
+    pub ball_positions_status: Option<&'a str>,
+}
+
 /// Final producer-side counters attached to the graceful audit footer.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct LiveAuditShutdownSummary {
@@ -160,6 +191,9 @@ pub struct LiveAuditExportSummary {
     pub skipped_observations: u64,
     pub rejected_observations: u64,
     pub failed_observations: u64,
+    pub gateway_websocket_send_successes: u64,
+    pub gateway_websocket_send_deadlines: u64,
+    pub gateway_websocket_send_failures: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure: Option<String>,
 }
@@ -172,6 +206,9 @@ struct LiveAuditCounters {
     skipped_observations: u64,
     rejected_observations: u64,
     failed_observations: u64,
+    gateway_websocket_send_successes: u64,
+    gateway_websocket_send_deadlines: u64,
+    gateway_websocket_send_failures: u64,
 }
 
 struct RecorderState {
@@ -254,6 +291,39 @@ impl LiveAuditRecorder {
             write_attempt: write.write_attempt,
             outcome: if write.succeeded { "written" } else { "failed" },
             duration_ms: write.duration_ms,
+        });
+    }
+
+    pub(crate) fn record_gateway_websocket_send(&self, send: LiveAuditGatewayWebSocketSend<'_>) {
+        self.try_record(AuditRecord::GatewayWebSocketSend {
+            schema_version: LIVE_AUDIT_SCHEMA_VERSION,
+            process_id: std::process::id(),
+            run_id: send.run_id.to_owned(),
+            gateway_instance_id: send.gateway_instance_id.to_owned(),
+            monotonic_clock_domain_id: send.monotonic_clock_domain_id.to_owned(),
+            client_id: send.client_id,
+            publication_sequence: send.publication_sequence,
+            publication_to_selection_ms: send.publication_to_selection_ms,
+            watch_wakeup_to_consume_ms: send.watch_wakeup_to_consume_ms,
+            message_assembly_ms: send.message_assembly_ms,
+            json_serialization_ms: send.json_serialization_ms,
+            socket_send_call_ms: send.socket_send_call_ms,
+            payload_bytes: send.payload_bytes,
+            outcome: send.outcome,
+            repeated_publication: send.repeated_publication,
+            repeated_source_observation: send.repeated_source_observation,
+            publication_sequence_gap: send.publication_sequence_gap,
+            source_sequence_gap: send.source_sequence_gap,
+            engine_instance_id: send.engine_instance_id.map(str::to_owned),
+            source_session_id: send.source_session_id.map(str::to_owned),
+            source_frame_id: send.source_frame_id.map(str::to_owned),
+            transport_sequence: send.transport_sequence,
+            snapshot_revision: send.snapshot_revision,
+            configuration_revision: send.configuration_revision,
+            rectification_revision: send.rectification_revision,
+            calibration_revision: send.calibration_revision,
+            freshness: send.freshness.map(str::to_owned),
+            ball_positions_status: send.ball_positions_status.map(str::to_owned),
         });
     }
 
@@ -474,6 +544,37 @@ enum AuditRecord {
         #[serde(skip_serializing_if = "Option::is_none")]
         inference_timings_ms: Option<InferenceOutcomeDurationsMs>,
     },
+    #[serde(rename = "gateway_websocket_send")]
+    GatewayWebSocketSend {
+        schema_version: u8,
+        process_id: u32,
+        run_id: String,
+        gateway_instance_id: String,
+        monotonic_clock_domain_id: String,
+        client_id: u64,
+        publication_sequence: u64,
+        publication_to_selection_ms: f64,
+        watch_wakeup_to_consume_ms: Option<f64>,
+        message_assembly_ms: f64,
+        json_serialization_ms: f64,
+        socket_send_call_ms: Option<f64>,
+        payload_bytes: Option<usize>,
+        outcome: &'static str,
+        repeated_publication: bool,
+        repeated_source_observation: bool,
+        publication_sequence_gap: u64,
+        source_sequence_gap: Option<u64>,
+        engine_instance_id: Option<String>,
+        source_session_id: Option<String>,
+        source_frame_id: Option<String>,
+        transport_sequence: Option<u64>,
+        snapshot_revision: Option<u64>,
+        configuration_revision: Option<u64>,
+        rectification_revision: Option<u64>,
+        calibration_revision: Option<u64>,
+        freshness: Option<String>,
+        ball_positions_status: Option<String>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -538,6 +639,9 @@ struct AuditFooter {
     skipped_observations: u64,
     rejected_observations: u64,
     failed_observations: u64,
+    gateway_websocket_send_successes: u64,
+    gateway_websocket_send_deadlines: u64,
+    gateway_websocket_send_failures: u64,
     clean_shutdown: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pipeline_counters: Option<CapturePipelineStats>,
@@ -586,6 +690,9 @@ fn run_audit_worker(
                     skipped_observations: counters.skipped_observations,
                     rejected_observations: counters.rejected_observations,
                     failed_observations: counters.failed_observations,
+                    gateway_websocket_send_successes: counters.gateway_websocket_send_successes,
+                    gateway_websocket_send_deadlines: counters.gateway_websocket_send_deadlines,
+                    gateway_websocket_send_failures: counters.gateway_websocket_send_failures,
                     clean_shutdown: final_summary.clean_shutdown,
                     pipeline_counters: final_summary.pipeline_counters,
                     scene_transport_counters: final_summary.scene_transport_counters,
@@ -629,6 +736,10 @@ fn run_audit_worker(
                 };
                 let observation_outcome = match &record {
                     AuditRecord::ObservationOutcome { outcome, .. } => Some(*outcome),
+                    _ => None,
+                };
+                let gateway_send_outcome = match &record {
+                    AuditRecord::GatewayWebSocketSend { outcome, .. } => Some(*outcome),
                     _ => None,
                 };
                 let bytes = match serde_json::to_vec(&record) {
@@ -696,6 +807,21 @@ fn run_audit_worker(
                     }
                     _ => {}
                 }
+                match gateway_send_outcome {
+                    Some("sent") => {
+                        counters.gateway_websocket_send_successes =
+                            counters.gateway_websocket_send_successes.saturating_add(1);
+                    }
+                    Some("deadline_exceeded") => {
+                        counters.gateway_websocket_send_deadlines =
+                            counters.gateway_websocket_send_deadlines.saturating_add(1);
+                    }
+                    Some(_) => {
+                        counters.gateway_websocket_send_failures =
+                            counters.gateway_websocket_send_failures.saturating_add(1);
+                    }
+                    None => {}
+                }
             }
         }
     }
@@ -737,6 +863,9 @@ fn summary_from(
         skipped_observations: counters.skipped_observations,
         rejected_observations: counters.rejected_observations,
         failed_observations: counters.failed_observations,
+        gateway_websocket_send_successes: counters.gateway_websocket_send_successes,
+        gateway_websocket_send_deadlines: counters.gateway_websocket_send_deadlines,
+        gateway_websocket_send_failures: counters.gateway_websocket_send_failures,
         failure,
     }
 }
@@ -958,6 +1087,70 @@ mod tests {
         assert_eq!(footer["record_type"], "footer");
         assert_eq!(footer["export_status"], "complete");
         assert_eq!(footer["dropped_records"], 0);
+    }
+
+    #[test]
+    fn gateway_websocket_record_keeps_publication_identity_and_send_outcome() {
+        let listener = TcpListener::bind(localhost_address()).unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let send: serde_json::Value =
+                serde_json::from_slice(&read_record(&mut stream)).unwrap();
+            let footer: serde_json::Value =
+                serde_json::from_slice(&read_record(&mut stream)).unwrap();
+            (send, footer)
+        });
+
+        let exporter = LiveAuditExporter::start(config(address)).unwrap();
+        exporter
+            .recorder()
+            .record_gateway_websocket_send(LiveAuditGatewayWebSocketSend {
+                run_id: "run-a",
+                gateway_instance_id: "gateway-a",
+                monotonic_clock_domain_id: "gateway-clock-a",
+                client_id: 17,
+                publication_sequence: 22,
+                publication_to_selection_ms: 1.5,
+                watch_wakeup_to_consume_ms: Some(0.01),
+                message_assembly_ms: 0.2,
+                json_serialization_ms: 0.3,
+                socket_send_call_ms: Some(2.0),
+                payload_bytes: Some(4096),
+                outcome: "sent",
+                repeated_publication: false,
+                repeated_source_observation: false,
+                publication_sequence_gap: 2,
+                source_sequence_gap: Some(1),
+                engine_instance_id: Some("engine-a"),
+                source_session_id: Some("session-b"),
+                source_frame_id: Some("frame-c"),
+                transport_sequence: Some(12),
+                snapshot_revision: Some(9),
+                configuration_revision: Some(4),
+                rectification_revision: Some(2),
+                calibration_revision: Some(3),
+                freshness: Some("fresh"),
+                ball_positions_status: Some("observed"),
+            });
+        let summary = exporter.finish();
+        let (send, footer) = receiver.join().unwrap();
+
+        assert_eq!(summary.gateway_websocket_send_successes, 1);
+        assert_eq!(send["record_type"], "gateway_websocket_send");
+        assert_eq!(send["run_id"], "run-a");
+        assert_eq!(send["process_id"], std::process::id());
+        assert_eq!(send["client_id"], 17);
+        assert_eq!(send["publication_sequence"], 22);
+        assert_eq!(send["publication_sequence_gap"], 2);
+        assert_eq!(send["source_sequence_gap"], 1);
+        assert_eq!(send["source_frame_id"], "frame-c");
+        assert_eq!(send["socket_send_call_ms"], 2.0);
+        assert_eq!(send["payload_bytes"], 4096);
+        assert_eq!(send["outcome"], "sent");
+        assert!(send.get("balls").is_none());
+        assert_eq!(footer["gateway_websocket_send_successes"], 1);
+        assert_eq!(footer["gateway_websocket_send_deadlines"], 0);
     }
 
     #[test]

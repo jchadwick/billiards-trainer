@@ -8,12 +8,12 @@ use billiards_perception::performance_audit_receiver::{
     StateReceiverConfig, DEFAULT_MAXIMUM_MESSAGE_BYTES, DEFAULT_MAXIMUM_SAMPLES,
 };
 use billiards_perception::performance_audit_runner::{
-    run_state_audit, LivePipelineTimingAuditConfig, ManagedServerConfig, StateAuditRunConfig,
-    DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT, DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES,
-    DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY, DEFAULT_LIVE_AUDIT_RETAINED_BYTES,
-    DEFAULT_LIVE_AUDIT_RETAINED_RECORDS, DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT,
-    DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
-    DEFAULT_WARMUP_SECONDS,
+    run_state_audit, GatewayWebSocketTimingAuditConfig, LivePipelineTimingAuditConfig,
+    ManagedServerConfig, StateAuditRunConfig, DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT,
+    DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES, DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY,
+    DEFAULT_LIVE_AUDIT_RETAINED_BYTES, DEFAULT_LIVE_AUDIT_RETAINED_RECORDS,
+    DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT,
+    DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS,
 };
 use clap::Parser;
 
@@ -143,6 +143,34 @@ struct Arguments {
     /// Producer write deadline for the loopback timing side channel.
     #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT.as_millis() as u64, value_parser = clap::value_parser!(u64).range(1..))]
     live_audit_write_timeout_ms: u64,
+
+    /// Capture gateway WebSocket stage timings independently from detector timings.
+    #[arg(long, requires = "server_executable")]
+    gateway_websocket_timing_audit: bool,
+
+    /// Bounded receiver and producer queue capacity for gateway timing records.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY as u64, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    gateway_audit_queue_capacity: u64,
+
+    /// Maximum framed gateway timing record accepted by the receiver.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES as u64, value_parser = clap::value_parser!(u64).range(1024..=1048576))]
+    gateway_audit_max_record_bytes: u64,
+
+    /// Maximum gateway timing records retained for a complete managed run.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_RETAINED_RECORDS as u64, value_parser = clap::value_parser!(u64).range(1..=1000000))]
+    gateway_audit_retained_records: u64,
+
+    /// Maximum bytes retained for detailed gateway timing records.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_RETAINED_BYTES as u64, value_parser = clap::value_parser!(u64).range(1..=536870912))]
+    gateway_audit_retained_bytes: u64,
+
+    /// Gateway producer connection deadline for the loopback timing side channel.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT.as_millis() as u64, value_parser = clap::value_parser!(u64).range(1..))]
+    gateway_audit_connect_timeout_ms: u64,
+
+    /// Gateway producer write deadline for the loopback timing side channel.
+    #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT.as_millis() as u64, value_parser = clap::value_parser!(u64).range(1..))]
+    gateway_audit_write_timeout_ms: u64,
 }
 
 #[tokio::main]
@@ -166,6 +194,18 @@ async fn main() -> Result<()> {
             maximum_retained_bytes: usize::try_from(arguments.live_audit_retained_bytes)?,
             connect_timeout: Duration::from_millis(arguments.live_audit_connect_timeout_ms),
             write_timeout: Duration::from_millis(arguments.live_audit_write_timeout_ms),
+        })
+    } else {
+        None
+    };
+    let gateway_websocket_timing_audit = if arguments.gateway_websocket_timing_audit {
+        Some(GatewayWebSocketTimingAuditConfig {
+            queue_capacity: usize::try_from(arguments.gateway_audit_queue_capacity)?,
+            maximum_record_bytes: usize::try_from(arguments.gateway_audit_max_record_bytes)?,
+            maximum_retained_records: usize::try_from(arguments.gateway_audit_retained_records)?,
+            maximum_retained_bytes: usize::try_from(arguments.gateway_audit_retained_bytes)?,
+            connect_timeout: Duration::from_millis(arguments.gateway_audit_connect_timeout_ms),
+            write_timeout: Duration::from_millis(arguments.gateway_audit_write_timeout_ms),
         })
     } else {
         None
@@ -194,6 +234,7 @@ async fn main() -> Result<()> {
         include_trajectory: arguments.include_trajectory,
         managed_server,
         live_pipeline_timing_audit,
+        gateway_websocket_timing_audit,
         sample_managed_live_process_resources: arguments.sample_managed_live_process_resources,
     };
     let directory = run_state_audit(&config).await?;
@@ -264,6 +305,40 @@ mod tests {
         assert!(arguments.sample_managed_live_process_resources);
         assert_eq!(arguments.live_audit_queue_capacity, 128);
         assert_eq!(arguments.live_audit_max_record_bytes, 8192);
+    }
+
+    #[test]
+    fn cli_accepts_gateway_timing_without_detector_timing() {
+        let arguments = Arguments::try_parse_from([
+            "billiards-performance-audit-run",
+            "--url",
+            "ws://127.0.0.1:8080/state",
+            "--server-executable",
+            "target/debug/billiards-server",
+            "--server-argument=--start-live",
+            "--gateway-websocket-timing-audit",
+            "--gateway-audit-queue-capacity",
+            "96",
+            "--gateway-audit-max-record-bytes",
+            "16384",
+        ])
+        .unwrap();
+
+        assert!(arguments.gateway_websocket_timing_audit);
+        assert!(!arguments.live_pipeline_timing_audit);
+        assert_eq!(arguments.gateway_audit_queue_capacity, 96);
+        assert_eq!(arguments.gateway_audit_max_record_bytes, 16384);
+    }
+
+    #[test]
+    fn cli_requires_a_managed_server_for_gateway_timing() {
+        let result = Arguments::try_parse_from([
+            "billiards-performance-audit-run",
+            "--url",
+            "ws://127.0.0.1:8080/state",
+            "--gateway-websocket-timing-audit",
+        ]);
+        assert!(result.is_err());
     }
 
     #[test]

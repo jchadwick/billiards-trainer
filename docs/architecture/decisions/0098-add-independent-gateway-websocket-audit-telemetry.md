@@ -90,16 +90,16 @@ verified comparable to the server's clock.
 
 ## Verification
 
-- Gateway unit tests verify disabled mode creates no exporter, accepted records
-  preserve source/publication/client identity and clock-domain labels, and
-  saturated audit queues drop records without waiting on the exporter.
-- WebSocket integration tests verify latest-only gap and repeated-publication
-  accounting, success/deadline/error outcomes, and that a slow client remains
-  isolated while a responsive client receives the newest state.
-- Runner tests verify the independent gateway flag works without detector
-  timing, gateway and detector receivers retain separate process footers and
-  loss counts, and per-window JSON/JSONL artifacts report sample counts,
-  percentiles, losses, and unavailable cross-process one-way latency.
-- `make test-rust`, `make lint-rust`, and ADR validation pass. A matched
-  audit-off/on live run must remain within the 2% throughput and p95 latency
-  overhead budget before gateway timing is used to rank production changes.
+- Gateway tests cover disabled-by-default construction, an actual local
+  WebSocket send, source/publication identities, and gap accounting when the
+  latest-only channel coalesces scenes. Existing slow-client coverage continues
+  to exercise the configured send deadline and isolation behavior.
+- Runner tests cover independent detector/gateway configuration, separate
+  process footers and receiver clock domains, window filtering, summary
+  percentiles/outcomes/losses, bounded details, and explicit unavailable
+  publication-to-client receipt latency.
+- Verification passed with `make test-rust`, `make lint-rust`,
+  `cargo fmt --check`, `git diff --check`, and the ADR validator (98 records).
+- A matched audit-off/on live run remains outstanding. Do not rank small-stage
+  production changes using these measurements until that run demonstrates the
+  2% throughput and p95 latency overhead budget.

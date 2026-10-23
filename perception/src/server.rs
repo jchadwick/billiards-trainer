@@ -11,7 +11,7 @@ use std::future::Future;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,9 @@ use crate::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
 use crate::framing::{read_framed_message, write_framed_message};
 use crate::game_session::GameSessionStore;
 use crate::game_session_http::GameSessionHttpState;
-use crate::live_audit::LiveAuditConfig;
+use crate::live_audit::{
+    LiveAuditConfig, LiveAuditExporter, LiveAuditGatewayWebSocketSend, LiveAuditRecorder,
+};
 use crate::live_handshake::{validate_live_v3_hello, ValidatedLiveHandshake};
 use crate::live_supervisor::LiveProcessConfig;
 use crate::public_state::PublicStateConfig;
@@ -90,6 +92,31 @@ pub struct LiveProcessLaunchOptions {
     /// Optional bounded timing side channel. `None` keeps the detector's
     /// recorder, queue, and exporter completely disabled.
     pub audit_config: Option<LiveAuditConfig>,
+    /// Independent gateway WebSocket timing channel. This can be enabled even
+    /// when the detector itself is externally managed or has no timing audit.
+    pub gateway_audit_config: Option<GatewayAuditConfig>,
+}
+
+/// Configuration for the separately retained gateway WebSocket audit stream.
+#[derive(Debug, Clone)]
+pub struct GatewayAuditConfig {
+    pub exporter: LiveAuditConfig,
+    pub run_id: String,
+}
+
+impl GatewayAuditConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        self.exporter
+            .validate()
+            .map_err(|error| format!("invalid gateway audit exporter configuration: {error}"))?;
+        if self.run_id.trim().is_empty()
+            || self.run_id.len() > 128
+            || self.run_id.chars().any(char::is_control)
+        {
+            return Err("gateway audit run ID must contain 1 to 128 non-control characters".into());
+        }
+        Ok(())
+    }
 }
 
 impl Default for ServerConfig {
@@ -224,6 +251,22 @@ struct GatewayInner {
     websocket_slots: Arc<Semaphore>,
     configuration_slots: Arc<Semaphore>,
     configuration_mutation_lock: Arc<AsyncMutex<()>>,
+    gateway_audit: Option<Arc<GatewayAudit>>,
+}
+
+struct GatewayAudit {
+    recorder: LiveAuditRecorder,
+    run_id: String,
+    gateway_instance_id: String,
+    monotonic_clock_domain_id: String,
+    next_client_id: AtomicU64,
+}
+
+struct GatewayWebSocketAuditClient {
+    audit: Arc<GatewayAudit>,
+    client_id: u64,
+    previous_publication_sequence: Option<u64>,
+    previous_source_identity: Option<(String, String, u64)>,
 }
 
 struct IngressState {
@@ -243,11 +286,19 @@ struct PublishedState {
     published_at: DateTime<Utc>,
     snapshot_at_wall: DateTime<Utc>,
     snapshot_at_monotonic_ns: u128,
+    published_at_monotonic_ns: u128,
     publication_sequence: u64,
 }
 
 impl Gateway {
     pub fn new(config: ServerConfig) -> Result<Self, String> {
+        Self::new_with_audit(config, None)
+    }
+
+    fn new_with_audit(
+        config: ServerConfig,
+        audit: Option<(LiveAuditRecorder, String)>,
+    ) -> Result<Self, String> {
         config.validate()?;
         let configuration_authority = config
             .configuration_path
@@ -272,6 +323,15 @@ impl Gateway {
                 .map_err(|error| format!("invalid scene state lifecycle: {error}"))?;
         let (latest, _) = watch::channel(None);
         let (shutdown, _) = watch::channel(false);
+        let gateway_audit = audit.map(|(recorder, run_id)| {
+            Arc::new(GatewayAudit {
+                recorder,
+                run_id,
+                gateway_instance_id: uuid::Uuid::new_v4().to_string(),
+                monotonic_clock_domain_id: uuid::Uuid::new_v4().to_string(),
+                next_client_id: AtomicU64::new(1),
+            })
+        });
         Ok(Self {
             inner: Arc::new(GatewayInner {
                 websocket_slots: Arc::new(Semaphore::new(config.maximum_websocket_clients)),
@@ -297,6 +357,7 @@ impl Gateway {
                 shutdown,
                 producer_connected: AtomicBool::new(false),
                 producer_control_stream: Mutex::new(None),
+                gateway_audit,
             }),
         })
     }
@@ -361,6 +422,7 @@ impl Gateway {
             published_at,
             snapshot_at_wall,
             snapshot_at_monotonic_ns: now_ns,
+            published_at_monotonic_ns: now_ns,
             publication_sequence: state.publication_sequence,
         });
         if changed {
@@ -457,6 +519,7 @@ impl Gateway {
                     published_at: received_at,
                     snapshot_at_wall: received_at,
                     snapshot_at_monotonic_ns: now_ns,
+                    published_at_monotonic_ns: now_ns,
                     publication_sequence: state.publication_sequence,
                 });
                 self.inner.latest.send_replace(Some(published));
@@ -1007,6 +1070,18 @@ async fn websocket_session(
     mut latest: watch::Receiver<Option<Arc<PublishedState>>>,
     _permit: tokio::sync::OwnedSemaphorePermit,
 ) {
+    // Allocate per-client counters only under the explicitly enabled gateway audit.
+    let mut audit_client =
+        gateway
+            .inner
+            .gateway_audit
+            .as_ref()
+            .map(|audit| GatewayWebSocketAuditClient {
+                audit: Arc::clone(audit),
+                client_id: audit.next_client_id.fetch_add(1, Ordering::Relaxed),
+                previous_publication_sequence: None,
+                previous_source_identity: None,
+            });
     // `borrow_and_update` selects the newest state even if several updates landed while
     // the WebSocket handshake was completing. Intermediate scenes are intentionally lost.
     let Some(initial) = take_latest_state(&mut latest) else {
@@ -1023,6 +1098,9 @@ async fn websocket_session(
     if !send_websocket_state(
         &mut socket,
         &initial,
+        &gateway,
+        audit_client.as_mut(),
+        None,
         gateway.inner.config.websocket_send_deadline,
     )
     .await
@@ -1032,13 +1110,22 @@ async fn websocket_session(
     loop {
         tokio::select! {
             changed = latest.changed() => {
+                let wake_started = Instant::now();
                 if changed.is_err() {
                     return;
                 }
                 let next = take_latest_state(&mut latest);
+                let wakeup_to_consume_ms = wake_started.elapsed().as_secs_f64() * 1_000.0;
                 match next {
                     Some(state) => {
-                        if !send_websocket_state(&mut socket, &state, gateway.inner.config.websocket_send_deadline).await {
+                        if !send_websocket_state(
+                            &mut socket,
+                            &state,
+                            &gateway,
+                            audit_client.as_mut(),
+                            Some(wakeup_to_consume_ms),
+                            gateway.inner.config.websocket_send_deadline,
+                        ).await {
                             return;
                         }
                     }
@@ -1083,17 +1170,155 @@ fn take_latest_state(
 async fn send_websocket_state(
     socket: &mut WebSocket,
     state: &PublishedState,
+    gateway: &Gateway,
+    mut audit_client: Option<&mut GatewayWebSocketAuditClient>,
+    watch_wakeup_to_consume_ms: Option<f64>,
     send_deadline: Duration,
 ) -> bool {
+    // Capture selection age before assembly/serialization/write so those costs
+    // remain disjoint stages instead of leaking into publication-to-selection.
+    let publication_to_selection_ms = gateway
+        .monotonic_ns()
+        .saturating_sub(state.published_at_monotonic_ns)
+        as f64
+        / 1_000_000.0;
+    let assembly_started = Instant::now();
     let message = websocket_scene_message(state);
+    let message_assembly_ms = assembly_started.elapsed().as_secs_f64() * 1_000.0;
+    let serialization_started = Instant::now();
     let encoded = match serde_json::to_string(&message) {
         Ok(encoded) => encoded,
-        Err(_) => return false,
+        Err(_) => {
+            if let Some(audit_client) = audit_client.as_deref_mut() {
+                audit_client.record_send(
+                    state,
+                    publication_to_selection_ms,
+                    watch_wakeup_to_consume_ms,
+                    message_assembly_ms,
+                    serialization_started.elapsed().as_secs_f64() * 1_000.0,
+                    None,
+                    None,
+                    "serialization_failed",
+                );
+            }
+            return false;
+        }
     };
-    matches!(
-        within_send_deadline(send_deadline, socket.send(Message::Text(encoded.into()))).await,
-        Some(Ok(()))
-    )
+    let json_serialization_ms = serialization_started.elapsed().as_secs_f64() * 1_000.0;
+    let payload_bytes = encoded.len();
+    let send_started = Instant::now();
+    let send_result =
+        within_send_deadline(send_deadline, socket.send(Message::Text(encoded.into()))).await;
+    let socket_send_call_ms = send_started.elapsed().as_secs_f64() * 1_000.0;
+    let outcome = match send_result {
+        Some(Ok(())) => "sent",
+        Some(Err(_)) => "send_failed",
+        None => "deadline_exceeded",
+    };
+    if let Some(audit_client) = audit_client {
+        audit_client.record_send(
+            state,
+            publication_to_selection_ms,
+            watch_wakeup_to_consume_ms,
+            message_assembly_ms,
+            json_serialization_ms,
+            Some(socket_send_call_ms),
+            Some(payload_bytes),
+            outcome,
+        );
+    }
+    outcome == "sent"
+}
+
+impl GatewayWebSocketAuditClient {
+    #[allow(clippy::too_many_arguments)]
+    fn record_send(
+        &mut self,
+        state: &PublishedState,
+        publication_to_selection_ms: f64,
+        watch_wakeup_to_consume_ms: Option<f64>,
+        message_assembly_ms: f64,
+        json_serialization_ms: f64,
+        socket_send_call_ms: Option<f64>,
+        payload_bytes: Option<usize>,
+        outcome: &'static str,
+    ) {
+        let status = &state.current.payload.observation_status;
+        let engine_instance_id = status.get("engine_instance_id").and_then(Value::as_str);
+        let source_session_id = status.get("source_session_id").and_then(Value::as_str);
+        let source_frame_id = status.get("source_frame_id").and_then(Value::as_str);
+        let transport_sequence = status.get("transport_sequence").and_then(Value::as_u64);
+        let source_identity = match (engine_instance_id, source_session_id, transport_sequence) {
+            (Some(engine), Some(session), Some(sequence)) => {
+                Some((engine.to_owned(), session.to_owned(), sequence))
+            }
+            _ => None,
+        };
+        let repeated_source_observation = source_identity
+            .as_ref()
+            .zip(self.previous_source_identity.as_ref())
+            .is_some_and(|(current, previous)| {
+                current.0 == previous.0 && current.1 == previous.1 && current.2 == previous.2
+            });
+        let source_sequence_gap = source_identity
+            .as_ref()
+            .zip(self.previous_source_identity.as_ref())
+            .and_then(|(current, previous)| {
+                (current.0 == previous.0 && current.1 == previous.1)
+                    .then(|| current.2.saturating_sub(previous.2).saturating_sub(1))
+                    .filter(|gap| *gap > 0)
+            });
+        if source_identity.is_some() {
+            self.previous_source_identity = source_identity;
+        }
+
+        let repeated_publication =
+            self.previous_publication_sequence == Some(state.publication_sequence);
+        let publication_sequence_gap = self
+            .previous_publication_sequence
+            .map(|previous| {
+                state
+                    .publication_sequence
+                    .saturating_sub(previous)
+                    .saturating_sub(1)
+            })
+            .unwrap_or_default();
+        self.previous_publication_sequence = Some(state.publication_sequence);
+        self.audit
+            .recorder
+            .record_gateway_websocket_send(LiveAuditGatewayWebSocketSend {
+                run_id: &self.audit.run_id,
+                gateway_instance_id: &self.audit.gateway_instance_id,
+                monotonic_clock_domain_id: &self.audit.monotonic_clock_domain_id,
+                client_id: self.client_id,
+                publication_sequence: state.publication_sequence,
+                publication_to_selection_ms,
+                watch_wakeup_to_consume_ms,
+                message_assembly_ms,
+                json_serialization_ms,
+                socket_send_call_ms,
+                payload_bytes,
+                outcome,
+                repeated_publication,
+                repeated_source_observation,
+                publication_sequence_gap,
+                source_sequence_gap,
+                engine_instance_id,
+                source_session_id,
+                source_frame_id,
+                transport_sequence,
+                snapshot_revision: status.get("snapshot_revision").and_then(Value::as_u64),
+                configuration_revision: status
+                    .get("configuration_revision")
+                    .and_then(Value::as_u64),
+                rectification_revision: status
+                    .get("rectification_revision")
+                    .and_then(Value::as_u64),
+                calibration_revision: status.get("calibration_revision").and_then(Value::as_u64),
+                freshness: status.get("freshness_status").and_then(Value::as_str),
+                ball_positions_status: status.get("ball_positions_status").and_then(Value::as_str),
+            });
+    }
 }
 
 async fn within_send_deadline<F: Future>(deadline: Duration, future: F) -> Option<F::Output> {
@@ -1272,7 +1497,24 @@ pub async fn run_with_live(
     live_options: LiveProcessLaunchOptions,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     config.validate().map_err(std::io::Error::other)?;
-    let gateway = Gateway::new(config.clone()).map_err(std::io::Error::other)?;
+    let gateway_audit_exporter = match live_options.gateway_audit_config.as_ref() {
+        Some(audit_config) => {
+            audit_config.validate().map_err(std::io::Error::other)?;
+            Some(LiveAuditExporter::start(audit_config.exporter).map_err(std::io::Error::other)?)
+        }
+        None => None,
+    };
+    let gateway_audit = gateway_audit_exporter.as_ref().map(|exporter| {
+        let run_id = live_options
+            .gateway_audit_config
+            .as_ref()
+            .expect("gateway exporter requires gateway audit config")
+            .run_id
+            .clone();
+        (exporter.recorder(), run_id)
+    });
+    let gateway =
+        Gateway::new_with_audit(config.clone(), gateway_audit).map_err(std::io::Error::other)?;
     let scene_listener =
         TcpListener::bind(SocketAddr::new(config.scene_bind, config.scene_port)).await?;
     let http_listener =
@@ -1337,6 +1579,13 @@ pub async fn run_with_live(
         Err(error) => return Err(error.into()),
     }
     server_result?;
+    if let Some(exporter) = gateway_audit_exporter {
+        let summary = exporter.finish();
+        eprintln!(
+            "gateway_audit_export_summary={}",
+            serde_json::to_string(&summary).unwrap_or_else(|_| "{}".to_owned())
+        );
+    }
     Ok(())
 }
 
@@ -2109,6 +2358,159 @@ mod tests {
             next["data"]["observation_status"]["source_frame_id"],
             "frame-2"
         );
+    }
+
+    #[tokio::test]
+    async fn gateway_websocket_audit_is_independent_and_records_selected_state() {
+        let audit_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let audit_address = audit_listener.local_addr().unwrap();
+        let audit_receiver = std::thread::spawn(move || {
+            let (mut stream, _) = audit_listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let send: Value = serde_json::from_slice(&read_audit_record(&mut stream)).unwrap();
+            let footer: Value = serde_json::from_slice(&read_audit_record(&mut stream)).unwrap();
+            (send, footer)
+        });
+        let exporter = LiveAuditExporter::start(LiveAuditConfig {
+            address: audit_address,
+            queue_capacity: 32,
+            maximum_record_bytes: 8_192,
+            connect_timeout: Duration::from_secs(1),
+            write_timeout: Duration::from_secs(1),
+        })
+        .unwrap();
+        let gateway = Gateway::new_with_audit(
+            test_config(),
+            Some((exporter.recorder(), "gateway-audit-test".to_owned())),
+        )
+        .unwrap();
+        gateway
+            .activate_producer_epoch("audit-engine".into(), "audit-session".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("audit-engine", "audit-session", 1, "audit-frame"))
+            .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = gateway.router();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (mut client, _) =
+            tokio_tungstenite::connect_async(format!("ws://{address}/api/v1/websocket/ws"))
+                .await
+                .unwrap();
+        let message = tokio::time::timeout(Duration::from_secs(1), client.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(matches!(message, ClientMessage::Text(_)));
+        client.close(None).await.unwrap();
+        server.abort();
+
+        let summary = exporter.finish();
+        let (send, footer) = audit_receiver.join().unwrap();
+        assert_eq!(summary.gateway_websocket_send_successes, 1);
+        assert_eq!(send["record_type"], "gateway_websocket_send");
+        assert_eq!(send["run_id"], "gateway-audit-test");
+        assert_eq!(send["outcome"], "sent");
+        assert_eq!(send["publication_sequence"], 1);
+        assert_eq!(send["engine_instance_id"], "audit-engine");
+        assert_eq!(send["source_session_id"], "audit-session");
+        assert!(send["source_frame_id"].is_string());
+        assert!(send["socket_send_call_ms"].is_number());
+        assert_eq!(send["watch_wakeup_to_consume_ms"], Value::Null);
+        assert_eq!(footer["gateway_websocket_send_successes"], 1);
+    }
+
+    #[test]
+    fn gateway_websocket_audit_counts_skipped_publications_and_source_frames() {
+        let audit_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let audit_address = audit_listener.local_addr().unwrap();
+        let audit_receiver = std::thread::spawn(move || {
+            let (mut stream, _) = audit_listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let first: Value = serde_json::from_slice(&read_audit_record(&mut stream)).unwrap();
+            let second: Value = serde_json::from_slice(&read_audit_record(&mut stream)).unwrap();
+            let footer: Value = serde_json::from_slice(&read_audit_record(&mut stream)).unwrap();
+            (first, second, footer)
+        });
+        let exporter = LiveAuditExporter::start(LiveAuditConfig {
+            address: audit_address,
+            queue_capacity: 32,
+            maximum_record_bytes: 8_192,
+            connect_timeout: Duration::from_secs(1),
+            write_timeout: Duration::from_secs(1),
+        })
+        .unwrap();
+        let gateway = Gateway::new_with_audit(
+            test_config(),
+            Some((exporter.recorder(), "gateway-gap-test".to_owned())),
+        )
+        .unwrap();
+        assert!(Gateway::new(test_config())
+            .unwrap()
+            .inner
+            .gateway_audit
+            .is_none());
+        gateway
+            .activate_producer_epoch("gap-engine".into(), "gap-session".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("gap-engine", "gap-session", 1, "frame-1"))
+            .unwrap();
+        let first = gateway.inner.latest.borrow().as_ref().unwrap().clone();
+        let audit = Arc::clone(gateway.inner.gateway_audit.as_ref().unwrap());
+        let mut client = GatewayWebSocketAuditClient {
+            audit,
+            client_id: 1,
+            previous_publication_sequence: None,
+            previous_source_identity: None,
+        };
+        client.record_send(&first, 0.5, None, 0.1, 0.2, Some(0.3), Some(256), "sent");
+
+        gateway
+            .accept_scene(scene_for("gap-engine", "gap-session", 2, "frame-2"))
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("gap-engine", "gap-session", 4, "frame-4"))
+            .unwrap();
+        let latest = gateway.inner.latest.borrow().as_ref().unwrap().clone();
+        client.record_send(
+            &latest,
+            0.5,
+            Some(0.01),
+            0.1,
+            0.2,
+            Some(0.3),
+            Some(256),
+            "sent",
+        );
+
+        exporter.finish();
+        let (first, second, footer) = audit_receiver.join().unwrap();
+        assert_eq!(first["publication_sequence_gap"], 0);
+        assert_eq!(first["source_sequence_gap"], Value::Null);
+        assert_eq!(second["publication_sequence"], 3);
+        assert_eq!(second["publication_sequence_gap"], 1);
+        assert_eq!(second["source_sequence_gap"], 2);
+        assert_eq!(second["source_frame_id"], "frame-4");
+        assert_eq!(second["repeated_publication"], false);
+        assert_eq!(second["repeated_source_observation"], false);
+        assert_eq!(footer["gateway_websocket_send_successes"], 2);
+    }
+
+    fn read_audit_record(stream: &mut std::net::TcpStream) -> Vec<u8> {
+        use std::io::Read;
+        let mut header = [0_u8; 4];
+        stream.read_exact(&mut header).unwrap();
+        let mut payload = vec![0; u32::from_be_bytes(header) as usize];
+        stream.read_exact(&mut payload).unwrap();
+        payload
     }
 
     #[tokio::test]
