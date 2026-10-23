@@ -24,7 +24,7 @@ from typing import Any
 MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_OUTPUT_DIRECTORY = "models/exports"
 DEFAULT_IMAGE_SIZE = 1280
-SUPPORTED_FORMAT_SUFFIXES = {"onnx": ".onnx", "coreml": ".mlpackage"}
+ONNX_SUFFIX = ".onnx"
 YOLO: Any | None = None
 
 
@@ -50,36 +50,13 @@ def _sha256_file(path: Path) -> str:
 
 
 def _artifact_digest(path: Path) -> tuple[str, list[dict[str, Any]]]:
-    """Hash either one model file or each stable, relative package component."""
-    if path.is_file():
-        file_hash = _sha256_file(path)
-        return file_hash, [
-            {"path": path.name, "size_bytes": path.stat().st_size, "sha256": file_hash}
-        ]
-    if not path.is_dir():
-        raise FileNotFoundError(f"Export did not produce an artifact: {path}")
-
-    components = []
-    digest = hashlib.sha256()
-    for component in sorted(item for item in path.rglob("*") if item.is_file()):
-        relative_path = component.relative_to(path).as_posix()
-        component_hash = _sha256_file(component)
-        component_size = component.stat().st_size
-        components.append(
-            {
-                "path": relative_path,
-                "size_bytes": component_size,
-                "sha256": component_hash,
-            }
-        )
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(bytes.fromhex(component_hash))
-        digest.update(b"\0")
-
-    if not components:
-        raise ValueError(f"Export package is empty: {path}")
-    return digest.hexdigest(), components
+    """Hash one exported ONNX file and retain its v1 manifest component row."""
+    if not path.is_file():
+        raise FileNotFoundError(f"ONNX export did not produce a file: {path}")
+    file_hash = _sha256_file(path)
+    return file_hash, [
+        {"path": path.name, "size_bytes": path.stat().st_size, "sha256": file_hash}
+    ]
 
 
 def _class_names(model: Any) -> list[dict[str, Any]] | None:
@@ -129,7 +106,6 @@ def _build_manifest(
     source_model: Path,
     exported_model: Path,
     source_metadata: dict[str, Any],
-    model_format: str,
     image_size: int,
     simplify: bool,
 ) -> dict[str, Any]:
@@ -146,7 +122,7 @@ def _build_manifest(
         },
         "exported_model": {
             "path": exported_model.name,
-            "format": model_format,
+            "format": "onnx",
             "size_bytes": sum(component["size_bytes"] for component in components),
             "sha256": export_hash,
             "components": components,
@@ -160,7 +136,7 @@ def _build_manifest(
             "batch_size": 1,
             "dynamic_shape": False,
             "embedded_nms": False,
-            "onnx_simplification": simplify if model_format == "onnx" else None,
+            "onnx_simplification": simplify,
         },
         "expected_input_contract": {
             "shape": [1, 3, image_size, image_size],
@@ -184,7 +160,6 @@ def _build_manifest(
             "ultralytics": _package_version("ultralytics"),
             "torch": _package_version("torch"),
             "onnxruntime": _package_version("onnxruntime"),
-            "coremltools": _package_version("coremltools"),
         },
     }
 
@@ -193,7 +168,6 @@ def export_high_res_model(
     model_path: str | Path,
     output_dir: str | Path = DEFAULT_OUTPUT_DIRECTORY,
     imgsz: int = DEFAULT_IMAGE_SIZE,
-    format: str = "onnx",
     simplify: bool = False,
     overwrite: bool = False,
 ) -> str:
@@ -207,8 +181,7 @@ def export_high_res_model(
         model_path: Explicit source ``.pt`` checkpoint.
         output_dir: Destination for the exported file/package and its manifest.
         imgsz: Fixed square model input edge length.
-        format: Supported Ultralytics derivative format (``onnx`` or ``coreml``).
-        simplify: Request graph simplification for ONNX only.
+        simplify: Request ONNX graph simplification.
         overwrite: Replace an existing artifact and manifest only after a
             successful export.
 
@@ -225,25 +198,18 @@ def export_high_res_model(
     if isinstance(imgsz, bool) or not isinstance(imgsz, int) or imgsz < 1:
         raise ValueError("imgsz must be a positive integer")
 
-    model_format = format.lower()
-    if model_format not in SUPPORTED_FORMAT_SUFFIXES:
-        supported = ", ".join(sorted(SUPPORTED_FORMAT_SUFFIXES))
-        raise ValueError(f"Unsupported export format {format!r}; choose {supported}")
-
     model_factory = YOLO if YOLO is not None else _load_yolo()
 
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    artifact_path = (
-        destination / f"{source.stem}{SUPPORTED_FORMAT_SUFFIXES[model_format]}"
-    )
+    artifact_path = destination / f"{source.stem}{ONNX_SUFFIX}"
     manifest_path = destination / f"{artifact_path.name}.manifest.json"
     if not overwrite and (artifact_path.exists() or manifest_path.exists()):
         raise FileExistsError(
             f"Export output already exists: {artifact_path} or {manifest_path}; "
             "pass overwrite=True to replace it after a successful export"
         )
-    if model_format == "onnx" and simplify and _package_version("onnxslim") is None:
+    if simplify and _package_version("onnxslim") is None:
         raise ValueError(
             "ONNX simplification requires the optional onnxslim package; "
             "install it explicitly or rerun with simplify=False"
@@ -258,35 +224,27 @@ def export_high_res_model(
         source_metadata = _source_model_metadata(model)
 
         export_options: dict[str, Any] = {
-            "format": model_format,
+            "format": "onnx",
             "imgsz": imgsz,
             "batch": 1,
             "device": "cpu",
             "dynamic": False,
             "nms": False,
         }
-        if model_format == "onnx":
-            export_options["simplify"] = simplify
+        export_options["simplify"] = simplify
 
         exported_path = Path(model.export(**export_options))
         if not exported_path.exists():
             raise FileNotFoundError(
                 f"Ultralytics reported an export that does not exist: {exported_path}"
             )
-        if exported_path.is_file() and exported_path.stat().st_size == 0:
+        if exported_path.stat().st_size == 0:
             raise ValueError(f"Ultralytics produced an empty export: {exported_path}")
-        if exported_path.is_dir() and not any(
-            component.is_file() for component in exported_path.rglob("*")
-        ):
-            raise ValueError(
-                f"Ultralytics produced an empty export package: {exported_path}"
-            )
 
         manifest = _build_manifest(
             source_model=source,
             exported_model=exported_path,
             source_metadata=source_metadata,
-            model_format=model_format,
             image_size=imgsz,
             simplify=simplify,
         )
@@ -297,9 +255,7 @@ def export_high_res_model(
 
         # Delay replacement until export and manifest generation both succeed.
         if overwrite:
-            if artifact_path.is_dir():
-                shutil.rmtree(artifact_path)
-            elif artifact_path.exists():
+            if artifact_path.exists():
                 artifact_path.unlink()
             manifest_path.unlink(missing_ok=True)
         shutil.move(str(exported_path), str(artifact_path))
@@ -332,12 +288,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help=f"Fixed square export input size (default: {DEFAULT_IMAGE_SIZE}).",
     )
     parser.add_argument(
-        "--format",
-        choices=sorted(SUPPORTED_FORMAT_SUFFIXES),
-        default="onnx",
-        help="Export format (default: onnx).",
-    )
-    parser.add_argument(
         "--simplify",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -360,7 +310,6 @@ def main(argv: list[str] | None = None) -> int:
             model_path=arguments.model,
             output_dir=arguments.output_dir,
             imgsz=arguments.imgsz,
-            format=arguments.format,
             simplify=arguments.simplify,
             overwrite=arguments.overwrite,
         )

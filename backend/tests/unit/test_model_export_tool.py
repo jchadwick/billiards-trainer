@@ -26,24 +26,13 @@ class FakeYOLO:
 
     def export(self, **options):
         self.export_calls.append(options)
-        destination = self.model_path.with_suffix(
-            export_tool.SUPPORTED_FORMAT_SUFFIXES[options["format"]]
-        )
-        if options["format"] == "coreml":
-            package = destination
-            package.mkdir()
-            (package / "Manifest.json").write_text("{}", encoding="utf-8")
-            weights_dir = package / "Data" / "weights"
-            weights_dir.mkdir(parents=True)
-            (weights_dir / "weights.bin").write_bytes(b"deterministic weights")
-        else:
-            destination.write_bytes(b"deterministic onnx artifact")
+        destination = self.model_path.with_suffix(".onnx")
+        destination.write_bytes(b"deterministic onnx artifact")
         return str(destination)
 
 
-@pytest.mark.parametrize("model_format", ["onnx", "coreml"])
 def test_export_uses_explicit_source_and_writes_hash_lineage_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, model_format: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     source = tmp_path / "chosen-model.pt"
     source.write_bytes(b"source checkpoint contents")
@@ -56,7 +45,6 @@ def test_export_uses_explicit_source_and_writes_hash_lineage_manifest(
             source,
             output_dir=output,
             imgsz=960,
-            format=model_format,
             simplify=False,
         )
     )
@@ -78,20 +66,15 @@ def test_export_uses_explicit_source_and_writes_hash_lineage_manifest(
     ]
     assert manifest["expected_input_contract"]["shape"] == [1, 3, 960, 960]
     assert manifest["output_contract"]["nms"].startswith("not embedded")
-    assert len(manifest["exported_model"]["components"]) == (
-        2 if model_format == "coreml" else 1
-    )
+    assert len(manifest["exported_model"]["components"]) == 1
 
     model = FakeYOLO.instances[0]
     options = model.export_calls[0]
-    assert options["format"] == model_format
+    assert options["format"] == "onnx"
     assert options["device"] == "cpu"
     assert options["nms"] is False
     assert options["dynamic"] is False
-    if model_format == "onnx":
-        assert options["simplify"] is False
-    else:
-        assert "simplify" not in options
+    assert options["simplify"] is False
     assert source.read_bytes() == b"source checkpoint contents"
     assert list(output.glob(".yolo-export-*")) == []
 
@@ -170,3 +153,7 @@ def test_argument_parser_requires_model_path_and_supports_no_simplify():
         ["--model", "model.pt", "--simplify"]
     )
     assert explicit_simplification.simplify is True
+    with pytest.raises(SystemExit):
+        export_tool.build_argument_parser().parse_args(
+            ["--model", "model.pt", "--format", "coreml"]
+        )

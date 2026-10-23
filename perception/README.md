@@ -357,9 +357,9 @@ and `[0,1]` normalization. It decodes files with `image-rs`. In the current
 10-image comparison, all nine PNG tensors matched the Ultralytics/OpenCV
 reference exactly, while the JPEG tensor differed due to decoder behavior.
 See the [recorded-image prototype report](../thoughts/performance-audits/rust-inference-prototype-20261020/report.md)
-before treating this as preprocessing parity. The currently configured CoreML
-package declares a 1280-square input, though its exact checkpoint lineage and
-CoreML-versus-ONNX outputs remain unverified.
+before treating this as preprocessing parity. The CoreML package discussed in
+older reports belongs to the offline Python compatibility detector; the
+maintained exporter and Rust runtime use the verified ONNX artifact.
 
 `--dump-preprocessed-directory` optionally writes raw little-endian float32
 NCHW tensors, with each path recorded in the JSON result. Load them with NumPy
@@ -374,25 +374,19 @@ justify adding another decoder. The one-off raw-byte probe was retired; the
 input and result hashes are preserved in the
 [raw decoder comparison](../thoughts/performance-audits/rust-inference-prototype-20261020/evidence/raw-jpeg-decoder-comparison.json).
 
-The current comparison settings use a 1280 square input. The configured
-`models/billiards-yolov8n.mlpackage` declares `imgsz: [1280, 1280]` in its
-Ultralytics export metadata, and the retained runtime uses that exported size
-when preparing inputs. The live detector does not pass `imgsz` explicitly, so
-this behavior depends on the selected artifact metadata. The checkpoint used
-for the ONNX comparison has the same SHA-256 as the ONNX export manifest's
-source checkpoint, but the configured CoreML package has no lineage manifest;
-its exact relationship to that checkpoint and CoreML-versus-ONNX output parity
-remain unverified. Thus 1280 is a supported effective-size observation for the
-current configured package, not proof of full production-path parity. The
-results are static, unpaced image processing, not camera-to-client latency,
-temporal accuracy, or real-time capacity evidence.
+The Rust runtime verifies that the ONNX input size matches the configured
+inference size and that its manifest names the matching source checkpoint.
+Historical Python CoreML package metadata has no verified source manifest and
+does not establish CoreML-versus-ONNX parity. The recorded still-image results
+are static, unpaced image processing, not camera-to-client latency, temporal
+accuracy, or real-time capacity evidence.
 
 `--provider cpu` disables automatic accelerators and requests the CPU provider.
 `--provider auto` explicitly selects ONNX Runtime's max-efficiency device
 policy. On macOS this can partition the graph between CoreML and CPU; node
 provider evidence is reported rather than assuming the policy's preferred
-provider ran every node. Linux behavior and a directly requested CoreML-only
-profile still require qualification.
+provider ran every node. That provider-policy observation does not qualify a
+different model, host, or localization workload.
 
 OpenVINO is an explicit runtime choice in normal macOS and Linux builds. Build
 the inference executable with
@@ -432,7 +426,8 @@ Their short profiling session and separate measurement session remain
 unchanged.
 This is a prototype choice, not an approved dependency or deployment strategy.
 The observed macOS auto-policy profile is evidence for this one model/runtime
-combination; it does not qualify CoreML or Linux deployment.
+combination; it does not establish localization accuracy or target Linux
+performance.
 
 The existing scene snapshot contract and four-byte framing tests remain
 available through `cargo test`. Socket ownership, camera acquisition,

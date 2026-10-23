@@ -4,7 +4,7 @@
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: ADR-0082
-- Superseded by: ADR-0087 for dataset-frame extraction, ADR-0088 for Python profiler/status retention, and ADR-0089 for generic dataset-merger retention
+- Superseded by: ADR-0087 for dataset-frame extraction, ADR-0088 for Python profiler/status retention, ADR-0089 for generic dataset-merger retention, and ADR-0092 for CoreML-export retention
 
 ## Context
 

@@ -26,7 +26,7 @@ commands or baselines.
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries so managed measurements do not use debug artifacts. |
-| `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. Rust needs the ONNX size to match `perception.rust_live.image_size` and verifies model/checkpoint hashes. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
+| `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Export alone does not establish parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
@@ -55,13 +55,13 @@ commands or baselines.
 | Tool | Disposition | Evidence and boundary |
 | --- | --- | --- |
 | `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; the local deployment tests reject legacy executables. |
-| `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, one-window measurement, and recorded-video CLI; no separate measurement logic is duplicated in shell. |
+| `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
 | `make test-rust-camera` | Keep: production feature test | Runs the all-target Rust suite with the exact physical GStreamer source feature enabled and uses a separate Cargo target directory. `make test-all` includes it; the ordinary feature-free `make test-rust` remains usable without native GStreamer development libraries. |
-| `tools/export_high_res_model.py` | Keep | Creates lineage-bound ONNX/CoreML artifacts with focused tests; ONNX is consumed by Rust, while CoreML only serves the Python compatibility detector. |
+| `tools/export_high_res_model.py` | Keep: ONNX only | Creates the verified model artifact consumed by Rust; its unused CoreML branch and model-export dependency were removed under ADR-0092. |
 
 ## Browser client tools
 
@@ -163,6 +163,10 @@ major CSS-framework migration.
   ONNX Runtime dependency no longer resolves for Python 3.9. The heavy model
   exporter stack is an explicit extra and install target; the retired dataset
   merger no longer motivates a Python tooling install path.
+- The model exporter now emits ONNX only. The CoreML package branch had no
+  consumer in the supported Rust runtime; its compatibility detector and old
+  CoreML evidence remain historical, while `coremltools` was removed from the
+  optional model-export dependency group under ADR-0092.
 - Obsolete profiler-only dependency groups and Sphinx build dependencies;
   project documentation is Markdown and generated Rust API docs use `cargo doc`.
 - The redundant Python test extra; the development extra already includes the
@@ -187,9 +191,10 @@ major CSS-framework migration.
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
    calibration schema and Rust-consumed fixture.
-5. CoreML export creates an artifact the Rust runtime cannot consume. It is
-   retained only for the offline Python detector reference; remove its format
-   branch and export dependency when that reference no longer needs CoreML.
+5. The offline Python compatibility detector still contains CoreML loading
+   behavior, but no maintained exporter produces new CoreML packages. Remove
+   that detector branch with the compatibility reference when the Python
+   reference is retired; preserve the historical model and results as evidence.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
@@ -283,3 +288,15 @@ path remain untested.
   default-feature Rust tests, 318 production-camera-feature Rust tests, all 16
   browser tests, and 2,837 Python tests with two model-dependent skips at
   82.55% coverage.
+- The expanded tool review retired the exporter’s unused CoreML output path and
+  removed `coremltools` from the optional model-export dependency set; the
+  offline Python compatibility detector and historical CoreML artifacts remain
+  outside the maintained export workflow. The external WebSocket audit wrapper
+  now builds and runs its subscriber in release mode to reduce observer
+  overhead. The exporter’s six focused tests, Ruff/Black, `uv lock --check`,
+  all 92 ADR checks, shell syntax/target guards, and the release subscriber
+  `--help` smoke passed. `make test-all` passed 306 Rust tests, 318
+  camera-feature Rust tests, 16 browser tests, and 2,836 Python tests with two
+  model-dependent skips at 82.55% coverage; `make lint format-check` and
+  `make build` also passed. The release CLI smoke does not represent a live
+  receipt-latency measurement.

@@ -1,8 +1,10 @@
 # Export a detector checkpoint
 
 The exporter creates a fixed-size ONNX derivative and a sibling manifest from
-an explicitly selected YOLO `.pt` checkpoint. It does not retrain the model,
-prove output equivalence, or qualify live localization accuracy.
+an explicitly selected YOLO `.pt` checkpoint. ONNX is the supported model
+artifact for the Rust runtime across macOS and Linux. The exporter does not
+retrain the model, prove output equivalence, or qualify live localization
+accuracy.
 
 Install the optional model-export stack only when needed. This installs into
 the configured Python virtual environment (`.venv` by default):
@@ -26,7 +28,6 @@ Set `perception.rust_live.onnx_path` and
 checkpoint in `config.json`. The Rust live runtime requires the ONNX input size
 to match `perception.rust_live.image_size` (1280 by default), and verifies the
 generated sibling manifest before loading either CPU or OpenVINO inference.
-CoreML output is retained only for the Python compatibility detector.
 `--simplify` is disabled by default and requires the separately installed
 `onnxslim` package. Compare real outputs and use the Rust temporal evaluator
 before treating an export as qualified; matching checkpoint lineage alone is

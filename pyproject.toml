@@ -54,7 +54,6 @@ model-export = [
     "onnxruntime>=1.23.0",
     "onnx>=1.17.0",
     "ultralytics>=8.0.0",
-    "coremltools>=9.0; sys_platform == 'darwin'",
 ]
 dev = [
     "pytest>=7.4.0",

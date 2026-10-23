@@ -23,6 +23,9 @@ scripts/performance-audit-run.sh \
   --url ws://127.0.0.1:8000/api/v1/websocket/ws
 ```
 
+The wrapper builds and runs the subscriber in release mode so its own parsing
+and JSON work do not carry debug-build overhead into receipt measurements.
+
 Defaults are 30 seconds of warm-up, three 120-second measured windows, and a
 20-minute bounded-memory soak when `--soak` is selected. Use `--help` for
 configurable windows, sample limits, optional trajectory receipts, and a

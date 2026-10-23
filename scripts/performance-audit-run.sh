@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 
-# Thin development entry point: repeat/warm-up/report behavior lives in Rust.
+# Build and run the Rust external-subscriber audit in release mode. Subscriber
+# overhead is part of the measurement, so avoid debug-build parsing/JSON costs.
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "${script_dir}/.." && pwd)"
+manifest="${repo_root}/perception/Cargo.toml"
 
-exec cargo run --locked \
-  --manifest-path "${repo_root}/perception/Cargo.toml" \
-  --bin billiards-performance-audit-run -- "$@"
+if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
+  echo "performance-audit-run.sh must use a native build target to run locally" >&2
+  exit 2
+fi
+
+target_dir="${CARGO_TARGET_DIR:-${repo_root}/perception/target}"
+cargo build --release --locked --manifest-path "${manifest}" \
+  --bin billiards-performance-audit-run
+
+exec "${target_dir}/release/billiards-performance-audit-run" "$@"
