@@ -7,11 +7,11 @@ use anyhow::{ensure, Context, Result};
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
     run_video_audit, AuditOptions, BatchOutputOptions, CalibrationAuditOptions, ProviderSelection,
-    SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMode,
-    VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
-    DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,
-    DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT, DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES,
-    DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
+    SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMeasurementReport,
+    VideoReplayMode, VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES,
+    DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES, DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS,
+    DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT, DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT,
+    DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES, DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
 };
 use billiards_perception::temporal_evaluation::{
     evaluate_files, parse_annotation_document, read_bounded_file, unavailable_temporal_metrics,
@@ -574,13 +574,14 @@ fn render_markdown(
     }
     output.push_str("## Results\n\n");
     output.push_str(&format!(
-        "- Processed {}/{} source observations; latest-frame replacements: {}\n- Processed rate: {} observations/s; source rate: {} observations/s\n- Processed-frame source deadlines missed: {}\n- Source-to-inference-start latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Source-to-inference-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Mean preprocessing: {:.2} ms; inference: {:.2} ms; decode/NMS: {:.2} ms\n- Measured wall time: {:.2} ms; offline decode {:.2} ms was excluded\n- Detailed trace records: {} written, {} omitted by the configured limit\n\n",
+        "- Processed {}/{} source observations; latest-frame replacements: {}\n",
         measurement.processed_source_frames,
         measurement.scheduled_source_frames,
         measurement.latest_frame_replacements,
-        measurement.processed_source_deadline_misses.map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
-        optional_float(measurement.processed_observations_per_second),
-        optional_float(measurement.source_observations_per_second),
+    ));
+    output.push_str(&render_measurement_rates(measurement));
+    output.push_str(&format!(
+        "- Source-to-inference-start latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Source-to-inference-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Mean preprocessing: {:.2} ms; inference: {:.2} ms; decode/NMS: {:.2} ms\n- Measured wall time: {:.2} ms; offline decode {:.2} ms was excluded\n- Detailed trace records: {} written, {} omitted by the configured limit\n\n",
         measurement.source_to_inference_start_ms.sample_count,
         optional_float(measurement.source_to_inference_start_ms.p50_ms),
         optional_float(measurement.source_to_inference_start_ms.p95_ms),
@@ -644,6 +645,18 @@ fn render_markdown(
         markdown_path.display()
     ));
     output
+}
+
+fn render_measurement_rates(measurement: &VideoReplayMeasurementReport) -> String {
+    let processed_rate = optional_float(measurement.processed_observations_per_second);
+    let source_rate = optional_float(measurement.source_observations_per_second);
+    let deadline_misses = measurement
+        .processed_source_deadline_misses
+        .map_or_else(|| "unavailable".to_owned(), |count| count.to_string());
+
+    format!(
+        "- Processed rate: {processed_rate} observations/s; source rate: {source_rate} observations/s\n- Processed-frame source deadlines missed: {deadline_misses}\n"
+    )
 }
 
 fn print_terminal_summary(
@@ -936,8 +949,10 @@ fn scene_snapshot_output_options(
 #[cfg(test)]
 mod tests {
     use super::{
-        normalize_path, run_identity, validate_accuracy_annotations, Arguments, ModeArgument,
+        normalize_path, render_measurement_rates, run_identity, validate_accuracy_annotations,
+        Arguments, ModeArgument,
     };
+    use billiards_perception::inference::{LatencyPercentiles, VideoReplayMeasurementReport};
     use billiards_perception::temporal_evaluation::EvaluationConfig;
     use clap::Parser;
     use std::path::Path;
@@ -1008,6 +1023,54 @@ mod tests {
     fn normalized_output_paths_collapse_parent_components() {
         let path = normalize_path(Path::new("one/../two/report.json"));
         assert!(path.ends_with("two/report.json"));
+    }
+
+    #[test]
+    fn markdown_reports_rates_and_deadline_misses_in_their_own_fields() {
+        let mut measurement = VideoReplayMeasurementReport {
+            scheduled_source_frames: 1177,
+            decoded_source_frames: 1177,
+            processed_source_frames: 863,
+            latest_frame_replacements: 314,
+            processed_source_deadline_misses: Some(861),
+            source_media_duration_seconds: Some(39.266666),
+            measured_wall_ms: 39_309.608,
+            mean_preprocess_ms: 0.98,
+            mean_inference_ms: 43.59,
+            mean_decode_and_nms_ms: 0.09,
+            total_batch_export_ms: 0.0,
+            total_scene_tracking_ms: 0.0,
+            source_observations_per_second: Some(29.97),
+            processed_observations_per_second: Some(21.95),
+            processed_completions_in_source_window: Some(862),
+            processed_completions_after_source_window: Some(1),
+            source_to_inference_start_ms: LatencyPercentiles {
+                sample_count: 863,
+                p50_ms: Some(18.33),
+                p95_ms: Some(33.68),
+                p99_ms: Some(35.26),
+            },
+            source_to_inference_complete_ms: LatencyPercentiles {
+                sample_count: 863,
+                p50_ms: Some(62.22),
+                p95_ms: Some(77.46),
+                p99_ms: Some(79.33),
+            },
+            source_to_calibration_complete_ms: None,
+        };
+
+        assert_eq!(
+            render_measurement_rates(&measurement),
+            "- Processed rate: 21.95 observations/s; source rate: 29.97 observations/s\n- Processed-frame source deadlines missed: 861\n"
+        );
+
+        measurement.processed_source_deadline_misses = None;
+        measurement.source_observations_per_second = None;
+        measurement.processed_observations_per_second = None;
+        assert_eq!(
+            render_measurement_rates(&measurement),
+            "- Processed rate: unavailable observations/s; source rate: unavailable observations/s\n- Processed-frame source deadlines missed: unavailable\n"
+        );
     }
 
     #[test]

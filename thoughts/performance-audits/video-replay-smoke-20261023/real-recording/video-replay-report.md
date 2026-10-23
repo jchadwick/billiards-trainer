@@ -17,8 +17,8 @@ Run `smoke-20261023-real-recording` measured **PTS-paced latest-frame replay** u
 ## Results
 
 - Processed 863/1177 source observations; latest-frame replacements: 314
-- Processed rate: 861 observations/s; source rate: 21.95 observations/s
-- Processed-frame source deadlines missed: 29.97
+- Processed rate: 21.95 observations/s; source rate: 29.97 observations/s
+- Processed-frame source deadlines missed: 861
 - Source-to-inference-start latency (863 samples): p50 18.33, p95 33.68, p99 35.26 ms
 - Source-to-inference-complete latency (863 samples): p50 62.22, p95 77.46, p99 79.33 ms
 - Mean preprocessing: 0.98 ms; inference: 43.59 ms; decode/NMS: 0.09 ms

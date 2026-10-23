@@ -17,7 +17,7 @@ Run `smoke-20261023-capacity` measured **unpaced processing capacity** using `te
 ## Results
 
 - Processed 1177/1177 source observations; latest-frame replacements: 0
-- Processed rate: unavailable observations/s; source rate: 22.22 observations/s
+- Processed rate: 22.22 observations/s; source rate: unavailable observations/s
 - Processed-frame source deadlines missed: unavailable
 - Source-to-inference-start latency (0 samples): p50 unavailable, p95 unavailable, p99 unavailable ms
 - Source-to-inference-complete latency (0 samples): p50 unavailable, p95 unavailable, p99 unavailable ms

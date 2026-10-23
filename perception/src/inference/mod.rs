@@ -15,9 +15,9 @@ pub use preprocess::{prepare_rgb8, prepare_rgb_image, LetterboxGeometry, Prepare
 pub use runtime::{
     run_audit, run_video_audit, AuditOptions, AuditReport, BatchOutputOptions,
     CalibrationAuditOptions, FrameInferenceEngine, FrameInferenceOptions, FrameInferenceOutput,
-    FrameInferenceTimings, ProviderSelection, SceneSnapshotOutputDestination,
-    SceneSnapshotOutputOptions, VideoReplayMode, VideoReplayOptions, VideoReplayReport,
-    DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
+    FrameInferenceTimings, LatencyPercentiles, ProviderSelection, SceneSnapshotOutputDestination,
+    SceneSnapshotOutputOptions, VideoReplayMeasurementReport, VideoReplayMode, VideoReplayOptions,
+    VideoReplayReport, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,
     DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT, DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES,
     DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
