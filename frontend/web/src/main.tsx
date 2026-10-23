@@ -42,15 +42,15 @@ class LiveAppErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <main className="flex min-h-screen items-center justify-center bg-gray-950 p-6 text-center text-gray-100">
+        <main className="live-app-failure">
           <div>
-            <h1 className="text-xl font-semibold">Live view unavailable</h1>
-            <p className="mt-2 text-sm text-gray-300">
+            <h1 className="failure-title">Live view unavailable</h1>
+            <p className="failure-text">
               Refresh the page to reconnect to the live table.
             </p>
             <button
               type="button"
-              className="mt-4 rounded bg-white px-4 py-2 text-gray-950"
+              className="refresh-button"
               onClick={() => window.location.reload()}
             >
               Refresh

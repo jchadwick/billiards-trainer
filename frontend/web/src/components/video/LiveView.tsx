@@ -414,12 +414,12 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
   }, [balls, cue, cueVisible, isObservationStale, videoSize]);
 
   return (
-    <div className={`flex flex-col w-full ${className}`}>
+    <div className={`live-view ${className}`}>
       {/* Header */}
-      <div className="flex-none bg-gray-800 text-white p-4">
-        <h1 className="text-xl font-bold">Live View</h1>
-        <div className="text-sm mt-1">
-          <span className={`inline-block w-2 h-2 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+      <div className="live-header">
+        <h1 className="live-title">Live View</h1>
+        <div className="live-meta">
+          <span className={`connection-indicator ${isConnected ? 'connection-indicator-connected' : 'connection-indicator-disconnected'}`}></span>
           {isConnected ? 'Connected' : 'Disconnected'} | {observedBalls.length} balls observed
           {nonObservedBalls.length > 0 ? `, ${nonObservedBalls.length} stale` : ''}
           {' | Cue stick: '}{cueVisible ? `visible${typeof cue?.confidence === 'number' ? ` (${Math.round(cue.confidence * 100)}%)` : ''}` : 'not detected'}
@@ -435,28 +435,28 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       {/* Video container */}
       <div
         data-testid="live-video-pane"
-        className="relative w-full flex-none overflow-hidden bg-black"
+        className="video-pane"
         style={{ aspectRatio: videoAspectRatio }}
       >
         {/* MJPEG video stream */}
         {autoConnect && viewerConfigLoaded && !viewerStreamUrl ? (
-          <p role="status" className="px-4 text-center text-white">
+          <p role="status" className="stream-unavailable">
             Direct camera stream unavailable. Configure a browser-reachable
-            <code className="mx-1">api.stream.viewer_url</code> to display video.
+            <code className="stream-setting">api.stream.viewer_url</code> to display video.
           </p>
         ) : (
           <img
             ref={videoRef}
             src={autoConnect && viewerConfigLoaded ? viewerStreamUrl : undefined}
             alt="Video stream"
-            className="absolute inset-0 block h-full w-full object-contain"
+            className="live-video-image"
           />
         )}
 
         {/* Ball detection overlay canvas */}
         <canvas
           ref={canvasRef}
-          className="absolute pointer-events-none"
+          className="live-overlay"
           data-freshness={isObservationStale
             ? (isFreshnessUnknown ? 'unknown' : 'stale')
             : 'current'}
@@ -473,23 +473,23 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
 
         {/* Status overlay when not connected */}
         {!isConnected && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-75">
-            <div className="text-white text-center">
-              <div className="text-xl mb-2">Connecting...</div>
-              <div className="text-sm">Waiting for video stream and ball detection</div>
+          <div className="connection-overlay">
+            <div className="connection-overlay-message">
+              <div className="connection-overlay-title">Connecting...</div>
+              <div className="connection-overlay-detail">Waiting for video stream and ball detection</div>
             </div>
           </div>
         )}
       </div>
 
       {/* Ball list */}
-      <div className="flex-none border-t bg-gray-100 px-4 py-3">
-        <div className="mb-2 flex items-center gap-3">
-          <h2 className="font-semibold">Detected Balls</h2>
+      <div className="ball-panel">
+        <div className="ball-panel-header">
+          <h2 className="ball-panel-title">Detected Balls</h2>
           <span
             role="status"
             aria-live="polite"
-            className="rounded-full bg-white px-2 py-0.5 text-sm text-gray-600"
+            className="detected-ball-count"
           >
             {observedBalls.length} {observedBalls.length === 1 ? 'ball' : 'balls'} detected
           </span>
@@ -497,7 +497,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
         <div
           role="grid"
           aria-label="Detected ball slots"
-          className="grid grid-cols-4 gap-2"
+          className="ball-grid"
         >
           {Array.from({ length: BALL_SLOT_COUNT }, (_, index) => {
             const entry = displayedBalls[index];
@@ -507,7 +507,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
                   key={`empty-${index}`}
                   role="gridcell"
                   aria-label={`Empty ball slot ${index + 1}`}
-                  className="min-h-12 rounded border border-dashed border-gray-300 bg-gray-50"
+                  className="ball-slot ball-slot-empty"
                 />
               );
             }
@@ -526,14 +526,14 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
                 key={`${isObserved ? 'observed' : 'stale'}-${ball.id}`}
                 role="gridcell"
                 title={`${label} · ${confidence}`}
-                className={`flex min-h-12 min-w-0 flex-col items-center justify-center rounded border px-2 py-1 text-center text-xs shadow-sm ${
+                className={`ball-slot ${
                   isObserved
-                    ? 'border-gray-300 bg-white text-gray-900'
-                    : 'border-dashed border-amber-400 bg-amber-50 text-amber-900'
+                    ? 'ball-slot-observed'
+                    : 'ball-slot-stale'
                 }`}
               >
-                <span className="w-full truncate font-medium">{label}</span>
-                <span className={isObserved ? 'text-gray-500' : 'text-amber-700'}>
+                <span className="ball-slot-label">{label}</span>
+                <span className={isObserved ? 'ball-slot-confidence-observed' : 'ball-slot-confidence-stale'}>
                   {confidence}
                 </span>
               </div>

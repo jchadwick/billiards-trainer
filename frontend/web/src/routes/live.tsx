@@ -7,7 +7,7 @@ export const Route = createFileRoute('/live')({
 
 function LiveViewPage() {
   return (
-    <div className="h-screen">
+    <div className="live-route">
       <LiveView />
     </div>
   )
