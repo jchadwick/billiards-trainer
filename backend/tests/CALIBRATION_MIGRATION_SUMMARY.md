@@ -4,7 +4,8 @@
 > are not current test entry points. Backend tests now use canonical
 > `backend.*` imports and collect from the repository root with
 > `python -m pytest --collect-only --no-cov backend/tests`. See
-> [`backend/README.md`](../README.md) for current setup and test commands.
+> [Getting Started](../../docs/GETTING_STARTED.md) for current setup and test
+> commands. This file records the earlier Python calibration migration only.
 
 ## Overview
 Updated test files to use calibration-based table creation instead of hardcoded factory methods (`standard_9ft_table()` and `standard_table_4k()`).

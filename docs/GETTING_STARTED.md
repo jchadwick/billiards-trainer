@@ -48,6 +48,10 @@ make lint-python
 make format-python
 ```
 
+These commands use the checked-in `uv.lock`; install `uv` before setting up
+the optional Python environment. The larger model-export dependencies remain
+separate from the compatibility and test environment.
+
 Install the larger Ultralytics/ONNX stack only when exporting a model for the
 Rust runtime:
 

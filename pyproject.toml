@@ -49,6 +49,9 @@ python-tooling = [
     "python-dotenv>=1.0.0",
     "jsonschema>=4.17.0",
     "scipy>=1.10.0",
+    # The retained macOS-only compatibility detector can still load existing
+    # CoreML packages; this does not make CoreML an active export format.
+    "coremltools>=9.0; sys_platform == 'darwin'",
 ]
 model-export = [
     "onnxruntime>=1.23.0",
@@ -210,10 +213,16 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
+# These packages belong to the opt-in model-export extra, not the lean
+# compatibility/test environment used by `make install-python-tools`.
 module = [
     "cv2.*",
+    "onnx",
+    "onnx.*",
     "scipy.*",
     "sklearn.*",
+    "torch",
+    "torch.*",
 ]
 ignore_missing_imports = true
 

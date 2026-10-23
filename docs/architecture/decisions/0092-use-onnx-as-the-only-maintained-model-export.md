@@ -18,18 +18,21 @@ dependency in the model-export installation group and suggested CoreML package
 generation was part of the supported model workflow.
 
 The existing CoreML compatibility implementation, model artifacts, and
-performance reports are historical/reference material. This decision concerns
-the maintained export tool and its optional authoring dependencies; it does
-not rewrite past results or change the Rust inference contract.
+performance reports remain offline reference material. Its macOS-only runtime
+dependency belongs to the optional Python compatibility extra, not the
+maintained model-export extra. This decision concerns the maintained export
+tool and its authoring dependencies; it does not rewrite past results or change
+the Rust inference contract.
 
 ## Decision
 
 The maintained model-export tool emits only a fixed-shape, lineage-bound ONNX
-artifact. Remove the CoreML format option and the `coremltools` dependency from
-the model-export extra. Keep ONNX as the shared model artifact for macOS and
-Linux Rust inference, including the direct OpenVINO backend. Retain Python
-CoreML detector code only as offline compatibility reference until that
-reference is removed; do not describe it as an active model-export workflow.
+artifact. Remove the CoreML format option and keep the `coremltools`
+dependency out of the model-export extra. Keep ONNX as the shared model
+artifact for macOS and Linux Rust inference, including the direct OpenVINO
+backend. Retain Python CoreML detector code only as offline compatibility
+reference until that reference is removed; do not describe it as an active
+model-export workflow.
 The exporter and Rust runtime share the v1 lineage manifest contract. Rust
 rejects manifests with an unsupported schema version before loading the model.
 

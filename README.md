@@ -68,5 +68,5 @@ thoughts/          Performance audit reports and investigation notes
 See [Rust perception/runtime notes](perception/README.md),
 [architecture decisions](docs/architecture/README.md), and the
 [Docker deployment guide](docs/DOCKER.md) for implementation and qualification
-details. Historical Python module documentation is in
-[`backend/README.md`](backend/README.md).
+details. Retained Python compatibility and test dependencies are declared in
+`pyproject.toml` and resolved by the checked-in `uv.lock`.

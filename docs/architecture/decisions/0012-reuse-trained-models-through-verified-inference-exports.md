@@ -227,9 +227,12 @@ maximum 300 detections. The selected backend is CoreML; its configured compute
 unit policy is `CPU_AND_NE`, but runtime partition and actual unit utilization
 are not exposed by this measurement. The auto-device selector previously
 reported MPS for this `.mlpackage`; it now selects CoreML on macOS, and model
-metadata separates backend family from physical device. `backend/requirements.txt`
-now installs CoreML Tools only on macOS, matching the platform-specific package
-format. On one five-ball annotated image, all five objects were detected, with
+metadata separates backend family from physical device. At the time of this
+experiment, `backend/requirements.txt` installed CoreML Tools only on macOS,
+matching the platform-specific package format. The retained Python
+compatibility dependencies are now declared in `pyproject.toml` and locked by
+`uv.lock`; CoreML Tools remains scoped to that macOS-only compatibility
+dependency. On one five-ball annotated image, all five objects were detected, with
 mean center error 2.91 px and maximum 5.33 px; only two centers were within
 2 px. This still-image sample is not production accuracy evidence or a
 performance result. The package exposes only generic `cue` and `ball` labels

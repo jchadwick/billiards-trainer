@@ -22,6 +22,7 @@
 # compatibility tests and optional model/data authoring.
 PYTHON_VENV_DIR ?= .venv
 PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
+UV ?= uv
 BACKEND_DIR := backend
 RUST_MANIFEST := perception/Cargo.toml
 RUST_FEATURES ?= camera-gstreamer-source
@@ -62,22 +63,17 @@ help: ## Show this help message
 # ===== Environment Setup =====
 
 install-python-tools: python-venv ## Install retained Python compatibility and reference-test dependencies
-	@$(PYTHON_VENV_DIR)/bin/python -m pip install --upgrade pip
-	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev]"
+	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --extra python-tooling --extra dev
 	@echo "$(GREEN)Optional Python authoring and compatibility-test dependencies installed.$(RESET)"
 
 install-model-tools: python-venv ## Install only optional model-export dependencies
-	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[model-export]"
+	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --inexact --extra model-export
 	@echo "$(GREEN)Optional ONNX model-export dependencies installed.$(RESET)"
 
 python-venv: ## Create the optional Python tooling environment
 	@echo "$(BLUE)Creating optional Python tooling environment...$(RESET)"
-	@if [ ! -x "$(PYTHON_VENV_DIR)/bin/python" ]; then \
-		python3 -m venv "$(PYTHON_VENV_DIR)"; \
-		echo "$(GREEN)Python tooling environment created in $(PYTHON_VENV_DIR)$(RESET)"; \
-	else \
-		echo "$(GREEN)Python tooling environment already exists$(RESET)"; \
-	fi
+	@command -v "$(UV)" >/dev/null 2>&1 || { echo "uv is required for the locked optional Python tooling environment; install uv first." >&2; exit 1; }
+	@$(UV) venv "$(PYTHON_VENV_DIR)"
 
 dev: setup-dirs ## Setup Rust and browser development dependencies without Python
 	@command -v cargo >/dev/null || { echo "cargo is required; install the Rust toolchain first."; exit 1; }

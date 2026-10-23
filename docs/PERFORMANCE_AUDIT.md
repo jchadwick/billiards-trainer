@@ -151,13 +151,15 @@ configurable on the command line. Source PTS is normalized to the first frame
 and remains media-time provenance; it is never described as camera exposure
 time.
 
-For tracking evidence, add detection-batch and scene-snapshot JSONL outputs,
-with explicit engine/session identities and all tracking settings. Add
-`--annotations` to score those snapshots against reviewed labels in the same
-run. The tool checks annotation video hash and selected-stream geometry. Without
-labels, the report explicitly marks accuracy unavailable. A replay with
-synthetic or incomplete labels is plumbing validation only; it cannot support
-a production setting recommendation.
+For tracking evidence, use the existing `--detection-batches-jsonl` and
+`--scene-snapshots-jsonl` outputs. Detection batches require explicit engine
+and source-session identities; scene snapshots require the tracking class and
+all effective tracking settings. Add `--annotations` with scene snapshots to
+score them against reviewed labels in the same run. The tool checks annotation
+video hash and selected-stream geometry. Without labels, the report explicitly
+marks accuracy unavailable. A replay with synthetic or incomplete labels is
+plumbing validation only; it cannot support a production setting
+recommendation.
 
 ## Network-capture fixture
 

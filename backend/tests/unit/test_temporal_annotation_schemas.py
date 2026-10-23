@@ -49,9 +49,9 @@ def _v1_sample() -> dict[str, Any]:
 
 def _v2_sample() -> dict[str, Any]:
     return json.loads(
-        (CONTRACT_ROOT / "v2/temporal-localization-annotations-v2.example.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            CONTRACT_ROOT / "v2/temporal-localization-annotations-v2.example.json"
+        ).read_text(encoding="utf-8")
     )
 
 
@@ -99,7 +99,8 @@ def test_physical_annotation_schema_accepts_complete_and_unavailable_frames(
     ],
 )
 def test_physical_annotation_schema_rejects_incomplete_or_ambiguous_truth(
-    validators: dict[int, Draft202012Validator], mutate,
+    validators: dict[int, Draft202012Validator],
+    mutate,
 ):
     sample = copy.deepcopy(_v2_sample())
     mutate(sample)
