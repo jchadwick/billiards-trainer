@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema  # type: ignore[import-untyped]
-import numpy as np
 import pytest
 from referencing import Registry, Resource
 
@@ -18,8 +17,6 @@ from backend.perception.capture_configuration import (
     ConfigurationReader,
     resolve_capture_settings,
 )
-from backend.vision.calibration.camera import CameraCalibrator
-from backend.vision.calibration.perception_export import build_table_calibration_v1
 
 _CROSS_RUNTIME_FIXTURE = (
     Path(__file__).resolve().parents[3]
@@ -41,12 +38,18 @@ _CAPTURE_SETTINGS_SCHEMA = _CROSS_RUNTIME_FIXTURE.with_name(
 _CALIBRATED_CAPTURE_SETTINGS_FIXTURE = _CROSS_RUNTIME_FIXTURE.with_name(
     "capture-settings-with-calibration.json"
 )
-_PYTHON_CALIBRATION_FIXTURE = (
-    _CROSS_RUNTIME_FIXTURE.parents[2]
-    / "calibration"
-    / "v1"
-    / "table-calibration-python-export.json"
-)
+
+
+def _shared_perspective_calibration() -> dict[str, object]:
+    """Load the calibration embedded in the shared cross-runtime fixture."""
+    fixture = json.loads(
+        _CALIBRATED_CAPTURE_SETTINGS_FIXTURE.read_text(encoding="utf-8")
+    )
+    requested = fixture["requested"]
+    assert isinstance(requested, dict)
+    calibration = requested["calibration"]
+    assert isinstance(calibration, dict)
+    return calibration
 
 
 def _resolve_v1(
@@ -472,7 +475,7 @@ def test_rectified_v2_calibration_dimensions_match_emitted_geometry() -> None:
         }
     )
     settings = resolve_capture_settings(configuration)
-    calibration = json.loads(_PYTHON_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
+    calibration = _shared_perspective_calibration()
     calibration["camera_profile_id"] = settings.requested["camera_profile_id"]
 
     with pytest.raises(CaptureConfigurationError, match="calibration dimensions"):
@@ -669,7 +672,7 @@ def test_calibration_bundle_must_match_the_effective_capture_profile() -> None:
         }
     )
     profile = _resolve_v1(settings)
-    calibration = json.loads(_PYTHON_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
+    calibration = _shared_perspective_calibration()
     calibration["camera_profile_id"] = profile.requested["camera_profile_id"]
     calibration["calibration_revision"] = 2
 
@@ -694,7 +697,7 @@ def test_calibration_bundle_rejects_unknown_schema_properties() -> None:
         }
     )
     profile = _resolve_v1(settings)
-    calibration = json.loads(_PYTHON_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
+    calibration = _shared_perspective_calibration()
     calibration["camera_profile_id"] = profile.requested["camera_profile_id"]
     calibration["unexpected"] = True
 
@@ -716,7 +719,7 @@ def test_calibration_bundle_rejects_non_finite_matrix_values() -> None:
         }
     )
     profile = _resolve_v1(settings)
-    calibration = json.loads(_PYTHON_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
+    calibration = _shared_perspective_calibration()
     calibration["camera_profile_id"] = profile.requested["camera_profile_id"]
     calibration["pixel_to_table_mm"][0][0] = float("nan")
 
@@ -724,9 +727,7 @@ def test_calibration_bundle_rejects_non_finite_matrix_values() -> None:
         _resolve_v1(settings, calibration_bundle=calibration)
 
 
-def test_exported_calibration_is_included_with_matching_profile_and_revisions(
-    tmp_path: Path,
-) -> None:
+def test_shared_calibration_bundle_is_bound_to_the_requested_profile() -> None:
     settings = live_camera_configuration(
         {
             "vision": {"camera": {"resolution": [1000, 500]}},
@@ -742,22 +743,8 @@ def test_exported_calibration_is_included_with_matching_profile_and_revisions(
     request = _resolve_v1(settings)
     profile_id = request.requested["camera_profile_id"]
     assert isinstance(profile_id, str)
-    calibrator = CameraCalibrator(str(tmp_path / "calibration-cache"))
-    transform = calibrator.calibrate_table_transform(
-        np.zeros((400, 800, 3), dtype=np.uint8),
-        [(0.0, 0.0), (800.0, 0.0), (800.0, 400.0), (0.0, 400.0)],
-        (2.0, 1.0),
-    )
-    assert transform is not None
-    calibration = build_table_calibration_v1(
-        transform,
-        calibration_revision=3,
-        camera_profile_id=profile_id,
-        rectification_revision=2,
-        image_space="rectified",
-        source_width_px=800,
-        source_height_px=400,
-    )
+    calibration = _shared_perspective_calibration()
+    calibration["camera_profile_id"] = profile_id
 
     resolved = _resolve_v1(settings, calibration_bundle=calibration)
 
@@ -769,7 +756,7 @@ def test_calibration_bearing_cross_runtime_fixture_is_schema_valid() -> None:
     fixture = json.loads(
         _CALIBRATED_CAPTURE_SETTINGS_FIXTURE.read_text(encoding="utf-8")
     )
-    calibration = json.loads(_PYTHON_CALIBRATION_FIXTURE.read_text(encoding="utf-8"))
+    calibration = _shared_perspective_calibration()
     configured = live_camera_configuration(
         {
             "vision": {"camera": {"resolution": [1000, 500]}},

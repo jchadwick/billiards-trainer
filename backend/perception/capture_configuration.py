@@ -125,8 +125,8 @@ def resolve_capture_settings(
     Camera mode, emitted RGB8 geometry, image-space interpretation, freshness,
     and memory limits are all explicit. Video-file paths are rejected because
     recorded replay has its own provider and must not masquerade as live input.
-    The optional calibration must already have been exported and validated
-    against this exact requested profile by ``perception_export``.
+    A caller-supplied calibration bundle is validated against this exact
+    requested profile before it is included in the request.
     """
     defaults = load_schema_reference()
     perception = _object_at(defaults, "perception")
