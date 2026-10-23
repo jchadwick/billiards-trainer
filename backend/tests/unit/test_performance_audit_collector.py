@@ -7,6 +7,7 @@ import os
 import struct
 import subprocess
 from collections.abc import Callable
+from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -108,6 +109,42 @@ def _capture_transport_document(
         },
         "repetitions": runs,
     }
+
+
+@lru_cache(maxsize=1)
+def _rust_timing_summary_executable() -> Path:
+    """Build and return this checkout's timing CLI, never a stale PATH binary."""
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(collector.ROOT / "perception" / "Cargo.toml"),
+            "--bin",
+            "billiards-performance-audit-timing-summary",
+        ],
+        cwd=collector.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+    target_directory = (
+        Path(configured_target_dir).expanduser()
+        if configured_target_dir
+        else collector.ROOT / "perception" / "target"
+    )
+    if not target_directory.is_absolute():
+        target_directory = collector.ROOT / target_directory
+    executable_name = "billiards-performance-audit-timing-summary"
+    if os.name == "nt":
+        executable_name += ".exe"
+    executable = target_directory / "debug" / executable_name
+    assert executable.is_file()
+    assert os.name == "nt" or os.access(executable, os.X_OK)
+    return executable
 
 
 def _capture_transport_args(
@@ -2407,6 +2444,8 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
         [
             *_rust_live_profile_args(settings_path),
             "--rust-live-timing-audit",
+            "--rust-live-timing-summary-executable",
+            str(_rust_timing_summary_executable()),
             "--output-root",
             str(tmp_path / "audits"),
             "--warmup",
@@ -2468,6 +2507,123 @@ def test_rust_live_timing_audit_correlates_rust_records_and_exports_separately(
     assert "Rust pipeline timing (opt-in)" in report
     assert "## Rust child resources" in report
     assert "Pressure frames" in report
+
+
+def test_rust_timing_summary_bridge_runs_native_summary_with_exact_state_join() -> None:
+    async def run_bridge() -> dict[str, Any]:
+        bridge = collector.RustLiveTimingSummaryBridge(
+            maximum_samples=8,
+            queue_capacity=8,
+            maximum_line_bytes=1_048_576,
+            write_timeout_seconds=1.0,
+            executable=_rust_timing_summary_executable(),
+        )
+        await bridge.start()
+        await bridge.begin_measurement(100)
+        await asyncio.sleep(0)
+        assert bridge.try_record(
+            {
+                "record_type": "frame",
+                "engine_instance_id": "engine-a",
+                "source_session_id": "session-a",
+                "frame_id": "frame-1",
+                "transport_sequence": 1,
+                "detection_count": 1,
+                "track_count": 1,
+                "durations_ms": {"inference": 2.4},
+                "audit_receiver_monotonic_ns": 120,
+            }
+        )
+        assert bridge.try_record(
+            {
+                "record_type": "footer",
+                "export_status": "complete",
+                "dropped_records": 0,
+                "audit_receiver_monotonic_ns": 190,
+            }
+        )
+        await bridge.end_measurement(200)
+        result = await bridge.finish(
+            [
+                {
+                    "engine_instance_id": "engine-a",
+                    "source_session_id": "session-a",
+                    "source_frame_id": "frame-1",
+                    "source_transport_sequence": 1,
+                }
+            ],
+            state_trace_truncated=False,
+        )
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        return {"result": result, "metadata": metadata}
+
+    output = asyncio.run(run_bridge())
+    summary = output["result"]["summary"]
+    assert output["metadata"]["status"] == "complete"
+    assert summary["status"] == "complete"
+    assert summary["state_timing_correlation"]["matched_frames"] == 1
+    assert summary["stage_durations_ms"]["inference"]["p50"] == 2.4
+
+
+def test_rust_timing_summary_bridge_bounds_callback_and_reports_startup_failure() -> (
+    None
+):
+    async def run_full_queue() -> tuple[dict[str, Any], dict[str, Any]]:
+        bridge = collector.RustLiveTimingSummaryBridge(
+            maximum_samples=8,
+            queue_capacity=1,
+            maximum_line_bytes=1_048_576,
+            write_timeout_seconds=1.0,
+            executable=_rust_timing_summary_executable(),
+        )
+        await bridge.start()
+        first_accepted = bridge.try_record(
+            {
+                "record_type": "footer",
+                "export_status": "complete",
+                "dropped_records": 0,
+            }
+        )
+        second_accepted = bridge.try_record({"record_type": "sample", "value": 2})
+        result = await bridge.finish([], state_trace_truncated=False)
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        return (
+            {
+                "first_accepted": first_accepted,
+                "second_accepted": second_accepted,
+                "result": result,
+            },
+            metadata,
+        )
+
+    outcome, metadata = asyncio.run(run_full_queue())
+    assert outcome["first_accepted"] is True
+    assert outcome["second_accepted"] is False
+    assert metadata["dropped_records"] == 1
+    assert metadata["status"] == "partial"
+    assert outcome["result"]["bridge_dropped_records"] == 1
+    assert outcome["result"]["summary"]["status"] == "partial"
+
+    async def run_missing_executable() -> tuple[dict[str, Any], dict[str, Any]]:
+        bridge = collector.RustLiveTimingSummaryBridge(
+            maximum_samples=8,
+            queue_capacity=1,
+            maximum_line_bytes=1_048_576,
+            write_timeout_seconds=0.1,
+            executable=Path("/missing/billiards-performance-audit-timing-summary"),
+        )
+        await bridge.start()
+        assert bridge.try_record({"record_type": "sample"}) is False
+        result = await bridge.finish([], state_trace_truncated=False)
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        return result, metadata
+
+    result, failure_metadata = asyncio.run(run_missing_executable())
+    assert result["summary"]["status"] == "partial"
+    assert "does not exist" in failure_metadata["failure"]
 
 
 def test_rust_live_qualification_preserves_partial_state_and_process_diagnostics(

@@ -20,6 +20,7 @@ import json
 import math
 import os
 import platform
+import shutil
 import socket
 import subprocess
 import sys
@@ -1085,6 +1086,473 @@ class RustLiveTimingAccumulator:
                 "p99": percentile(deadline_overruns, 0.99),
             },
         }
+
+
+class RustLiveTimingSummaryBridge:
+    """Forward bounded timing JSONL to the Rust report accumulator.
+
+    The callback path only enqueues a Python object with ``put_nowait``. JSON
+    serialization and pipe writes run on a separate task; a full queue or a
+    failed child is recorded as audit loss and can never stall state handling.
+    Collector ``perf_counter_ns`` values cross the bridge unchanged because
+    the Rust process must not substitute a different clock domain.
+    """
+
+    _EXECUTABLE_NAME = "billiards-performance-audit-timing-summary"
+    _MAXIMUM_LINE_BYTES = 16 * 1024 * 1024
+    _FINISH_SENTINEL = object()
+
+    def __init__(
+        self,
+        *,
+        maximum_samples: int,
+        queue_capacity: int,
+        maximum_line_bytes: int,
+        write_timeout_seconds: float,
+        executable: str | Path | None = None,
+    ) -> None:
+        if maximum_samples < 1 or queue_capacity < 1:
+            raise ValueError("timing bridge sample and queue limits must be positive")
+        if not 1 <= maximum_line_bytes <= self._MAXIMUM_LINE_BYTES:
+            raise ValueError("timing bridge maximum line size is outside Rust limits")
+        if not math.isfinite(write_timeout_seconds) or write_timeout_seconds <= 0:
+            raise ValueError("timing bridge write timeout must be positive")
+        self.maximum_samples = maximum_samples
+        self.queue_capacity = queue_capacity
+        self.maximum_line_bytes = maximum_line_bytes
+        self.write_timeout_seconds = write_timeout_seconds
+        self.configured_executable = executable
+        self.executable_path: Path | None = None
+        self._queue: asyncio.Queue[dict[str, Any] | object] = asyncio.Queue(
+            maxsize=queue_capacity
+        )
+        self._process: asyncio.subprocess.Process | None = None
+        self._writer_task: asyncio.Task[None] | None = None
+        self._result: dict[str, Any] | None = None
+        self._failure: str | None = None
+        self._dropped_records = 0
+        self._callback_rejected_records = 0
+        self._upstream_dropped_records = 0
+        self._closed = False
+        self._finished = False
+        self._return_code: int | None = None
+        self._stderr_tail = ""
+
+    @classmethod
+    def resolve_executable(cls, configured: str | Path | None = None) -> Path:
+        """Resolve an override, PATH installation, or existing Cargo artifact."""
+        executable_name = cls._EXECUTABLE_NAME
+        if os.name == "nt":
+            executable_name += ".exe"
+        if configured is not None:
+            path = Path(configured).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"timing summary executable does not exist: {path}"
+                )
+            if os.name != "nt" and not os.access(path, os.X_OK):
+                raise PermissionError(
+                    f"timing summary executable is not executable: {path}"
+                )
+            return path
+
+        configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+        target_directories = [
+            Path(configured_target_dir).expanduser() if configured_target_dir else None,
+            ROOT / "perception" / "target",
+            ROOT / "target",
+        ]
+        candidates: list[Path] = []
+        for target_directory in target_directories:
+            if target_directory is None:
+                continue
+            if not target_directory.is_absolute():
+                target_directory = Path.cwd() / target_directory
+            candidates.extend(
+                target_directory / profile / executable_name
+                for profile in ("release", "debug")
+            )
+        for candidate in candidates:
+            if candidate.is_file() and (
+                os.name == "nt" or os.access(candidate, os.X_OK)
+            ):
+                return candidate.resolve()
+        on_path = shutil.which(executable_name)
+        if on_path:
+            return Path(on_path).resolve()
+        searched = ", ".join(str(candidate) for candidate in candidates)
+        raise FileNotFoundError(
+            f"could not find {executable_name} on PATH or in Cargo target directories; "
+            f"build it with `cargo build --manifest-path {ROOT / 'perception' / 'Cargo.toml'} "
+            f"--bin {cls._EXECUTABLE_NAME}` (searched: {searched})"
+        )
+
+    async def start(self) -> None:
+        """Start the native summarizer without making failure fatal to capture."""
+        if self._process is not None or self._closed:
+            return
+        try:
+            self.executable_path = self.resolve_executable(self.configured_executable)
+            self._process = await asyncio.create_subprocess_exec(
+                str(self.executable_path),
+                "--maximum-samples",
+                str(self.maximum_samples),
+                "--maximum-line-bytes",
+                str(self.maximum_line_bytes),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (OSError, ValueError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+            return
+        self._writer_task = asyncio.create_task(
+            self._write_messages(), name="rust-live-timing-summary-writer"
+        )
+
+    def try_record(self, record: dict[str, Any]) -> bool:
+        """Nonblocking ingress callback; return false when audit data is lost."""
+        if (
+            self._process is None
+            or self._failure is not None
+            or self._closed
+            or (self._writer_task is not None and self._writer_task.done())
+        ):
+            self._dropped_records += 1
+            self._callback_rejected_records += 1
+            return False
+        try:
+            self._queue.put_nowait({"kind": "record", "record": record})
+        except asyncio.QueueFull:
+            self._dropped_records += 1
+            self._callback_rejected_records += 1
+            return False
+        return True
+
+    async def begin_measurement(self, monotonic_ns: int) -> None:
+        await self._enqueue_control(
+            {"kind": "begin_measurement", "monotonic_ns": monotonic_ns}
+        )
+
+    async def end_measurement(self, monotonic_ns: int) -> None:
+        await self._enqueue_control(
+            {"kind": "end_measurement", "monotonic_ns": monotonic_ns}
+        )
+
+    async def _enqueue_control(self, envelope: dict[str, Any]) -> None:
+        if (
+            self._process is None
+            or self._failure is not None
+            or self._closed
+            or (self._writer_task is not None and self._writer_task.done())
+        ):
+            return
+        try:
+            await asyncio.wait_for(
+                self._queue.put(envelope), timeout=self.write_timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            self._record_failure("timed out enqueueing timing summary control")
+            return
+        if self._failure is not None or (
+            self._writer_task is not None and self._writer_task.done()
+        ):
+            self._record_failure(
+                "timing summary writer stopped while enqueueing control"
+            )
+            self._discard_queued_records()
+
+    async def _write_messages(self) -> None:
+        process = self._process
+        if process is None or process.stdin is None:
+            return
+        envelope: dict[str, Any] | object | None = None
+        try:
+            while True:
+                envelope = await self._queue.get()
+                if envelope is self._FINISH_SENTINEL:
+                    self._queue.task_done()
+                    break
+                try:
+                    encoded = (
+                        json.dumps(envelope, separators=(",", ":"), allow_nan=False)
+                        + "\n"
+                    ).encode("utf-8")
+                    if len(encoded) > self.maximum_line_bytes:
+                        raise ValueError(
+                            "timing bridge JSONL record exceeds configured maximum "
+                            f"of {self.maximum_line_bytes} bytes"
+                        )
+                    process.stdin.write(encoded)
+                    await asyncio.wait_for(
+                        process.stdin.drain(), timeout=self.write_timeout_seconds
+                    )
+                    envelope = None
+                finally:
+                    self._queue.task_done()
+        except asyncio.CancelledError:
+            if isinstance(envelope, dict) and envelope.get("kind") == "record":
+                self._dropped_records += 1
+            self._record_failure("Rust timing summary writer was cancelled")
+            self._discard_queued_records()
+            raise
+        except Exception as error:
+            if isinstance(envelope, dict) and envelope.get("kind") == "record":
+                self._dropped_records += 1
+            self._record_failure(f"{type(error).__name__}: {error}")
+            self._discard_queued_records()
+        finally:
+            try:
+                process.stdin.close()
+            except (BrokenPipeError, ConnectionError, OSError):
+                pass
+
+    def _discard_queued_records(self) -> None:
+        while True:
+            try:
+                queued = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if isinstance(queued, dict) and queued.get("kind") == "record":
+                self._dropped_records += 1
+            self._queue.task_done()
+
+    def _record_failure(self, message: str) -> None:
+        if self._failure is None:
+            self._failure = message
+
+    async def finish(
+        self,
+        state_trace: list[dict[str, Any]],
+        *,
+        state_trace_truncated: bool,
+        upstream_dropped_records: int = 0,
+    ) -> dict[str, Any]:
+        """Send retained identity-only state entries and return Rust summaries."""
+        if self._finished:
+            return self.summary()
+        self._finished = True
+        # The ingress loss count includes callback refusals. Use the larger of
+        # the caller's total and our local refusals to avoid counting those
+        # same records twice while still making a directly used bridge honest.
+        upstream_drops = max(
+            max(0, upstream_dropped_records), self._callback_rejected_records
+        )
+        self._upstream_dropped_records = upstream_drops
+        if self._process is None or self._writer_task is None:
+            return self.summary()
+        for event in state_trace:
+            identity = self._state_identity(event)
+            if identity is not None and self._failure is None:
+                await self._enqueue_control({"kind": "state", "state": identity})
+        # Synchronous callback refusals are already included in ingress's
+        # consumer loss count. Count later writer-side failures separately to
+        # avoid double-counting the same callback rejection.
+        writer_drops = max(0, self._dropped_records - self._callback_rejected_records)
+        total_drops = upstream_drops + writer_drops
+        if self._failure is None:
+            await self._enqueue_control(
+                {
+                    "kind": "finish",
+                    "state_trace_truncated": bool(state_trace_truncated),
+                    "bridge_dropped_records": total_drops,
+                }
+            )
+        if self._writer_task is not None and not self._writer_task.done():
+            try:
+                await asyncio.wait_for(
+                    self._queue.put(self._FINISH_SENTINEL),
+                    timeout=self.write_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                self._record_failure("timed out stopping Rust timing summary writer")
+                await self._stop_process()
+        try:
+            await asyncio.wait_for(
+                self._writer_task,
+                timeout=max(
+                    self.write_timeout_seconds,
+                    float(
+                        config.get(
+                            "performance_audit.export_drain_timeout_seconds", 5.0
+                        )
+                    ),
+                ),
+            )
+            await self._collect_process_result()
+        except (asyncio.TimeoutError, OSError, RuntimeError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+            await self._stop_process()
+        if self._process is not None and self._return_code not in (None, 0):
+            self._record_failure(
+                f"Rust timing summarizer exited with status {self._return_code}: "
+                f"{self._stderr_tail.strip()}"
+            )
+        if self._failure is None and self._result is None:
+            self._record_failure("Rust timing summarizer returned no JSON result")
+        if self._failure is not None:
+            return self.summary()
+        return self._result or self.summary()
+
+    @staticmethod
+    def _state_identity(event: dict[str, Any]) -> dict[str, Any] | None:
+        engine = event.get("engine_instance_id")
+        session = event.get("source_session_id")
+        frame = event.get("source_frame_id")
+        sequence = event.get("source_transport_sequence")
+        if (
+            not isinstance(engine, str)
+            or not engine
+            or not isinstance(session, str)
+            or not session
+            or not isinstance(frame, str)
+            or not frame
+            or not isinstance(sequence, int)
+            or isinstance(sequence, bool)
+            or sequence < 0
+        ):
+            return None
+        return {
+            "engine_instance_id": engine,
+            "source_session_id": session,
+            "source_frame_id": frame,
+            "source_transport_sequence": sequence,
+        }
+
+    async def _collect_process_result(self) -> None:
+        process = self._process
+        if process is None:
+            return
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=self.write_timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            await self._stop_process()
+            raise
+        self._return_code = process.returncode
+        self._stderr_tail = stderr.decode("utf-8", errors="replace")[-4096:]
+        if stdout:
+            try:
+                result = json.loads(stdout)
+                if not isinstance(result, dict) or not isinstance(
+                    result.get("summary"), dict
+                ):
+                    raise ValueError("timing summary output has an invalid shape")
+                self._result = result
+            except (json.JSONDecodeError, ValueError) as error:
+                self._record_failure(f"invalid Rust timing summary output: {error}")
+        elif self._return_code == 0:
+            self._record_failure("Rust timing summarizer produced empty output")
+
+    async def _stop_process(self) -> None:
+        process = self._process
+        if process is None or process.returncode is not None:
+            return
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=self.write_timeout_seconds)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+        self._return_code = process.returncode
+
+    def summary(self) -> dict[str, Any]:
+        """Return the native result or an explicit partial diagnostic result."""
+        if self._result is not None:
+            result = dict(self._result)
+            writer_drops = max(
+                0, self._dropped_records - self._callback_rejected_records
+            )
+            bridge_drops = self._upstream_dropped_records + writer_drops
+            reported_bridge_drops = result.get("bridge_dropped_records", 0)
+            if isinstance(reported_bridge_drops, int) and not isinstance(
+                reported_bridge_drops, bool
+            ):
+                bridge_drops = max(bridge_drops, reported_bridge_drops)
+            result["bridge_dropped_records"] = bridge_drops
+            summary = result.get("summary")
+            if isinstance(summary, dict) and (
+                self._failure is not None or bridge_drops > 0
+            ):
+                summary = dict(summary)
+                summary["status"] = "partial"
+                if bridge_drops > 0:
+                    summary["bridge_dropped_records"] = bridge_drops
+                if self._failure is not None:
+                    summary["status"] = "partial"
+                    summary["bridge_failure"] = self._failure
+                result["summary"] = summary
+            return result
+        return {
+            "summary": {
+                "status": "partial",
+                "bridge_failure": self._failure or "summary has not completed",
+                "bridge_dropped_records": self._upstream_dropped_records
+                + max(0, self._dropped_records - self._callback_rejected_records),
+                "retention_limit": self.maximum_samples,
+            },
+            "stale_inference_timing_diagnostic": {
+                "status": "unavailable",
+                "reason": self._failure or "summary has not completed",
+            },
+            "bridge_dropped_records": self._upstream_dropped_records
+            + max(0, self._dropped_records - self._callback_rejected_records),
+        }
+
+    def failure_metadata(self) -> dict[str, Any]:
+        writer_dropped_records = max(
+            0, self._dropped_records - self._callback_rejected_records
+        )
+        return {
+            "status": (
+                "partial"
+                if self._failure is not None
+                or self._dropped_records > 0
+                or self._upstream_dropped_records > 0
+                else "complete"
+            ),
+            "executable": str(self.executable_path) if self.executable_path else None,
+            "failure": self._failure,
+            "dropped_records": self._dropped_records,
+            "callback_rejected_records": self._callback_rejected_records,
+            "writer_dropped_records": writer_dropped_records,
+            "upstream_dropped_records": self._upstream_dropped_records,
+            "queue_capacity": self.queue_capacity,
+            "maximum_samples": self.maximum_samples,
+            "maximum_line_bytes": self.maximum_line_bytes,
+            "write_timeout_seconds": self.write_timeout_seconds,
+            "return_code": self._return_code,
+            "stderr_tail": self._stderr_tail,
+        }
+
+    async def close(self) -> None:
+        """Close a started bridge even when capture exits before finalization."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._writer_task is not None and not self._writer_task.done():
+            try:
+                await asyncio.wait_for(
+                    self._queue.put(self._FINISH_SENTINEL),
+                    timeout=self.write_timeout_seconds,
+                )
+                await asyncio.wait_for(
+                    self._writer_task,
+                    timeout=max(
+                        self.write_timeout_seconds,
+                        float(
+                            config.get(
+                                "performance_audit.export_drain_timeout_seconds", 5.0
+                            )
+                        ),
+                    ),
+                )
+            except asyncio.TimeoutError:
+                self._record_failure("timed out closing Rust timing summary writer")
+                await self._stop_process()
+        if self._process is not None and self._process.returncode is None:
+            await self._stop_process()
 
 
 class RustLiveChildResourceSampler:
@@ -3897,6 +4365,8 @@ async def _collect_rust_live_qualification_repetition(
     audit_session_results: list[dict[str, Any]] | None = None,
     timing_recorder: AsyncAuditRecorder | None = None,
     supervisor_factory: Callable[..., Any] | None = None,
+    timing_summary_bridge_factory: Callable[..., Any] | None = None,
+    timing_summary_executable: str | Path | None = None,
 ) -> dict[str, Any]:
     """Measure one bounded live-camera run through the established supervisor."""
     from backend.perception.rust_live_supervisor import (
@@ -3906,16 +4376,26 @@ async def _collect_rust_live_qualification_repetition(
     from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
 
     factory = supervisor_factory or RustLiveSupervisor
-    timing_accumulator = (
-        RustLiveTimingAccumulator(history_size) if timing_audit_enabled else None
-    )
+    timing_bridge = None
     timing_ingress = None
-    if timing_accumulator is not None:
+    if timing_audit_enabled:
+        bridge_factory = timing_summary_bridge_factory or RustLiveTimingSummaryBridge
+        maximum_line_bytes = min(
+            max(settings.maximum_message_bytes + 4096, 1_048_576),
+            RustLiveTimingSummaryBridge._MAXIMUM_LINE_BYTES,
+        )
+        timing_bridge = bridge_factory(
+            maximum_samples=history_size,
+            queue_capacity=audit_queue_capacity,
+            maximum_line_bytes=maximum_line_bytes,
+            write_timeout_seconds=settings.write_timeout_ms / 1000,
+            executable=timing_summary_executable,
+        )
 
         def on_timing_record(record: dict[str, Any]) -> bool:
-            timing_accumulator.add(record)
+            bridge_accepted = timing_bridge.try_record(record)
             audit_recorder = timing_recorder or recorder
-            return audit_recorder.record(
+            event_accepted = audit_recorder.record(
                 {
                     "event_type": "rust_live_pipeline_timing_record",
                     "repetition": repetition,
@@ -3926,6 +4406,7 @@ async def _collect_rust_live_qualification_repetition(
                     "rust_record": record,
                 }
             )
+            return bridge_accepted and event_accepted
 
         timing_ingress = RustLiveAuditIngress(
             queue_capacity=audit_queue_capacity,
@@ -3962,7 +4443,11 @@ async def _collect_rust_live_qualification_repetition(
         "sample_count": 0,
     }
     measurement_failure: dict[str, Any] | None = None
+    measurement_started_ns: int | None = None
+    measurement_ended_ns: int | None = None
     try:
+        if timing_bridge is not None:
+            await timing_bridge.start()
         if timing_ingress is not None:
             await timing_ingress.start()
         startup_status = await supervisor.start()
@@ -4001,8 +4486,8 @@ async def _collect_rust_live_qualification_repetition(
             )
 
         measurement_started_ns = broadcaster.begin_measurement()
-        if timing_accumulator is not None:
-            timing_accumulator.begin_measurement(measurement_started_ns)
+        if timing_bridge is not None:
+            await timing_bridge.begin_measurement(measurement_started_ns)
         enable_transport_audit = getattr(supervisor, "enable_transport_audit", None)
         if callable(enable_transport_audit):
             enable_transport_audit()
@@ -4024,8 +4509,8 @@ async def _collect_rust_live_qualification_repetition(
                     final_measurement_status
                 )
         measurement_ended_ns = broadcaster.end_measurement()
-        if timing_accumulator is not None:
-            timing_accumulator.end_measurement(measurement_ended_ns)
+        if timing_bridge is not None:
+            await timing_bridge.end_measurement(measurement_ended_ns)
         if scene_transport_audit_enabled:
             scene_transport_summary = _finish_scene_transport_audit(supervisor)
             scene_transport_audit_finished = True
@@ -4049,8 +4534,8 @@ async def _collect_rust_live_qualification_repetition(
     finally:
         if broadcaster._measurement_open:
             measurement_ended_ns = broadcaster.end_measurement()
-            if timing_accumulator is not None:
-                timing_accumulator.end_measurement(measurement_ended_ns)
+            if timing_bridge is not None:
+                await timing_bridge.end_measurement(measurement_ended_ns)
         try:
             if resource_sampler is not None:
                 resource_sampler.close()
@@ -4064,16 +4549,8 @@ async def _collect_rust_live_qualification_repetition(
                 if timing_ingress is not None:
                     await timing_ingress.close()
                     timing_ingress_summary = timing_ingress.summary()
-                if audit_session_results is not None:
-                    audit_session_result = {
-                        "repetition": repetition,
-                        **timing_ingress_summary,
-                    }
-                    if timing_accumulator is not None:
-                        audit_session_result["stale_inference_timing_diagnostic"] = (
-                            timing_accumulator.stale_inference_diagnostic_summary()
-                        )
-                    audit_session_results.append(audit_session_result)
+                if timing_bridge is not None and sys.exc_info()[0] is not None:
+                    await timing_bridge.close()
 
     final_status = supervisor.status
     worker_stats = getattr(supervisor, "worker_stats", None)
@@ -4098,24 +4575,85 @@ async def _collect_rust_live_qualification_repetition(
         if capture_acknowledgement is not None
         else None
     )
-    duration = (measurement_ended_ns - measurement_started_ns) / 1_000_000_000
-    state_summary = broadcaster.measurement.summary(duration)
+    duration = (
+        (measurement_ended_ns - measurement_started_ns) / 1_000_000_000
+        if measurement_started_ns is not None and measurement_ended_ns is not None
+        else 0.0
+    )
+    state_summary = (
+        broadcaster.measurement.summary(duration)
+        if broadcaster._measurement is not None
+        else {
+            "duration_seconds": duration,
+            "state_messages_received": 0,
+            "state_messages_per_second": 0,
+            "unique_source_observations": 0,
+            "unique_observations_per_second": 0,
+            "retained_state_trace_count": 0,
+            "retained_state_trace_limit": history_size,
+            "state_trace_truncated": False,
+            "accuracy_evidence": "unavailable without temporal ground-truth labels",
+        }
+    )
+    timing_result = None
+    try:
+        if timing_bridge is not None:
+            timing_result = await timing_bridge.finish(
+                (
+                    broadcaster.measurement.retained_trace
+                    if broadcaster._measurement is not None
+                    else []
+                ),
+                state_trace_truncated=state_summary["state_trace_truncated"],
+                upstream_dropped_records=(
+                    timing_ingress_summary.get("consumer_dropped_records") or 0
+                ),
+            )
+    finally:
+        if timing_bridge is not None:
+            bridge_close_task = asyncio.create_task(timing_bridge.close())
+            try:
+                await asyncio.shield(bridge_close_task)
+            except asyncio.CancelledError:
+                await bridge_close_task
+                raise
     timing_summary = (
-        timing_accumulator.summary(
-            broadcaster.measurement.retained_trace,
-            state_trace_truncated=state_summary["state_trace_truncated"],
-        )
-        if timing_accumulator is not None
+        timing_result.get("summary", {})
+        if timing_result is not None
         else {"status": "disabled"}
     )
+    stale_diagnostic = (
+        timing_result.get("stale_inference_timing_diagnostic", {})
+        if timing_result is not None
+        else None
+    )
     if timing_ingress is not None:
+        bridge_metadata = (
+            timing_bridge.failure_metadata()
+            if timing_bridge is not None
+            else {"status": "unavailable", "failure": "bridge was not created"}
+        )
         timing_summary["status"] = (
             "complete"
             if timing_summary.get("status") == "complete"
             and timing_ingress_summary.get("status") == "complete"
+            and bridge_metadata.get("status") == "complete"
             else "partial"
         )
         timing_summary["ingress_status"] = timing_ingress_summary
+        timing_summary["bridge"] = bridge_metadata
+    if audit_session_results is not None:
+        audit_session_result = {
+            "repetition": repetition,
+            **timing_ingress_summary,
+        }
+        if stale_diagnostic is not None:
+            audit_session_result["stale_inference_timing_diagnostic"] = stale_diagnostic
+        if timing_bridge is not None:
+            audit_session_result["timing_summary_bridge"] = (
+                timing_bridge.failure_metadata()
+            )
+        audit_session_results.append(audit_session_result)
     return {
         "repetition": repetition,
         "measurement_status": "partial" if measurement_failure else "complete",
@@ -4550,6 +5088,9 @@ async def _run_rust_live_qualification(
                     audit_session_results=audit_session_results,
                     timing_recorder=timing_recorder,
                     supervisor_factory=supervisor_factory,
+                    timing_summary_executable=getattr(
+                        args, "rust_live_timing_summary_executable", None
+                    ),
                 )
             )
         capture_transport_summary = None
@@ -4569,6 +5110,20 @@ async def _run_rust_live_qualification(
                     config.get("performance_audit.export_drain_timeout_seconds", 5.0)
                 )
             )
+        timing_event_export_status = (
+            timing_recorder.status()
+            if timing_recorder is not None
+            else {"status": "disabled"}
+        )
+        if timing_recorder is not None and (
+            timing_event_export_status.get("dropped_events", 0) > 0
+            or timing_event_export_status.get("export_errors", 0) > 0
+        ):
+            for repetition_result in repetitions:
+                repetition_result["rust_pipeline_timing"]["status"] = "partial"
+                repetition_result["rust_pipeline_timing"][
+                    "timing_event_export"
+                ] = timing_event_export_status
         requested_capture = settings.capture_settings.requested
         inference = settings.inference
         metadata = _project_metadata()
@@ -4671,6 +5226,12 @@ async def _run_rust_live_qualification(
                     "rust_live_timing_audit_maximum_record_bytes": (
                         settings.maximum_message_bytes if timing_audit_enabled else None
                     ),
+                    "rust_live_timing_summary_executable": (
+                        str(args.rust_live_timing_summary_executable)
+                        if timing_audit_enabled
+                        and getattr(args, "rust_live_timing_summary_executable", None)
+                        else None
+                    ),
                 },
             },
             "repetitions": repetitions,
@@ -4685,11 +5246,7 @@ async def _run_rust_live_qualification(
                 if timing_recorder is not None
                 else None
             ),
-            "rust_pipeline_timing_event_export": (
-                timing_recorder.status()
-                if timing_recorder is not None
-                else {"status": "disabled"}
-            ),
+            "rust_pipeline_timing_event_export": (timing_event_export_status),
             "source_timestamp_claim": "read_completion_only; camera exposure time is unavailable",
             "source_to_state_latency": {
                 "status": "unavailable_without_verified_shared_monotonic_clock_domain"
@@ -5064,6 +5621,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Enable the bounded Rust pipeline timing side channel; requires "
             "--rust-live-qualification and adds instrumentation overhead"
+        ),
+    )
+    parser.add_argument(
+        "--rust-live-timing-summary-executable",
+        type=Path,
+        help=(
+            "Optional path to the Rust timing-summary executable; otherwise the "
+            "collector searches PATH and existing Cargo debug/release artifacts"
         ),
     )
     parser.add_argument(
