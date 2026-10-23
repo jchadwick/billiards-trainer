@@ -493,3 +493,35 @@ path remain untested.
   model-dependent skip at 82.48% coverage. The deployment test passed in both
   Rust configurations. `make lint format-check`, `make build`, `git diff
   --check`, and validation of all 95 ADRs passed.
+
+### Final tooling relevance and reproducibility pass (2026-10-23)
+
+- Split dependency audits into independently runnable Rust and browser checks.
+  The combined `make security-check` now fails if `cargo-audit` is missing,
+  rather than reporting success after only the browser audit. `make test-tooling`
+  verifies both missing-auditor failure and Rust audit command dispatch. The
+  browser audit reports zero vulnerabilities; the Rust audit could not be run
+  on this development machine because `cargo-audit` is not installed.
+- Shell CI now checks the active `.githooks/pre-commit` as well as all tracked
+  shell scripts. The deployment package and restart smoke tests pass.
+- Python installs now use the committed `uv.lock` in Make and both Python CI
+  jobs. `backend/requirements.txt` was removed as a duplicate unbounded source;
+  the model-export extra remains separate from the lean compatibility/test
+  environment. A fresh locked compatibility/test environment passed 2,822 tests
+  with one model-dependent skip at 82.48% coverage, Ruff, strict mypy, Black,
+  and isort. Model export itself remains a separately installed opt-in path.
+- Removed the 936-line backend README and 2,014 lines of stale Python module
+  specifications and streaming proposals. They prescribed retired launchers,
+  an unimplemented multi-stream server, and numbered-ball behavior not present
+  in the product. Current API, coordinate, runtime, and ADR documentation is
+  retained as the authority.
+- Corrected the recorded-video guide to describe the existing raw-batch and
+  scene JSONL options and same-run reviewed-label scoring, instead of proposing
+  flags already implemented by the Rust replay tool. Removed a tracked test
+  file's formatting drift exposed by the pinned formatter.
+- Validation after this pass: Rust all-target and browser tests passed;
+  deployment and tooling smoke tests passed; Python compatibility tests and
+  focused exporter/schema tests passed; `make lint format-check`, Python lint,
+  type checks and formatting checks passed; all five workflow YAML files
+  parsed; `uv lock --check`, whitespace checks, and validation of all 97 ADRs
+  passed.
