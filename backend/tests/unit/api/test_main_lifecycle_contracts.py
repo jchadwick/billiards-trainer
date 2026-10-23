@@ -166,10 +166,6 @@ def test_middleware_configuration_uses_environment_specific_and_nested_values() 
                 "middleware": {
                     "logging": {"excluded_paths": ["/private"], "log_body": False},
                     "tracing": {"sample_rate_development": 0.37},
-                    "performance": {
-                        "enable_system_metrics": False,
-                        "slow_request_threshold_ms": 12,
-                    },
                 }
             }
         },
@@ -178,8 +174,7 @@ def test_middleware_configuration_uses_environment_specific_and_nested_values() 
     assert middleware["logging"].excluded_paths == {"/private"}
     assert middleware["logging"].log_body is True
     assert middleware["tracing"].sample_rate == 0.37
-    assert middleware["performance"].enable_system_metrics is False
-    assert middleware["performance"].slow_request_threshold_ms == 12
+    assert set(middleware) == {"error_handler", "logging", "metrics", "tracing"}
 
 
 @pytest.mark.asyncio

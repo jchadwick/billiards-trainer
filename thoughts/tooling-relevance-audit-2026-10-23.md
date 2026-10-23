@@ -670,3 +670,48 @@ path remain untested.
   camera/provider qualification, numbered-ball identity, browser rendering
   interference, and a future maintained YAML parser choice remain separate
   evidence gaps.
+
+### Final tool-wide recheck (2026-10-23)
+
+The caller/value/verification review was applied to the already-ported Rust
+commands as well as the older Python, shell, Make, deployment, and browser
+tools. It found one remaining mismatch with ADR-0088: the retired Python API
+`PerformanceMiddleware` still lived in a roughly 600-line module, had a large
+behavioral test file, and was installed by the test-only compatibility app.
+That monitor duplicated request timing, started its own resource-polling
+thread, and had no supported product caller. Removed the module, its test, its
+configuration assembly, and the compatibility-fixture installation. The
+separate compatibility request-metrics middleware and Rust live/replay audit
+remain; no supported runtime behavior depended on the retired monitor.
+
+The latest Rust saved-video replay used the 1,177-frame `demo2_short.mp4`
+recording with the current trained ONNX model. PTS-paced latest-frame mode
+processed 810 frames, replaced 367 queued frames, and measured 64.84 ms p50 /
+80.97 ms p95 source-to-inference completion (20.58 processed observations/s).
+The [run report](performance-audits/temporal-localization-prep-20261023/video-replay-report.md)
+records model/input hashes, settings, and the measurement boundary. Temporal
+accuracy is unavailable because no reviewed annotation file was supplied; the
+run supports tool/integration evaluation and annotation preparation only.
+
+The remaining Python executable tools have distinct, current reasons to stay:
+the ONNX exporter bridges the supported upstream Ultralytics checkpoint into
+the Rust model contract, and the public-state fixture generator produces the
+cross-runtime oracle while Python compatibility tests remain. Retired Python
+server/capture commands now only reject obsolete launch requests with Rust
+guidance. No extra general-purpose debugger or evaluator with a validated
+caller remains. The Rust camera-discovery, saved-video replay, live-audit,
+temporal-import, and temporal-evaluation commands have distinct supported
+roles and command-level tests.
+
+The final residue scan also found that `make clean` still removed a
+`profile.stats` file after its Python profiler producer had been retired. That
+orphan cleanup was removed. Rust's separate ONNX Runtime provider-profile
+probe remains because it records observed provider node placement; it is not a
+live-pipeline timing tool and has dedicated tests.
+
+Verification after removing the residual Python profiler: `make test-python`
+passed 2,801 tests at 82.39% coverage (above the 80% gate), `make lint-python`
+passed Ruff and strict mypy, and the retired-module reference search returned
+no hits. The focused three-file pytest run passed 39 tests; its isolated
+coverage invocation is not meaningful because repository coverage is defined
+over the whole backend suite.

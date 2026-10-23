@@ -227,7 +227,6 @@ clean: ## Clean build artifacts and temporary files
 	rm -rf .pytest_cache/
 	rm -rf .mypy_cache/
 	rm -rf .ruff_cache/
-	rm -f profile.stats
 	@echo "$(GREEN)Cleanup complete!$(RESET)"
 
 clean-logs: ## Clean log files

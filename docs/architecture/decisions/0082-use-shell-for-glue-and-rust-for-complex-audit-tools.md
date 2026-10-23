@@ -9,11 +9,12 @@
 ## Supersession note (2026-10-23)
 
 ADR-0085 supersedes this record's temporary Python collector-retention and
-parity requirements. The shell-for-glue and Rust-for-complex-tooling decision
-remains in force. The retired Python collector/profile benchmark and their
-collector-only Rust adapters are historical; the current state/trajectory audit
-and temporal localization evaluation are Rust-owned. Viewer interference and
-recorded-video replay remain explicit gaps rather than retained Python tools.
+parity requirements. ADR-0035 and ADR-0083 later record the retirement of the
+Python temporal scorer and CVAT importer after Rust parity. The shell-for-glue
+and Rust-for-complex-tooling decision remains in force. The current
+state/trajectory audit, recorded-video replay, and temporal localization
+evaluation are Rust-owned. Viewer interference remains an evidence gap rather
+than a retained Python tool.
 
 ## Context
 
@@ -190,13 +191,12 @@ The collector leaves cross-process trajectory latency unavailable because it
 does not yet verify a shared monotonic clock domain. Its Python summary engine
 remains an independent differential reference.
 
-The Python collector is still not replaced. Its remaining migration work
-includes viewer workload, server event-window and clock joins, baseline
-selection, full camera-profile provenance, and end-to-end report orchestration
-not yet covered by the Rust runner. The Rust runner owns managed full-server
-lifecycle for state and optional trajectory audits and has both loopback
-protocol coverage and a remote-input smoke check. Accuracy remains unavailable
-without temporal labels.
+At the time this migration record was written, the Python collector was still
+retained as a differential reference. ADR-0085 superseded that temporary
+retention after the Rust runner gained the accepted state, trajectory receipt,
+resource, and report contracts. The remaining viewer-interference work is an
+evidence gap; it is not a reason to keep the retired Python collector. Accuracy
+remains unavailable without reviewed temporal labels.
 
 This slice adds optional process CPU and resident-memory sampling to the
 Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the

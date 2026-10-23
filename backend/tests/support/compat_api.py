@@ -69,7 +69,6 @@ def create_compatibility_app(
 
     metrics_config = main.MetricsConfig(**middleware_config["metrics"])
     app.add_middleware(main.MetricsMiddleware, config=metrics_config)
-    main.setup_performance_monitoring(app, middleware_config["performance"])
     main.setup_tracing_middleware(app, middleware_config["tracing"])
     main.setup_logging_middleware(app, middleware_config["logging"])
     main.setup_error_handling(app, middleware_config["error_handler"])

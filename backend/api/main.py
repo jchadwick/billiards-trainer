@@ -31,7 +31,6 @@ from .dependencies import ApplicationState, app_state
 from .middleware.error_handler import ErrorHandlerConfig, setup_error_handling
 from .middleware.logging import LoggingConfig, setup_logging_middleware
 from .middleware.metrics import MetricsConfig, MetricsMiddleware
-from .middleware.performance import PerformanceConfig, setup_performance_monitoring
 from .middleware.tracing import TracingConfig, setup_tracing_middleware
 from .shutdown import register_module_for_shutdown, setup_signal_handlers
 from .websocket import (
@@ -161,11 +160,6 @@ def get_middleware_config(
     sample_rate_prod = tracing_cfg.get("sample_rate_production", 0.1)
     excluded_tracing_paths = tracing_cfg.get("excluded_paths", ["/health", "/metrics"])
 
-    # Performance config
-    perf_cfg = middleware_cfg.get("performance", {})
-    slow_threshold = perf_cfg.get("slow_request_threshold_ms", 1000.0)
-    excluded_perf_paths = perf_cfg.get("excluded_paths", ["/health", "/metrics"])
-
     return {
         "error_handler": ErrorHandlerConfig(
             include_traceback=development_mode,
@@ -194,33 +188,6 @@ def get_middleware_config(
             enable_correlation_ids=tracing_cfg.get("enable_correlation_ids", True),
             sample_rate=sample_rate_dev if development_mode else sample_rate_prod,
             excluded_paths=excluded_tracing_paths,
-        ),
-        "performance": PerformanceConfig(
-            enable_monitoring=perf_cfg.get("enable_monitoring", True),
-            enable_system_metrics=perf_cfg.get("enable_system_metrics", True),
-            enable_endpoint_stats=perf_cfg.get("enable_endpoint_stats", True),
-            enable_slow_query_detection=perf_cfg.get(
-                "enable_slow_query_detection", True
-            ),
-            slow_request_threshold_ms=slow_threshold,
-            metrics_retention_minutes=perf_cfg.get("metrics_retention_minutes", 60),
-            stats_window_size=perf_cfg.get("stats_window_size", 1000),
-            system_metrics_interval_seconds=perf_cfg.get(
-                "system_metrics_interval_seconds", 30
-            ),
-            memory_alert_threshold_mb=perf_cfg.get("memory_alert_threshold_mb", 512),
-            cpu_alert_threshold_percent=perf_cfg.get(
-                "cpu_alert_threshold_percent", 80.0
-            ),
-            response_time_percentiles=perf_cfg.get(
-                "response_time_percentiles", [50, 90, 95, 99]
-            ),
-            excluded_paths=excluded_perf_paths,
-            endpoint_stats_recent_durations_maxlen=perf_cfg.get(
-                "endpoint_stats_recent_durations_maxlen", 100
-            ),
-            cpu_percent_history_maxlen=perf_cfg.get("cpu_percent_history_maxlen", 60),
-            memory_usage_history_maxlen=perf_cfg.get("memory_usage_history_maxlen", 60),
         ),
     }
 
