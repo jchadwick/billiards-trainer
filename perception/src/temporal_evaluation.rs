@@ -1913,6 +1913,212 @@ mod tests {
     }
 
     #[test]
+    fn cached_missing_and_stale_results_remain_distinct() {
+        let annotation_document = annotations(vec![
+            annotation_frame(0, vec![visible_ball("ball", 10.0, 10.0, 8.0)]),
+            annotation_frame(1, vec![visible_ball("ball", 10.0, 10.0, 8.0)]),
+        ]);
+        let first = engine_frame(
+            0,
+            vec![EngineBall {
+                center: Point2d { x: 10.0, y: 10.0 },
+                track_id: Some(TrackIdentifier::Text("track".to_owned())),
+            }],
+            EngineStatus::Observed,
+        );
+        let mut cached = first.clone();
+        cached.source_frame_index = 1;
+        cached.presentation_time_seconds = 1.0;
+        cached.ball_positions_status = EngineStatus::Cached;
+        cached.ball_observation_presentation_time_seconds = Some(0.0);
+
+        let report = evaluate_temporal_localization(
+            &annotation_document,
+            &[first.clone(), cached],
+            EvaluationConfig {
+                freshness_budget_seconds: 0.25,
+                ..EvaluationConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report["ball_localization"]["fresh_predictions"], 1);
+        assert_eq!(report["ball_localization"]["false_negatives"], 1);
+        assert_eq!(report["observation_freshness"]["age_seconds_mean"], 0.5);
+        assert_eq!(
+            report["observation_freshness"]["freshness_budget_misses"],
+            1
+        );
+
+        let missing = evaluate_temporal_localization(
+            &annotation_document,
+            std::slice::from_ref(&first),
+            EvaluationConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(missing["availability"]["missing_engine_frames"], 1);
+        assert_eq!(missing["observation_freshness"]["missing_age_samples"], 1);
+        assert_eq!(
+            missing["observation_freshness"]["freshness_budget_misses"],
+            1
+        );
+
+        let mut stale = first;
+        stale.ball_observation_source_frame_index = Some(4);
+        let stale_report = evaluate_temporal_localization(
+            &annotations(vec![annotation_frame(
+                0,
+                vec![visible_ball("ball", 10.0, 10.0, 8.0)],
+            )]),
+            &[stale],
+            EvaluationConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            stale_report["availability"]["stale_observed_ball_results"],
+            1
+        );
+        assert_eq!(stale_report["ball_localization"]["fresh_predictions"], 0);
+        assert_eq!(stale_report["ball_localization"]["false_negatives"], 1);
+    }
+
+    #[test]
+    fn cue_presence_endpoints_and_wrapped_angle_are_scored_separately() {
+        let visible_cue = AnnotationCue {
+            status: AnnotationCueStatus::Visible,
+            tip: Some(Point2d {
+                x: -1.0,
+                y: 0.1763269807,
+            }),
+            butt: Some(Point2d { x: 0.0, y: 0.0 }),
+        };
+        let occluded_cue = AnnotationCue {
+            status: AnnotationCueStatus::Occluded,
+            tip: None,
+            butt: None,
+        };
+        let mut annotations = annotations(vec![
+            annotation_frame(0, Vec::new()),
+            annotation_frame(1, Vec::new()),
+            annotation_frame(2, Vec::new()),
+        ]);
+        annotations.frames[0].cue = visible_cue;
+        annotations.frames[1].cue.status = AnnotationCueStatus::Absent;
+        annotations.frames[2].cue = occluded_cue;
+
+        let mut visible = engine_frame(0, Vec::new(), EngineStatus::Observed);
+        visible.cue_observation_status = EngineStatus::Observed;
+        visible.cue_observation_source_frame_index = Some(0);
+        visible.cue_present = Some(true);
+        visible.cue_tip = Some(Point2d {
+            x: 0.0,
+            y: 0.1763269807,
+        });
+        visible.cue_butt = Some(Point2d { x: 0.0, y: 0.0 });
+        visible.cue_angle_degrees = Some(-170.0);
+
+        let mut false_positive = engine_frame(1, Vec::new(), EngineStatus::Observed);
+        false_positive.cue_observation_status = EngineStatus::Observed;
+        false_positive.cue_observation_source_frame_index = Some(1);
+        false_positive.cue_present = Some(true);
+
+        let mut unavailable = engine_frame(2, Vec::new(), EngineStatus::Observed);
+        unavailable.cue_observation_status = EngineStatus::Skipped;
+        unavailable.cue_observation_source_frame_index = None;
+        unavailable.cue_present = None;
+
+        let report = evaluate_temporal_localization(
+            &annotations,
+            &[visible, false_positive, unavailable],
+            EvaluationConfig::default(),
+        )
+        .unwrap();
+        let cue = &report["cue"];
+        assert_eq!(cue["presence_precision"], 0.5);
+        assert_eq!(cue["presence_recall"], 1.0);
+        assert_eq!(cue["tip_error_px"]["error_px_mean"], 1.0);
+        assert_eq!(cue["butt_error_px"]["error_px_mean"], 0.0);
+        let angle_error = cue["wrapped_angle_error_degrees"]["error_degrees_mean"]
+            .as_f64()
+            .unwrap();
+        assert!((angle_error - 20.0).abs() < 1e-6);
+        assert_eq!(cue["occluded_frames_excluded"], 1);
+    }
+
+    #[test]
+    fn calibration_and_session_boundaries_have_independent_coverage() {
+        let annotations = annotations(vec![
+            {
+                let mut frame = annotation_frame(0, Vec::new());
+                frame.expected_calibration_revision = Some(0);
+                frame.expected_source_session_epoch = Some("session-a".to_owned());
+                frame
+            },
+            {
+                let mut frame = annotation_frame(1, Vec::new());
+                frame.expected_calibration_revision = Some(0);
+                frame.expected_source_session_epoch = Some("session-a".to_owned());
+                frame
+            },
+            {
+                let mut frame = annotation_frame(2, Vec::new());
+                frame.expected_calibration_revision = Some(1);
+                frame.expected_source_session_epoch = Some("session-b".to_owned());
+                frame
+            },
+        ]);
+        let engine = vec![
+            {
+                let mut frame = engine_frame(0, Vec::new(), EngineStatus::Observed);
+                frame.calibration_revision = Some(0);
+                frame.source_session_epoch = Some("rust-session-x".to_owned());
+                frame
+            },
+            {
+                let mut frame = engine_frame(1, Vec::new(), EngineStatus::Observed);
+                frame.calibration_revision = Some(1);
+                frame.source_session_epoch = Some("rust-session-x".to_owned());
+                frame
+            },
+            {
+                let mut frame = engine_frame(2, Vec::new(), EngineStatus::Observed);
+                frame.calibration_revision = Some(1);
+                frame.source_session_epoch = Some("rust-session-x".to_owned());
+                frame
+            },
+        ];
+
+        let report =
+            evaluate_temporal_localization(&annotations, &engine, EvaluationConfig::default())
+                .unwrap();
+        assert_eq!(report["calibration"]["frame_mismatch_count"], 1);
+        assert_eq!(report["calibration"]["expected_boundary_count"], 1);
+        assert_eq!(report["calibration"]["boundary_mismatch_count"], 2);
+        assert_eq!(
+            report["source_session"]["frame_mismatch_count"],
+            Value::Null
+        );
+        assert_eq!(report["source_session"]["expected_boundary_count"], 1);
+        assert_eq!(report["source_session"]["boundary_mismatch_count"], 1);
+
+        let mut without_sessions = engine;
+        for frame in &mut without_sessions {
+            frame.source_session_epoch = None;
+        }
+        let report = evaluate_temporal_localization(
+            &annotations,
+            &without_sessions,
+            EvaluationConfig::default(),
+        )
+        .unwrap();
+        assert_eq!(report["source_session"]["status"], "unavailable");
+        assert_eq!(report["source_session"]["expected_boundary_count"], 1);
+        assert_eq!(
+            report["source_session"]["frame_mismatch_count"],
+            Value::Null
+        );
+    }
+
+    #[test]
     fn missing_frames_count_as_unavailable_freshness_and_reacquisition_resets_session_ids() {
         let mut middle = annotation_frame(1, vec![visible_ball("ball", 2.0, 2.0, 4.0)]);
         middle.balls[0].status = AnnotationBallStatus::Occluded;
