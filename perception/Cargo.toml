@@ -74,6 +74,10 @@ path = "src/bin/performance_audit_resources.rs"
 name = "billiards-performance-audit-server-summary"
 path = "src/bin/performance_audit_server_summary.rs"
 
+[[bin]]
+name = "billiards-performance-audit-delivery-summary"
+path = "src/bin/performance_audit_delivery_summary.rs"
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }
