@@ -1,0 +1,772 @@
+{
+  "schema_version": 6,
+  "tool": "billiards-performance-audit-run",
+  "run_id": "20261023-074615-b442cd41",
+  "mode": "repeated",
+  "started_at_utc": "2026-10-23T07:46:15.121Z",
+  "finished_at_utc": "2026-10-23T07:46:36.468Z",
+  "configuration": {
+    "warmup_seconds": 5.0,
+    "measured_seconds": 15.0,
+    "measurement_window_seconds": 15.0,
+    "repetitions": 1,
+    "soak": false,
+    "soak_seconds": 1200.0,
+    "connect_timeout_seconds": 5.0,
+    "application_heartbeat_interval_seconds": 20.0,
+    "summary_interval_seconds": 5.0,
+    "maximum_message_bytes": 1048576,
+    "maximum_samples_per_run": 10000,
+    "trajectory_collection_enabled": false,
+    "subscriber_delay_ms": 0,
+    "resource_process_id": null,
+    "resource_sample_interval_ms": 1000,
+    "managed_live_process_resource_sampling": {
+      "process_role": "rust_live_inference_child",
+      "sample_interval_ms": 1000,
+      "maximum_samples_per_window": 10000,
+      "process_discovery": "latest_positive_pid_from_live_timing_records"
+    },
+    "live_pipeline_timing_audit": {
+      "queue_capacity": 2048,
+      "maximum_record_bytes": 65536,
+      "maximum_retained_records": 200000,
+      "maximum_retained_bytes": 134217728,
+      "connect_timeout_ms": 1000,
+      "write_timeout_ms": 1000
+    }
+  },
+  "environment": {
+    "repository_revision": "475dbaa55922f144e13be413ab318084bfb80cfc",
+    "working_tree_dirty": true,
+    "dirty_tree_status_sha256": "582363a76a71e0236dc6b7d6274b53b5604430599f598685810980b35338735f",
+    "operating_system": "macos",
+    "architecture": "aarch64",
+    "logical_cpu_count": 14,
+    "processor_brand": "Apple M4 Max",
+    "processor_frequency_mhz": 4512,
+    "host_name": "mbp-m4max-14.local",
+    "kernel_version": "25.6.0",
+    "total_memory_bytes": 38654705664,
+    "collector_version": "0.1.0"
+  },
+  "input": {
+    "kind": "websocket_state_stream",
+    "websocket_url": "ws://127.0.0.1:18081/api/v1/websocket/ws",
+    "content_sha256": null,
+    "content_hash_status": "unavailable_for_network_stream",
+    "detector_model": "sha256:4ceec94901553ff8a22f71d8cca684ec314a9fec8b7f219c410a5df16be4c4fa",
+    "detector_runtime": "cpu"
+  },
+  "warmup": {
+    "requested_duration_seconds": 5.0,
+    "actual_duration_seconds": 5.001587291,
+    "state_messages": 101,
+    "unique_observed_source_frames": 85,
+    "termination_reason": "duration_elapsed",
+    "measurements_excluded": true
+  },
+  "measured_runs": [
+    {
+      "repetition": 1,
+      "report_path": "runs/run-001.json",
+      "details_path": "runs/run-001.jsonl",
+      "report": {
+        "schema_version": 4,
+        "tool": "billiards-performance-audit-run",
+        "mode": "websocket_state_receiver",
+        "started_at_utc": "2026-10-23T07:46:21.405Z",
+        "finished_at_utc": "2026-10-23T07:46:36.409Z",
+        "elapsed_seconds": 15.003448959,
+        "termination_reason": "duration_elapsed",
+        "counts": {
+          "text_messages": 301,
+          "state_messages": 301,
+          "non_state_messages": 0,
+          "invalid_json_messages": 0,
+          "binary_messages": 0
+        },
+        "freshness": {
+          "fresh_state_messages": 301,
+          "stale_state_messages": 0,
+          "unknown_freshness_state_messages": 0,
+          "fresh_unique_source_observations": 301,
+          "unique_source_frame_updates": 301,
+          "unique_observed_source_observations": 259,
+          "cached_or_failed_source_updates": 42,
+          "unknown_source_freshness_updates": 0
+        },
+        "completeness": {
+          "complete_state_messages": 301,
+          "incomplete_state_messages": 0,
+          "uncorrelated_state_messages": 0
+        },
+        "component_observation_status_counts": {
+          "balls": {
+            "cached": 42,
+            "observed": 259
+          },
+          "cue": {
+            "not_observed": 83,
+            "observed": 218
+          }
+        },
+        "stream_order": {
+          "messages_with_sequence": 301,
+          "sequence_gaps": 0,
+          "missing_sequence_total": 0,
+          "duplicate_high_water_sequences": 0,
+          "out_of_order_sequences": 0,
+          "highest_sequence": 401
+        },
+        "source_observations": {
+          "messages_with_identity": 301,
+          "unique_source_observations_within_window": 301,
+          "repeated_source_observations_within_window": 0,
+          "messages_without_source_identity": 0,
+          "identity_window_capacity": 10000,
+          "identity_window_evictions": 0,
+          "uncorrelated_state_messages": 0,
+          "source_frame_sequence_gaps": 0,
+          "missing_source_frame_sequence_total": 0,
+          "source_sequence_restarts": 0,
+          "source_out_of_order_messages": 0,
+          "repeated_numeric_source_frames": 0,
+          "source_sequence_window_capacity": 10000,
+          "source_sequence_window_evictions": 0
+        },
+        "timing": {
+          "read_completion_to_publication_age_ms": {
+            "sample_count": 301,
+            "retained_sample_count": 301,
+            "sample_limit": 10000,
+            "truncated": false,
+            "p50": 46.658291999999996,
+            "p95": 62.126374999999996,
+            "p99": 64.880959
+          },
+          "local_state_receive_interval_ms": {
+            "sample_count": 300,
+            "retained_sample_count": 300,
+            "sample_limit": 10000,
+            "truncated": false,
+            "p50": 46.925646,
+            "p95": 61.6883045,
+            "p99": 64.64131408
+          }
+        },
+        "cross_process_source_to_receipt_latency": {
+          "status": "unavailable_unverified_clock",
+          "reason": "producer monotonic ticks are not proven comparable with the receiver clock"
+        },
+        "detail_retention": {
+          "sample_limit": 10000,
+          "retained_state_samples": 301,
+          "state_samples_truncated": false
+        },
+        "process_resources": {
+          "status": "available",
+          "unavailable_reason": null,
+          "process_id": 56256,
+          "process_start_time_unix_seconds": 1792741575,
+          "process_identity_resolution": "pid_plus_sysinfo_start_time_unix_seconds",
+          "process_identity_resolution_note": "sysinfo start time has one-second resolution; PID reuse within the same second may be indistinguishable",
+          "sample_interval_ms": 1000,
+          "sample_count": 14,
+          "available_sample_count": 14,
+          "unavailable_sample_count": 0,
+          "retained_sample_count": 14,
+          "retention_limit": 10000,
+          "samples_truncated": false,
+          "statistics_window": "all_samples",
+          "cpu_percent_per_core": {
+            "count": 14,
+            "p50": 409.3625793457031,
+            "p95": 429.6934814453125,
+            "p99": 429.6934814453125,
+            "maximum": 429.6934814453125
+          },
+          "accumulated_cpu_time_ms": {
+            "first": 25074,
+            "last": 78540,
+            "delta": 53466
+          },
+          "resident_memory_bytes": {
+            "first": 320487424,
+            "last": 320520192,
+            "minimum": 320487424,
+            "maximum": 320520192,
+            "delta": 32768
+          },
+          "retained_samples": [
+            {
+              "elapsed_ms": 1010.164042,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 401.16229248046875,
+              "accumulated_cpu_time_ms": 25074,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 2020.3395,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 399.5684509277344,
+              "accumulated_cpu_time_ms": 29067,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 3030.524625,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 409.3625793457031,
+              "accumulated_cpu_time_ms": 33158,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 4038.664458,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 427.86285400390625,
+              "accumulated_cpu_time_ms": 37433,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 5040.865583000001,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 429.6934814453125,
+              "accumulated_cpu_time_ms": 41700,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 6051.024917000001,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 411.29840087890625,
+              "accumulated_cpu_time_ms": 45821,
+              "resident_memory_bytes": 320487424
+            },
+            {
+              "elapsed_ms": 7061.184125,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 398.4690856933594,
+              "accumulated_cpu_time_ms": 49798,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 8063.639999999999,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 403.4156188964844,
+              "accumulated_cpu_time_ms": 53794,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 9073.797875,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 401.241943359375,
+              "accumulated_cpu_time_ms": 57815,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 10083.959083,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 404.11834716796875,
+              "accumulated_cpu_time_ms": 61857,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 11084.514000000001,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 422.0628967285156,
+              "accumulated_cpu_time_ms": 66032,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 12094.706375,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 425.4902038574219,
+              "accumulated_cpu_time_ms": 70293,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 13095.770667,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 428.1742248535156,
+              "accumulated_cpu_time_ms": 74550,
+              "resident_memory_bytes": 320520192
+            },
+            {
+              "elapsed_ms": 14105.932167,
+              "status": "available",
+              "unavailable_reason": null,
+              "cpu_percent_per_core": 400.3953857421875,
+              "accumulated_cpu_time_ms": 78540,
+              "resident_memory_bytes": 320520192
+            }
+          ]
+        }
+      },
+      "live_timing_summary_path": "runs/run-001-live-pipeline-timing.json",
+      "live_timing_details_path": "runs/run-001-live-pipeline-timing.jsonl",
+      "live_timing_summary": {
+        "association_capacity_pressure": {
+          "malformed_pressure_outcome_records": 0,
+          "measured_window_evicted_tracks": 0,
+          "measured_window_pressure_frames": 0,
+          "measurement_status": "complete",
+          "run_total_evicted_tracks": 0,
+          "run_total_includes_warmup": true,
+          "run_total_pressure_frames": 0
+        },
+        "footer": {
+          "audit_receiver_monotonic_ns": 21247039291,
+          "clean_shutdown": true,
+          "dropped_records": 0,
+          "export_status": "complete",
+          "failed_observations": 0,
+          "pipeline_counters": {
+            "association_capacity_evictions": 0,
+            "association_capacity_pressure_frames": 0,
+            "duplicate_frames": 0,
+            "frames_received": 403,
+            "inference_failures": 0,
+            "inference_started": 403,
+            "out_of_order_frames": 0,
+            "preflight_rejections": 0,
+            "publication_failures": 0,
+            "scene_processing_failures": 0,
+            "scenes_submitted": 403,
+            "stale_frames": 0
+          },
+          "record_type": "footer",
+          "records_written_before_footer": 806,
+          "rejected_observations": 0,
+          "scene_socket_write_failures": 0,
+          "scene_socket_write_successes": 403,
+          "scene_transport_counters": {
+            "connection_attempts": 1,
+            "connection_failures": 0,
+            "dropped_snapshots": 0,
+            "expired_snapshots": 0,
+            "last_written_sequence": 403,
+            "oversized_submissions": 0,
+            "queued_snapshots": 403,
+            "replaced_pending_snapshots": 0,
+            "successful_connections": 1,
+            "superseded_before_write_snapshots": 0,
+            "write_failures": 0,
+            "written_snapshots": 403
+          },
+          "schema_version": 3,
+          "skipped_observations": 0
+        },
+        "managed_process_resource_sampling": {
+          "observed_process_ids": [
+            56256
+          ],
+          "restart_during_window": false,
+          "sampled_process_id": 56256,
+          "sampled_process_status": "available",
+          "status": "complete",
+          "unsampled_process_ids": []
+        },
+        "matched_detection_count": {
+          "count": 259,
+          "mean": 11.142857142857142
+        },
+        "matched_scene_socket_write_durations_ms": {
+          "failed": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "written": {
+            "count": 259,
+            "p50": 0.024749999999999998,
+            "p95": 0.030959,
+            "p99": 0.034625
+          }
+        },
+        "matched_track_count": {
+          "count": 259,
+          "mean": 10.378378378378379
+        },
+        "measurement_monotonic_window_ns": {
+          "applies_to": "audit record receive times and outcome window only",
+          "clock": "managed_live_audit_receiver_monotonic",
+          "clock_domain_id": "managed-live-audit-e8783070-e470-49f3-9964-77493b410b8a",
+          "end": 21165299125,
+          "start": 6161850166
+        },
+        "observation_outcome_reasons_received": {},
+        "observation_outcomes_in_measurement_window": {},
+        "observation_outcomes_received": {},
+        "out_of_window_outcome_records": 0,
+        "producer_dropped_records": 0,
+        "receiver_loss_counts_run_total": {
+          "connection_limit_drops": 0,
+          "connection_task_failures": 0,
+          "malformed_records": 0,
+          "oversized_records": 0,
+          "queue_dropped_records": 0,
+          "retention_evictions": 0,
+          "retention_oversize_drops": 0,
+          "transport_errors": 0
+        },
+        "record_counts": {
+          "footer": 1,
+          "frame": 300,
+          "scene_socket_write": 300
+        },
+        "records_received": 601,
+        "retained_records": 601,
+        "retention_limit": 200000,
+        "scene_socket_write_attempts_received": 300,
+        "scene_socket_write_outcomes_received": {
+          "written": 300
+        },
+        "stage_durations_ms": {
+          "calibration": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "sample_limit": 200000
+          },
+          "capture_helper_appsink_pull_wait": {
+            "count": 259,
+            "p50": 55.827208,
+            "p95": 73.710667,
+            "p99": 73.935375,
+            "sample_limit": 200000
+          },
+          "capture_helper_rgb_buffer_allocation": {
+            "count": 259,
+            "p50": 0.014458,
+            "p95": 0.081458,
+            "p99": 0.197584,
+            "sample_limit": 200000
+          },
+          "capture_helper_rgb_mapping_copy": {
+            "count": 259,
+            "p50": 0.038375,
+            "p95": 0.052083,
+            "p99": 0.082084,
+            "sample_limit": 200000
+          },
+          "decode_and_nms": {
+            "count": 259,
+            "p50": 0.089916,
+            "p95": 0.098959,
+            "p99": 0.107,
+            "sample_limit": 200000
+          },
+          "engine_total": {
+            "count": 259,
+            "p50": 44.724084,
+            "p95": 46.441541,
+            "p99": 47.500916,
+            "sample_limit": 200000
+          },
+          "host_read_complete_to_inference_start": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "sample_limit": 200000
+          },
+          "host_read_complete_to_scene_queue_submit": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "sample_limit": 200000
+          },
+          "inference": {
+            "count": 259,
+            "p50": 43.648582999999995,
+            "p95": 45.382375,
+            "p99": 46.432042,
+            "sample_limit": 200000
+          },
+          "parent_framed_record_read": {
+            "count": 259,
+            "p50": 56.231875,
+            "p95": 74.111708,
+            "p99": 74.329667,
+            "sample_limit": 200000
+          },
+          "parent_record_read_complete_to_inference_start": {
+            "count": 259,
+            "p50": 0.016125,
+            "p95": 16.756375000000002,
+            "p99": 19.981749999999998,
+            "sample_limit": 200000
+          },
+          "parent_record_read_complete_to_scene_queue_submit": {
+            "count": 259,
+            "p50": 46.728291999999996,
+            "p95": 62.613541999999995,
+            "p99": 65.01275,
+            "sample_limit": 200000
+          },
+          "preprocess": {
+            "count": 259,
+            "p50": 0.974875,
+            "p95": 1.0304170000000001,
+            "p99": 1.058333,
+            "sample_limit": 200000
+          },
+          "scene_json_serialization": {
+            "count": 259,
+            "p50": 0.043375,
+            "p95": 0.04975,
+            "p99": 0.053792,
+            "sample_limit": 200000
+          },
+          "scene_queue_submit": {
+            "count": 259,
+            "p50": 0.00475,
+            "p95": 0.008291000000000001,
+            "p99": 0.009082999999999999,
+            "sample_limit": 200000
+          },
+          "tracking_and_state_assembly": {
+            "count": 259,
+            "p50": 0.07200000000000001,
+            "p95": 0.080793,
+            "p99": 0.08904200000000001,
+            "sample_limit": 200000
+          }
+        },
+        "stale_inference_timing_ms": {
+          "deadline_overrun_ms": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null
+          },
+          "stage_durations_ms": {
+            "capture_helper_appsink_pull_wait": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "capture_helper_rgb_buffer_allocation": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "capture_helper_rgb_mapping_copy": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "decode_and_nms": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "engine_total": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "inference": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "maximum_frame_age": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "parent_framed_record_read": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "parent_record_read_complete_to_inference_complete": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "parent_record_read_complete_to_inference_start": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            },
+            "preprocess": {
+              "count": 0,
+              "p50": null,
+              "p95": null,
+              "p99": null,
+              "sample_limit": 200000
+            }
+          },
+          "stale_outcomes": 0,
+          "timed_stale_outcomes": 0
+        },
+        "state_timing_correlation": {
+          "duplicate_timing_frame_records": 0,
+          "identity_fields": [
+            "engine_instance_id",
+            "source_session_id",
+            "source_frame_id",
+            "transport_sequence"
+          ],
+          "matched_frames": 259,
+          "measured_states_without_timing": 0,
+          "retained_measured_states": 259,
+          "retained_timing_frames": 300,
+          "state_trace_truncated": false,
+          "timing_frames_without_measured_state": 41,
+          "timing_trace_truncated": false
+        },
+        "status": "complete"
+      }
+    }
+  ],
+  "live_pipeline_timing": {
+    "status": "complete",
+    "listener_address": "127.0.0.1:49378",
+    "measurement_clock_domain_id": "managed-live-audit-e8783070-e470-49f3-9964-77493b410b8a",
+    "stream_counts": {
+      "framed_messages": 807,
+      "valid_records": 807,
+      "records_by_type": {
+        "footer": 1,
+        "frame": 403,
+        "scene_socket_write": 403
+      }
+    },
+    "producer_footer": {
+      "clean_shutdown": true,
+      "dropped_records": 0,
+      "export_status": "complete",
+      "failed_observations": 0,
+      "pipeline_counters": {
+        "association_capacity_evictions": 0,
+        "association_capacity_pressure_frames": 0,
+        "duplicate_frames": 0,
+        "frames_received": 403,
+        "inference_failures": 0,
+        "inference_started": 403,
+        "out_of_order_frames": 0,
+        "preflight_rejections": 0,
+        "publication_failures": 0,
+        "scene_processing_failures": 0,
+        "scenes_submitted": 403,
+        "stale_frames": 0
+      },
+      "record_type": "footer",
+      "records_written_before_footer": 806,
+      "rejected_observations": 0,
+      "scene_socket_write_failures": 0,
+      "scene_socket_write_successes": 403,
+      "scene_transport_counters": {
+        "connection_attempts": 1,
+        "connection_failures": 0,
+        "dropped_snapshots": 0,
+        "expired_snapshots": 0,
+        "last_written_sequence": 403,
+        "oversized_submissions": 0,
+        "queued_snapshots": 403,
+        "replaced_pending_snapshots": 0,
+        "successful_connections": 1,
+        "superseded_before_write_snapshots": 0,
+        "write_failures": 0,
+        "written_snapshots": 403
+      },
+      "schema_version": 3,
+      "skipped_observations": 0
+    },
+    "losses": {
+      "malformed_records": 0,
+      "oversized_records": 0,
+      "queue_dropped_records": 0,
+      "retention_evictions": 0,
+      "retention_oversize_drops": 0,
+      "connection_limit_drops": 0,
+      "connection_task_failures": 0,
+      "transport_errors": 0
+    },
+    "retained_record_count": 807,
+    "retained_record_bytes": 562527,
+    "maximum_retained_records": 200000,
+    "maximum_retained_bytes": 134217728
+  },
+  "managed_server": {
+    "executable": "/Users/jchadwick/repos/jchadwick/billiards-trainer/perception/target/release/billiards-server",
+    "process_id": 56248,
+    "argument_count": 17,
+    "arguments_sha256": "bd470aa4ce3b1645dcd94563fe7e93da73f931abf4f63e41679faf48c3ab9f10",
+    "live_provenance": {
+      "effective_configuration_sha256": "71acd5cb4a2858d6f075cdbf1aea0cc3689f7923ebf2c90a124a7bbd42992812",
+      "capture_settings_sha256": "061cf6059155fcb759d8046a3538909b9c8478f63f8ad8e9508849b381ba0793",
+      "camera_profile_id": "camera-profile-v3:5f7a2f79c24fee59c08632588fd235f98f92a2cfd31417b057c4cd1b243ddae5",
+      "detector_model_sha256": "4ceec94901553ff8a22f71d8cca684ec314a9fec8b7f219c410a5df16be4c4fa",
+      "model_manifest_sha256": "8a6408809b7221f6e509c193b0388102d80f599a0c358a92ba5c1d98301c8a64",
+      "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+      "detector_executable_sha256": "9b7a0ae255a170b6ce75fb5f1a60ab563f8c6747919749ac8ca8560bd63c3797",
+      "capture_helper_executable_sha256": "6d1a5e3c5aa0cbd2e4f38f43a4ef6170e7e9913d65f7546b08a88d2ae90f2078",
+      "provider_selection": "cpu",
+      "model_image_size": 1280,
+      "ball_class_id": 1,
+      "cue_class_id": 0,
+      "confidence_threshold": 0.4,
+      "iou_threshold": 0.45
+    },
+    "startup_timeout_seconds": 60.0,
+    "readiness_probe_interval_ms": 250,
+    "shutdown_timeout_seconds": 10.0,
+    "startup_elapsed_seconds": 1.024002,
+    "readiness_probe_attempts": 5,
+    "first_observed_source_frame_id": "0",
+    "shutdown": {
+      "status": "terminated_gracefully",
+      "exit_code": 0,
+      "signal": null,
+      "forced": false
+    }
+  },
+  "limitations": [
+    "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
+    "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
+    "A network state stream has no input-video content hash.",
+    "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
+    "The recorded provider is the configured selection; actual per-node accelerator placement and dynamic runtime version are unavailable.",
+    "Managed live process sampling follows the latest detector PID in timing records for each measured window; detector restarts during a window are reported as incomplete process-resource evidence.",
+    "Live-pipeline timing is diagnostic and opt-in; it does not provide temporal ground-truth accuracy evidence or camera-exposure timing."
+  ]
+}

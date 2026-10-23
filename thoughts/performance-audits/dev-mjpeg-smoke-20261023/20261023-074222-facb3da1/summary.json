@@ -1,0 +1,191 @@
+{
+  "schema_version": 6,
+  "tool": "billiards-performance-audit-run",
+  "run_id": "20261023-074222-facb3da1",
+  "mode": "repeated",
+  "started_at_utc": "2026-10-23T07:42:22.327Z",
+  "finished_at_utc": "2026-10-23T07:42:31.603Z",
+  "configuration": {
+    "warmup_seconds": 0.0,
+    "measured_seconds": 8.0,
+    "measurement_window_seconds": 8.0,
+    "repetitions": 1,
+    "soak": false,
+    "soak_seconds": 1200.0,
+    "connect_timeout_seconds": 5.0,
+    "application_heartbeat_interval_seconds": 20.0,
+    "summary_interval_seconds": 5.0,
+    "maximum_message_bytes": 1048576,
+    "maximum_samples_per_run": 10000,
+    "trajectory_collection_enabled": false,
+    "subscriber_delay_ms": 0,
+    "resource_process_id": null,
+    "resource_sample_interval_ms": 1000
+  },
+  "environment": {
+    "repository_revision": "475dbaa55922f144e13be413ab318084bfb80cfc",
+    "working_tree_dirty": false,
+    "dirty_tree_status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "operating_system": "macos",
+    "architecture": "aarch64",
+    "logical_cpu_count": 14,
+    "processor_brand": "Apple M4 Max",
+    "processor_frequency_mhz": 4512,
+    "host_name": "mbp-m4max-14.local",
+    "kernel_version": "25.6.0",
+    "total_memory_bytes": 38654705664,
+    "collector_version": "0.1.0"
+  },
+  "input": {
+    "kind": "websocket_state_stream",
+    "websocket_url": "ws://127.0.0.1:18081/api/v1/websocket/ws",
+    "content_sha256": null,
+    "content_hash_status": "unavailable_for_network_stream",
+    "detector_model": "sha256:4ceec94901553ff8a22f71d8cca684ec314a9fec8b7f219c410a5df16be4c4fa",
+    "detector_runtime": "cpu"
+  },
+  "warmup": null,
+  "measured_runs": [
+    {
+      "repetition": 1,
+      "report_path": "runs/run-001.json",
+      "details_path": "runs/run-001.jsonl",
+      "report": {
+        "schema_version": 4,
+        "tool": "billiards-performance-audit-run",
+        "mode": "websocket_state_receiver",
+        "started_at_utc": "2026-10-23T07:42:23.598Z",
+        "finished_at_utc": "2026-10-23T07:42:31.602Z",
+        "elapsed_seconds": 8.003796875,
+        "termination_reason": "duration_elapsed",
+        "counts": {
+          "text_messages": 183,
+          "state_messages": 183,
+          "non_state_messages": 0,
+          "invalid_json_messages": 0,
+          "binary_messages": 0
+        },
+        "freshness": {
+          "fresh_state_messages": 183,
+          "stale_state_messages": 0,
+          "unknown_freshness_state_messages": 0,
+          "fresh_unique_source_observations": 183,
+          "unique_source_frame_updates": 183,
+          "unique_observed_source_observations": 158,
+          "cached_or_failed_source_updates": 25,
+          "unknown_source_freshness_updates": 0
+        },
+        "completeness": {
+          "complete_state_messages": 183,
+          "incomplete_state_messages": 0,
+          "uncorrelated_state_messages": 0
+        },
+        "component_observation_status_counts": {
+          "balls": {
+            "cached": 25,
+            "observed": 158
+          },
+          "cue": {
+            "not_observed": 88,
+            "observed": 95
+          }
+        },
+        "stream_order": {
+          "messages_with_sequence": 183,
+          "sequence_gaps": 0,
+          "missing_sequence_total": 0,
+          "duplicate_high_water_sequences": 0,
+          "out_of_order_sequences": 0,
+          "highest_sequence": 183
+        },
+        "source_observations": {
+          "messages_with_identity": 183,
+          "unique_source_observations_within_window": 183,
+          "repeated_source_observations_within_window": 0,
+          "messages_without_source_identity": 0,
+          "identity_window_capacity": 10000,
+          "identity_window_evictions": 0,
+          "uncorrelated_state_messages": 0,
+          "source_frame_sequence_gaps": 59,
+          "missing_source_frame_sequence_total": 59,
+          "source_sequence_restarts": 0,
+          "source_out_of_order_messages": 0,
+          "repeated_numeric_source_frames": 0,
+          "source_sequence_window_capacity": 10000,
+          "source_sequence_window_evictions": 0
+        },
+        "timing": {
+          "read_completion_to_publication_age_ms": {
+            "sample_count": 183,
+            "retained_sample_count": 183,
+            "sample_limit": 10000,
+            "truncated": false,
+            "p50": 59.604083,
+            "p95": 78.02615899999999,
+            "p99": 82.92061512000001
+          },
+          "local_state_receive_interval_ms": {
+            "sample_count": 182,
+            "retained_sample_count": 182,
+            "sample_limit": 10000,
+            "truncated": false,
+            "p50": 44.068937500000004,
+            "p95": 46.652295800000005,
+            "p99": 48.07821529
+          }
+        },
+        "cross_process_source_to_receipt_latency": {
+          "status": "unavailable_unverified_clock",
+          "reason": "producer monotonic ticks are not proven comparable with the receiver clock"
+        },
+        "detail_retention": {
+          "sample_limit": 10000,
+          "retained_state_samples": 183,
+          "state_samples_truncated": false
+        }
+      }
+    }
+  ],
+  "managed_server": {
+    "executable": "/Users/jchadwick/repos/jchadwick/billiards-trainer/perception/target/release/billiards-server",
+    "process_id": 53885,
+    "argument_count": 11,
+    "arguments_sha256": "b1aa7f0182f11d4a6745959d6767897e2126704dd0f04cf91d0e055ce5d75ffd",
+    "live_provenance": {
+      "effective_configuration_sha256": "b4e79877e0e6b83a4eada66138caa43f008f23bc10482bfba1a989ed61338aa2",
+      "capture_settings_sha256": "2c473b75646dd0c607e79f76928d5d035abbf92390976d99d042a093f85724c6",
+      "camera_profile_id": "camera-profile-v3:8fb9bc6ae4831044ae8189849ef01b508e6f06cf6b97a192a52a0eb097b0e4f1",
+      "detector_model_sha256": "4ceec94901553ff8a22f71d8cca684ec314a9fec8b7f219c410a5df16be4c4fa",
+      "model_manifest_sha256": "8a6408809b7221f6e509c193b0388102d80f599a0c358a92ba5c1d98301c8a64",
+      "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+      "detector_executable_sha256": "9b7a0ae255a170b6ce75fb5f1a60ab563f8c6747919749ac8ca8560bd63c3797",
+      "capture_helper_executable_sha256": "6d1a5e3c5aa0cbd2e4f38f43a4ef6170e7e9913d65f7546b08a88d2ae90f2078",
+      "provider_selection": "cpu",
+      "model_image_size": 1280,
+      "ball_class_id": 1,
+      "cue_class_id": 0,
+      "confidence_threshold": 0.4,
+      "iou_threshold": 0.45
+    },
+    "startup_timeout_seconds": 45.0,
+    "readiness_probe_interval_ms": 250,
+    "shutdown_timeout_seconds": 10.0,
+    "startup_elapsed_seconds": 1.023381833,
+    "readiness_probe_attempts": 5,
+    "first_observed_source_frame_id": "0",
+    "shutdown": {
+      "status": "terminated_gracefully",
+      "exit_code": 0,
+      "signal": null,
+      "forced": false
+    }
+  },
+  "limitations": [
+    "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
+    "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
+    "A network state stream has no input-video content hash.",
+    "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
+    "The recorded provider is the configured selection; actual per-node accelerator placement and dynamic runtime version are unavailable.",
+    "Managed-server mode qualifies state delivery and process lifecycle; managed detector CPU/RSS sampling is disabled unless --sample-managed-live-process-resources is selected."
+  ]
+}

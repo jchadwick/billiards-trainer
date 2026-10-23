@@ -1,0 +1,249 @@
+{
+  "report": {
+    "completeness": {
+      "complete_state_messages": 151,
+      "incomplete_state_messages": 0,
+      "uncorrelated_state_messages": 0
+    },
+    "component_observation_status_counts": {
+      "balls": {
+        "cached": 51,
+        "observed": 100
+      },
+      "cue": {
+        "not_observed": 40,
+        "observed": 111
+      }
+    },
+    "counts": {
+      "binary_messages": 0,
+      "invalid_json_messages": 0,
+      "non_state_messages": 0,
+      "state_messages": 151,
+      "text_messages": 151
+    },
+    "cross_process_source_to_receipt_latency": {
+      "reason": "producer monotonic ticks are not proven comparable with the receiver clock",
+      "status": "unavailable_unverified_clock"
+    },
+    "detail_retention": {
+      "retained_state_samples": 151,
+      "sample_limit": 10000,
+      "state_samples_truncated": false
+    },
+    "elapsed_seconds": 15.002753125,
+    "finished_at_utc": "2026-10-23T07:47:22.065Z",
+    "freshness": {
+      "cached_or_failed_source_updates": 38,
+      "fresh_state_messages": 138,
+      "fresh_unique_source_observations": 138,
+      "stale_state_messages": 13,
+      "unique_observed_source_observations": 100,
+      "unique_source_frame_updates": 138,
+      "unknown_freshness_state_messages": 0,
+      "unknown_source_freshness_updates": 0
+    },
+    "mode": "websocket_state_receiver",
+    "process_resources": {
+      "accumulated_cpu_time_ms": {
+        "delta": 27262,
+        "first": 13347,
+        "last": 40609
+      },
+      "available_sample_count": 14,
+      "cpu_percent_per_core": {
+        "count": 14,
+        "maximum": 216.49249267578125,
+        "p50": 210.82839965820312,
+        "p95": 216.49249267578125,
+        "p99": 216.49249267578125
+      },
+      "process_id": 56751,
+      "process_identity_resolution": "pid_plus_sysinfo_start_time_unix_seconds",
+      "process_identity_resolution_note": "sysinfo start time has one-second resolution; PID reuse within the same second may be indistinguishable",
+      "process_start_time_unix_seconds": 1792741621,
+      "resident_memory_bytes": {
+        "delta": -4096000,
+        "first": 326877184,
+        "last": 322781184,
+        "maximum": 326877184,
+        "minimum": 322682880
+      },
+      "retained_sample_count": 14,
+      "retained_samples": [
+        {
+          "accumulated_cpu_time_ms": 13347,
+          "cpu_percent_per_core": 201.0226593017578,
+          "elapsed_ms": 1002.7079160000001,
+          "resident_memory_bytes": 326877184,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 15400,
+          "cpu_percent_per_core": 204.8353729248047,
+          "elapsed_ms": 2012.883125,
+          "resident_memory_bytes": 322682880,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 17509,
+          "cpu_percent_per_core": 211.93162536621094,
+          "elapsed_ms": 3019.708166,
+          "resident_memory_bytes": 322682880,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 19672,
+          "cpu_percent_per_core": 214.6038818359375,
+          "elapsed_ms": 4029.862541,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 21807,
+          "cpu_percent_per_core": 212.47128295898438,
+          "elapsed_ms": 5039.96025,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 23848,
+          "cpu_percent_per_core": 204.99334716796875,
+          "elapsed_ms": 6041.645833,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 25895,
+          "cpu_percent_per_core": 204.93377685546875,
+          "elapsed_ms": 7051.798333,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 27932,
+          "cpu_percent_per_core": 205.2125244140625,
+          "elapsed_ms": 8053.0277909999995,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 29965,
+          "cpu_percent_per_core": 202.12432861328125,
+          "elapsed_ms": 9063.193416,
+          "resident_memory_bytes": 322748416,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 32076,
+          "cpu_percent_per_core": 210.82839965820312,
+          "elapsed_ms": 10073.3525,
+          "resident_memory_bytes": 322781184,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 34249,
+          "cpu_percent_per_core": 216.49249267578125,
+          "elapsed_ms": 11080.166416,
+          "resident_memory_bytes": 322781184,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 36385,
+          "cpu_percent_per_core": 213.87315368652344,
+          "elapsed_ms": 12086.357,
+          "resident_memory_bytes": 322781184,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 38525,
+          "cpu_percent_per_core": 213.31671142578125,
+          "elapsed_ms": 13094.685625,
+          "resident_memory_bytes": 322781184,
+          "status": "available",
+          "unavailable_reason": null
+        },
+        {
+          "accumulated_cpu_time_ms": 40609,
+          "cpu_percent_per_core": 208.48483276367188,
+          "elapsed_ms": 14104.852333,
+          "resident_memory_bytes": 322781184,
+          "status": "available",
+          "unavailable_reason": null
+        }
+      ],
+      "retention_limit": 10000,
+      "sample_count": 14,
+      "sample_interval_ms": 1000,
+      "samples_truncated": false,
+      "statistics_window": "all_samples",
+      "status": "available",
+      "unavailable_reason": null,
+      "unavailable_sample_count": 0
+    },
+    "schema_version": 4,
+    "source_observations": {
+      "identity_window_capacity": 10000,
+      "identity_window_evictions": 0,
+      "messages_with_identity": 151,
+      "messages_without_source_identity": 0,
+      "missing_source_frame_sequence_total": 13,
+      "repeated_numeric_source_frames": 13,
+      "repeated_source_observations_within_window": 13,
+      "source_frame_sequence_gaps": 2,
+      "source_out_of_order_messages": 0,
+      "source_sequence_restarts": 0,
+      "source_sequence_window_capacity": 10000,
+      "source_sequence_window_evictions": 0,
+      "uncorrelated_state_messages": 0,
+      "unique_source_observations_within_window": 138
+    },
+    "started_at_utc": "2026-10-23T07:47:07.062Z",
+    "stream_order": {
+      "duplicate_high_water_sequences": 0,
+      "highest_sequence": 201,
+      "messages_with_sequence": 151,
+      "missing_sequence_total": 0,
+      "out_of_order_sequences": 0,
+      "sequence_gaps": 0
+    },
+    "termination_reason": "duration_elapsed",
+    "timing": {
+      "local_state_receive_interval_ms": {
+        "p50": 99.956167,
+        "p95": 107.05631264999998,
+        "p99": 110.19663023999999,
+        "retained_sample_count": 150,
+        "sample_count": 150,
+        "sample_limit": 10000,
+        "truncated": false
+      },
+      "read_completion_to_publication_age_ms": {
+        "p50": 45.312270999999996,
+        "p95": 46.71734725,
+        "p99": 47.46038908,
+        "retained_sample_count": 138,
+        "sample_count": 138,
+        "sample_limit": 10000,
+        "truncated": false
+      }
+    },
+    "tool": "billiards-performance-audit-run"
+  },
+  "schema_version": 4,
+  "tool": "billiards-performance-audit-run",
+  "trajectory": null,
+  "trajectory_detail_retention": null
+}
