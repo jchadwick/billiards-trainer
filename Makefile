@@ -168,7 +168,7 @@ build-frontend: ## Build the frontend web app
 	@echo "$(GREEN)Frontend built to backend/static/$(RESET)"
 
 build-rust: ## Build Rust server and live perception binaries
-	cargo build --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) \
+	cargo build --locked --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) \
 		--bin billiards-server \
 		--bin billiards-perception-live \
 		--bin billiards-perception-gstreamer-probe
@@ -179,14 +179,14 @@ build: build-frontend build-rust ## Build the Rust application and web client
 
 run: build-frontend build-rust setup-dirs ## Build and run Rust server, live detector, and retained web client
 	@echo "$(BLUE)Starting Billiards Trainer Rust server...$(RESET)"
-	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
+	cargo run --locked --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
 		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
 		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
 		--web-root "$(PWD)/backend/static" --start-live $(RUST_SERVER_ARGS)
 
 run-api: build-frontend setup-dirs ## Run Rust gateway without live capture
-	cargo run --manifest-path $(RUST_MANIFEST) --bin billiards-server -- \
+	cargo run --locked --manifest-path $(RUST_MANIFEST) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
 		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
 		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
@@ -201,7 +201,7 @@ config-check: ## Validate configuration files
 	@echo "$(BLUE)Checking configuration files...$(RESET)"
 	@temporary_store=$$(mktemp -d) && trap 'rm -rf "$$temporary_store"' EXIT && \
 		node --input-type=module -e 'import fs from "node:fs"; const data=JSON.parse(fs.readFileSync("$(RUST_CONFIG)", "utf8")); process.stdout.write(JSON.stringify({protocol_version:1,operation:"validate",merge:false,data})+"\n");' | \
-		cargo run --quiet --manifest-path $(RUST_MANIFEST) --bin billiards-perception-config -- --config "$$temporary_store/validation.json" | \
+		cargo run --locked --quiet --manifest-path $(RUST_MANIFEST) --bin billiards-perception-config -- --config "$$temporary_store/validation.json" | \
 		node --input-type=module -e 'let raw=""; for await (const chunk of process.stdin) raw += chunk; const result=JSON.parse(raw); if (!result.ok || !result.valid) { console.error(JSON.stringify(result.validation_errors ?? result.error)); process.exit(1); } console.log("Rust configuration schema and runtime rules are valid");'
 
 config-example: ## Create example configuration files
