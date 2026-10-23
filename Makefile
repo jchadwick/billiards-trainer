@@ -186,7 +186,7 @@ run: build-frontend build-rust setup-dirs ## Build and run Rust server, live det
 		--web-root "$(PWD)/backend/static" --start-live $(RUST_SERVER_ARGS)
 
 run-api: build-frontend setup-dirs ## Run Rust gateway without live capture
-	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
+	cargo run --manifest-path $(RUST_MANIFEST) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
 		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
 		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
