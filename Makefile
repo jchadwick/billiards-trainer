@@ -14,7 +14,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -143,13 +143,17 @@ test-web: ## Run browser client tests
 test-python: ## Run retained Python compatibility and offline model/data-tool tests
 	$(PYTHON) -m pytest
 
-test-unit: ## Run retained Python unit tests only
+test-unit: ## Run all retained Python unit/core/common tests without the full-suite coverage gate
 	@echo "$(BLUE)Running unit tests...$(RESET)"
-	$(PYTHON) -m pytest -m "unit"
+	$(PYTHON) -m pytest backend/tests/unit backend/tests/core backend/tests/common --no-cov
 
-test-integration: ## Run integration tests only
+test-integration: ## Run all retained Python integration tests without the full-suite coverage gate
 	@echo "$(BLUE)Running integration tests...$(RESET)"
-	$(PYTHON) -m pytest -m "integration"
+	$(PYTHON) -m pytest backend/tests/integration --no-cov
+
+test-system: ## Run retained Python system tests without the full-suite coverage gate
+	@echo "$(BLUE)Running system tests...$(RESET)"
+	$(PYTHON) -m pytest backend/tests/system --no-cov
 
 test-coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(RESET)"
