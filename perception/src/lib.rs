@@ -40,6 +40,7 @@ pub mod public_state;
 pub mod public_state_lifecycle;
 mod scene_transport;
 pub mod server;
+pub mod server_audit_summary;
 pub mod tracking;
 pub mod web_static;
 
