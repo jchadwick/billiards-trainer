@@ -211,6 +211,19 @@ records, 16 MiB per line, 1 GiB total input and 16 MiB output. The thin
 `scripts/performance-audit-trajectory-summary.sh` entry point exposes the
 standalone JSON Lines command without duplicating its parsing or summary logic.
 
+The new `billiards-temporal-evaluate` Rust library and CLI port temporal
+localization metrics and the Rust scene-snapshot adapter. It binds annotations
+to video SHA-256 and geometry, uses annotated presentation times, hashes the
+exact scene bytes consumed, rejects cached or stale observations as detections,
+and bounds annotation/JSONL reads plus the `ffprobe` timeout and output. The
+thin `scripts/evaluate-temporal-localization.sh` entry point resolves the
+repository root and forwards CLI arguments. A shared report fixture is checked
+by both Rust and the retained Python evaluator, and a file-level test covers
+video binding and scene normalization. This establishes a focused port, not
+full temporal-corpus parity: keep the Python scoring code until the broader
+temporal cases and a recorded detector replay have been compared, then retire
+the Python evaluator and its adapter tests as part of that follow-up.
+
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
@@ -237,6 +250,14 @@ standalone JSON Lines command without duplicating its parsing or summary logic.
   bounds, nonblocking receipt enqueue, exporter/bridge loss separation, and
   Python fallback when the native tool is unavailable. Collector integration
   verifies the state-only path does not start this trajectory child.
+- The Rust temporal evaluator matches the shared Python reference report.
+  Rust tests cover strict annotation parsing, global assignment including
+  unmatched truths, fresh-versus-cached results, unavailable samples,
+  session/calibration transitions, label-time freshness, bounded inputs,
+  bounded `ffprobe` output and timeout, and exact file identity. The focused
+  Python reference/evaluator suite passes 43 tests; it requires the targeted
+  no-coverage invocation because the repository-wide coverage gate is not met
+  by running one test file in isolation.
 - The overhead shell entry point resolves and runs from outside the repository
   root.
 - Rust formatting, strict Clippy, and the all-target test suite pass.

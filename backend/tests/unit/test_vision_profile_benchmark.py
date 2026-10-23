@@ -198,6 +198,20 @@ def test_temporal_annotation_schema_and_sequence_identity_are_strict(tmp_path: P
         validate_annotation_document(document, expected_geometry=(80, 100))
 
 
+def test_shared_temporal_evaluation_fixture_matches_the_python_reference():
+    fixture_path = (
+        Path(__file__).resolve().parents[3]
+        / "perception/contracts/v1/temporal-evaluation-golden.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    annotations = validate_annotation_document(fixture["annotations"])
+
+    assert (
+        evaluate_temporal_localization(annotations, fixture["engine_frames"])
+        == fixture["expected"]
+    )
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

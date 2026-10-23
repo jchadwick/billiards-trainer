@@ -1,0 +1,242 @@
+{
+  "annotations": {
+    "frames": [
+      {
+        "balls": [
+          {
+            "ball_id": "ball-a",
+            "center": {
+              "x": 10.0,
+              "y": 10.0
+            },
+            "radius_px": 4.0,
+            "status": "visible"
+          }
+        ],
+        "cue": {
+          "status": "absent"
+        },
+        "expected_calibration_revision": 1,
+        "expected_source_session_epoch": "session-a",
+        "presentation_time_seconds": 0.0,
+        "source_frame_index": 0
+      },
+      {
+        "balls": [
+          {
+            "ball_id": "ball-a",
+            "center": {
+              "x": 10.0,
+              "y": 10.0
+            },
+            "radius_px": 4.0,
+            "status": "visible"
+          }
+        ],
+        "cue": {
+          "butt": {
+            "x": 10.0,
+            "y": 40.0
+          },
+          "status": "visible",
+          "tip": {
+            "x": 20.0,
+            "y": 40.0
+          }
+        },
+        "expected_calibration_revision": 2,
+        "expected_source_session_epoch": "session-b",
+        "presentation_time_seconds": 1.0,
+        "source_frame_index": 1
+      }
+    ],
+    "schema_version": 1,
+    "sequence": {
+      "coordinate_space": "source_pixels",
+      "height": 80,
+      "video_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "width": 100
+    }
+  },
+  "engine_frames": [
+    {
+      "ball_observation_presentation_time_seconds": 0.0,
+      "ball_observation_source_frame_index": 0,
+      "ball_positions_status": "observed",
+      "balls": [
+        {
+          "center": {
+            "x": 10.0,
+            "y": 10.0
+          },
+          "track_id": "track-1"
+        }
+      ],
+      "calibration_revision": 1,
+      "cue_observation_source_frame_index": 0,
+      "cue_observation_status": "observed",
+      "cue_present": false,
+      "presentation_time_seconds": 0.0,
+      "source_frame_index": 0,
+      "source_session_epoch": "session-a"
+    },
+    {
+      "ball_observation_presentation_time_seconds": 0.95,
+      "ball_observation_source_frame_index": 1,
+      "ball_positions_status": "observed",
+      "balls": [
+        {
+          "center": {
+            "x": 12.0,
+            "y": 10.0
+          },
+          "track_id": "track-2"
+        }
+      ],
+      "calibration_revision": 2,
+      "cue_angle_degrees": 0.0,
+      "cue_butt": {
+        "x": 11.0,
+        "y": 40.0
+      },
+      "cue_center": {
+        "x": 15.0,
+        "y": 40.0
+      },
+      "cue_observation_source_frame_index": 1,
+      "cue_observation_status": "observed",
+      "cue_present": true,
+      "cue_tip": {
+        "x": 19.0,
+        "y": 40.0
+      },
+      "presentation_time_seconds": 1.0,
+      "source_frame_index": 1,
+      "source_session_epoch": "session-b"
+    }
+  ],
+  "expected": {
+    "availability": {
+      "annotated_frames": 2,
+      "engine_frames": 2,
+      "missing_engine_frames": 0,
+      "missing_frames_are_unavailable": true,
+      "stale_observed_ball_results": 0
+    },
+    "ball_localization": {
+      "center_error_px_count": 2,
+      "center_error_px_mean": 1.0,
+      "center_error_px_p50": 1.0,
+      "center_error_px_p95": 1.9,
+      "f1": 1.0,
+      "false_negatives": 0,
+      "false_positives": 0,
+      "fresh_predictions": 2,
+      "matched_balls": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "visible_ground_truth_balls": 2
+    },
+    "calibration": {
+      "boundary_mismatch_count": 0,
+      "covered_boundary_transitions": 1,
+      "covered_frames": 2,
+      "expected_boundary_count": 1,
+      "expected_labeled_frames": 2,
+      "frame_mismatch_count": 0,
+      "label": "calibration revision",
+      "observed_boundary_count": 1,
+      "status": "complete"
+    },
+    "cue": {
+      "butt_error_px": {
+        "error_px_count": 1,
+        "error_px_mean": 1.0,
+        "error_px_p50": 1.0,
+        "error_px_p95": 1.0
+      },
+      "center_error_px": {
+        "error_px_count": 1,
+        "error_px_mean": 0.0,
+        "error_px_p50": 0.0,
+        "error_px_p95": 0.0
+      },
+      "false_negative": 0,
+      "false_positive": 0,
+      "labeled_presence_frames": 2,
+      "occluded_frames_excluded": 0,
+      "presence_precision": 1.0,
+      "presence_recall": 1.0,
+      "scored_presence_frames": 2,
+      "tip_error_px": {
+        "error_px_count": 1,
+        "error_px_mean": 1.0,
+        "error_px_p50": 1.0,
+        "error_px_p95": 1.0
+      },
+      "true_negative": 1,
+      "true_positive": 1,
+      "unavailable_engine_frames": 0,
+      "wrapped_angle_error_degrees": {
+        "error_degrees_count": 1,
+        "error_degrees_mean": 0.0,
+        "error_degrees_p50": 0.0,
+        "error_degrees_p95": 0.0
+      }
+    },
+    "matching": {
+      "algorithm": "global minimum-cost assignment with maximum valid cardinality",
+      "radius_fraction": 0.5
+    },
+    "observation_freshness": {
+      "age_seconds_count": 2,
+      "age_seconds_mean": 0.025000000000000022,
+      "age_seconds_p50": 0.025000000000000022,
+      "age_seconds_p95": 0.04750000000000004,
+      "available_samples": 2,
+      "expected_samples": 2,
+      "freshness_budget_miss_rate": 0.0,
+      "freshness_budget_misses": 0,
+      "freshness_budget_seconds": 0.1,
+      "missing_age_samples": 0
+    },
+    "schema_version": 1,
+    "source_session": {
+      "boundary_mismatch_count": 0,
+      "covered_boundary_transitions": 1,
+      "covered_frames": 2,
+      "expected_boundary_count": 1,
+      "expected_labeled_frames": 2,
+      "frame_mismatch_count": null,
+      "label": "source-session epoch",
+      "observed_boundary_count": 1,
+      "status": "complete"
+    },
+    "status": "available",
+    "timing_basis": "recorded-video presentation time; not camera exposure time",
+    "tracking": {
+      "first_detection_delay_seconds": {
+        "delay_seconds_count": 1,
+        "delay_seconds_mean": 0.0,
+        "delay_seconds_p50": 0.0,
+        "delay_seconds_p95": 0.0
+      },
+      "identified_matches": 2,
+      "identity_switches": 0,
+      "matches_without_track_identity": 0,
+      "occlusion_reacquisition_attempts": 0,
+      "occlusion_reacquisition_delay_seconds": {
+        "delay_seconds_count": 0,
+        "delay_seconds_mean": null,
+        "delay_seconds_p50": null,
+        "delay_seconds_p95": null
+      },
+      "occlusion_reacquisition_successes": 0,
+      "occlusion_reacquisition_unresolved": 0,
+      "source_session_boundary_id_resets": 1,
+      "tracks_ever_detected": 1,
+      "tracks_never_detected": 0,
+      "visible_tracks": 1
+    }
+  }
+}

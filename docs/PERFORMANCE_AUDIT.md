@@ -458,6 +458,42 @@ fraction. These scalar counters retain no per-frame history and do not split
 Rust serialization, socket write, kernel buffering, or Python parsing. They
 use the collector process monotonic window and do not subtract Rust timestamps.
 
+## Temporal detector accuracy evaluation
+
+Score a Rust scene-snapshot JSONL replay against versioned frame labels and
+the exact recorded video. The Rust evaluator verifies the video SHA-256 and
+geometry, uses the annotation presentation times, rejects non-raw or stale
+ball detections, and reports localization, tracking, cue, freshness, source
+session, and calibration metrics. Rust monotonic timestamps are not video
+times and are not used to claim capture-to-result latency.
+
+```bash
+scripts/evaluate-temporal-localization.sh \
+  --video /path/to/recording.mp4 \
+  --annotations /path/to/temporal-labels.json \
+  --scene-snapshots /path/to/rust-scenes.jsonl \
+  --output thoughts/performance-audits/temporal-evaluation/report.json
+```
+
+The wrapper is portable development glue; the Rust command owns validation,
+matching, scoring, and report generation. It requires `ffprobe` on `PATH` by
+default; pass `--ffprobe-executable` to select another installation. The
+geometry query has a 30-second timeout, captures at most 64 KiB of standard
+output and retains at most 8 KiB of error details. Set
+`--ffprobe-timeout-seconds` to change the timeout. The
+default matching gate is half the labeled ball radius and the freshness budget
+is 100 ms of recorded-video presentation time. The evaluator reads at most
+128 MiB of annotations, hashes at most 8 GiB of video, and reads at most 1 GiB
+of scene JSONL with a 16 MiB per-line limit. Every limit and scoring threshold
+can be changed through the CLI. Results identify all input paths and hashes,
+the frame-index offset, and the number of scored engine frames.
+
+Use the same labeled clip and frame mapping when comparing detector or
+scheduling changes. Ball-number identity is intentionally not scored by this
+tool. The Python evaluator remains an offline parity reference until the Rust
+command passes the wider temporal corpus and a recorded detector replay; do
+not treat the shared golden fixture alone as qualification.
+
 ## Repeatable workload matrix
 
 Keep scenario clips and camera settings unchanged across each comparison. Use
