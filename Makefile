@@ -4,7 +4,6 @@
 #
 # Usage:
 #   make help          Show this help message
-#   make install       Install the project and dependencies
 #   make dev           Setup the Rust and browser development environment
 #   make test          Run tests
 #   make lint          Run linting tools
@@ -14,7 +13,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -62,9 +61,6 @@ help: ## Show this help message
 
 # ===== Environment Setup =====
 
-install: build ## Build the Rust server and browser client; no Python app runtime is installed
-	@echo "$(GREEN)Rust application and browser client built successfully.$(RESET)"
-
 install-python-tools: python-venv ## Install Python compatibility, tests, data, and calibration tools
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install --upgrade pip
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev]"
@@ -72,7 +68,7 @@ install-python-tools: python-venv ## Install Python compatibility, tests, data, 
 
 install-model-tools: python-venv ## Install only optional model-export dependencies
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[model-export]"
-	@echo "$(GREEN)Optional ONNX/CoreML model-export dependencies installed.$(RESET)"
+	@echo "$(GREEN)Optional ONNX model-export dependencies installed.$(RESET)"
 
 python-venv: ## Create the optional Python tooling environment
 	@echo "$(BLUE)Creating optional Python tooling environment...$(RESET)"
@@ -167,7 +163,8 @@ test-coverage: ## Run tests with coverage report
 
 build-frontend: ## Build the frontend web app
 	@echo "$(BLUE)Building frontend...$(RESET)"
-	cd frontend/web && npm ci && npm run build
+	@test -x frontend/web/node_modules/.bin/vite || { echo "Browser dependencies are missing; run 'make dev' first." >&2; exit 1; }
+	cd frontend/web && npm run build
 	@echo "$(GREEN)Frontend built to backend/static/$(RESET)"
 
 build-rust: ## Build Rust server and live perception binaries
@@ -180,15 +177,7 @@ build: build-frontend build-rust ## Build the Rust application and web client
 
 # ===== Development Server =====
 
-kill-processes: ## Stop existing Billiards Trainer Rust processes
-	@echo "$(YELLOW)Stopping Billiards Trainer Rust processes...$(RESET)"
-	@pkill -TERM -x billiards-server 2>/dev/null || true
-	@pkill -TERM -x billiards-perception-live 2>/dev/null || true
-	@pkill -TERM -x billiards-perception-gstreamer-probe 2>/dev/null || true
-	@sleep 1
-	@echo "$(GREEN)Rust app processes stopped$(RESET)"
-
-run: build-frontend kill-processes setup-dirs ## Run Rust server, live detector, and retained web client
+run: build-frontend setup-dirs ## Run Rust server, live detector, and retained web client
 	@echo "$(BLUE)Starting Billiards Trainer Rust server...$(RESET)"
 	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \

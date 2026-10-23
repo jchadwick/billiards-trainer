@@ -19,8 +19,7 @@ Export from a reviewed checkpoint:
 .venv/bin/python tools/export_high_res_model.py \
   --model /path/to/reviewed-checkpoint.pt \
   --output-dir models/exported \
-  --imgsz 1280 \
-  --format onnx
+  --imgsz 1280
 ```
 
 Set `perception.rust_live.onnx_path` and

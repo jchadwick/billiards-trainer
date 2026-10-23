@@ -1,15 +1,15 @@
-name: Shell Script Syntax
+name: Shell Script Checks
 
 on:
   push:
     branches: [main, develop]
     paths:
-      - "scripts/**"
+      - "**/*.sh"
       - ".github/workflows/shell-scripts.yml"
   pull_request:
     branches: [main, develop]
     paths:
-      - "scripts/**"
+      - "**/*.sh"
       - ".github/workflows/shell-scripts.yml"
   workflow_dispatch:
 
@@ -62,10 +62,10 @@ jobs:
             esac
             printf '✓ %s (%s syntax)\n' "${script}" "${shell}"
             checked=$((checked + 1))
-          done < <(git ls-files -z -- scripts)
+          done < <(git ls-files -z -- '*.sh')
 
           if ((checked == 0)); then
-            echo 'No tracked scripts/*.sh files were found.' >&2
+            echo 'No tracked shell scripts were found.' >&2
             exit 1
           fi
-          printf 'Syntax-checked %d tracked shell scripts.\n' "${checked}"
+          printf 'Syntax-checked %d tracked shell scripts across the repository.\n' "${checked}"

@@ -59,6 +59,7 @@ configuration and model mounts are described in [DOCKER.md](DOCKER.md).
 Python remains for compatibility-service tests, model export, dataset
 preparation, and calibration authoring. Install the lighter workflow with
 `make install-python-tools`; use `make install-model-tools` only when exporting
-ONNX or CoreML. Rust owns supported temporal evaluation and live performance
-auditing. Python tools do not launch the supported application server, and
-their throughput is not a substitute for real-time live-camera qualification.
+the ONNX model used by the Rust runtime. Rust owns supported temporal evaluation
+and live performance auditing. Python tools do not launch the supported application server, and
+their throughput is not a substitute for real-time live-camera
+qualification.

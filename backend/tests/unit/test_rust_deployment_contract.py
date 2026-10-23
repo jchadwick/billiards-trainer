@@ -50,6 +50,36 @@ def test_distribution_target_uses_shell_bundle_builder_without_duplicate_fronten
     assert "bash scripts/deploy/build-dist.sh" in deploy_recipe
 
 
+def test_local_run_does_not_kill_unrelated_rust_processes_or_reinstall_browser_deps():
+    repository = Path(__file__).resolve().parents[3]
+    makefile = (repository / "Makefile").read_text(encoding="utf-8")
+
+    run_target = next(line for line in makefile.splitlines() if line.startswith("run:"))
+    frontend_target = next(
+        line for line in makefile.splitlines() if line.startswith("build-frontend:")
+    )
+    frontend_recipe = makefile.split(frontend_target, maxsplit=1)[1].split(
+        "\n\n", maxsplit=1
+    )[0]
+
+    assert "kill-processes" not in run_target
+    assert "pkill" not in makefile
+    assert "npm run build" in frontend_recipe
+    assert "npm ci" not in frontend_recipe
+    assert "cd frontend/web && npm ci" in makefile
+
+
+def test_distribution_builder_uses_locked_rust_dependencies():
+    build_script = (
+        Path(__file__).resolve().parents[3] / "scripts" / "deploy" / "build-dist.sh"
+    ).read_text(encoding="utf-8")
+    cargo_build = build_script.split("cargo build \\\n", maxsplit=1)[1].split(
+        "\n)", maxsplit=1
+    )[0]
+
+    assert "--locked" in cargo_build
+
+
 def test_legacy_python_nginx_deployment_paths_are_retired():
     repository = Path(__file__).resolve().parents[3]
 

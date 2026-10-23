@@ -106,6 +106,7 @@ fi
 (
     cd "$PROJECT_ROOT"
     cargo build \
+        --locked \
         --manifest-path "$PROJECT_ROOT/perception/Cargo.toml" \
         --release \
         --features "$RUST_FEATURES" \

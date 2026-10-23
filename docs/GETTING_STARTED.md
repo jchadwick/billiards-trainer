@@ -47,7 +47,8 @@ make lint-python
 make format-python
 ```
 
-Install the larger Ultralytics/ONNX/CoreML stack only when exporting a model:
+Install the larger Ultralytics/ONNX stack only when exporting a model for the
+Rust runtime:
 
 ```bash
 make install-model-tools
