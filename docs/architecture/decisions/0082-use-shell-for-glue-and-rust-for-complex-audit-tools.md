@@ -12,9 +12,16 @@ ADR-0085 supersedes this record's temporary Python collector-retention and
 parity requirements. ADR-0035 and ADR-0083 later record the retirement of the
 Python temporal scorer and CVAT importer after Rust parity. The shell-for-glue
 and Rust-for-complex-tooling decision remains in force. The current
-state/trajectory audit, recorded-video replay, and temporal localization
+state audit, recorded-video replay, and temporal localization
 evaluation are Rust-owned. Viewer interference remains an evidence gap rather
 than a retained Python tool.
+
+> Historical implementation record: the detailed implementation status below
+> describes intermediate migration stages. Some reducer binaries, wrappers,
+> and the receiver-only trajectory branch named there were later retired. Use
+> the root Makefile, [performance audit guide](../../PERFORMANCE_AUDIT.md), and
+> [current tooling inventory](../../../thoughts/tooling-relevance-audit-2026-10-23.md)
+> for supported commands and ownership.
 
 ## Context
 

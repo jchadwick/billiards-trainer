@@ -21,9 +21,7 @@ use tokio_tungstenite::{connect_async_with_config, WebSocketStream};
 use crate::process_resource_sampler::{
     ProcessResourceSampler, ProcessResourceSamplerConfig, ProcessResourceSummary,
 };
-use crate::trajectory_summary::TrajectoryAccumulator;
-
-pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 4;
+pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 5;
 pub const DEFAULT_MAXIMUM_MESSAGE_BYTES: usize = 1_048_576;
 pub const MAXIMUM_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SAMPLES: usize = 10_000;
@@ -43,8 +41,8 @@ pub struct StateReceiverConfig {
     /// created unless this is explicitly configured.
     pub resource_sample_process_id: Option<u32>,
     pub resource_sample_interval: Duration,
-    /// Optional delay after processing each state or trajectory message. This
-    /// is an audit-only way to reproduce a slow subscriber without changing
+    /// Optional delay after processing each state message. This is an
+    /// audit-only way to reproduce a slow subscriber without changing
     /// the server or its best-effort delivery contract.
     pub subscriber_delay: Duration,
 }
@@ -109,24 +107,12 @@ pub struct StateReceiverOutput {
     /// A sliding, bounded detail window. The total message counters in the
     /// report continue to increase after this list reaches its configured cap.
     pub retained_samples: Vec<StateSample>,
-    /// Present only when trajectory collection was explicitly requested.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trajectory: Option<TrajectoryReceiverOutput>,
     /// Local monotonic boundaries after WebSocket negotiation. These fields
     /// are internal coordination data and are omitted from JSON reports.
     #[serde(skip)]
     pub measurement_started_at: Option<Instant>,
     #[serde(skip)]
     pub measurement_ended_at: Option<Instant>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TrajectoryReceiverOutput {
-    pub summary: serde_json::Value,
-    /// Bounded receipt details, aligned with the retained state sample window.
-    pub retained_samples: Vec<serde_json::Value>,
-    pub sample_limit: usize,
-    pub samples_truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -271,17 +257,7 @@ pub async fn connect_and_collect(
     url: &str,
     config: &StateReceiverConfig,
 ) -> Result<StateReceiverOutput> {
-    connect_and_collect_with_options(url, config, false, false).await
-}
-
-/// Collect state and trajectory receipts from the same connection. State is
-/// always required; trajectory allocation and subscription are opt-in.
-pub async fn connect_and_collect_streams(
-    url: &str,
-    config: &StateReceiverConfig,
-    include_trajectory: bool,
-) -> Result<StateReceiverOutput> {
-    connect_and_collect_with_options(url, config, false, include_trajectory).await
+    connect_and_collect_with_options(url, config, false).await
 }
 
 /// Receive until the first state identifies a fresh observed ball
@@ -293,14 +269,13 @@ pub async fn connect_and_wait_for_first_fresh_observed_localization(
     url: &str,
     config: &StateReceiverConfig,
 ) -> Result<StateReceiverOutput> {
-    connect_and_collect_with_options(url, config, true, false).await
+    connect_and_collect_with_options(url, config, true).await
 }
 
 async fn connect_and_collect_with_options(
     url: &str,
     config: &StateReceiverConfig,
     stop_when_localized: bool,
-    include_trajectory: bool,
 ) -> Result<StateReceiverOutput> {
     config.validate()?;
     validate_websocket_url(url)?;
@@ -315,8 +290,7 @@ async fn connect_and_collect_with_options(
     .await
     .context("WebSocket connection timed out")?
     .context("could not connect to the WebSocket state endpoint")?;
-    collect_connected_stream_with_options(socket, config, stop_when_localized, include_trajectory)
-        .await
+    collect_connected_stream_with_options(socket, config, stop_when_localized).await
 }
 
 /// Collect from an already-connected stream. Public for contract tests that
@@ -328,27 +302,13 @@ pub async fn collect_connected_stream<S>(
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    collect_connected_stream_with_options(socket, config, false, false).await
-}
-
-/// Collect both supported streams from an already connected peer. Public for
-/// contract tests that exercise actual WebSocket subscription and interleaving.
-pub async fn collect_connected_streams<S>(
-    socket: WebSocketStream<S>,
-    config: &StateReceiverConfig,
-    include_trajectory: bool,
-) -> Result<StateReceiverOutput>
-where
-    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    collect_connected_stream_with_options(socket, config, false, include_trajectory).await
+    collect_connected_stream_with_options(socket, config, false).await
 }
 
 async fn collect_connected_stream_with_options<S>(
     mut socket: WebSocketStream<S>,
     config: &StateReceiverConfig,
     stop_when_localized: bool,
-    include_trajectory: bool,
 ) -> Result<StateReceiverOutput>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -356,7 +316,7 @@ where
     config.validate()?;
     let initial_message = timeout(
         config.connect_timeout,
-        initialize_state_subscription(&mut socket, include_trajectory),
+        initialize_state_subscription(&mut socket),
     )
     .await
     .context("timed out negotiating the state WebSocket")??;
@@ -380,13 +340,6 @@ where
     );
     summary_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut accumulator = StateAccumulator::new(config.maximum_samples);
-    let mut trajectory_accumulator = include_trajectory
-        .then(|| TrajectoryAccumulator::new(config.maximum_samples))
-        .transpose()
-        .map_err(anyhow::Error::msg)?;
-    let mut trajectory_samples =
-        include_trajectory.then(|| VecDeque::with_capacity(config.maximum_samples));
-    let mut trajectory_sample_count = 0_u64;
     let mut initial_message = initial_message;
     let mut heartbeat_tick = interval_at(
         TokioInstant::now() + config.application_heartbeat_interval,
@@ -398,9 +351,8 @@ where
             _ = sleep_until(deadline) => break "duration_elapsed",
             _ = summary_tick.tick() => {
                 eprintln!(
-                    "audit_live_summary states={} trajectories={} fresh={} unique_sources={} repeated_sources={} invalid_json={}",
+                    "audit_live_summary states={} fresh={} unique_sources={} repeated_sources={} invalid_json={}",
                     accumulator.counts.state_messages,
-                    trajectory_sample_count,
                     accumulator.freshness.fresh_state_messages,
                     accumulator.source.unique,
                     accumulator.source.repeated,
@@ -426,21 +378,6 @@ where
                             continue;
                         }
                     };
-                    if let (Some(trajectory), Some(samples)) =
-                        (trajectory_accumulator.as_mut(), trajectory_samples.as_mut())
-                    {
-                        if message.get("type").and_then(Value::as_str) == Some("trajectory") {
-                            accumulator.record_trajectory_text();
-                            let event = trajectory_receipt_event(&message, started.elapsed());
-                            trajectory.add_event(&event).map_err(anyhow::Error::msg)?;
-                            trajectory_sample_count = trajectory_sample_count.saturating_add(1);
-                            push_bounded(samples, event, config.maximum_samples);
-                            if !config.subscriber_delay.is_zero() {
-                                tokio::time::sleep(config.subscriber_delay).await;
-                            }
-                            continue;
-                        }
-                    }
                     let outcome = accumulator.record_text_message(&message, started.elapsed());
                     if outcome.application_ping {
                         sender.send(Message::Text(r#"{"type":"ping","data":{}}"#.into())).await
@@ -488,18 +425,6 @@ where
         config.maximum_samples,
         process_resources,
     );
-    output.trajectory = match (trajectory_accumulator, trajectory_samples) {
-        (Some(accumulator), Some(samples)) => Some(TrajectoryReceiverOutput {
-            summary: accumulator
-                .summary(elapsed.as_secs_f64(), None, None)
-                .map_err(anyhow::Error::msg)?,
-            samples_truncated: trajectory_sample_count > samples.len() as u64,
-            sample_limit: config.maximum_samples,
-            retained_samples: samples.into_iter().collect(),
-        }),
-        (None, None) => None,
-        _ => bail!("trajectory collection state diverged"),
-    };
     output.measurement_started_at = Some(started);
     output.measurement_ended_at = Some(measurement_ended_at);
     Ok(output)
@@ -512,7 +437,6 @@ where
 /// window; the API's `connection` welcome is intentionally outside it.
 async fn initialize_state_subscription<S>(
     socket: &mut WebSocketStream<S>,
-    include_trajectory: bool,
 ) -> Result<Option<Message>>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -530,14 +454,9 @@ where
         };
         match value.get("type").and_then(Value::as_str) {
             Some("connection") => {
-                let streams = if include_trajectory {
-                    vec!["state", "trajectory"]
-                } else {
-                    vec!["state"]
-                };
                 let subscription = serde_json::json!({
                     "type": "subscribe",
-                    "data": {"streams": streams},
+                    "data": {"streams": ["state"]},
                 });
                 socket
                     .send(Message::Text(subscription.to_string().into()))
@@ -587,44 +506,6 @@ where
             _ => return Ok(Some(message)),
         }
     }
-}
-
-fn trajectory_receipt_event(message: &Value, received_after: Duration) -> Value {
-    let data = message.get("data").filter(|value| value.is_object());
-    let observations = data
-        .and_then(|data| data.get("source_observations"))
-        .filter(|value| value.is_object());
-    let field = |value: Option<&Value>| value.cloned();
-    let stream_sequence = data
-        .and_then(|data| data.get("sequence"))
-        .cloned()
-        .or_else(|| field(message.get("sequence")));
-    serde_json::json!({
-        "stream_sequence": stream_sequence,
-        "source_frame_number": field(data.and_then(|data| data.get("source_frame_number"))),
-        "source_timestamp": field(data.and_then(|data| data.get("source_timestamp"))),
-        "source_timestamp_kind": field(data.and_then(|data| data.get("source_timestamp_kind"))),
-        "source_process_id": field(observations.and_then(|value| value.get("source_process_id"))),
-        "source_publication_monotonic_ns": field(observations.and_then(|value| value.get("source_publication_monotonic_ns"))),
-        "vision_instance_id": field(observations.and_then(|value| value.get("vision_instance_id"))),
-        "map_revision": field(data.and_then(|data| data.get("map_revision"))),
-        "calibration_revision": field(data.and_then(|data| data.get("calibration_revision"))),
-        "prediction_status": field(data.and_then(|data| data.get("prediction_status"))),
-        "spatial_valid": field(data.and_then(|data| data.get("spatial_valid"))),
-        "line_count": field(data.and_then(|data| data.get("line_count"))),
-        "collision_count": field(data.and_then(|data| data.get("collision_count"))),
-        "local_receive_elapsed_ms": received_after.as_secs_f64() * 1_000.0,
-        "source_publication_wall_age_estimate_ms": null,
-        "source_publication_to_client_receipt_ms": null,
-        "clock_comparable": false
-    })
-}
-
-fn push_bounded<T>(samples: &mut VecDeque<T>, value: T, capacity: usize) {
-    if samples.len() == capacity {
-        samples.pop_front();
-    }
-    samples.push_back(value);
 }
 
 pub fn validate_websocket_url(url: &str) -> Result<()> {
@@ -881,11 +762,6 @@ impl StateAccumulator {
     fn record_invalid_text(&mut self) {
         self.counts.text_messages = self.counts.text_messages.saturating_add(1);
         self.counts.invalid_json_messages = self.counts.invalid_json_messages.saturating_add(1);
-    }
-
-    fn record_trajectory_text(&mut self) {
-        self.counts.text_messages = self.counts.text_messages.saturating_add(1);
-        self.counts.non_state_messages = self.counts.non_state_messages.saturating_add(1);
     }
 
     /// Record one payload and return whether the socket loop should answer an
@@ -1241,7 +1117,6 @@ impl StateAccumulator {
         StateReceiverOutput {
             report,
             retained_samples: self.samples.into_iter().collect(),
-            trajectory: None,
             measurement_started_at: None,
             measurement_ended_at: None,
         }
@@ -1375,9 +1250,8 @@ pub fn receiver_wall_time_ms() -> Option<u128> {
 #[cfg(test)]
 mod tests {
     use super::{
-        component_status, connect_and_collect_streams, numeric_frame_sequence,
-        trajectory_receipt_event, validate_websocket_url, SequenceAccumulator, SourceAccumulator,
-        StateAccumulator, StateReceiverConfig,
+        component_status, connect_and_collect, numeric_frame_sequence, validate_websocket_url,
+        SequenceAccumulator, SourceAccumulator, StateAccumulator, StateReceiverConfig,
     };
     use futures_util::{SinkExt, StreamExt};
     use serde_json::json;
@@ -1385,7 +1259,7 @@ mod tests {
     use tokio_tungstenite::tungstenite::Message;
 
     #[tokio::test]
-    async fn state_and_trajectory_stream_collection_uses_negotiated_bounded_receipts() {
+    async fn state_collection_subscribes_only_to_state_and_preserves_slow_subscriber_stress() {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .unwrap();
@@ -1406,13 +1280,10 @@ mod tests {
                 panic!("expected text subscription")
             };
             let subscription: serde_json::Value = serde_json::from_str(&subscription).unwrap();
-            assert_eq!(
-                subscription["data"]["streams"],
-                json!(["state", "trajectory"])
-            );
+            assert_eq!(subscription["data"]["streams"], json!(["state"]));
             socket
                 .send(Message::Text(
-                    json!({"type": "subscribed", "data": {"streams": ["state", "trajectory"]}})
+                    json!({"type": "subscribed", "data": {"streams": ["state"]}})
                         .to_string()
                         .into(),
                 ))
@@ -1420,8 +1291,8 @@ mod tests {
                 .unwrap();
             for payload in [
                 json!({"type": "state", "sequence": 1, "data": {"observation_status": {}}}),
-                json!({"type": "trajectory", "data": {"sequence": 1, "source_frame_number": 10, "source_timestamp": 123.0, "source_observations": {"source_process_id": 7, "source_publication_monotonic_ns": 1000, "vision_instance_id": "vision-a"}, "spatial_valid": true, "line_count": 2, "collision_count": 1}}),
-                json!({"type": "trajectory", "data": {"sequence": 3, "source_frame_number": 12, "source_observations": {"source_process_id": 7, "vision_instance_id": "vision-a"}, "prediction_status": "invalidated", "spatial_valid": false}}),
+                json!({"type": "trajectory", "data": {"sequence": 1}}),
+                json!({"type": "state", "sequence": 2, "data": {"observation_status": {}}}),
             ] {
                 socket
                     .send(Message::Text(payload.to_string().into()))
@@ -1434,62 +1305,22 @@ mod tests {
         let config = StateReceiverConfig {
             duration: Duration::from_secs(2),
             maximum_samples: 1,
-            subscriber_delay: Duration::from_millis(1),
+            subscriber_delay: Duration::from_millis(20),
             ..StateReceiverConfig::default()
         };
-        let output = connect_and_collect_streams(&format!("ws://{address}/audit"), &config, true)
+        let output = connect_and_collect(&format!("ws://{address}/audit"), &config)
             .await
             .unwrap();
         server.await.unwrap();
 
-        assert_eq!(output.report.counts.state_messages, 1);
+        assert_eq!(
+            output.report.schema_version,
+            super::AUDIT_REPORT_SCHEMA_VERSION
+        );
+        assert_eq!(output.report.counts.state_messages, 2);
         assert_eq!(output.report.counts.text_messages, 3);
-        assert_eq!(output.report.counts.non_state_messages, 2);
-        let trajectory = output.trajectory.unwrap();
-        assert_eq!(trajectory.summary["trajectory_messages_received"], 2);
-        assert_eq!(trajectory.summary["trajectory_sequence_gaps"], 1);
-        assert_eq!(
-            trajectory.summary["trajectory_unique_source_observations"],
-            2
-        );
-        assert_eq!(
-            trajectory.summary["trajectory_invalidated_or_spatially_invalid_messages"],
-            1
-        );
-        assert_eq!(
-            trajectory.summary["trajectory_source_publication_to_client_receipt_ms"]["count"],
-            0
-        );
-        assert!(trajectory.samples_truncated);
-        assert_eq!(trajectory.retained_samples.len(), 1);
-        assert_eq!(
-            trajectory.retained_samples[0]["prediction_status"],
-            "invalidated"
-        );
-    }
-
-    #[test]
-    fn trajectory_receipt_preserves_malformed_values_for_strict_validation() {
-        let message = json!({
-            "type": "trajectory",
-            "data": {
-                "sequence": true,
-                "source_frame_number": "12",
-                "source_timestamp": false,
-                "prediction_status": 5,
-                "spatial_valid": "true"
-            }
-        });
-        let event = trajectory_receipt_event(&message, Duration::from_millis(3));
-        assert_eq!(event["stream_sequence"], true);
-        assert_eq!(event["source_frame_number"], "12");
-        assert_eq!(event["source_timestamp"], false);
-        assert_eq!(event["prediction_status"], 5);
-        assert_eq!(event["spatial_valid"], "true");
-        assert!(crate::trajectory_summary::TrajectoryAccumulator::new(2)
-            .unwrap()
-            .add_event(&event)
-            .is_err());
+        assert_eq!(output.report.counts.non_state_messages, 1);
+        assert!(output.report.elapsed_seconds >= 0.035);
     }
 
     fn state_message(sequence: u64, frame: &str, freshness: &str, age_seconds: f64) -> Vec<u8> {

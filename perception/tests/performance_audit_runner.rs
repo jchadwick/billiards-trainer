@@ -5,7 +5,7 @@ use billiards_perception::performance_audit_receiver::StateReceiverConfig;
 use billiards_perception::performance_audit_runner::{
     run_state_audit, ManagedServerConfig, StateAuditRunConfig,
 };
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use serde_json::Value;
 use tempfile::tempdir;
 use tokio::net::TcpListener;
@@ -56,7 +56,6 @@ fn run_config(url: String, output_root: std::path::PathBuf) -> StateAuditRunConf
             resource_sample_interval: Duration::from_secs(1),
             subscriber_delay: Duration::ZERO,
         },
-        include_trajectory: false,
         managed_server: None,
         live_pipeline_timing_audit: None,
         gateway_websocket_timing_audit: None,
@@ -91,7 +90,10 @@ async fn repeatable_runner_writes_bounded_reports_details_and_provenance() {
     let summary: Value =
         serde_json::from_slice(&std::fs::read(run_directory.join("summary.json")).unwrap())
             .unwrap();
-    assert_eq!(summary["schema_version"], 7);
+    assert_eq!(summary["schema_version"], 8);
+    assert!(summary["configuration"]
+        .get("trajectory_collection_enabled")
+        .is_none());
     assert_eq!(summary["mode"], "repeated");
     assert_eq!(summary["measured_runs"].as_array().unwrap().len(), 2);
     assert!(summary["environment"]["working_tree_dirty"].is_boolean());
@@ -108,6 +110,9 @@ async fn repeatable_runner_writes_bounded_reports_details_and_provenance() {
     for repetition in 1..=2 {
         let report_path = run_directory.join(format!("runs/run-{repetition:03}.json"));
         let report: Value = serde_json::from_slice(&std::fs::read(report_path).unwrap()).unwrap();
+        assert_eq!(report["schema_version"], 5);
+        assert!(report.get("trajectory").is_none());
+        assert!(report.get("trajectory_detail_retention").is_none());
         assert_eq!(report["report"]["counts"]["state_messages"], 1);
         assert_eq!(
             report["report"]["freshness"]["unique_observed_source_observations"],
@@ -123,106 +128,6 @@ async fn repeatable_runner_writes_bounded_reports_details_and_provenance() {
     let markdown = std::fs::read_to_string(run_directory.join("report.md")).unwrap();
     assert!(markdown.contains("Observed source frames"));
     assert!(markdown.contains("accuracy"));
-}
-
-#[tokio::test]
-async fn trajectory_opt_in_subscribes_and_writes_bounded_summary_and_details() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let peer = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.unwrap();
-        let mut socket = accept_async(stream).await.unwrap();
-        socket
-            .send(Message::Text(
-                serde_json::json!({"type": "connection", "data": {"client_id": "runner-test"}})
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        let subscription = socket.next().await.unwrap().unwrap();
-        let Message::Text(subscription) = subscription else {
-            panic!("expected text subscription")
-        };
-        let subscription: Value = serde_json::from_str(&subscription).unwrap();
-        assert_eq!(
-            subscription["data"]["streams"],
-            serde_json::json!(["state", "trajectory"])
-        );
-        socket
-            .send(Message::Text(
-                serde_json::json!({"type": "subscribed", "data": {"streams": ["state", "trajectory"]}})
-                    .to_string()
-                    .into(),
-            ))
-            .await
-            .unwrap();
-        socket
-            .send(Message::Text(state_message(1, 1).into()))
-            .await
-            .unwrap();
-        socket
-            .send(Message::Text(
-                serde_json::json!({
-                    "type": "trajectory",
-                    "data": {
-                        "sequence": 1,
-                        "source_frame_number": 1,
-                        "source_observations": {
-                            "source_process_id": 4,
-                            "source_publication_monotonic_ns": 1000,
-                            "vision_instance_id": "runner-vision"
-                        },
-                        "prediction_status": "published",
-                        "spatial_valid": true,
-                        "line_count": 2,
-                        "collision_count": 1
-                    }
-                })
-                .to_string()
-                .into(),
-            ))
-            .await
-            .unwrap();
-        socket.close(None).await.unwrap();
-    });
-
-    let temporary = tempdir().unwrap();
-    let mut config = run_config(format!("ws://{address}/audit"), temporary.path().into());
-    config.measured = Duration::from_secs(1);
-    config.repetitions = 1;
-    config.include_trajectory = true;
-    config.receiver.maximum_samples = 1;
-    let run_directory = run_state_audit(&config).await.unwrap();
-    peer.await.unwrap();
-
-    let summary: Value =
-        serde_json::from_slice(&std::fs::read(run_directory.join("summary.json")).unwrap())
-            .unwrap();
-    assert_eq!(
-        summary["configuration"]["trajectory_collection_enabled"],
-        true
-    );
-    assert_eq!(
-        summary["measured_runs"][0]["trajectory_summary"]["trajectory_messages_received"],
-        1
-    );
-    let summary_path = summary["measured_runs"][0]["trajectory_summary_path"]
-        .as_str()
-        .unwrap();
-    let details_path = summary["measured_runs"][0]["trajectory_details_path"]
-        .as_str()
-        .unwrap();
-    assert!(run_directory.join(summary_path).is_file());
-    assert_eq!(
-        std::fs::read_to_string(run_directory.join(details_path))
-            .unwrap()
-            .lines()
-            .count(),
-        1
-    );
-    let markdown = std::fs::read_to_string(run_directory.join("report.md")).unwrap();
-    assert!(markdown.contains("## Trajectory delivery"));
 }
 
 #[tokio::test]

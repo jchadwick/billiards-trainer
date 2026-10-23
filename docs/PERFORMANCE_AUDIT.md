@@ -30,12 +30,11 @@ and JSON work do not carry debug-build overhead into receipt measurements.
 
 Defaults are 30 seconds of warm-up, three 120-second measured windows, and a
 20-minute bounded-memory soak when `--soak` is selected. Use `--help` for
-configurable windows, sample limits, optional trajectory receipts, and a
-deliberately delayed subscriber. The runner reports message and unique-observed
-state rates, repeated states, source and WebSocket gaps, freshness and delivery
-latency distributions, and losses. It writes versioned JSON, bounded detail,
-and Markdown under `thoughts/performance-audits/<run-id>/` while printing a
-live terminal summary.
+configurable windows, sample limits, and a deliberately delayed subscriber.
+The runner reports message and unique-observed state rates, repeated states,
+source and WebSocket gaps, freshness and delivery latency distributions, and
+losses. It writes versioned JSON, bounded detail, and Markdown under
+`thoughts/performance-audits/<run-id>/` while printing a live terminal summary.
 
 To supervise a local Rust server and collect correlated detector timings,
 including optional detector-process CPU and memory, use:
@@ -86,17 +85,15 @@ Keep the input and workload fixed when comparing gateway timing on and off,
 and qualify instrumentation overhead against the 2% budget before using small
 stage differences to rank production changes.
 
-For an interference comparison, hold the same input, model, camera settings,
-calibration, warm-up, and measurement windows constant. `--include-trajectory`
-adds receiver-side trajectory subscription and receipt collection only. The
-supported Rust server currently has no trajectory prediction producer or
-computation for this option to control, so it cannot establish trajectory
-workload interference. Revisit this experiment only after a Rust trajectory
-engine and output contract exist, as recorded in
+The live audit subscribes to detected state only. The Rust server has no
+trajectory producer, so the audit does not allocate trajectory receipt buffers
+or report prediction timing; those measurements are unavailable until an
+active Rust prediction workload and output contract exist. The subscriber-delay
+option is a stress test, not a production client profile. The current runner
+does not provide a video-viewer workload, so do not infer viewer impact from
+these runs. Any future prediction-interference experiment must measure actual
+prediction work and state freshness together, as recorded in
 [ADR-0095](architecture/decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md).
-The subscriber-delay option is a stress test, not a production client profile.
-The current runner does not provide a video-viewer workload, so do not infer
-viewer impact from these runs.
 
 The five-second remote-stream smoke in
 [run 20261023-023743-3b43f629](../thoughts/performance-audits/20261023-023743-3b43f629/report.md)

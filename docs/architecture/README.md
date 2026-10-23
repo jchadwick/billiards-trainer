@@ -32,8 +32,9 @@ Rust live, saved-video, and temporal evaluation commands remain the supported
 measurement tools. ADR-0085
 supersedes ADR-0082's temporary Python collector-retention requirement while
 preserving its shell-for-glue and Rust-for-complex-tooling decision. The Rust
-live runner owns state and optional trajectory receipt audits, detector timing,
-and optional process-resource sampling; ADR-0098 adds a separate, opt-in
+live runner owns state delivery, detector timing, and optional process-resource
+sampling; its receiver-only trajectory branch was removed because no supported
+Rust trajectory producer exists. ADR-0098 adds a separate, opt-in
 gateway WebSocket timing stream so detector and gateway process/footer/resource
 attribution remain distinct. The Rust temporal evaluator owns reviewed-label
 scoring. The retired Python collector/profile benchmark,

@@ -215,7 +215,7 @@ config-example: ## Create example configuration files
 
 # ===== Cleanup =====
 
-clean: ## Clean build artifacts and temporary files
+clean: ## Clean local dist, Python caches, coverage reports, and build/; keep Rust and Node dependencies
 	@echo "$(BLUE)Cleaning build artifacts...$(RESET)"
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "__pycache__" -delete

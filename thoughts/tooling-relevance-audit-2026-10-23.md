@@ -31,7 +31,7 @@ commands or baselines.
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep within the Python compatibility service for now | It still has callers in the compatibility API, streaming, and video modules. It is not part of the Rust live path; the unused bundle-conversion bridge and tests have been retired. The grid-calibration CLI and YAML guide remain removed. |
 | `frontend/web` | Keep as the minimal operator client | ADR-0090 keeps `/live` with direct MJPEG and a state-only reconnecting WebSocket. Legacy configuration, diagnostics, monitoring, navigation, generic video controls, persistence, and their tests were unreachable from the route graph and were removed. |
-| Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; fake Python senders, an unused Docker dev image, unsupported fused-binary instructions, and the unrelated love.js browser package are retired under ADR-0091. ADR-0086 still preserves the native projection use case. |
+| Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; fake Python senders, an unused Docker dev image, unsupported fused-binary instructions, the redundant `deploy.sh` wrapper, and the unrelated love.js browser package are retired under ADR-0091 and this follow-up. Run the client directly with `love .`. ADR-0086 still preserves the native projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retired | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
 
 ## Already-ported Rust executables, evaluated individually
@@ -46,7 +46,7 @@ commands or baselines.
 | `billiards-perception-camera-discovery` | Keep: read-only diagnostic | Reports enumerated video sources without opening a device. It has bounded output and command tests, and answers a different operational question from capture qualification. |
 | `billiards-perception-infer` | Retired in this pass | Its only callers were its source, tests, and documentation. The shared inference engine remains covered by live and video-replay tests. The CLI-specific image directory replay, synthetic pacing, raw tensor dumps, retained provider profile, and replay-v2 TCP bridge did not add a validated workflow. |
 | `billiards-perception-video-replay` | Keep: canonical saved-video detector audit | Reuses production Rust inference with PTS-paced latest-frame and unpaced capacity modes. It reports decoder/model provenance, bounded traces and accuracy when reviewed labels are supplied; it does not measure live camera or browser delay. |
-| `billiards-performance-audit-run` | Keep: canonical live delivery audit | Measures live state freshness, throughput, gaps, client receipt, optional trajectory receipt collection, and managed detector-process resources using bounded artifacts. Its independent `--gateway-websocket-timing-audit` path reports gateway selection, assembly, JSON, socket-send-call, coalescing, and loss data without merging detector PID/footer/clock ownership. True cross-process publication-to-client receipt and browser rendering remain outside its evidence boundary. Trajectory receipt collection does not enable/disable prediction computation. |
+| `billiards-performance-audit-run` | Keep: canonical live state-delivery audit | Measures live state freshness, throughput, gaps, client receipt, and managed detector-process resources using bounded artifacts. Its independent `--gateway-websocket-timing-audit` path reports gateway selection, assembly, JSON, socket-send-call, coalescing, and loss data without merging detector PID/footer/clock ownership. The receiver-only trajectory branch was removed because the server has no trajectory producer; prediction work, viewer interference, true cross-process publication-to-client receipt, and browser rendering remain outside its evidence boundary. |
 | `billiards-temporal-evaluate` | Keep: accuracy authority | Scores scene observations against video-bound reviewed annotations, including localization, tracking, cue, and freshness metrics. Unlabeled runs cannot establish accuracy. |
 | `billiards-temporal-import-cvat` | Keep: annotation adapter | Imports reviewed CVAT Video 1.1 keyframes into the bounded, video-bound annotation contract; it converts labels and does not author or validate their truth. |
 
@@ -86,7 +86,7 @@ target is retained solely because it has already been ported.
 | `lint`, `lint-rust`, `lint-web`, `lint-python`, `format`, `format-rust`, `format-python`, `format-check`, `fix` | Keep | Rust lint is strict Clippy, web lint type-checks, and Python checks Ruff/mypy. Python format affects only retained compatibility and export code. Ruff targets the actual Python 3.10 minimum; legacy `Optional`/`Union` spellings are intentionally exempt from bulk style rewrites, and `zip(strict=False)` makes prior truncating semantics explicit. |
 | `build-frontend`, `build-rust`, `build`, `run`, `run-api`, `run-frontend` | Keep | Builds and runs the Rust gateway/live processes plus static browser client. The gateway-only run omits camera native features; all Cargo build/run invocations lock dependency resolution. Frontend-only Vite is a development path that requires a separately running gateway. |
 | `config-check`, `config-example` | Keep | Validation uses a temporary Rust authority store and does not mutate the active config. Example creation refuses to overwrite an existing file. |
-| `clean`, `clean-logs`, `clean-data`, `clean-frontend`, `clean-all` | Keep with explicit scope | `clean-data` deletes all non-hidden contents in `data/` and `temp/` and must only be run when that data is disposable. `clean-all` deliberately leaves those directories and their contents alone; it removes generated build, log, and browser assets. |
+| `clean`, `clean-logs`, `clean-data`, `clean-frontend`, `clean-all` | Keep with explicit scope | `clean` removes Python caches, coverage output, `build/`, and the packaged distribution; it deliberately preserves Cargo targets and Node dependencies. `clean-data` deletes all non-hidden contents in `data/` and `temp/` and must only be run when that data is disposable. `clean-all` leaves data and dependency directories intact while removing the local build, logs, distribution, and browser build outputs. |
 | `docker-build`, `docker-smoke`, `docker-run`, `docker-run-detached`, `docker-stop`, `docker-restart`, `docker-logs`, `docker-shell` | Keep as optional container operations | `docker-smoke` builds a configurable image and runs the bounded health plus `/live` check. `docker-stop` uses Compose down without deleting its named data volume. Logs/shell require a running service. The image remains gateway/network-source only, not hardware qualification. |
 | `deps-update`, `deps-check`, `security-check`, `security-check-rust`, `security-check-web` | Keep with distinct side effects | Updates intentionally change Cargo/npm lockfiles. Dependency checks do not update them; `npm outdated` may exit nonzero when updates exist. Security checks fail closed if `cargo-audit` is missing and independently audit browser dependencies. |
 | `check-env`, `docs`, `deploy`, `deploy-clean` | Keep | Environment check reports missing GStreamer as a warning so gateway-only development remains possible; the camera-enabled `make run` still requires the native libraries. Docs generate Rust API documentation. Deployment builds the staged Rust distribution; cleanup is explicit. |
@@ -236,6 +236,15 @@ major CSS-framework migration.
 - The unused `frontend/web` `preview` script, which served built static files
   without the Rust API required by `/live` and had no documented or automated
   caller.
+- The projector's `deploy.sh` wrapper, which only changed directories and
+  launched `love .`; the install guide already provides that direct command,
+  so the wrapper added no setup, validation, or deployment capability.
+- The live audit's `--include-trajectory` receiver-only branch, bounded
+  trajectory accumulator, per-window files, and report sections. ADR-0095
+  confirms the supported Rust server has no prediction producer, so the option
+  could not measure compute interference and made the canonical audit more
+  complex without adding current evidence. State-only delivery, delayed-client
+  stress, and the gateway timing audit remain.
 - The stale Python GPU acceleration guide, whose VAAPI/OpenCL claims and
   instructions described removed Python inference paths rather than the Rust
   OpenVINO runtime.
@@ -518,6 +527,9 @@ path remain untested.
   untouched.
 - Tracked the 2,395-byte ONNX fixture already embedded by live Rust tests; it
   was ignored and untracked, making clean-checkout test builds non-reproducible.
+- Rechecked the projector launch helper against its only documented behavior
+  and removed it as a duplicate of `love .`. Updated the install/spec guides and
+  kept the local-deployment contract focused on the actual Rust package scripts.
   The real-detector live-application integration test passes using the tracked
   fixture.
 - Added a staged-bundle `run.sh` process test. It launches the actual compiled
@@ -525,9 +537,13 @@ path remain untested.
   then checks SIGTERM shutdown and PID-file cleanup. This does not exercise
   package construction, update/rollback, systemd, camera capture, or hardware.
 - ADR-0095 supersedes the unimplemented Python trajectory-workload switch in
-  ADR-0048. The Rust server has no trajectory producer to isolate, and
-  `--include-trajectory` is receiver-only; current performance documentation
-  and findings now state that boundary explicitly.
+  ADR-0048. The Rust server has no trajectory producer to isolate; the
+  receiver-only `--include-trajectory` option has now been removed from the
+  canonical live audit, which subscribes to state only.
+- Clarified `make clean` help to name its actual scope: local Python/build/test
+  and distribution artifacts are removed while Cargo and Node dependency
+  directories are preserved. `make clean-all` additionally clears logs and
+  browser build outputs but intentionally leaves user data untouched.
 - Final verification including the new deployment process test: `make test-all`
   passed 312 default Rust library tests, 324 GStreamer-feature Rust library
   tests, 16 browser tests, and 2,827 Python compatibility tests with one
@@ -715,3 +731,42 @@ passed Ruff and strict mypy, and the retired-module reference search returned
 no hits. The focused three-file pytest run passed 39 tests; its isolated
 coverage invocation is not meaningful because repository coverage is defined
 over the whole backend suite.
+
+### All-tool evaluation and cleanup follow-up (2026-10-23)
+
+The same relevance test was then applied to the already-ported Rust binaries,
+shell entry points, Make targets, deployment helpers, and optional native
+clients: keep a tool only when it has a current caller or a distinct
+commissioning, validation, packaging, or evidence role, and require a meaningful
+test or explicit evidence boundary. The ten current Rust binaries have those
+roles; the still-image inference CLI and its orphaned reducers were previously
+retired. The live audit was the remaining exception: its `--include-trajectory`
+path only allocated a receiver and report for a stream the server does not
+produce. Removed the flag, accumulator/module, trajectory artifacts, and report
+fields; the subscriber now requests `state` only. Delayed-subscriber stress
+remains. The receiver and run report schemas advanced to versions 5 and 8 to
+identify the changed output shapes. ADR-0095 and the performance guide record
+that prediction and viewer interference cannot be measured until those
+workloads exist.
+
+Also removed the projector's local `deploy.sh` alias because it only changed
+directories and ran `love .`, already documented directly. The projector client
+itself remains an isolated optional consumer, with no claim of backend
+integration. Updated `make clean` help to describe its actual files and
+preserved directories, and marked ADR-0082's intermediate command inventory as
+historical so removed binaries are not mistaken for supported tools.
+
+Verification for this follow-up: `make test-all` passed 315 default-feature and
+327 production-camera-feature Rust library tests plus all Rust binary and
+integration tests, 16 browser tests, and 2,800 Python compatibility tests.
+Tooling and deployment smoke checks passed. `make lint format-check`, Lua
+coordinate/syntax checks, Bash syntax checks, ADR validation (98 records), and
+`git diff --check` passed. The committed projector-wrapper cleanup is
+`e2b184b`; the state-only Rust audit and its documentation are the next commit.
+
+The remaining audit gaps are evidence gaps, not abandoned tools: no reviewed
+temporal accuracy labels yet, no physical Linux-camera/provider qualification,
+and no browser-rendering or viewer-interference measurement. The MJPEG fixture
+smoke still tests listener lifecycle with fake FFmpeg rather than a real HTTP
+client; it remains useful for deterministic process-path tests but does not
+validate multipart parsing or disconnect behavior.

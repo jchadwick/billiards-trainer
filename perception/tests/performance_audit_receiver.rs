@@ -172,7 +172,6 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         "unavailable_unverified_clock"
     );
     assert!(output.report.process_resources.is_none());
-    assert!(output.trajectory.is_none());
 }
 
 #[tokio::test]

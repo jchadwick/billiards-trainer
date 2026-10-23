@@ -70,7 +70,18 @@ it does not change server behavior or computation.
 
 - Confirm the Rust server has no trajectory prediction producer or
   `trajectory_workload_enabled` setting.
-- Confirm the audit documentation distinguishes receiver subscription from
-  server workload control and does not claim current trajectory isolation.
+- Confirm the live audit subscribes only to detected state and does not
+  allocate trajectory receipt buffers or claim trajectory workload isolation.
 - Revisit this decision when a supported Rust trajectory workload and output
   contract are introduced.
+
+## Implementation follow-up (2026-10-23)
+
+The live-audit CLI's receiver-only `--include-trajectory` option and its
+trajectory accumulator, per-window artifacts, and report sections were removed
+after an all-tools review found no current Rust trajectory producer. The
+canonical audit now subscribes only to state and retains its bounded delayed-
+subscriber stress option. This keeps the tool's flags and output tied to work
+that the supported server actually produces. Rust CLI and receiver tests verify
+the state-only subscription and the removed option; the performance guide
+documents trajectory measurements as unavailable until a producer exists.

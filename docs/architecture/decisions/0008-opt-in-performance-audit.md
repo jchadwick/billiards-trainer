@@ -6,6 +6,20 @@
 - Supersedes: None
 - Superseded by: None
 
+## Implementation scope follow-up (2026-10-23)
+
+This record's independent state, trajectory, and viewer domains describe the
+intended audit architecture, not three workloads currently supported by the
+Rust application. The active live audit measures state only. ADR-0095 defers
+trajectory workload controls until a Rust prediction producer exists, and
+viewer interference remains an evidence gap. During the 2026-10-23 tooling
+review, the live audit's receiver-only `--include-trajectory` option and its
+trajectory receipt artifacts were removed because they did not measure server
+work. See the current [performance audit guide](../../PERFORMANCE_AUDIT.md)
+for supported commands and evidence boundaries. This follow-up narrows the
+implementation status without changing the original decision to keep detailed
+instrumentation opt-in and bounded.
+
 ## Context
 
 Performance work needs repeatable evidence from the camera publication
