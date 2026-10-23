@@ -891,6 +891,38 @@ def test_server_summary_ranks_retained_vision_stage_spans() -> None:
     assert summary["integration"]["integration_lock_wait_seconds"]["p95"] == 0.0005
 
 
+def test_python_collector_uses_rust_reducer_and_matches_shared_fixture() -> None:
+    fixture_path = (
+        collector.ROOT
+        / "perception"
+        / "tests"
+        / "fixtures"
+        / "server-audit-summary.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    assert (
+        collector._server_measurement_summary(fixture["events"]) == fixture["expected"]
+    )
+
+
+def test_rust_server_summary_rejects_boolean_metric_values() -> None:
+    summary = _server_measurement_summary(
+        [
+            {
+                "event_type": "vision_frame_complete",
+                "service_time_seconds": True,
+                "queue_delay_seconds": True,
+                "processing_queue_depth": True,
+            },
+            {"event_type": "process_resource_sample", "cpu_percent": True},
+        ]
+    )
+    assert summary["vision"]["service_time_seconds"]["count"] == 0
+    assert summary["vision"]["queue_wait_seconds"]["count"] == 0
+    assert summary["vision"]["sampled_processing_queue_depth"]["count"] == 0
+    assert summary["resources"]["cpu_percent"]["count"] == 0
+
+
 def test_trajectory_work_timings_include_failed_stale_and_publish_failed_outcomes() -> (
     None
 ):
@@ -1665,8 +1697,11 @@ def test_capture_transport_report_is_saved_and_rendered_with_debug_caveat(
 ) -> None:
     document = _capture_transport_document(repetitions=2, build_profile="debug")
     invocations: list[list[str]] = []
+    run_process = subprocess.run
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "billiards-capture-transport-bench" not in command[0]:
+            return run_process(command, **kwargs)
         invocations.append(command)
         return subprocess.CompletedProcess(command, 0, json.dumps(document), "")
 

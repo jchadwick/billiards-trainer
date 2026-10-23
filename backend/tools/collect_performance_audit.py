@@ -30,6 +30,7 @@ import uuid
 from collections import Counter, OrderedDict, deque
 from dataclasses import fields, is_dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
@@ -2183,459 +2184,120 @@ def _delivery_latency_summary(
     }
 
 
-def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Summarize bounded server trace evidence without inventing missing values."""
+def _finite_audit_json_value(value: Any) -> Any:
+    """Convert Python's non-standard NaN values to JSON null for Rust input."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _finite_audit_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite_audit_json_value(item) for item in value]
+    return value
 
-    def values(
-        event_type: str, field: str, *, domain: str | None = None
-    ) -> list[float]:
-        output = []
-        for event in events:
-            value = event.get(field)
-            if (
-                event.get("event_type") == event_type
-                and (domain is None or event.get("domain") == domain)
-                and isinstance(value, (int, float))
-                and math.isfinite(value)
-            ):
-                output.append(float(value))
-        return output
 
-    def values_for_event_types(
-        event_types: set[str], field: str, *, domain: str | None = None
-    ) -> list[float]:
-        """Collect one timing across every outcome that performed the work."""
-        output = []
-        for event in events:
-            value = event.get(field)
-            if (
-                event.get("event_type") in event_types
-                and (domain is None or event.get("domain") == domain)
-                and isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and math.isfinite(value)
-            ):
-                output.append(float(value))
-        return output
-
-    def stats(samples: list[float]) -> dict[str, Any]:
-        return {
-            "count": len(samples),
-            "p50": percentile(samples, 0.50),
-            "p95": percentile(samples, 0.95),
-            "p99": percentile(samples, 0.99),
-            "mean": sum(samples) / len(samples) if samples else None,
-        }
-
-    def unique_observations(event_type: str) -> tuple[int, int]:
-        source_keys = []
-        total = 0
-        for event in events:
-            if event.get("event_type") != event_type:
-                continue
-            total += 1
-            frame_number = event.get("source_frame_number")
-            if isinstance(frame_number, int) and not isinstance(frame_number, bool):
-                source_keys.append(
-                    (
-                        event.get("vision_instance_id"),
-                        event.get("vision_process_id", event.get("process_id")),
-                        event.get("source_process_id"),
-                        frame_number,
-                    )
-                )
-        return len(set(source_keys)), total
-
-    processed_unique, processed_total = unique_observations("vision_frame_complete")
-    integration_unique, integration_total = unique_observations(
-        "integration_observation_processed"
-    )
-    published_unique, published_total = unique_observations("state_published")
-    resource_cpu = values("process_resource_sample", "cpu_percent")
-    process_cpu_time = values("process_resource_sample", "cpu_time_seconds")
-    resource_memory = values("process_resource_sample", "resident_memory_bytes")
-    resource_samples_by_process: dict[str, list[dict[str, Any]]] = {}
-    for event in events:
-        if event.get("event_type") != "process_resource_sample":
-            continue
-        process_key = (
-            f"{event.get('host_id', 'unknown')}:{event.get('process_id', 'unknown')}"
-        )
-        resource_samples_by_process.setdefault(process_key, []).append(event)
-    resources_by_process = {}
-    for process_key, samples in resource_samples_by_process.items():
-        cpu = [
-            float(event["cpu_percent"])
-            for event in samples
-            if isinstance(event.get("cpu_percent"), (int, float))
-            and math.isfinite(event["cpu_percent"])
-        ]
-        cpu_time = [
-            float(event["cpu_time_seconds"])
-            for event in samples
-            if isinstance(event.get("cpu_time_seconds"), (int, float))
-            and math.isfinite(event["cpu_time_seconds"])
-        ]
-        memory = [
-            int(event["resident_memory_bytes"])
-            for event in samples
-            if isinstance(event.get("resident_memory_bytes"), int)
-        ]
-        timed_memory_samples = [
-            (int(event["event_monotonic_ns"]), int(event["resident_memory_bytes"]))
-            for event in samples
-            if isinstance(event.get("event_monotonic_ns"), int)
-            and isinstance(event.get("resident_memory_bytes"), int)
-        ]
-        memory_span_seconds = (
-            max(0, timed_memory_samples[-1][0] - timed_memory_samples[0][0]) / 1e9
-            if len(timed_memory_samples) > 1
-            else None
-        )
-        memory_change_bytes = (
-            timed_memory_samples[-1][1] - timed_memory_samples[0][1]
-            if len(timed_memory_samples) > 1
-            else None
-        )
-        exporter_status = next(
-            (
-                event["audit_export_status"]
-                for event in reversed(samples)
-                if isinstance(event.get("audit_export_status"), dict)
-            ),
-            None,
-        )
-        resources_by_process[process_key] = {
-            "sample_count": len(samples),
-            "cpu_percent": stats(cpu),
-            "cpu_time_seconds": {
-                "first": cpu_time[0] if cpu_time else None,
-                "last": cpu_time[-1] if cpu_time else None,
-                "delta": cpu_time[-1] - cpu_time[0] if len(cpu_time) > 1 else None,
-            },
-            "resident_memory_bytes": {
-                "first": memory[0] if memory else None,
-                "last": memory[-1] if memory else None,
-                "minimum": min(memory) if memory else None,
-                "maximum": max(memory) if memory else None,
-                "change_first_to_last": memory_change_bytes,
-                "observed_span_seconds": memory_span_seconds,
-                "change_bytes_per_second": (
-                    memory_change_bytes / memory_span_seconds
-                    if memory_change_bytes is not None
-                    and memory_span_seconds is not None
-                    and memory_span_seconds > 0
-                    else None
-                ),
-            },
-            "event_export_status": exporter_status,
-        }
-    event_loop_lag = values("api_event_loop_sample", "event_loop_lag_seconds")
-    outstanding_tasks = values("api_event_loop_sample", "outstanding_tasks")
-    component_status_counts: dict[str, dict[str, int]] = {}
-    for event in events:
-        if event.get("event_type") != "vision_frame_complete":
-            continue
-        component_status = event.get("component_observation_status")
-        if not isinstance(component_status, dict):
-            continue
-        for component, status in component_status.items():
-            statuses = component_status_counts.setdefault(str(component), {})
-            status_name = str(status)
-            statuses[status_name] = statuses.get(status_name, 0) + 1
-    vision_queue_depths = values("vision_queue_frame_dropped", "queue_depth_after_drop")
-    processing_queue_depths = values("vision_frame_complete", "processing_queue_depth")
-    stage_samples: dict[str, dict[str, list[float]]] = {}
-    for event in events:
-        if event.get("event_type") != "vision_frame_complete":
-            continue
-        for metric, field in (
-            ("inclusive", "inclusive_stages_seconds"),
-            ("exclusive", "exclusive_stages_seconds"),
+@lru_cache(maxsize=1)
+def _rust_server_summary_executable() -> Path:
+    """Build and locate the Rust event reducer for this checkout."""
+    executable_name = "billiards-performance-audit-server-summary"
+    if os.name == "nt":
+        executable_name += ".exe"
+    configured = os.environ.get("PERFORMANCE_AUDIT_SERVER_SUMMARY_EXECUTABLE")
+    if configured:
+        executable = Path(configured).expanduser().resolve()
+        if not executable.is_file() or (
+            os.name != "nt" and not os.access(executable, os.X_OK)
         ):
-            stages = event.get(field)
-            if not isinstance(stages, dict):
-                continue
-            for stage, duration in stages.items():
-                if (
-                    isinstance(duration, bool)
-                    or not isinstance(duration, (int, float))
-                    or not math.isfinite(duration)
-                    or duration < 0
-                ):
-                    continue
-                stage_samples.setdefault(str(stage), {}).setdefault(metric, []).append(
-                    float(duration)
-                )
-    stage_timings = {
-        stage: {
-            metric: stats(values_for_stage)
-            for metric, values_for_stage in timing.items()
-        }
-        for stage, timing in stage_samples.items()
-    }
-    ranked_exclusive_stages: list[dict[str, Any]] = []
-    for stage, timing in stage_samples.items():
-        exclusive_samples = timing.get("exclusive", [])
-        if not exclusive_samples:
-            continue
-        ranked_exclusive_stages.append(
-            {
-                "stage": stage,
-                "total_exclusive_seconds": sum(exclusive_samples),
-                "exclusive": stats(exclusive_samples),
-                "inclusive": stats(timing.get("inclusive", [])),
-            }
-        )
-    ranked_exclusive_stages.sort(
-        key=lambda item: float(item["total_exclusive_seconds"]), reverse=True
+            raise FileNotFoundError(
+                "configured server audit summary executable is missing or not executable: "
+                f"{executable}"
+            )
+        return executable
+
+    configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+    target_directory = (
+        Path(configured_target_dir).expanduser()
+        if configured_target_dir
+        else ROOT / "perception" / "target"
     )
-    total_exclusive_seconds = sum(
-        float(item["total_exclusive_seconds"]) for item in ranked_exclusive_stages
+    if not target_directory.is_absolute():
+        target_directory = ROOT / target_directory
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(ROOT / "perception" / "Cargo.toml"),
+            "--bin",
+            "billiards-performance-audit-server-summary",
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
-    for item in ranked_exclusive_stages:
-        item["share_of_observed_exclusive_stage_seconds"] = (
-            item["total_exclusive_seconds"] / total_exclusive_seconds
-            if total_exclusive_seconds
-            else None
+    executable = target_directory / "debug" / executable_name
+    if not executable.is_file() or (
+        os.name != "nt" and not os.access(executable, os.X_OK)
+    ):
+        raise FileNotFoundError(
+            "Rust server audit summary build completed without the expected executable: "
+            f"{executable}"
         )
-    trajectory_timing_outcomes = {
-        "trajectory_prediction_published",
-        "trajectory_prediction_failed",
-        "trajectory_prediction_discarded_stale",
-        "trajectory_publication_failed",
-    }
-    prediction_outcome_counts = {
-        event_type: sum(event.get("event_type") == event_type for event in events)
-        for event_type in sorted(trajectory_timing_outcomes)
-    }
-    source_publication_to_state_ms = [
-        (event["event_monotonic_ns"] - event["source_publication_monotonic_ns"]) / 1e6
-        for event in events
-        if event.get("event_type") == "state_published"
-        and isinstance(event.get("event_monotonic_ns"), int)
-        and isinstance(event.get("source_publication_monotonic_ns"), int)
-        and event["source_publication_monotonic_ns"] > 0
-        and event["event_monotonic_ns"] >= event["source_publication_monotonic_ns"]
-    ]
-    return {
-        "record_count_semantics": (
-            "Counts below are derived from events retained by the asynchronous audit "
-            "exporter. High-frequency pipeline and publication events are sampled; "
-            "export queue drops and export limits can also reduce these counts. "
-            "Use the headless subscriber's state accumulator for delivered-state "
-            "throughput and repeat counts."
-        ),
-        "vision": {
-            "recorded_frame_detail_events": processed_total,
-            "recorded_unique_source_observations_in_frame_details": processed_unique,
-            "recorded_duplicate_or_reused_frame_details": max(
-                0, processed_total - processed_unique
-            ),
-            "recorded_component_observation_status_counts": component_status_counts,
-            "service_time_seconds": stats(
-                values("vision_frame_complete", "service_time_seconds")
-            ),
-            "queue_wait_seconds": stats(
-                values("vision_frame_complete", "queue_delay_seconds")
-            ),
-            "shared_memory_read_copy_seconds": stats(
-                values("vision_frame_complete", "shared_memory_read_copy_seconds")
-            ),
-            "stage_timings_seconds": stage_timings,
-            "exclusive_stage_work_ranked": ranked_exclusive_stages,
-            "recorded_source_frame_rejection_events": sum(
-                event.get("event_type") == "vision_source_frame_rejected"
-                for event in events
-            ),
-            "recorded_source_restart_events": sum(
-                event.get("event_type") == "vision_source_restart_detected"
-                for event in events
-            ),
-            "recorded_vision_queue_drop_events": sum(
-                event.get("event_type") == "vision_queue_frame_dropped"
-                for event in events
-            ),
-            "recorded_vision_queue_depth_after_drop_max": (
-                max(vision_queue_depths) if vision_queue_depths else None
-            ),
-            "sampled_processing_queue_depth": stats(processing_queue_depths),
-            "sampled_processing_queue_depth_max": (
-                max(processing_queue_depths) if processing_queue_depths else None
-            ),
-        },
-        "integration": {
-            "recorded_observation_detail_events": integration_total,
-            "recorded_unique_source_observations_in_observation_details": integration_unique,
-            "recorded_observation_rejection_events": sum(
-                event.get("event_type") == "integration_observation_rejected"
-                for event in events
-            ),
-            "coordinate_conversion_seconds": stats(
-                values(
-                    "integration_observation_processed", "coordinate_conversion_seconds"
-                )
-            ),
-            "core_update_seconds": stats(
-                values("integration_observation_processed", "core_update_seconds")
-            ),
-            "integration_lock_wait_seconds": stats(
-                values(
-                    "integration_observation_processed",
-                    "integration_lock_wait_seconds",
-                )
-            ),
-        },
-        "state_delivery": {
-            "recorded_state_publication_detail_events": published_total,
-            "recorded_unique_source_observations_in_publication_details": published_unique,
-            "recorded_repeated_source_observation_publication_details": max(
-                0, published_total - published_unique
-            ),
-            "serialization_seconds": stats(
-                values(
-                    "websocket_message_serialized",
-                    "serialization_seconds",
-                    domain="state",
-                )
-            ),
-            "source_publication_to_state_ms": stats(source_publication_to_state_ms),
-            "outbound_queue_wait_seconds": stats(
-                values(
-                    "websocket_delivery_complete", "queue_wait_seconds", domain="state"
-                )
-            ),
-            "outbound_queue_depth_before_enqueue": stats(
-                values(
-                    "websocket_message_serialized",
-                    "queue_depth_before_enqueue",
-                    domain="state",
-                )
-            ),
-            "recorded_coalesced_update_events": sum(
-                event.get("event_type") == "websocket_update_coalesced"
-                and event.get("domain") == "state"
-                for event in events
-            ),
-            "recorded_dropped_update_events": sum(
-                event.get("event_type") == "websocket_update_dropped"
-                and event.get("domain") == "state"
-                for event in events
-            ),
-            "socket_send_seconds": stats(
-                values(
-                    "websocket_delivery_complete", "socket_send_seconds", domain="state"
-                )
-            ),
-            "payload_bytes": stats(
-                values("websocket_delivery_complete", "payload_bytes", domain="state")
-            ),
-        },
-        "video_capture": {
-            "camera_read_seconds": stats(
-                values("video_frame_published", "camera_read_seconds")
-            ),
-            "camera_frame_queue_retrieval_seconds": stats(
-                values("video_frame_published", "camera_frame_queue_retrieval_seconds")
-            ),
-            "undistortion_seconds": stats(
-                values("video_frame_published", "undistortion_seconds")
-            ),
-            "shared_memory_publication_seconds": stats(
-                values("video_frame_published", "shared_memory_publication_seconds")
-            ),
-            "camera_capture_queue_frames_skipped": sum(
-                values("video_frame_published", "camera_capture_queue_frames_skipped")
-            ),
-            "camera_total_dropped_frames_last": max(
-                values("video_frame_published", "camera_total_dropped_frames"),
-                default=None,
-            ),
-        },
-        "trajectory": {
-            "published_messages": sum(
-                event.get("event_type") == "trajectory_published" for event in events
-            ),
-            "requests_coalesced": sum(
-                event.get("event_type") == "trajectory_request_coalesced"
-                for event in events
-            ),
-            "predictions_discarded_stale": sum(
-                event.get("event_type") == "trajectory_prediction_discarded_stale"
-                for event in events
-            ),
-            "prediction_outcome_counts": prediction_outcome_counts,
-            "prediction_outcome_event_count": sum(prediction_outcome_counts.values()),
-            "prediction_queue_wait_seconds": stats(
-                values_for_event_types(
-                    trajectory_timing_outcomes, "prediction_queue_wait_seconds"
-                )
-            ),
-            "calculator_lock_wait_seconds": stats(
-                values_for_event_types(
-                    trajectory_timing_outcomes, "calculator_lock_wait_seconds"
-                )
-            ),
-            "executor_wait_seconds": stats(
-                values_for_event_types(
-                    trajectory_timing_outcomes, "executor_wait_seconds"
-                )
-            ),
-            "physics_compute_seconds": stats(
-                values_for_event_types(
-                    trajectory_timing_outcomes, "physics_compute_seconds"
-                )
-            ),
-            "trajectory_publication_seconds": stats(
-                values_for_event_types(
-                    trajectory_timing_outcomes, "trajectory_publication_seconds"
-                )
-            ),
-        },
-        "resources": {
-            "cpu_percent": stats(resource_cpu),
-            "process_cpu_time_seconds": {
-                "count": len(process_cpu_time),
-                "first": process_cpu_time[0] if process_cpu_time else None,
-                "last": process_cpu_time[-1] if process_cpu_time else None,
-                "delta": (
-                    process_cpu_time[-1] - process_cpu_time[0]
-                    if len(process_cpu_time) > 1
-                    else None
-                ),
-            },
-            "resident_memory_bytes": {
-                "count": len(resource_memory),
-                "first": resource_memory[0] if resource_memory else None,
-                "last": resource_memory[-1] if resource_memory else None,
-                "minimum": min(resource_memory) if resource_memory else None,
-                "maximum": max(resource_memory) if resource_memory else None,
-            },
-            "event_loop_lag_seconds": stats(event_loop_lag),
-            "outstanding_tasks": stats(outstanding_tasks),
-            "by_process": resources_by_process,
-            "accelerator_metrics": "unavailable unless separately exposed by detector backend",
-            "allocation_counts": "unavailable; RSS is a process memory proxy",
-        },
-        "viewers": {
-            "encoded_frames": sum(
-                event.get("event_type") == "viewer_frame_encoded" for event in events
-            ),
-            "jpeg_encode_seconds": stats(
-                values("viewer_frame_encoded", "jpeg_encode_seconds", domain="viewers")
-            ),
-            "frame_read_seconds": stats(
-                values("viewer_frame_encoded", "frame_read_seconds", domain="viewers")
-            ),
-            "send_backpressure_seconds": stats(
-                values(
-                    "viewer_send_backpressure",
-                    "send_backpressure_seconds",
-                    domain="viewers",
-                )
-            ),
-        },
-    }
+    return executable.resolve()
+
+
+def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Delegate retained-event reduction to the bounded Rust implementation."""
+    maximum_events = 200_000
+    maximum_input_bytes = 134_217_728
+    if len(events) > maximum_events:
+        raise ValueError(
+            f"server audit input has {len(events)} events; Rust limit is {maximum_events}"
+        )
+
+    payload = bytearray()
+    for index, event in enumerate(events, start=1):
+        if not isinstance(event, dict):
+            raise ValueError(f"server audit event {index} must be an object")
+        line = (
+            json.dumps(
+                _finite_audit_json_value(event),
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        payload.extend(line)
+        if len(payload) > maximum_input_bytes:
+            raise ValueError(
+                "server audit event input exceeds the Rust summarizer's "
+                f"{maximum_input_bytes}-byte limit"
+            )
+
+    result = subprocess.run(
+        [str(_rust_server_summary_executable())],
+        input=bytes(payload),
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Rust server audit summarizer failed"
+            + (f": {detail}" if detail else f" with exit status {result.returncode}")
+        )
+    try:
+        summary = json.loads(result.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            "Rust server audit summarizer returned invalid JSON"
+        ) from error
+    if not isinstance(summary, dict):
+        raise RuntimeError("Rust server audit summarizer returned a non-object summary")
+    return summary
 
 
 def _event_export_status_by_process(resource_summary: Any) -> dict[str, Any]:
