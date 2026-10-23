@@ -108,14 +108,21 @@ component observation statuses, and detects bounded source gaps, restarts,
 duplicates, and out-of-order delivery. Source ordering and identity windows
 disclose their capacities and evictions.
 
-The collector is still not replaced. Trajectory collection, producer
-timing/export analysis, configuration and hardware provenance, input replay
-orchestration, baseline selection, accuracy evaluation, and the final Markdown
-report remain Python-owned and are required parity work. The Python collector
-must remain until those contracts have Rust implementations and differential
-fixtures. The Rust receiver's real-socket tests use a loopback test peer; the
-command has not yet been qualified against the full application process or as
-a performance baseline.
+The `billiards-performance-audit-run` command now provides the state-only
+repeatable workflow: configurable warm-up, repeated measured windows or one
+bounded soak, bounded JSON and JSONL artifacts, revision and dirty-worktree
+provenance, environment metadata, and a Markdown report. Its thin
+`scripts/performance-audit-run.sh` wrapper passes arguments to Cargo and keeps
+measurement and report logic in Rust. Loopback integration tests exercise
+multiple actual WebSocket sessions, report/detail output, and explicit failure
+artifacts.
+
+The Python collector is still not replaced. Its generic compatibility mode,
+trajectory collection, server event-window joins, input replay, baseline
+selection, and Rust live-camera qualification remain Python-owned migration
+work. The state-only Rust runner has loopback protocol coverage but has not yet
+been qualified against the full application process or as a performance
+baseline. Accuracy remains unavailable without temporal labels.
 
 This slice adds optional process CPU and resident-memory sampling to the
 Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the

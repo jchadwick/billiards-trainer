@@ -33,13 +33,37 @@ This collector is a test tool, not an application service. The general API
 audit settings below describe the retained compatibility workflow; they do not
 turn on instrumentation in the supported Rust gateway.
 
-The native `billiards-performance-audit` receiver and summary reducers are
-being expanded in Rust one audited contract at a time. The state receiver
-supports both the application WebSocket contract (welcome, explicit `state`
-subscription, and JSON heartbeats) and the Rust gateway's direct pushed-state
-contract. Its default JSON heartbeat interval is 20 seconds, separate from
-WebSocket control-frame pings. Invoke the thin shell entry point for a live
-state stream:
+The native `billiards-performance-audit-run` command owns the state-only
+repeatable workflow. It defaults to a 30-second warm-up followed by three
+120-second measured windows; each connection is closed between windows. Use
+`--soak` for one 20-minute bounded-retention run after the same warm-up. It
+writes a versioned `summary.json`, a Markdown report, one JSON report and
+bounded JSONL detail file per measured window, and a `failure.json` if a
+connection fails after the run folder is created. The report records revision,
+dirty-worktree fingerprint, operating system, architecture, CPU count, host,
+kernel, memory, effective limits, and explicit unavailable fields for network
+input hashing, detector identity, and accuracy evidence.
+
+Run a short smoke check or the standard repeated audit with:
+
+```bash
+scripts/performance-audit-run.sh \
+  --url ws://127.0.0.1:8080/api/v1/websocket/ws \
+  --warmup-seconds 0 --duration-seconds 10 --repetitions 1
+
+scripts/performance-audit-run.sh \
+  --url ws://127.0.0.1:8080/api/v1/websocket/ws \
+  --output-root thoughts/performance-audits
+```
+
+Add `--resource-process-id <pid>` to sample one process on a separate worker;
+the interval defaults to 1,000 ms and respects the sampler's minimum refresh
+period. The receiver supports both the application WebSocket contract (welcome,
+explicit `state` subscription, and JSON heartbeats) and the Rust gateway's
+direct pushed-state contract. Its heartbeat interval defaults to 20 seconds,
+separate from WebSocket control-frame pings. To run one receiver window without
+warm-up, repetitions, or report-directory orchestration, use the thin receiver
+entry point:
 
 ```bash
 scripts/performance-audit-state.sh \

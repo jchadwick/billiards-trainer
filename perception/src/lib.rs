@@ -37,6 +37,7 @@ pub mod live_supervisor;
 pub mod live_timing_accumulator;
 pub mod overhead_comparison;
 pub mod performance_audit_receiver;
+pub mod performance_audit_runner;
 pub mod process_resource_sampler;
 pub mod public_state;
 pub mod public_state_lifecycle;

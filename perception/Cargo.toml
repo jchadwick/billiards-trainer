@@ -63,6 +63,10 @@ name = "billiards-performance-audit"
 path = "src/bin/performance_audit.rs"
 
 [[bin]]
+name = "billiards-performance-audit-run"
+path = "src/bin/performance_audit_run.rs"
+
+[[bin]]
 name = "billiards-performance-audit-timing-summary"
 path = "src/bin/performance_audit_timing_summary.rs"
 
