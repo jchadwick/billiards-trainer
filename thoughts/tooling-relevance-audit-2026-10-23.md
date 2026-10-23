@@ -31,7 +31,7 @@ commands or baselines.
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
 | `frontend/web` | Keep as the minimal operator client | ADR-0090 keeps `/live` with direct MJPEG and a state-only reconnecting WebSocket. Legacy configuration, diagnostics, monitoring, navigation, generic video controls, persistence, and their tests were unreachable from the route graph and were removed. |
-| Projector client and UDP test senders | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Its tests validate local payload/coordinate behavior only; they do not exercise capture, detection, or browser delivery. ADR-0086 preserves it as a distinct projection use case. |
+| Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; its fake Python sender tests and unrelated love.js browser package are retired under ADR-0091. ADR-0086 still preserves the native projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retire | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
 
 ## Already-ported Rust executables, evaluated individually
@@ -116,6 +116,12 @@ major CSS-framework migration.
 - The incomplete parallel LÖVE trajectory visualizer, its failing initialization
   runner, focused implementation notes, and its Make targets. Keep the distinct
   projector client.
+- The Python projector UDP message generators and their self-referential tests,
+  the combined local launcher with broad process killing, and the optional
+  love.js browser packager. The fake sender did not exercise product capture,
+  detection, or delivery, and the generated browser artifact was not the
+  supported HTML/JavaScript/CSS client. Keep the native projector and its Lua
+  coordinate-contract check under ADR-0091.
 - Obsolete 2024/2025 ball-event, Hough/YOLO tuning, missing-test, table-detector,
   cleanup-plan, and cleanup-verification notes that pointed to removed tools,
   nonexistent tests, the retired Python runtime, or unsupported accuracy claims.
@@ -124,8 +130,8 @@ major CSS-framework migration.
   described the retired Python/LOVE2D architecture and contradicted the current
   Rust runtime and `/live` browser workflow.
 - Dedicated coordinate-scaling implementation notes for the retired visualizer;
-  current coordinate contracts stay in the runtime docs and the separate
-  projector's maintained protocol tests.
+  current coordinate contracts stay in runtime docs and the separate
+  projector's Lua coordinate-contract check.
 - Python profiler/status endpoints, fake system diagnostics, and the Python
   event collector are removed under ADR-0088. The compatibility API remains an
   offline test reference, but no longer preserves measurement-only routes or
@@ -156,11 +162,13 @@ major CSS-framework migration.
 2. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
 3. The checked-in `config.json` selects the legacy `.mlpackage` under Python
-   vision settings but has no `perception.rust_live` ONNX/checkpoint paths. The
-   external model directory currently has no ONNX export or matching manifest,
-   so live startup needs a reviewed export and explicit config before it can
-   run. Export at 1280 to match Rust's default input size, and verify model
-   class IDs against configured cue/ball IDs.
+   vision settings, has no explicit `perception.rust_live` ONNX/checkpoint
+   paths, and points at a missing `assets/demo3.mp4`; its integer camera ID is
+   not a qualified GStreamer source. A valid 1280 ONNX export and matching
+   manifest now exist in the external model repository, with two classes
+   (`cue=0`, `ball=1`). The local Rust model smoke test loads that export, but
+   the product launcher still needs an effective capture/model configuration
+   before live startup is testable.
 4. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
@@ -171,17 +179,18 @@ major CSS-framework migration.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
-machine and no reviewed temporal labels. The [paced run](performance-audits/video-replay-smoke-20261023/real-recording/video-replay-report.md)
+machine and no reviewed temporal labels. The earlier [paced run](performance-audits/video-replay-smoke-20261023/real-recording/video-replay-report.md)
 processed 863 of 1,177 source frames (314 latest-frame replacements), with
 21.95 processed observations/s against 29.97 source frames/s and 77.46 ms p95
-source-to-inference completion. The [capacity run](performance-audits/video-replay-smoke-20261023/capacity/video-replay-report.md)
-processed all frames at 22.22 observations/s. Neither supports an accuracy
-claim or a production recommendation; ADR-0084 records scope and the missing
-permanent ffmpeg/model end-to-end test.
+source-to-inference completion. The later [model smoke run](performance-audits/dev-model-smoke-2026-10-23/video-replay-report.md)
+processed 853 frames (324 replacements) at 21.70 observations/s against
+29.97/s, with 78.35 ms p95 completion. Neither run supports an accuracy claim
+or production recommendation. The capacity mode and qualified live capture
+path remain untested.
 
 ## Verification performed
 
-- ADR validation: 90 records accepted.
+- ADR validation before ADR-0091: 90 records accepted.
 - Python backend tests after retiring the isolated dataset merger: 2,840 passed,
   2 skipped (the skips require external
   recorded model inputs).
@@ -202,7 +211,7 @@ permanent ffmpeg/model end-to-end test.
 - `uv lock --check`, Docker Compose configuration, Make help output, supported
   offline-tool `--help` commands, and shell syntax checks passed.
 - Strict Rust Clippy, Make's isolated-target Rust test target, Python lint for
-  backend/tools/projector helpers and backend type checks, browser typecheck/tests,
+  backend/tools and backend type checks, browser typecheck/tests,
   ADR validation, lockfile check, public fixture generation, Docker Compose
   config, shell syntax, retired-path search, and diff whitespace checks passed
   after pruning. The removed visualizer's
@@ -216,13 +225,24 @@ permanent ffmpeg/model end-to-end test.
   coverage disabled for that focused run.
 - The dataset frame extractor and its stale guide were retired after confirming
   there were no callers or extraction tests and inspecting its invalid count
-  edge cases. Dataset-merge tests remain the verification for the supported
-  dataset preparation path.
+  edge cases. Dataset authoring remains external; reviewed temporal annotations
+  are the supported path for accuracy evaluation.
 - This pass's backend verification: `make test-python` passed all 2,840 tests
   with the configured coverage gate; Ruff, strict mypy, Black, isort, and ADR
   validation passed. The dedicated shell workflow syntax-checked all 11
   tracked scripts and its YAML parsed successfully.
 - The live-only browser client and disconnected dataset-merger retirement
   passed the combined Rust/browser/Python test run. The frontend passed its
-  TypeScript check and production build, and the 90-record ADR register passed
-  structure and cross-reference validation.
+  TypeScript check and production build. ADR-0091 adds the projector tooling
+  follow-up and must pass the current structure and cross-reference validator.
+- The current projector-tooling pass retains only the native LÖVE client and
+  Lua coordinate tests. Its Python fake message senders, shell launcher with
+  broad process killing, and love.js browser package were removed. The latest
+  `make test-all` passed 306 Rust library tests, all Rust binary/integration
+  targets, 16 browser tests, and 2,837 Python compatibility tests with two
+  model-dependent skips; backend coverage remained 82.55%. The isolated local
+  deployment-policy check passed all 10 tests. Lua coordinate checks, Lua
+  syntax checks, shell syntax checks, whitespace validation, and the 91-record
+  ADR validation passed. The first Rust suite attempt had one intermittent
+  ffprobe output-bound assertion failure; the isolated test and full rerun both
+  passed.

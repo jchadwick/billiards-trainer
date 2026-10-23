@@ -43,7 +43,8 @@ retired. Python profiler/status endpoints are retired rather than retained in
 the offline test reference. ADR-0086 also retires the
 disconnected LÖVE trajectory visualizer;
 the supported browser client remains the `/live` application and the separate
-projector client remains available.
+native projector remains available. ADR-0091 removes its synthetic sender and
+love.js packaging workflows while preserving Lua coordinate-contract checks.
 ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
@@ -260,11 +261,12 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0083](decisions/0083-import-reviewed-temporal-annotations-with-rust.md) | Import reviewed temporal annotations with Rust | Accepted | Temporal label authoring | Rust CLI validates reviewed CVAT keyframes, video identity and timing with bounded inputs and atomic output; generated-video Python/Rust parity passed and the Python importer was retired |
 | [0084](decisions/0084-replay-recorded-video-with-rust-perception.md) | Replay recorded video with Rust perception | Accepted | Saved-video evaluation | PTS-paced latest-frame and unpaced capacity modes run through current Rust inference; predecode excludes live codec contention and labels are still required for accuracy claims |
 | [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Partially superseded by 0087 (dataset extraction), 0088 (Python profiler/status retirement), and 0089 (dataset-merger retirement) | Tooling scope | Rust owns live, saved-video, and labeled temporal evidence; the ONNX model exporter remains as Python authoring glue, while viewer interference and representative accuracy evidence remain open |
-| [0086](decisions/0086-retire-the-incomplete-native-visualizer.md) | Retire the incomplete native visualizer | Accepted | Client scope | Remove the disconnected trajectory-only LÖVE client; keep the `/live` browser application and distinct projector client |
+| [0086](decisions/0086-retire-the-incomplete-native-visualizer.md) | Retire the incomplete native visualizer | Superseded for projector test tooling by 0091 | Client scope | Retire the disconnected trajectory-only LÖVE client; retain the native projector, with its tooling later narrowed by 0091 |
 | [0087](decisions/0087-retire-the-heuristic-video-frame-dataset-creator.md) | Retire the heuristic video frame dataset creator | Partially superseded by 0089 (dataset-merger retirement) | Dataset tooling | Remove the unowned, untested frame sampler; its temporary dataset-merger retention is superseded, while lineage-bound model export remains |
 | [0088](decisions/0088-retire-python-performance-instrumentation-and-fake-diagnostics.md) | Retire Python performance instrumentation and fake diagnostics | Accepted | Measurement ownership | Remove retired-pipeline profiler/status endpoints, audit hooks, and configuration; preserve real health and delivery contracts and use Rust audit tools |
 | [0089](decisions/0089-retire-disconnected-dataset-merger.md) | Retire disconnected dataset merger | Accepted | Dataset tooling | Remove an isolated generic merger whose class ordering can conflict with Rust runtime semantics; retain only lineage-bound model export and reviewed temporal labeling |
 | [0090](decisions/0090-keep-browser-client-focused-on-live-detection.md) | Keep browser client focused on live detection | Accepted | Browser client scope | Retain direct MJPEG, reconnecting state WebSocket, freshness and coordinate handling; remove unreachable UI surfaces and keep HTML/JS/CSS |
+| [0091](decisions/0091-retire-disconnected-projector-test-and-browser-packaging-tools.md) | Retire disconnected projector test and browser packaging tools | Accepted | Projector tooling | Remove fake UDP senders and love.js packaging; retain the native projector and Lua coordinate-contract checks |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

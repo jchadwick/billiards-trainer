@@ -8,11 +8,10 @@ and exercising its message receiver. It binds a custom UDP receiver to
 not connect to the backend API, and has no remote deployment or remote-control
 mechanism.
 
-The native app is the active runtime. An optional love.js build packages it for
-browser preview, but the browser build does not provide a WebSocket client or
-backend transport. The receiver contract and local workflows are documented in
-[README.md](README.md), [INSTALL.md](INSTALL.md), [TESTING.md](TESTING.md), and
-[WEB_DEPLOYMENT.md](WEB_DEPLOYMENT.md).
+The native app is the only maintained projector runtime. The product browser
+application is the separate HTML/JavaScript/CSS client in `frontend/web`.
+Projector receiver behavior and local workflows are documented in
+[README.md](README.md), [INSTALL.md](INSTALL.md), and [TESTING.md](TESTING.md).
 
 ## Implemented behavior
 
@@ -21,8 +20,7 @@ backend transport. The receiver contract and local workflows are documented in
 - Run fullscreen using `conf.lua` or windowed using `conf_windowed.lua`.
 - Validate incoming coordinate payloads before passing messages to modules.
 - Render locally received trajectories and calibration overlays.
-- Build a static browser package with `build_html.sh` and preview it on loopback.
-- Run hardware-free receiver/coordinate checks and the local UDP test sender.
+- Run hardware-free receiver and coordinate contract checks.
 
 ## Explicitly not implemented
 
@@ -33,8 +31,8 @@ backend transport. The receiver contract and local workflows are documented in
 - Browser rendering qualification or physical display latency measurement.
 
 Backend integration requires a separately designed and tested adapter. The
-local UDP test sender exercises only the receiver contract and must not be
-treated as evidence of live backend integration.
+receiver contract checks validate geometry rules only; they do not demonstrate
+live backend integration or rendered output.
 
 ## Current source structure
 
@@ -45,29 +43,23 @@ projector/
 ├── conf_windowed.lua           # Local windowed test configuration
 ├── core/                       # Renderer, calibration, UDP receiver, contracts
 ├── modules/                    # Trajectory, calibration, and debug drawing
-├── build_html.sh               # Local browser package build
-└── deploy.sh                   # Legacy-named local run/test/build helper
+└── deploy.sh                   # Legacy-named local run helper
 ```
 
 Despite its filename, `deploy.sh` operates only on the current machine. Its
-supported commands are `run`, `test`, and `web`; it does not install software,
-request credentials, or publish files.
+only command is `run`; it does not install software, request credentials, or
+publish files.
 
 ## Local development and verification
 
-Install LÖVE, Python 3, Node.js, and npm as needed through the current machine's
-package manager. Then use:
+Install LÖVE through the current machine's package manager. Then use:
 
 ```bash
 cd frontend/projector
 love . conf_windowed.lua
-python3 test_udp_sender.py
-./test_local.sh 30 0.5
 lua test_coordinate_contract.lua
-./build_html.sh
 ```
 
-The tests and preview are local-only. A successful test run verifies message
-handling and rendering behavior; it does not verify production backend
-integration, hardware acceleration, long-duration stability, or physical
-projection accuracy.
+The Lua check validates coordinate payload contracts without hardware. It does
+not verify production backend integration, rendering behavior, long-duration
+stability, or physical projection accuracy.

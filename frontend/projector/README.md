@@ -121,8 +121,8 @@ return MyModule
 
 The LÖVE app binds to `127.0.0.1:9999` and receives this custom JSON protocol.
 It currently has no production backend UDP publisher or WebSocket client; the
-examples below describe the receiver contract and are exercised by local test
-senders. See [Backend Integration](#backend-integration) for the integration gap.
+examples below describe the receiver contract only. See
+[Backend Integration](#backend-integration) for the integration gap.
 
 ```json
 {
@@ -282,9 +282,10 @@ Automatically saved when exiting calibration mode.
 - Check for syntax errors in Lua files
 
 ### No trajectory display
-- Confirm the projector shows UDP as connected and a local sender targets `127.0.0.1:9999`.
-- The production backend does not currently publish this projector UDP protocol; backend WebSocket trajectories use a different payload shape.
-- Check that the sender uses the `normalized_table` contract and required scale metadata shown above.
+- The standalone application has no production message publisher, so it does
+  not display live product trajectories.
+- The backend WebSocket and projector UDP payloads use different schemas; an
+  explicit adapter is required before they can be connected.
 
 ### Calibration issues
 - Press 'R' in calibration mode to reset
@@ -328,35 +329,11 @@ local CONFIG = {
 
 ## Backend Integration
 
-The production backend does not currently send UDP messages to this app. Its
-trajectory broadcaster publishes `lines` with scaled `start`/`end` points and
-structured collisions over the API WebSocket. The LÖVE app listens only on
-localhost UDP and expects the custom `paths` / `ghostBalls` payload documented
-above, so an adapter must convert and publish that contract before this app can
-receive production trajectories. The following snippet is an example of the
-UDP publisher such an adapter would need; it is not wired into the backend:
-
-```python
-import socket
-import json
-
-udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-message = {
-    "type": "trajectory",
-    "timestamp": time.time(),
-    "data": {
-        "coordinate_space": "normalized_table",
-        "coordinate_scale": [1, 1],
-        "paths": [...]
-    }
-}
-
-udp_socket.sendto(
-    json.dumps(message).encode(),
-    ("127.0.0.1", 9999)
-)
-```
+The production backend does not publish this protocol. It sends state over the
+application WebSocket, with a different trajectory schema. No local fake
+sender is retained because that would demonstrate an isolated test path rather
+than production data delivery. An adapter needs its own protocol decision and
+end-to-end test before this receiver can be considered an application client.
 
 ## License
 

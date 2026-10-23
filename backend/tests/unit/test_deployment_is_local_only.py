@@ -8,8 +8,6 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_DEPLOYMENT_SCRIPTS = (
     PROJECT_ROOT / "frontend/projector/deploy.sh",
-    PROJECT_ROOT / "frontend/projector/build_html.sh",
-    PROJECT_ROOT / "frontend/projector/test_local.sh",
     PROJECT_ROOT / "scripts/deploy/build-dist.sh",
     PROJECT_ROOT / "scripts/deploy/update.sh",
 )
@@ -21,7 +19,6 @@ CURRENT_DEPLOYMENT_GUIDES = (
     PROJECT_ROOT / "frontend/projector/README.md",
     PROJECT_ROOT / "frontend/projector/SPECS.md",
     PROJECT_ROOT / "frontend/projector/TESTING.md",
-    PROJECT_ROOT / "frontend/projector/WEB_DEPLOYMENT.md",
 )
 REMOTE_LOGIN_COMMAND = re.compile(r"(?m)^\s*(?:ssh|scp)\s+")
 REMOTE_RSYNC_TARGET = re.compile(r"(?m)^\s*rsync\b[^\n]*\s+\S+@\S+:")

@@ -1,10 +1,10 @@
 # ADR-0086: Retire the incomplete native visualizer
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0091 for projector test and browser-packaging tooling
 
 ## Context
 
@@ -25,8 +25,9 @@ case and is not covered by this decision.
 
 Retire `frontend/visualizer`, its initialization runner, and the
 `run-visualizer`/`test-visualizer` Make targets. Keep the standard browser
-application as the only general-purpose operator UI. Preserve `frontend/projector`
-and its local protocol-test tools as a separate consumer.
+application as the only general-purpose operator UI. Preserve
+`frontend/projector` as a separate native consumer. Its retained test and
+packaging tooling is reconsidered by ADR-0091.
 
 ## Consequences
 

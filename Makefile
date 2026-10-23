@@ -111,7 +111,7 @@ lint-web: ## Type-check the browser application
 	cd frontend/web && npm run typecheck
 
 lint-python: ## Lint Python compatibility/offline tools; type-check the backend
-	$(PYTHON) -m ruff check $(BACKEND_DIR) tools frontend/projector/*.py
+	$(PYTHON) -m ruff check $(BACKEND_DIR) tools
 	$(PYTHON) -m mypy $(BACKEND_DIR)
 
 format: format-rust ## Format Rust source
@@ -120,8 +120,8 @@ format-rust: ## Format Rust source
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all
 
 format-python: ## Format retained Python compatibility and offline tooling
-	$(PYTHON) -m black $(BACKEND_DIR) tools frontend/projector/*.py
-	$(PYTHON) -m isort $(BACKEND_DIR) tools frontend/projector/*.py
+	$(PYTHON) -m black $(BACKEND_DIR) tools
+	$(PYTHON) -m isort $(BACKEND_DIR) tools
 
 format-check: ## Check Rust source formatting
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all -- --check

@@ -9,15 +9,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
     cat <<'USAGE'
-Usage: ./deploy.sh [run|test|web] [arguments...]
+Usage: ./deploy.sh [run] [LÖVE arguments...]
 
 Local-only commands:
   run [love arguments...]       Run the native projector on this machine.
-  test [duration [interval]]     Run the local projector and UDP test sender.
-  web                           Build the browser package locally.
 
-Install LÖVE, Python, Node.js, and npm with this machine's package manager as
-needed. This script does not install software, request credentials, or deploy.
+Install LÖVE with this machine's package manager as needed. This script does
+not install software, request credentials, or deploy.
 USAGE
 }
 
@@ -38,16 +36,6 @@ case "$ACTION" in
         require_command love
         cd "$SCRIPT_DIR"
         exec love . "$@"
-        ;;
-    test)
-        require_command love
-        require_command python3
-        exec "$SCRIPT_DIR/test_local.sh" "$@"
-        ;;
-    web)
-        require_command node
-        require_command npm
-        exec "$SCRIPT_DIR/build_html.sh"
         ;;
     -h|--help|help)
         usage
