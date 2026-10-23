@@ -79,10 +79,14 @@ does not imply a position-accuracy guarantee: table uncertainty remains
 unavailable until held-out physical measurements justify it. The shared
 [center-origin fixture](calibration/v1/table-calibration-center-origin.json)
 pins the serialized frame and units.
-The Python-generated perspective fixture
-([bundle](calibration/v1/table-calibration-python-export.json)) is shared by
-the Python exporter and Rust projection tests to cover meter-to-millimeter
-conversion and non-affine transforms end to end.
+The skewed-perspective fixture
+([bundle](calibration/v1/table-calibration-python-export.json)) was generated
+by the legacy Python calibration bridge and is retained as a golden geometry
+reference. The bridge was retired under
+[ADR-0096](../docs/architecture/decisions/0096-retire-the-unused-python-calibration-bundle-bridge.md);
+Rust solver/projection tests and capture-request contract tests still consume
+the fixture. It covers non-affine transforms and preserves the historical
+cross-runtime reference without requiring the old exporter.
 
 The Rust `geometry::calibrate_detection_batch` adapter applies this bundle to
 every source-image detection in a successful frame batch only when the caller

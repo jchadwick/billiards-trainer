@@ -6,7 +6,7 @@ use billiards_perception::ImageSpace;
 
 const CENTER_ORIGIN_FIXTURE: &str =
     include_str!("../contracts/calibration/v1/table-calibration-center-origin.json");
-const PYTHON_EXPORT_FIXTURE: &str =
+const SKEWED_PERSPECTIVE_FIXTURE: &str =
     include_str!("../contracts/calibration/v1/table-calibration-python-export.json");
 
 fn calibration() -> TableCalibrationV1 {
@@ -89,12 +89,12 @@ fn center_origin_fixture_maps_image_corners_and_center_to_millimeters() {
 }
 
 #[test]
-fn python_exported_perspective_fixture_maps_the_declared_table_corners() {
+fn skewed_perspective_fixture_maps_the_declared_table_corners() {
     let validated: billiards_perception::calibration::ValidatedTableCalibrationV1 =
-        serde_json::from_str::<TableCalibrationV1>(PYTHON_EXPORT_FIXTURE)
-            .expect("Python exporter fixture must decode")
+        serde_json::from_str::<TableCalibrationV1>(SKEWED_PERSPECTIVE_FIXTURE)
+            .expect("historical perspective fixture must decode")
             .into_validated()
-            .expect("Python exporter fixture must validate");
+            .expect("historical perspective fixture must validate");
     let expected_corners = [
         (30.0, 20.0, -1000.0, -500.0),
         (970.0, 45.0, 1000.0, -500.0),
@@ -175,7 +175,7 @@ fn solver_creates_revision_bound_calibration_with_exact_center_origin_mapping() 
 }
 
 #[test]
-fn solver_matches_python_perspective_export_for_skewed_table_corners() {
+fn solver_matches_historical_skewed_perspective_fixture() {
     let corners = [
         ImagePointPx {
             x_px: 30.0,
@@ -196,7 +196,7 @@ fn solver_matches_python_perspective_export_for_skewed_table_corners() {
     ];
     let solved = solve_table_calibration(solver_input(corners)).unwrap();
     let rust_projection = solved.clone().into_validated().unwrap();
-    let python_projection = serde_json::from_str::<TableCalibrationV1>(PYTHON_EXPORT_FIXTURE)
+    let fixture_projection = serde_json::from_str::<TableCalibrationV1>(SKEWED_PERSPECTIVE_FIXTURE)
         .unwrap()
         .into_validated()
         .unwrap();
@@ -228,9 +228,9 @@ fn solver_matches_python_perspective_export_for_skewed_table_corners() {
         },
     ] {
         let rust_point = rust_projection.project(point, context()).unwrap();
-        let python_point = python_projection.project(point, context()).unwrap();
-        assert!((rust_point.x_mm - python_point.x_mm).abs() < 1.0e-7);
-        assert!((rust_point.y_mm - python_point.y_mm).abs() < 1.0e-7);
+        let fixture_point = fixture_projection.project(point, context()).unwrap();
+        assert!((rust_point.x_mm - fixture_point.x_mm).abs() < 1.0e-7);
+        assert!((rust_point.y_mm - fixture_point.y_mm).abs() < 1.0e-7);
     }
 }
 

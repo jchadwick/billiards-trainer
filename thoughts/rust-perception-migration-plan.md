@@ -663,6 +663,12 @@ tests); the full backend suite passes 1,334 tests with one model-dependent
 replay skipped. The configured coverage gate remains open at 49.62% versus
 80%; the gate has not been lowered.
 
+**Correction (2026-10-23; ADR-0096):** Rust later took ownership of the
+calibration solver, store, and projector. The Python exporter and its direct
+tests were retired because they had no production caller. The skewed fixture
+remains as historical geometry evidence consumed by Rust tests; the test no
+longer executes or depends on the old exporter.
+
 The Rust geometry adapter can now transform a complete successful detection
 batch all-or-nothing, retain source measurements and frame identity, reject
 failed inference, and require valid applied calibration context even for an

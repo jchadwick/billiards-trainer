@@ -1,10 +1,14 @@
 # ADR-0059: Solve table calibration in Rust with capture provenance
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-22
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0096 for the optional Python exporter reference-tool allowance
+
+> The decision that Rust owns production table-calibration solving remains
+> active. ADR-0096 supersedes only the optional allowance to retain the Python
+> exporter as a differential/reference tool.
 
 ## Context
 
@@ -33,11 +37,13 @@ and must pass the existing structural, numerical, and exact-frame-context
 validators before use.
 
 Missing or incompatible provenance leaves table coordinates unavailable.
-Python may retain the old exporter as a differential/reference test tool, but
-production capture and localization must not depend on Python calibration
-math. This decision covers solving only; persistence, revision allocation,
-route delegation, and live calibration update semantics are separate
-implementation steps and are not claimed complete by a solver API.
+At the time of this decision, Python could retain the old exporter as a
+differential/reference test tool, but production capture and localization must
+not depend on Python calibration math. ADR-0096 later retired that optional
+reference-tool allowance. This decision covers solving only; persistence,
+revision allocation, route delegation, and live calibration update semantics
+are separate implementation steps and are not claimed complete by a solver
+API.
 
 ## Consequences
 

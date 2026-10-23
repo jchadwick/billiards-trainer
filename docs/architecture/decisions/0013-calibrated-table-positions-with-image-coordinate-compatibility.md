@@ -1,10 +1,15 @@
 # ADR-0013: Calibrated table positions with image-coordinate compatibility
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-19
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0096 for the Python exporter and direct-test tooling only
+
+> The physical-coordinate contract and Rust calibration implementation remain
+> active. ADR-0096 supersedes only the Python bundle exporter and its direct
+> tests; the implementation notes below preserve the historical migration
+> evidence.
 
 ## Context
 
@@ -150,9 +155,10 @@ not complete. This record governs migration stages 3 and 4.
 - [Architectural review and evidence limitations](../../../thoughts/architectural-review-2026-10-19.md).
 - [Existing backend/integration_service_conversion_helpers.py](../../../backend/integration_service_conversion_helpers.py).
 - [Existing backend/core/integration.py](../../../backend/core/integration.py).
-- [Python calibration bundle exporter](../../../backend/vision/calibration/perception_export.py)
-  converts the retained meter-based homography to millimeters and requires
-  explicit source/profile/revision provenance.
+- The legacy Python calibration bundle exporter converted the retained
+  meter-based homography to millimeters and required explicit source/profile/
+  revision provenance. It had no production caller and was retired under
+  [ADR-0096](0096-retire-the-unused-python-calibration-bundle-bridge.md).
 - [Rust calibration validator and projector](../../../perception/src/calibration.rs)
   rejects mismatched metadata and numerically undefined transforms.
 - [Rust calibration audit options](../../../perception/src/inference/runtime.rs)
@@ -162,22 +168,19 @@ not complete. This record governs migration stages 3 and 4.
   preserves source identity, validates applied frame metadata for successful and
   empty batches, and returns no partial batch when any detection cannot project.
 - [Shared calibration contracts and fixtures](../../../perception/contracts/calibration/v1/)
-  include a Python-generated perspective bundle consumed by the Rust tests.
-- [Python exporter and contract tests](../../../backend/tests/unit/test_perception_calibration_export.py)
-  and [Rust projection tests](../../../perception/tests/calibration_v1.rs)
-  verify unit conversion, center-origin corners, scale invariance, and exact
-  context matching.
+  retain the historically Python-generated perspective bundle as a golden
+  geometry reference consumed by Rust tests.
+- [Rust calibration tests](../../../perception/tests/calibration_v1.rs)
+  verify the solver, projection, center-origin frame, and exact context
+  matching. Capture-request validation remains covered by the Python
+  compatibility test suite.
 
-The Python exporter and Rust projection test agree on all four corners of a
-non-affine perspective calibration. On 2026-10-20, 20 focused Python exporter
-and schema tests passed; the then-current Rust suite passed 85 tests and strict
-Clippy. A CLI test also compares the reported bundle hash with the exact
-validated fixture bytes. One full backend run collected 1,334 tests, with one
-model-dependent replay skipped; its tests passed but pytest exited because
-coverage measured 49.62% against the required 80% gate. These results verify
-contract translation, not held-out physical ball-center accuracy. A later
-recheck after scene replay integration passed 1,329 tests with one skip and
-measured 49.44% coverage, so the gate remains open. The
+The former Python exporter and Rust projection test agreed on all four corners
+of a non-affine perspective calibration. This is historical migration evidence;
+the adapter and direct tests were later retired under ADR-0096 after Rust took
+ownership of calibration. The fixture remains for Rust solver/projection
+regressions. These results verify contract translation, not held-out physical
+ball-center accuracy. The
 recorded-image audit now has an opt-in path that applies the adapter, reports
 per-frame calibrated measurements or unavailable status, and records geometry
 time separately while retaining raw batches. The experimental source-time

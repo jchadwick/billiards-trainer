@@ -359,6 +359,11 @@ verified calibration and labels.
   cross-process lock. Solver parity tests use the Python exporter fixture; the
   store tests cover conflicts, concurrent writers, malformed records, clear,
   and write failures. See ADR-0059 and ADR-0060.
+- **2026-10-23 correction (ADR-0096):** The Python exporter mentioned in this
+  historical progress note was later retired after Rust took ownership of
+  solving, persistence, and projection. The skewed-perspective JSON remains a
+  historical geometry fixture for Rust; no Python exporter is needed to run
+  the calibration path.
 - The Rust store now connects to the live capture process and the bounded
   calibration-control protocol. It validates the descriptor's active stable
   capture context, solves four ordered source-pixel corners with explicitly

@@ -29,7 +29,7 @@ commands or baselines.
 | `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Export alone does not establish parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
-| Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
+| Python chessboard/table calibration implementation | Keep within the Python compatibility service for now | It still has callers in the compatibility API, streaming, and video modules. It is not part of the Rust live path; the unused bundle-conversion bridge and tests have been retired. The grid-calibration CLI and YAML guide remain removed. |
 | `frontend/web` | Keep as the minimal operator client | ADR-0090 keeps `/live` with direct MJPEG and a state-only reconnecting WebSocket. Legacy configuration, diagnostics, monitoring, navigation, generic video controls, persistence, and their tests were unreachable from the route graph and were removed. |
 | Native projector client | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Keep only its meaningful Lua coordinate-contract tests; fake Python senders, an unused Docker dev image, unsupported fused-binary instructions, and the unrelated love.js browser package are retired under ADR-0091. ADR-0086 still preserves the native projection use case. |
 | `frontend/visualizer` LÖVE trajectory client | Retire | README marked its WebSocket dependency as future work, the required `lib.websocket` module is absent, the initialization test fails, and camera/ball/table rendering are placeholders. It does not serve the primary `/live` workflow. |
@@ -147,6 +147,10 @@ major CSS-framework migration.
 - The Python grid-calibration command and its stale guides. The purported
   automatic detector was a stub, and manual-corner YAML output did not configure
   the Rust live calibration bundle.
+- The Python calibration-bundle conversion bridge and its direct tests under
+  ADR-0096. Rust owns production solving, persistence, and projection; the
+  shared skewed-perspective JSON remains only as a historical geometry fixture
+  for Rust and compatibility request-contract tests.
 - Three executable coordinate/cue/refinement examples and the example-runner
   test file. Their behavior is covered more directly by core geometry,
   coordinate, resolution, and hybrid-refinement tests.
@@ -236,11 +240,7 @@ major CSS-framework migration.
    valid 1280 ONNX export and matching manifest exist in the external model
    repository, with two classes (`cue=0`, `ball=1`). Migrating the checked-in
    default config and qualifying its physical source remain open.
-7. The Python calibration-bundle helper has test callers but no live Rust
-   product caller. Retire the helper and migrate its tests when the Python
-   compatibility capture-settings path is removed; preserve the shared
-   calibration schema and Rust-consumed fixture.
-9. The offline Python compatibility detector still contains CoreML loading
+7. The offline Python compatibility detector still contains CoreML loading
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
