@@ -8,6 +8,7 @@ import os
 import struct
 import subprocess
 import time
+from collections import deque
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -141,6 +142,42 @@ def _rust_timing_summary_executable() -> Path:
     if not target_directory.is_absolute():
         target_directory = collector.ROOT / target_directory
     executable_name = "billiards-performance-audit-timing-summary"
+    if os.name == "nt":
+        executable_name += ".exe"
+    executable = target_directory / "debug" / executable_name
+    assert executable.is_file()
+    assert os.name == "nt" or os.access(executable, os.X_OK)
+    return executable
+
+
+@lru_cache(maxsize=1)
+def _rust_trajectory_summary_executable() -> Path:
+    """Build and return this checkout's trajectory summary CLI."""
+    subprocess.run(
+        [
+            "cargo",
+            "build",
+            "--locked",
+            "--manifest-path",
+            str(collector.ROOT / "perception" / "Cargo.toml"),
+            "--bin",
+            "billiards-performance-audit-trajectory-summary",
+        ],
+        cwd=collector.ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    configured_target_dir = os.environ.get("CARGO_TARGET_DIR")
+    target_directory = (
+        Path(configured_target_dir).expanduser()
+        if configured_target_dir
+        else collector.ROOT / "perception" / "target"
+    )
+    if not target_directory.is_absolute():
+        target_directory = collector.ROOT / target_directory
+    executable_name = "billiards-performance-audit-trajectory-summary"
     if os.name == "nt":
         executable_name += ".exe"
     executable = target_directory / "debug" / executable_name
@@ -2648,6 +2685,366 @@ def test_rust_timing_summary_bridge_bounds_callback_and_reports_startup_failure(
     result, failure_metadata = asyncio.run(run_missing_executable())
     assert result["summary"]["status"] == "partial"
     assert "does not exist" in failure_metadata["failure"]
+
+
+def _trajectory_bridge_event(sequence: int, source_frame: int) -> dict[str, Any]:
+    return {
+        "stream_sequence": sequence,
+        "source_frame_number": source_frame,
+        "vision_instance_id": "vision-a",
+        "source_process_id": 17,
+        "source_publication_wall_age_estimate_ms": float(sequence),
+        "source_publication_to_client_receipt_ms": float(sequence) / 2,
+        "clock_comparable": True,
+    }
+
+
+def test_rust_trajectory_summary_bridge_runs_native_protocol_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE",
+        str(_rust_trajectory_summary_executable()),
+    )
+
+    async def run_bridge() -> tuple[dict[str, Any], dict[str, Any]]:
+        bridge = collector.RustTrajectorySummaryBridge(
+            maximum_samples=8,
+            maximum_records=16,
+            queue_capacity=8,
+            write_timeout_seconds=2.0,
+            executable=_rust_trajectory_summary_executable(),
+        )
+        await bridge.start()
+        assert bridge.try_record(_trajectory_bridge_event(10, 20))
+        assert bridge.try_record(_trajectory_bridge_event(12, 22))
+        summary = await bridge.finish(2.0, exporter_loss_count=3)
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        assert summary is not None
+        return summary, metadata
+
+    summary, metadata = asyncio.run(run_bridge())
+
+    assert metadata["status"] == "complete"
+    assert metadata["return_code"] == 0
+    assert summary["trajectory_messages_received"] == 2
+    assert summary["trajectory_messages_per_second"] == 1.0
+    assert summary["trajectory_sequence_gaps"] == 1
+    assert summary["trajectory_source_sequence_gaps"] == 1
+    assert summary["trajectory_exporter_dropped_records"] == 3
+    assert summary["trajectory_bridge_dropped_records"] == 0
+    assert summary["trajectory_source_publication_to_client_receipt_ms"]["count"] == 2
+
+
+def test_rust_trajectory_summary_bridge_bounds_records_and_reports_loss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE",
+        str(_rust_trajectory_summary_executable()),
+    )
+
+    async def run_bridge() -> tuple[dict[str, Any], dict[str, Any]]:
+        bridge = collector.RustTrajectorySummaryBridge(
+            maximum_samples=8,
+            maximum_records=4,
+            queue_capacity=4,
+            write_timeout_seconds=2.0,
+            executable=_rust_trajectory_summary_executable(),
+        )
+        await bridge.start()
+        accepted = [
+            bridge.try_record(_trajectory_bridge_event(1, 1)),
+            bridge.try_record(_trajectory_bridge_event(2, 2)),
+            bridge.try_record(_trajectory_bridge_event(3, 3)),
+        ]
+        summary = await bridge.finish(1.0)
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        assert summary is not None
+        return {"accepted": accepted, "summary": summary}, metadata
+
+    result, metadata = asyncio.run(run_bridge())
+
+    assert result["accepted"] == [True, True, False]
+    assert result["summary"]["trajectory_messages_received"] == 2
+    assert result["summary"]["trajectory_bridge_dropped_records"] == 1
+    assert metadata["callback_rejected_records"] == 1
+    assert metadata["status"] == "partial"
+
+
+def test_rust_trajectory_summary_bridge_bounds_queue_and_keeps_loop_responsive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DelayedStdin:
+        def __init__(self) -> None:
+            self.entered = asyncio.Event()
+            self.release = asyncio.Event()
+            self.records: list[bytes] = []
+
+        def write(self, record: bytes) -> None:
+            self.records.append(record)
+
+        async def drain(self) -> None:
+            self.entered.set()
+            await self.release.wait()
+
+        def close(self) -> None:
+            pass
+
+    class DelayedProcess:
+        def __init__(self) -> None:
+            self.stdin = DelayedStdin()
+            self.returncode: int | None = None
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        async def wait(self) -> int:
+            assert self.returncode is not None
+            return self.returncode
+
+    fake_process = DelayedProcess()
+    monkeypatch.setenv(
+        "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE", os.sys.executable
+    )
+
+    async def create_delayed_process(*_args: Any, **_kwargs: Any) -> DelayedProcess:
+        return fake_process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_delayed_process)
+
+    async def run_bridge() -> dict[str, Any]:
+        bridge = collector.RustTrajectorySummaryBridge(
+            maximum_samples=8,
+            maximum_records=8,
+            queue_capacity=1,
+            write_timeout_seconds=1.0,
+            executable=Path(os.sys.executable),
+        )
+        await bridge.start()
+        await asyncio.wait_for(fake_process.stdin.entered.wait(), timeout=1.0)
+        accepted = bridge.try_record(_trajectory_bridge_event(1, 1))
+        rejected = bridge.try_record(_trajectory_bridge_event(2, 2))
+
+        ticked = asyncio.Event()
+
+        async def event_loop_tick() -> None:
+            await asyncio.sleep(0.01)
+            ticked.set()
+
+        tick_task = asyncio.create_task(event_loop_tick())
+        await asyncio.wait_for(ticked.wait(), timeout=0.5)
+        await tick_task
+        await bridge.close()
+        return {
+            "accepted": accepted,
+            "rejected": rejected,
+            "metadata": bridge.failure_metadata(),
+        }
+
+    result = asyncio.run(run_bridge())
+    assert result["accepted"] is True
+    assert result["rejected"] is False
+    assert result["metadata"]["callback_rejected_records"] == 1
+    assert result["metadata"]["writer_dropped_records"] == 1
+    assert result["metadata"]["status"] == "partial"
+
+
+def test_rust_trajectory_summary_bridge_failure_leaves_python_summary_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE",
+        "/missing/billiards-performance-audit-trajectory-summary",
+    )
+
+    async def run_bridge() -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        bridge = collector.RustTrajectorySummaryBridge(
+            maximum_samples=8,
+            maximum_records=8,
+            queue_capacity=2,
+            write_timeout_seconds=0.1,
+            executable=Path("/missing/billiards-performance-audit-trajectory-summary"),
+        )
+        await bridge.start()
+        assert bridge.try_record(_trajectory_bridge_event(1, 10)) is False
+        summary = await bridge.finish(1.0)
+        metadata = bridge.failure_metadata()
+        await bridge.close()
+        return summary, metadata
+
+    native_summary, metadata = asyncio.run(run_bridge())
+    assert native_summary is None
+    assert metadata["status"] == "partial"
+    assert "missing or not executable" in metadata["failure"]
+
+    # The caller can still produce the compatibility summary from the Python
+    # accumulator when native startup fails; this keeps native tooling optional.
+    fallback = TrajectoryAccumulator(maximum_samples=8)
+    fallback.add(_trajectory_bridge_event(1, 10))
+    assert fallback.summary(1.0)["trajectory_messages_received"] == 1
+
+
+def test_collect_repetition_uses_native_trajectory_summary_and_skips_state_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable = _rust_trajectory_summary_executable()
+    native_path = str(executable)
+    missing_path = "/missing/billiards-performance-audit-trajectory-summary"
+    clock_domain_id = "test-host:boot-a:monotonic"
+    status_document = {
+        "host_id": "test-host",
+        "clock_domain_id": clock_domain_id,
+        "audit_domains": {"state": True, "trajectory": True},
+        "event_export": {"run_id": "run-a", "queue_depth": 0},
+    }
+    payloads_for_connection: list[dict[str, Any]] = []
+
+    class FakeWebSocket:
+        def __init__(self, payloads: list[dict[str, Any]]) -> None:
+            self._messages = deque(
+                [
+                    json.dumps(
+                        {"type": "connection", "data": {"client_id": "client-a"}}
+                    ),
+                    json.dumps({"type": "subscribed", "data": {}}),
+                    *(json.dumps(payload) for payload in payloads),
+                ]
+            )
+
+        async def recv(self) -> str:
+            if self._messages:
+                return self._messages.popleft()
+            await asyncio.Future()
+            raise AssertionError("unreachable")
+
+        async def send(self, _message: str) -> None:
+            return None
+
+    class FakeConnection:
+        def __init__(self, websocket: FakeWebSocket) -> None:
+            self._websocket = websocket
+
+        async def __aenter__(self) -> FakeWebSocket:
+            return self._websocket
+
+        async def __aexit__(self, *_args: Any) -> None:
+            return None
+
+    monkeypatch.setattr(
+        collector.websockets,
+        "connect",
+        lambda *_args, **_kwargs: FakeConnection(
+            FakeWebSocket(payloads_for_connection)
+        ),
+    )
+    monkeypatch.setattr(
+        collector, "_read_json_url", lambda *_args, **_kwargs: status_document
+    )
+    monkeypatch.setattr(
+        collector,
+        "_wait_for_audit_export_drain",
+        lambda *_args, **_kwargs: status_document,
+    )
+
+    class FakeRecorder:
+        def __init__(self) -> None:
+            self.clock_domain_id = clock_domain_id
+
+        def record(self, _event: dict[str, Any]) -> None:
+            return None
+
+        def status(self) -> dict[str, Any]:
+            return {
+                "dropped_events": 0,
+                "export_limit_dropped_events": 0,
+                "export_errors": 0,
+            }
+
+    recorder = FakeRecorder()
+    original_resolver = collector._rust_audit_summary_executable
+    resolved_binaries: list[str] = []
+
+    def track_resolver(binary_name: str, configured_executable: str | None) -> Path:
+        resolved_binaries.append(binary_name)
+        return original_resolver(binary_name, configured_executable)
+
+    monkeypatch.setattr(collector, "_rust_audit_summary_executable", track_resolver)
+
+    async def collect_case(
+        streams: list[str], payloads: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        payloads_for_connection[:] = payloads
+        return await collector.collect_repetition(
+            "ws://127.0.0.1:8000/ws",
+            streams=streams,
+            warmup_seconds=0,
+            measured_seconds=0.02,
+            repetition=1,
+            recorder=recorder,  # type: ignore[arg-type]
+            progress=False,
+            history_size=8,
+            heartbeat_interval_seconds=10,
+        )
+
+    async def run_cases() -> tuple[dict[str, Any], dict[str, Any]]:
+        monkeypatch.setenv(
+            "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE", native_path
+        )
+        trajectory_payload = {
+            "type": "trajectory",
+            "data": {
+                "sequence": 1,
+                "source_frame_number": 42,
+                "source_timestamp": time.time(),
+                "source_timestamp_kind": "shared_memory_publication",
+                "source_observations": {
+                    "vision_instance_id": "vision-a",
+                    "source_process_id": 17,
+                    "source_publication_monotonic_ns": time.perf_counter_ns()
+                    - 1_000_000,
+                },
+            },
+        }
+        trajectory_summary = await collect_case(
+            ["state", "trajectory"], [trajectory_payload]
+        )
+
+        monkeypatch.setenv(
+            "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE", missing_path
+        )
+        state_payload = {
+            "type": "state",
+            "data": {
+                "sequence": 1,
+                "balls": [],
+                "observation_status": {
+                    "source_frame_number": 7,
+                    "source_timestamp": time.time(),
+                    "source_publication_monotonic_ns": 1,
+                    "vision_instance_id": "vision-a",
+                    "source_process_id": 17,
+                    "component_observation_status": {"balls": "observed"},
+                },
+            },
+        }
+        state_summary = await collect_case(["state"], [state_payload])
+        return trajectory_summary, state_summary
+
+    trajectory_summary, state_summary = asyncio.run(run_cases())
+
+    assert resolved_binaries == ["billiards-performance-audit-trajectory-summary"]
+    assert trajectory_summary["trajectory_summary_engine"] == "rust"
+    assert trajectory_summary["trajectory_summary_differential"] == {
+        "status": "matched",
+        "mismatched_fields": [],
+    }
+    assert trajectory_summary["trajectory_summary_bridge"]["status"] == "complete"
+    assert trajectory_summary["trajectory_messages_received"] == 1
+    assert state_summary["state_messages_received"] == 1
+    assert "trajectory_summary_engine" not in state_summary
 
 
 def test_rust_live_qualification_preserves_partial_state_and_process_diagnostics(

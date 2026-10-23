@@ -990,11 +990,17 @@ class RustLiveTimingSummaryBridge:
         process = self._process
         if process is None or process.returncode is not None:
             return
-        process.terminate()
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass
         try:
             await asyncio.wait_for(process.wait(), timeout=self.write_timeout_seconds)
         except asyncio.TimeoutError:
-            process.kill()
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
             await process.wait()
         self._return_code = process.returncode
 
@@ -1094,6 +1100,336 @@ class RustLiveTimingSummaryBridge:
                 await self._stop_process()
         if self._process is not None and self._process.returncode is None:
             await self._stop_process()
+
+
+class RustTrajectorySummaryBridge:
+    """Forward trajectory receipts to a bounded native summary process.
+
+    The receive callback only enqueues an object with ``put_nowait``. JSON
+    encoding, pipe writes and child-process waits happen on a separate task so
+    a slow audit consumer cannot delay state delivery or the WebSocket reader.
+    """
+
+    _EXECUTABLE_NAME = "billiards-performance-audit-trajectory-summary"
+    _MAXIMUM_SAMPLES = 1_000_000
+    _MAXIMUM_RECORDS = 5_000_000
+    _MAXIMUM_LINE_BYTES = 16 * 1024 * 1024
+    _DEFAULT_LINE_BYTES = 1_048_576
+    _MAXIMUM_QUEUE_CAPACITY = 100_000
+
+    def __init__(
+        self,
+        *,
+        maximum_samples: int,
+        maximum_records: int,
+        queue_capacity: int,
+        write_timeout_seconds: float,
+        executable: str | Path | None = None,
+    ) -> None:
+        if maximum_samples < 1:
+            raise ValueError("trajectory summary sample limit must be positive")
+        if maximum_records < 2:
+            raise ValueError("trajectory summary record limit must be at least two")
+        if queue_capacity < 1:
+            raise ValueError("trajectory summary queue capacity must be positive")
+        if not math.isfinite(write_timeout_seconds) or write_timeout_seconds <= 0:
+            raise ValueError("trajectory summary write timeout must be positive")
+        self.requested_maximum_samples = maximum_samples
+        self.maximum_samples = min(maximum_samples, self._MAXIMUM_SAMPLES)
+        self.requested_maximum_records = maximum_records
+        self.maximum_records = min(maximum_records, self._MAXIMUM_RECORDS)
+        self.queue_capacity = min(
+            queue_capacity, self.maximum_records, self._MAXIMUM_QUEUE_CAPACITY
+        )
+        self.maximum_line_bytes = self._DEFAULT_LINE_BYTES
+        self.write_timeout_seconds = write_timeout_seconds
+        self.configured_executable = executable
+        self.executable_path: Path | None = None
+        self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=self.queue_capacity
+        )
+        self._process: asyncio.subprocess.Process | None = None
+        self._writer_task: asyncio.Task[None] | None = None
+        self._result: dict[str, Any] | None = None
+        self._failure: str | None = None
+        self._callback_rejected_records = 0
+        self._writer_dropped_records = 0
+        self._submitted_records = 0
+        self._exporter_loss_count: int | None = None
+        self._return_code: int | None = None
+        self._stderr_tail = ""
+        self._prepared = False
+        self._finished = False
+        self._closed = False
+
+    async def prepare(self) -> None:
+        """Resolve or build the reducer before a measured socket is opened."""
+        if self._prepared or self._closed:
+            return
+        self._prepared = True
+        try:
+            # Cargo build or path discovery can take time; keep it off the
+            # collector event loop and finish it before the measured socket
+            # exists, so a cold developer build cannot perturb delivery.
+            self.executable_path = await asyncio.to_thread(
+                _rust_audit_summary_executable,
+                self._EXECUTABLE_NAME,
+                (
+                    str(self.configured_executable)
+                    if self.configured_executable is not None
+                    else os.environ.get(
+                        "PERFORMANCE_AUDIT_TRAJECTORY_SUMMARY_EXECUTABLE"
+                    )
+                ),
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+
+    async def start(self) -> None:
+        """Launch the prepared reducer and send its bounded retention setting."""
+        if self._process is not None or self._closed:
+            return
+        if not self._prepared:
+            await self.prepare()
+        if self._failure is not None or self.executable_path is None:
+            return
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                str(self.executable_path),
+                "--maximum-samples",
+                str(self.maximum_samples),
+                "--maximum-records",
+                str(self.maximum_records),
+                "--maximum-line-bytes",
+                str(self.maximum_line_bytes),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            self._record_failure(f"{type(error).__name__}: {error}")
+            return
+        self._writer_task = asyncio.create_task(
+            self._write_messages(), name="rust-trajectory-summary-writer"
+        )
+        await self._enqueue_control(
+            {"type": "config", "maximum_samples": self.maximum_samples}
+        )
+
+    def try_record(self, event: dict[str, Any]) -> bool:
+        """Enqueue one trajectory receipt without waiting for the child."""
+        if (
+            self._process is None
+            or self._failure is not None
+            or self._closed
+            or self._finished
+            or (self._writer_task is not None and self._writer_task.done())
+        ):
+            self._callback_rejected_records += 1
+            return False
+        # Reserve one protocol record for the final summary control message.
+        if self._submitted_records >= self.maximum_records - 1:
+            self._callback_rejected_records += 1
+            return False
+        try:
+            self._queue.put_nowait({"type": "trajectory_receipt", "event": event})
+        except asyncio.QueueFull:
+            self._callback_rejected_records += 1
+            return False
+        self._submitted_records += 1
+        return True
+
+    async def _enqueue_control(self, record: dict[str, Any]) -> None:
+        if (
+            self._process is None
+            or self._failure is not None
+            or self._closed
+            or (self._writer_task is not None and self._writer_task.done())
+        ):
+            return
+        try:
+            await asyncio.wait_for(
+                self._queue.put(record), timeout=self.write_timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            self._record_failure("timed out enqueueing trajectory summary control")
+            return
+        self._submitted_records += 1
+
+    async def _write_messages(self) -> None:
+        process = self._process
+        if process is None or process.stdin is None:
+            return
+        current: dict[str, Any] | None = None
+        try:
+            while True:
+                current = await self._queue.get()
+                try:
+                    encoded = (
+                        json.dumps(
+                            _finite_audit_json_value(current),
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        )
+                        + "\n"
+                    ).encode("utf-8")
+                    if len(encoded) > self.maximum_line_bytes:
+                        raise ValueError(
+                            "trajectory summary record exceeds the configured "
+                            f"{self.maximum_line_bytes}-byte line limit"
+                        )
+                    process.stdin.write(encoded)
+                    await asyncio.wait_for(
+                        process.stdin.drain(), timeout=self.write_timeout_seconds
+                    )
+                    should_finish = current.get("type") == "finish"
+                    current = None
+                finally:
+                    self._queue.task_done()
+                if should_finish:
+                    break
+        except asyncio.CancelledError:
+            if current is not None and current.get("type") == "trajectory_receipt":
+                self._writer_dropped_records += 1
+            self._record_failure("Rust trajectory summary writer was cancelled")
+            self._discard_queued_records()
+            raise
+        except Exception as error:
+            if current is not None and current.get("type") == "trajectory_receipt":
+                self._writer_dropped_records += 1
+            self._record_failure(f"{type(error).__name__}: {error}")
+            self._discard_queued_records()
+        finally:
+            try:
+                process.stdin.close()
+            except (BrokenPipeError, ConnectionError, OSError):
+                pass
+
+    def _discard_queued_records(self) -> None:
+        while True:
+            try:
+                queued = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if queued.get("type") == "trajectory_receipt":
+                self._writer_dropped_records += 1
+            self._queue.task_done()
+
+    def _record_failure(self, message: str) -> None:
+        if self._failure is None:
+            self._failure = message
+
+    async def finish(
+        self,
+        duration_seconds: float,
+        *,
+        exporter_loss_count: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Close the native measurement window and collect its one summary."""
+        if self._finished:
+            return self._result
+        self._finished = True
+        self._exporter_loss_count = exporter_loss_count
+        if self._process is None or self._writer_task is None:
+            return None
+        await self._enqueue_control(
+            {
+                "type": "finish",
+                "duration_seconds": duration_seconds,
+                "exporter_loss_count": exporter_loss_count,
+                "bridge_loss_count": self._callback_rejected_records,
+            }
+        )
+        if self._failure is None:
+            try:
+                await asyncio.wait_for(
+                    self._writer_task,
+                    timeout=max(
+                        self.write_timeout_seconds,
+                        float(
+                            config.get(
+                                "performance_audit.export_drain_timeout_seconds", 5.0
+                            )
+                        ),
+                    ),
+                )
+                await self._collect_process_result()
+            except (asyncio.TimeoutError, OSError, RuntimeError) as error:
+                self._record_failure(f"{type(error).__name__}: {error}")
+                await self._stop_process()
+        if self._process is not None and self._return_code not in (None, 0):
+            self._record_failure(
+                f"Rust trajectory summarizer exited with status {self._return_code}: "
+                f"{self._stderr_tail.strip()}"
+            )
+        if self._failure is None and self._result is None:
+            self._record_failure("Rust trajectory summarizer returned no JSON result")
+        return self._result
+
+    async def _collect_process_result(self) -> None:
+        process = self._process
+        if process is None:
+            return
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(), timeout=self.write_timeout_seconds
+        )
+        self._return_code = process.returncode
+        self._stderr_tail = stderr.decode("utf-8", errors="replace")[-4096:]
+        if stdout:
+            try:
+                result = json.loads(stdout)
+                if not isinstance(result, dict):
+                    raise ValueError("trajectory summary output must be an object")
+                self._result = result
+            except (json.JSONDecodeError, ValueError) as error:
+                self._record_failure(f"invalid Rust trajectory summary output: {error}")
+        elif self._return_code == 0:
+            self._record_failure("Rust trajectory summarizer produced empty output")
+
+    async def _stop_process(self) -> None:
+        process = self._process
+        if process is None or process.returncode is not None:
+            return
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=self.write_timeout_seconds)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+        self._return_code = process.returncode
+
+    def failure_metadata(self) -> dict[str, Any]:
+        """Disclose partial native summaries and every bounded bridge loss."""
+        return {
+            "status": (
+                "partial"
+                if self._failure is not None or self._callback_rejected_records > 0
+                else "complete"
+            ),
+            "executable": str(self.executable_path) if self.executable_path else None,
+            "failure": self._failure,
+            "callback_rejected_records": self._callback_rejected_records,
+            "writer_dropped_records": self._writer_dropped_records,
+            "exporter_loss_count": self._exporter_loss_count,
+            "maximum_samples_requested": self.requested_maximum_samples,
+            "maximum_samples": self.maximum_samples,
+            "maximum_records_requested": self.requested_maximum_records,
+            "maximum_records": self.maximum_records,
+            "queue_capacity": self.queue_capacity,
+            "maximum_line_bytes": self.maximum_line_bytes,
+            "return_code": self._return_code,
+            "stderr_tail": self._stderr_tail,
+        }
+
+    async def close(self) -> None:
+        """Stop an unfinished child after an interrupted measurement."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._writer_task is not None and not self._writer_task.done():
+            self._writer_task.cancel()
+            await asyncio.gather(self._writer_task, return_exceptions=True)
+        await self._stop_process()
 
 
 class RustLiveChildResourceSampler:
@@ -2364,6 +2700,50 @@ class VideoLoad:
             self.error = f"{type(error).__name__}: {error}"
 
 
+def _event_trace_export_loss_count(status: dict[str, Any]) -> int:
+    """Count only lost trace records; deliberate sampling is not loss."""
+    return sum(
+        value
+        for key in ("dropped_events", "export_limit_dropped_events", "export_errors")
+        if isinstance((value := status.get(key)), int)
+        and not isinstance(value, bool)
+        and value > 0
+    )
+
+
+def _trajectory_summary_parity_mismatches(
+    reference: dict[str, Any], native: dict[str, Any]
+) -> list[str]:
+    """Compare the retained Python oracle's stable fields with the Rust result."""
+    mismatches: list[str] = []
+    metric_fields = {"count", "sample_limit", "p50", "p95", "p99"}
+    percentile_fields = {
+        "trajectory_source_publication_wall_age_estimate_ms",
+        "trajectory_source_publication_to_client_receipt_ms",
+    }
+    for key, expected in reference.items():
+        actual = native.get(key)
+        if isinstance(expected, dict):
+            actual_projection = (
+                {field: actual.get(field) for field in expected}
+                if isinstance(actual, dict)
+                else None
+            )
+            if actual_projection != expected:
+                # Rust intentionally adds all-sample counts and truncation
+                # disclosure to percentile records. Those additive keys are
+                # not part of the reference's stable parity contract.
+                if key in percentile_fields and isinstance(actual, dict):
+                    if {field: actual.get(field) for field in metric_fields} == {
+                        field: expected.get(field) for field in metric_fields
+                    }:
+                        continue
+                mismatches.append(key)
+        elif actual != expected:
+            mismatches.append(key)
+    return mismatches
+
+
 async def _receive_until_type(
     websocket: Any, message_type: str, timeout_seconds: float = 10.0
 ) -> dict[str, Any]:
@@ -2390,10 +2770,31 @@ async def collect_repetition(
     history_size: int = 10000,
     subscriber_delay_ms: float = 0.0,
     heartbeat_interval_seconds: float = 20.0,
+    trajectory_queue_capacity: int = 2048,
+    trajectory_maximum_records: int = 200_002,
 ) -> dict[str, Any]:
     """Connect, warm up, and collect one state stream measurement window."""
     accumulator = StateAccumulator(maximum_samples=history_size)
-    trajectory_accumulator = TrajectoryAccumulator(maximum_samples=history_size)
+    trajectory_bridge = (
+        RustTrajectorySummaryBridge(
+            maximum_samples=history_size,
+            maximum_records=trajectory_maximum_records,
+            queue_capacity=trajectory_queue_capacity,
+            write_timeout_seconds=float(
+                config.get("performance_audit.export_drain_timeout_seconds", 5.0)
+            ),
+        )
+        if "trajectory" in streams
+        else None
+    )
+    trajectory_accumulator = TrajectoryAccumulator(
+        maximum_samples=(
+            trajectory_bridge.maximum_samples if trajectory_bridge else history_size
+        )
+    )
+    native_trajectory_summary: dict[str, Any] | None = None
+    trajectory_bridge_metadata: dict[str, Any] | None = None
+    trajectory_exporter_loss_count = 0
     video_load = VideoLoad(video_url) if video_url else None
     video_counts_after_measurement: dict[str, int] = {}
     application_pings_answered = 0
@@ -2413,6 +2814,8 @@ async def collect_repetition(
         and server_clock_domain_id
         and collector_clock_domain_id == server_clock_domain_id
     )
+    if trajectory_bridge is not None:
+        await trajectory_bridge.prepare()
     async with websockets.connect(url, max_size=None, ping_interval=20) as websocket:
         connection_message = await _receive_until_type(websocket, "connection")
         connection_data = connection_message.get("data")
@@ -2425,6 +2828,8 @@ async def collect_repetition(
             json.dumps({"type": "subscribe", "data": {"streams": streams}})
         )
         await _receive_until_type(websocket, "subscribed")
+        if trajectory_bridge is not None:
+            await trajectory_bridge.start()
         if video_load is not None:
             video_load.start()
         try:
@@ -2458,11 +2863,14 @@ async def collect_repetition(
         except BaseException:
             if video_load is not None:
                 video_load.stop()
+            if trajectory_bridge is not None:
+                await asyncio.shield(trajectory_bridge.close())
             raise
 
         video_counts_before_measurement = (
             video_load.snapshot() if video_load is not None else None
         )
+        trace_export_losses_before = _event_trace_export_loss_count(recorder.status())
         started_ns = time.perf_counter_ns()
         started_wall = time.time()
         deadline = time.monotonic() + measured_seconds
@@ -2566,6 +2974,8 @@ async def collect_repetition(
                         "clock_comparable": clock_comparable,
                     }
                     trajectory_accumulator.add(event)
+                    if trajectory_bridge is not None:
+                        trajectory_bridge.try_record(event)
                 else:
                     continue
                 recorder.record(event)
@@ -2586,12 +2996,71 @@ async def collect_repetition(
             if video_load is not None:
                 video_load.stop()
                 video_counts_after_measurement = video_load.snapshot()
+            if trajectory_bridge is not None:
+                trace_export_losses_after = _event_trace_export_loss_count(
+                    recorder.status()
+                )
+                trajectory_exporter_loss_count = max(
+                    0, trace_export_losses_after - trace_export_losses_before
+                )
+                elapsed_for_summary = max(
+                    0.0, (measured_finished_ns - started_ns) / 1_000_000_000
+                )
+                try:
+                    native_trajectory_summary = await asyncio.shield(
+                        trajectory_bridge.finish(
+                            elapsed_for_summary,
+                            exporter_loss_count=trajectory_exporter_loss_count,
+                        )
+                    )
+                finally:
+                    trajectory_bridge_metadata = trajectory_bridge.failure_metadata()
+                    await asyncio.shield(trajectory_bridge.close())
 
     elapsed = max(0.0, (measured_finished_ns - started_ns) / 1_000_000_000)
     server_end = await asyncio.to_thread(_read_json_url, performance_url)
     audit_end = await asyncio.to_thread(_wait_for_audit_export_drain, audit_url)
     summary = accumulator.summary(elapsed)
-    summary.update(trajectory_accumulator.summary(elapsed))
+    python_trajectory_summary = trajectory_accumulator.summary(elapsed)
+    if native_trajectory_summary is not None:
+        parity_mismatches = _trajectory_summary_parity_mismatches(
+            python_trajectory_summary, native_trajectory_summary
+        )
+        summary.update(
+            python_trajectory_summary
+            if parity_mismatches
+            else native_trajectory_summary
+        )
+        summary["trajectory_summary_engine"] = (
+            "python_reference_fallback" if parity_mismatches else "rust"
+        )
+        summary["trajectory_summary_differential"] = {
+            "status": "mismatch" if parity_mismatches else "matched",
+            "mismatched_fields": parity_mismatches,
+        }
+        if parity_mismatches and trajectory_bridge_metadata is not None:
+            trajectory_bridge_metadata["status"] = "partial"
+            trajectory_bridge_metadata["differential_mismatch_fields"] = (
+                parity_mismatches
+            )
+    else:
+        summary.update(python_trajectory_summary)
+        if trajectory_bridge is not None:
+            summary["trajectory_summary_engine"] = "python_reference_fallback"
+            summary["trajectory_summary_differential"] = {
+                "status": "unavailable",
+                "mismatched_fields": [],
+            }
+    if trajectory_bridge is not None:
+        if native_trajectory_summary is None:
+            summary["trajectory_exporter_dropped_records"] = (
+                trajectory_exporter_loss_count
+            )
+            bridge_losses = trajectory_bridge_metadata or {}
+            summary["trajectory_bridge_dropped_records"] = int(
+                bridge_losses.get("callback_rejected_records", 0)
+            ) + int(bridge_losses.get("writer_dropped_records", 0))
+        summary["trajectory_summary_bridge"] = trajectory_bridge_metadata
     summary.update(
         {
             "repetition": repetition,
@@ -4509,12 +4978,18 @@ async def run_audit(args: argparse.Namespace) -> Path:
                 history_size=args.history_size,
                 subscriber_delay_ms=args.subscriber_delay_ms,
                 heartbeat_interval_seconds=args.heartbeat_interval,
+                trajectory_queue_capacity=args.queue_capacity,
+                trajectory_maximum_records=args.event_export_limit + 2,
             )
             repetition_result["collector_settings"] = {
                 "history_size": args.history_size,
                 "queue_capacity": args.queue_capacity,
+                "trajectory_summary_queue_capacity": args.queue_capacity,
                 "sample_rate": args.sample_rate,
                 "event_export_limit": args.event_export_limit,
+                "trajectory_summary_maximum_records_requested": (
+                    args.event_export_limit + 2
+                ),
                 "heartbeat_interval_seconds": args.heartbeat_interval,
             }
             repetitions.append(repetition_result)

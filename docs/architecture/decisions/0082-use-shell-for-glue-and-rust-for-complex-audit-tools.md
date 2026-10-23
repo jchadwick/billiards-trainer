@@ -172,6 +172,25 @@ even if one metric happens to be within budget. A thin
 `scripts/performance-audit-overhead-summary.sh` wrapper exposes the native
 command for direct development use.
 
+Commit `2001493` adds the bounded Rust trajectory receipt accumulator and
+`billiards-performance-audit-trajectory-summary` JSON Lines command. The
+collector now starts this child only for trajectory subscriptions and forwards
+each receipt through a nonblocking queue on a separate writer task. Queue and
+record-limit rejection counts are reported separately from the asynchronous
+JSONL trace export's dropped/error counts; intentional sampling does not count
+as loss. Rust output is checked against the retained Python accumulator's
+stable fields, and Python remains the reported fallback on startup, process, or
+parity failure. This is a migration bridge, not final collector parity.
+
+The trajectory command defaults to 10,000 retained samples, 200,000 input
+records, 1 MiB per line, 128 MiB total input, and 1 MiB output. The Python
+collector passes its configured history limit and event limit plus the two
+protocol control records; the bridge queue reuses the configured asynchronous
+export queue capacity. Native hard caps are one million samples, five million
+records, 16 MiB per line, 1 GiB total input and 16 MiB output. The thin
+`scripts/performance-audit-trajectory-summary.sh` entry point exposes the
+standalone JSON Lines command without duplicating its parsing or summary logic.
+
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
@@ -193,6 +212,11 @@ command for direct development use.
   identity, malformed booleans, comparison pass/over-budget/inconclusive
   results, and bounded command input. The focused collector/configuration
   suite passes 148 tests, and Ruff, Black, and mypy pass.
+- The trajectory receipt reducer matches a shared golden fixture. Python bridge
+  tests exercise a real child-process protocol round trip, record and queue
+  bounds, nonblocking receipt enqueue, exporter/bridge loss separation, and
+  Python fallback when the native tool is unavailable. Collector integration
+  verifies the state-only path does not start this trajectory child.
 - The overhead shell entry point resolves and runs from outside the repository
   root.
 - Rust formatting, strict Clippy, and the all-target test suite pass.

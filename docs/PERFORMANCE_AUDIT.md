@@ -89,9 +89,34 @@ reports whether instrumentation stays within budget. The Python collector
 still selects the baseline report and assembles the comparison document, then
 delegates the decision to Rust.
 
+When the collector subscribes to `trajectory`, it forwards each receipt to a
+long-lived Rust summary process through a bounded, nonblocking queue. The
+default queue capacity comes from `performance_audit.event_queue_capacity`
+(2,048). The summary retains up to `performance_audit.history_size` samples
+(10,000 by default, capped at 1,000,000); the collector allows the configured
+event export limit plus the protocol's config/finish records, capped at
+5,000,000 records. Lines default to 1 MiB, total input to 128 MiB, and summary
+output to 1 MiB. Queue or record-limit losses appear in
+`trajectory_bridge_dropped_records`; JSONL trace-export losses appear
+separately in `trajectory_exporter_dropped_records`. Deliberate trace sampling
+is not counted as loss. The report labels the selected summary engine and
+compares stable Rust fields with the retained Python reference while parity is
+being established. State-only runs do not start this process.
+
+The native reducer can also be used directly with a JSON Lines file or stream:
+
+```bash
+scripts/performance-audit-trajectory-summary.sh \
+  < /path/to/trajectory-receipts.jsonl
+```
+
+The protocol requires one `config` record first, zero or more
+`trajectory_receipt` records containing the collector's flattened receipt
+event, and one final `finish` record with duration and optional loss counts.
+
 Python still owns event collection and clock-window selection,
-warm-up/repetition orchestration, trajectory subscriptions, provenance,
-baseline selection, accuracy evaluation, and Markdown rendering. Those
+warm-up/repetition orchestration, trajectory WebSocket subscription,
+provenance, baseline selection, accuracy evaluation, and Markdown rendering. Those
 responsibilities remain migration work; the Rust reducers do not change the
 measurement window or capture path.
 

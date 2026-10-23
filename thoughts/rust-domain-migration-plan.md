@@ -142,17 +142,22 @@ verified calibration and labels.
   route the Python collector through it. Commits `f445a07` and `b0be61a` add
   the native delivery-latency reducer and route the collector through it too.
   Commit `4eacd09` adds the native instrumentation-overhead comparison and a
-  shell entry point for direct use. Shared golden fixtures check the full
-  server-event and delivery-latency summaries and the overhead-comparison
+  shell entry point for direct use. Commit `2001493` adds the native bounded
+  trajectory receipt reducer; the collector forwards trajectory messages
+  through a bounded nonblocking writer and checks stable summary fields against
+  Python, retaining Python only as a parity fallback. A separate shell wrapper
+  exposes the JSON Lines tool for development. Shared golden fixtures check the
+  server-event, delivery-latency, trajectory and overhead-comparison
   outcome, including clock comparability, state and trajectory correlation,
   deadline misses, component age, unique observations, resource trends,
   workload matching, evidence thresholds, and pass/over-budget/inconclusive
   status. The Rust all-target suite passes 253 library tests plus the
   integration targets; strict Clippy and formatting pass. The focused
-  collector/configuration suite passes 148 tests, plus Ruff, Black, and mypy.
-  The 5,074-line Python collector still owns event-file collection and
+  trajectory-summary bridge integration passes in the 66-test collector unit
+  file, alongside Ruff, Black, and mypy. The 5,404-line Python collector still
+  owns event-file collection and
   clock-window selection, warm-up/repetition and replay orchestration,
-  trajectory subscriptions, provenance and baseline selection, accuracy
+  trajectory WebSocket subscription, provenance and baseline selection, accuracy
   evaluation, and Markdown output. Keep it until these remaining contracts have
   Rust implementations and differential coverage. This tooling slice did not
   run a new full-app audit or establish a sustained performance baseline.
