@@ -457,6 +457,10 @@ path remain untested.
 - Removed the unused Vite `preview` package script after confirming it served
   only static assets and had no repository caller. Frontend unit tests (16),
   TypeScript typecheck, and the production Vite build passed after removal.
+- After the tooling changes, `make test-all` passed 312 default-feature Rust
+  tests, 324 production-camera-feature Rust tests, 16 browser tests, and 2,827
+  Python compatibility tests with one model-dependent skip at 82.48% coverage.
+  `make lint format-check` and `make build` also passed.
 - The inventory now includes Docker/Compose as an optional Linux gateway and
   network-source lane. CI builds the image but does not start it, and Compose
   does not map through a physical camera; do not use it as camera qualification.
