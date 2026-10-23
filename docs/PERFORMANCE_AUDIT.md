@@ -7,10 +7,11 @@ different questions and must be run on the same model, input, calibration, and
 effective settings before comparing a change.
 
 The live audit does not measure browser rendering or physical display latency,
-does not capture viewer/video interference, and does not score accuracy. A
-standalone recorded-video capacity/freshness benchmark is not implemented yet;
-still-image inference comparisons are not a substitute. ADR-0084 proposes a
-Rust video-replay tool to close that gap.
+does not capture viewer/video interference, and does not score accuracy.
+Recorded-video replay is available for PTS-paced freshness and unpaced detector
+capacity. It predecodes the selected stream into a bounded RGB spool, so it does
+not measure camera or live decoder delay and must not be presented as an online
+capture benchmark. Reviewed labels are required for localization accuracy.
 
 ## Live state delivery
 
@@ -97,6 +98,50 @@ recommendation still requires representative moving, settling, occluded,
 colliding, interrupted-camera, and calibration-change recordings with reviewed
 labels. Current still-image labels do not cover those temporal cases.
 
+## Recorded-video detector replay
+
+Use this path to compare the current Rust detector on a fixed recording. The
+mode is mandatory because real-time freshness and unpaced capacity are distinct
+measurements:
+
+```bash
+scripts/run-rust-video-audit.sh \
+  --video /path/to/recording.mp4 \
+  --onnx /path/to/model.onnx \
+  --source-checkpoint /path/to/model.pt \
+  --provider cpu \
+  --image-size 1280 \
+  --confidence 0.4 \
+  --iou 0.45 \
+  --mode realtime-latest-frame
+```
+
+Use `--mode capacity` to process every decoded source frame as quickly as
+possible. The command records exact video/model hashes, selected stream and
+timestamps, runtime/provider, repository revision and worktree identity,
+effective inference settings, processing/replacement counts, and source-to-
+inference latency percentiles. It writes versioned JSON and Markdown under
+`thoughts/performance-audits/<run-id>/`, prints a concise terminal summary, and
+can write a bounded `--details-jsonl` trace. The default run is one video pass;
+the standard 30-second warm-up, three 120-second live windows, and 20-minute
+bounded-memory soak belong to the separate live audit workflow above.
+
+The default video resource caps are 8 GiB encoded input, 512 MiB ffprobe
+JSON, 250k frames, 64M pixels per frame, 8 GiB decoded RGB spool, and 600
+seconds per ffprobe/ffmpeg subprocess. A requested detailed trace keeps at most
+1,000 records by default; traces are off unless requested. Each cap is
+configurable on the command line. Source PTS is normalized to the first frame
+and remains media-time provenance; it is never described as camera exposure
+time.
+
+For tracking evidence, add detection-batch and scene-snapshot JSONL outputs,
+with explicit engine/session identities and all tracking settings. Add
+`--annotations` to score those snapshots against reviewed labels in the same
+run. The tool checks annotation video hash and selected-stream geometry. Without
+labels, the report explicitly marks accuracy unavailable. A replay with
+synthetic or incomplete labels is plumbing validation only; it cannot support
+a production setting recommendation.
+
 ## Limits and interpretation
 
 - Prior Python collector, Python detector-profile benchmark, and their Rust
@@ -108,6 +153,10 @@ labels. Current still-image labels do not cover those temporal cases.
 - The temporal evaluator measures accuracy against its supplied annotation
   set. It does not measure real hardware performance or guarantee the labels
   represent deployment conditions.
+- Recorded-video replay excludes offline codec startup and decode time from its
+  measurement window. It reports those costs separately; its PTS-paced mode
+  models detector-side latest-frame replacement rather than live capture/decode
+  contention.
 - Numbered-ball classification is outside the current model contract. The
   current detector distinguishes generic balls and cue only.
 - Do not recommend an optimization from throughput alone. Preserve accuracy

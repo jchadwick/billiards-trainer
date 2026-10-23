@@ -1,6 +1,6 @@
 # ADR-0084: Replay recorded video with Rust perception
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: None
@@ -102,9 +102,20 @@ tracking continuity, or freshness against actual source presentation timing.
 - Replay tests cover irregular-PTS scheduling, latest-frame replacement with
   preserved source ordinals, all-frame capacity mode, and keeping PTS separate
   from monotonic runtime timestamps.
-- An integration test runs decoded frames through the Rust inference and
-  scene output contracts, then scores them with the Rust temporal evaluator.
-- Accuracy and performance artifact modes are reported separately. A real
-  recorded clip with labels must be scored before candidate settings can be
-  recommended; synthetic detections prove only replay plumbing and overload
-  behavior.
+- The Rust all-target suite covers timeline parsing, strict stream/frame
+  geometry, irregular-PTS latest-frame selection, bounded child output and
+  timeouts, short/extra decoder output, completion deadlines, and report
+  accounting. Strict Clippy and formatting checks pass.
+- A real recorded-video detector-path smoke completed with the current ONNX
+  model and Rust inference runtime; see the [paced smoke report](../../../thoughts/performance-audits/video-replay-smoke-20261023/real-recording/video-replay-report.md)
+  and [capacity smoke report](../../../thoughts/performance-audits/video-replay-smoke-20261023/capacity/video-replay-report.md).
+  These development-machine runs had no reviewed temporal labels and are not
+  accuracy or production qualification evidence.
+- Accuracy scoring is available through the Rust temporal evaluator when
+  reviewed labels are supplied. A real recorded clip with representative
+  labels must be scored before candidate settings can be recommended;
+  synthetic detections prove only replay plumbing and overload behavior.
+- There is not yet a permanent integration test that runs external ffmpeg,
+  real model inference, scene export, and temporal scoring together. The
+  command's external codec dependency and model artifacts make the current
+  smoke a separately recorded developer verification, not a CI guarantee.

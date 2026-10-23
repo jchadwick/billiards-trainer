@@ -45,6 +45,7 @@ pub mod temporal_annotation_import;
 pub mod temporal_evaluation;
 pub mod tracking;
 pub mod trajectory_summary;
+pub mod video_timeline;
 pub mod web_static;
 
 pub use scene_transport::{SceneTransportConfig, SceneTransportStats};

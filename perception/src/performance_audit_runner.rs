@@ -377,6 +377,8 @@ pub struct RunEnvironment {
     pub operating_system: &'static str,
     pub architecture: &'static str,
     pub logical_cpu_count: Option<usize>,
+    pub processor_brand: Option<String>,
+    pub processor_frequency_mhz: Option<u64>,
     pub host_name: Option<String>,
     pub kernel_version: Option<String>,
     pub total_memory_bytes: Option<u64>,
@@ -1960,7 +1962,7 @@ fn optional_count(value: Option<u64>) -> String {
     value.map_or_else(|| "unavailable".to_owned(), |value| value.to_string())
 }
 
-fn collect_environment() -> RunEnvironment {
+pub(crate) fn collect_environment() -> RunEnvironment {
     let manifest_directory = Path::new(env!("CARGO_MANIFEST_DIR"));
     let revision = git_output(manifest_directory, &["rev-parse", "--verify", "HEAD"]);
     let status = git_output(
@@ -1970,7 +1972,9 @@ fn collect_environment() -> RunEnvironment {
     let dirty = status.as_ref().map(|status| !status.is_empty());
     let fingerprint = status.map(|status| format!("{:x}", Sha256::digest(status.as_bytes())));
     let mut system = sysinfo::System::new();
+    system.refresh_cpu_list(sysinfo::CpuRefreshKind::nothing().with_frequency());
     system.refresh_memory();
+    let first_cpu = system.cpus().first();
     RunEnvironment {
         repository_revision: revision,
         working_tree_dirty: dirty,
@@ -1978,6 +1982,12 @@ fn collect_environment() -> RunEnvironment {
         operating_system: std::env::consts::OS,
         architecture: std::env::consts::ARCH,
         logical_cpu_count: std::thread::available_parallelism().ok().map(usize::from),
+        processor_brand: first_cpu
+            .map(|cpu| cpu.brand().trim().to_owned())
+            .filter(|brand| !brand.is_empty()),
+        processor_frequency_mhz: first_cpu
+            .map(|cpu| cpu.frequency())
+            .filter(|frequency| *frequency > 0),
         host_name: sysinfo::System::host_name(),
         kernel_version: sysinfo::System::kernel_version(),
         total_memory_bytes: Some(system.total_memory()),

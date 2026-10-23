@@ -58,7 +58,10 @@ impl VideoTimeline {
 /// Parse and validate ffprobe JSON emitted for exactly one selected stream.
 ///
 /// The JSON must include the selected stream's global index, codec_type,
-/// width, and height, plus each frame's best_effort_timestamp_time.
+/// width, height, plus each frame's width, height, and
+/// best_effort_timestamp_time. Per-frame geometry is checked because some
+/// codecs can change resolution mid-stream while their stream header retains
+/// only the initial dimensions.
 /// Rotation metadata is accepted only when it explicitly describes zero
 /// degrees; nonzero and unrecognized display-matrix transforms are rejected
 /// because this parser does not transform decoded frame pixels.
@@ -148,6 +151,19 @@ pub fn parse_ffprobe_timeline(
             .as_object()
             .with_context(|| format!("ffprobe frame {frame_index} must be an object"))?;
         validate_rotation(object, &format!("video frame {frame_index}"))?;
+        let frame_width = positive_u32(
+            object.get("width"),
+            "ffprobe frame width is missing or invalid",
+        )?;
+        let frame_height = positive_u32(
+            object.get("height"),
+            "ffprobe frame height is missing or invalid",
+        )?;
+        if (frame_width, frame_height) != (width, height) {
+            bail!(
+                "video frame {frame_index} geometry {frame_width}x{frame_height} does not match stream geometry {width}x{height}"
+            );
+        }
         let raw = object.get("best_effort_timestamp_time").with_context(|| {
             format!("ffprobe frame {frame_index} has no presentation timestamp")
         })?;
@@ -249,6 +265,14 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn frame(pts: &str) -> Value {
+        json!({
+            "best_effort_timestamp_time": pts,
+            "width": 1920,
+            "height": 1080
+        })
+    }
+
     fn timeline_json() -> Value {
         json!({
             "streams": [{
@@ -258,9 +282,9 @@ mod tests {
                 "height": 1080
             }],
             "frames": [
-                {"best_effort_timestamp_time": "12.000"},
-                {"best_effort_timestamp_time": "12.040"},
-                {"best_effort_timestamp_time": "12.110"}
+                frame("12.000"),
+                frame("12.040"),
+                frame("12.110")
             ]
         })
     }
@@ -308,16 +332,10 @@ mod tests {
     fn rejects_bad_timestamps_and_empty_or_oversized_frame_lists() {
         for frames in [
             json!([]),
-            json!([{"best_effort_timestamp_time": "NaN"}]),
-            json!([{"best_effort_timestamp_time": "inf"}]),
-            json!([
-                {"best_effort_timestamp_time": "1.0"},
-                {"best_effort_timestamp_time": "1.0"}
-            ]),
-            json!([
-                {"best_effort_timestamp_time": "2.0"},
-                {"best_effort_timestamp_time": "1.0"}
-            ]),
+            json!([frame("NaN")]),
+            json!([frame("inf")]),
+            json!([frame("1.0"), frame("1.0")]),
+            json!([frame("2.0"), frame("1.0")]),
         ] {
             let mut value = timeline_json();
             value["frames"] = frames;
@@ -325,9 +343,10 @@ mod tests {
         }
 
         let mut oversized = timeline_json();
-        oversized["frames"].as_array_mut().unwrap().push(json!({
-            "best_effort_timestamp_time": "12.120"
-        }));
+        oversized["frames"]
+            .as_array_mut()
+            .unwrap()
+            .push(frame("12.120"));
         let limits = VideoTimelineLimits {
             maximum_frame_count: 3,
             ..VideoTimelineLimits::default()
@@ -355,6 +374,15 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("pixel limit"));
+
+        let mut changing_frame_geometry = timeline_json();
+        changing_frame_geometry["frames"][1]["width"] = json!(640);
+        assert!(
+            parse(&changing_frame_geometry, VideoTimelineLimits::default())
+                .unwrap_err()
+                .to_string()
+                .contains("does not match stream geometry")
+        );
     }
 
     #[test]

@@ -10,10 +10,16 @@ use billiards_perception::inference::{
     SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMode,
     VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,
-    DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT, DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
+    DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT, DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES,
+    DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
+};
+use billiards_perception::temporal_evaluation::{
+    evaluate_files, unavailable_temporal_metrics, EvaluationConfig, FileEvaluationConfig,
+    DEFAULT_FRESHNESS_BUDGET_SECONDS, DEFAULT_MATCHING_RADIUS_FRACTION,
 };
 use billiards_perception::tracking::TrackingConfigV1;
 use clap::{Parser, ValueEnum};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ProviderArgument {
@@ -129,6 +135,10 @@ struct Arguments {
     #[arg(long, default_value_t = DEFAULT_VIDEO_MAXIMUM_BYTES)]
     maximum_video_bytes: u64,
 
+    /// Maximum ffprobe JSON bytes retained for stream and frame timing metadata.
+    #[arg(long, default_value_t = DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES)]
+    maximum_probe_json_bytes: usize,
+
     /// Maximum source frames admitted by one audit run.
     #[arg(long, default_value_t = DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT)]
     maximum_frame_count: usize,
@@ -150,8 +160,8 @@ struct Arguments {
     details_jsonl: Option<PathBuf>,
 
     /// Maximum detail records retained when --details-jsonl is enabled.
-    #[arg(long, default_value_t = DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS)]
-    maximum_detail_records: usize,
+    #[arg(long)]
+    maximum_detail_records: Option<usize>,
 
     /// Directory for this run's artifacts. Defaults to thoughts/performance-audits/<run-id>.
     #[arg(long)]
@@ -164,6 +174,27 @@ struct Arguments {
     /// Aggregate report JSON path. Relative paths are resolved under --output-dir.
     #[arg(long)]
     output_json: Option<PathBuf>,
+
+    /// Markdown summary path. Relative paths are resolved under --output-dir.
+    #[arg(long)]
+    output_markdown: Option<PathBuf>,
+
+    /// Reviewed Rust temporal annotation JSON for optional accuracy scoring.
+    /// Requires scene-snapshot output and the exact annotated source video.
+    #[arg(long)]
+    annotations: Option<PathBuf>,
+
+    /// Frame index offset between one-based Rust frame IDs and zero-based labels.
+    #[arg(long, default_value_t = 0)]
+    accuracy_frame_index_offset: i64,
+
+    /// Matching gate as a fraction of each annotated ball radius.
+    #[arg(long, default_value_t = DEFAULT_MATCHING_RADIUS_FRACTION)]
+    accuracy_matching_radius_fraction: f64,
+
+    /// Maximum acceptable observation age in source-video seconds.
+    #[arg(long, default_value_t = DEFAULT_FRESHNESS_BUDGET_SECONDS)]
+    accuracy_freshness_budget_seconds: f64,
 
     /// Input coordinate space. Defaults to raw camera pixels.
     #[arg(long, value_enum, default_value = "raw")]
@@ -251,10 +282,29 @@ fn main() -> Result<()> {
         &output_dir,
         "video-replay-report.json",
     );
+    let output_markdown = resolve_output_path(
+        arguments.output_markdown.as_deref(),
+        &output_dir,
+        "video-replay-report.md",
+    );
     let details_jsonl = arguments
         .details_jsonl
         .as_deref()
         .map(|path| resolve_output_path(Some(path), &output_dir, ""));
+    ensure!(
+        details_jsonl.is_some() || arguments.maximum_detail_records.is_none(),
+        "--maximum-detail-records requires --details-jsonl"
+    );
+    if let Some(limit) = arguments.maximum_detail_records {
+        ensure!(limit > 0, "maximum detail records must be positive");
+    }
+    let maximum_detail_records = if details_jsonl.is_some() {
+        arguments
+            .maximum_detail_records
+            .unwrap_or(DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS)
+    } else {
+        0
+    };
     let detection_batches_jsonl = arguments
         .detection_batches_jsonl
         .as_deref()
@@ -263,8 +313,23 @@ fn main() -> Result<()> {
         .scene_snapshots_jsonl
         .as_deref()
         .map(|path| resolve_output_path(Some(path), &output_dir, ""));
+    ensure!(
+        arguments.annotations.is_none() || scene_snapshots_jsonl.is_some(),
+        "--annotations requires --scene-snapshots-jsonl so localization can be scored"
+    );
+    ensure!(
+        arguments.accuracy_matching_radius_fraction.is_finite()
+            && arguments.accuracy_matching_radius_fraction > 0.0,
+        "accuracy matching radius fraction must be finite and positive"
+    );
+    ensure!(
+        arguments.accuracy_freshness_budget_seconds.is_finite()
+            && arguments.accuracy_freshness_budget_seconds >= 0.0,
+        "accuracy freshness budget must be finite and non-negative"
+    );
     let report_paths = [
         Some(output_json.as_path()),
+        Some(output_markdown.as_path()),
         details_jsonl.as_deref(),
         detection_batches_jsonl.as_deref(),
         scene_snapshots_jsonl.as_deref(),
@@ -282,13 +347,21 @@ fn main() -> Result<()> {
 
     let batch_output = batch_output_options(
         detection_batches_jsonl,
-        arguments.engine_instance_id,
-        arguments.source_session_id,
+        arguments.engine_instance_id.clone(),
+        arguments.source_session_id.clone(),
     )?;
     let scene_output =
         scene_snapshot_output_options(scene_snapshots_jsonl, batch_output.is_some(), &arguments)?;
+    let scoring_scene_path = scene_output
+        .as_ref()
+        .map(|output| match &output.destination {
+            SceneSnapshotOutputDestination::JsonlFile { path } => path.clone(),
+            SceneSnapshotOutputDestination::LoopbackTcp { .. } => unreachable!(),
+        });
+    let scored_video_path = arguments.video.clone();
+    let ffprobe_for_scoring = arguments.ffprobe.clone();
 
-    let report = run_video_audit(&VideoReplayOptions {
+    let mut report = run_video_audit(&VideoReplayOptions {
         audit: AuditOptions {
             onnx_path: arguments.onnx,
             source_checkpoint_path: arguments.source_checkpoint,
@@ -315,13 +388,41 @@ fn main() -> Result<()> {
         ffmpeg_executable: arguments.ffmpeg,
         mode: arguments.mode.into(),
         maximum_video_bytes: arguments.maximum_video_bytes,
+        maximum_probe_json_bytes: arguments.maximum_probe_json_bytes,
         maximum_frame_count: arguments.maximum_frame_count,
         maximum_pixel_count: arguments.maximum_pixel_count,
         maximum_decoded_video_bytes: arguments.maximum_decoded_video_bytes,
         subprocess_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
         details_jsonl_path: details_jsonl,
-        maximum_detail_records: arguments.maximum_detail_records,
+        maximum_detail_records,
     })?;
+    report.run_id = Some(run_id.clone());
+    report.temporal_accuracy = if let Some(annotation_path) = arguments.annotations.as_deref() {
+        let annotation_path = resolve_from_current_directory(annotation_path);
+        let scene_path = scoring_scene_path
+            .as_deref()
+            .context("scene snapshot output path disappeared before accuracy scoring")?;
+        Some(evaluate_files(
+            &scored_video_path,
+            &annotation_path,
+            scene_path,
+            &ffprobe_for_scoring,
+            FileEvaluationConfig {
+                frame_index_offset: arguments.accuracy_frame_index_offset,
+                evaluation: EvaluationConfig {
+                    matching_radius_fraction: arguments.accuracy_matching_radius_fraction,
+                    freshness_budget_seconds: arguments.accuracy_freshness_budget_seconds,
+                },
+                ffprobe_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
+                maximum_video_bytes: arguments.maximum_video_bytes,
+                ..FileEvaluationConfig::default()
+            },
+        )?)
+    } else {
+        Some(unavailable_temporal_metrics(
+            "no reviewed temporal annotation file was supplied",
+        ))
+    };
 
     let json =
         serde_json::to_string_pretty(&report).context("failed to serialize video audit report")?;
@@ -331,8 +432,160 @@ fn main() -> Result<()> {
     }
     fs::write(&output_json, &json)
         .with_context(|| format!("failed to write report {}", output_json.display()))?;
+    let markdown = render_markdown(&report, &output_json, &output_markdown);
+    fs::write(&output_markdown, markdown)
+        .with_context(|| format!("failed to write report {}", output_markdown.display()))?;
+    print_terminal_summary(&report, &output_json, &output_markdown);
     println!("{json}");
     Ok(())
+}
+
+fn render_markdown(
+    report: &billiards_perception::inference::VideoReplayReport,
+    json_path: &Path,
+    markdown_path: &Path,
+) -> String {
+    let measurement = &report.measurement;
+    let mut output = format!(
+        "# Recorded-video performance audit\n\nRun `{}` measured **{}** using `{}`.\n\n",
+        report.run_id.as_deref().unwrap_or("unassigned"),
+        match report.mode {
+            VideoReplayMode::RealtimeLatestFrame => "PTS-paced latest-frame replay",
+            VideoReplayMode::Capacity => "unpaced processing capacity",
+        },
+        report.source.path,
+    );
+    output.push_str("## Input and runtime\n\n");
+    output.push_str(&format!(
+        "- Video SHA-256: `{}`\n- Selected video stream: ordinal {}, global index {} ({}×{}, {} source frames)\n- Source presentation duration: {} seconds; ffprobe: `{}`; ffmpeg: `{}`\n- Model SHA-256: `{}`; checkpoint SHA-256: `{}`; manifest SHA-256: `{}`\n- Provider requested: `{}`; observed providers: `{}`\n- Settings: image size {}, confidence {}, IoU {}, maximum detections {}, inference threads {}\n- Resource caps: video {} bytes, probe JSON {} bytes, {} frames, {} pixels/frame, decoded RGB {} bytes, subprocess {} ms, trace records {}\n- Revision: `{}`; dirty worktree: {}; dirty status SHA-256: `{}`\n- Host: `{} {}`; processor `{}` at {} MHz; logical CPUs: {}; total memory: {} bytes\n\n",
+        report.source.sha256,
+        report.source.video_stream_ordinal,
+        report.source.ffprobe_global_stream_index,
+        report.source.width_px,
+        report.source.height_px,
+        report.source.source_frame_count,
+        optional_float(report.source.source_duration_seconds),
+        report.source.ffprobe_version,
+        report.source.ffmpeg_version,
+        report.model.onnx_sha256,
+        report.model.source_checkpoint_sha256,
+        report.model.manifest_sha256,
+        report.runtime.requested_execution_provider,
+        if report.runtime.observed_execution_providers.is_empty() {
+            "unavailable".to_owned()
+        } else {
+            report.runtime.observed_execution_providers.join(", ")
+        },
+        report.settings.image_size,
+        report.settings.confidence,
+        report.settings.iou,
+        report.settings.max_detections,
+        report.settings.intra_op_threads.map_or_else(|| "backend default".to_owned(), |threads| threads.to_string()),
+        report.settings.maximum_video_bytes,
+        report.settings.maximum_probe_json_bytes,
+        report.settings.maximum_frame_count,
+        report.settings.maximum_pixel_count,
+        report.settings.maximum_decoded_video_bytes,
+        report.settings.subprocess_timeout_ms,
+        report.settings.maximum_detail_records,
+        report.environment.repository_revision.as_deref().unwrap_or("unavailable"),
+        report.environment.working_tree_dirty.map_or_else(|| "unavailable".to_owned(), |dirty| dirty.to_string()),
+        report.environment.dirty_tree_status_sha256.as_deref().unwrap_or("unavailable"),
+        report.environment.operating_system,
+        report.environment.architecture,
+        report.environment.processor_brand.as_deref().unwrap_or("unavailable"),
+        report.environment.processor_frequency_mhz.map_or_else(|| "unavailable".to_owned(), |frequency| frequency.to_string()),
+        report.environment.logical_cpu_count.map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
+        report.environment.total_memory_bytes.map_or_else(|| "unavailable".to_owned(), |bytes| bytes.to_string()),
+    ));
+    output.push_str("## Results\n\n");
+    output.push_str(&format!(
+        "- Processed {}/{} source observations; latest-frame replacements: {}\n- Processed rate: {} observations/s; source rate: {} observations/s\n- Processed-frame source deadlines missed: {}\n- Source-to-inference-start latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Source-to-inference-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Mean preprocessing: {:.2} ms; inference: {:.2} ms; decode/NMS: {:.2} ms\n- Measured wall time: {:.2} ms; offline decode {:.2} ms was excluded\n- Detailed trace records: {} written, {} omitted by the configured limit\n\n",
+        measurement.processed_source_frames,
+        measurement.scheduled_source_frames,
+        measurement.latest_frame_replacements,
+        measurement.processed_source_deadline_misses.map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
+        optional_float(measurement.processed_observations_per_second),
+        optional_float(measurement.source_observations_per_second),
+        measurement.source_to_inference_start_ms.sample_count,
+        optional_float(measurement.source_to_inference_start_ms.p50_ms),
+        optional_float(measurement.source_to_inference_start_ms.p95_ms),
+        optional_float(measurement.source_to_inference_start_ms.p99_ms),
+        measurement.source_to_inference_complete_ms.sample_count,
+        optional_float(measurement.source_to_inference_complete_ms.p50_ms),
+        optional_float(measurement.source_to_inference_complete_ms.p95_ms),
+        optional_float(measurement.source_to_inference_complete_ms.p99_ms),
+        measurement.mean_preprocess_ms,
+        measurement.mean_inference_ms,
+        measurement.mean_decode_and_nms_ms,
+        measurement.measured_wall_ms,
+        report.source.offline_decode_ms,
+        report.artifacts.detailed_trace_written,
+        report.artifacts.detailed_trace_dropped_by_limit,
+    ));
+    if let Some(accuracy) = &report.temporal_accuracy {
+        let status = accuracy
+            .pointer("/temporal_localization/status")
+            .or_else(|| accuracy.get("status"))
+            .and_then(Value::as_str)
+            .unwrap_or("unavailable");
+        output.push_str(&format!(
+            "## Temporal accuracy\n\nStatus: **{status}**.\n\n"
+        ));
+        if let Some(metrics) = accuracy.get("temporal_localization") {
+            for key in [
+                "ball_localization",
+                "tracking",
+                "cue",
+                "observation_freshness",
+            ] {
+                if let Some(value) = metrics.get(key) {
+                    output.push_str(&format!(
+                        "### {}\n\n```json\n{}\n```\n\n",
+                        key.replace('_', " "),
+                        serde_json::to_string_pretty(value)
+                            .unwrap_or_else(|_| "unavailable".to_owned())
+                    ));
+                }
+            }
+        } else if let Some(reason) = accuracy.get("reason").and_then(Value::as_str) {
+            output.push_str(&format!("{reason}\n\n"));
+        }
+    }
+    output.push_str("## Limits\n\n");
+    output.push_str("Video is decoded into a bounded temporary RGB spool before measurement, so codec startup and offline decoding are excluded. PTS pacing measures detector-side replay freshness; it does not qualify physical camera exposure timing, live decoder contention, viewer/render interference, process CPU/memory trends, or display latency. Use a reviewed annotation set for accuracy claims.\n\n");
+    output.push_str(&format!(
+        "- JSON report: `{}`\n- Markdown report: `{}`\n",
+        json_path.display(),
+        markdown_path.display()
+    ));
+    output
+}
+
+fn print_terminal_summary(
+    report: &billiards_perception::inference::VideoReplayReport,
+    json_path: &Path,
+    markdown_path: &Path,
+) {
+    let measurement = &report.measurement;
+    eprintln!(
+        "Video audit {}: mode={:?}, processed={}/{}, replaced={}, deadline_misses={}, source_rate={}/s, processed_rate={}/s, completion_p95={} ms, report={}",
+        report.run_id.as_deref().unwrap_or("unassigned"),
+        report.mode,
+        measurement.processed_source_frames,
+        measurement.scheduled_source_frames,
+        measurement.latest_frame_replacements,
+        measurement.processed_source_deadline_misses.map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
+        optional_float(measurement.source_observations_per_second),
+        optional_float(measurement.processed_observations_per_second),
+        optional_float(measurement.source_to_inference_complete_ms.p95_ms),
+        json_path.display(),
+    );
+    eprintln!("Markdown report: {}", markdown_path.display());
+}
+
+fn optional_float(value: Option<f64>) -> String {
+    value.map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"))
 }
 
 fn run_identity(requested: Option<&str>) -> Result<String> {
@@ -393,6 +646,10 @@ fn validate_inference_arguments(arguments: &Arguments) -> Result<()> {
         "maximum video bytes must be positive"
     );
     ensure!(
+        arguments.maximum_probe_json_bytes > 0,
+        "maximum probe JSON bytes must be positive"
+    );
+    ensure!(
         arguments.maximum_frame_count > 0,
         "maximum frame count must be positive"
     );
@@ -407,10 +664,6 @@ fn validate_inference_arguments(arguments: &Arguments) -> Result<()> {
     ensure!(
         arguments.subprocess_timeout_seconds > 0,
         "subprocess timeout must be positive"
-    );
-    ensure!(
-        arguments.maximum_detail_records > 0,
-        "maximum detail records must be positive"
     );
     Ok(())
 }
@@ -605,6 +858,7 @@ mod tests {
     fn default_limits_are_bounded_and_report_is_saved_by_default() {
         let args = Arguments::try_parse_from(required_args()).unwrap();
         assert!(args.maximum_video_bytes > 0);
+        assert!(args.maximum_probe_json_bytes > 0);
         assert!(args.maximum_frame_count > 0);
         assert!(args.maximum_pixel_count > 0);
         assert!(args.maximum_decoded_video_bytes > 0);

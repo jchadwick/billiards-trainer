@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::fs::{self, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -40,6 +42,8 @@ use crate::{
     encode_scene_snapshot_v1, ImageSpace as CalibrationImageSpace, SceneSnapshotV1,
 };
 
+use crate::video_timeline::{parse_ffprobe_timeline, VideoTimeline, VideoTimelineLimits};
+
 use super::{
     decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, LetterboxGeometry,
     PreparedInput,
@@ -51,6 +55,22 @@ const EXPECTED_CLASS_COUNT: usize = 2;
 const SUPPORTED_IMAGE_EXTENSIONS: [&str; 2] = ["jpg", "png"];
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 const PUBLIC_STATE_DELIVERY_SCHEMA_VERSION: u8 = 1;
+/// Default per-video input size bound for recorded-video audit runs.
+pub const DEFAULT_VIDEO_MAXIMUM_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+/// Default cap for metadata emitted by a full-stream ffprobe frame scan.
+pub const DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES: usize =
+    crate::video_timeline::DEFAULT_MAXIMUM_PROBE_JSON_BYTES;
+/// Default frame-count bound for PTS storage and replay work.
+pub const DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT: usize = 250_000;
+/// Default maximum number of source pixels in one decoded video frame.
+pub const DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT: u64 = 64 * 1024 * 1024;
+/// Default cap for the temporary raw RGB decode spool.
+pub const DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+/// Default timeout for each ffprobe/ffmpeg child process.
+pub const DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS: u64 = 600;
+/// Default cap on optional per-frame detail lines; details are disabled unless requested.
+pub const DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS: usize = 1_000;
+const MAXIMUM_VIDEO_CHILD_STDERR_BYTES: usize = 16 * 1024;
 
 /// Model and post-processing settings for reusable per-frame inference.
 ///
@@ -317,6 +337,39 @@ pub struct AuditOptions {
     pub maximum_replay_frames: Option<usize>,
 }
 
+/// Schedule policy for saved-video replay. Real-time mode follows the source
+/// presentation timeline and processes only the latest due frame when behind;
+/// capacity mode processes every frame sequentially without pacing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoReplayMode {
+    RealtimeLatestFrame,
+    Capacity,
+}
+
+/// Limits and evidence outputs for a bounded saved-video audit.
+#[derive(Debug, Clone)]
+pub struct VideoReplayOptions {
+    /// Shared model, provider, tracking, and output settings. `input_path` is
+    /// the video file; still-image replay fields must remain unset.
+    pub audit: AuditOptions,
+    /// Ordinal among video streams, matching temporal annotation metadata.
+    pub video_stream_ordinal: u32,
+    pub ffprobe_executable: PathBuf,
+    pub ffmpeg_executable: PathBuf,
+    pub mode: VideoReplayMode,
+    pub maximum_video_bytes: u64,
+    pub maximum_probe_json_bytes: usize,
+    pub maximum_frame_count: usize,
+    pub maximum_pixel_count: u64,
+    pub maximum_decoded_video_bytes: u64,
+    pub subprocess_timeout: Duration,
+    /// Optional bounded JSONL details. Aggregate reports and requested
+    /// detection/scene artifacts are independent of this trace cap.
+    pub details_jsonl_path: Option<PathBuf>,
+    pub maximum_detail_records: usize,
+}
+
 /// Explicit scene output and already validated tracking policy for replay.
 #[derive(Debug, Clone)]
 pub struct SceneSnapshotOutputOptions {
@@ -489,6 +542,131 @@ pub struct AuditReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scene_snapshot_output: Option<SceneSnapshotOutputReport>,
     pub results: Vec<ImageResult>,
+}
+
+/// Versioned evidence from a predecoded recorded-video run. Replay metrics
+/// explicitly distinguish media presentation time from local monotonic time.
+#[derive(Debug, Serialize)]
+pub struct VideoReplayReport {
+    pub schema_version: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    pub workload: &'static str,
+    pub environment: crate::performance_audit_runner::RunEnvironment,
+    pub mode: VideoReplayMode,
+    pub source: VideoReplaySourceReport,
+    pub model: VideoReplayModelReport,
+    pub runtime: VideoReplayRuntimeReport,
+    pub settings: VideoReplaySettingsReport,
+    pub measurement: VideoReplayMeasurementReport,
+    pub artifacts: VideoReplayArtifactsReport,
+    pub effective_tracking_configuration: Option<Value>,
+    pub batch_engine_instance_id: Option<String>,
+    pub source_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temporal_accuracy: Option<Value>,
+    pub unsupported_measurements: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplaySourceReport {
+    pub path: String,
+    pub sha256: String,
+    pub video_stream_ordinal: u32,
+    pub ffprobe_global_stream_index: u32,
+    pub width_px: u32,
+    pub height_px: u32,
+    pub source_frame_count: usize,
+    pub first_source_pts_seconds: f64,
+    pub source_duration_seconds: Option<f64>,
+    pub presentation_time_source: &'static str,
+    pub ffprobe_version: String,
+    pub ffmpeg_version: String,
+    pub ffprobe_elapsed_ms: f64,
+    pub decoded_raw_rgb_bytes: u64,
+    pub offline_decode_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplayModelReport {
+    pub onnx_path: String,
+    pub onnx_sha256: String,
+    pub source_checkpoint_path: String,
+    pub source_checkpoint_sha256: String,
+    pub manifest_path: String,
+    pub manifest_sha256: String,
+    pub class_names: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplayRuntimeReport {
+    pub binding: &'static str,
+    pub binding_version: &'static str,
+    pub requested_execution_provider: &'static str,
+    pub observed_execution_providers: Vec<String>,
+    pub provider_event_count: usize,
+    pub provider_node_counts: BTreeMap<String, usize>,
+    pub provider_probe_session_init_ms: f64,
+    pub provider_probe_inference_ms: f64,
+    pub measurement_session_init_ms: f64,
+    pub warmup_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplaySettingsReport {
+    pub image_size: u32,
+    pub confidence: f32,
+    pub iou: f32,
+    pub max_detections: usize,
+    pub intra_op_threads: Option<usize>,
+    pub warmup_runs: usize,
+    pub source_image_space: ImageSpace,
+    pub maximum_video_bytes: u64,
+    pub maximum_probe_json_bytes: usize,
+    pub maximum_frame_count: usize,
+    pub maximum_pixel_count: u64,
+    pub maximum_decoded_video_bytes: u64,
+    pub subprocess_timeout_ms: u128,
+    pub maximum_detail_records: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplayMeasurementReport {
+    pub scheduled_source_frames: usize,
+    pub decoded_source_frames: usize,
+    pub processed_source_frames: usize,
+    pub latest_frame_replacements: usize,
+    /// Processed observations completed after the next source-frame PTS.
+    /// Capacity replay has no source deadline and reports this as unavailable.
+    pub processed_source_deadline_misses: Option<usize>,
+    pub source_media_duration_seconds: Option<f64>,
+    pub measured_wall_ms: f64,
+    pub mean_preprocess_ms: f64,
+    pub mean_inference_ms: f64,
+    pub mean_decode_and_nms_ms: f64,
+    pub total_batch_export_ms: f64,
+    pub total_scene_tracking_ms: f64,
+    pub source_observations_per_second: Option<f64>,
+    /// In real-time mode, successful results completed inside the source media
+    /// window divided by that exact duration. Capacity mode uses wall time.
+    pub processed_observations_per_second: Option<f64>,
+    pub processed_completions_in_source_window: Option<usize>,
+    pub processed_completions_after_source_window: Option<usize>,
+    pub source_to_inference_start_ms: LatencyPercentiles,
+    pub source_to_inference_complete_ms: LatencyPercentiles,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VideoReplayArtifactsReport {
+    pub detection_batch_path: Option<String>,
+    pub detection_batch_count: usize,
+    pub scene_snapshot_path: Option<String>,
+    pub scene_snapshot_count: usize,
+    pub detailed_trace_path: Option<String>,
+    pub detailed_trace_written: usize,
+    pub detailed_trace_dropped_by_limit: usize,
+    pub artifact_writes_included_in_measurement: bool,
+    pub offline_decode_excluded_from_measurement: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -790,6 +968,7 @@ struct ClassManifest {
 #[derive(Debug, Clone)]
 struct LoadedModelContract {
     manifest_path: PathBuf,
+    manifest_sha256: String,
     artifact_sha256: String,
     source_checkpoint_sha256: String,
     class_names: Vec<String>,
@@ -1002,13 +1181,14 @@ pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
         .build()
         .context("failed to initialize ONNX Runtime")?;
 
+    let first = load_and_prepare(&image_paths[0], options.image_size)?.prepared;
     let (profile_evidence, provider_probe_session_init_ms, provider_probe_inference_ms, first) =
         profile_provider(
             &environment,
             options,
             &manifest.class_names,
             &expected_output_shape,
-            &image_paths[0],
+            first,
         )?;
 
     let (mut inference_engine, measurement_session_init_ms) =
@@ -1227,6 +1407,1080 @@ pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
     })
 }
 
+/// Run the current Rust detector against one selected video stream. Video is
+/// decoded once into a bounded temporary raw-RGB spool before the measured
+/// interval. This keeps ffmpeg startup and offline decode separate from the
+/// inference schedule, while preserving source PTS for the realtime mode.
+/// The temporary file is removed automatically on every return path.
+pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport> {
+    let audit = &options.audit;
+    validate_video_audit_options(audit)?;
+    ensure!(
+        audit.replay_rate_fps.is_none() && audit.replay_repeat_count == 1,
+        "video replay uses source PTS and does not accept still-image replay rate or repeat options"
+    );
+    ensure!(
+        audit.calibration.is_none(),
+        "recorded-video calibration output is not supported until source-clock semantics are defined for both replay modes"
+    );
+    ensure!(
+        audit.dump_preprocessed_directory.is_none(),
+        "video replay does not support per-frame tensor dumps"
+    );
+    ensure!(
+        options.maximum_video_bytes > 0
+            && options.maximum_probe_json_bytes > 0
+            && options.maximum_frame_count > 0
+            && options.maximum_pixel_count > 0
+            && options.maximum_decoded_video_bytes > 0
+            && !options.subprocess_timeout.is_zero(),
+        "video replay resource limits and subprocess timeout must be positive"
+    );
+    ensure!(
+        options.details_jsonl_path.is_some() || options.maximum_detail_records == 0,
+        "a nonzero detail-record limit requires a detail JSONL destination"
+    );
+    ensure!(
+        matches!(
+            audit
+                .detection_batch_output
+                .as_ref()
+                .map(|output| &output.destination),
+            None | Some(BatchOutputDestination::JsonlFile { .. })
+        ),
+        "recorded-video audits support file-based detection-batch output only"
+    );
+    ensure!(
+        matches!(
+            audit
+                .scene_snapshot_output
+                .as_ref()
+                .map(|output| &output.destination),
+            None | Some(SceneSnapshotOutputDestination::JsonlFile { .. })
+        ),
+        "recorded-video audits support file-based scene-snapshot output only"
+    );
+
+    let video_path = &audit.input_path;
+    let video_metadata = fs::metadata(video_path)
+        .with_context(|| format!("video does not exist: {}", video_path.display()))?;
+    ensure!(
+        video_metadata.is_file(),
+        "video input is not a regular file: {}",
+        video_path.display()
+    );
+    ensure!(
+        video_metadata.len() <= options.maximum_video_bytes,
+        "video is {} bytes, exceeding configured limit {}",
+        video_metadata.len(),
+        options.maximum_video_bytes
+    );
+
+    let ffprobe_version =
+        executable_version(&options.ffprobe_executable, options.subprocess_timeout)?;
+    let ffmpeg_version =
+        executable_version(&options.ffmpeg_executable, options.subprocess_timeout)?;
+    let ffprobe_global_stream_index = probe_global_video_stream_index(
+        &options.ffprobe_executable,
+        video_path,
+        options.video_stream_ordinal,
+        options.subprocess_timeout,
+    )?;
+    let timeline_limits = VideoTimelineLimits {
+        maximum_probe_json_bytes: options.maximum_probe_json_bytes,
+        maximum_frame_count: options.maximum_frame_count,
+        maximum_pixel_count: options.maximum_pixel_count,
+    };
+    let probe_started = Instant::now();
+    let probe_json = probe_video_timeline(
+        &options.ffprobe_executable,
+        video_path,
+        options.video_stream_ordinal,
+        timeline_limits.maximum_probe_json_bytes,
+        options.subprocess_timeout,
+    )?;
+    let timeline =
+        parse_ffprobe_timeline(&probe_json, ffprobe_global_stream_index, timeline_limits)?;
+    let ffprobe_elapsed_ms = elapsed_ms(probe_started);
+    ensure!(
+        timeline.frame_count() <= options.maximum_frame_count,
+        "video frame count exceeds configured limit"
+    );
+    let frame_bytes = usize::try_from(timeline.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(timeline.height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(3))
+        .context("decoded RGB frame allocation size overflowed")?;
+    let frame_pixels = u64::from(timeline.width)
+        .checked_mul(u64::from(timeline.height))
+        .context("decoded pixel count overflowed")?;
+    ensure!(
+        frame_pixels <= options.maximum_pixel_count,
+        "decoded video geometry exceeds configured pixel limit"
+    );
+    ensure!(
+        frame_bytes > 0,
+        "decoded video frame has an empty RGB allocation"
+    );
+    let expected_decoded_bytes = u64::try_from(frame_bytes)
+        .context("decoded frame byte count exceeds u64")?
+        .checked_mul(
+            u64::try_from(timeline.frame_count()).context("video frame count exceeds u64")?,
+        )
+        .context("decoded video byte count overflowed")?;
+    ensure!(
+        expected_decoded_bytes <= options.maximum_decoded_video_bytes,
+        "decoded raw RGB spool requires {expected_decoded_bytes} bytes, exceeding configured limit {}",
+        options.maximum_decoded_video_bytes
+    );
+
+    let source_video_sha256 = sha256_file_bounded(video_path, options.maximum_video_bytes)?;
+    let (mut raw_frames, offline_decode_ms, decoded_raw_rgb_bytes) = decode_video_to_spool(
+        &options.ffmpeg_executable,
+        video_path,
+        timeline.stream_index,
+        expected_decoded_bytes,
+        options.maximum_decoded_video_bytes,
+        options.subprocess_timeout,
+    )?;
+    ensure!(
+        decoded_raw_rgb_bytes == expected_decoded_bytes,
+        "ffmpeg decoded {decoded_raw_rgb_bytes} raw RGB bytes; expected {expected_decoded_bytes} bytes for {} frames at {}x{}",
+        timeline.frame_count(),
+        timeline.width,
+        timeline.height
+    );
+
+    let first_image = read_spooled_rgb_frame(
+        &mut raw_frames,
+        0,
+        frame_bytes,
+        timeline.width,
+        timeline.height,
+    )?;
+    let first_prepared = prepare_decoded_image(first_image, 0.0, audit.image_size)?.prepared;
+    let manifest = load_and_verify_manifest(&audit.onnx_path, &audit.source_checkpoint_path)?;
+    validate_scene_classes(audit.scene_snapshot_output.as_ref(), &manifest.class_names)?;
+    let expected_output_shape = vec![
+        1_i64,
+        (4 + manifest.class_names.len()) as i64,
+        expected_anchor_count(audit.image_size)? as i64,
+    ];
+    let environment = ort::init()
+        .with_name("billiards-perception-recorded-video-audit")
+        .with_telemetry(false)
+        .build()
+        .context("failed to initialize ONNX Runtime")?;
+    let (
+        profile_evidence,
+        provider_probe_session_init_ms,
+        provider_probe_inference_ms,
+        first_prepared,
+    ) = profile_provider(
+        &environment,
+        audit,
+        &manifest.class_names,
+        &expected_output_shape,
+        first_prepared,
+    )?;
+    let (mut inference_engine, measurement_session_init_ms) =
+        FrameInferenceEngine::from_verified_model(
+            environment.clone(),
+            FrameInferenceOptions {
+                onnx_path: audit.onnx_path.clone(),
+                source_checkpoint_path: audit.source_checkpoint_path.clone(),
+                provider: audit.provider,
+                image_size: audit.image_size,
+                confidence: audit.confidence,
+                iou: audit.iou,
+                max_detections: audit.max_detections,
+                intra_op_threads: audit.intra_op_threads,
+            },
+            manifest.clone(),
+        )?;
+    ensure!(
+        inference_engine.output_shape() == expected_output_shape,
+        "measurement output signature changed after provider probe: {:?}",
+        inference_engine.output_shape()
+    );
+    let warmup_started = Instant::now();
+    for _ in 0..audit.warmup_runs {
+        let _ = inference_engine.infer_prepared(&first_prepared)?;
+    }
+    let warmup_ms = elapsed_ms(warmup_started);
+
+    let (mut batch_sink, _batch_connect_ms) = match audit.detection_batch_output.as_ref() {
+        Some(batch_options) => {
+            let (sink, connect_ms) = open_detection_batch_sink(batch_options)?;
+            (Some(sink), connect_ms)
+        }
+        None => (None, None),
+    };
+    let mut scene_output = audit
+        .scene_snapshot_output
+        .as_ref()
+        .map(|scene_options| {
+            let batch_options = audit
+                .detection_batch_output
+                .as_ref()
+                .context("scene output requires detection-batch producer identity")?;
+            open_scene_snapshot_output(scene_options, batch_options)
+        })
+        .transpose()?;
+    let mut detail_writer = options
+        .details_jsonl_path
+        .as_ref()
+        .map(|path| create_new_buffered_file(path, "video detail trace"))
+        .transpose()?;
+
+    let measurement_started = Instant::now();
+    let source_duration_seconds = timeline_media_duration(&timeline);
+    let measurement_window = source_duration_seconds
+        .map(checked_duration_from_seconds)
+        .transpose()?
+        .filter(|duration| !duration.is_zero())
+        .map(|duration| PacedReplayMeasurementWindow::new(measurement_started, duration))
+        .transpose()?;
+    let mut context = FrameProcessContext {
+        inference_engine: &mut inference_engine,
+        class_names: &manifest.class_names,
+        options: audit,
+        onnx_sha256: &manifest.artifact_sha256,
+        source_checkpoint_sha256: &manifest.source_checkpoint_sha256,
+        batch_sink: &mut batch_sink,
+        scene_output: &mut scene_output,
+        batch_clock_origin: measurement_started,
+        preprocessed_directory: None,
+    };
+    let mut next_source_index = 0usize;
+    let mut processed_source_frames = 0usize;
+    let mut latest_frame_replacements = 0usize;
+    let mut processed_source_deadline_misses = 0usize;
+    let mut completions_in_source_window = 0usize;
+    let mut completions_after_source_window = 0usize;
+    let mut source_to_start_samples = Vec::with_capacity(timeline.frame_count().min(4096));
+    let mut source_to_complete_samples = Vec::with_capacity(timeline.frame_count().min(4096));
+    let mut preprocess_total_ms = 0.0;
+    let mut inference_total_ms = 0.0;
+    let mut decode_and_nms_total_ms = 0.0;
+    let mut batch_export_total_ms = 0.0;
+    let mut trace_written = 0usize;
+    let mut trace_limited = 0usize;
+    let mut last_progress = measurement_started;
+
+    while next_source_index < timeline.frame_count() {
+        let source_index = match options.mode {
+            VideoReplayMode::RealtimeLatestFrame => {
+                let candidate_deadline = video_frame_deadline(
+                    measurement_started,
+                    timeline.presentation_times_seconds[next_source_index],
+                )?;
+                wait_until(candidate_deadline);
+                let elapsed_source_seconds = measurement_started.elapsed().as_secs_f64();
+                let latest_due = latest_due_source_index(
+                    &timeline.presentation_times_seconds,
+                    next_source_index,
+                    elapsed_source_seconds,
+                );
+                latest_frame_replacements += latest_due - next_source_index;
+                latest_due
+            }
+            VideoReplayMode::Capacity => next_source_index,
+        };
+        let source_pts_seconds = timeline.presentation_times_seconds[source_index];
+        let source_scheduled_at = if options.mode == VideoReplayMode::RealtimeLatestFrame {
+            Some(video_frame_deadline(
+                measurement_started,
+                source_pts_seconds,
+            )?)
+        } else {
+            None
+        };
+        let image = read_spooled_rgb_frame(
+            &mut raw_frames,
+            source_index,
+            frame_bytes,
+            timeline.width,
+            timeline.height,
+        )?;
+        let source_arrived_at = source_scheduled_at.or_else(|| Some(Instant::now()));
+        let timed_input = prepare_decoded_image(image, 0.0, audit.image_size)?;
+        let (result, export_ms, inference_completed_at) = process_frame(
+            &mut context,
+            FrameToProcess {
+                source_index,
+                path: video_path.clone(),
+                encoded_image_sha256: String::new(),
+                timed_input,
+                scheduled_at: source_scheduled_at,
+                source_arrived_at,
+            },
+            processed_source_frames + 1,
+        )?;
+        if options.mode == VideoReplayMode::RealtimeLatestFrame {
+            if let Some(next_pts) = timeline
+                .presentation_times_seconds
+                .get(source_index.saturating_add(1))
+            {
+                if completed_after_source_deadline(
+                    measurement_started,
+                    *next_pts,
+                    inference_completed_at,
+                )? {
+                    processed_source_deadline_misses += 1;
+                }
+            }
+        }
+        if let Some(window) = measurement_window {
+            if window.contains(inference_completed_at) {
+                completions_in_source_window += 1;
+            } else if inference_completed_at >= window.end {
+                completions_after_source_window += 1;
+            }
+        }
+        if let Some(latency) = result.source_to_inference_start_ms {
+            source_to_start_samples.push(latency);
+        }
+        if let Some(latency) = result.source_to_inference_complete_ms {
+            source_to_complete_samples.push(latency);
+        }
+        preprocess_total_ms += result.timings.preprocess_ms;
+        inference_total_ms += result.timings.inference_ms;
+        decode_and_nms_total_ms += result.timings.decode_and_nms_ms;
+        batch_export_total_ms += export_ms;
+        if let Some(writer) = detail_writer.as_mut() {
+            if trace_written < options.maximum_detail_records {
+                write_video_detail(writer, source_index, source_pts_seconds, &result)?;
+                trace_written += 1;
+            } else {
+                trace_limited += 1;
+            }
+        }
+        processed_source_frames += 1;
+        next_source_index = source_index + 1;
+        if last_progress.elapsed() >= Duration::from_secs(1) {
+            eprintln!(
+                "video audit: mode={:?} processed={processed_source_frames}/{} replaced={latest_frame_replacements} source_elapsed_ms={:.0}",
+                options.mode,
+                timeline.frame_count(),
+                measurement_started.elapsed().as_secs_f64() * 1000.0
+            );
+            last_progress = Instant::now();
+        }
+    }
+    if let Some(writer) = detail_writer.as_mut() {
+        writer
+            .flush()
+            .context("failed to flush video detail trace")?;
+    }
+    if let Some(scene_runtime) = scene_output.as_mut() {
+        scene_runtime.finish();
+    }
+    let measured_wall_ms = elapsed_ms(measurement_started);
+    let processed_observations_per_second = match options.mode {
+        VideoReplayMode::RealtimeLatestFrame => {
+            measurement_window.map(|window| frames_per_second(completions_in_source_window, window))
+        }
+        VideoReplayMode::Capacity => {
+            let wall_seconds = measured_wall_ms / 1000.0;
+            (wall_seconds > 0.0).then_some(processed_source_frames as f64 / wall_seconds)
+        }
+    };
+    let source_observations_per_second = match options.mode {
+        VideoReplayMode::RealtimeLatestFrame => {
+            measurement_window.map(|window| frames_per_second(timeline.frame_count(), window))
+        }
+        VideoReplayMode::Capacity => None,
+    };
+    let scene_snapshot_count = scene_output
+        .as_ref()
+        .map(|scene_runtime| scene_runtime.snapshot_count)
+        .unwrap_or(0);
+    let report = VideoReplayReport {
+        schema_version: 1,
+        run_id: None,
+        workload: match options.mode {
+            VideoReplayMode::RealtimeLatestFrame => {
+                "recorded_video_pts_paced_latest_frame_predecoded"
+            }
+            VideoReplayMode::Capacity => "recorded_video_unpaced_capacity_predecoded",
+        },
+        environment: crate::performance_audit_runner::collect_environment(),
+        mode: options.mode,
+        source: VideoReplaySourceReport {
+            path: video_path.display().to_string(),
+            sha256: source_video_sha256,
+            video_stream_ordinal: options.video_stream_ordinal,
+            ffprobe_global_stream_index,
+            width_px: timeline.width,
+            height_px: timeline.height,
+            source_frame_count: timeline.frame_count(),
+            first_source_pts_seconds: timeline.origin_seconds,
+            source_duration_seconds,
+            presentation_time_source:
+                "ffprobe_best_effort_timestamp_time_normalized_to_first_frame",
+            ffprobe_version,
+            ffmpeg_version,
+            ffprobe_elapsed_ms,
+            decoded_raw_rgb_bytes,
+            offline_decode_ms,
+        },
+        model: VideoReplayModelReport {
+            onnx_path: audit.onnx_path.display().to_string(),
+            onnx_sha256: manifest.artifact_sha256,
+            source_checkpoint_path: audit.source_checkpoint_path.display().to_string(),
+            source_checkpoint_sha256: manifest.source_checkpoint_sha256,
+            manifest_path: manifest.manifest_path.display().to_string(),
+            manifest_sha256: manifest.manifest_sha256,
+            class_names: manifest.class_names,
+        },
+        runtime: VideoReplayRuntimeReport {
+            binding: audit.provider.binding().0,
+            binding_version: audit.provider.binding().1,
+            requested_execution_provider: audit.provider.requested_provider_name(),
+            observed_execution_providers: profile_evidence.observed_providers,
+            provider_event_count: profile_evidence.event_count,
+            provider_node_counts: profile_evidence.node_counts,
+            provider_probe_session_init_ms,
+            provider_probe_inference_ms,
+            measurement_session_init_ms,
+            warmup_ms,
+        },
+        settings: VideoReplaySettingsReport {
+            image_size: audit.image_size,
+            confidence: audit.confidence,
+            iou: audit.iou,
+            max_detections: audit.max_detections,
+            intra_op_threads: audit.intra_op_threads,
+            warmup_runs: audit.warmup_runs,
+            source_image_space: audit.source_image_space,
+            maximum_video_bytes: options.maximum_video_bytes,
+            maximum_probe_json_bytes: options.maximum_probe_json_bytes,
+            maximum_frame_count: options.maximum_frame_count,
+            maximum_pixel_count: options.maximum_pixel_count,
+            maximum_decoded_video_bytes: options.maximum_decoded_video_bytes,
+            subprocess_timeout_ms: options.subprocess_timeout.as_millis(),
+            maximum_detail_records: options.maximum_detail_records,
+        },
+        measurement: VideoReplayMeasurementReport {
+            scheduled_source_frames: timeline.frame_count(),
+            decoded_source_frames: timeline.frame_count(),
+            processed_source_frames,
+            latest_frame_replacements,
+            processed_source_deadline_misses: (options.mode
+                == VideoReplayMode::RealtimeLatestFrame)
+                .then_some(processed_source_deadline_misses),
+            source_media_duration_seconds: source_duration_seconds,
+            measured_wall_ms,
+            mean_preprocess_ms: mean_or_zero(preprocess_total_ms, processed_source_frames),
+            mean_inference_ms: mean_or_zero(inference_total_ms, processed_source_frames),
+            mean_decode_and_nms_ms: mean_or_zero(decode_and_nms_total_ms, processed_source_frames),
+            total_batch_export_ms: batch_export_total_ms,
+            total_scene_tracking_ms: scene_output
+                .as_ref()
+                .map(|scene_runtime| scene_runtime.total_tracking_ms)
+                .unwrap_or(0.0),
+            source_observations_per_second,
+            processed_observations_per_second,
+            processed_completions_in_source_window: measurement_window
+                .map(|_| completions_in_source_window),
+            processed_completions_after_source_window: measurement_window
+                .map(|_| completions_after_source_window),
+            source_to_inference_start_ms: percentile_summary(source_to_start_samples),
+            source_to_inference_complete_ms: percentile_summary(source_to_complete_samples),
+        },
+        artifacts: VideoReplayArtifactsReport {
+            detection_batch_path: audit
+                .detection_batch_output
+                .as_ref()
+                .map(|output| batch_destination_label(&output.destination)),
+            detection_batch_count: batch_sink
+                .as_ref()
+                .map(|_| processed_source_frames)
+                .unwrap_or(0),
+            scene_snapshot_path: audit.scene_snapshot_output.as_ref().map(|output| {
+                match &output.destination {
+                    SceneSnapshotOutputDestination::JsonlFile { path } => {
+                        path.display().to_string()
+                    }
+                    SceneSnapshotOutputDestination::LoopbackTcp { .. } => unreachable!(),
+                }
+            }),
+            scene_snapshot_count,
+            detailed_trace_path: options
+                .details_jsonl_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            detailed_trace_written: trace_written,
+            detailed_trace_dropped_by_limit: trace_limited,
+            artifact_writes_included_in_measurement: audit.detection_batch_output.is_some()
+                || audit.scene_snapshot_output.is_some()
+                || options.details_jsonl_path.is_some(),
+            offline_decode_excluded_from_measurement: true,
+        },
+        effective_tracking_configuration: audit.scene_snapshot_output.as_ref().map(|output| {
+            serde_json::json!({
+                "ball_class_id": output.tracking.ball_class_id(),
+                "cue_class_id": output.tracking.cue_class_id(),
+                "camera_profile_id": output.tracking.camera_profile_id(),
+                "association_gate_px": output.tracking.association_gate_px(),
+                "association_prediction_horizon_ms": output.tracking.association_prediction_horizon().as_secs_f64() * 1000.0,
+                "lost_after_ms": output.tracking.lost_after().as_secs_f64() * 1000.0,
+                "maximum_track_age_ms": output.tracking.maximum_track_age().as_secs_f64() * 1000.0,
+                "maximum_active_tracks": output.tracking.maximum_active_tracks(),
+                "recent_observation_capacity": output.tracking.recent_observation_capacity(),
+                "configuration_revision": output.tracking.configuration_revision(),
+                "rectification_revision": output.tracking.rectification_revision(),
+            })
+        }),
+        batch_engine_instance_id: audit
+            .detection_batch_output
+            .as_ref()
+            .map(|output| output.engine_instance_id.clone()),
+        source_session_id: audit
+            .detection_batch_output
+            .as_ref()
+            .map(|output| output.source_session_id.clone()),
+        temporal_accuracy: None,
+        unsupported_measurements: vec![
+            "camera_exposure_to_decode_latency",
+            "browser_render_and_physical_display_latency",
+            "process_cpu_utilization_and_memory_trend",
+            "accelerator_per_node_assignment_for_native_openvino",
+        ],
+    };
+    Ok(report)
+}
+
+fn validate_scene_classes(
+    scene_options: Option<&SceneSnapshotOutputOptions>,
+    class_names: &[String],
+) -> Result<()> {
+    if let Some(scene_options) = scene_options {
+        ensure!(
+            (scene_options.tracking.ball_class_id() as usize) < class_names.len(),
+            "scene tracking ball class ID is absent from the model manifest"
+        );
+        if let Some(cue_class_id) = scene_options.tracking.cue_class_id() {
+            ensure!(
+                (cue_class_id as usize) < class_names.len(),
+                "scene tracking cue class ID is absent from the model manifest"
+            );
+        }
+    }
+    Ok(())
+}
+
+fn executable_version(executable: &Path, timeout: Duration) -> Result<String> {
+    let mut command = Command::new(executable);
+    command.arg("-version");
+    let output = run_bounded_command(command, timeout, 8 * 1024, "version query")?;
+    let first_line = String::from_utf8_lossy(&output)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned();
+    ensure!(
+        !first_line.is_empty(),
+        "{} returned no version string",
+        executable.display()
+    );
+    Ok(first_line)
+}
+
+fn probe_global_video_stream_index(
+    ffprobe: &Path,
+    video_path: &Path,
+    video_stream_ordinal: u32,
+    timeout: Duration,
+) -> Result<u32> {
+    let mut command = Command::new(ffprobe);
+    command
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg(format!("v:{video_stream_ordinal}"))
+        .arg("-show_entries")
+        .arg("stream=index")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(video_path);
+    let output = run_bounded_command(command, timeout, 1024, "selected video stream query")?;
+    let selected_index = std::str::from_utf8(&output)
+        .context("ffprobe stream index was not UTF-8")?
+        .trim()
+        .parse::<u32>()
+        .context("ffprobe did not return one selected global stream index")?;
+    Ok(selected_index)
+}
+
+fn probe_video_timeline(
+    ffprobe: &Path,
+    video_path: &Path,
+    video_stream_ordinal: u32,
+    maximum_output_bytes: usize,
+    timeout: Duration,
+) -> Result<Vec<u8>> {
+    let mut command = Command::new(ffprobe);
+    command
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg(format!("v:{video_stream_ordinal}"))
+        .arg("-show_streams")
+        .arg("-show_frames")
+        .arg("-show_entries")
+        .arg("stream=index,codec_type,width,height:stream_tags=rotate:stream_side_data=rotation,displaymatrix:frame=width,height,best_effort_timestamp_time:frame_side_data=rotation,displaymatrix")
+        .arg("-of")
+        .arg("json")
+        .arg(video_path);
+    run_bounded_command(
+        command,
+        timeout,
+        maximum_output_bytes,
+        "video timeline query",
+    )
+}
+
+fn run_bounded_command(
+    mut command: Command,
+    timeout: Duration,
+    maximum_stdout_bytes: usize,
+    label: &'static str,
+) -> Result<Vec<u8>> {
+    ensure!(!timeout.is_zero(), "{label} timeout must be positive");
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("could not start {label}"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("child stdout pipe was unavailable")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("child stderr pipe was unavailable")?;
+    let overflow = Arc::new(AtomicBool::new(false));
+    let stdout_overflow = Arc::clone(&overflow);
+    let stdout_reader = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut output = Vec::with_capacity(maximum_stdout_bytes.min(8 * 1024 * 1024));
+        let mut chunk = [0u8; 64 * 1024];
+        let mut reader = stdout;
+        loop {
+            let count = reader.read(&mut chunk)?;
+            if count == 0 {
+                break;
+            }
+            let retained = maximum_stdout_bytes.saturating_sub(output.len()).min(count);
+            output.extend_from_slice(&chunk[..retained]);
+            if retained != count {
+                stdout_overflow.store(true, Ordering::Relaxed);
+            }
+        }
+        Ok(output)
+    });
+    let stderr_reader = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut output = Vec::with_capacity(MAXIMUM_VIDEO_CHILD_STDERR_BYTES);
+        let mut chunk = [0u8; 4096];
+        let mut reader = stderr;
+        loop {
+            let count = reader.read(&mut chunk)?;
+            if count == 0 {
+                break;
+            }
+            let retained = MAXIMUM_VIDEO_CHILD_STDERR_BYTES
+                .saturating_sub(output.len())
+                .min(count);
+            output.extend_from_slice(&chunk[..retained]);
+        }
+        Ok(output)
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(error).with_context(|| format!("could not check {label} status"));
+            }
+        }
+        if overflow.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            bail!("{label} output exceeds configured size bound ({maximum_stdout_bytes} bytes)");
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            bail!("{label} exceeded configured timeout {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("{label} stdout reader panicked"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("{label} stderr reader panicked"))??;
+    if overflow.load(Ordering::Relaxed) {
+        bail!("{label} output exceeds configured size bound ({maximum_stdout_bytes} bytes)");
+    }
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr);
+        let detail = detail.trim();
+        if detail.is_empty() {
+            bail!("{label} returned a non-zero exit status");
+        }
+        bail!("{label} failed: {detail}");
+    }
+    Ok(stdout)
+}
+
+fn decode_video_to_spool(
+    ffmpeg: &Path,
+    video_path: &Path,
+    global_stream_index: u32,
+    expected_decoded_bytes: u64,
+    maximum_decoded_bytes: u64,
+    timeout: Duration,
+) -> Result<(File, f64, u64)> {
+    ensure!(
+        expected_decoded_bytes <= maximum_decoded_bytes,
+        "decoded video exceeds configured raw RGB spool size"
+    );
+    let raw_spool = tempfile::tempfile().context("could not create temporary RGB video spool")?;
+    let mut command = Command::new(ffmpeg);
+    command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-xerror")
+        .arg("-nostdin")
+        .arg("-noautorotate")
+        .arg("-i")
+        .arg(video_path)
+        .arg("-map")
+        .arg(format!("0:{global_stream_index}"))
+        .arg("-fps_mode")
+        .arg("passthrough")
+        .arg("-pix_fmt")
+        .arg("rgb24")
+        .arg("-f")
+        .arg("rawvideo")
+        .arg("-");
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("could not start ffmpeg executable {}", ffmpeg.display()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .context("ffmpeg stdout pipe was unavailable")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("ffmpeg stderr pipe was unavailable")?;
+    let overflow = Arc::new(AtomicBool::new(false));
+    let stdout_overflow = Arc::clone(&overflow);
+    let stdout_reader = thread::spawn(move || -> std::io::Result<(File, u64)> {
+        let mut spool = raw_spool;
+        let mut reader = stdout;
+        let mut total = 0u64;
+        let mut chunk = [0u8; 256 * 1024];
+        loop {
+            let count = reader.read(&mut chunk)?;
+            if count == 0 {
+                break;
+            }
+            let next_total = total.saturating_add(count as u64);
+            if next_total > expected_decoded_bytes || next_total > maximum_decoded_bytes {
+                stdout_overflow.store(true, Ordering::Relaxed);
+            }
+            let retained = expected_decoded_bytes
+                .saturating_sub(total)
+                .min(count as u64) as usize;
+            if retained > 0 {
+                spool.write_all(&chunk[..retained])?;
+            }
+            total = next_total;
+        }
+        spool.flush()?;
+        Ok((spool, total))
+    });
+    let stderr_reader = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut output = Vec::with_capacity(MAXIMUM_VIDEO_CHILD_STDERR_BYTES);
+        let mut reader = stderr;
+        let mut chunk = [0u8; 4096];
+        loop {
+            let count = reader.read(&mut chunk)?;
+            if count == 0 {
+                break;
+            }
+            let retained = MAXIMUM_VIDEO_CHILD_STDERR_BYTES
+                .saturating_sub(output.len())
+                .min(count);
+            output.extend_from_slice(&chunk[..retained]);
+        }
+        Ok(output)
+    });
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return Err(error).context("could not check ffmpeg status");
+            }
+        }
+        if overflow.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            bail!("ffmpeg raw RGB output exceeds the expected or configured byte limit");
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            bail!("ffmpeg exceeded configured timeout {timeout:?}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let (spool, total_bytes) = stdout_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("ffmpeg stdout reader panicked"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("ffmpeg stderr reader panicked"))??;
+    let elapsed_ms = elapsed_ms(started);
+    if overflow.load(Ordering::Relaxed) {
+        bail!("ffmpeg raw RGB output exceeds the expected or configured byte limit");
+    }
+    if !status.success() {
+        let detail = String::from_utf8_lossy(&stderr);
+        let detail = detail.trim();
+        if detail.is_empty() {
+            bail!("ffmpeg raw video decode returned a non-zero exit status");
+        }
+        bail!("ffmpeg raw video decode failed: {detail}");
+    }
+    ensure!(
+        total_bytes == expected_decoded_bytes,
+        "ffmpeg decoded {total_bytes} raw RGB bytes; expected {expected_decoded_bytes} bytes"
+    );
+    Ok((spool, elapsed_ms, total_bytes))
+}
+
+fn read_spooled_rgb_frame(
+    spool: &mut File,
+    frame_index: usize,
+    frame_bytes: usize,
+    width: u32,
+    height: u32,
+) -> Result<RgbImage> {
+    let offset = u64::try_from(frame_index)
+        .ok()
+        .and_then(|index| {
+            u64::try_from(frame_bytes)
+                .ok()
+                .and_then(|bytes| index.checked_mul(bytes))
+        })
+        .context("video frame spool offset overflowed")?;
+    spool
+        .seek(SeekFrom::Start(offset))
+        .context("could not seek to requested RGB frame")?;
+    let mut pixels = vec![0u8; frame_bytes];
+    spool
+        .read_exact(&mut pixels)
+        .with_context(|| format!("RGB frame {frame_index} is truncated in the decoded spool"))?;
+    RgbImage::from_raw(width, height, pixels)
+        .context("RGB frame dimensions do not match the decoded pixel buffer")
+}
+
+fn sha256_file_bounded(path: &Path, maximum_bytes: u64) -> Result<String> {
+    let mut file =
+        fs::File::open(path).with_context(|| format!("could not hash video {}", path.display()))?;
+    let mut digest = Sha256::new();
+    let mut total = 0u64;
+    let mut buffer = [0u8; 1024 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .context("could not read video while hashing")?;
+        if count == 0 {
+            break;
+        }
+        total = total
+            .checked_add(count as u64)
+            .context("video byte count overflowed")?;
+        ensure!(
+            total <= maximum_bytes,
+            "video exceeds configured hash size limit ({maximum_bytes} bytes)"
+        );
+        digest.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn timeline_media_duration(timeline: &VideoTimeline) -> Option<f64> {
+    if timeline.frame_count() < 2 {
+        return None;
+    }
+    let mut intervals = timeline
+        .presentation_times_seconds
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .collect::<Vec<_>>();
+    intervals.sort_by(f64::total_cmp);
+    let midpoint = intervals.len() / 2;
+    let final_interval = if intervals.len() % 2 == 0 {
+        (intervals[midpoint - 1] + intervals[midpoint]) / 2.0
+    } else {
+        intervals[midpoint]
+    };
+    timeline
+        .presentation_times_seconds
+        .last()
+        .copied()
+        .map(|last_pts| last_pts + final_interval)
+        .filter(|duration| duration.is_finite() && *duration > 0.0)
+}
+
+/// Return the newest source frame whose PTS has arrived, without moving back
+/// before the next unprocessed frame. This models a capacity-one latest-frame
+/// mailbox after inference has yielded to the replay scheduler.
+fn latest_due_source_index(
+    presentation_times_seconds: &[f64],
+    next_source_index: usize,
+    elapsed_source_seconds: f64,
+) -> usize {
+    debug_assert!(next_source_index < presentation_times_seconds.len());
+    presentation_times_seconds
+        .partition_point(|presentation_time| *presentation_time <= elapsed_source_seconds)
+        .saturating_sub(1)
+        .max(next_source_index)
+}
+
+fn checked_duration_from_seconds(seconds: f64) -> Result<Duration> {
+    ensure!(
+        seconds.is_finite() && seconds >= 0.0 && seconds <= u64::MAX as f64,
+        "video duration is outside the monotonic clock range"
+    );
+    let whole_seconds = seconds.floor() as u64;
+    let fractional_nanoseconds = ((seconds - whole_seconds as f64) * 1_000_000_000.0).round();
+    if fractional_nanoseconds >= 1_000_000_000.0 {
+        return whole_seconds
+            .checked_add(1)
+            .map(|whole| Duration::new(whole, 0))
+            .context("video duration exceeds the monotonic clock range");
+    }
+    Ok(Duration::new(whole_seconds, fractional_nanoseconds as u32))
+}
+
+fn video_frame_deadline(start: Instant, presentation_time_seconds: f64) -> Result<Instant> {
+    let offset = checked_duration_from_seconds(presentation_time_seconds)?;
+    start
+        .checked_add(offset)
+        .context("video presentation deadline exceeds monotonic clock range")
+}
+
+fn completed_after_source_deadline(
+    source_start: Instant,
+    next_source_presentation_time_seconds: f64,
+    completed_at: Instant,
+) -> Result<bool> {
+    Ok(completed_at > video_frame_deadline(source_start, next_source_presentation_time_seconds)?)
+}
+
+fn wait_until(deadline: Instant) {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if !remaining.is_zero() {
+        thread::sleep(remaining);
+    }
+}
+
+fn create_new_buffered_file(path: &Path, label: &str) -> Result<BufWriter<File>> {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("could not create {label} directory {}", parent.display()))?;
+    }
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .with_context(|| {
+            format!(
+                "could not create {label} {} without overwriting",
+                path.display()
+            )
+        })?;
+    Ok(BufWriter::new(file))
+}
+
+#[derive(Serialize)]
+struct VideoFrameDetail<'a> {
+    source_frame_index: usize,
+    source_presentation_time_seconds: f64,
+    source_frame_id: String,
+    source_to_inference_start_ms: Option<f64>,
+    source_to_inference_complete_ms: Option<f64>,
+    timings: &'a ImageTimings,
+    detections: &'a [Detection],
+}
+
+fn write_video_detail<W: Write>(
+    writer: &mut W,
+    source_frame_index: usize,
+    source_pts_seconds: f64,
+    result: &ImageResult,
+) -> Result<()> {
+    let detail = VideoFrameDetail {
+        source_frame_index,
+        source_presentation_time_seconds: source_pts_seconds,
+        source_frame_id: format!("frame-{:06}", source_frame_index + 1),
+        source_to_inference_start_ms: result.source_to_inference_start_ms,
+        source_to_inference_complete_ms: result.source_to_inference_complete_ms,
+        timings: &result.timings,
+        detections: &result.detections,
+    };
+    serde_json::to_writer(&mut *writer, &detail).context("could not encode video detail trace")?;
+    writer
+        .write_all(b"\n")
+        .context("could not delimit video detail trace")?;
+    Ok(())
+}
+
+fn mean_or_zero(total: f64, count: usize) -> f64 {
+    if count == 0 {
+        0.0
+    } else {
+        total / count as f64
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn process_frame(
     context: &mut FrameProcessContext<'_>,
@@ -1254,18 +2508,29 @@ fn process_frame(
             .as_secs_f64()
             * 1000.0
     });
-    let source_to_inference_start_ms = frame.source_arrived_at.map(|source_arrived_at| {
-        inference_start
-            .saturating_duration_since(source_arrived_at)
-            .as_secs_f64()
-            * 1000.0
-    });
-    let source_to_inference_complete_ms = frame.source_arrived_at.map(|source_arrived_at| {
-        inference_completed
-            .saturating_duration_since(source_arrived_at)
-            .as_secs_f64()
-            * 1000.0
-    });
+    // Only a paced source has a meaningful presentation/arrival-to-inference
+    // latency. Capacity replay still supplies a local monotonic arrival to the
+    // tracker, but its timestamps are not a freshness measurement.
+    let source_to_inference_start_ms =
+        frame
+            .scheduled_at
+            .zip(frame.source_arrived_at)
+            .map(|(_, source_arrived_at)| {
+                inference_start
+                    .saturating_duration_since(source_arrived_at)
+                    .as_secs_f64()
+                    * 1000.0
+            });
+    let source_to_inference_complete_ms =
+        frame
+            .scheduled_at
+            .zip(frame.source_arrived_at)
+            .map(|(_, source_arrived_at)| {
+                inference_completed
+                    .saturating_duration_since(source_arrived_at)
+                    .as_secs_f64()
+                    * 1000.0
+            });
     let mut source_to_calibration_complete_ms = None;
 
     let mut batch_export_ms = 0.0;
@@ -1871,6 +3136,17 @@ fn validate_replay_frame_budget(
 }
 
 fn validate_options(options: &AuditOptions) -> Result<()> {
+    validate_audit_options(options, false)
+}
+
+fn validate_video_audit_options(options: &AuditOptions) -> Result<()> {
+    validate_audit_options(options, true)
+}
+
+fn validate_audit_options(
+    options: &AuditOptions,
+    video_source_timestamps_available: bool,
+) -> Result<()> {
     ensure!(
         options.onnx_path.is_file(),
         "ONNX model does not exist: {}",
@@ -1939,6 +3215,15 @@ fn validate_options(options: &AuditOptions) -> Result<()> {
                 );
             }
         }
+        if video_source_timestamps_available {
+            ensure!(
+                matches!(
+                    &batch_output.destination,
+                    BatchOutputDestination::JsonlFile { .. }
+                ),
+                "recorded-video audits support file-based detection-batch output only"
+            );
+        }
     }
     if let Some(calibration) = &options.calibration {
         ensure!(
@@ -1974,7 +3259,7 @@ fn validate_options(options: &AuditOptions) -> Result<()> {
             "scene snapshot output requires detection-batch output to preserve raw observations"
         );
         ensure!(
-            options.replay_rate_fps.is_some(),
+            options.replay_rate_fps.is_some() || video_source_timestamps_available,
             "scene snapshot output requires paced replay so source timestamps are available"
         );
         match &scene_output.destination {
@@ -2007,6 +3292,10 @@ fn validate_options(options: &AuditOptions) -> Result<()> {
                 reconnect_initial_delay,
                 reconnect_maximum_delay,
             } => {
+                ensure!(
+                    !video_source_timestamps_available,
+                    "recorded-video audits support file-based scene-snapshot output only"
+                );
                 ensure!(
                     scene_output.delivery_schema_version
                         == Some(PUBLIC_STATE_DELIVERY_SCHEMA_VERSION),
@@ -2717,7 +4006,9 @@ fn load_and_verify_manifest(
         "export manifest is required to verify checkpoint lineage and class names: {}",
         manifest_path.display()
     );
-    let manifest: ExportManifest = serde_json::from_slice(&fs::read(&manifest_path)?)
+    let manifest_bytes = fs::read(&manifest_path)?;
+    let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
+    let manifest: ExportManifest = serde_json::from_slice(&manifest_bytes)
         .with_context(|| format!("invalid export manifest: {}", manifest_path.display()))?;
     let actual_model_hash = sha256_file(model_path)?;
     ensure!(
@@ -2758,6 +4049,7 @@ fn load_and_verify_manifest(
 
     Ok(LoadedModelContract {
         manifest_path,
+        manifest_sha256,
         artifact_sha256: actual_model_hash,
         source_checkpoint_sha256: manifest.source_model.sha256,
         class_names,
@@ -3087,7 +4379,7 @@ fn profile_provider(
     options: &AuditOptions,
     class_names: &[String],
     expected_output_shape: &[i64],
-    sample_path: &Path,
+    sample: PreparedInput,
 ) -> Result<(ProviderEvidence, f64, f64, PreparedInput)> {
     if options.provider == ProviderSelection::Openvino {
         ensure!(
@@ -3102,13 +4394,9 @@ fn profile_provider(
             "OpenVINO output signature is unexpected: {output_shape:?}"
         );
         let session_init_ms = elapsed_ms(init_start);
-        let sample = load_and_prepare(sample_path, options.image_size)?;
         let inference_start = Instant::now();
-        let (actual_output_shape, _) = run_session(
-            &mut session,
-            &sample.prepared.values,
-            options.image_size as usize,
-        )?;
+        let (actual_output_shape, _) =
+            run_session(&mut session, &sample.values, options.image_size as usize)?;
         let inference_ms = elapsed_ms(inference_start);
         ensure!(
             actual_output_shape == expected_output_shape,
@@ -3123,7 +4411,7 @@ fn profile_provider(
             },
             session_init_ms,
             inference_ms,
-            sample.prepared,
+            sample,
         ));
     }
 
@@ -3156,15 +4444,8 @@ fn profile_provider(
     );
     let session_init_ms = elapsed_ms(init_start);
 
-    // Validate the fixed ONNX input dimensions before allocating the square
-    // image tensor, so a mismatched size fails cheaply.
-    let sample = load_and_prepare(sample_path, options.image_size)?;
     let inference_start = Instant::now();
-    let (output_shape, _) = run_session(
-        &mut session,
-        &sample.prepared.values,
-        options.image_size as usize,
-    )?;
+    let (output_shape, _) = run_session(&mut session, &sample.values, options.image_size as usize)?;
     let inference_ms = elapsed_ms(inference_start);
     ensure!(
         output_shape == expected_output_shape,
@@ -3199,7 +4480,7 @@ fn profile_provider(
         },
         session_init_ms,
         inference_ms,
-        sample.prepared,
+        sample,
     ))
 }
 
@@ -3478,19 +4759,20 @@ fn elapsed_ms(start: Instant) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_detection_batch, calibration_report_for_batch, expected_anchor_count,
-        find_versioned_openvino_c_library, frames_per_second, ingest_replay_scene,
-        load_and_verify_manifest, open_detection_batch_sink, open_scene_snapshot_output,
-        parse_provider_profile, percentile_summary, produce_paced_frames, replay_frame_period,
-        sha256_file, validate_batch_identifier, validate_frame_inference_options,
-        validate_inference_parameters, validate_replay_frame_budget,
-        validate_scene_calibration_context, versioned_openvino_library_version,
-        write_detection_batch_line, write_nchw_float32, write_scene_snapshot,
-        write_scene_snapshot_line, AuditOptions, BatchOutputDestination, BatchOutputOptions,
-        CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame, FrameInferenceEngine,
-        FrameInferenceOptions, PacedReplayMailbox, PacedReplayMeasurementWindow,
-        PacedReplayRateCounts, ProviderSelection, SceneSnapshotOutputDestination,
-        SceneSnapshotOutputOptions,
+        build_detection_batch, calibration_report_for_batch, checked_duration_from_seconds,
+        completed_after_source_deadline, expected_anchor_count, find_versioned_openvino_c_library,
+        frames_per_second, ingest_replay_scene, latest_due_source_index, load_and_verify_manifest,
+        open_detection_batch_sink, open_scene_snapshot_output, parse_provider_profile,
+        percentile_summary, produce_paced_frames, replay_frame_period, run_bounded_command,
+        sha256_file, timeline_media_duration, validate_batch_identifier,
+        validate_frame_inference_options, validate_inference_parameters,
+        validate_replay_frame_budget, validate_scene_calibration_context,
+        versioned_openvino_library_version, write_detection_batch_line, write_nchw_float32,
+        write_scene_snapshot, write_scene_snapshot_line, AuditOptions, BatchOutputDestination,
+        BatchOutputOptions, CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame,
+        FrameInferenceEngine, FrameInferenceOptions, PacedReplayMailbox,
+        PacedReplayMeasurementWindow, PacedReplayRateCounts, ProviderSelection,
+        SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoTimeline,
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
@@ -3504,7 +4786,11 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
     use std::net::{SocketAddr, TcpListener};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    #[cfg(unix)]
+    use std::process::Command;
     use std::time::{Duration, Instant};
 
     const SUCCESS_BATCH_FIXTURE: &str =
@@ -3688,6 +4974,118 @@ mod tests {
         assert!(replay_frame_period(0.0).is_err());
         assert!(replay_frame_period(f64::INFINITY).is_err());
         assert!(replay_frame_period(1.0e12).is_err());
+    }
+
+    #[test]
+    fn video_latest_frame_schedule_keeps_the_newest_due_source_index() {
+        let pts = [0.0, 0.04, 0.08, 0.12, 0.20];
+        assert_eq!(latest_due_source_index(&pts, 0, 0.0), 0);
+        assert_eq!(latest_due_source_index(&pts, 1, 0.079), 1);
+        assert_eq!(latest_due_source_index(&pts, 1, 0.08), 2);
+        assert_eq!(latest_due_source_index(&pts, 1, 0.19), 3);
+        assert_eq!(latest_due_source_index(&pts, 4, 0.19), 4);
+        assert_eq!(latest_due_source_index(&pts, 4, 0.20), 4);
+    }
+
+    #[test]
+    fn video_media_duration_uses_median_frame_interval_for_the_final_frame() {
+        let timeline = VideoTimeline {
+            stream_index: 0,
+            width: 640,
+            height: 480,
+            origin_seconds: 10.0,
+            presentation_times_seconds: vec![0.0, 0.04, 0.08, 0.20],
+        };
+        assert!((timeline_media_duration(&timeline).unwrap() - 0.24).abs() < 1e-12);
+        assert_eq!(
+            timeline_media_duration(&VideoTimeline {
+                presentation_times_seconds: vec![0.0],
+                ..timeline
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn video_duration_conversion_rejects_non_finite_and_preserves_subseconds() {
+        assert_eq!(
+            checked_duration_from_seconds(1.25).unwrap(),
+            Duration::from_millis(1250)
+        );
+        assert!(checked_duration_from_seconds(f64::NAN).is_err());
+        assert!(checked_duration_from_seconds(f64::INFINITY).is_err());
+    }
+
+    #[test]
+    fn processed_source_deadline_is_a_half_open_completion_boundary() {
+        let source_start = Instant::now();
+        let completed_on_time = source_start + Duration::from_millis(40);
+        let completed_late = completed_on_time + Duration::from_nanos(1);
+        assert!(!completed_after_source_deadline(source_start, 0.04, completed_on_time).unwrap());
+        assert!(completed_after_source_deadline(source_start, 0.04, completed_late).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_child_process_enforces_output_limit_timeout_and_exit_status() {
+        let overflow = Command::new("sh");
+        let mut overflow = overflow;
+        overflow.arg("-c").arg("printf 123456");
+        assert!(
+            run_bounded_command(overflow, Duration::from_secs(1), 5, "test output")
+                .unwrap_err()
+                .to_string()
+                .contains("size bound")
+        );
+
+        let mut timeout = Command::new("sh");
+        timeout.arg("-c").arg("exec /bin/sleep 1");
+        assert!(
+            run_bounded_command(timeout, Duration::from_millis(30), 16, "test timeout")
+                .unwrap_err()
+                .to_string()
+                .contains("timeout")
+        );
+
+        let mut failed = Command::new("sh");
+        failed.arg("-c").arg("printf failure >&2; exit 7");
+        assert!(
+            run_bounded_command(failed, Duration::from_secs(1), 16, "test exit")
+                .unwrap_err()
+                .to_string()
+                .contains("failure")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_video_decoder_rejects_short_and_extra_output() {
+        let directory = tempfile::tempdir().unwrap();
+        let fake_ffmpeg = directory.path().join("fake-ffmpeg.sh");
+        fs::write(&fake_ffmpeg, "#!/bin/sh\nprintf 123456\n").unwrap();
+        let mut permissions = fs::metadata(&fake_ffmpeg).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_ffmpeg, permissions).unwrap();
+
+        let short = super::decode_video_to_spool(
+            &fake_ffmpeg,
+            PathBuf::from("ignored-input.mp4").as_path(),
+            0,
+            9,
+            32,
+            Duration::from_secs(1),
+        );
+        assert!(short.unwrap_err().to_string().contains("expected 9 bytes"));
+
+        let extra = super::decode_video_to_spool(
+            &fake_ffmpeg,
+            PathBuf::from("ignored-input.mp4").as_path(),
+            0,
+            5,
+            32,
+            Duration::from_secs(1),
+        );
+        assert!(extra.unwrap_err().to_string().contains("byte limit"));
     }
 
     #[test]
