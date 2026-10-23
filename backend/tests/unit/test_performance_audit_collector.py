@@ -6,6 +6,7 @@ import json
 import os
 import struct
 import subprocess
+import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -1204,6 +1205,65 @@ def test_instrumentation_off_baseline_uses_read_only_clock_identity() -> None:
     assert summary["clocks_comparable"] is True
     assert summary["source_publication_to_client_receipt_ms"]["p95"] == 14.0
     assert summary["source_publication_to_state_ms"]["count"] == 0
+
+
+def test_rust_delivery_summary_matches_shared_fixture() -> None:
+    fixture_path = (
+        collector.ROOT
+        / "perception"
+        / "tests"
+        / "fixtures"
+        / "delivery-latency-summary.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    records = fixture["records"]
+    config_record = records[0]
+    client_events = [
+        record["event"] for record in records if record["kind"] == "client"
+    ]
+    server_events = [
+        record["event"] for record in records if record["kind"] == "server"
+    ]
+
+    summary = _delivery_latency_summary(
+        client_events,
+        server_events,
+        deadline_budget_ms=config_record["deadline_budget_ms"],
+        server_clock_domain_id=config_record["server_clock_domain_id"],
+    )
+    expected = fixture["expected"]
+    expected["clock"] = time.get_clock_info("perf_counter").implementation
+    assert summary == expected
+
+
+def test_rust_delivery_summary_rejects_boolean_timestamps_and_metrics() -> None:
+    clock_domain_id = "darwin:boot-a:mach_absolute_time()"
+    summary = _delivery_latency_summary(
+        [
+            {
+                "event_type": "state_received",
+                "clock_domain_id": clock_domain_id,
+                "stream_sequence": True,
+                "receive_monotonic_ns": True,
+                "source_publication_to_client_receipt_ms": True,
+            }
+        ],
+        [
+            {
+                "event_type": "state_published",
+                "clock_domain_id": clock_domain_id,
+                "domain": "state",
+                "stream_sequence": True,
+                "event_monotonic_ns": True,
+                "source_publication_monotonic_ns": 1,
+            }
+        ],
+    )
+
+    assert summary["clocks_comparable"] is True
+    assert summary["state_publication_to_receipt_ms"]["count"] == 0
+    assert summary["source_publication_to_state_ms"]["count"] == 0
+    assert summary["source_publication_to_client_receipt_ms"]["count"] == 0
 
 
 def test_server_summary_keeps_per_process_exporter_loss_status() -> None:

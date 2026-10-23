@@ -1987,201 +1987,80 @@ def _delivery_latency_summary(
     deadline_budget_ms: float = 50.0,
     server_clock_domain_id: str | None = None,
 ) -> dict[str, Any]:
-    """Correlate monotonic timestamps only inside one verified OS clock domain."""
-    publications = {
-        (event.get("domain"), event.get("stream_sequence")): event.get(
-            "event_monotonic_ns"
+    """Delegate bounded delivery correlation and statistics to the Rust reducer."""
+    maximum_events = 200_000
+    maximum_input_bytes = 134_217_728
+    events = [("client", client_events), ("server", server_events)]
+    event_count = sum(len(group) for _, group in events)
+    if event_count > maximum_events:
+        raise ValueError(
+            f"delivery audit input has {event_count} events; Rust limit is {maximum_events}"
         )
-        for event in server_events
-        if event.get("event_type") in {"state_published", "trajectory_published"}
-        and isinstance(event.get("stream_sequence"), int)
-    }
-    deliveries = {
-        (
-            event.get("client_id"),
-            event.get("domain"),
-            event.get("stream_sequence"),
-        ): event.get("event_monotonic_ns")
-        for event in server_events
-        if event.get("event_type") == "websocket_delivery_complete"
-        and event.get("domain") in {"state", "trajectory"}
-        and isinstance(event.get("stream_sequence"), int)
-    }
-    state_publication_to_receipt: list[float] = []
-    trajectory_publication_to_receipt: list[float] = []
-    socket_to_receipt: list[float] = []
-    client_clock_domains = {
-        event.get("clock_domain_id")
-        for event in client_events
-        if isinstance(event.get("clock_domain_id"), str)
-        and event.get("clock_domain_id")
-    }
-    server_clock_domains = {
-        event.get("clock_domain_id")
-        for event in server_events
-        if isinstance(event.get("clock_domain_id"), str)
-        and event.get("clock_domain_id")
-    }
-    if not server_events and server_clock_domain_id:
-        # Instrumentation-off baselines intentionally have no server event
-        # trace. The read-only status endpoint still reports the verified OS
-        # boot clock identity, allowing the client to measure source-to-receipt
-        # time without starting any server-side audit workers.
-        server_clock_domains.add(server_clock_domain_id)
-    clocks_comparable = (
-        len(client_clock_domains) == 1
-        and len(server_clock_domains) == 1
-        and client_clock_domains == server_clock_domains
-    )
-    source_to_state_publication = [
-        (event["event_monotonic_ns"] - event["source_publication_monotonic_ns"]) / 1e6
-        for event in server_events
-        if event.get("event_type") == "state_published"
-        and clocks_comparable
-        and isinstance(event.get("event_monotonic_ns"), int)
-        and isinstance(event.get("source_publication_monotonic_ns"), int)
-        and event["source_publication_monotonic_ns"] > 0
-        and event["event_monotonic_ns"] >= event["source_publication_monotonic_ns"]
-    ]
-    source_to_client_receipt = [
-        float(event["source_publication_to_client_receipt_ms"])
-        for event in client_events
-        if event.get("event_type") == "state_received"
-        and clocks_comparable
-        and isinstance(
-            event.get("source_publication_to_client_receipt_ms"), (int, float)
-        )
-        and math.isfinite(event["source_publication_to_client_receipt_ms"])
-    ]
-    component_ages: dict[str, list[float]] = {}
+
     clock_name = time.get_clock_info("perf_counter").implementation
-    delivery_domain_by_event = {
-        "state_received": "state",
-        "trajectory_received": "trajectory",
-    }
-    for event in client_events:
-        client_event_type = event.get("event_type")
-        if not isinstance(client_event_type, str):
-            continue
-        domain = delivery_domain_by_event.get(client_event_type)
-        if domain is None:
-            continue
-        sequence = event.get("stream_sequence")
-        received_ns = event.get("receive_monotonic_ns")
-        if not isinstance(sequence, int) or not isinstance(received_ns, int):
-            continue
-        published_ns = publications.get((domain, sequence))
-        if (
-            clocks_comparable
-            and isinstance(published_ns, int)
-            and received_ns >= published_ns
-        ):
-            latency_ms = (received_ns - published_ns) / 1e6
-            if domain == "state":
-                state_publication_to_receipt.append(latency_ms)
-            else:
-                trajectory_publication_to_receipt.append(latency_ms)
-        sent_ns = deliveries.get((event.get("client_id"), domain, sequence))
-        if clocks_comparable and isinstance(sent_ns, int) and received_ns >= sent_ns:
-            socket_to_receipt.append((received_ns - sent_ns) / 1e6)
-    received_sequences = {
-        event.get("stream_sequence")
-        for event in client_events
-        if event.get("event_type") == "state_received"
-    }
-    for event in server_events:
-        if (
-            event.get("event_type") != "state_published"
-            or event.get("stream_sequence") not in received_sequences
-        ):
-            continue
-        ages = event.get("component_age_seconds")
-        if not isinstance(ages, dict):
-            continue
-        for component, age in ages.items():
-            if isinstance(age, (int, float)) and math.isfinite(age):
-                component_ages.setdefault(str(component), []).append(float(age) * 1000)
-
-    def summarize(values: list[float]) -> dict[str, Any]:
-        return {
-            "count": len(values),
-            "p50": percentile(values, 0.50),
-            "p95": percentile(values, 0.95),
-            "p99": percentile(values, 0.99),
-        }
-
-    state_delivery = summarize(state_publication_to_receipt)
-    source_to_state_summary = summarize(source_to_state_publication)
-    source_to_client_summary = summarize(source_to_client_receipt)
-
-    def deadline_misses(values: list[float]) -> dict[str, Any]:
-        return {
-            "sample_count": len(values),
-            "missed_deadlines": sum(value > deadline_budget_ms for value in values),
-        }
-
-    return {
-        "clock": clock_name,
-        "clock_domain": (
-            f"verified OS monotonic clock domain: {next(iter(client_clock_domains))}"
-            if clocks_comparable
-            else "not comparable: client and server lack one shared verified OS monotonic clock domain"
-        ),
-        "clocks_comparable": clocks_comparable,
+    config_record = {
+        "kind": "config",
         "deadline_budget_ms": deadline_budget_ms,
-        "source_publication_to_state_ms": source_to_state_summary,
-        "source_publication_to_client_receipt_ms": source_to_client_summary,
-        "state_publication_to_receipt_ms": state_delivery,
-        "deadline_misses": {
-            "source_publication_to_state": deadline_misses(source_to_state_publication),
-            "source_publication_to_client_receipt": deadline_misses(
-                source_to_client_receipt
-            ),
-            "state_publication_to_receipt": deadline_misses(
-                state_publication_to_receipt
-            ),
-        },
-        "socket_send_to_receipt_ms": summarize(socket_to_receipt),
-        "trajectory_publication_to_receipt_ms": summarize(
-            trajectory_publication_to_receipt
-        ),
-        "trajectory_socket_send_to_receipt_ms": summarize(
-            [
-                (
-                    event["receive_monotonic_ns"]
-                    - deliveries[
-                        event.get("client_id"),
-                        "trajectory",
-                        event["stream_sequence"],
-                    ]
-                )
-                / 1e6
-                for event in client_events
-                if event.get("event_type") == "trajectory_received"
-                and clocks_comparable
-                and isinstance(event.get("receive_monotonic_ns"), int)
-                and isinstance(
-                    deliveries.get(
-                        (
-                            event.get("client_id"),
-                            "trajectory",
-                            event.get("stream_sequence"),
-                        )
-                    ),
-                    int,
-                )
-                and event["receive_monotonic_ns"]
-                >= deliveries[
-                    event.get("client_id"),
-                    "trajectory",
-                    event["stream_sequence"],
-                ]
-            ]
-        ),
-        "component_observation_age_at_publication_ms": {
-            component: summarize(values) for component, values in component_ages.items()
-        },
+        "server_clock_domain_id": server_clock_domain_id,
+        "clock_name": clock_name,
     }
+    payload = bytearray()
+
+    def append_record(record: dict[str, Any]) -> None:
+        payload.extend(
+            json.dumps(
+                record,
+                allow_nan=False,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+        payload.extend(b"\n")
+        if len(payload) > maximum_input_bytes:
+            raise ValueError(
+                "delivery audit event input exceeds the Rust summarizer's "
+                f"{maximum_input_bytes}-byte limit"
+            )
+
+    append_record(config_record)
+    for kind, group in events:
+        for index, event in enumerate(group, start=1):
+            if not isinstance(event, dict):
+                raise ValueError(
+                    f"delivery audit {kind} event {index} must be an object"
+                )
+            append_record({"kind": kind, "event": _finite_audit_json_value(event)})
+
+    result = subprocess.run(
+        [
+            str(
+                _rust_audit_summary_executable(
+                    "billiards-performance-audit-delivery-summary",
+                    os.environ.get("PERFORMANCE_AUDIT_DELIVERY_SUMMARY_EXECUTABLE"),
+                )
+            )
+        ],
+        input=bytes(payload),
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Rust delivery audit summarizer failed"
+            + (f": {detail}" if detail else f" with exit status {result.returncode}")
+        )
+    try:
+        summary = json.loads(result.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(
+            "Rust delivery audit summarizer returned invalid JSON"
+        ) from error
+    if not isinstance(summary, dict):
+        raise RuntimeError(
+            "Rust delivery audit summarizer returned a non-object summary"
+        )
+    return summary
 
 
 def _finite_audit_json_value(value: Any) -> Any:
@@ -2195,20 +2074,21 @@ def _finite_audit_json_value(value: Any) -> Any:
     return value
 
 
-@lru_cache(maxsize=1)
-def _rust_server_summary_executable() -> Path:
-    """Build and locate the Rust event reducer for this checkout."""
-    executable_name = "billiards-performance-audit-server-summary"
+@lru_cache(maxsize=2)
+def _rust_audit_summary_executable(
+    binary_name: str, configured_executable: str | None
+) -> Path:
+    """Build or locate one Rust audit reducer, honoring a test/deployment override."""
+    executable_name = binary_name
     if os.name == "nt":
         executable_name += ".exe"
-    configured = os.environ.get("PERFORMANCE_AUDIT_SERVER_SUMMARY_EXECUTABLE")
-    if configured:
-        executable = Path(configured).expanduser().resolve()
+    if configured_executable:
+        executable = Path(configured_executable).expanduser().resolve()
         if not executable.is_file() or (
             os.name != "nt" and not os.access(executable, os.X_OK)
         ):
             raise FileNotFoundError(
-                "configured server audit summary executable is missing or not executable: "
+                f"configured {binary_name} executable is missing or not executable: "
                 f"{executable}"
             )
         return executable
@@ -2229,7 +2109,7 @@ def _rust_server_summary_executable() -> Path:
             "--manifest-path",
             str(ROOT / "perception" / "Cargo.toml"),
             "--bin",
-            "billiards-performance-audit-server-summary",
+            binary_name,
         ],
         cwd=ROOT,
         check=True,
@@ -2242,10 +2122,18 @@ def _rust_server_summary_executable() -> Path:
         os.name != "nt" and not os.access(executable, os.X_OK)
     ):
         raise FileNotFoundError(
-            "Rust server audit summary build completed without the expected executable: "
+            f"Rust {binary_name} build completed without the expected executable: "
             f"{executable}"
         )
     return executable.resolve()
+
+
+def _rust_server_summary_executable() -> Path:
+    """Build and locate the Rust retained server-event reducer."""
+    return _rust_audit_summary_executable(
+        "billiards-performance-audit-server-summary",
+        os.environ.get("PERFORMANCE_AUDIT_SERVER_SUMMARY_EXECUTABLE"),
+    )
 
 
 def _server_measurement_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
