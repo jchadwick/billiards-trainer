@@ -6,8 +6,8 @@ use std::time::Duration;
 use anyhow::{bail, ensure, Context, Result};
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
-    run_audit, AuditOptions, BatchOutputDestination, BatchOutputOptions, CalibrationAuditOptions,
-    ProviderSelection, SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
+    run_audit, AuditOptions, BatchOutputOptions, CalibrationAuditOptions, ProviderSelection,
+    SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
 };
 use billiards_perception::tracking::TrackingConfigV1;
 use clap::{Parser, ValueEnum};
@@ -137,24 +137,8 @@ struct Arguments {
     dump_preprocessed_directory: Option<PathBuf>,
 
     /// Write one detection-batch v1 JSON object per line into a new file during replay.
-    #[arg(long, conflicts_with = "detection_batches_tcp")]
+    #[arg(long)]
     detection_batches_jsonl: Option<PathBuf>,
-
-    /// Send length-framed detection-batch v1 JSON to a loopback receiver during replay.
-    #[arg(long, conflicts_with = "detection_batches_jsonl")]
-    detection_batches_tcp: Option<SocketAddr>,
-
-    /// Maximum JSON payload bytes per TCP frame; required with --detection-batches-tcp.
-    #[arg(long)]
-    detection_batches_max_message_bytes: Option<usize>,
-
-    /// TCP connection deadline in milliseconds; required with --detection-batches-tcp.
-    #[arg(long)]
-    detection_batches_connect_timeout_ms: Option<u64>,
-
-    /// TCP write deadline in milliseconds; required with --detection-batches-tcp.
-    #[arg(long)]
-    detection_batches_write_timeout_ms: Option<u64>,
 
     /// Unique identity for this inference engine run; required with --detection-batches-jsonl.
     #[arg(long)]
@@ -341,10 +325,6 @@ fn calibration_audit_options(
 
 fn batch_output_options(arguments: &Arguments) -> Result<Option<BatchOutputOptions>> {
     let has_batch_setting = arguments.detection_batches_jsonl.is_some()
-        || arguments.detection_batches_tcp.is_some()
-        || arguments.detection_batches_max_message_bytes.is_some()
-        || arguments.detection_batches_connect_timeout_ms.is_some()
-        || arguments.detection_batches_write_timeout_ms.is_some()
         || arguments.engine_instance_id.is_some()
         || arguments.source_session_id.is_some();
     if !has_batch_setting {
@@ -360,38 +340,17 @@ fn batch_output_options(arguments: &Arguments) -> Result<Option<BatchOutputOptio
         .clone()
         .context("--source-session-id is required with batch output")?;
 
-    let destination = match (
-        arguments.detection_batches_jsonl.clone(),
-        arguments.detection_batches_tcp,
-        arguments.detection_batches_max_message_bytes,
-        arguments.detection_batches_connect_timeout_ms,
-        arguments.detection_batches_write_timeout_ms,
-    ) {
-        (Some(path), None, None, None, None) => {
-            ensure!(
-                arguments.output_json.as_ref() != Some(&path),
-                "aggregate report and detection batch output must use different paths"
-            );
-            BatchOutputDestination::JsonlFile { path }
-        }
-        (None, Some(address), Some(maximum_message_bytes), Some(connect_ms), Some(write_ms)) => {
-            ensure!(maximum_message_bytes > 0, "maximum framed message size must be positive");
-            ensure!(connect_ms > 0, "TCP connect timeout must be positive");
-            ensure!(write_ms > 0, "TCP write timeout must be positive");
-            BatchOutputDestination::LoopbackTcp {
-                address,
-                maximum_message_bytes,
-                connect_timeout: Duration::from_millis(connect_ms),
-                write_timeout: Duration::from_millis(write_ms),
-            }
-        }
-        _ => bail!(
-            "select --detection-batches-jsonl, or provide --detection-batches-tcp with its maximum-message and timeout settings"
-        ),
-    };
+    let jsonl_path = arguments
+        .detection_batches_jsonl
+        .clone()
+        .context("--detection-batches-jsonl is required with batch output")?;
+    ensure!(
+        arguments.output_json.as_ref() != Some(&jsonl_path),
+        "aggregate report and detection batch output must use different paths"
+    );
 
     Ok(Some(BatchOutputOptions {
-        destination,
+        jsonl_path,
         engine_instance_id,
         source_session_id,
     }))
@@ -575,7 +534,7 @@ mod tests {
     };
     use billiards_perception::detection_batch::ImageSpace;
     use billiards_perception::inference::SceneSnapshotOutputDestination;
-    use clap::Parser;
+    use clap::{CommandFactory, Parser};
 
     #[test]
     fn replay_rate_is_an_explicit_optional_cli_setting() {
@@ -636,6 +595,14 @@ mod tests {
         assert_eq!(arguments.replay_rate_fps, None);
         assert_eq!(arguments.replay_repeat_count, 1);
         assert_eq!(arguments.maximum_replay_frames, None);
+    }
+
+    #[test]
+    fn inference_cli_keeps_jsonl_batch_export_without_the_retired_tcp_mode() {
+        let help = Arguments::command().render_long_help().to_string();
+
+        assert!(help.contains("--detection-batches-jsonl"));
+        assert!(!help.contains("--detection-batches-tcp"));
     }
 
     #[test]

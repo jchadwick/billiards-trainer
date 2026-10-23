@@ -10,8 +10,12 @@
 
 ADR-0085 retires the still-image Python equivalence utility and its focused
 tests, which are referenced in this record's historical implementation notes.
-The detection-batch contract and its current Rust receiver/evaluation path
-remain accepted; linked old comparison runs are historical evidence.
+The detection-batch contract remains accepted for live pipeline observations
+and replay JSONL artifacts. The standalone TCP batch receiver and its
+synchronous still-image sender were retired on 2026-10-23 because their only
+remaining workflow was the retired equivalence evaluator. Current live
+delivery evidence uses the Rust scene-state stream and performance-audit
+subscriber; linked old receiver runs are historical evidence.
 
 ## Context
 
@@ -96,18 +100,18 @@ for Stage 2 receiver and accuracy tests.
   fields, unsupported versions, invalid geometry, invalid confidence, and
   duplicate detection indices.
 - The opt-in Rust static replay exporter emits one ordered detection-batch v1
-  JSONL record per still image. It can also send the same records over
-  length-framed TCP to a loopback receiver, with an explicit frame limit and
-  connect/write deadlines. The socket mode is synchronous unpaced replay and
-  is not the production asynchronous transport.
+  JSONL record per still image. A standalone diagnostic TCP batch receiver and
+  synchronous replay sender were later retired under ADR-0085; the JSONL
+  artifact remains for inspection and accuracy workflows.
 - The initial Stage 2 qualification used a Python headless receiver to validate
   the shared schema, record local monotonic receipts and sequence metrics, and
-  preserve payloads for the scorer. That receiver was replaced by the Rust
-  receiver while retaining the same loopback, single-producer contract.
-- Rust receiver tests exercise the shared batch fixtures, payload preservation,
+  preserve payloads for the scorer. A temporary Rust receiver later replaced
+  it, then both diagnostic receiver paths were retired when their only
+  maintained consumer disappeared.
+- The retired Rust receiver tests covered shared fixtures, payload preservation,
   identity/schema failures, sequence gaps and duplicates, bounded details,
-  slow-read timeouts, loopback enforcement, and the command's real socket and
-  output-file flow. The receiver remains unauthenticated under ADR-0025.
+  slow-read timeouts, loopback enforcement, and command output. Those checks are
+  historical; live-scene delivery continues to have separate transport tests.
 - A historical real-model ten-image CPU replay delivered 10 ordered, complete batches and
   73 detections through Rust TCP to the Python receiver. The existing
   cross-runtime scorer matched all 73 against Python PT with no unmatched
@@ -140,11 +144,11 @@ for Stage 2 receiver and accuracy tests.
   and [PT equivalence result](../../../thoughts/performance-audits/paced-latest-frame-smoke-20261020-r2/equivalence/equivalence-20261020T151758.327711Z.md).
 - Tests demonstrate that batch-local indices may recur in a later source frame
   without being treated as track identity.
-- Stage 2 replay and the headless receiver preserve session/frame identity,
-  source timestamp semantics, ordering, completeness, and gaps for this static
-  single-connection prototype. Bounded asynchronous delivery, slow-client
-  isolation, reconnect behavior, and live freshness remain open under ADR-0011;
-  authentication is explicitly out of scope under ADR-0025.
+- Historical Stage 2 replay and the headless receiver preserved session/frame
+  identity, source timestamp semantics, ordering, completeness, and gaps for a
+  static single-connection prototype. The live scene transport separately
+  covers bounded asynchronous delivery, slow-client isolation, reconnect
+  behavior, and live freshness.
 - Stage 3 tracking tests prove that only genuinely associated observations
   become scene-snapshot v1 track IDs.
 
@@ -157,4 +161,4 @@ those decisions. See the [migration plan](../../../thoughts/rust-perception-migr
 the [detection-batch contract](../../../perception/contracts/detection-batch/v1/README.md),
 and its [shared schema](../../../perception/contracts/detection-batch/v1/detection-batch.schema.json).
 
-The implementation is in [Rust types and semantic validation](../../../perception/src/detection_batch.rs), [Rust framing](../../../perception/src/framing.rs), [Rust replay exporter and TCP sink](../../../perception/src/inference/runtime.rs), [Rust receiver](../../../perception/src/detection_batch_receiver.rs), [Rust receiver command](../../../perception/src/bin/detection_batch_receiver.rs), and [Rust receiver tests](../../../perception/tests/detection_batch_receiver.rs). Shared fixtures remain covered by the [Python schema tests](../../../backend/tests/unit/test_perception_detection_batch_contract.py). The separate Python equivalence utility was retired under ADR-0085; the earlier comparison result remains historical evidence rather than a current workflow. See the [loopback replay report](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md), [received-batch equivalence result](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/equivalence/equivalence-20261020T150209.339109Z.md), and [paced replay report](../../../thoughts/performance-audits/paced-latest-frame-smoke-20261020-r2/report.md). Live capture, TCP receiver freshness under paced output, bounded asynchronous delivery, reconnect freshness, Linux qualification, temporal/physical accuracy, and production freshness remain open. Authentication is explicitly excluded by ADR-0025.
+The contract implementation remains in [Rust types and semantic validation](../../../perception/src/detection_batch.rs), [live capture pipeline](../../../perception/src/capture_pipeline.rs), and [recorded inference JSONL exporter](../../../perception/src/inference/runtime.rs). The former standalone TCP receiver, sender path, and receiver tests were removed in the 2026-10-23 tooling cleanup; their old smoke reports remain historical evidence only. Shared fixtures remain covered by the [Python schema tests](../../../backend/tests/unit/test_perception_detection_batch_contract.py). The separate Python equivalence utility was retired under ADR-0085; the earlier comparison result remains historical rather than a current workflow. Live capture, bounded asynchronous delivery, reconnect freshness, Linux qualification, temporal/physical accuracy, and production freshness remain open. Authentication is explicitly excluded by ADR-0025.

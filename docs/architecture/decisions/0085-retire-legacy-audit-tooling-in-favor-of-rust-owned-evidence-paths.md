@@ -29,16 +29,24 @@ coefficients clamped to their configured limits. The root and vision-specific
 pip requirement lists are unreferenced and overlap the maintained Python
 project groups or compatibility requirements.
 
+A second tool-by-tool pass found that the standalone Rust detection-batch TCP
+receiver and its synchronous replay sender had no caller beyond the retired
+still-image equivalence workflow. Current video accuracy uses bounded JSONL
+artifacts, while live state delivery uses the native scene transport and audit
+subscriber. Their receiver tests validated a discontinued diagnostic route.
+
 ## Decision
 
 Use the Rust live performance runner as the only supported live state-delivery
 audit and use the Rust temporal evaluator/importer for labeled temporal
 localization evidence. Retire the Python collector and detector-profile
 benchmark, their collector-only tests, and Rust adapter binaries/modules whose
-only caller was the retired collector. Preserve the shared Rust receiver,
+only caller was the retired collector. Preserve the live scene receiver,
 timing accumulator, resource sampler, trajectory accumulator, current audit
 runner, temporal evaluator, temporal annotation importer, and detection-batch
-receiver where each still serves a live workflow or test contract.
+v1 contract used by live capture and replay JSONL. Retire the standalone
+detection-batch TCP receiver and its synchronous recorded-image TCP sender
+because neither has a current caller or accuracy consumer.
 
 Remove obsolete profiling-only Python dependencies, duplicated command
 wrappers, stale training setup/repair/class-validation tools, the Python
@@ -57,13 +65,12 @@ compatibility service's optional in-process profiler/status route while that
 service remains, but do not treat it as an evaluator for the Rust runtime. Do
 not retain standalone Python performance or accuracy evaluators.
 
-Document missing capabilities as gaps rather than implying parity: the current
-Rust live runner does not measure browser/video-viewer interference, and there
-is no supported Rust recorded-video capacity/freshness replay tool yet. Use
-reviewed temporal labels and the Rust evaluator for accuracy when scene
-snapshots are available. Evaluate a recorded-video replay as a separate
-follow-up under ADR-0084. Do not change live scheduling, latest-frame, or
-slow-client contracts as part of this tooling cleanup.
+Document missing capabilities as gaps rather than implying parity: the Rust
+live runner does not measure browser/video-viewer interference. Use reviewed
+temporal labels and the Rust evaluator for accuracy when scene snapshots are
+available. Evaluate recorded-video replay as a separate follow-up under
+ADR-0084. Do not change live scheduling, latest-frame, or slow-client
+contracts as part of this tooling cleanup.
 
 ## Consequences
 
@@ -81,8 +88,10 @@ slow-client contracts as part of this tooling cleanup.
 
 ### Negative
 
-- Viewer interference and recorded-video capacity/freshness experiments are
-  explicitly unavailable until separate Rust tooling is implemented.
+- Viewer interference remains unavailable to the live audit. Recorded-video
+  capacity/freshness replay is covered separately by ADR-0084; its PTS-paced
+  mode excludes live decode contention and neither mode measures browser or
+  display latency.
 - Cross-runtime still-image parity reports remain historical; there is no
   current differential evaluator. The remaining standalone Python tools are
   for dataset/model/calibration authoring, not evaluation. The compatibility
@@ -90,6 +99,10 @@ slow-client contracts as part of this tooling cleanup.
   that service.
 - Historical reports and ADRs mention removed tools; those references are
   evidence of past work, not runnable instructions.
+- Raw detection batches remain available as bounded local JSONL artifacts. The
+  removed TCP receiver did not provide the application's asynchronous live
+  delivery semantics, and its old receipt measurements cannot support current
+  freshness claims.
 
 ## Alternatives considered
 
@@ -115,11 +128,30 @@ evaluator is the accuracy authority. Prior parity reports remain historical.
 - Focused tests pass for maintained model export, dataset merge, and local
   deployment contracts; the retired equivalence suite is no longer collected.
 - The performance-audit guide names only current executables and accurately
-  states viewer, recorded-video, and accuracy limits.
+  states viewer-interference, recorded-video, and accuracy limits. ADR-0084
+  supplies the recorded-video command described there.
 - Repository searches find no current workflow instructions for the retired
   Python collector, profile benchmark, reducer adapters, dataset repair wizard,
   ball-grid distortion estimator, unreferenced pip lists, example-only demos,
   or removed deployment aliases. Historical evidence and ADR rationale remain
   intact.
+- The standalone detection-batch receiver, its command and tests, and the
+  still-image TCP batch-output option were removed after confirming no current
+  script, runtime process, or retained evaluator consumes that path. Detection
+  JSONL export, scene TCP delivery, and live state receipt remain separately
+  tested.
 - The architecture-decision validator accepts this record and its register
   entry.
+
+## Subsequent implementation note
+
+ADR-0084 was accepted after this cleanup and implements the Rust recorded-video
+capacity/freshness tool. This closes that recorded-video tooling gap without
+changing the decision to retire the Python collector and Python profile
+benchmark. Viewer-render interference, live codec contention, and representative
+temporal accuracy evidence remain separate gaps.
+
+The all-tools pass also removed the standalone detection-batch TCP receiver and
+its still-image sender option under ADR-0021. The detection-batch v1 contract
+and local JSONL artifacts remain; the retired receiver was not the live state
+transport or the headless subscriber used by the live audit.

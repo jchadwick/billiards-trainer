@@ -1,5 +1,12 @@
 # Refactoring Summary: Detection Backend and Architecture Consolidation
 
+> **Historical snapshot (October 2024):** This document describes the retired
+> Python detection/runtime architecture. Its debugger commands, directory
+> paths, model classes, and performance figures are obsolete and are not
+> acceptance criteria. The current runtime and supported checks are documented
+> in the [root README](../README.md) and
+> [performance audit guide](PERFORMANCE_AUDIT.md).
+
 **Date**: October 2024
 **Status**: Completed
 **Impact**: Major architecture changes to detection, tracking, and integration layers
@@ -576,24 +583,17 @@ vision = VisionModule(config)
 4. Check trajectory calculation in real-time
 5. Verify WebSocket broadcasts include trajectory data
 
-**Test Commands:**
-```bash
-# Run video debugger with new architecture
-python tools/video_debugger.py test_video.mp4 --detection-backend yolo
-
-# Check detection performance
-python -m pytest backend/vision/detection/tests/
-
-# Verify integration service
-python -m pytest backend/tests/test_integration_service.py
-```
+The commands originally recorded here targeted the retired Python runtime and
+were removed. They do not verify the current Rust application. Use the
+repository's supported Rust and browser checks and the current performance
+audit workflow instead.
 
 ### 8.3 Performance Benchmarks
 
-**Expected Performance:**
-- Detection: 25-35 FPS on CPU, 60+ FPS on GPU
-- Trajectory Calculation: <10ms per frame
-- End-to-end Latency: <50ms from frame capture to WebSocket broadcast
+The performance figures originally recorded here were estimates for the
+retired runtime, not measured results. They are not current requirements or
+evidence; see `docs/PERFORMANCE_AUDIT.md` for reproducible measurements and
+their limits.
 
 ---
 

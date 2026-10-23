@@ -3,9 +3,9 @@
 This directory contains the supported Rust perception implementation and its
 development CLIs. `billiards-server` supervises the Rust live detector and
 serves the browser application; `billiards-perception-infer` is a still-image
-diagnostic with optional detection-batch JSONL or loopback TCP output, not a
-live benchmark. Physical GStreamer capture remains an opt-in qualification
-path. Use the Rust live audit and temporal evaluator described in
+diagnostic with detection-batch JSONL artifacts and optional scene-state TCP
+output, not a live benchmark. Physical GStreamer capture remains an opt-in
+qualification path. Use the Rust live audit and temporal evaluator described in
 [`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md) for current runtime
 and labeled-accuracy evidence. Historical prototype notes below may describe
 the former Python compatibility supervisor; they are not the supported server
@@ -207,17 +207,12 @@ pending one; source-frame IDs and replacement counts expose those skips. The
 reported source timestamp is synthetic monotonic `frame_arrival` after image
 decoding, never camera exposure time. The requested cadence, source-read
 lateness, source-to-inference-start and source-to-inference-complete timings
-are reported separately. Detection-batch TCP and JSONL output remain
-synchronous replay tools and can delay the measured consumer.
+are reported separately. Detection-batch JSONL output is synchronous and can
+delay the measured consumer.
 
-Optional detection-batch v1 output publishes one complete record per image.
-Use `--detection-batches-jsonl PATH` for an artifact or
-`--detection-batches-tcp 127.0.0.1:PORT` for a synchronous framed connection to
-the standalone Rust receiver binary. Both require `--engine-instance-id ID`
-and `--source-session-id ID`. The TCP mode also requires explicit
-maximum-message, connect-timeout, and write-timeout arguments; the receiver
-requires the expected count, frame limit, deadlines, and a new JSONL output
-path.
+Optional detection-batch v1 output writes one complete record per image to a
+new `--detection-batches-jsonl PATH` artifact. It requires
+`--engine-instance-id ID` and `--source-session-id ID`.
 
 For an experimental tracked-scene replay, add `--scene-snapshots-jsonl PATH`
 or the `--scene-snapshots-tcp 127.0.0.1:PORT` destination and
@@ -296,57 +291,8 @@ operator-facing receiver command has not been added yet.
 `mean_encode_enqueue_ms` measures serialization plus bounded queue submission,
 not socket delivery.
 
-Build the Rust receiver once, then run it before the replay producer:
+All requested output paths are created without overwriting existing data. Detection-batch JSONL is a local artifact for replay inspection and accuracy workflows; it is not a live-client transport. Use the Rust live audit and its headless state subscriber for live delivery evidence.
 
-```bash
-cargo build --release --manifest-path perception/Cargo.toml \\
-  --bin billiards-perception-receive-detection-batches
-
-perception/target/release/billiards-perception-receive-detection-batches \\
-  --bind-address 127.0.0.1:9000 \\
-  --expected-batches 10 \\
-  --maximum-batches 10000 \\
-  --maximum-message-bytes 16777216 \\
-  --accept-timeout-ms 30000 \\
-  --session-timeout-ms 120000 \\
-  --read-timeout-ms 5000 \\
-  --maximum-detail-records 10000 \\
-  --batches-jsonl /tmp/received-batches.jsonl \\
-  --output-json /tmp/receiver-report.json
-
-perception/target/release/billiards-perception-infer \\
-  --onnx /tmp/billiards-onnx/model.onnx \\
-  --source-checkpoint models/billiards-yolov8n.pt \\
-  --input backend/vision/test_data \\
-  --provider cpu \\
-  --image-size 1280 \\
-  --confidence 0.4 \\
-  --iou 0.45 \\
-  --detection-batches-tcp 127.0.0.1:9000 \\
-  --detection-batches-max-message-bytes 16777216 \\
-  --detection-batches-connect-timeout-ms 3000 \\
-  --detection-batches-write-timeout-ms 5000 \\
-  --engine-instance-id stage2-run-01 \\
-  --source-session-id recorded-images-01 \\
-  --output-json /tmp/rust-replay-report.json
-```
-
-Both output paths are created without overwriting existing data. If replay
-fails after output creation, the receiver JSONL may contain a valid prefix.
-Treat receipt as complete only when both processes succeed and the receiver
-reports the expected ordered batch count. The receiver records local monotonic
-receipt times, ordering, gaps, duplicates, and bounded per-batch details; it
-does not subtract Rust timestamps from the Python clock or claim one-way
-latency. The detection-batch TCP sender performs synchronous writes during replay, so
-the reported `timings.batch_export_ms` includes serialization and socket
-delivery, while `summed_image_pipeline_ms` covers image decode, preprocessing,
-inference, and decode/NMS only. This is a recorded-replay check, not a live
-camera pipeline.
-
-The Rust detection-batch receiver binds to loopback and accepts one producer
-connection. Its message, expected-batch, and receipt-detail limits are
-configurable and bounded. It does not implement producer authentication,
-asynchronous queues, or reconnection.
 Unpaced still images preserve
 `source.timestamp: null`; paced replay publishes synthetic `frame_arrival`
 timestamps from the Rust monotonic domain. Frame IDs follow original input

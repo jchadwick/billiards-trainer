@@ -145,21 +145,22 @@ writes, consecutive messages, truncated headers/bodies, zero-length rejection,
 and oversize rejection before body allocation. Its recorded-image executable
 can synchronously send length-framed JSON to a loopback receiver with explicit
 message, connect, write, and session-time limits. The initial Python receiver
-checked the shared schema and recorded local receipt timing/order/gaps; the
-current receiver is Rust. A real-model ten-image
-replay delivered all 10 batches and 73 detections; all 73 matched the Python PT
-reference, with 0.0325 px maximum center difference. In the latest repeat,
-receiver inter-arrival p50/p95/p99 was 92.128/94.518/94.518 ms, which describes this unpaced static
-replay and is not a freshness result. Rust/Python monotonic clock epochs remain
-unverified, so one-way latency is unavailable.
+and its temporary Rust replacement belonged to a separate recorded
+detection-batch replay experiment. ADR-0085 retired that synchronous
+sender/receiver after the equivalence evaluator was removed; the historical
+ten-image result delivered 10 batches and 73 detections, all matched against
+the Python PT reference with 0.0325 px maximum center difference. The latest
+recorded inter-arrival p50/p95/p99 was 92.128/94.518/94.518 ms; it is not a
+freshness result, and producer/receiver monotonic epochs were not proven
+comparable. The current live scene sender is an independent bounded
+latest-only transport documented by ADR-0028 and ADR-0031.
 
-The experiment does not meet this ADR's acceptance criteria: the receiver is
-unauthenticated, the send path is synchronous and unbounded by a latest-pending
-queue, a slow receiver can stall static replay, and reconnect, stale-kernel-
-buffer, control independence, slow-reader isolation, and live freshness are
-not implemented for the detection-batch replay path. Keep this ADR proposed
-until the scene sender and live provider boundary are integrated and qualified.
-See the [Rust batch replay receiver](../../../perception/src/detection_batch_receiver.rs), [Rust batch loopback tests](../../../perception/tests/detection_batch_receiver.rs), the [Rust producer loopback test](../../../perception/src/inference/runtime.rs), and [latest batch smoke evidence](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md).
+That batch experiment did not meet the live-transport acceptance criteria: the
+send path was synchronous, a slow receiver could stall replay, and the tool did
+not implement live freshness. It was removed rather than promoted. Current
+scene delivery and live provider boundaries are documented and tested under
+ADR-0028 and ADR-0031. See the [historical batch replay report](../../../thoughts/performance-audits/detection-batch-tcp-smoke-20261020-r2/report.md)
+for the retired experiment's results.
 
 ### Retired authenticated prototype evidence (historical, removed by ADR-0025)
 

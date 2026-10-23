@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{ensure, Context, Result};
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
-    run_video_audit, AuditOptions, BatchOutputDestination, BatchOutputOptions, ProviderSelection,
+    run_video_audit, AuditOptions, BatchOutputOptions, ProviderSelection,
     SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMode,
     VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,
@@ -719,9 +719,7 @@ fn batch_output_options(
     let source_session_id =
         source_session_id.context("--source-session-id is required with batch output")?;
     Ok(Some(BatchOutputOptions {
-        destination: BatchOutputDestination::JsonlFile {
-            path: path.context("batch output path disappeared")?,
-        },
+        jsonl_path: path.context("batch output path disappeared")?,
         engine_instance_id,
         source_session_id,
     }))

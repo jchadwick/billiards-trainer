@@ -154,6 +154,14 @@ The retained Python video process can select `vision.camera.video_file_path`
 instead of the numeric device index, while the Rust capture-settings resolver
 uses only the numeric index. The default configuration names a demo video.
 
+**Camera spike retirement (2026-10-23):** the compile-only `nokhwa` dependency
+and `camera-nokhwa-build-spike` CI target were removed after the application
+selected the supervised GStreamer capture path. The spike never opened a
+camera, produced frames, or participated in live source selection. Its build
+results and API research remain historical evidence in
+`thoughts/rust-camera-adapter-spike.md`; do not treat them as a supported
+backend or camera qualification.
+
 **Source-resolution follow-up (2026-10-21):**
 `backend.perception.capture_configuration.resolve_capture_settings()` now
 checks the effective `vision.camera.video_file_path`, including its bundled

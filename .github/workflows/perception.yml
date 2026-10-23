@@ -80,9 +80,6 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install gstreamer
 
-      - name: Check opt-in Nokhwa native backend build
-        run: cargo check --locked --all-targets --features camera-nokhwa-build-spike
-
       - name: Test opt-in GStreamer camera probes
         run: cargo test --locked --all-targets --features camera-gstreamer-probe,camera-gstreamer-discovery
 

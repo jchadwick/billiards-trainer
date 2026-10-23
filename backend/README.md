@@ -593,7 +593,6 @@ describes the retained configuration schema and API migration context.
 - `YOLODetector` - YOLO-based detection
 - `ObjectTracker` - Kalman filter tracking
 - `CameraCapture` - Video source abstraction
-- `TableDetector` - Table boundary detection
 
 **Usage**:
 ```python

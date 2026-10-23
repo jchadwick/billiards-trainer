@@ -1,5 +1,11 @@
 # Rust camera adapter spike before production selection
 
+> Historical dependency review (2026-10-21). The opening boundary and next
+> steps below predate the Rust GStreamer capture helper and are superseded by
+> [ADR-0033](../docs/architecture/decisions/0033-separate-rust-live-capture-process-from-replay-evaluator.md).
+> Nokhwa remains unselected; its compile-only feature and CI check were removed
+> after the tool audit. Use this note only as candidate-risk history.
+
 **Status:** dependency decision deferred. This note records candidates and the
 hardware evidence required before Stage 5 commits to one.
 

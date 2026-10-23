@@ -1,5 +1,11 @@
 # Vision Module Specification
 
+> **Historical Python specification:** The targets and commands below were
+> written for the retired Python vision service. They do not describe the
+> supported Rust inference path, do not constitute measured acceptance results,
+> and include retired test commands. Current runtime contracts and evidence are
+> in `perception/README.md` and `docs/PERFORMANCE_AUDIT.md`.
+
 ## Module Purpose
 
 The Vision module is the core computer vision engine responsible for analyzing video frames to detect game elements (table, balls, cue stick), and providing processed visual data to other system components. This module uses a hybrid approach combining YOLOv8 deep learning for robust object detection with OpenCV for tracking, refinement, and geometric analysis. It consumes video streams from the separate Streaming Service, eliminating direct camera access conflicts.
@@ -386,74 +392,17 @@ def detect_table(image: np.ndarray, config: DetectionSettings) -> Table:
    - Automatically recalibrate after lighting changes
    - Gracefully handle invalid frames
 
-## Testing Requirements
+## Historical Testing Requirements
 
-### PRIMARY: Ground Truth Test Data Validation
-
-**The vision/test_data directory contains curated test images and annotations that are the PRIMARY quality validation for the vision system.**
-
-All vision system changes MUST pass validation against these ground truth test images before being considered complete:
-
-- **Test Suite**: `backend/vision/test_vision_with_test_data.py`
-- **Test Data**: `backend/vision/test_data/` (images + JSON annotations)
-- **Coverage**: Empty table, multiple balls, clustered balls, cue detection, motion blur, calibration views
-
-**Ground Truth Test Scenarios:**
-1. `empty_table.png` - False positive testing (no ghost detections)
-2. `multiple_balls.png` - Multi-object detection accuracy
-3. `clustered_balls.png` - Ball separation in tight clusters
-4. `full_table.png` - Stress testing with all 15 balls
-5. `frame_with_cue.png` - Cue stick detection
-6. `cue_aiming.png` - Aiming state detection
-7. `motion_blur.png` - Motion blur handling
-8. `calibration_straight_on.png` - Optimal camera angle
-9. `table_corners_visible.png` - Calibration with visible corners
-
-**Quality Gates:**
-- All ground truth tests must pass before merging changes
-- Detection accuracy ≥ 98% on standard scenarios (NFR-VIS-006)
-- Position error ≤ 2 pixels (FR-VIS-023)
-- False positive rate < 1% on empty table (NFR-VIS-007)
-- Zero regressions on existing passing test cases
-
-**Running Ground Truth Tests:**
-```bash
-# Run all ground truth validation tests
-python -m pytest backend/vision/test_vision_with_test_data.py -v
-
-# Run specific test scenario
-python -m pytest backend/vision/test_vision_with_test_data.py::TestVisionWithGroundTruth::test_multiple_balls_detection_accuracy -v
-```
-
-### Unit Testing
-- Test each detection algorithm independently
-- Mock camera input with test images
-- Validate color space conversions
-- Test edge cases (empty table, clustered balls)
-- Coverage target: 85%
-- **MUST validate against ground truth test_data before considering complete**
-
-### Integration Testing
-- Test complete pipeline with pre-recorded videos
-- Verify frame rate consistency
-- Test with various lighting conditions
-- Validate tracking across frames
-- Test calibration procedures
-- **MUST validate against ground truth test_data scenarios**
-
-### Performance Testing
-- Benchmark processing times per component
-- Stress test with maximum ball count (use `full_table.png` from test_data)
-- Test with different resolutions
-- Measure resource usage over time
-- Profile for bottlenecks
-
-### Accuracy Testing
-- **PRIMARY**: Ground truth comparison using vision/test_data images and annotations
-- Measure detection rates across scenarios (use ground truth test suite)
-- Validate angle measurements (use `cue_aiming.png`)
-- Test color classification accuracy
-- Compare with manual annotations in test_data/*.json files
+The original Python requirements in this section referred to
+`test_vision_with_test_data.py`, which is not present, and asserted accuracy,
+position-error, and frame-rate targets that were never established by a
+current reproducible evaluation. Those requirements and commands have been
+retired. The still-image files under `backend/vision/test_data/` are reference
+fixtures, not a quality gate. Current accuracy evidence requires reviewed
+temporal labels and the Rust evaluator; current throughput/freshness evidence
+comes from the Rust performance-audit tools documented in
+`docs/PERFORMANCE_AUDIT.md`.
 
 ## Implementation Guidelines
 

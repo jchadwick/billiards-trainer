@@ -6,9 +6,6 @@ publish = false
 
 [features]
 default = []
-# Compile-only camera dependency probe. This feature does not register a source
-# factory or select Nokhwa in the live executable.
-camera-nokhwa-build-spike = ["dep:nokhwa"]
 # Synthetic-only GStreamer helper probe; never registered as the live source.
 camera-gstreamer-probe = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
 # DeviceMonitor-based inventory only. This does not construct a source element
@@ -55,10 +52,6 @@ path = "src/bin/camera_discovery.rs"
 required-features = ["camera-gstreamer-discovery"]
 
 [[bin]]
-name = "billiards-perception-receive-detection-batches"
-path = "src/bin/detection_batch_receiver.rs"
-
-[[bin]]
 name = "billiards-performance-audit-run"
 path = "src/bin/performance_audit_run.rs"
 
@@ -78,7 +71,6 @@ clap = { version = "4.5.60", features = ["derive"] }
 futures-util = "0.3"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 quick-xml = "0.42"
-nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native"], optional = true }
 gstreamer = { version = "=0.24.4", default-features = false, optional = true }
 gstreamer-app = { version = "=0.24.4", default-features = false, optional = true }
 gstreamer-video = { version = "=0.24.4", default-features = false, optional = true }

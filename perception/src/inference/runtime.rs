@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +29,6 @@ use crate::detection_batch::{
     ModelIdentity, Point, SourceFrame as BatchSourceFrame, TimeUnit, TimestampStage,
     MAX_IDENTIFIER_CHARACTERS,
 };
-use crate::framing::write_framed_message;
 use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext, GeometryError};
 use crate::public_state::PublicStateConfig;
 use crate::public_state_lifecycle::{
@@ -400,7 +399,7 @@ pub enum SceneSnapshotOutputDestination {
 /// Explicit identities and destination for per-frame contract output.
 #[derive(Debug, Clone)]
 pub struct BatchOutputOptions {
-    pub destination: BatchOutputDestination,
+    pub jsonl_path: PathBuf,
     pub engine_instance_id: String,
     pub source_session_id: String,
 }
@@ -470,21 +469,6 @@ impl CalibrationAuditOptions {
     pub fn applied_rectification_revision(&self) -> u64 {
         self.applied_rectification_revision
     }
-}
-
-/// A replay-only sink. TCP uses a synchronous connection to a loopback receiver;
-/// it is not the live pipeline's bounded asynchronous transport.
-#[derive(Debug, Clone)]
-pub enum BatchOutputDestination {
-    JsonlFile {
-        path: PathBuf,
-    },
-    LoopbackTcp {
-        address: SocketAddr,
-        maximum_message_bytes: usize,
-        connect_timeout: Duration,
-        write_timeout: Duration,
-    },
 }
 
 /// Explicit inference backend policy for this recorded-image audit.
@@ -750,27 +734,13 @@ pub struct BatchOutputReport {
     pub destination: String,
     pub format: &'static str,
     pub mode: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub maximum_message_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connect_timeout_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub write_timeout_ms: Option<f64>,
     pub engine_instance_id: String,
     pub source_session_id: String,
     pub batch_count: usize,
     pub source_time: &'static str,
 }
 
-enum DetectionBatchSink {
-    Jsonl(BufWriter<fs::File>),
-    LoopbackTcp {
-        stream: TcpStream,
-        maximum_message_bytes: usize,
-    },
-}
+type DetectionBatchSink = BufWriter<fs::File>;
 
 #[derive(Debug, Serialize)]
 pub struct ModelReport {
@@ -1234,13 +1204,11 @@ pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
         .map(|path| sha256_file(path))
         .collect::<Result<Vec<_>>>()?;
 
-    let (mut batch_sink, batch_connect_ms) = match options.detection_batch_output.as_ref() {
-        Some(batch_options) => {
-            let (sink, connect_ms) = open_detection_batch_sink(batch_options)?;
-            (Some(sink), connect_ms)
-        }
-        None => (None, None),
-    };
+    let mut batch_sink = options
+        .detection_batch_output
+        .as_ref()
+        .map(open_detection_batch_sink)
+        .transpose()?;
     let mut scene_output = options
         .scene_snapshot_output
         .as_ref()
@@ -1318,16 +1286,9 @@ pub fn run_audit(options: &AuditOptions) -> Result<AuditReport> {
         .detection_batch_output
         .as_ref()
         .map(|batch_options| BatchOutputReport {
-            destination: batch_destination_label(&batch_options.destination),
-            format: batch_output_format(&batch_options.destination),
-            mode: batch_output_mode(
-                &batch_options.destination,
-                options.replay_rate_fps.is_some(),
-            ),
-            connect_ms: batch_connect_ms,
-            maximum_message_bytes: batch_maximum_message_bytes(&batch_options.destination),
-            connect_timeout_ms: batch_connect_timeout_ms(&batch_options.destination),
-            write_timeout_ms: batch_write_timeout_ms(&batch_options.destination),
+            destination: batch_options.jsonl_path.display().to_string(),
+            format: "newline_delimited_json",
+            mode: batch_output_mode(options.replay_rate_fps.is_some()),
             engine_instance_id: batch_options.engine_instance_id.clone(),
             source_session_id: batch_options.source_session_id.clone(),
             batch_count: results.len(),
@@ -1439,16 +1400,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     ensure!(
         options.details_jsonl_path.is_some() || options.maximum_detail_records == 0,
         "a nonzero detail-record limit requires a detail JSONL destination"
-    );
-    ensure!(
-        matches!(
-            audit
-                .detection_batch_output
-                .as_ref()
-                .map(|output| &output.destination),
-            None | Some(BatchOutputDestination::JsonlFile { .. })
-        ),
-        "recorded-video audits support file-based detection-batch output only"
     );
     ensure!(
         matches!(
@@ -1613,13 +1564,11 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     }
     let warmup_ms = elapsed_ms(warmup_started);
 
-    let (mut batch_sink, _batch_connect_ms) = match audit.detection_batch_output.as_ref() {
-        Some(batch_options) => {
-            let (sink, connect_ms) = open_detection_batch_sink(batch_options)?;
-            (Some(sink), connect_ms)
-        }
-        None => (None, None),
-    };
+    let mut batch_sink = audit
+        .detection_batch_output
+        .as_ref()
+        .map(open_detection_batch_sink)
+        .transpose()?;
     let mut scene_output = audit
         .scene_snapshot_output
         .as_ref()
@@ -1897,7 +1846,7 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             detection_batch_path: audit
                 .detection_batch_output
                 .as_ref()
-                .map(|output| batch_destination_label(&output.destination)),
+                .map(|output| output.jsonl_path.display().to_string()),
             detection_batch_count: batch_sink
                 .as_ref()
                 .map(|_| processed_source_frames)
@@ -3189,41 +3138,11 @@ fn validate_audit_options(
             options.max_detections <= u32::MAX as usize,
             "maximum detections exceeds the batch contract limit"
         );
-        match &batch_output.destination {
-            BatchOutputDestination::JsonlFile { path } => ensure!(
-                !path.exists(),
-                "detection batch output already exists: {}",
-                path.display()
-            ),
-            BatchOutputDestination::LoopbackTcp {
-                address,
-                maximum_message_bytes,
-                connect_timeout,
-                write_timeout,
-            } => {
-                ensure!(
-                    address.ip().is_loopback(),
-                    "batch TCP address must be loopback"
-                );
-                ensure!(
-                    *maximum_message_bytes > 0 && *maximum_message_bytes <= u32::MAX as usize,
-                    "maximum framed message size must fit a non-zero u32"
-                );
-                ensure!(
-                    !connect_timeout.is_zero() && !write_timeout.is_zero(),
-                    "batch TCP connect and write timeouts must be positive"
-                );
-            }
-        }
-        if video_source_timestamps_available {
-            ensure!(
-                matches!(
-                    &batch_output.destination,
-                    BatchOutputDestination::JsonlFile { .. }
-                ),
-                "recorded-video audits support file-based detection-batch output only"
-            );
-        }
+        ensure!(
+            !batch_output.jsonl_path.exists(),
+            "detection batch output already exists: {}",
+            batch_output.jsonl_path.display()
+        );
     }
     if let Some(calibration) = &options.calibration {
         ensure!(
@@ -3274,7 +3193,7 @@ fn validate_audit_options(
                     path.display()
                 );
                 if let Some(BatchOutputOptions {
-                    destination: BatchOutputDestination::JsonlFile { path: batch_path },
+                    jsonl_path: batch_path,
                     ..
                 }) = &options.detection_batch_output
                 {
@@ -3402,61 +3321,28 @@ fn validate_batch_identifier(value: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-fn open_detection_batch_sink(
-    options: &BatchOutputOptions,
-) -> Result<(DetectionBatchSink, Option<f64>)> {
-    match &options.destination {
-        BatchOutputDestination::JsonlFile { path } => {
-            if let Some(parent) = path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    fs::create_dir_all(parent).with_context(|| {
-                        format!(
-                            "failed to create detection batch directory {}",
-                            parent.display()
-                        )
-                    })?;
-                }
-            }
-            let file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(path)
-                .with_context(|| {
-                    format!(
-                        "failed to create detection batch output {} without overwriting",
-                        path.display()
-                    )
-                })?;
-            Ok((DetectionBatchSink::Jsonl(BufWriter::new(file)), None))
-        }
-        BatchOutputDestination::LoopbackTcp {
-            address,
-            maximum_message_bytes,
-            connect_timeout,
-            write_timeout,
-        } => {
-            ensure!(
-                address.ip().is_loopback(),
-                "batch TCP address must be loopback"
-            );
-            let connect_start = Instant::now();
-            let stream = TcpStream::connect_timeout(address, *connect_timeout)
-                .with_context(|| format!("failed to connect to batch receiver at {address}"))?;
-            stream
-                .set_write_timeout(Some(*write_timeout))
-                .context("failed to configure batch receiver write timeout")?;
-            stream
-                .set_nodelay(true)
-                .context("failed to enable low-latency batch TCP writes")?;
-            Ok((
-                DetectionBatchSink::LoopbackTcp {
-                    stream,
-                    maximum_message_bytes: *maximum_message_bytes,
-                },
-                Some(elapsed_ms(connect_start)),
-            ))
+fn open_detection_batch_sink(options: &BatchOutputOptions) -> Result<DetectionBatchSink> {
+    if let Some(parent) = options.jsonl_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create detection batch directory {}",
+                    parent.display()
+                )
+            })?;
         }
     }
+    let file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&options.jsonl_path)
+        .with_context(|| {
+            format!(
+                "failed to create detection batch output {} without overwriting",
+                options.jsonl_path.display()
+            )
+        })?;
+    Ok(BufWriter::new(file))
 }
 
 fn open_scene_snapshot_output(
@@ -3670,79 +3556,16 @@ fn summarize_scene_snapshot_output(
     }
 }
 
-fn batch_destination_label(destination: &BatchOutputDestination) -> String {
-    match destination {
-        BatchOutputDestination::JsonlFile { path } => path.display().to_string(),
-        BatchOutputDestination::LoopbackTcp { address, .. } => format!("tcp://{address}"),
-    }
-}
-
-fn batch_output_format(destination: &BatchOutputDestination) -> &'static str {
-    match destination {
-        BatchOutputDestination::JsonlFile { .. } => "newline_delimited_json",
-        BatchOutputDestination::LoopbackTcp { .. } => "length_framed_json",
-    }
-}
-
-fn batch_output_mode(destination: &BatchOutputDestination, is_paced: bool) -> &'static str {
-    match (destination, is_paced) {
-        (BatchOutputDestination::JsonlFile { .. }, false) => {
-            "synchronous_export_during_unpaced_static_replay"
-        }
-        (BatchOutputDestination::LoopbackTcp { .. }, false) => {
-            "synchronous_loopback_delivery_during_unpaced_static_replay"
-        }
-        (BatchOutputDestination::JsonlFile { .. }, true) => {
-            "synchronous_export_during_paced_latest_frame_replay"
-        }
-        (BatchOutputDestination::LoopbackTcp { .. }, true) => {
-            "synchronous_loopback_delivery_during_paced_latest_frame_replay"
-        }
-    }
-}
-
-fn batch_maximum_message_bytes(destination: &BatchOutputDestination) -> Option<usize> {
-    match destination {
-        BatchOutputDestination::JsonlFile { .. } => None,
-        BatchOutputDestination::LoopbackTcp {
-            maximum_message_bytes,
-            ..
-        } => Some(*maximum_message_bytes),
-    }
-}
-
-fn batch_connect_timeout_ms(destination: &BatchOutputDestination) -> Option<f64> {
-    match destination {
-        BatchOutputDestination::JsonlFile { .. } => None,
-        BatchOutputDestination::LoopbackTcp {
-            connect_timeout, ..
-        } => Some(connect_timeout.as_secs_f64() * 1000.0),
-    }
-}
-
-fn batch_write_timeout_ms(destination: &BatchOutputDestination) -> Option<f64> {
-    match destination {
-        BatchOutputDestination::JsonlFile { .. } => None,
-        BatchOutputDestination::LoopbackTcp { write_timeout, .. } => {
-            Some(write_timeout.as_secs_f64() * 1000.0)
-        }
+fn batch_output_mode(is_paced: bool) -> &'static str {
+    if is_paced {
+        "synchronous_export_during_paced_latest_frame_replay"
+    } else {
+        "synchronous_export_during_unpaced_static_replay"
     }
 }
 
 fn write_detection_batch(sink: &mut DetectionBatchSink, batch: &DetectionBatchV1) -> Result<()> {
-    match sink {
-        DetectionBatchSink::Jsonl(writer) => write_detection_batch_line(writer, batch),
-        DetectionBatchSink::LoopbackTcp {
-            stream,
-            maximum_message_bytes,
-        } => {
-            let json =
-                encode_detection_batch_v1(batch).context("detection batch failed validation")?;
-            write_framed_message(stream, &json, *maximum_message_bytes)
-                .context("failed to send length-framed detection batch")?;
-            Ok(())
-        }
-    }
+    write_detection_batch_line(sink, batch)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4768,11 +4591,11 @@ mod tests {
         validate_frame_inference_options, validate_inference_parameters,
         validate_replay_frame_budget, validate_scene_calibration_context,
         versioned_openvino_library_version, write_detection_batch_line, write_nchw_float32,
-        write_scene_snapshot, write_scene_snapshot_line, AuditOptions, BatchOutputDestination,
-        BatchOutputOptions, CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame,
-        FrameInferenceEngine, FrameInferenceOptions, PacedReplayMailbox,
-        PacedReplayMeasurementWindow, PacedReplayRateCounts, ProviderSelection,
-        SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoTimeline,
+        write_scene_snapshot, write_scene_snapshot_line, AuditOptions, BatchOutputOptions,
+        CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame, FrameInferenceEngine,
+        FrameInferenceOptions, PacedReplayMailbox, PacedReplayMeasurementWindow,
+        PacedReplayRateCounts, ProviderSelection, SceneSnapshotOutputDestination,
+        SceneSnapshotOutputOptions, VideoTimeline,
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
@@ -4785,7 +4608,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::collections::BTreeMap;
     use std::fs;
-    use std::net::{SocketAddr, TcpListener};
+    use std::net::TcpListener;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -4824,9 +4647,7 @@ mod tests {
                 maximum_replay_frames: None,
             },
             BatchOutputOptions {
-                destination: super::BatchOutputDestination::JsonlFile {
-                    path: PathBuf::from("batches.jsonl"),
-                },
+                jsonl_path: PathBuf::from("batches.jsonl"),
                 engine_instance_id: "engine-test-01".to_owned(),
                 source_session_id: "recording-test-01".to_owned(),
             },
@@ -5759,78 +5580,13 @@ mod tests {
         let path = directory.path().join("existing.jsonl");
         fs::write(&path, b"preserve this data").unwrap();
         let options = BatchOutputOptions {
-            destination: super::BatchOutputDestination::JsonlFile { path: path.clone() },
+            jsonl_path: path.clone(),
             engine_instance_id: "engine-test".to_owned(),
             source_session_id: "session-test".to_owned(),
         };
 
         assert!(open_detection_batch_sink(&options).is_err());
         assert_eq!(fs::read(path).unwrap(), b"preserve this data");
-    }
-
-    #[test]
-    fn loopback_sink_sends_a_complete_length_framed_batch() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let receiver = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let bytes = crate::framing::read_framed_message(&mut stream, 64 * 1024).unwrap();
-            decode_detection_batch_v1(&bytes).unwrap()
-        });
-
-        let (audit, _) = batch_options();
-        let destination = BatchOutputDestination::LoopbackTcp {
-            address,
-            maximum_message_bytes: 64 * 1024,
-            connect_timeout: Duration::from_secs(1),
-            write_timeout: Duration::from_secs(1),
-        };
-        let output = BatchOutputOptions {
-            destination,
-            engine_instance_id: "engine-test-01".to_owned(),
-            source_session_id: "recording-test-01".to_owned(),
-        };
-        let origin = Instant::now();
-        let batch = build_detection_batch(
-            0,
-            1,
-            640,
-            480,
-            &[],
-            &["cue".to_owned(), "ball".to_owned()],
-            &"a".repeat(64),
-            &"b".repeat(64),
-            &audit,
-            &output,
-            origin,
-            origin,
-            origin,
-            None,
-        )
-        .unwrap();
-        let (mut sink, connect_ms) = open_detection_batch_sink(&output).unwrap();
-        assert!(connect_ms.is_some());
-        super::write_detection_batch(&mut sink, &batch).unwrap();
-        drop(sink);
-
-        let received = receiver.join().unwrap();
-        assert_eq!(received.batch_sequence, 1);
-        assert_eq!(received.source.session_id, "recording-test-01");
-    }
-
-    #[test]
-    fn loopback_sink_rejects_non_loopback_destinations_before_connecting() {
-        let options = BatchOutputOptions {
-            destination: BatchOutputDestination::LoopbackTcp {
-                address: "192.0.2.1:1234".parse::<SocketAddr>().unwrap(),
-                maximum_message_bytes: 64 * 1024,
-                connect_timeout: Duration::from_secs(1),
-                write_timeout: Duration::from_secs(1),
-            },
-            engine_instance_id: "engine-test-01".to_owned(),
-            source_session_id: "recording-test-01".to_owned(),
-        };
-        assert!(open_detection_batch_sink(&options).is_err());
     }
 
     #[test]

@@ -13,9 +13,9 @@ mod runtime;
 pub use decode::{decode_yolo_v8_output, Detection};
 pub use preprocess::{prepare_rgb8, prepare_rgb_image, LetterboxGeometry, PreparedInput};
 pub use runtime::{
-    run_audit, run_video_audit, AuditOptions, AuditReport, BatchOutputDestination,
-    BatchOutputOptions, CalibrationAuditOptions, FrameInferenceEngine, FrameInferenceOptions,
-    FrameInferenceOutput, FrameInferenceTimings, ProviderSelection, SceneSnapshotOutputDestination,
+    run_audit, run_video_audit, AuditOptions, AuditReport, BatchOutputOptions,
+    CalibrationAuditOptions, FrameInferenceEngine, FrameInferenceOptions, FrameInferenceOutput,
+    FrameInferenceTimings, ProviderSelection, SceneSnapshotOutputDestination,
     SceneSnapshotOutputOptions, VideoReplayMode, VideoReplayOptions, VideoReplayReport,
     DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,

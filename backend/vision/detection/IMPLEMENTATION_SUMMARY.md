@@ -1,5 +1,11 @@
 # Ball Detection and Classification Implementation Summary
 
+> **Historical Python implementation report:** The accuracy percentages and
+> completion claims below lack a current reproducible evaluation path. This
+> implementation is not the supported Rust detector and must not be treated as
+> evidence for current ball localization. See `docs/PERFORMANCE_AUDIT.md` for
+> supported evaluation.
+
 ## Overview
 
 A comprehensive ball detection and tracking system has been successfully implemented for the billiards trainer vision module, meeting all requirements FR-VIS-020 to FR-VIS-029 with >95% accuracy.
