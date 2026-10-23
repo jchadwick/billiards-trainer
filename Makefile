@@ -13,7 +13,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -286,12 +286,18 @@ deps-check: ## Check locked Rust dependencies and browser package updates
 	cd frontend/web && npm outdated
 
 security-check: ## Audit Rust and browser dependencies
-	@if command -v cargo-audit >/dev/null 2>&1; then \
-		cd perception && cargo audit; \
-	else \
-		echo "$(YELLOW)cargo-audit is unavailable; install it to audit Rust dependencies.$(RESET)"; \
-	fi
+	@$(MAKE) --no-print-directory security-check-rust
+	@$(MAKE) --no-print-directory security-check-web
+
+security-check-rust: ## Audit Rust dependencies (requires cargo-audit)
+	@command -v cargo-audit >/dev/null 2>&1 || { echo "$(RED)cargo-audit is required; install cargo-audit before running this check.$(RESET)" >&2; exit 1; }
+	cd perception && cargo audit
+
+security-check-web: ## Audit browser dependencies
 	cd frontend/web && npm audit --audit-level=high
+
+test-tooling: ## Exercise developer tooling failure and command-routing behavior
+	bash scripts/tooling/tests/security-check-smoke.sh
 
 check-env: ## Check Rust, Node.js, npm, and camera build prerequisites
 	@echo "$(BLUE)Environment Check:$(RESET)"

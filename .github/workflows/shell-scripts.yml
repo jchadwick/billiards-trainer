@@ -6,6 +6,7 @@ on:
     paths:
       - "setup.sh"
       - "**/*.sh"
+      - ".githooks/**"
       - "Makefile"
       - ".github/workflows/shell-scripts.yml"
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - "setup.sh"
       - "**/*.sh"
+      - ".githooks/**"
       - "Makefile"
       - ".github/workflows/shell-scripts.yml"
   workflow_dispatch:
@@ -48,7 +50,7 @@ jobs:
           set -euo pipefail
           checked=0
           while IFS= read -r -d '' script; do
-            [[ "${script}" == *.sh ]] || continue
+            [[ "${script}" == *.sh || "${script}" == .githooks/* ]] || continue
             IFS= read -r shebang < "${script}" || shebang=""
             case "${shebang}" in
               '#!'*'/bash'|'#!'*'/bash '*|'#!'*'env bash'|'#!'*'env bash '*|'#!'*'env -S bash'|'#!'*'env -S bash '*)
@@ -66,7 +68,7 @@ jobs:
             esac
             printf '✓ %s (%s syntax)\n' "${script}" "${shell}"
             checked=$((checked + 1))
-          done < <(git ls-files -z -- '*.sh')
+          done < <(git ls-files -z -- '*.sh' '.githooks/*')
 
           if ((checked == 0)); then
             echo 'No tracked shell scripts were found.' >&2
@@ -76,3 +78,6 @@ jobs:
 
       - name: Exercise deployment package and restart behavior
         run: make test-deploy
+
+      - name: Exercise fail-closed dependency audit tooling
+        run: make test-tooling
