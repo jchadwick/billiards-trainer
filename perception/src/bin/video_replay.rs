@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{ensure, Context, Result};
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
-    run_video_audit, AuditOptions, BatchOutputOptions, ProviderSelection,
+    run_video_audit, AuditOptions, BatchOutputOptions, CalibrationAuditOptions, ProviderSelection,
     SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMode,
     VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES, DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS, DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT,
@@ -14,8 +14,10 @@ use billiards_perception::inference::{
     DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
 };
 use billiards_perception::temporal_evaluation::{
-    evaluate_files, unavailable_temporal_metrics, EvaluationConfig, FileEvaluationConfig,
+    evaluate_files, parse_annotation_document, read_bounded_file, unavailable_temporal_metrics,
+    validate_evaluation_config, EvaluationConfig, FileEvaluationConfig,
     DEFAULT_FRESHNESS_BUDGET_SECONDS, DEFAULT_MATCHING_RADIUS_FRACTION,
+    DEFAULT_MAXIMUM_ANNOTATION_BYTES,
 };
 use billiards_perception::tracking::TrackingConfigV1;
 use clap::{Parser, ValueEnum};
@@ -192,13 +194,33 @@ struct Arguments {
     #[arg(long, default_value_t = DEFAULT_MATCHING_RADIUS_FRACTION)]
     accuracy_matching_radius_fraction: f64,
 
+    /// Required with schema-v2 annotations; physical table-space match gate in millimeters.
+    #[arg(long)]
+    accuracy_physical_matching_radius_mm: Option<f64>,
+
     /// Maximum acceptable observation age in source-video seconds.
     #[arg(long, default_value_t = DEFAULT_FRESHNESS_BUDGET_SECONDS)]
     accuracy_freshness_budget_seconds: f64,
 
-    /// Input coordinate space. Defaults to raw camera pixels.
-    #[arg(long, value_enum, default_value = "raw")]
-    source_image_space: SourceImageSpaceArgument,
+    /// Input coordinate space. Required when a calibration bundle is selected; otherwise defaults to raw.
+    #[arg(long, value_enum)]
+    source_image_space: Option<SourceImageSpaceArgument>,
+
+    /// Immutable table-calibration bundle used to add table-space measurements.
+    #[arg(long)]
+    calibration_bundle: Option<PathBuf>,
+
+    /// Camera profile identifier asserted as applied to the replay input.
+    #[arg(long)]
+    applied_camera_profile_id: Option<String>,
+
+    /// Calibration revision asserted as applied to the replay input.
+    #[arg(long)]
+    applied_calibration_revision: Option<u64>,
+
+    /// Rectification revision asserted as applied to the replay input.
+    #[arg(long)]
+    applied_rectification_revision: Option<u64>,
 
     /// Optional raw detection-batch JSONL accuracy artifact.
     #[arg(long)]
@@ -327,6 +349,26 @@ fn main() -> Result<()> {
             && arguments.accuracy_freshness_budget_seconds >= 0.0,
         "accuracy freshness budget must be finite and non-negative"
     );
+    if let Some(radius_mm) = arguments.accuracy_physical_matching_radius_mm {
+        ensure!(
+            radius_mm.is_finite() && radius_mm > 0.0,
+            "accuracy physical matching radius must be finite and positive"
+        );
+    }
+    let accuracy_config = EvaluationConfig {
+        matching_radius_fraction: arguments.accuracy_matching_radius_fraction,
+        freshness_budget_seconds: arguments.accuracy_freshness_budget_seconds,
+        physical_matching_radius_mm: arguments.accuracy_physical_matching_radius_mm,
+    };
+    let annotation_path = arguments
+        .annotations
+        .as_deref()
+        .map(resolve_from_current_directory);
+    validate_accuracy_annotations(
+        annotation_path.as_deref(),
+        accuracy_config,
+        DEFAULT_MAXIMUM_ANNOTATION_BYTES,
+    )?;
     let report_paths = [
         Some(output_json.as_path()),
         Some(output_markdown.as_path()),
@@ -350,6 +392,10 @@ fn main() -> Result<()> {
         arguments.engine_instance_id.clone(),
         arguments.source_session_id.clone(),
     )?;
+    let calibration = calibration_audit_options(&arguments, batch_output.is_some())?;
+    let source_image_space = arguments
+        .source_image_space
+        .unwrap_or(SourceImageSpaceArgument::Raw);
     let scene_output =
         scene_snapshot_output_options(scene_snapshots_jsonl, batch_output.is_some(), &arguments)?;
     let scoring_scene_path = scene_output
@@ -375,9 +421,9 @@ fn main() -> Result<()> {
             warmup_runs: arguments.warmup_runs,
             retained_provider_profile: None,
             dump_preprocessed_directory: None,
-            source_image_space: arguments.source_image_space.into(),
+            source_image_space: source_image_space.into(),
             detection_batch_output: batch_output,
-            calibration: None,
+            calibration,
             scene_snapshot_output: scene_output,
             replay_rate_fps: None,
             replay_repeat_count: 1,
@@ -397,24 +443,21 @@ fn main() -> Result<()> {
         maximum_detail_records,
     })?;
     report.run_id = Some(run_id.clone());
-    report.temporal_accuracy = if let Some(annotation_path) = arguments.annotations.as_deref() {
-        let annotation_path = resolve_from_current_directory(annotation_path);
+    report.temporal_accuracy = if let Some(annotation_path) = annotation_path.as_deref() {
         let scene_path = scoring_scene_path
             .as_deref()
             .context("scene snapshot output path disappeared before accuracy scoring")?;
         Some(evaluate_files(
             &scored_video_path,
-            &annotation_path,
+            annotation_path,
             scene_path,
             &ffprobe_for_scoring,
             FileEvaluationConfig {
                 frame_index_offset: arguments.accuracy_frame_index_offset,
-                evaluation: EvaluationConfig {
-                    matching_radius_fraction: arguments.accuracy_matching_radius_fraction,
-                    freshness_budget_seconds: arguments.accuracy_freshness_budget_seconds,
-                },
+                evaluation: accuracy_config,
                 ffprobe_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
                 maximum_video_bytes: arguments.maximum_video_bytes,
+                maximum_annotation_bytes: DEFAULT_MAXIMUM_ANNOTATION_BYTES,
                 ..FileEvaluationConfig::default()
             },
         )?)
@@ -438,6 +481,25 @@ fn main() -> Result<()> {
     print_terminal_summary(&report, &output_json, &output_markdown);
     println!("{json}");
     Ok(())
+}
+
+fn validate_accuracy_annotations(
+    annotation_path: Option<&Path>,
+    config: EvaluationConfig,
+    maximum_annotation_bytes: u64,
+) -> Result<()> {
+    let Some(annotation_path) = annotation_path else {
+        ensure!(
+            config.physical_matching_radius_mm.is_none(),
+            "--accuracy-physical-matching-radius-mm requires --annotations"
+        );
+        return Ok(());
+    };
+    let annotation_bytes =
+        read_bounded_file(annotation_path, maximum_annotation_bytes, "annotation file")?;
+    let annotations = parse_annotation_document(&annotation_bytes)?;
+    validate_evaluation_config(annotations.schema_version, config)
+        .context("invalid temporal accuracy configuration")
 }
 
 fn render_markdown(
@@ -498,6 +560,18 @@ fn render_markdown(
         report.environment.logical_cpu_count.map_or_else(|| "unavailable".to_owned(), |count| count.to_string()),
         report.environment.total_memory_bytes.map_or_else(|| "unavailable".to_owned(), |bytes| bytes.to_string()),
     ));
+    if let Some(calibration) = &report.calibration {
+        output.push_str(&format!(
+            "- Calibration bundle SHA-256: `{}`; applied profile `{}`, calibration revision {}, rectification revision {}; calibrated {}/{} frames and {} detections\n",
+            calibration.bundle_sha256,
+            calibration.applied_camera_profile_id,
+            calibration.applied_calibration_revision,
+            calibration.applied_rectification_revision,
+            calibration.calibrated_frame_count,
+            calibration.frame_count,
+            calibration.calibrated_detection_count,
+        ));
+    }
     output.push_str("## Results\n\n");
     output.push_str(&format!(
         "- Processed {}/{} source observations; latest-frame replacements: {}\n- Processed rate: {} observations/s; source rate: {} observations/s\n- Processed-frame source deadlines missed: {}\n- Source-to-inference-start latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Source-to-inference-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Mean preprocessing: {:.2} ms; inference: {:.2} ms; decode/NMS: {:.2} ms\n- Measured wall time: {:.2} ms; offline decode {:.2} ms was excluded\n- Detailed trace records: {} written, {} omitted by the configured limit\n\n",
@@ -523,6 +597,15 @@ fn render_markdown(
         report.artifacts.detailed_trace_written,
         report.artifacts.detailed_trace_dropped_by_limit,
     ));
+    if let Some(calibration_latency) = &measurement.source_to_calibration_complete_ms {
+        output.push_str(&format!(
+            "- PTS-schedule-to-calibration-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n",
+            calibration_latency.sample_count,
+            optional_float(calibration_latency.p50_ms),
+            optional_float(calibration_latency.p95_ms),
+            optional_float(calibration_latency.p99_ms),
+        ));
+    }
     if let Some(accuracy) = &report.temporal_accuracy {
         let status = accuracy
             .pointer("/temporal_localization/status")
@@ -535,6 +618,7 @@ fn render_markdown(
         if let Some(metrics) = accuracy.get("temporal_localization") {
             for key in [
                 "ball_localization",
+                "physical_localization",
                 "tracking",
                 "cue",
                 "observation_freshness",
@@ -725,6 +809,49 @@ fn batch_output_options(
     }))
 }
 
+fn calibration_audit_options(
+    arguments: &Arguments,
+    has_detection_batch_output: bool,
+) -> Result<Option<CalibrationAuditOptions>> {
+    let has_calibration_setting = arguments.calibration_bundle.is_some()
+        || arguments.applied_camera_profile_id.is_some()
+        || arguments.applied_calibration_revision.is_some()
+        || arguments.applied_rectification_revision.is_some();
+    if !has_calibration_setting {
+        return Ok(None);
+    }
+
+    let bundle_path = arguments
+        .calibration_bundle
+        .clone()
+        .context("--calibration-bundle is required for calibrated replay")?;
+    ensure!(
+        has_detection_batch_output,
+        "calibrated replay requires detection-batch output to preserve raw results"
+    );
+    ensure!(
+        arguments.source_image_space.is_some(),
+        "--source-image-space must be explicit when --calibration-bundle is used"
+    );
+    let applied_camera_profile_id = arguments
+        .applied_camera_profile_id
+        .clone()
+        .context("--applied-camera-profile-id is required with --calibration-bundle")?;
+    let applied_calibration_revision = arguments
+        .applied_calibration_revision
+        .context("--applied-calibration-revision is required with --calibration-bundle")?;
+    let applied_rectification_revision = arguments
+        .applied_rectification_revision
+        .context("--applied-rectification-revision is required with --calibration-bundle")?;
+
+    Ok(Some(CalibrationAuditOptions::load(
+        bundle_path,
+        applied_camera_profile_id,
+        applied_calibration_revision,
+        applied_rectification_revision,
+    )?))
+}
+
 fn scene_snapshot_output_options(
     path: Option<PathBuf>,
     has_detection_batch_output: bool,
@@ -808,7 +935,10 @@ fn scene_snapshot_output_options(
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_path, run_identity, Arguments, ModeArgument};
+    use super::{
+        normalize_path, run_identity, validate_accuracy_annotations, Arguments, ModeArgument,
+    };
+    use billiards_perception::temporal_evaluation::EvaluationConfig;
     use clap::Parser;
     use std::path::Path;
 
@@ -878,5 +1008,48 @@ mod tests {
     fn normalized_output_paths_collapse_parent_components() {
         let path = normalize_path(Path::new("one/../two/report.json"));
         assert!(path.ends_with("two/report.json"));
+    }
+
+    #[test]
+    fn physical_annotation_gate_is_validated_before_replay() {
+        let directory = tempfile::tempdir().unwrap();
+        let annotation_path = directory.path().join("physical-annotations.json");
+        std::fs::write(
+            &annotation_path,
+            include_bytes!("../../contracts/v2/temporal-localization-annotations-v2.example.json"),
+        )
+        .unwrap();
+
+        let missing_gate = validate_accuracy_annotations(
+            Some(&annotation_path),
+            EvaluationConfig::default(),
+            1024 * 1024,
+        )
+        .unwrap_err();
+        assert!(format!("{missing_gate:#}").contains("explicit physical_matching_radius_mm"));
+
+        validate_accuracy_annotations(
+            Some(&annotation_path),
+            EvaluationConfig {
+                physical_matching_radius_mm: Some(25.0),
+                ..EvaluationConfig::default()
+            },
+            1024 * 1024,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn physical_accuracy_gate_requires_annotation_input() {
+        let error = validate_accuracy_annotations(
+            None,
+            EvaluationConfig {
+                physical_matching_radius_mm: Some(25.0),
+                ..EvaluationConfig::default()
+            },
+            1024,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("requires --annotations"));
     }
 }

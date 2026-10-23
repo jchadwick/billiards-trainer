@@ -96,6 +96,27 @@ and validates the bundle while hashing those exact bytes, so reported bundle
 provenance cannot drift from the geometry used in the replay. Live capture still
 lacks an applied calibration control path.
 
+## Temporal localization annotations v1 and v2
+
+`v1/temporal-localization-annotations-v1.schema.json` preserves the original
+pixel-only labels. The annotation importer continues to emit v1. Schema v2
+adds independently measured table-space ball centers and makes each frame's
+physical label coverage explicit as `complete` or `unavailable`. A complete
+frame must include a table-space center for every visible labeled ball; an
+unavailable frame carries no physical coordinates. V2 also requires the table
+dimensions, the exact center-origin axes above, a measurement method
+description, and an estimated 95% position uncertainty. The shared v2 example
+is validated by Rust and Python contract tests.
+
+Pixel and physical localization are scored separately. Physical scoring uses
+fresh detector observations with calibrated positions only, and requires an
+explicit positive millimeter matching gate; the reported matched-position
+error percentiles are conditional on that gate. Unlocalized output is reported
+separately and is included in physical-output precision. Neither schema nor
+calibration alone establishes physical accuracy: claims require held-out,
+independently measured positions. The video replay CLI validates annotation
+semantics and the matching gate before starting expensive inference.
+
 ## Detection batch v1
 
 `detection-batch/v1/detection-batch.schema.json` is the Stage 2 inference

@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://billiards-trainer.local/schemas/temporal-localization-annotations-v2.schema.json",
+  "title": "Billiards temporal localization annotations with physical ground truth",
+  "description": "Presentation-time labels with optional independent, complete table-space positions on explicitly scored frames.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sequence", "frames"],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 2},
+    "annotation_metadata": {"$ref": "#/$defs/annotation_metadata"},
+    "sequence": {"$ref": "#/$defs/sequence"},
+    "frames": {
+      "type": "array",
+      "minItems": 1,
+      "contains": {
+        "properties": {"physical_ground_truth_status": {"const": "complete"}},
+        "required": ["physical_ground_truth_status"]
+      },
+      "items": {"$ref": "#/$defs/frame"}
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {"x": {"type": "number"}, "y": {"type": "number"}}
+    },
+    "annotation_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_annotation_format",
+        "source_annotation_sha256",
+        "reviewed_frames_sha256",
+        "epoch_events_sha256",
+        "frame_index_offset",
+        "source_video_stream_index",
+        "presentation_time_source",
+        "presentation_time_origin_seconds",
+        "ball_radius_method",
+        "cue_polyline_point_order",
+        "tool_version"
+      ],
+      "properties": {
+        "source_annotation_format": {"const": "cvat_video_1.1"},
+        "source_annotation_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "reviewed_frames_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "epoch_events_sha256": {
+          "oneOf": [
+            {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+            {"type": "null"}
+          ]
+        },
+        "frame_index_offset": {"type": "integer"},
+        "source_video_stream_index": {"type": "integer", "minimum": 0},
+        "presentation_time_source": {"const": "ffprobe_best_effort_timestamp_time"},
+        "presentation_time_origin_seconds": {"type": "number"},
+        "ball_radius_method": {"const": "mean_box_half_extent"},
+        "cue_polyline_point_order": {"const": "first_tip_second_butt"},
+        "tool_version": {"const": 1}
+      }
+    },
+    "physical_ground_truth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coordinate_frame",
+        "table_width_mm",
+        "table_height_mm",
+        "measurement_method",
+        "measurement_method_description",
+        "estimated_position_uncertainty_95_mm"
+      ],
+      "properties": {
+        "coordinate_frame": {"const": "center_origin_x_corner0_to1_y_corner0_to3"},
+        "table_width_mm": {"type": "number", "exclusiveMinimum": 0},
+        "table_height_mm": {"type": "number", "exclusiveMinimum": 0},
+        "measurement_method": {"const": "independent_physical_measurement"},
+        "measurement_method_description": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "estimated_position_uncertainty_95_mm": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "sequence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["video_sha256", "width", "height", "coordinate_space", "physical_ground_truth"],
+      "properties": {
+        "video_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "coordinate_space": {"const": "source_pixels"},
+        "physical_ground_truth": {"$ref": "#/$defs/physical_ground_truth"}
+      }
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_frame_index",
+        "presentation_time_seconds",
+        "expected_calibration_revision",
+        "expected_source_session_epoch",
+        "physical_ground_truth_status",
+        "balls",
+        "cue"
+      ],
+      "properties": {
+        "source_frame_index": {"type": "integer", "minimum": 0},
+        "presentation_time_seconds": {"type": "number", "minimum": 0},
+        "expected_calibration_revision": {"type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991},
+        "expected_source_session_epoch": {"type": ["string", "null"]},
+        "physical_ground_truth_status": {"enum": ["complete", "unavailable"]},
+        "balls": {"type": "array", "items": {"$ref": "#/$defs/ball"}},
+        "cue": {"$ref": "#/$defs/cue"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"physical_ground_truth_status": {"const": "complete"}}, "required": ["physical_ground_truth_status"]},
+          "then": {
+            "properties": {
+              "balls": {
+                "items": {
+                  "allOf": [
+                    {"if": {"properties": {"status": {"const": "visible"}}, "required": ["status"]}, "then": {"required": ["center_table_mm"]}}
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"physical_ground_truth_status": {"const": "unavailable"}}, "required": ["physical_ground_truth_status"]},
+          "then": {
+            "properties": {
+              "balls": {
+                "items": {"not": {"required": ["center_table_mm"]}}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ball": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ball_id", "status"],
+      "properties": {
+        "ball_id": {"type": "string", "minLength": 1},
+        "status": {"enum": ["visible", "occluded", "removed"]},
+        "center": {"$ref": "#/$defs/point"},
+        "radius_px": {"type": "number", "exclusiveMinimum": 0},
+        "center_table_mm": {"$ref": "#/$defs/point"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "visible"}}, "required": ["status"]},
+          "then": {"required": ["center", "radius_px"]},
+          "else": {"not": {"anyOf": [{"required": ["center"]}, {"required": ["radius_px"]}, {"required": ["center_table_mm"]}]}}
+        }
+      ]
+    },
+    "cue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["visible", "occluded", "absent"]},
+        "tip": {"$ref": "#/$defs/point"},
+        "butt": {"$ref": "#/$defs/point"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "visible"}}, "required": ["status"]},
+          "then": {"required": ["tip", "butt"]},
+          "else": {"not": {"anyOf": [{"required": ["tip"]}, {"required": ["butt"]}]}}
+        }
+      ]
+    }
+  }
+}

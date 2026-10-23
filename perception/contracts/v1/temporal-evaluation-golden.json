@@ -188,6 +188,12 @@
       "algorithm": "global minimum-cost assignment with maximum valid cardinality",
       "radius_fraction": 0.5
     },
+    "physical_localization": {
+      "metrics": null,
+      "reason": "annotation schema v1 contains no independent physical table-space ground truth",
+      "status": "unavailable",
+      "unit": "millimeters"
+    },
     "observation_freshness": {
       "age_seconds_count": 2,
       "age_seconds_mean": 0.025000000000000022,

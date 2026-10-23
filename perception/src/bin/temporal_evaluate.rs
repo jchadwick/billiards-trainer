@@ -38,6 +38,9 @@ struct Arguments {
     /// Match gate as a fraction of each labeled ball's radius.
     #[arg(long, default_value_t = DEFAULT_MATCHING_RADIUS_FRACTION)]
     matching_radius_fraction: f64,
+    /// Required with schema-v2 physical labels; maximum table-space match distance in millimeters.
+    #[arg(long)]
+    physical_matching_radius_mm: Option<f64>,
     /// Maximum acceptable observed-state age in recorded-video seconds.
     #[arg(long, default_value_t = DEFAULT_FRESHNESS_BUDGET_SECONDS)]
     freshness_budget_seconds: f64,
@@ -65,6 +68,7 @@ fn main() -> Result<()> {
         evaluation: EvaluationConfig {
             matching_radius_fraction: arguments.matching_radius_fraction,
             freshness_budget_seconds: arguments.freshness_budget_seconds,
+            physical_matching_radius_mm: arguments.physical_matching_radius_mm,
         },
         ffprobe_timeout: Duration::from_secs(arguments.ffprobe_timeout_seconds),
         maximum_video_bytes: arguments.maximum_video_bytes,

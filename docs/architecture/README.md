@@ -36,7 +36,9 @@ reviewed-label scoring. The retired Python collector/profile benchmark,
 still-image equivalence evaluator, and collector-only Rust adapters are
 historical. ADR-0084 implements bounded recorded-video capacity/freshness
 replay; browser/video-viewer interference and representative temporal accuracy
-evidence remain open.
+evidence remain open. ADR-0093 extends the same Rust evaluator with a strict
+v2 physical-coordinate annotation path and opt-in recorded-video calibration;
+independently measured held-out physical accuracy evidence remains open.
 Optional dataset preparation, camera calibration authoring, and model export
 remain off-device. Standalone Python accuracy/performance evaluators are
 retired. Python profiler/status endpoints are retired rather than retained in
@@ -269,6 +271,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0090](decisions/0090-keep-browser-client-focused-on-live-detection.md) | Keep browser client focused on live detection | Accepted | Browser client scope | Retain direct MJPEG, reconnecting state WebSocket, freshness and coordinate handling; remove unreachable UI surfaces and keep HTML/JS/CSS |
 | [0091](decisions/0091-retire-disconnected-projector-tooling.md) | Retire disconnected projector tooling | Accepted | Projector tooling | Remove fake UDP senders, unused Docker dev image and love.js packaging; retain the native projector and Lua coordinate-contract checks |
 | [0092](decisions/0092-use-onnx-as-the-only-maintained-model-export.md) | Use ONNX as the only maintained model export | Accepted | Model authoring | Retire the unused CoreML exporter branch and its model-export dependency; keep the lineage-bound ONNX artifact for Rust CPU, auto, and OpenVINO inference |
+| [0093](decisions/0093-score-temporal-localization-in-physical-table-coordinates.md) | Score temporal localization in physical table coordinates | Accepted | Accuracy evaluation | Preserve pixel-only v1 labels; v2 requires complete independently measured table-space labels per scored frame and an explicit millimeter match gate; production evidence remains open |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

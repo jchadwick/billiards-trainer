@@ -161,6 +161,7 @@ pub fn build_temporal_annotations(config: &CvatImportConfig) -> Result<Annotatio
                         status: AnnotationBallStatus::Removed,
                         center: None,
                         radius_px: None,
+                        center_table_mm: None,
                     }
                 } else if shape.occluded {
                     AnnotationBall {
@@ -168,6 +169,7 @@ pub fn build_temporal_annotations(config: &CvatImportConfig) -> Result<Annotatio
                         status: AnnotationBallStatus::Occluded,
                         center: None,
                         radius_px: None,
+                        center_table_mm: None,
                     }
                 } else {
                     let (x1, y1, x2, y2) = shape
@@ -181,6 +183,7 @@ pub fn build_temporal_annotations(config: &CvatImportConfig) -> Result<Annotatio
                             y: (y1 + y2) / 2.0,
                         }),
                         radius_px: Some(((x2 - x1) + (y2 - y1)) / 4.0),
+                        center_table_mm: None,
                     }
                 };
                 balls.push(ball);
@@ -224,6 +227,7 @@ pub fn build_temporal_annotations(config: &CvatImportConfig) -> Result<Annotatio
             expected_calibration_revision: epoch.and_then(|event| event.calibration_revision),
             expected_source_session_epoch: epoch
                 .and_then(|event| event.source_session_epoch.clone()),
+            physical_ground_truth_status: None,
             balls,
             cue,
         });
@@ -236,6 +240,7 @@ pub fn build_temporal_annotations(config: &CvatImportConfig) -> Result<Annotatio
             width: timeline.width,
             height: timeline.height,
             coordinate_space: "source_pixels".to_owned(),
+            physical_ground_truth: None,
         },
         frames,
         annotation_metadata: Some(AnnotationMetadata {

@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "sequence": {
+    "video_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "width": 1280,
+    "height": 720,
+    "coordinate_space": "source_pixels",
+    "physical_ground_truth": {
+      "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+      "table_width_mm": 2000.0,
+      "table_height_mm": 1000.0,
+      "measurement_method": "independent_physical_measurement",
+      "measurement_method_description": "Surveyed table grid and manually measured ball centers",
+      "estimated_position_uncertainty_95_mm": 4.0
+    }
+  },
+  "frames": [
+    {
+      "source_frame_index": 0,
+      "presentation_time_seconds": 0.0,
+      "expected_calibration_revision": null,
+      "expected_source_session_epoch": null,
+      "physical_ground_truth_status": "complete",
+      "balls": [
+        {
+          "ball_id": "ball-1",
+          "status": "visible",
+          "center": {"x": 400.0, "y": 300.0},
+          "radius_px": 12.0,
+          "center_table_mm": {"x": -250.0, "y": -100.0}
+        }
+      ],
+      "cue": {"status": "absent"}
+    },
+    {
+      "source_frame_index": 1,
+      "presentation_time_seconds": 0.033,
+      "expected_calibration_revision": null,
+      "expected_source_session_epoch": null,
+      "physical_ground_truth_status": "unavailable",
+      "balls": [],
+      "cue": {"status": "absent"}
+    }
+  ]
+}

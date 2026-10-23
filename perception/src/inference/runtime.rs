@@ -545,6 +545,8 @@ pub struct VideoReplayReport {
     pub measurement: VideoReplayMeasurementReport,
     pub artifacts: VideoReplayArtifactsReport,
     pub effective_tracking_configuration: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calibration: Option<CalibrationAuditReport>,
     pub batch_engine_instance_id: Option<String>,
     pub source_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -638,6 +640,8 @@ pub struct VideoReplayMeasurementReport {
     pub processed_completions_after_source_window: Option<usize>,
     pub source_to_inference_start_ms: LatencyPercentiles,
     pub source_to_inference_complete_ms: LatencyPercentiles,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_to_calibration_complete_ms: Option<LatencyPercentiles>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1381,10 +1385,6 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         "video replay uses source PTS and does not accept still-image replay rate or repeat options"
     );
     ensure!(
-        audit.calibration.is_none(),
-        "recorded-video calibration output is not supported until source-clock semantics are defined for both replay modes"
-    );
-    ensure!(
         audit.dump_preprocessed_directory.is_none(),
         "video replay does not support per-frame tensor dumps"
     );
@@ -1613,6 +1613,9 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     let mut completions_after_source_window = 0usize;
     let mut source_to_start_samples = Vec::with_capacity(timeline.frame_count().min(4096));
     let mut source_to_complete_samples = Vec::with_capacity(timeline.frame_count().min(4096));
+    let mut source_to_calibration_samples = Vec::with_capacity(timeline.frame_count().min(4096));
+    let mut calibrated_frame_count = 0usize;
+    let mut calibrated_detection_count = 0usize;
     let mut preprocess_total_ms = 0.0;
     let mut inference_total_ms = 0.0;
     let mut decode_and_nms_total_ms = 0.0;
@@ -1696,6 +1699,15 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         }
         if let Some(latency) = result.source_to_inference_complete_ms {
             source_to_complete_samples.push(latency);
+        }
+        if let Some(latency) = result.source_to_calibration_complete_ms {
+            source_to_calibration_samples.push(latency);
+        }
+        if let Some(calibration) = &result.calibration {
+            if matches!(calibration.status, CalibrationStatus::Valid) {
+                calibrated_frame_count += 1;
+                calibrated_detection_count += calibration.measurements.as_ref().map_or(0, Vec::len);
+            }
         }
         preprocess_total_ms += result.timings.preprocess_ms;
         inference_total_ms += result.timings.inference_ms;
@@ -1841,6 +1853,11 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                 .map(|_| completions_after_source_window),
             source_to_inference_start_ms: percentile_summary(source_to_start_samples),
             source_to_inference_complete_ms: percentile_summary(source_to_complete_samples),
+            source_to_calibration_complete_ms: calibration_latency_summary(
+                options.mode,
+                audit.calibration.is_some(),
+                source_to_calibration_samples,
+            ),
         },
         artifacts: VideoReplayArtifactsReport {
             detection_batch_path: audit
@@ -1886,6 +1903,15 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                 "rectification_revision": output.tracking.rectification_revision(),
             })
         }),
+        calibration: audit.calibration.as_ref().map(|options| {
+            summarize_calibration_counts(
+                options,
+                audit.source_image_space,
+                processed_source_frames,
+                calibrated_frame_count,
+                calibrated_detection_count,
+            )
+        }),
         batch_engine_instance_id: audit
             .detection_batch_output
             .as_ref()
@@ -1895,12 +1921,20 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             .as_ref()
             .map(|output| output.source_session_id.clone()),
         temporal_accuracy: None,
-        unsupported_measurements: vec![
+        unsupported_measurements: {
+            let mut unsupported = vec![
             "camera_exposure_to_decode_latency",
             "browser_render_and_physical_display_latency",
             "process_cpu_utilization_and_memory_trend",
             "accelerator_per_node_assignment_for_native_openvino",
-        ],
+            ];
+            if audit.calibration.is_some()
+                && options.mode == VideoReplayMode::Capacity
+            {
+                unsupported.push("source_to_calibration_latency_for_unpaced_capacity_replay");
+            }
+            unsupported
+        },
     };
     Ok(report)
 }
@@ -2532,12 +2566,11 @@ fn process_frame(
                 ));
             }
             calibration_ms = Some(elapsed_ms(calibration_start));
-            source_to_calibration_complete_ms = frame.source_arrived_at.map(|source_arrived_at| {
-                Instant::now()
-                    .saturating_duration_since(source_arrived_at)
-                    .as_secs_f64()
-                    * 1000.0
-            });
+            source_to_calibration_complete_ms = paced_source_to_calibration_latency_ms(
+                frame.scheduled_at,
+                frame.source_arrived_at,
+                Instant::now(),
+            );
         }
 
         if let Some(scene_runtime) = context.scene_output.as_mut() {
@@ -4463,6 +4496,22 @@ fn summarize_calibration(
         .map(Vec::len)
         .sum();
 
+    summarize_calibration_counts(
+        options,
+        applied_image_space,
+        results.len(),
+        calibrated_frame_count,
+        calibrated_detection_count,
+    )
+}
+
+fn summarize_calibration_counts(
+    options: &CalibrationAuditOptions,
+    applied_image_space: ImageSpace,
+    frame_count: usize,
+    calibrated_frame_count: usize,
+    calibrated_detection_count: usize,
+) -> CalibrationAuditReport {
     let (bundle_source_width_px, bundle_source_height_px) =
         options.calibration.source_dimensions_px();
     CalibrationAuditReport {
@@ -4478,11 +4527,35 @@ fn summarize_calibration(
         applied_camera_profile_id: options.applied_camera_profile_id.clone(),
         applied_rectification_revision: options.applied_rectification_revision,
         applied_image_space,
-        frame_count: results.len(),
+        frame_count,
         calibrated_frame_count,
-        unavailable_frame_count: results.len() - calibrated_frame_count,
+        unavailable_frame_count: frame_count - calibrated_frame_count,
         calibrated_detection_count,
     }
+}
+
+fn calibration_latency_summary(
+    mode: VideoReplayMode,
+    calibration_enabled: bool,
+    samples_ms: Vec<f64>,
+) -> Option<LatencyPercentiles> {
+    (mode == VideoReplayMode::RealtimeLatestFrame && calibration_enabled)
+        .then(|| percentile_summary(samples_ms))
+}
+
+fn paced_source_to_calibration_latency_ms(
+    scheduled_at: Option<Instant>,
+    source_arrived_at: Option<Instant>,
+    calibration_completed_at: Instant,
+) -> Option<f64> {
+    scheduled_at
+        .zip(source_arrived_at)
+        .map(|(_, source_arrived_at)| {
+            calibration_completed_at
+                .saturating_duration_since(source_arrived_at)
+                .as_secs_f64()
+                * 1000.0
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -4582,10 +4655,11 @@ fn elapsed_ms(start: Instant) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_detection_batch, calibration_report_for_batch, checked_duration_from_seconds,
-        completed_after_source_deadline, expected_anchor_count, find_versioned_openvino_c_library,
-        frames_per_second, ingest_replay_scene, latest_due_source_index, load_and_verify_manifest,
-        open_detection_batch_sink, open_scene_snapshot_output, parse_provider_profile,
+        build_detection_batch, calibration_latency_summary, calibration_report_for_batch,
+        checked_duration_from_seconds, completed_after_source_deadline, expected_anchor_count,
+        find_versioned_openvino_c_library, frames_per_second, ingest_replay_scene,
+        latest_due_source_index, load_and_verify_manifest, open_detection_batch_sink,
+        open_scene_snapshot_output, paced_source_to_calibration_latency_ms, parse_provider_profile,
         percentile_summary, produce_paced_frames, replay_frame_period, run_bounded_command,
         sha256_file, timeline_media_duration, validate_batch_identifier,
         validate_frame_inference_options, validate_inference_parameters,
@@ -4595,7 +4669,7 @@ mod tests {
         CalibrationAuditOptions, CalibrationStatus, DecodedReplayFrame, FrameInferenceEngine,
         FrameInferenceOptions, PacedReplayMailbox, PacedReplayMeasurementWindow,
         PacedReplayRateCounts, ProviderSelection, SceneSnapshotOutputDestination,
-        SceneSnapshotOutputOptions, VideoTimeline,
+        SceneSnapshotOutputOptions, VideoReplayMode, VideoTimeline,
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
@@ -4711,6 +4785,45 @@ mod tests {
         let empty = calibration_report_for_batch(&empty_batch, &calibration_options(3)).unwrap();
         assert!(matches!(empty.status, CalibrationStatus::Valid));
         assert_eq!(empty.measurements, Some(Vec::new()));
+    }
+
+    #[test]
+    fn calibration_latency_is_reported_only_for_paced_source_timing() {
+        let source_arrived_at = Instant::now();
+        let completed_at = source_arrived_at + Duration::from_millis(12);
+
+        assert_eq!(
+            paced_source_to_calibration_latency_ms(
+                Some(source_arrived_at),
+                Some(source_arrived_at),
+                completed_at,
+            ),
+            Some(12.0)
+        );
+        assert!(paced_source_to_calibration_latency_ms(
+            None,
+            Some(source_arrived_at),
+            completed_at,
+        )
+        .is_none());
+        assert!(paced_source_to_calibration_latency_ms(
+            Some(source_arrived_at),
+            None,
+            completed_at,
+        )
+        .is_none());
+
+        let realtime =
+            calibration_latency_summary(VideoReplayMode::RealtimeLatestFrame, true, vec![12.0])
+                .unwrap();
+        assert_eq!(realtime.sample_count, 1);
+        assert!(calibration_latency_summary(VideoReplayMode::Capacity, true, vec![12.0]).is_none());
+        assert!(calibration_latency_summary(
+            VideoReplayMode::RealtimeLatestFrame,
+            false,
+            vec![12.0],
+        )
+        .is_none());
     }
 
     #[test]

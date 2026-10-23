@@ -19,7 +19,7 @@ commands or baselines.
 | Rust still-image inference | Keep as diagnostic | Useful to inspect a model and decoder; still images do not establish live capacity, freshness, or accuracy. |
 | Rust live performance audit | Keep as canonical | Measures state delivery and optional detector timings with bounded artifacts. |
 | Rust recorded-video replay (`billiards-perception-video-replay`) | Keep as canonical, narrowly scoped | PTS-paced latest-frame mode measures detector-side freshness; unpaced mode measures processing capacity. It reuses current Rust inference and optional temporal scoring, but predecodes video and does not represent live camera/decoder contention or browser rendering. |
-| Rust temporal label importer/evaluator | Keep as canonical | Imports reviewed video labels and scores temporally aligned state; accuracy evidence still depends on adequate labels. |
+| Rust temporal label importer/evaluator | Keep as canonical | Imports reviewed video labels and scores temporally aligned state. V1 remains pixel-only; v2 adds independently measured table coordinates with explicit uncertainty and a required millimeter gate. Recorded-video calibration feeds this scorer, but held-out physical accuracy evidence still needs to be collected. |
 | Rust detection-batch receiver and synchronous still-image TCP sender | Retire | The only retained workflow was the retired still-image equivalence evaluator. Current video scoring uses bounded JSONL artifacts; live state receipt uses the scene transport and audit subscriber. The old receiver's tests no longer protect a supported caller. |
 | `perception/contracts/public-state/generate_fixtures.py` | Keep as migration-only test oracle | Captures the actual Python adapter output used for Rust differential fixtures. It is not a server/runtime tool and should be removed when the compatibility oracle and its fixtures are re-baselined. |
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
@@ -330,3 +330,15 @@ path remain untested.
   preparation or supported legacy calibration CLI. Development setup now checks
   for Vite itself, the dependency required by `make build-frontend`, instead of
   accepting any `node_modules` directory. The setup verifier passed on this Mac.
+- The physical-accuracy extension keeps the Rust temporal evaluator as the
+  single scored-label path. V1 pixel labels and importer output remain
+  compatible; v2 requires independently measured physical positions, declared
+  table axes/dimensions, a stated 95% uncertainty, and an explicit millimeter
+  match gate. Recorded-video replay now applies the existing calibration bundle
+  and reports its provenance and calibrated coverage; capacity mode does not
+  claim source-to-calibration latency. Schema semantics and gate errors are
+  checked before detector startup. Validation passed: 312 Rust library tests,
+  all default-feature Rust binary/integration targets, 7 shared Python schema
+  tests, strict Clippy, formatting, `git diff --check`, and all 93 ADR checks.
+  No held-out independent physical label set exists yet, so no physical
+  accuracy or production-readiness claim is supported.

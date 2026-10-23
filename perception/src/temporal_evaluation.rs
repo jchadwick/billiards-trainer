@@ -32,11 +32,14 @@ pub const DEFAULT_MAXIMUM_VIDEO_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SCENE_JSONL_BYTES: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SCENE_LINE_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_FFPROBE_TIMEOUT_SECONDS: u64 = 30;
-const ANNOTATION_SCHEMA_VERSION: u64 = 1;
+const LEGACY_ANNOTATION_SCHEMA_VERSION: u64 = 1;
+const PHYSICAL_ANNOTATION_SCHEMA_VERSION: u64 = 2;
+const MAX_ANNOTATION_SCHEMA_VERSION: u64 = PHYSICAL_ANNOTATION_SCHEMA_VERSION;
+const PHYSICAL_COORDINATE_FRAME: &str = "center_origin_x_corner0_to1_y_corner0_to3";
 const MAXIMUM_FFPROBE_STDOUT_BYTES: usize = 64 * 1024;
 const MAXIMUM_FFPROBE_STDERR_BYTES: usize = 8 * 1024;
 
-/// Annotation document schema v1, deserialized with unknown-field rejection.
+/// Versioned temporal annotations, deserialized with unknown-field rejection.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnnotationDocument {
@@ -75,6 +78,23 @@ pub struct AnnotationSequence {
     pub width: u32,
     pub height: u32,
     pub coordinate_space: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_non_null"
+    )]
+    pub physical_ground_truth: Option<PhysicalGroundTruthMetadata>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PhysicalGroundTruthMetadata {
+    pub coordinate_frame: String,
+    pub table_width_mm: f64,
+    pub table_height_mm: f64,
+    pub measurement_method: String,
+    pub measurement_method_description: String,
+    pub estimated_position_uncertainty_95_mm: f64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -86,8 +106,21 @@ pub struct AnnotationFrame {
     pub expected_calibration_revision: Option<u64>,
     #[serde(deserialize_with = "required_option")]
     pub expected_source_session_epoch: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_non_null"
+    )]
+    pub physical_ground_truth_status: Option<PhysicalGroundTruthStatus>,
     pub balls: Vec<AnnotationBall>,
     pub cue: AnnotationCue,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PhysicalGroundTruthStatus {
+    Complete,
+    Unavailable,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -107,6 +140,12 @@ pub struct AnnotationBall {
         deserialize_with = "optional_non_null"
     )]
     pub radius_px: Option<f64>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_non_null"
+    )]
+    pub center_table_mm: Option<Point2d>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -179,6 +218,8 @@ pub struct EngineFrame {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EngineBall {
     pub center: Point2d,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub center_table_mm: Option<Point2d>,
     #[serde(default)]
     pub track_id: Option<TrackIdentifier>,
 }
@@ -226,6 +267,8 @@ pub struct Point2d {
 pub struct EvaluationConfig {
     pub matching_radius_fraction: f64,
     pub freshness_budget_seconds: f64,
+    /// Required for schema-v2 physical ground truth; deliberately has no default.
+    pub physical_matching_radius_mm: Option<f64>,
 }
 
 impl Default for EvaluationConfig {
@@ -233,6 +276,7 @@ impl Default for EvaluationConfig {
         Self {
             matching_radius_fraction: DEFAULT_MATCHING_RADIUS_FRACTION,
             freshness_budget_seconds: DEFAULT_FRESHNESS_BUDGET_SECONDS,
+            physical_matching_radius_mm: None,
         }
     }
 }
@@ -257,18 +301,20 @@ where
     T::deserialize(value).map(Some).map_err(D::Error::custom)
 }
 
-/// Deserialize and semantically validate annotation schema v1.
+/// Deserialize and semantically validate supported temporal annotation versions.
 pub fn parse_annotation_document(bytes: &[u8]) -> Result<AnnotationDocument> {
     let document: AnnotationDocument = serde_json::from_slice(bytes)
-        .context("temporal annotation document does not match schema v1")?;
+        .context("temporal annotation document does not match a supported schema")?;
     validate_annotation_document(&document)?;
     Ok(document)
 }
 
 /// Check cross-field semantics that are not expressed by the shared JSON Schema.
 pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()> {
-    if document.schema_version != ANNOTATION_SCHEMA_VERSION {
-        bail!("annotation schema_version must be the integer 1");
+    if !(LEGACY_ANNOTATION_SCHEMA_VERSION..=MAX_ANNOTATION_SCHEMA_VERSION)
+        .contains(&document.schema_version)
+    {
+        bail!("annotation schema_version must be 1 or 2");
     }
     validate_sha256(&document.sequence.video_sha256, "sequence.video_sha256")?;
     if document.sequence.width == 0 || document.sequence.height == 0 {
@@ -276,6 +322,22 @@ pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()>
     }
     if document.sequence.coordinate_space != "source_pixels" {
         bail!("annotation sequence coordinate_space must be source_pixels");
+    }
+    match (
+        document.schema_version,
+        &document.sequence.physical_ground_truth,
+    ) {
+        (LEGACY_ANNOTATION_SCHEMA_VERSION, None) => {}
+        (LEGACY_ANNOTATION_SCHEMA_VERSION, Some(_)) => {
+            bail!("annotation schema v1 must not contain physical_ground_truth")
+        }
+        (PHYSICAL_ANNOTATION_SCHEMA_VERSION, Some(metadata)) => {
+            validate_physical_ground_truth_metadata(metadata)?;
+        }
+        (PHYSICAL_ANNOTATION_SCHEMA_VERSION, None) => {
+            bail!("annotation schema v2 requires sequence.physical_ground_truth")
+        }
+        _ => unreachable!("schema version was range-checked above"),
     }
     if let Some(metadata) = &document.annotation_metadata {
         validate_metadata(metadata)?;
@@ -286,6 +348,7 @@ pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()>
 
     let mut previous_index = None;
     let mut previous_time: Option<f64> = None;
+    let mut complete_physical_frames = 0usize;
     for (frame_number, frame) in document.frames.iter().enumerate() {
         if !frame.presentation_time_seconds.is_finite() {
             bail!("non-finite number at frames[{frame_number}].presentation_time_seconds");
@@ -306,6 +369,20 @@ pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()>
             .is_some_and(|revision| revision > MAX_SAFE_JSON_INTEGER)
         {
             bail!("expected_calibration_revision must be a non-negative safe integer or null");
+        }
+        let physical_status = match (document.schema_version, frame.physical_ground_truth_status) {
+            (LEGACY_ANNOTATION_SCHEMA_VERSION, None) => None,
+            (LEGACY_ANNOTATION_SCHEMA_VERSION, Some(_)) => {
+                bail!("annotation schema v1 must not contain physical_ground_truth_status")
+            }
+            (PHYSICAL_ANNOTATION_SCHEMA_VERSION, Some(status)) => Some(status),
+            (PHYSICAL_ANNOTATION_SCHEMA_VERSION, None) => {
+                bail!("annotation schema v2 requires frames[{frame_number}].physical_ground_truth_status")
+            }
+            _ => unreachable!("schema version was range-checked above"),
+        };
+        if physical_status == Some(PhysicalGroundTruthStatus::Complete) {
+            complete_physical_frames += 1;
         }
 
         let mut ball_ids = HashSet::with_capacity(frame.balls.len());
@@ -337,6 +414,61 @@ pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()>
                     "occluded and removed annotation balls must not contain center or radius_px"
                 ),
             }
+            match (
+                document.schema_version,
+                physical_status,
+                ball.status,
+                ball.center_table_mm,
+            ) {
+                (LEGACY_ANNOTATION_SCHEMA_VERSION, _, _, None)
+                | (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Unavailable),
+                    _,
+                    None,
+                )
+                | (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Complete),
+                    AnnotationBallStatus::Occluded | AnnotationBallStatus::Removed,
+                    None,
+                ) => {}
+                (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Complete),
+                    AnnotationBallStatus::Visible,
+                    Some(point),
+                ) => {
+                    let metadata = document
+                        .sequence
+                        .physical_ground_truth
+                        .as_ref()
+                        .expect("schema-v2 physical metadata was validated");
+                    validate_physical_point(point, metadata, "ground-truth table center")?;
+                }
+                (LEGACY_ANNOTATION_SCHEMA_VERSION, _, _, Some(_)) => {
+                    bail!("annotation schema v1 must not contain center_table_mm")
+                }
+                (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Complete),
+                    AnnotationBallStatus::Visible,
+                    None,
+                ) => bail!("complete physical ground truth requires center_table_mm for every visible ball"),
+                (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Complete),
+                    AnnotationBallStatus::Occluded | AnnotationBallStatus::Removed,
+                    Some(_),
+                ) => bail!("occluded and removed balls must not contain center_table_mm"),
+                (
+                    PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+                    Some(PhysicalGroundTruthStatus::Unavailable),
+                    _,
+                    Some(_),
+                ) => bail!("frames without complete physical ground truth must not contain center_table_mm"),
+                _ => unreachable!("physical schema-v2 frames were range-checked above"),
+            }
         }
         match (frame.cue.status, frame.cue.tip, frame.cue.butt) {
             (AnnotationCueStatus::Visible, Some(tip), Some(butt)) => {
@@ -349,6 +481,54 @@ pub fn validate_annotation_document(document: &AnnotationDocument) -> Result<()>
             (_, None, None) => {}
             _ => bail!("occluded and absent annotation cues must not contain endpoints"),
         }
+    }
+    if document.schema_version == PHYSICAL_ANNOTATION_SCHEMA_VERSION
+        && complete_physical_frames == 0
+    {
+        bail!(
+            "annotation schema v2 requires at least one frame with complete physical ground truth"
+        );
+    }
+    Ok(())
+}
+
+fn validate_physical_ground_truth_metadata(metadata: &PhysicalGroundTruthMetadata) -> Result<()> {
+    if metadata.coordinate_frame != PHYSICAL_COORDINATE_FRAME {
+        bail!("physical ground truth coordinate_frame must be {PHYSICAL_COORDINATE_FRAME}");
+    }
+    if !metadata.table_width_mm.is_finite()
+        || !metadata.table_height_mm.is_finite()
+        || metadata.table_width_mm <= 0.0
+        || metadata.table_height_mm <= 0.0
+    {
+        bail!("physical ground truth table dimensions must be finite and positive");
+    }
+    if metadata.measurement_method != "independent_physical_measurement" {
+        bail!("physical ground truth measurement_method must be independent_physical_measurement");
+    }
+    if metadata.measurement_method_description.trim().is_empty()
+        || metadata.measurement_method_description.chars().count() > 2048
+    {
+        bail!("physical ground truth measurement_method_description must contain 1 to 2048 characters");
+    }
+    if !metadata.estimated_position_uncertainty_95_mm.is_finite()
+        || metadata.estimated_position_uncertainty_95_mm <= 0.0
+    {
+        bail!("estimated_position_uncertainty_95_mm must be finite and positive");
+    }
+    Ok(())
+}
+
+fn validate_physical_point(
+    point: Point2d,
+    metadata: &PhysicalGroundTruthMetadata,
+    label: &str,
+) -> Result<()> {
+    validate_point(point, label)?;
+    if point.x.abs() > metadata.table_width_mm / 2.0
+        || point.y.abs() > metadata.table_height_mm / 2.0
+    {
+        bail!("{label} must lie within the declared playing-surface dimensions");
     }
     Ok(())
 }
@@ -421,6 +601,9 @@ fn validate_engine_frames(frames: &[EngineFrame]) -> Result<BTreeMap<u64, Engine
         }
         for ball in &frame.balls {
             validate_point(ball.center, "engine ball center")?;
+            if let Some(center) = ball.center_table_mm {
+                validate_point(center, "engine ball table center")?;
+            }
         }
         if let Some(center) = frame.cue_center {
             validate_point(center, "cue_center")?;
@@ -471,6 +654,14 @@ pub fn evaluate_temporal_localization(
     engine_frames: &[EngineFrame],
     config: EvaluationConfig,
 ) -> Result<Value> {
+    validate_annotation_document(annotations)?;
+    validate_evaluation_config(annotations.schema_version, config)?;
+    let engine_by_index = validate_engine_frames(engine_frames)?;
+    evaluate_indexed(annotations, &engine_by_index, config)
+}
+
+/// Validate scorer settings against the annotation schema before a long replay starts.
+pub fn validate_evaluation_config(schema_version: u64, config: EvaluationConfig) -> Result<()> {
     if !config.matching_radius_fraction.is_finite()
         || config.matching_radius_fraction <= 0.0
         || config.matching_radius_fraction > 2.0
@@ -480,9 +671,22 @@ pub fn evaluate_temporal_localization(
     if !config.freshness_budget_seconds.is_finite() || config.freshness_budget_seconds < 0.0 {
         bail!("freshness_budget_seconds must be finite and non-negative");
     }
-    validate_annotation_document(annotations)?;
-    let engine_by_index = validate_engine_frames(engine_frames)?;
-    evaluate_indexed(annotations, &engine_by_index, config)
+    match (schema_version, config.physical_matching_radius_mm) {
+        (PHYSICAL_ANNOTATION_SCHEMA_VERSION, Some(radius_mm))
+            if radius_mm.is_finite() && radius_mm > 0.0 => {}
+        (PHYSICAL_ANNOTATION_SCHEMA_VERSION, Some(_)) => {
+            bail!("physical_matching_radius_mm must be finite and positive")
+        }
+        (PHYSICAL_ANNOTATION_SCHEMA_VERSION, None) => {
+            bail!("schema-v2 physical scoring requires an explicit physical_matching_radius_mm")
+        }
+        (LEGACY_ANNOTATION_SCHEMA_VERSION, Some(_)) => {
+            bail!("physical_matching_radius_mm can only be used with schema-v2 annotations")
+        }
+        (LEGACY_ANNOTATION_SCHEMA_VERSION, None) => {}
+        _ => unreachable!("annotation schema version was validated above"),
+    }
+    Ok(())
 }
 
 fn evaluate_indexed(
@@ -500,6 +704,14 @@ fn evaluate_indexed(
     let mut prediction_count = 0usize;
     let mut matched_count = 0usize;
     let mut center_errors = Vec::new();
+    let mut physical_scored_frames = 0usize;
+    let mut physical_unavailable_frames = 0usize;
+    let mut physical_truth_count = 0usize;
+    let mut physical_prediction_count = 0usize;
+    let mut physical_unlocalized_prediction_count = 0usize;
+    let mut physical_matched_count = 0usize;
+    let mut physical_center_errors = Vec::new();
+    let mut out_of_table_prediction_count = 0usize;
     let mut observation_ages = Vec::new();
     let mut freshness_misses = 0usize;
     let mut stale_observation_count = 0usize;
@@ -665,6 +877,59 @@ fn evaluate_indexed(
             }
         }
 
+        match truth_frame.physical_ground_truth_status {
+            Some(PhysicalGroundTruthStatus::Complete) => {
+                physical_scored_frames += 1;
+                let metadata = annotations
+                    .sequence
+                    .physical_ground_truth
+                    .as_ref()
+                    .expect("schema-v2 physical metadata was validated");
+                let physical_truths: Vec<Point2d> = truth_frame
+                    .balls
+                    .iter()
+                    .filter(|ball| ball.status == AnnotationBallStatus::Visible)
+                    .map(|ball| {
+                        ball.center_table_mm
+                            .expect("complete physical frames label every visible ball")
+                    })
+                    .collect();
+                let physical_predictions: Vec<(usize, Point2d)> = fresh_predictions
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, ball)| ball.center_table_mm.map(|center| (index, center)))
+                    .collect();
+                physical_truth_count += physical_truths.len();
+                physical_prediction_count += physical_predictions.len();
+                physical_unlocalized_prediction_count +=
+                    fresh_predictions.len() - physical_predictions.len();
+                out_of_table_prediction_count += physical_predictions
+                    .iter()
+                    .filter(|(_, point)| {
+                        point.x.abs() > metadata.table_width_mm / 2.0
+                            || point.y.abs() > metadata.table_height_mm / 2.0
+                    })
+                    .count();
+                let prediction_points: Vec<Point2d> = physical_predictions
+                    .iter()
+                    .map(|(_, point)| *point)
+                    .collect();
+                let physical_gate = config
+                    .physical_matching_radius_mm
+                    .expect("schema-v2 gate was validated before scoring");
+                let thresholds = vec![physical_gate; physical_truths.len()];
+                let assignments =
+                    global_point_assignment(&physical_truths, &prediction_points, &thresholds)?;
+                physical_matched_count += assignments.len();
+                physical_center_errors
+                    .extend(assignments.into_iter().map(|(_, _, error_mm)| error_mm));
+            }
+            Some(PhysicalGroundTruthStatus::Unavailable) => {
+                physical_unavailable_frames += 1;
+            }
+            None => {}
+        }
+
         for (truth_index, truth_ball) in visible_truths.iter().enumerate() {
             visible_starts
                 .entry(truth_ball.ball_id.clone())
@@ -738,6 +1003,12 @@ fn evaluate_indexed(
         .collect();
     let ball_precision = ratio(matched_count, prediction_count);
     let ball_recall = ratio(matched_count, visible_count);
+    let physical_precision = ratio(physical_matched_count, physical_prediction_count);
+    let physical_output_precision = ratio(
+        physical_matched_count,
+        physical_prediction_count + physical_unlocalized_prediction_count,
+    );
+    let physical_recall = ratio(physical_matched_count, physical_truth_count);
     let cue_precision = ratio(cue_tp, cue_tp + cue_fp);
     let cue_recall = ratio(cue_tp, cue_tp + cue_fn);
     let cue_scored = cue_tp + cue_fp + cue_fn + cue_tn;
@@ -756,6 +1027,58 @@ fn evaluate_indexed(
         &mut ball_localization,
         summary(&center_errors, "center_error_px"),
     );
+
+    let physical_localization = if annotations.schema_version == PHYSICAL_ANNOTATION_SCHEMA_VERSION
+    {
+        let metadata = annotations
+            .sequence
+            .physical_ground_truth
+            .as_ref()
+            .expect("schema-v2 physical metadata was validated");
+        let mut metrics = json!({
+            "status": if physical_unavailable_frames == 0 { "available" } else { "partial" },
+            "coordinate_frame": metadata.coordinate_frame,
+            "unit": "millimeters",
+            "table_width_mm": metadata.table_width_mm,
+            "table_height_mm": metadata.table_height_mm,
+            "measurement_method": metadata.measurement_method,
+            "measurement_method_description": metadata.measurement_method_description,
+            "estimated_position_uncertainty_95_mm": metadata.estimated_position_uncertainty_95_mm,
+            "matching_radius_mm": config.physical_matching_radius_mm,
+            "scored_frames": physical_scored_frames,
+            "frames_without_physical_ground_truth": physical_unavailable_frames,
+            "physical_ground_truth_coverage": ratio(physical_scored_frames, annotations.frames.len()),
+            "visible_ground_truth_balls": physical_truth_count,
+            "fresh_detector_predictions": physical_prediction_count + physical_unlocalized_prediction_count,
+            "calibrated_predictions": physical_prediction_count,
+            "unlocalized_predictions": physical_unlocalized_prediction_count,
+            "calibrated_prediction_coverage": ratio(physical_prediction_count, physical_prediction_count + physical_unlocalized_prediction_count),
+            "matched_balls": physical_matched_count,
+            "false_positives": physical_prediction_count - physical_matched_count,
+            "false_negatives": physical_truth_count - physical_matched_count,
+            "calibrated_position_precision": physical_precision,
+            "physical_output_precision_including_unlocalized": physical_output_precision,
+            "recall": physical_recall,
+            "f1": f1(physical_output_precision, physical_recall),
+            "out_of_table_predictions": out_of_table_prediction_count,
+            "position_error_is_conditional_on_accepted_matches": true,
+        });
+        merge_object(
+            &mut metrics,
+            summary(
+                &physical_center_errors,
+                "matched_center_error_mm_conditional_on_gate",
+            ),
+        );
+        metrics
+    } else {
+        json!({
+            "status": "unavailable",
+            "reason": "annotation schema v1 contains no independent physical table-space ground truth",
+            "unit": "millimeters",
+            "metrics": null,
+        })
+    };
 
     let mut observation_freshness = json!({
         "available_samples": observation_ages.len(),
@@ -786,6 +1109,7 @@ fn evaluate_indexed(
             "stale_observed_ball_results": stale_observation_count,
         },
         "ball_localization": ball_localization,
+        "physical_localization": physical_localization,
         "tracking": {
             "visible_tracks": visible_tracks,
             "tracks_ever_detected": detected_tracks,
@@ -952,16 +1276,32 @@ fn global_spatial_assignment(
     predictions: &[EngineBall],
     radius_fraction: f64,
 ) -> Result<Vec<(usize, usize, f64)>> {
+    let truth_centers: Vec<Point2d> = truths
+        .iter()
+        .map(|truth| truth.center.expect("visible truth has a center"))
+        .collect();
+    let thresholds: Vec<f64> = truths
+        .iter()
+        .map(|truth| truth.radius_px.expect("visible truth has a radius") * radius_fraction)
+        .collect();
+    let prediction_centers: Vec<Point2d> = predictions.iter().map(|ball| ball.center).collect();
+    global_point_assignment(&truth_centers, &prediction_centers, &thresholds)
+}
+
+fn global_point_assignment(
+    truths: &[Point2d],
+    predictions: &[Point2d],
+    thresholds: &[f64],
+) -> Result<Vec<(usize, usize, f64)>> {
     if truths.is_empty() || predictions.is_empty() {
         return Ok(Vec::new());
     }
+    if truths.len() != thresholds.len() {
+        bail!("assignment thresholds must have one value per truth point");
+    }
     let truth_count = truths.len();
     let prediction_count = predictions.len();
-    let maximum_radius = truths
-        .iter()
-        .filter_map(|truth| truth.radius_px)
-        .fold(0.0_f64, f64::max);
-    let gate_upper_bound = maximum_radius * radius_fraction;
+    let gate_upper_bound = thresholds.iter().copied().fold(0.0_f64, f64::max);
     let unmatched_cost = (gate_upper_bound + 1.0) * (truth_count.min(prediction_count) + 1) as f64;
     let invalid_cost = unmatched_cost * (truth_count + prediction_count + 2) as f64;
     if !gate_upper_bound.is_finite() || !unmatched_cost.is_finite() || !invalid_cost.is_finite() {
@@ -970,10 +1310,12 @@ fn global_spatial_assignment(
     let mut costs = vec![vec![unmatched_cost; prediction_count + truth_count]; truth_count];
     let mut distances = vec![vec![0.0; prediction_count]; truth_count];
     for (truth_index, truth) in truths.iter().enumerate() {
-        let truth_center = truth.center.expect("visible truth has a center");
-        let threshold = truth.radius_px.expect("visible truth has a radius") * radius_fraction;
+        let threshold = thresholds[truth_index];
+        if !threshold.is_finite() || threshold <= 0.0 {
+            bail!("assignment gates must be finite and positive");
+        }
         for (prediction_index, prediction) in predictions.iter().enumerate() {
-            let candidate_distance = distance(truth_center, prediction.center);
+            let candidate_distance = distance(*truth, *prediction);
             if !candidate_distance.is_finite() {
                 bail!("ball center distance exceeds the supported finite numeric range");
             }
@@ -993,9 +1335,11 @@ fn global_spatial_assignment(
                 return None;
             }
             let matched_distance = distances[truth_index][prediction_index];
-            (matched_distance
-                <= truths[truth_index].radius_px.expect("visible radius") * radius_fraction)
-                .then_some((truth_index, prediction_index, matched_distance))
+            (matched_distance <= thresholds[truth_index]).then_some((
+                truth_index,
+                prediction_index,
+                matched_distance,
+            ))
         })
         .collect())
 }
@@ -1329,6 +1673,10 @@ fn normalize_rust_scene_reader<R: BufRead>(
                     x: measurement.image_center_px.x,
                     y: measurement.image_center_px.y,
                 },
+                center_table_mm: measurement.table_center_mm.map(|center| Point2d {
+                    x: center.x,
+                    y: center.y,
+                }),
                 track_id: Some(TrackIdentifier::Text(ball.track_id.clone())),
             });
         }
@@ -1678,6 +2026,7 @@ pub fn evaluate_files(
     )?;
     let annotations_sha256 = hash_bytes(&annotation_bytes);
     let annotations = parse_annotation_document(&annotation_bytes)?;
+    validate_evaluation_config(annotations.schema_version, config.evaluation)?;
     let source_video_stream_index = annotations
         .annotation_metadata
         .as_ref()
@@ -1759,6 +2108,7 @@ mod tests {
             presentation_time_seconds: index as f64,
             expected_calibration_revision: Some(1),
             expected_source_session_epoch: Some("session-a".to_owned()),
+            physical_ground_truth_status: None,
             balls,
             cue: AnnotationCue {
                 status: AnnotationCueStatus::Absent,
@@ -1774,6 +2124,74 @@ mod tests {
             status: AnnotationBallStatus::Visible,
             center: Some(Point2d { x, y }),
             radius_px: Some(radius),
+            center_table_mm: None,
+        }
+    }
+
+    fn physical_metadata() -> PhysicalGroundTruthMetadata {
+        PhysicalGroundTruthMetadata {
+            coordinate_frame: PHYSICAL_COORDINATE_FRAME.to_owned(),
+            table_width_mm: 2000.0,
+            table_height_mm: 1000.0,
+            measurement_method: "independent_physical_measurement".to_owned(),
+            measurement_method_description:
+                "Ball centers measured on the table with a surveyed reference grid".to_owned(),
+            estimated_position_uncertainty_95_mm: 4.0,
+        }
+    }
+
+    fn physical_ball(
+        id: &str,
+        pixel_x: f64,
+        pixel_y: f64,
+        radius: f64,
+        table_x_mm: f64,
+        table_y_mm: f64,
+    ) -> AnnotationBall {
+        AnnotationBall {
+            center_table_mm: Some(Point2d {
+                x: table_x_mm,
+                y: table_y_mm,
+            }),
+            ..visible_ball(id, pixel_x, pixel_y, radius)
+        }
+    }
+
+    fn physical_frame(index: u64, balls: Vec<AnnotationBall>) -> AnnotationFrame {
+        AnnotationFrame {
+            physical_ground_truth_status: Some(PhysicalGroundTruthStatus::Complete),
+            ..annotation_frame(index, balls)
+        }
+    }
+
+    fn physical_annotations(frames: Vec<AnnotationFrame>) -> AnnotationDocument {
+        AnnotationDocument {
+            schema_version: PHYSICAL_ANNOTATION_SCHEMA_VERSION,
+            annotation_metadata: None,
+            sequence: AnnotationSequence {
+                video_sha256: "a".repeat(64),
+                width: 100,
+                height: 80,
+                coordinate_space: "source_pixels".to_owned(),
+                physical_ground_truth: Some(physical_metadata()),
+            },
+            frames,
+        }
+    }
+
+    fn table_ball(
+        pixel_x: f64,
+        pixel_y: f64,
+        table_x_mm: Option<f64>,
+        table_y_mm: Option<f64>,
+    ) -> EngineBall {
+        EngineBall {
+            center: Point2d {
+                x: pixel_x,
+                y: pixel_y,
+            },
+            center_table_mm: table_x_mm.zip(table_y_mm).map(|(x, y)| Point2d { x, y }),
+            track_id: None,
         }
     }
 
@@ -1786,6 +2204,7 @@ mod tests {
                 width: 100,
                 height: 80,
                 coordinate_space: "source_pixels".to_owned(),
+                physical_ground_truth: None,
             },
             frames,
         }
@@ -1823,6 +2242,7 @@ mod tests {
                 width: 100,
                 height: 80,
                 coordinate_space: "source_pixels".to_owned(),
+                physical_ground_truth: None,
             },
             frames: vec![annotation_frame(0, vec![visible_ball("a", 3.0, 4.0, 5.0)])],
         };
@@ -1843,6 +2263,231 @@ mod tests {
         let mut nonfinite = valid;
         nonfinite.frames[0].balls[0].center.as_mut().unwrap().x = f64::INFINITY;
         assert!(validate_annotation_document(&nonfinite).is_err());
+    }
+
+    #[test]
+    fn annotation_schema_v2_requires_complete_independent_physical_labels() {
+        let valid = physical_annotations(vec![physical_frame(
+            0,
+            vec![physical_ball("ball", 20.0, 30.0, 8.0, -900.0, -400.0)],
+        )]);
+        let encoded = serde_json::to_vec(&valid).unwrap();
+        let parsed = parse_annotation_document(&encoded).unwrap();
+        assert_eq!(parsed.schema_version, PHYSICAL_ANNOTATION_SCHEMA_VERSION);
+
+        let mut missing_ball_coordinate = valid.clone();
+        missing_ball_coordinate.frames[0].balls[0].center_table_mm = None;
+        assert!(validate_annotation_document(&missing_ball_coordinate)
+            .unwrap_err()
+            .to_string()
+            .contains("every visible ball"));
+
+        let mut outside_playing_surface = valid.clone();
+        outside_playing_surface.frames[0].balls[0]
+            .center_table_mm
+            .as_mut()
+            .unwrap()
+            .x = 1001.0;
+        assert!(validate_annotation_document(&outside_playing_surface)
+            .unwrap_err()
+            .to_string()
+            .contains("within the declared playing-surface dimensions"));
+
+        let mut wrong_frame = valid.clone();
+        wrong_frame
+            .sequence
+            .physical_ground_truth
+            .as_mut()
+            .unwrap()
+            .coordinate_frame = "center_origin_x_right_y_up".to_owned();
+        assert!(validate_annotation_document(&wrong_frame)
+            .unwrap_err()
+            .to_string()
+            .contains("coordinate_frame"));
+
+        let mut unavailable_frame_with_point = valid;
+        unavailable_frame_with_point.frames[0].physical_ground_truth_status =
+            Some(PhysicalGroundTruthStatus::Unavailable);
+        assert!(validate_annotation_document(&unavailable_frame_with_point)
+            .unwrap_err()
+            .to_string()
+            .contains("must not contain center_table_mm"));
+    }
+
+    #[test]
+    fn physical_and_pixel_assignment_are_independent_and_gate_errors_are_conditional() {
+        let annotations = physical_annotations(vec![
+            physical_frame(
+                0,
+                vec![physical_ball(
+                    "pixel-only-hit",
+                    10.0,
+                    10.0,
+                    10.0,
+                    -100.0,
+                    0.0,
+                )],
+            ),
+            physical_frame(
+                1,
+                vec![physical_ball(
+                    "table-only-hit",
+                    30.0,
+                    30.0,
+                    10.0,
+                    100.0,
+                    0.0,
+                )],
+            ),
+        ]);
+        let engine = vec![
+            engine_frame(
+                0,
+                vec![table_ball(10.0, 10.0, Some(-40.0), Some(0.0))],
+                EngineStatus::Observed,
+            ),
+            engine_frame(
+                1,
+                vec![table_ball(200.0, 30.0, Some(110.0), Some(0.0))],
+                EngineStatus::Observed,
+            ),
+        ];
+        let report = evaluate_temporal_localization(
+            &annotations,
+            &engine,
+            EvaluationConfig {
+                matching_radius_fraction: 0.5,
+                freshness_budget_seconds: 0.1,
+                physical_matching_radius_mm: Some(20.0),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report["ball_localization"]["matched_balls"], 1);
+        assert_eq!(report["physical_localization"]["matched_balls"], 1);
+        assert_eq!(report["physical_localization"]["false_positives"], 1);
+        assert_eq!(report["physical_localization"]["false_negatives"], 1);
+        assert_eq!(
+            report["physical_localization"]["matched_center_error_mm_conditional_on_gate_count"],
+            1
+        );
+        assert_eq!(
+            report["physical_localization"]["matched_center_error_mm_conditional_on_gate_mean"],
+            10.0
+        );
+    }
+
+    #[test]
+    fn physical_scoring_reports_unlocalized_stale_and_out_of_table_predictions() {
+        let annotations = physical_annotations(vec![physical_frame(
+            0,
+            vec![physical_ball("ball", 10.0, 10.0, 8.0, 0.0, 0.0)],
+        )]);
+        let unlocalized = engine_frame(
+            0,
+            vec![table_ball(10.0, 10.0, None, None)],
+            EngineStatus::Observed,
+        );
+        let config = EvaluationConfig {
+            physical_matching_radius_mm: Some(50.0),
+            ..EvaluationConfig::default()
+        };
+        let report = evaluate_temporal_localization(
+            &annotations,
+            std::slice::from_ref(&unlocalized),
+            config,
+        )
+        .unwrap();
+        assert_eq!(report["ball_localization"]["matched_balls"], 1);
+        assert_eq!(
+            report["physical_localization"]["unlocalized_predictions"],
+            1
+        );
+        assert_eq!(report["physical_localization"]["false_negatives"], 1);
+        assert_eq!(
+            report["physical_localization"]["physical_output_precision_including_unlocalized"],
+            0.0
+        );
+
+        let mut stale = engine_frame(
+            0,
+            vec![table_ball(10.0, 10.0, Some(0.0), Some(0.0))],
+            EngineStatus::Observed,
+        );
+        stale.ball_positions_status = EngineStatus::Cached;
+        let stale_report = evaluate_temporal_localization(&annotations, &[stale], config).unwrap();
+        assert_eq!(
+            stale_report["physical_localization"]["calibrated_predictions"],
+            0
+        );
+        assert_eq!(stale_report["physical_localization"]["false_negatives"], 1);
+
+        let outside = engine_frame(
+            0,
+            vec![table_ball(10.0, 10.0, Some(1001.0), Some(0.0))],
+            EngineStatus::Observed,
+        );
+        let outside_report =
+            evaluate_temporal_localization(&annotations, &[outside], config).unwrap();
+        assert_eq!(
+            outside_report["physical_localization"]["out_of_table_predictions"],
+            1
+        );
+        assert_eq!(
+            outside_report["physical_localization"]["false_positives"],
+            1
+        );
+    }
+
+    #[test]
+    fn physical_scoring_requires_an_explicit_positive_matching_gate() {
+        let physical_labels = physical_annotations(vec![physical_frame(0, Vec::new())]);
+        let no_gate =
+            evaluate_temporal_localization(&physical_labels, &[], EvaluationConfig::default())
+                .unwrap_err();
+        assert!(no_gate
+            .to_string()
+            .contains("explicit physical_matching_radius_mm"));
+
+        let invalid_gate = evaluate_temporal_localization(
+            &physical_labels,
+            &[],
+            EvaluationConfig {
+                physical_matching_radius_mm: Some(f64::INFINITY),
+                ..EvaluationConfig::default()
+            },
+        )
+        .unwrap_err();
+        assert!(invalid_gate
+            .to_string()
+            .contains("must be finite and positive"));
+
+        let pixel_only_annotations = annotations(vec![annotation_frame(0, Vec::new())]);
+        let unexpected_gate = evaluate_temporal_localization(
+            &pixel_only_annotations,
+            &[],
+            EvaluationConfig {
+                physical_matching_radius_mm: Some(10.0),
+                ..EvaluationConfig::default()
+            },
+        )
+        .unwrap_err();
+        assert!(unexpected_gate
+            .to_string()
+            .contains("only be used with schema-v2"));
+    }
+
+    #[test]
+    fn physical_assignment_maximizes_valid_cardinality_for_ambiguous_positions() {
+        let assignments = global_point_assignment(
+            &[Point2d { x: 0.0, y: 0.0 }, Point2d { x: 4.0, y: 0.0 }],
+            &[Point2d { x: 3.0, y: 0.0 }, Point2d { x: -4.0, y: 0.0 }],
+            &[4.0, 4.0],
+        )
+        .unwrap();
+        assert_eq!(assignments.len(), 2);
+        assert!(assignments.contains(&(0, 1, 4.0)));
+        assert!(assignments.contains(&(1, 0, 1.0)));
     }
 
     #[test]
@@ -1877,10 +2522,12 @@ mod tests {
             vec![
                 EngineBall {
                     center: Point2d { x: 1.0, y: 0.0 },
+                    center_table_mm: None,
                     track_id: Some(TrackIdentifier::Text("one".to_owned())),
                 },
                 EngineBall {
                     center: Point2d { x: -4.0, y: 0.0 },
+                    center_table_mm: None,
                     track_id: Some(TrackIdentifier::Text("two".to_owned())),
                 },
             ],
@@ -1914,6 +2561,7 @@ mod tests {
             0,
             vec![EngineBall {
                 center: Point2d { x: 0.0, y: 0.0 },
+                center_table_mm: None,
                 track_id: None,
             }],
             EngineStatus::Observed,
@@ -1938,6 +2586,7 @@ mod tests {
             0,
             vec![EngineBall {
                 center: Point2d { x: 10.0, y: 10.0 },
+                center_table_mm: None,
                 track_id: Some(TrackIdentifier::Text("track".to_owned())),
             }],
             EngineStatus::Observed,
@@ -2156,6 +2805,7 @@ mod tests {
                 0,
                 vec![EngineBall {
                     center: Point2d { x: 2.0, y: 2.0 },
+                    center_table_mm: None,
                     track_id: Some(TrackIdentifier::Text("old".to_owned())),
                 }],
                 EngineStatus::Observed,
@@ -2164,6 +2814,7 @@ mod tests {
                 2,
                 vec![EngineBall {
                     center: Point2d { x: 2.0, y: 2.0 },
+                    center_table_mm: None,
                     track_id: Some(TrackIdentifier::Text("new".to_owned())),
                 }],
                 EngineStatus::Observed,
@@ -2173,6 +2824,7 @@ mod tests {
                     3,
                     vec![EngineBall {
                         center: Point2d { x: 2.0, y: 2.0 },
+                        center_table_mm: None,
                         track_id: Some(TrackIdentifier::Text("new".to_owned())),
                     }],
                     EngineStatus::Observed,
@@ -2374,6 +3026,9 @@ mod tests {
         .unwrap();
         snapshot["source"]["timestamp"]["ticks"] = json!("41607041");
         snapshot["published_at"]["ticks"] = json!("94901583");
+        snapshot["revisions"]["calibration"] = json!(3);
+        snapshot["revisions"]["calibration_state"] = json!("valid");
+        snapshot["balls"][0]["measurement"]["table_center_mm"] = json!({"x": 12.5, "y": -8.25});
         let line = serde_json::to_vec(&snapshot).unwrap();
         let mut digest = Sha256::new();
         let frames = normalize_rust_scene_reader(
@@ -2389,6 +3044,8 @@ mod tests {
         assert_eq!(frames[0].presentation_time_seconds, 0.25);
         assert_eq!(frames[0].balls.len(), 1);
         assert_eq!(frames[0].balls[0].center.x, 1882.4);
+        assert_eq!(frames[0].balls[0].center_table_mm.unwrap().x, 12.5);
+        assert_eq!(frames[0].balls[0].center_table_mm.unwrap().y, -8.25);
         assert_eq!(frames[0].cue_present, Some(true));
         assert_eq!(frames[0].cue_center.unwrap().x, 500.0);
 
