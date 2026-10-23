@@ -293,6 +293,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0094](decisions/0094-retire-obsolete-inference-and-replay-tools.md) | Retire obsolete inference and replay tools | Accepted | Tooling scope | Remove the still-image CLI and orphaned API replay/replay-v2 ingress/configuration; preserve shared inference, live capture, and standalone recorded-video/JSONL/temporal evaluation |
 | [0095](decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md) | Defer trajectory interference controls until a Rust workload exists | Accepted | Performance audit | Do not add a no-op server switch; re-evaluate when a supported Rust trajectory producer and output contract exist |
 | [0096](decisions/0096-retire-the-unused-python-calibration-bundle-bridge.md) | Retire the unused Python calibration bundle bridge | Accepted | Calibration tooling | Remove the test-only Python converter; retain the calibration contract, historical perspective fixture, and Rust solver/store/projector |
+| [0097](decisions/0097-protect-deployment-bundle-replacement-and-restart.md) | Protect deployment bundle replacement and restart | Accepted | Deployment tooling | Replace only marked bundles, retain recoverable backups, verify forced shutdown, and cover package/update behavior with shell tests |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

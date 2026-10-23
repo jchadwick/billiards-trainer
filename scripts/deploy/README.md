@@ -52,7 +52,16 @@ The bundle contains:
 - `build-info.txt`: build and source-revision metadata
 
 The builder stages the complete bundle beside the destination and replaces the
-previous `dist/` only after all builds and packaging steps succeed.
+previous distribution only after every build and packaging step succeeds. It
+marks bundles it owns, refuses to replace an unmarked directory or symlink,
+and retains the previous marked bundle in a unique sibling backup directory
+after successful replacement. This preserves the previous configuration and
+runtime data for recovery; inspect and remove those backups manually after
+confirming they are no longer needed. `make deploy-clean` removes only a
+distribution carrying the recognized ownership marker.
+Run `make test-deploy` to exercise package creation, replacement, rollback,
+cleanup, and updater shutdown behavior with isolated temporary bundles and
+processes; these tests do not need a camera or compiled Rust binaries.
 
 ## Run and update
 
@@ -105,7 +114,9 @@ that does not match the configured server executable.
 | `BILLIARDS_RUN_DIR` | `<bundle>/run` | Runtime PID-file directory |
 | `BILLIARDS_PID_FILE` | `<run-dir>/billiards-server.pid` | Server PID-file path |
 
-`update.sh` also accepts `BILLIARDS_STOP_TIMEOUT_SECONDS` (default `10`).
+`update.sh` also accepts `BILLIARDS_STOP_TIMEOUT_SECONDS` (default `10`) and
+`BILLIARDS_FORCE_STOP_TIMEOUT_SECONDS` (default `2`). It starts the replacement
+only after the old process has exited, including after forced termination.
 
 ## Qualification status
 

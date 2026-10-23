@@ -13,7 +13,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -129,7 +129,7 @@ fix: format lint ## Fix code formatting and run linting
 
 test: test-rust test-web ## Run Rust runtime and browser tests
 
-test-all: test test-rust-camera test-python ## Run Rust, browser, camera-feature, and retained Python tests
+test-all: test test-rust-camera test-python test-deploy ## Run Rust, browser, camera-feature, retained Python, and deployment tests
 
 test-rust: ## Run Rust unit, contract, and fixture tests
 	CARGO_TARGET_DIR="$(RUST_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
@@ -142,6 +142,10 @@ test-web: ## Run browser client tests
 
 test-python: ## Run retained Python compatibility and model-export tests
 	$(PYTHON) -m pytest
+
+test-deploy: ## Exercise Rust distribution packaging, cleanup, and restart scripts
+	bash scripts/deploy/tests/build-dist-smoke.sh
+	bash scripts/deploy/tests/update-smoke.sh
 
 test-unit: ## Run all retained Python unit/core/common tests without the full-suite coverage gate
 	@echo "$(BLUE)Running unit tests...$(RESET)"
@@ -220,7 +224,7 @@ clean: ## Clean build artifacts and temporary files
 	find . -type d -name "__pycache__" -delete
 	find . -type d -name "*.egg-info" -exec rm -rf {} +
 	rm -rf build/
-	rm -rf dist/
+	@bash scripts/deploy/clean-dist.sh
 	rm -rf .coverage
 	rm -rf htmlcov/
 	rm -rf .pytest_cache/
@@ -330,6 +334,4 @@ deploy: ## Build production distribution package using the Rust shell bundler
 	@bash scripts/deploy/build-dist.sh
 
 deploy-clean: ## Clean deployment artifacts
-	@echo "$(BLUE)Cleaning deployment artifacts...$(RESET)"
-	@rm -rf dist/
-	@echo "$(GREEN)Deployment artifacts cleaned!$(RESET)"
+	@bash scripts/deploy/clean-dist.sh

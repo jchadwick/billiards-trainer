@@ -5,8 +5,8 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 CONFIG_SOURCE="${BILLIARDS_CONFIG_SOURCE:-$PROJECT_ROOT/config.json}"
 ONNX_SOURCE="${BILLIARDS_ONNX_MODEL:-}"
 CHECKPOINT_SOURCE="${BILLIARDS_SOURCE_CHECKPOINT:-}"
@@ -14,6 +14,7 @@ DIST_DIR="${BILLIARDS_DIST_DIR:-$PROJECT_ROOT/dist}"
 RUST_TARGET="${BILLIARDS_RUST_TARGET:-}"
 RUST_FEATURES="${BILLIARDS_RUST_FEATURES:-camera-gstreamer-source}"
 MANIFEST_SOURCE="${ONNX_SOURCE}.manifest.json"
+DISTRIBUTION_MARKER_SOURCE="$SCRIPT_DIR/distribution-marker.txt"
 
 fail() {
     printf 'Error: %s\n' "$*" >&2
@@ -44,6 +45,7 @@ require_command node
 require_command npm
 require_command pkg-config
 require_command jq
+require_file "$DISTRIBUTION_MARKER_SOURCE" "distribution ownership marker"
 require_file "$CONFIG_SOURCE" "Rust application configuration"
 [[ -n "$ONNX_SOURCE" ]] || fail "set BILLIARDS_ONNX_MODEL to the verified ONNX model to include in the distribution"
 [[ -n "$CHECKPOINT_SOURCE" ]] || fail "set BILLIARDS_SOURCE_CHECKPOINT to the source .pt checkpoint matching the ONNX manifest"
@@ -80,10 +82,18 @@ pkg-config --exists gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0 || fail 
 if [[ "$DIST_DIR" != /* ]]; then
     DIST_DIR="$PROJECT_ROOT/$DIST_DIR"
 fi
-DIST_PARENT="$(dirname -- "$DIST_DIR")"
 DIST_NAME="$(basename -- "$DIST_DIR")"
-[[ -n "$DIST_NAME" && "$DIST_NAME" != "." && "$DIST_NAME" != ".." && "$DIST_DIR" != "/" && "$DIST_DIR" != "$PROJECT_ROOT" ]] || fail "refusing unsafe distribution output path: $DIST_DIR"
-mkdir -p "$DIST_PARENT"
+[[ -n "$DIST_NAME" && "$DIST_NAME" != "." && "$DIST_NAME" != ".." && "$DIST_NAME" != "/" ]] || fail "refusing unsafe distribution output path: $DIST_DIR"
+mkdir -p "$(dirname -- "$DIST_DIR")"
+DIST_PARENT="$(cd -- "$(dirname -- "$DIST_DIR")" && pwd -P)"
+DIST_DIR="$DIST_PARENT/$DIST_NAME"
+[[ "$DIST_DIR" != "/" && "$DIST_DIR" != "$PROJECT_ROOT" ]] || fail "refusing unsafe distribution output path: $DIST_DIR"
+[[ ! -L "$DIST_DIR" ]] || fail "refusing to replace a symbolic-link distribution path: $DIST_DIR"
+if [[ -e "$DIST_DIR" ]]; then
+    [[ -d "$DIST_DIR" ]] || fail "existing distribution output is not a directory: $DIST_DIR"
+    [[ -f "$DIST_DIR/.billiards-distribution" && -r "$DIST_DIR/.billiards-distribution" ]] || fail "existing output is not a recognized Billiards distribution; move it aside before building: $DIST_DIR"
+    [[ "$(cat -- "$DIST_DIR/.billiards-distribution")" == "$(cat -- "$DISTRIBUTION_MARKER_SOURCE")" ]] || fail "existing output has an unsupported Billiards distribution marker: $DIST_DIR"
+fi
 STAGING="$(mktemp -d "$DIST_PARENT/.${DIST_NAME}.build.XXXXXX")"
 cleanup() {
     rm -rf -- "$STAGING"
@@ -99,21 +109,28 @@ printf '%s\n' 'Building retained HTML/JS/CSS client...'
 [[ -f "$PROJECT_ROOT/backend/static/index.html" ]] || fail "frontend build completed without backend/static/index.html"
 
 printf '%s\n' 'Building Rust server and live capture binaries...'
-target_args=()
-if [[ -n "$RUST_TARGET" ]]; then
-    target_args=(--target "$RUST_TARGET")
-fi
 (
     cd "$PROJECT_ROOT"
-    cargo build \
-        --locked \
-        --manifest-path "$PROJECT_ROOT/perception/Cargo.toml" \
-        --release \
-        --features "$RUST_FEATURES" \
-        "${target_args[@]}" \
-        --bin billiards-server \
-        --bin billiards-perception-live \
-        --bin billiards-perception-gstreamer-probe
+    if [[ -n "$RUST_TARGET" ]]; then
+        cargo build \
+            --locked \
+            --manifest-path "$PROJECT_ROOT/perception/Cargo.toml" \
+            --release \
+            --features "$RUST_FEATURES" \
+            --target "$RUST_TARGET" \
+            --bin billiards-server \
+            --bin billiards-perception-live \
+            --bin billiards-perception-gstreamer-probe
+    else
+        cargo build \
+            --locked \
+            --manifest-path "$PROJECT_ROOT/perception/Cargo.toml" \
+            --release \
+            --features "$RUST_FEATURES" \
+            --bin billiards-server \
+            --bin billiards-perception-live \
+            --bin billiards-perception-gstreamer-probe
+    fi
 )
 
 if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
@@ -165,6 +182,7 @@ cp -R "$PROJECT_ROOT/backend/static/." "$STAGING/frontend/"
 [[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after copying backend/static"
 install -m 0755 "$SCRIPT_DIR/run.sh" "$STAGING/run.sh"
 install -m 0755 "$SCRIPT_DIR/update.sh" "$STAGING/update.sh"
+install -m 0644 "$DISTRIBUTION_MARKER_SOURCE" "$STAGING/.billiards-distribution"
 
 {
     printf 'Built UTC: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -180,23 +198,31 @@ install -m 0755 "$SCRIPT_DIR/update.sh" "$STAGING/update.sh"
     fi
 } > "$STAGING/build-info.txt"
 
-# Replace the prior bundle only after every build and package step succeeds.
+# Replace only a recognized prior bundle after every build and package step
+# succeeds. Keep its unique backup after success because it may contain the
+# only copy of runtime configuration or calibration data.
 previous_dist=""
 if [[ -e "$DIST_DIR" ]]; then
-    previous_dist="${DIST_DIR}.previous.$(date -u '+%Y%m%dT%H%M%SZ')"
-    mv -- "$DIST_DIR" "$previous_dist"
+    previous_dist="$(mktemp -d "$DIST_PARENT/.${DIST_NAME}.previous.XXXXXX")"
+    if ! mv -- "$DIST_DIR" "$previous_dist/distribution"; then
+        rmdir -- "$previous_dist" 2>/dev/null || true
+        fail "could not preserve the existing distribution before replacement: $DIST_DIR"
+    fi
 fi
 if ! mv -- "$STAGING" "$DIST_DIR"; then
     if [[ -n "$previous_dist" && -e "$previous_dist" ]]; then
-        mv -- "$previous_dist" "$DIST_DIR"
+        if ! mv -- "$previous_dist/distribution" "$DIST_DIR"; then
+            fail "could not install the completed distribution or restore the previous bundle; recovery copy remains at $previous_dist/distribution"
+        fi
+        rmdir -- "$previous_dist"
     fi
     fail "could not place the completed Rust distribution at $DIST_DIR"
-fi
-if [[ -n "$previous_dist" && -e "$previous_dist" ]]; then
-    rm -rf -- "$previous_dist"
 fi
 trap - EXIT INT TERM
 
 printf 'Rust distribution created: %s\n' "$DIST_DIR"
+if [[ -n "$previous_dist" ]]; then
+    printf 'Previous distribution retained for recovery: %s/distribution\n' "$previous_dist"
+fi
 printf 'The bundle is native to %s; install matching GStreamer runtime/plugins on the destination machine.\n' "${RUST_TARGET:-the build host}"
 printf 'Start it with: cd %q && ./run.sh\n' "$DIST_DIR"

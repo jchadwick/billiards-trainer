@@ -6,12 +6,14 @@ on:
     paths:
       - "setup.sh"
       - "**/*.sh"
+      - "Makefile"
       - ".github/workflows/shell-scripts.yml"
   pull_request:
     branches: [main, develop]
     paths:
       - "setup.sh"
       - "**/*.sh"
+      - "Makefile"
       - ".github/workflows/shell-scripts.yml"
   workflow_dispatch:
 
@@ -71,3 +73,6 @@ jobs:
             exit 1
           fi
           printf 'Syntax-checked %d tracked shell scripts across the repository.\n' "${checked}"
+
+      - name: Exercise deployment package and restart behavior
+        run: make test-deploy

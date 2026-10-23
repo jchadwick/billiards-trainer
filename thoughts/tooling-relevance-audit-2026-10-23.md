@@ -54,14 +54,14 @@ commands or baselines.
 
 | Tool | Disposition | Evidence and boundary |
 | --- | --- | --- |
-| `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; process smoke covers staged `run.sh` startup/shutdown, and local deployment tests reject legacy executables. Packaging/update/rollback behavior remains open. |
+| `scripts/deploy/build-dist.sh`, `clean-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime. Isolated shell tests cover bundle layout, ownership checks, prior-bundle retention, rollback, cleanup, PID ownership, graceful/forced stop, and systemd restart behavior; the separate Rust process test exercises the real staged server. |
 | Docker/Compose image and Make targets | Keep as a separate optional Linux gateway/network-source lane | The image builds the Rust runtime and Compose defaults to gateway-only mode. The service has no physical camera device mapping, and CI builds but does not start the image or exercise its health check. It is not physical-camera qualification or a substitute for native macOS packaging. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG and restarts for a reconnecting client. It can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | Root `Makefile` | Keep the focused build/test/run/deploy interface; remove the false `install` alias and broad process kill | `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. Local builds now reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
-| `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. The release build now passes `cargo build --locked`; the separate staged `run.sh` smoke covers server lifecycle, while package assembly and `update.sh` restart/rollback still need behavioral tests. |
+| `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. Release builds pass `cargo build --locked`; `make test-deploy` now tests package assembly, safe replacement and rollback, cleanup, and updater lifecycle. Tests run through the system Bash path to catch macOS Bash compatibility issues. |
 | `.github/workflows/shell-scripts.yml` | Keep and broaden | It now syntax-checks every tracked `*.sh`, not only `scripts/**`; this is syntax coverage, not behavioral coverage or ShellCheck. |
 | Make targets for Python compatibility tests/lint | Keep as compatibility checks | The user has allowed the Python service/reference to remain for now. Do not mistake its tests for Rust runtime or live-camera qualification. |
 | `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
@@ -219,19 +219,15 @@ major CSS-framework migration.
    positions, then run the Rust evaluator. The current tests prove evaluator
    semantics but there is no representative truth set and no production
    localization-accuracy result.
-2. Extend deployment lifecycle coverage for `build-dist.sh` and `update.sh`.
-   The staged-bundle process test validates `run.sh` startup, server PID,
-   health, static client delivery, SIGTERM, and PID-file cleanup. Package
-   assembly, safe update/restart, and rollback behavior remain untested.
-3. Add a Docker/Compose runtime smoke if this optional deployment lane is
+2. Add a Docker/Compose runtime smoke if this optional deployment lane is
    retained. CI currently verifies image construction only; there is no
    container startup/API health check, and Compose does not pass through a
    physical camera.
-4. Measure browser/video-viewer interference separately. Current live audit
+3. Measure browser/video-viewer interference separately. Current live audit
    receipts do not represent browser rendering or physical display latency.
-5. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+4. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
-6. The checked-in `config.json` still selects the legacy `.mlpackage` under
+5. The checked-in `config.json` still selects the legacy `.mlpackage` under
    Python vision settings, points at missing `assets/demo3.mp4`, and uses an
    integer camera ID that is not a qualified GStreamer source. It has not been
    qualified as the product launcher config. The Rust live path is now
@@ -240,7 +236,7 @@ major CSS-framework migration.
    valid 1280 ONNX export and matching manifest exist in the external model
    repository, with two classes (`cue=0`, `ball=1`). Migrating the checked-in
    default config and qualifying its physical source remain open.
-7. The offline Python compatibility detector still contains CoreML loading
+6. The offline Python compatibility detector still contains CoreML loading
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
