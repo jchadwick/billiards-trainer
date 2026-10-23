@@ -54,14 +54,14 @@ commands or baselines.
 
 | Tool | Disposition | Evidence and boundary |
 | --- | --- | --- |
-| `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; the local deployment tests reject legacy executables. |
+| `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; process smoke covers staged `run.sh` startup/shutdown, and local deployment tests reject legacy executables. Packaging/update/rollback behavior remains open. |
 | Docker/Compose image and Make targets | Keep as a separate optional Linux gateway/network-source lane | The image builds the Rust runtime and Compose defaults to gateway-only mode. The service has no physical camera device mapping, and CI builds but does not start the image or exercise its health check. It is not physical-camera qualification or a substitute for native macOS packaging. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG and restarts for a reconnecting client. It can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | Root `Makefile` | Keep the focused build/test/run/deploy interface; remove the false `install` alias and broad process kill | `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. Local builds now reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
-| `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. The release build now passes `cargo build --locked`; staging and process lifecycle still need behavioral tests beyond source-contract assertions. |
+| `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. The release build now passes `cargo build --locked`; the separate staged `run.sh` smoke covers server lifecycle, while package assembly and `update.sh` restart/rollback still need behavioral tests. |
 | `.github/workflows/shell-scripts.yml` | Keep and broaden | It now syntax-checks every tracked `*.sh`, not only `scripts/**`; this is syntax coverage, not behavioral coverage or ShellCheck. |
 | Make targets for Python compatibility tests/lint | Keep as compatibility checks | The user has allowed the Python service/reference to remain for now. Do not mistake its tests for Rust runtime or live-camera qualification. |
 | `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
@@ -215,9 +215,10 @@ major CSS-framework migration.
    positions, then run the Rust evaluator. The current tests prove evaluator
    semantics but there is no representative truth set and no production
    localization-accuracy result.
-2. Add an isolated staged-bundle smoke for deploy/run/update. Existing checks
-   validate script contracts and shell syntax, not packaging rollback, PID
-   ownership, or real startup/shutdown behavior.
+2. Extend deployment lifecycle coverage for `build-dist.sh` and `update.sh`.
+   The staged-bundle process test validates `run.sh` startup, server PID,
+   health, static client delivery, SIGTERM, and PID-file cleanup. Package
+   assembly, safe update/restart, and rollback behavior remain untested.
 3. Add a Docker/Compose runtime smoke if this optional deployment lane is
    retained. CI currently verifies image construction only; there is no
    container startup/API health check, and Compose does not pass through a
@@ -471,12 +472,17 @@ path remain untested.
   was ignored and untracked, making clean-checkout test builds non-reproducible.
   The real-detector live-application integration test passes using the tracked
   fixture.
+- Added a staged-bundle `run.sh` process test. It launches the actual compiled
+  Rust server with capture disabled, verifies health and the copied web root,
+  then checks SIGTERM shutdown and PID-file cleanup. This does not exercise
+  package construction, update/rollback, systemd, camera capture, or hardware.
 - ADR-0095 supersedes the unimplemented Python trajectory-workload switch in
   ADR-0048. The Rust server has no trajectory producer to isolate, and
   `--include-trajectory` is receiver-only; current performance documentation
   and findings now state that boundary explicitly.
-- Final verification after these changes: `make test-all` passed 312 default
-  Rust library tests, 324 GStreamer-feature Rust library tests, 16 browser
-  tests, and 2,827 Python compatibility tests with one model-dependent skip at
-  82.48% coverage. `make lint format-check`, `make build`, `git diff --check`,
-  and validation of all 95 ADRs passed.
+- Final verification including the new deployment process test: `make test-all`
+  passed 312 default Rust library tests, 324 GStreamer-feature Rust library
+  tests, 16 browser tests, and 2,827 Python compatibility tests with one
+  model-dependent skip at 82.48% coverage. The deployment test passed in both
+  Rust configurations. `make lint format-check`, `make build`, `git diff
+  --check`, and validation of all 95 ADRs passed.
