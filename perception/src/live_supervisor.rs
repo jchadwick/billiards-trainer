@@ -100,9 +100,6 @@ impl LiveProcessConfig {
             .and_then(Value::as_u64)
             .ok_or_else(|| "capture request has no rectification revision".to_owned())?;
         let capture_source = capture_source(configuration)?;
-        let engine_id = Uuid::new_v4().to_string();
-        let session_id = Uuid::new_v4().to_string();
-
         let mut arguments = Vec::new();
         push_config_argument(
             &mut arguments,
@@ -182,8 +179,6 @@ impl LiveProcessConfig {
             "capture-settings-max-bytes",
             required_u64(live, "capture_settings_maximum_bytes")?.to_string(),
         );
-        push_argument(&mut arguments, "engine-instance-id", engine_id);
-        push_argument(&mut arguments, "source-session-id", session_id);
         push_argument(
             &mut arguments,
             "scene-snapshots-tcp",
@@ -374,8 +369,23 @@ impl LiveProcessConfig {
     }
 
     async fn spawn_child(&self) -> Result<Child, String> {
+        // These IDs scope transport watermarks and cached state to one producer
+        // process and capture session. Generate them at the spawn boundary so
+        // every supervised restart creates a new epoch, while reconnects made
+        // by this child continue to use the same pair.
+        let mut arguments = self.arguments.clone();
+        push_argument(
+            &mut arguments,
+            "engine-instance-id",
+            Uuid::new_v4().to_string(),
+        );
+        push_argument(
+            &mut arguments,
+            "source-session-id",
+            Uuid::new_v4().to_string(),
+        );
         let mut child = Command::new(&self.executable)
-            .args(&self.arguments)
+            .args(&arguments)
             .current_dir(&self.project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
@@ -585,6 +595,7 @@ mod tests {
     use std::time::Duration;
 
     use serde_json::Value;
+    use uuid::Uuid;
 
     fn remote_stream_config() -> Value {
         let mut configuration: Value =
@@ -669,10 +680,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sends_capture_request_then_reaps_the_child() {
+    async fn each_child_restart_receives_a_new_transport_epoch() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("fake-live");
-        std::fs::write(&executable, "#!/bin/sh\ncat >/dev/null\n").unwrap();
+        let arguments_log = directory.path().join("arguments.log");
+        let arguments_log = arguments_log.display().to_string().replace('\'', "'\\''");
+        std::fs::write(
+            &executable,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" >> '{arguments_log}'\nprintf '\\n' >> '{arguments_log}'\ncat >/dev/null\n"
+            ),
+        )
+        .unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -688,12 +707,46 @@ mod tests {
             restart_initial_delay: Duration::from_millis(10),
             restart_maximum_delay: Duration::from_millis(100),
         };
-        let mut child = config.spawn_child().await.unwrap();
-        let status = child.wait().await.unwrap();
-        assert!(status.success());
+        for _ in 0..2 {
+            let mut child = config.spawn_child().await.unwrap();
+            let status = child.wait().await.unwrap();
+            assert!(status.success());
 
-        // The shutdown path is a no-op for an already reaped child and remains
-        // safe to call when the service exits between the signal and wait.
-        stop_child(&mut child, Duration::from_millis(10)).await;
+            // The shutdown path is a no-op for an already reaped child and
+            // remains safe if the service exits between signal and wait.
+            stop_child(&mut child, Duration::from_millis(10)).await;
+        }
+
+        let logged_arguments =
+            std::fs::read_to_string(directory.path().join("arguments.log")).unwrap();
+        let launches: Vec<Vec<&str>> = logged_arguments
+            .split("\n\n")
+            .filter(|launch| !launch.trim().is_empty())
+            .map(|launch| launch.lines().collect())
+            .collect();
+        assert_eq!(launches.len(), 2);
+        fn value_after<'a>(arguments: &[&'a str], name: &str) -> &'a str {
+            let index = arguments
+                .iter()
+                .position(|argument| *argument == name)
+                .unwrap_or_else(|| panic!("missing {name} in {arguments:?}"));
+            arguments[index + 1]
+        }
+        let engine_ids = launches
+            .iter()
+            .map(|arguments| value_after(arguments, "--engine-instance-id"))
+            .collect::<Vec<_>>();
+        let session_ids = launches
+            .iter()
+            .map(|arguments| value_after(arguments, "--source-session-id"))
+            .collect::<Vec<_>>();
+        assert_ne!(engine_ids[0], engine_ids[1]);
+        assert_ne!(session_ids[0], session_ids[1]);
+        assert!(engine_ids
+            .iter()
+            .all(|value| Uuid::parse_str(value).is_ok()));
+        assert!(session_ids
+            .iter()
+            .all(|value| Uuid::parse_str(value).is_ok()));
     }
 }

@@ -222,3 +222,16 @@ that none reach the child. The supervised path remains anonymous; this change
 removes unnecessary secret propagation rather than adding an authentication
 mechanism. The supervisor/API lifecycle selection passes 10 tests; the opt-in
 real-model lifecycle check is skipped when its external model paths are absent.
+
+### Supervised child restart epoch (2026-10-22)
+
+The Rust live supervisor now generates a fresh engine-instance ID and
+source-session ID at each child spawn. An unexpected child exit therefore
+starts a new producer epoch, so the gateway resets the sequence watermark and
+drops the prior child's cached state. IDs remain stable for the life of one
+child, preserving same-epoch transport reconnect behavior. The supervisor
+regression test launches two fake children and verifies both IDs change and
+remain valid UUIDs; gateway epoch tests verify the receiver resets old state
+for changed IDs and retains the watermark for same-epoch reconnects. This
+corrects the earlier implementation gap described by the negative consequence
+above without changing the protocol or adding authentication.
