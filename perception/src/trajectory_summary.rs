@@ -56,9 +56,9 @@ impl TrajectoryAccumulator {
 
     /// Add one flattened `trajectory_from_message` event plus receipt metrics.
     ///
-    /// Missing sequence/frame values count as incomplete, matching the Python
-    /// collector. Present values with the wrong JSON type are rejected so a
-    /// malformed protocol event cannot silently distort ordering statistics.
+    /// Missing sequence/frame values count as incomplete. Present values with
+    /// the wrong JSON type are rejected so malformed protocol events cannot
+    /// silently distort ordering statistics.
     pub fn add_event(&mut self, event: &Value) -> Result<(), String> {
         let event = event
             .as_object()
@@ -162,7 +162,7 @@ impl TrajectoryAccumulator {
         Ok(())
     }
 
-    /// Build the stable legacy summary and disclose bounded sample loss.
+    /// Build the stable trajectory summary and disclose bounded sample loss.
     pub fn summary(
         &self,
         duration_seconds: f64,
@@ -502,7 +502,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn ordering_identity_invalidation_and_percentiles_match_legacy_semantics() {
+    fn ordering_identity_invalidation_and_percentiles_follow_the_contract() {
         let mut accumulator = TrajectoryAccumulator::new(8).unwrap();
         for event in [
             json!({"stream_sequence": 10, "source_frame_number": 5, "vision_instance_id": "v", "source_process_id": 1, "source_publication_wall_age_estimate_ms": 9.0, "source_publication_to_client_receipt_ms": 7.0, "clock_comparable": true}),

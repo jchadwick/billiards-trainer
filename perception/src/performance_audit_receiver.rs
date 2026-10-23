@@ -1,10 +1,10 @@
 //! Bounded WebSocket receiver for auditing Rust live-state delivery.
 //!
-//! This first native collector slice measures receiver-side ordering,
-//! observation identity, freshness evidence, and producer-reported
-//! read-completion-to-publication age. It deliberately does not subtract a
-//! producer monotonic timestamp from a receiver clock: the current live
-//! envelope does not establish that those clocks share an origin.
+//! The receiver measures state ordering, observation identity, freshness,
+//! and producer-reported read-completion-to-publication age. It deliberately
+//! does not subtract a producer monotonic timestamp from a receiver clock:
+//! the current live envelope does not establish that those clocks share an
+//! origin.
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -568,8 +568,7 @@ where
                                 }
                                 // Subscription acknowledgement defines the
                                 // measurement boundary; discard early data and
-                                // unrelated control messages like the Python
-                                // differential collector does.
+                                // unrelated control messages.
                                 _ => continue,
                             }
                         }
@@ -1160,7 +1159,7 @@ impl StateAccumulator {
         let state_samples_truncated = self.counts.state_messages > retained_sample_count as u64;
         let report = StateReceiverReport {
             schema_version: AUDIT_REPORT_SCHEMA_VERSION,
-            tool: "billiards-performance-audit",
+            tool: "billiards-performance-audit-run",
             mode: "websocket_state_receiver",
             started_at_utc,
             finished_at_utc,

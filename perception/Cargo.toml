@@ -51,44 +51,12 @@ path = "src/bin/camera_discovery.rs"
 required-features = ["camera-gstreamer-discovery"]
 
 [[bin]]
-name = "billiards-capture-transport-bench"
-path = "src/bin/capture_transport_bench.rs"
-
-[[bin]]
 name = "billiards-perception-receive-detection-batches"
 path = "src/bin/detection_batch_receiver.rs"
 
 [[bin]]
-name = "billiards-performance-audit"
-path = "src/bin/performance_audit.rs"
-
-[[bin]]
 name = "billiards-performance-audit-run"
 path = "src/bin/performance_audit_run.rs"
-
-[[bin]]
-name = "billiards-performance-audit-timing-summary"
-path = "src/bin/performance_audit_timing_summary.rs"
-
-[[bin]]
-name = "billiards-performance-audit-resources"
-path = "src/bin/performance_audit_resources.rs"
-
-[[bin]]
-name = "billiards-performance-audit-server-summary"
-path = "src/bin/performance_audit_server_summary.rs"
-
-[[bin]]
-name = "billiards-performance-audit-delivery-summary"
-path = "src/bin/performance_audit_delivery_summary.rs"
-
-[[bin]]
-name = "billiards-performance-audit-overhead-summary"
-path = "src/bin/performance_audit_overhead_summary.rs"
-
-[[bin]]
-name = "billiards-performance-audit-trajectory-summary"
-path = "src/bin/performance_audit_trajectory_summary.rs"
 
 [[bin]]
 name = "billiards-temporal-evaluate"

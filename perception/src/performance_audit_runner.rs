@@ -1405,8 +1405,8 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         );
     }
     if config.include_trajectory {
-        limitations.push("Trajectory receipts report source and lifecycle metadata; full trajectory geometry, prediction quality, and ground-truth accuracy are not evaluated by this collector.");
-        limitations.push("Cross-process trajectory age and publication-to-receipt latency remain unavailable because this collector does not verify a shared monotonic clock domain.");
+        limitations.push("Trajectory receipts report source and lifecycle metadata; full trajectory geometry, prediction quality, and ground-truth accuracy are not evaluated by this audit.");
+        limitations.push("Cross-process trajectory age and publication-to-receipt latency remain unavailable because this audit does not verify a shared monotonic clock domain.");
     }
     Ok(RunWindowsOutput {
         report: StateAuditRunReport {
