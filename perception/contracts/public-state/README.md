@@ -10,7 +10,7 @@ The other JSON files pair a complete neutral scene with the **actual Python
 adapter output**, captured by `generate_fixtures.py`. Regenerate from the root:
 
 ```sh
-.venv/bin/python -m perception.contracts.public-state.generate_fixtures
+.venv/bin/python perception/contracts/public-state/generate_fixtures.py
 cargo test --manifest-path perception/Cargo.toml --test public_state
 ```
 

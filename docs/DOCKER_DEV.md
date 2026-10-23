@@ -1,9 +1,9 @@
 # Local development
 
-The supported app runtime is Rust. Python remains available for tests, model
-training/export, annotation, and off-device development tools; it is not needed
-to launch the server. The browser client remains HTML/CSS/JavaScript built from
-the React/TypeScript source.
+The supported app runtime is Rust. Python remains available for compatibility
+tests, dataset/calibration authoring, and optional model export; it is not
+needed to launch the server. The browser client remains HTML/CSS/JavaScript
+built from the React/TypeScript source.
 
 ## Run the Rust application from source
 
@@ -54,11 +54,11 @@ docker compose up --build backend
 For gateway-only checks set `START_LIVE=false` in the environment. Container
 configuration and model mounts are described in [DOCKER.md](DOCKER.md).
 
-## Python development tools
+## Optional Python tools
 
-Python-based tests, model-export utilities, label/evaluation tools, and
-recorded-input comparison tools remain part of the repository. Install their
-dependencies with the root `uv`/`pyproject.toml` workflow documented in the
-relevant tool README. These workflows do not launch a Python application
-server and their throughput is not a substitute for real-time live-camera
-qualification.
+Python remains for compatibility-service tests, model export, dataset
+preparation, and calibration authoring. Install the lighter workflow with
+`make install-python-tools`; use `make install-model-tools` only when exporting
+ONNX or CoreML. Rust owns supported temporal evaluation and live performance
+auditing. Python tools do not launch the supported application server, and
+their throughput is not a substitute for real-time live-camera qualification.

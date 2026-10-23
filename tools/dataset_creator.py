@@ -75,7 +75,7 @@ class FrameMetadata:
     scene_complexity: float  # 0.0-1.0
     color_variety: float  # 0.0-1.0
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         """Convert to JSON-serializable dictionary."""
         data = asdict(self)
         # Convert numpy types to Python types
@@ -440,7 +440,9 @@ class FrameExtractor:
         self.stats.video_duration = duration
 
         logger.info(f"Video: {self.config.video_path}")
-        logger.info(f"Total frames: {total_frames}, FPS: {fps:.2f}, Duration: {duration:.2f}s")
+        logger.info(
+            f"Total frames: {total_frames}, FPS: {fps:.2f}, Duration: {duration:.2f}s"
+        )
         logger.info(f"Target extraction: {self.config.target_count} frames")
         logger.info(f"Strategy: {self.config.strategy}")
 
@@ -464,9 +466,10 @@ class FrameExtractor:
         self.stats.extraction_time = (end_time - start_time).total_seconds()
 
         if self.stats.frames_extracted > 0:
-            self.stats.average_quality = sum(
-                f.quality_score for f in self.extracted_frames
-            ) / self.stats.frames_extracted
+            self.stats.average_quality = (
+                sum(f.quality_score for f in self.extracted_frames)
+                / self.stats.frames_extracted
+            )
             self.stats.edge_case_count = sum(
                 len(f.edge_case_flags) for f in self.extracted_frames
             )
@@ -480,7 +483,9 @@ class FrameExtractor:
 
         return self.stats
 
-    def _extract_uniform(self, cap: cv2.VideoCapture, total_frames: int, fps: float) -> None:
+    def _extract_uniform(
+        self, cap: cv2.VideoCapture, total_frames: int, fps: float
+    ) -> None:
         """Extract frames at uniform intervals.
 
         Args:
@@ -507,9 +512,13 @@ class FrameExtractor:
                 break
 
             if frame_number % 100 == 0:
-                logger.info(f"Processed {frame_number}/{total_frames} frames, extracted {self.stats.frames_extracted}")
+                logger.info(
+                    f"Processed {frame_number}/{total_frames} frames, extracted {self.stats.frames_extracted}"
+                )
 
-    def _extract_scene_changes(self, cap: cv2.VideoCapture, total_frames: int, fps: float) -> None:
+    def _extract_scene_changes(
+        self, cap: cv2.VideoCapture, total_frames: int, fps: float
+    ) -> None:
         """Extract frames at scene changes.
 
         Args:
@@ -542,9 +551,13 @@ class FrameExtractor:
                 break
 
             if frame_number % 100 == 0:
-                logger.info(f"Processed {frame_number}/{total_frames} frames, extracted {self.stats.frames_extracted}")
+                logger.info(
+                    f"Processed {frame_number}/{total_frames} frames, extracted {self.stats.frames_extracted}"
+                )
 
-    def _extract_random(self, cap: cv2.VideoCapture, total_frames: int, fps: float) -> None:
+    def _extract_random(
+        self, cap: cv2.VideoCapture, total_frames: int, fps: float
+    ) -> None:
         """Extract frames at random positions.
 
         Args:
@@ -555,7 +568,9 @@ class FrameExtractor:
         logger.info("Extracting random frames...")
 
         # Generate random frame numbers
-        random_frames = sorted(np.random.choice(total_frames, self.config.target_count, replace=False))
+        random_frames = sorted(
+            np.random.choice(total_frames, self.config.target_count, replace=False)
+        )
 
         for frame_number in random_frames:
             cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
@@ -566,10 +581,17 @@ class FrameExtractor:
             timestamp = frame_number / fps
             self._process_and_save_frame(frame, frame_number, timestamp)
 
-            if (len(random_frames) > 100 and frame_number % (len(random_frames) // 10) == 0):
-                logger.info(f"Extracted {self.stats.frames_extracted}/{self.config.target_count} frames")
+            if (
+                len(random_frames) > 100
+                and frame_number % (len(random_frames) // 10) == 0
+            ):
+                logger.info(
+                    f"Extracted {self.stats.frames_extracted}/{self.config.target_count} frames"
+                )
 
-    def _extract_hybrid(self, cap: cv2.VideoCapture, total_frames: int, fps: float) -> None:
+    def _extract_hybrid(
+        self, cap: cv2.VideoCapture, total_frames: int, fps: float
+    ) -> None:
         """Extract frames using hybrid strategy (uniform + scene changes).
 
         Args:
@@ -634,7 +656,9 @@ class FrameExtractor:
         """
         return any(f.frame_number == frame_number for f in self.extracted_frames)
 
-    def _process_and_save_frame(self, frame: NDArray[np.uint8], frame_number: int, timestamp: float) -> None:
+    def _process_and_save_frame(
+        self, frame: NDArray[np.uint8], frame_number: int, timestamp: float
+    ) -> None:
         """Process and save a frame if it meets quality criteria.
 
         Args:
@@ -755,12 +779,14 @@ class FrameExtractor:
         # Print edge case distribution
         if self.config.analyze_edge_cases and self.extracted_frames:
             logger.info("\nEDGE CASE DISTRIBUTION:")
-            edge_case_counts: Dict[str, int] = {}
+            edge_case_counts: dict[str, int] = {}
             for frame in self.extracted_frames:
                 for flag in frame.edge_case_flags:
                     edge_case_counts[flag] = edge_case_counts.get(flag, 0) + 1
 
-            for edge_case, count in sorted(edge_case_counts.items(), key=lambda x: x[1], reverse=True):
+            for edge_case, count in sorted(
+                edge_case_counts.items(), key=lambda x: x[1], reverse=True
+            ):
                 percentage = (count / self.stats.frames_extracted) * 100
                 logger.info(f"  {edge_case:15s}: {count:4d} ({percentage:.1f}%)")
 

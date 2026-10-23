@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""
-UDP Test Sender for Billiards Projector
-Sends simulated trajectory data to test the projector visualization
-"""
+"""Send simulated trajectory data to test the projector visualization."""
 
-import socket
 import json
-import time
 import math
+import socket
 import sys
+import time
 import unittest
 
 # UDP configuration
@@ -23,8 +20,9 @@ PROJECTOR_PIXEL_RADIUS = {
     "radius_scale": [1.0, 1.0],
 }
 
+
 def create_trajectory_message(t):
-    """Create a simulated trajectory message"""
+    """Create a simulated trajectory message."""
     # Simulate a ball moving in a curved path
     points = []
     for i in range(20):
@@ -46,16 +44,8 @@ def create_trajectory_message(t):
                 {"x": 0.0, "y": 1.0},
             ],
             "bounds": {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0},
-            "paths": [
-                {
-                    "points": points,
-                    "ballType": "cue",
-                    "confidence": 0.95
-                }
-            ],
-            "collisions": [
-                {"x": 0.5, "y": 0.5, "type": "cushion"}
-            ],
+            "paths": [{"points": points, "ballType": "cue", "confidence": 0.95}],
+            "collisions": [{"x": 0.5, "y": 0.5, "type": "cushion"}],
             "ghostBalls": [
                 {
                     "x": 0.7,
@@ -64,25 +54,22 @@ def create_trajectory_message(t):
                     **PROJECTOR_PIXEL_RADIUS,
                     "number": 8,
                 }
-            ]
-        }
+            ],
+        },
     }
 
+
 def create_collision_message():
-    """Create a collision marker message"""
+    """Create a collision marker message."""
     return {
         "type": "collision",
         "timestamp": time.time(),
-        "data": {
-            **TABLE_COORDINATES,
-            "x": 0.6,
-            "y": 0.4,
-            "type": "ball"
-        }
+        "data": {**TABLE_COORDINATES, "x": 0.6, "y": 0.4, "type": "ball"},
     }
 
+
 def create_aim_line_message(t):
-    """Create an aim line message"""
+    """Create an aim line message."""
     angle = t * 0.5
     return {
         "type": "aim",
@@ -92,12 +79,13 @@ def create_aim_line_message(t):
             "x1": 0.5,
             "y1": 0.5,
             "x2": 0.5 + 0.4 * math.cos(angle),
-            "y2": 0.5 + 0.4 * math.sin(angle)
-        }
+            "y2": 0.5 + 0.4 * math.sin(angle),
+        },
     }
 
+
 def send_test_messages(duration=30, interval=0.5):
-    """Send test messages for a specified duration"""
+    """Send test messages for a specified duration."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     print(f"Sending UDP test messages to {UDP_IP}:{UDP_PORT}")
@@ -141,8 +129,9 @@ def send_test_messages(duration=30, interval=0.5):
         sock.close()
         print(f"\nTotal messages sent: {message_count}")
 
+
 def send_single_test():
-    """Send a single test message"""
+    """Send a single test message."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     msg = create_trajectory_message(0)
@@ -189,9 +178,14 @@ class TestSenderCoordinateContract(unittest.TestCase):
         collision = create_collision_message()["data"]
         for time_value in range(0, 61):
             aim = create_aim_line_message(time_value)["data"]
-            for point in (collision, {"x": aim["x1"], "y": aim["y1"]}, {"x": aim["x2"], "y": aim["y2"]}):
+            for point in (
+                collision,
+                {"x": aim["x1"], "y": aim["y1"]},
+                {"x": aim["x2"], "y": aim["y2"]},
+            ):
                 self.assertTrue(0 <= point["x"] <= 1)
                 self.assertTrue(0 <= point["y"] <= 1)
+
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "continuous"

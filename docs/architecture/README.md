@@ -22,17 +22,22 @@ build and deployment workflows. ADR-0066 sets the destination: all deployed
 server-side components run in Rust, while the browser application remains
 HTML, JavaScript, and CSS. The Python service is a migration bridge. Model
 training, dataset preparation, and other annotation workflows remain
-off-device. The reviewed temporal-label importer is Rust under ADR-0083.
-Complex audit tooling migrates to Rust under ADR-0082, with Python retained
-temporarily as an independent differential reference where parity work remains.
-Rust now samples process resources,
-collects state and optional trajectory receipts in the repeatable audit runner,
-and owns the server-event, delivery-latency, and instrumentation-overhead
-reducers. Viewer workload, event-window and clock joins, baseline selection,
-full camera-profile provenance, and remaining report orchestration stay Python
-for now. Managed live audits resolve detector-child resources from the timing
-stream per measured window; restarts and incomplete evidence remain explicitly
-partial.
+off-device. The reviewed temporal-label importer is Rust under ADR-0083. ADR-0085
+supersedes ADR-0082's temporary Python collector-retention requirement while
+preserving its shell-for-glue and Rust-for-complex-tooling decision. The Rust
+live runner owns state and optional trajectory receipt audits, detector timing,
+and optional process-resource sampling; the Rust temporal evaluator owns
+reviewed-label scoring. The retired Python collector/profile benchmark,
+still-image equivalence evaluator, and collector-only Rust adapters are
+historical. Browser/video-viewer interference and recorded-video
+capacity/freshness replay are current gaps; ADR-0084 proposes the latter.
+Optional dataset preparation, camera calibration authoring, and model export
+remain off-device. Standalone Python accuracy/performance evaluators are
+retired. The Python compatibility service retains optional in-process
+instrumentation for its own historical diagnostics; it does not audit the Rust
+runtime. ADR-0086 also retires the disconnected LÖVE trajectory visualizer;
+the supported browser client remains the `/live` application and the separate
+projector client remains available.
 ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
@@ -180,7 +185,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0014](decisions/0014-python-owned-revisioned-configuration-and-calibration.md) | Historical Python-owned configuration proposal | Superseded by 0056 | 1/4/5 | Retain versioned requests and revision acknowledgments; native configuration/calibration replacement remains required |
 | [0015](decisions/0015-exclusive-camera-ownership-and-owned-frame-buffers.md) | One acquisition owner and owned in-process frames | Proposed | 5 | Device-independent envelope/mailbox semantics are tested; physical camera modes, release/restart/handover and target-platform behavior remain open |
 | [0016](decisions/0016-prioritize-localization-and-isolate-optional-consumers.md) | Continuous localization with independently bounded optional work | Proposed | 3 | Dense-motion accuracy, blocked-consumer/interference tests and preserved prediction lifecycle |
-| [0017](decisions/0017-retain-python-tools-as-cross-runtime-acceptance-tests.md) | Retain Python scoring/tools as temporary differential references | Superseded by 0082 | 0/2 | Python reference remains until equivalent Rust contract and real-socket coverage passes |
+| [0017](decisions/0017-retain-python-tools-as-cross-runtime-acceptance-tests.md) | Retain Python scoring/tools as temporary differential references | Superseded through 0082 by 0085 | 0/2 | Differential Python evaluators are retired; current evidence is Rust-owned under ADR-0085 |
 | [0018](decisions/0018-capability-gated-reversible-rollout-on-macos-and-linux.md) | Qualified platform/provider capabilities and reversible cutover | Proposed | 4 onward | Explicit replay/live readiness, target-hardware qualification and exercised rollback |
 | [0019](decisions/0019-asynchronous-ball-identity-separate-from-location-tracks.md) | Asynchronous number evidence separate from location and track identity | Proposed | 7 | Held-out identity accuracy/unknown rate, provenance and localization interference checks |
 | [0020](decisions/0020-deduplicate-polled-source-observations-before-state-updates.md) | Process each source observation once; preserve freshness across repeated polls | Accepted | 0 | Same-frame replay leaves Core and receipt freshness unchanged; new frame and restarted writer are accepted |
@@ -245,8 +250,11 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 | [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
-| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust runner collects state and optional trajectory over one WebSocket with bounded summaries/details, slow-subscriber experiments, managed lifecycle/resources, provenance and Markdown; viewer scenarios, event-window/clock joins, baseline selection, full camera provenance and accuracy orchestration remain Python |
+| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Superseded by 0085 | Audit tooling migration | Shell/Rust ownership split remains; temporary Python collector retention ended when the Rust live audit and temporal-label path became canonical |
 | [0083](decisions/0083-import-reviewed-temporal-annotations-with-rust.md) | Import reviewed temporal annotations with Rust | Accepted | Temporal label authoring | Rust CLI validates reviewed CVAT keyframes, video identity and timing with bounded inputs and atomic output; generated-video Python/Rust parity passed and the Python importer was retired |
+| [0084](decisions/0084-replay-recorded-video-with-rust-perception.md) | Replay recorded video with Rust perception | Proposed | Saved-video evaluation | Would add PTS-preserving Rust freshness/capacity replay; not implemented or qualified |
+| [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Accepted | Tooling scope | Rust owns live and labeled temporal evidence; offline dataset/model-authoring tools remain Python, while viewer interference and saved-video replay remain explicit gaps |
+| [0086](decisions/0086-retire-the-incomplete-native-visualizer.md) | Retire the incomplete native visualizer | Accepted | Client scope | Remove the disconnected trajectory-only LÖVE client; keep the `/live` browser application and distinct projector client |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

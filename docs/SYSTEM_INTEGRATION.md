@@ -1,8 +1,8 @@
 # System Integration
 
 The supported application runtime is Rust. The browser remains a standard
-HTML/JavaScript/CSS client; Python modules are retained for offline model,
-data, evaluation, and compatibility work, and are not launched by the
+HTML/JavaScript/CSS client; Python modules remain as compatibility code and
+offline model/data/calibration authoring tools, and are not launched by the
 application.
 
 ## Runtime components
@@ -15,8 +15,8 @@ application.
 - The frontend is built with the existing Node/Vite toolchain. The production
   bundle is static content served by `billiards-server`; Node is not required
   by the deployed application.
-- Python API modules and tools remain available for differential references,
-  model/data work, and offline tests. `python -m backend.main` and
+- Python API modules remain for compatibility tests and legacy references;
+  offline tools author model/data/calibration inputs. `python -m backend.main` and
   `python -m backend.dev_server` are retired commands and do not start a
   service.
 
@@ -61,8 +61,7 @@ make format-check
 make config-check
 ```
 
-`make test-python` runs retained offline compatibility and model-tool tests; it
-does not launch the Python API service. Physical-camera accuracy and freshness
-still require qualification on the intended hardware; replay and the remote
-MJPEG development fixture are integration evidence, not camera-ground-truth
-evidence.
+`make test-python` runs compatibility and offline authoring-tool tests; it does
+not launch the Python API service. Physical-camera accuracy and freshness still
+require qualification on the intended hardware; replay and the remote MJPEG
+development fixture are integration evidence, not camera-ground-truth evidence.

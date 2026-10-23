@@ -1,10 +1,19 @@
 # ADR-0082: Use shell for glue and Rust for complex audit tools
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-22
 - Deciders: Project maintainers
 - Supersedes: ADR-0017 for long-term implementation ownership of complex audit tools
-- Superseded by: None
+- Superseded by: ADR-0085
+
+## Supersession note (2026-10-23)
+
+ADR-0085 supersedes this record's temporary Python collector-retention and
+parity requirements. The shell-for-glue and Rust-for-complex-tooling decision
+remains in force. The retired Python collector/profile benchmark and their
+collector-only Rust adapters are historical; the current state/trajectory audit
+and temporal localization evaluation are Rust-owned. Viewer interference and
+recorded-video replay remain explicit gaps rather than retained Python tools.
 
 ## Context
 

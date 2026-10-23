@@ -1,13 +1,15 @@
-# Rust perception prototype
+# Rust perception and live pipeline
 
-This directory contains the Rust side of the staged perception migration. It
-currently provides the versioned scene contract, length-prefixed framing, and
-an opt-in recorded-image ONNX inference prototype with optional detection-batch
-JSONL or loopback TCP output. A separate live executable can also run an
-explicitly selected, feature-gated GStreamer camera through a supervised helper
-process. Its default source remains unavailable, and the production API still
-uses its existing provider selection. The library exposes a reusable one-frame
-RGB inference API, which recorded replay and the live runner share.
+This directory contains the supported Rust perception implementation and its
+development CLIs. `billiards-server` supervises the Rust live detector and
+serves the browser application; `billiards-perception-infer` is a still-image
+diagnostic with optional detection-batch JSONL or loopback TCP output, not a
+live benchmark. Physical GStreamer capture remains an opt-in qualification
+path. Use the Rust live audit and temporal evaluator described in
+[`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md) for current runtime
+and labeled-accuracy evidence. Historical prototype notes below may describe
+the former Python compatibility supervisor; they are not the supported server
+entry point.
 
 ## Reusable RGB-frame inference
 
@@ -20,25 +22,24 @@ are outside `CaptureFrameBudget` accounting. It returns a complete detection
 list plus separate preprocessing, model inference, and decode/NMS durations.
 The input owner supplies frame identity, source timestamps, and queue timing;
 engine timings do not include camera capture, encoded-image decoding, tracking,
-or publication. The engine reports the requested provider policy only. Use a
-profiled audit session to establish which ONNX Runtime providers actually
-executed model nodes.
+or publication. The engine reports the requested provider policy only; actual
+per-node provider placement is unavailable and must not be inferred.
 
 The engine is mutable and intended to remain on one inference worker. It does
 not schedule, retain, or drop frames. `capture_pipeline::CaptureScenePipeline`
 provides a synchronous frame consumer around this API, while the capture
-receiver's capacity-one mailbox handles latest-frame replacement.
-The physical GStreamer path is an opt-in qualification candidate, not a
-qualified production provider. FastAPI's production lifecycle still selects
-Rust only for recorded-input replay; the standalone supervisor can exercise the
-live camera path without changing that API default.
+receiver's capacity-one mailbox handles latest-frame replacement. The Rust
+gateway owns the supported application lifecycle and supervises live capture
+when selected by its validated configuration. Physical camera accuracy and
+sustained freshness still require qualification on the intended hardware.
 
 The integration test loads a small deterministic ONNX fixture to exercise
 manifest validation, tensor creation, session execution, output validation,
-and decoding without network access or a large model artifact. The recorded
-replay uses this same frame engine. A real-model ten-still smoke exercised that
-shared path and matched the existing Python scorer; its small unpaced run is
-integration evidence, not a live freshness or performance qualification.
+and decoding without network access or a large model artifact. Recorded-image
+inference uses this same frame engine. A historical ten-still comparison with
+the Python scorer remains in the audit archive; that scorer has been retired.
+The small unpaced run is integration evidence, not a live freshness or
+performance qualification.
 
 ## Device-independent capture boundary
 
@@ -84,21 +85,21 @@ coordinators share one process-wide aggregate budget and reject conflicting
 limits. Native camera-driver buffers and temporary source-side conversions
 remain outside application-buffer accounting.
 
-The Python configuration schema exposes
+The Rust configuration contract exposes
 `perception.capture.maximum_aggregate_rgb_frame_bytes` with a 72 MiB default
 (three 24 MiB application buffers) and validates that it is at least the
-configured per-frame limit. The schema also bounds it to 1 GiB. The Rust live
-runner derives its aggregate budget from the exact v3 request supplied by the
-Python supervisor. Production API lifecycle wiring remains disabled, so this
-does not mean the application has selected or qualified Rust live capture.
+configured per-frame limit. The schema also bounds it to 1 GiB. The Rust
+gateway constructs and passes the exact v3 capture request to the supervised
+live detector. This budget contract does not qualify camera accuracy or
+sustained freshness.
 
 The source gate coordinates lifecycle ownership; it does not identify or
 authorize a client. The application, HTTP/WebSocket APIs, and local perception
 stream remain anonymous and use no credentials. The coordinator's gate is
 process-wide and cannot coordinate another process that independently opens a
-camera. The opt-in Rust live executable now constructs the coordinator and
-pipeline around the supervised GStreamer helper; FastAPI still does not start
-that live path. The helper receives the exact capture request, uses an
+camera. The Rust live executable constructs the coordinator and pipeline
+around the supervised GStreamer helper. The helper receives the exact capture
+request, uses an
 enumerated stable selector, validates negotiated input/output geometry, and
 does not write camera controls. A short macOS smoke verified frame delivery
 and child shutdown with the built-in camera, but did not verify table accuracy,
@@ -241,14 +242,11 @@ starts a fresh receiver sequence epoch and clears stale queued scene state.
 After reconnect, only a newer latest snapshot is sent.
 The report distinguishes queued records and successful local socket writes from
 receiver acceptance; the receiver's own counters are authoritative for accepted
-snapshots. The handshake carries no credential. The companion Python ingress
-binds to loopback and accepts one active producer connection.
-The scene TCP option remains recorded-replay infrastructure. In explicit
-`rust` + `recorded_replay` mode, FastAPI supervises the Rust process and
-publishes received scenes to the HTTP state read model and existing WebSocket
-stream. Those scenes do not enter Core physics, and this path does not own a
-live camera or provide preview/predictions. Scene JSONL remains synchronously
-flushed per frame.
+snapshots. The handshake carries no credential. The Rust gateway accepts
+replay-v2 deliveries and publishes them through its HTTP state read model and
+WebSocket stream. Those scenes do not enter Core physics, and replay does not
+own a live camera or provide preview/predictions. Scene JSONL remains
+synchronously flushed per frame in the still-image CLI.
 
 ```bash
 cargo run --release --manifest-path perception/Cargo.toml --bin billiards-perception-infer -- \
@@ -559,14 +557,14 @@ timestamp semantics before inference. Without applied calibration, table
 positions remain unavailable. Existing unbound replay-pipeline use remains
 compatible.
 
-The standalone live executable now composes this preflight and pipeline with an
-opt-in feature-gated GStreamer physical source. The Python supervisor forwards
-the same immutable capture request and validates request-bound readiness. A
+The live executable composes this preflight and pipeline with an opt-in
+feature-gated GStreamer physical source. The Rust gateway forwards the same
+immutable capture request and validates request-bound readiness. A
 macOS built-in-camera smoke passed through the complete local loopback path with
 the checked-in test detector and then shut down cleanly; it is integration
-evidence only. The API continues to reject Rust live selection. No calibrated
-table positions, production-model accuracy, reliable exposure timestamp,
-sustained freshness, preview handover, or Linux physical behavior has been
-qualified. The feature-enabled all-target suite and optimized live/helper
-builds also pass in an Ubuntu 24.04 x86_64 container with GStreamer 1.24, but
+evidence only. No calibrated table positions, production-model accuracy,
+reliable exposure timestamp, sustained freshness, preview handover, or Linux
+physical behavior has been qualified. The feature-enabled all-target suite and
+optimized live/helper builds also pass in an Ubuntu 24.04 x86_64 container with
+GStreamer 1.24, but
 that container had no V4L2 device.

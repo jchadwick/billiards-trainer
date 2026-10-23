@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""
-Test script for chessboard calibration display
-Sends show/hide commands via UDP to the projector
-"""
+"""Send show/hide chessboard calibration commands to the projector."""
 
-import socket
 import json
-import time
+import socket
 import sys
+import time
 import unittest
 
 # UDP configuration
@@ -16,7 +13,7 @@ UDP_PORT = 9999
 
 
 def send_show_chessboard(rows=9, cols=6, square_size=80):
-    """Send command to show calibration chessboard"""
+    """Send command to show calibration chessboard."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     msg = create_show_chessboard_message(rows, cols, square_size)
@@ -44,7 +41,7 @@ def create_show_chessboard_message(rows=9, cols=6, square_size=80):
 
 
 def send_hide_chessboard():
-    """Send command to hide calibration chessboard"""
+    """Send command to hide calibration chessboard."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     msg = {"type": "hide_calibration_chessboard", "timestamp": time.time(), "data": {}}

@@ -37,14 +37,20 @@ The local Rust gateway serves the browser application at
 ## Retained Python tooling
 
 Python is not part of the supported server runtime. The repository keeps Python
-for offline model training/export, annotations, and compatibility/evaluation
-tests. Those tools are opt-in:
+for compatibility tests, dataset/calibration authoring, and optional model
+export. Those tools are opt-in:
 
 ```bash
 make install-python-tools
 make test-python
 make lint-python
 make format-python
+```
+
+Install the larger Ultralytics/ONNX/CoreML stack only when exporting a model:
+
+```bash
+make install-model-tools
 ```
 
 The retained Python test suite is also run by its dedicated CI workflow. Rust

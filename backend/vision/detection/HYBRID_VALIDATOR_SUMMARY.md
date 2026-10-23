@@ -272,7 +272,7 @@ def test_refine_ball_position():
 
 - **Implementation:** `/Users/jchadwick/code/billiards-trainer/backend/vision/detection/hybrid_validator.py`
 - **Tests:** `/Users/jchadwick/code/billiards-trainer/backend/vision/detection/test_hybrid_validator.py`
-- **Demo:** `/Users/jchadwick/code/billiards-trainer/backend/vision/detection/demo_hybrid_validator.py`
+- **Behavior tests:** [`backend/tests/unit/test_hybrid_validator_behavior.py`](../../tests/unit/test_hybrid_validator_behavior.py)
 - **Summary:** `/Users/jchadwick/code/billiards-trainer/backend/vision/detection/HYBRID_VALIDATOR_SUMMARY.md`
 
 ## Conclusion

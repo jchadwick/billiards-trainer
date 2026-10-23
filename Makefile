@@ -14,13 +14,13 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-dev install-python-tools python-venv setup-git-hooks test test-all test-rust test-web test-python lint lint-rust lint-web lint-python format format-rust format-python format-check config-check config-example clean run docker build deploy deploy-clean logs docs docs-python docs-serve
+.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-vision test-api test-coverage test-fast lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
 
-# The supported application runtime is Rust. Python remains available only for
-# offline model/evaluation workflows and the compatibility test suite.
+# The supported application runtime is Rust. Python remains for the compatibility
+# service, its tests, and optional offline model/data authoring.
 PYTHON_VENV_DIR ?= .venv
 PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
 BACKEND_DIR := backend
@@ -64,12 +64,14 @@ help: ## Show this help message
 install: build ## Build the Rust server and browser client; no Python app runtime is installed
 	@echo "$(GREEN)Rust application and browser client built successfully.$(RESET)"
 
-install-dev: install-python-tools ## Compatibility alias for installing retained Python tools
-
-install-python-tools: python-venv ## Install retained Python evaluation and model-tool dependencies
+install-python-tools: python-venv ## Install Python compatibility, tests, data, and calibration tools
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install --upgrade pip
-	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev,test,docs,performance]"
-	@echo "$(GREEN)Python evaluation and model-tool dependencies installed.$(RESET)"
+	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev]"
+	@echo "$(GREEN)Optional Python authoring and compatibility-test dependencies installed.$(RESET)"
+
+install-model-tools: python-venv ## Install heavy optional model-export dependencies
+	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,model-export]"
+	@echo "$(GREEN)Optional ONNX/CoreML model-export dependencies installed.$(RESET)"
 
 python-venv: ## Create the optional Python tooling environment
 	@echo "$(BLUE)Creating optional Python tooling environment...$(RESET)"
@@ -108,8 +110,8 @@ lint-rust: ## Run strict Rust lint checks
 lint-web: ## Type-check the browser application
 	cd frontend/web && npm run typecheck
 
-lint-python: ## Lint retained Python compatibility and offline tooling
-	$(PYTHON) -m ruff check $(BACKEND_DIR)
+lint-python: ## Lint Python compatibility/offline tools; type-check the backend
+	$(PYTHON) -m ruff check $(BACKEND_DIR) tools frontend/projector/*.py
 	$(PYTHON) -m mypy $(BACKEND_DIR)
 
 format: format-rust ## Format Rust source
@@ -118,8 +120,8 @@ format-rust: ## Format Rust source
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all
 
 format-python: ## Format retained Python compatibility and offline tooling
-	$(PYTHON) -m black $(BACKEND_DIR)
-	$(PYTHON) -m isort $(BACKEND_DIR)
+	$(PYTHON) -m black $(BACKEND_DIR) tools frontend/projector/*.py
+	$(PYTHON) -m isort $(BACKEND_DIR) tools frontend/projector/*.py
 
 format-check: ## Check Rust source formatting
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all -- --check
@@ -138,7 +140,7 @@ test-rust: ## Run Rust unit, contract, and fixture tests
 test-web: ## Run browser client tests
 	cd frontend/web && npm test
 
-test-python: ## Run retained Python compatibility and model-tool tests
+test-python: ## Run retained Python compatibility and offline model/data-tool tests
 	$(PYTHON) -m pytest
 
 test-unit: ## Run retained Python unit tests only
@@ -156,10 +158,6 @@ test-vision: ## Run computer vision tests
 test-api: ## Run API tests
 	@echo "$(BLUE)Running API tests...$(RESET)"
 	$(PYTHON) -m pytest -m "api"
-
-test-hardware: ## Run hardware tests (requires camera/projector)
-	@echo "$(YELLOW)Running hardware tests (requires camera/projector)...$(RESET)"
-	$(PYTHON) -m pytest -m "hardware"
 
 test-coverage: ## Run tests with coverage report
 	@echo "$(BLUE)Running tests with coverage...$(RESET)"
@@ -202,9 +200,6 @@ run: build-frontend kill-processes setup-dirs ## Run Rust server, live detector,
 		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
 		--web-root "$(PWD)/backend/static" --start-live $(RUST_SERVER_ARGS)
 
-run-video: ## Deprecated: camera capture is supervised by the Rust server
-	@echo "Camera capture is started and supervised by 'make run' (Rust)."
-
 run-api: build-frontend build-rust ## Run Rust gateway without live capture
 	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
@@ -214,55 +209,6 @@ run-api: build-frontend build-rust ## Run Rust gateway without live capture
 
 run-frontend: ## Run frontend dev server only
 	cd frontend/web && npm run dev
-
-run-visualizer: ## Run LOVE2D visualizer only
-	love frontend/visualizer
-
-test-visualizer: ## Test LOVE2D visualizer module initialization
-	cd frontend/visualizer && ./run_test.sh
-
-run-vision: ## Deprecated: perception is supervised by the Rust server
-	@echo "Use 'make run' to start the Rust perception pipeline."
-
-run-projector: ## Deprecated: projector runtime is not part of the Rust server package
-	@echo "The legacy Python projector is not launched by the Rust live application."
-
-run-dev: run ## Run the Rust app; the frontend development server is separate
-
-# ===== Monitoring and Debugging =====
-
-logs: ## Show recent logs
-	@echo "$(BLUE)Recent application logs:$(RESET)"
-	@if [ -f $(LOGS_DIR)/info.log ]; then tail -50 $(LOGS_DIR)/info.log; else echo "No logs found"; fi
-
-logs-video: ## Show video module logs
-	@echo "$(BLUE)Video module logs:$(RESET)"
-	@if [ -f $(LOGS_DIR)/video.log ]; then tail -50 $(LOGS_DIR)/video.log; else echo "No video logs found"; fi
-
-logs-all: ## Show all recent logs (info, error, video)
-	@echo "$(CYAN)=== Info Logs ===$(RESET)"
-	@if [ -f $(LOGS_DIR)/info.log ]; then tail -30 $(LOGS_DIR)/info.log; else echo "No info logs"; fi
-	@echo ""
-	@echo "$(RED)=== Error Logs ===$(RESET)"
-	@if [ -f $(LOGS_DIR)/error.log ]; then tail -30 $(LOGS_DIR)/error.log; else echo "No error logs"; fi
-	@echo ""
-	@echo "$(BLUE)=== Video Logs ===$(RESET)"
-	@if [ -f $(LOGS_DIR)/video.log ]; then tail -30 $(LOGS_DIR)/video.log; else echo "No video logs"; fi
-
-logs-error: ## Show error logs
-	@echo "$(RED)Recent error logs:$(RESET)"
-	@if [ -f $(LOGS_DIR)/error.log ]; then tail -50 $(LOGS_DIR)/error.log; else echo "No error logs found"; fi
-
-logs-debug: ## Show debug logs
-	@echo "$(BLUE)Recent debug logs:$(RESET)"
-	@if [ -f $(LOGS_DIR)/debug.log ]; then tail -50 $(LOGS_DIR)/debug.log; else echo "No debug logs found"; fi
-
-monitor: ## Monitor log files in real-time
-	@echo "$(BLUE)Monitoring logs (Ctrl+C to stop)...$(RESET)"
-	@if [ -f $(LOGS_DIR)/info.log ]; then tail -f $(LOGS_DIR)/info.log; else echo "No logs to monitor"; fi
-
-profile: ## Run with performance profiling
-	@echo "Rust profiling is available through docs/PERFORMANCE_AUDIT.md."
 
 # ===== Configuration =====
 
@@ -318,64 +264,30 @@ clean-frontend: ## Clean frontend build artifacts
 	rm -rf frontend/web/dist/
 	@echo "$(GREEN)Frontend artifacts cleaned!$(RESET)"
 
-clean-all: clean clean-logs clean-frontend ## Clean everything
+clean-all: clean clean-logs clean-frontend ## Clean generated build, log, and browser assets
 
-# ===== Docker =====
+# ===== Docker Compose =====
 
-docker-build: ## Build Docker image
-	@echo "$(BLUE)Building Docker image...$(RESET)"
-	docker build -t billiards-trainer .
-	@echo "$(GREEN)Docker image built!$(RESET)"
+docker-build: ## Build the Rust application image with Docker Compose
+	docker compose build backend
 
-docker-build-dev: ## Build Docker development image
-	@echo "$(BLUE)Building Docker development image...$(RESET)"
-	docker-compose build
-	@echo "$(GREEN)Docker development image built!$(RESET)"
+docker-run: ## Run the Rust application in the foreground with Docker Compose
+	docker compose up backend
 
-docker-run: ## Run Docker container
-	@echo "$(BLUE)Running Docker container...$(RESET)"
-	docker run -p 8000:8000 -v $(PWD)/config:/app/config billiards-trainer
+docker-run-detached: ## Run the Rust application in the background with Docker Compose
+	docker compose up -d backend
 
-docker-dev: ## Start Docker containers in development mode with hot-reload
-	@echo "$(BLUE)Starting Docker containers in development mode...$(RESET)"
-	docker-compose up
+docker-stop: ## Stop the Docker Compose application without deleting its data volume
+	docker compose down
 
-docker-dev-build: ## Rebuild and start Docker containers in development mode
-	@echo "$(BLUE)Rebuilding and starting Docker containers...$(RESET)"
-	docker-compose up --build
+docker-restart: ## Restart the Docker Compose application
+	docker compose restart backend
 
-docker-dev-detached: ## Start Docker containers in background with hot-reload
-	@echo "$(BLUE)Starting Docker containers in background...$(RESET)"
-	docker-compose up -d
-	@echo "$(GREEN)Containers running in background. Use 'make docker-logs' to view logs$(RESET)"
+docker-logs: ## Follow the Docker Compose application logs
+	docker compose logs --follow backend
 
-docker-stop: ## Stop Docker containers
-	@echo "$(BLUE)Stopping Docker containers...$(RESET)"
-	docker-compose down
-	@echo "$(GREEN)Containers stopped$(RESET)"
-
-docker-restart: ## Restart Docker containers
-	@echo "$(BLUE)Restarting Docker containers...$(RESET)"
-	docker-compose restart
-	@echo "$(GREEN)Containers restarted$(RESET)"
-
-docker-logs: ## Show Docker container logs
-	@echo "$(BLUE)Showing container logs (Ctrl+C to stop)...$(RESET)"
-	docker-compose logs -f
-
-docker-logs-backend: ## Show backend container logs only
-	@echo "$(BLUE)Showing backend logs (Ctrl+C to stop)...$(RESET)"
-	docker-compose logs -f backend
-
-docker-shell: ## Open shell in backend container
-	@echo "$(BLUE)Opening shell in backend container...$(RESET)"
-	docker-compose exec backend /bin/bash
-
-docker-clean: ## Remove all containers, volumes, and images
-	@echo "$(BLUE)Cleaning Docker resources...$(RESET)"
-	docker-compose down -v
-	docker-compose rm -f
-	@echo "$(GREEN)Docker resources cleaned!$(RESET)"
+docker-shell: ## Open a shell in the running Docker Compose application
+	docker compose exec backend /bin/sh
 
 # ===== Utilities =====
 
@@ -425,9 +337,6 @@ quickstart: ## Quick setup for new developers
 
 docs: ## Generate Rust API documentation
 	cargo doc --locked --manifest-path $(RUST_MANIFEST) --no-deps
-
-docs-python: ## Generate the retained Sphinx documentation site
-	sphinx-build -b html docs docs/_build/html
 
 docs-serve: docs ## Serve generated Rust API documentation locally
 	@echo "$(BLUE)Serving Rust API documentation at http://localhost:8080$(RESET)"

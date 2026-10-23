@@ -2,8 +2,8 @@
 
 > **Runtime status:** The supported application server and live localization
 > process are Rust. This directory contains Python modules retained for
-> migration reference, tests, training/model utilities, annotations, and other
-> off-device development tools; it is not launched by the supported app
+> migration reference, tests, model export, dataset preparation, calibration
+> authoring, and other off-device tools; it is not launched by the supported app
 > runtime. The browser remains a standard HTML/CSS/JavaScript application.
 > Start the Rust app with `make run`; see the root README and
 > [`perception/README.md`](../perception/README.md) for current runtime details.
@@ -47,9 +47,9 @@ The legacy Python package contains components that historically:
 - **WebSocket Broadcasting**: Real-time updates to all connected clients
 - **Configurable Pipeline**: Extensive configuration system with defaults and overrides
 
-### Legacy Python Package Stack
+### Retained Python Compatibility Stack
 
-- **Python 3.12+** (for the retained Python tools and tests)
+- **Python 3.10+** (the CI compatibility target is Python 3.11)
 - **FastAPI**: Async HTTP and WebSocket server
 - **OpenCV 4.8+**: Computer vision operations
 - **NumPy**: Numerical computations
@@ -82,7 +82,7 @@ backend/
 │   ├── preprocessing/# Image preprocessing
 │   └── tracking/     # Object tracking (Kalman filter)
 ├── integration_service.py  # Coordinates all modules
-└── dev_server.py     # Offline FastAPI compatibility fixture (CLI retired)
+└── dev_server.py     # Retired-command shim; exits with Rust launch guidance
 ```
 
 ### Data Flow
@@ -702,18 +702,12 @@ await service.stop()
 
 ## Getting Started
 
-### Python Tooling Prerequisites
+### Optional Python Tooling
 
-```bash
-# Python 3.12+
-python --version
-
-# Install dependencies
-pip install -r backend/requirements.txt
-
-# Download YOLO model (if not present)
-wget https://path.to/yolov8n-pool.onnx -O models/yolov8n-pool.onnx
-```
+Use `make install-python-tools` when working on the compatibility package or
+the lighter dataset/calibration tools. It does not start a server. Install
+model-export dependencies separately with `make install-model-tools`; the root
+README and deployment guides describe the supported runtime requirements.
 
 ### Running the Rust Application
 
@@ -789,7 +783,7 @@ backend/
 │   ├── preprocessing/
 │   └── tracking/
 ├── integration_service.py
-└── dev_server.py
+└── dev_server.py     # Retired-command shim only
 ```
 
 ### Testing and Code Quality

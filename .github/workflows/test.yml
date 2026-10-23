@@ -6,16 +6,24 @@ on:
     branches: [main, develop]
     paths:
       - "backend/**"
+      - "tools/**"
+      - "frontend/projector/**"
+      - "Makefile"
       - ".github/workflows/**"
       - "pyproject.toml"
-      - "requirements.txt"
+      - "uv.lock"
+      - "backend/requirements.txt"
   pull_request:
     branches: [main, develop]
     paths:
       - "backend/**"
+      - "tools/**"
+      - "frontend/projector/**"
+      - "Makefile"
       - ".github/workflows/**"
       - "pyproject.toml"
-      - "requirements.txt"
+      - "uv.lock"
+      - "backend/requirements.txt"
 
 env:
   PYTHON_VERSION: "3.11"
@@ -51,7 +59,7 @@ jobs:
           python -m pip install black==25.9.0 isort==5.12.0 ruff==0.17.1 mypy==1.18.2 types-psutil==7.2.2.20260906
 
       - name: Check Ruff rules
-        run: python -m ruff check backend
+        run: python -m ruff check backend tools frontend/projector/*.py
 
       - name: Check strict backend types
         if: ${{ !cancelled() }}
@@ -59,11 +67,11 @@ jobs:
 
       - name: Check Black formatting
         if: ${{ !cancelled() }}
-        run: python -m black --check --diff backend
+        run: python -m black --check --diff backend tools frontend/projector/*.py
 
       - name: Check import sorting
         if: ${{ !cancelled() }}
-        run: python -m isort --check-only --diff backend
+        run: python -m isort --check-only --diff backend tools frontend/projector/*.py
 
   tests:
     name: Backend Tests and Coverage

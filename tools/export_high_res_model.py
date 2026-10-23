@@ -21,12 +21,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ultralytics import YOLO
-
 MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_OUTPUT_DIRECTORY = "models/exports"
 DEFAULT_IMAGE_SIZE = 1280
 SUPPORTED_FORMAT_SUFFIXES = {"onnx": ".onnx", "coreml": ".mlpackage"}
+YOLO: Any | None = None
+
+
+def _load_yolo() -> Any:
+    """Load the heavy model-export stack only when an export is requested."""
+    try:
+        from ultralytics import YOLO as yolo_factory
+    except ImportError as error:
+        raise RuntimeError(
+            "Ultralytics is required for model export; install it with "
+            "'make install-model-tools'."
+        ) from error
+    return yolo_factory
 
 
 def _sha256_file(path: Path) -> str:
@@ -219,6 +230,8 @@ def export_high_res_model(
         supported = ", ".join(sorted(SUPPORTED_FORMAT_SUFFIXES))
         raise ValueError(f"Unsupported export format {format!r}; choose {supported}")
 
+    model_factory = YOLO if YOLO is not None else _load_yolo()
+
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
     artifact_path = (
@@ -241,7 +254,7 @@ def export_high_res_model(
     ) as staging:
         staged_source = Path(staging) / source.name
         shutil.copy2(source, staged_source)
-        model = YOLO(str(staged_source))
+        model = model_factory(str(staged_source))
         source_metadata = _source_model_metadata(model)
 
         export_options: dict[str, Any] = {

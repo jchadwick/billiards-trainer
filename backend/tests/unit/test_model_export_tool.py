@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -103,6 +104,19 @@ def test_export_requires_an_explicit_existing_pt_checkpoint(tmp_path: Path):
     non_pt.write_bytes(b"not a PT checkpoint")
     with pytest.raises(ValueError, match="PyTorch .pt"):
         export_tool.export_high_res_model(non_pt)
+
+
+def test_export_reports_the_opt_in_model_dependency_when_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "chosen-model.pt"
+    source.write_bytes(b"source checkpoint contents")
+
+    monkeypatch.setattr(export_tool, "YOLO", None)
+    monkeypatch.setitem(sys.modules, "ultralytics", None)
+
+    with pytest.raises(RuntimeError, match="make install-model-tools"):
+        export_tool.export_high_res_model(source)
 
 
 def test_export_refuses_to_overwrite_without_opt_in(

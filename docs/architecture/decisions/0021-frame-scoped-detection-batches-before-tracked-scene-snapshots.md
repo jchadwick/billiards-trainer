@@ -6,6 +6,13 @@
 - Supersedes: None
 - Superseded by: None
 
+## Tooling reference note (2026-10-23)
+
+ADR-0085 retires the still-image Python equivalence utility and its focused
+tests, which are referenced in this record's historical implementation notes.
+The detection-batch contract and its current Rust receiver/evaluation path
+remain accepted; linked old comparison runs are historical evidence.
+
 ## Context
 
 Stage 2 of the Rust migration runs the existing detector on recorded frames,

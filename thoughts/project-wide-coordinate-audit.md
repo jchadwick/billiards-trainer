@@ -37,15 +37,12 @@ and optional real table dimensions remain SI.
   to canonical coordinates, then maps them to the active frame and canvas.
   Related overlay, store, calibration, and type consumers are recorded in
   `thoughts/web-coordinate-consumers.md`.
-- `frontend/projector/core/coordinate_contract.lua` and
-  `frontend/visualizer/core/coordinates.lua` enforce their transport coordinate
-  spaces and scaling; module-level implementation notes and test files are
-  linked from `thoughts/projector-coordinate-scaling.md` and
-  `thoughts/visualizer-coordinate-scaling.md`.
-- `tools/coordinate_scaling.py` is shared by the video debugger and sample
-  ground-truth data; details are in `thoughts/tools-coordinate-scaling.md`.
-- Example usage in `backend/examples/` was corrected and documented in
-  `thoughts/backend-examples-coordinate-scaling.md`.
+- `frontend/projector/core/coordinate_contract.lua` and its local protocol
+  tests enforce the projector's transport coordinate spaces. The parallel LÖVE
+  visualizer and its implementation notes were retired under ADR-0086.
+- The historical coordinate-scaling helper and example scripts referenced by
+  earlier debugger notes have since been retired. Current geometry requirements
+  are in `docs/COORDINATE_SYSTEMS.md` and are covered at runtime boundaries.
 
 ## Static asset and constructor scans
 
@@ -65,8 +62,7 @@ is rejected.
 ## Verification artifacts
 
 - Backend coordinate implementation and tests: `thoughts/backend-vision-coordinate-scaling.md`, `thoughts/api-coordinate-contract.md`, `thoughts/api-core-geometry-units.md`, `thoughts/core-coordinate-runtime-fixes.md`, `thoughts/core-coordinate-serializers.md`, and `thoughts/core-validation-geometry-units.md`.
-- Frontend implementation notes: `thoughts/web-coordinate-consumers.md`, `thoughts/projector-coordinate-scaling.md`, and `thoughts/visualizer-coordinate-scaling.md`.
-- Tooling and examples: `thoughts/tools-coordinate-scaling.md` and `thoughts/backend-examples-coordinate-scaling.md`.
+- Frontend implementation notes: `thoughts/web-coordinate-consumers.md` and `thoughts/projector-coordinate-scaling.md`.
 - API request/response examples are checked against current models in `docs/API_REFERENCE.md`; the shared contract is documented in `docs/COORDINATE_SYSTEMS.md` and ADR-0007.
 
 The audit note captures scoped scans and module verification records; it does

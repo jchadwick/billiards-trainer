@@ -10,7 +10,6 @@ PROJECT_DEPLOYMENT_SCRIPTS = (
     PROJECT_ROOT / "frontend/projector/deploy.sh",
     PROJECT_ROOT / "frontend/projector/build_html.sh",
     PROJECT_ROOT / "frontend/projector/test_local.sh",
-    PROJECT_ROOT / "scripts/deploy-example.sh",
     PROJECT_ROOT / "scripts/deploy/build-dist.sh",
     PROJECT_ROOT / "scripts/deploy/update.sh",
 )

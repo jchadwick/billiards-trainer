@@ -37,7 +37,10 @@ from .common import (
     RealWorldDimensions,
     ValidationResult,
 )
-from .responses import BallInfo, CueInfo
+from .responses import (
+    BallInfo,
+    CueInfo,
+)
 from .responses import GameEvent as APIGameEvent
 from .responses import (
     GameSessionMetadataResponse,

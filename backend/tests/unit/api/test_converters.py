@@ -84,7 +84,10 @@ from backend.api.models.converters import (  # Core to API; API to Core; Batch c
     websocket_cue_data_to_cue_state,
     websocket_table_data_to_table_state,
 )
-from backend.api.models.responses import BallInfo, CueInfo
+from backend.api.models.responses import (
+    BallInfo,
+    CueInfo,
+)
 from backend.api.models.responses import GameEvent as APIGameEvent
 from backend.api.models.responses import (
     GameStateResponse,
@@ -92,7 +95,9 @@ from backend.api.models.responses import (
     TableInfo,
     TrajectoryInfo,
 )
-from backend.api.models.websocket import BallStateData
+from backend.api.models.websocket import (
+    BallStateData,
+)
 from backend.api.models.websocket import CollisionInfo as WSCollisionInfo
 from backend.api.models.websocket import (
     CueStateData,

@@ -102,12 +102,12 @@ surface material changes in direction or tradeoffs.
 | Existing investment | Treatment |
 |---|---|
 | `frontend/web/` React UI, routes, configuration/calibration screens and overlays | Retain. Fix shared connection/identity/freshness interpretation; add new information through an adapter. No framework rewrite or endpoint migration. |
-| `frontend/projector/`, `frontend/visualizer/` | Retain where still required. Test coordinate, source identity, stale-expiry and prediction lifecycle fixtures; use compatibility payloads. |
+| `frontend/projector/` | Retain as a separate projection client. The parallel `frontend/visualizer/` was retired under ADR-0086; keep its historical verification out of current workflows. |
 | FastAPI, HTTP routes, WebSocket subscriptions and bounded client writers | Retain as the gateway and control plane. Remove direct dependencies on concrete detector/camera internals. |
 | Python Core, game logic, physics and trajectory algorithms | Retain behind the compatibility adapter as optional scene consumers. Fresh locations must be publishable without their completion. |
-| PT weights, existing CoreML packages and model training scripts | Preserve originals. Export versioned derivative artifacts from the same weights for Rust; no retraining required for localization migration. Validate existing packages against their own manifests rather than assuming equivalence to another PT file. |
+| PT weights, existing CoreML packages and model artifacts | Preserve original weights. Keep the tested export path for Rust-compatible ONNX; retired 19-class training/setup helpers are not part of current tooling. Validate each artifact against its own manifest rather than assuming equivalence to another checkpoint. |
 | Existing recordings, still labels and calibration assets | Reuse with provenance. Validate coordinate frame, camera mode and calibration compatibility. Add missing temporal/physical annotations. |
-| Python benchmarks, headless subscriber, report formats and annotation/scoring tools | Retain. Add selectable engine adapters and producer provenance instead of creating a competing scoring system. |
+| Python benchmarks, headless subscriber, report formats and annotation/scoring tools | Superseded by ADR-0085: Rust owns live audits and temporal scoring. Python-only service profiling remains scoped to the compatibility service. |
 | Existing Python unit tests | Keep for retained code and Python reference behavior. Promote observable requirements to shared contract tests; write Rust unit tests for the new engine. |
 | Python capture, shared-memory frame handoff, Vision orchestration and perception processing | Replace progressively with Rust acquisition/perception and owned in-process frames. Keep the selected Python provider for rollback during migration, subject to correctness qualifications. |
 | Generic event/polling layers on the primary location path | Retire as Rust takes ownership. Preserve useful latest-work, revision, prediction lifecycle and slow-client contracts. |
