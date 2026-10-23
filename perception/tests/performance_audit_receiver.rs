@@ -9,6 +9,15 @@ use tokio::process::Command;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 fn state_message(sequence: u64, frame_id: &str) -> String {
+    state_message_with_status(sequence, frame_id, "fresh", "observed")
+}
+
+fn state_message_with_status(
+    sequence: u64,
+    frame_id: &str,
+    freshness: &str,
+    ball_positions_status: &str,
+) -> String {
     json!({
         "type": "state",
         "sequence": sequence,
@@ -16,8 +25,8 @@ fn state_message(sequence: u64, frame_id: &str) -> String {
             "sequence": sequence,
             "balls": [{"id": "cue"}, {"id": "object"}],
             "observation_status": {
-                "freshness_status": "fresh",
-                "ball_positions_status": "observed",
+                "freshness_status": freshness,
+                "ball_positions_status": ball_positions_status,
                 "source_timestamp_kind": "monotonic:engine-a:camera_read_complete",
                 "frame_publication_age_seconds": 0.02,
                 "observation_identity": {
@@ -29,6 +38,62 @@ fn state_message(sequence: u64, frame_id: &str) -> String {
         }
     })
     .to_string()
+}
+
+#[tokio::test]
+async fn readiness_receiver_stops_on_the_first_fresh_observed_localization() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(
+                state_message_with_status(1, "100", "stale", "observed").into(),
+            ))
+            .await
+            .unwrap();
+        socket
+            .send(Message::Text(state_message(2, "101").into()))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    });
+
+    let config = StateReceiverConfig {
+        duration: Duration::from_secs(2),
+        connect_timeout: Duration::from_secs(1),
+        application_heartbeat_interval: Duration::from_secs(20),
+        summary_interval: Duration::from_secs(1),
+        maximum_message_bytes: 4096,
+        maximum_samples: 1,
+        resource_sample_process_id: None,
+        resource_sample_interval: Duration::from_secs(1),
+    };
+    let output = billiards_perception::performance_audit_receiver::connect_and_wait_for_first_fresh_observed_localization(
+        &format!("ws://{address}/state"),
+        &config,
+    )
+    .await
+    .unwrap();
+    let close = server.await.unwrap();
+
+    assert!(matches!(close, Message::Close(_)));
+    assert_eq!(
+        output.report.termination_reason,
+        "first_fresh_observed_localization"
+    );
+    assert_eq!(output.report.counts.state_messages, 2);
+    assert_eq!(output.retained_samples.len(), 1);
+    assert_eq!(
+        output.retained_samples[0].source_frame_id.as_deref(),
+        Some("101")
+    );
+    assert!(output.report.elapsed_seconds < config.duration.as_secs_f64());
 }
 
 #[tokio::test]

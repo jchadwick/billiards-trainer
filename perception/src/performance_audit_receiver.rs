@@ -247,6 +247,26 @@ pub async fn connect_and_collect(
     url: &str,
     config: &StateReceiverConfig,
 ) -> Result<StateReceiverOutput> {
+    connect_and_collect_with_early_stop(url, config, false).await
+}
+
+/// Receive until the first state identifies a fresh observed ball
+/// localization, or until the configured deadline/peer close. Used by a
+/// managed-server startup gate so readiness time and frame identity refer to
+/// the exact qualifying state rather than the final state retained by a full
+/// probe interval.
+pub async fn connect_and_wait_for_first_fresh_observed_localization(
+    url: &str,
+    config: &StateReceiverConfig,
+) -> Result<StateReceiverOutput> {
+    connect_and_collect_with_early_stop(url, config, true).await
+}
+
+async fn connect_and_collect_with_early_stop(
+    url: &str,
+    config: &StateReceiverConfig,
+    stop_when_localized: bool,
+) -> Result<StateReceiverOutput> {
     config.validate()?;
     validate_websocket_url(url)?;
 
@@ -260,14 +280,25 @@ pub async fn connect_and_collect(
     .await
     .context("WebSocket connection timed out")?
     .context("could not connect to the WebSocket state endpoint")?;
-    collect_connected_stream(socket, config).await
+    collect_connected_stream_with_early_stop(socket, config, stop_when_localized).await
 }
 
 /// Collect from an already-connected stream. Public for contract tests that
 /// use an in-process WebSocket peer instead of the application gateway.
 pub async fn collect_connected_stream<S>(
+    socket: WebSocketStream<S>,
+    config: &StateReceiverConfig,
+) -> Result<StateReceiverOutput>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    collect_connected_stream_with_early_stop(socket, config, false).await
+}
+
+async fn collect_connected_stream_with_early_stop<S>(
     mut socket: WebSocketStream<S>,
     config: &StateReceiverConfig,
+    stop_when_localized: bool,
 ) -> Result<StateReceiverOutput>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -305,7 +336,7 @@ where
         config.application_heartbeat_interval,
     );
     heartbeat_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    let termination_reason = loop {
+    let termination_reason = 'receive: loop {
         tokio::select! {
             _ = sleep_until(deadline) => break "duration_elapsed",
             _ = summary_tick.tick() => {
@@ -334,11 +365,17 @@ where
                         sender.send(Message::Text(r#"{"type":"ping","data":{}}"#.into())).await
                             .context("could not answer application-level WebSocket ping")?;
                     }
+                    if stop_when_localized && accumulator.has_fresh_observed_localization() {
+                        break 'receive "first_fresh_observed_localization";
+                    }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
                     accumulator.counts.binary_messages = accumulator.counts.binary_messages.saturating_add(1);
                     if bytes.len() <= config.maximum_message_bytes {
                         accumulator.record_payload(&bytes, started.elapsed(), false);
+                    }
+                    if stop_when_localized && accumulator.has_fresh_observed_localization() {
+                        break 'receive "first_fresh_observed_localization";
                     }
                 }
                 Some(Ok(Message::Close(_))) | None => break "peer_closed",
@@ -886,6 +923,14 @@ impl StateAccumulator {
             self.samples.pop_front();
         }
         self.samples.push_back(sample);
+    }
+
+    fn has_fresh_observed_localization(&self) -> bool {
+        self.samples.back().is_some_and(|sample| {
+            sample.freshness_status.as_deref() == Some("fresh")
+                && sample.ball_positions_status.as_deref() == Some("observed")
+                && sample.observation_identity.is_some()
+        })
     }
 
     fn finish(
