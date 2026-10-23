@@ -23,6 +23,69 @@ use crate::capture_settings_wire::build_capture_settings_v3;
 
 const PHYSICAL_SELECTOR_PREFIX: &str = "gstreamer-device-v1:";
 
+/// Executable paths selected by the same rules used by the live supervisor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LiveExecutablePaths {
+    pub detector: PathBuf,
+    pub capture_helper: PathBuf,
+}
+
+/// Resolve the live executables without launching them.
+///
+/// `sibling_directory` is supplied by managed audit tools that need to inspect
+/// the gateway binary's colocated executables before the gateway is launched.
+/// The live service passes `None`, which selects the directory of its own
+/// executable. Explicit command-line overrides and configured paths retain the
+/// exact path rules used by the live process supervisor.
+pub(crate) fn resolve_live_executables(
+    configuration: &Value,
+    project_root: &Path,
+    live_executable_override: Option<&Path>,
+    capture_helper_override: Option<&Path>,
+    sibling_directory: Option<&Path>,
+) -> Result<LiveExecutablePaths, String> {
+    if !project_root.is_absolute() {
+        return Err("live process project root must be absolute".to_owned());
+    }
+    let project_root = project_root
+        .canonicalize()
+        .map_err(|error| format!("could not resolve project root: {error}"))?;
+    let live = object_at(configuration, "perception.rust_live")?;
+    let sibling_directory = match sibling_directory {
+        Some(directory) => directory.to_path_buf(),
+        None => std::env::current_exe()
+            .map_err(|error| format!("could not locate the Rust gateway executable: {error}"))?
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "Rust gateway executable has no parent directory".to_owned())?,
+    };
+
+    let detector = match live_executable_override {
+        Some(path) => resolve_configured_path(path, &project_root)?,
+        None => configured_or_sibling(
+            live,
+            "executable_path",
+            &project_root,
+            &sibling_directory,
+            "billiards-perception-live",
+        )?,
+    };
+    let capture_helper = match capture_helper_override {
+        Some(path) => resolve_configured_path(path, &project_root)?,
+        None => configured_or_sibling(
+            live,
+            "capture_helper_executable_path",
+            &project_root,
+            &sibling_directory,
+            "billiards-perception-gstreamer-probe",
+        )?,
+    };
+    Ok(LiveExecutablePaths {
+        detector,
+        capture_helper,
+    })
+}
+
 /// Validated process arguments derived from Rust's effective configuration.
 #[derive(Debug, Clone)]
 pub struct LiveProcessConfig {
@@ -67,24 +130,15 @@ impl LiveProcessConfig {
             return Err("live detector requires capture settings v3".to_owned());
         }
 
-        let executable = match live_executable_override {
-            Some(path) => resolve_configured_path(path, &project_root)?,
-            None => configured_or_sibling(
-                live,
-                "executable_path",
-                &project_root,
-                "billiards-perception-live",
-            )?,
-        };
-        let helper = match capture_helper_override {
-            Some(path) => resolve_configured_path(path, &project_root)?,
-            None => configured_or_sibling(
-                live,
-                "capture_helper_executable_path",
-                &project_root,
-                "billiards-perception-gstreamer-probe",
-            )?,
-        };
+        let executable_paths = resolve_live_executables(
+            configuration,
+            &project_root,
+            live_executable_override,
+            capture_helper_override,
+            None,
+        )?;
+        let executable = executable_paths.detector;
+        let helper = executable_paths.capture_helper;
         let requested = capture_settings
             .get("requested")
             .and_then(Value::as_object)
@@ -511,16 +565,12 @@ fn configured_or_sibling(
     values: &serde_json::Map<String, Value>,
     key: &str,
     project_root: &Path,
+    sibling_directory: &Path,
     sibling_name: &str,
 ) -> Result<PathBuf, String> {
     let configured = values.get(key).and_then(Value::as_str).unwrap_or_default();
     if configured.trim().is_empty() {
-        let parent = std::env::current_exe()
-            .map_err(|error| format!("could not locate the Rust gateway executable: {error}"))?
-            .parent()
-            .map(Path::to_path_buf)
-            .ok_or_else(|| "Rust gateway executable has no parent directory".to_owned())?;
-        return resolve_configured_path(&parent.join(sibling_name), project_root);
+        return resolve_configured_path(&sibling_directory.join(sibling_name), project_root);
     }
     resolve_configured_path(Path::new(configured), project_root)
 }
@@ -617,8 +667,9 @@ async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
 
 #[cfg(test)]
 mod tests {
-    use super::{stop_child, LiveProcessConfig};
+    use super::{resolve_live_executables, stop_child, LiveProcessConfig};
     use std::net::SocketAddr;
+    use std::path::Path;
     use std::time::Duration;
 
     use serde_json::Value;
@@ -643,6 +694,52 @@ mod tests {
             Value::String("perception/target/release/billiards-perception-live".to_owned());
         configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(false);
         configuration
+    }
+
+    #[test]
+    fn live_executable_resolution_shares_configured_override_and_sibling_rules() {
+        let project = tempfile::tempdir().unwrap();
+        let sibling_directory = project.path().join("distribution/bin");
+        std::fs::create_dir_all(&sibling_directory).unwrap();
+        let mut configuration = remote_stream_config();
+        configuration["perception"]["rust_live"]["executable_path"] = Value::String(String::new());
+        configuration["perception"]["rust_live"]["capture_helper_executable_path"] =
+            Value::String(String::new());
+
+        let siblings = resolve_live_executables(
+            &configuration,
+            project.path(),
+            None,
+            None,
+            Some(&sibling_directory),
+        )
+        .unwrap();
+        assert_eq!(
+            siblings.detector,
+            sibling_directory.join("billiards-perception-live")
+        );
+        assert_eq!(
+            siblings.capture_helper,
+            sibling_directory.join("billiards-perception-gstreamer-probe")
+        );
+
+        let overrides = resolve_live_executables(
+            &configuration,
+            project.path(),
+            Some(Path::new("custom/live-detector")),
+            Some(Path::new("custom/capture-helper")),
+            Some(&sibling_directory),
+        )
+        .unwrap();
+        let canonical_project = project.path().canonicalize().unwrap();
+        assert_eq!(
+            overrides.detector,
+            canonical_project.join("custom/live-detector")
+        );
+        assert_eq!(
+            overrides.capture_helper,
+            canonical_project.join("custom/capture-helper")
+        );
     }
 
     #[test]

@@ -67,6 +67,16 @@ sends `SIGKILL` to the group only if the configured shutdown timeout expires.
 It then reaps the gateway process. Managed runs require a loopback WebSocket
 URL.
 
+For `--start-live` managed-server runs, the versioned report records the
+effective configuration and capture-settings hashes, camera-profile identity,
+ONNX model and manifest hashes, source-checkpoint hash, live detector and
+capture-helper executable hashes, configured provider, model size, thresholds,
+and ball/cue class mapping. It writes hashes rather than raw config, camera
+URLs, or model contents. Provider placement and dynamic runtime version remain
+unavailable. Input-video hashing is unavailable because the receiver handles
+state messages rather than video bytes; detector accuracy is unavailable
+without temporally aligned labels.
+
 This remains a measurement harness, not an application service. The legacy
 Python compatibility commands below are retained as differential references;
 they do not turn on instrumentation in the supported Rust gateway.
@@ -79,12 +89,15 @@ The native `billiards-performance-audit-run` command owns the state-only
 repeatable workflow. It defaults to a 30-second warm-up followed by three
 120-second measured windows; each connection is closed between windows. Use
 `--soak` for one 20-minute bounded-retention run after the same warm-up. It
-writes a versioned `summary.json`, a Markdown report, one JSON report and
+writes a schema-versioned `summary.json`, a Markdown report, one JSON report and
 bounded JSONL detail file per measured window, and a `failure.json` if a
 connection fails after the run folder is created. The report records revision,
 dirty-worktree fingerprint, operating system, architecture, CPU count, host,
-kernel, memory, effective limits, and explicit unavailable fields for network
-input hashing, detector identity, and accuracy evidence.
+kernel, memory, and effective limits. A managed `--start-live` run adds the
+model, runtime-binary, capture-helper, effective-configuration, and camera
+profile identities described above. External state streams do not disclose
+detector identity; network input-video hashing and accuracy evidence remain
+unavailable in either mode.
 
 Run a short smoke check or the standard repeated audit with:
 

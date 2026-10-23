@@ -86,7 +86,7 @@ async fn repeatable_runner_writes_bounded_reports_details_and_provenance() {
     let summary: Value =
         serde_json::from_slice(&std::fs::read(run_directory.join("summary.json")).unwrap())
             .unwrap();
-    assert_eq!(summary["schema_version"], 2);
+    assert_eq!(summary["schema_version"], 3);
     assert_eq!(summary["mode"], "repeated");
     assert_eq!(summary["measured_runs"].as_array().unwrap().len(), 2);
     assert!(summary["environment"]["working_tree_dirty"].is_boolean());

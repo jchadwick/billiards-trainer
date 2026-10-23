@@ -3,12 +3,12 @@
 //! The receiver measures one WebSocket window. This module owns the separate
 //! audit-workflow contract: warm-up, repeated measured windows or one soak,
 //! per-run detail files, environment provenance, and a versioned Markdown and
-//! JSON report. It intentionally labels network-stream inputs as unavailable
-//! for content hashing and detector accuracy; a delivery receiver cannot infer
-//! those facts from state messages alone.
+//! JSON report. It labels network-stream input content and detector accuracy as
+//! unavailable; when it owns a live server, it also records hashes from that
+//! server's effective configuration and model/runtime files.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
@@ -30,8 +30,9 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 2;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 3;
 const MAXIMUM_REPETITIONS: usize = 1_000;
+const PROVENANCE_HASH_BUFFER_SIZE: usize = 64 * 1024;
 
 /// Settings for one repeatable state-only collection workflow.
 #[derive(Debug, Clone)]
@@ -150,6 +151,8 @@ pub struct ManagedServerRunMetadata {
     pub process_id: Option<u32>,
     pub argument_count: usize,
     pub arguments_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub live_provenance: Option<ManagedLiveProvenance>,
     pub startup_timeout_seconds: f64,
     pub readiness_probe_interval_ms: u128,
     pub shutdown_timeout_seconds: f64,
@@ -157,6 +160,27 @@ pub struct ManagedServerRunMetadata {
     pub readiness_probe_attempts: u64,
     pub first_observed_source_frame_id: Option<String>,
     pub shutdown: Option<ManagedServerShutdown>,
+}
+
+/// Identity of live detector inputs and executable used by a managed run.
+/// Only hashes and non-secret selection fields are written; camera URLs and
+/// model/config file contents remain private to the machine running the audit.
+#[derive(Debug, Serialize)]
+pub struct ManagedLiveProvenance {
+    pub effective_configuration_sha256: String,
+    pub capture_settings_sha256: String,
+    pub camera_profile_id: String,
+    pub detector_model_sha256: String,
+    pub model_manifest_sha256: String,
+    pub source_checkpoint_sha256: String,
+    pub detector_executable_sha256: String,
+    pub capture_helper_executable_sha256: String,
+    pub provider_selection: String,
+    pub model_image_size: u64,
+    pub ball_class_id: u64,
+    pub cue_class_id: Option<u64>,
+    pub confidence_threshold: f64,
+    pub iou_threshold: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -247,7 +271,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
         .to_owned();
     let started_at_utc = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let environment = collect_environment();
-    let input = InputMetadata {
+    let mut input = InputMetadata {
         kind: "websocket_state_stream",
         websocket_url: config.url.clone(),
         content_sha256: None,
@@ -264,6 +288,13 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
             let started = running.started;
             child = Some(running.child);
             managed_metadata = Some(running.metadata);
+            if let Some(provenance) = managed_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.live_provenance.as_ref())
+            {
+                input.detector_model = Some(format!("sha256:{}", provenance.detector_model_sha256));
+                input.detector_runtime = Some(provenance.provider_selection.clone());
+            }
             let managed_child = child
                 .as_mut()
                 .context("managed server child was not retained after launch")?;
@@ -357,6 +388,7 @@ struct FirstLocalizationReadiness {
 }
 
 fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedServer> {
+    let live_provenance = managed_live_provenance(config)?;
     let mut command = tokio::process::Command::new(&config.executable);
     command
         .args(&config.arguments)
@@ -396,6 +428,7 @@ fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedSe
             process_id,
             argument_count,
             arguments_sha256: format!("{:x}", argument_hasher.finalize()),
+            live_provenance,
             startup_timeout_seconds: config.startup_timeout.as_secs_f64(),
             readiness_probe_interval_ms: config.readiness_probe_interval.as_millis(),
             shutdown_timeout_seconds: config.shutdown_timeout.as_secs_f64(),
@@ -406,6 +439,224 @@ fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedSe
         },
         started: Instant::now(),
     })
+}
+
+fn managed_live_provenance(server: &ManagedServerConfig) -> Result<Option<ManagedLiveProvenance>> {
+    if !server
+        .arguments
+        .iter()
+        .any(|argument| argument == "--start-live")
+    {
+        return Ok(None);
+    }
+
+    use crate::capture_settings_wire::build_capture_settings_v3;
+    use crate::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
+    use crate::live_supervisor::resolve_live_executables;
+    use serde_json::Value;
+
+    let working_directory = match &server.working_directory {
+        Some(path) => path.clone(),
+        None => std::env::current_dir().context("could not resolve current directory")?,
+    };
+    let project_root = unique_argument_value(&server.arguments, "--project-root")?
+        .map(PathBuf::from)
+        .unwrap_or_else(|| working_directory.clone());
+    if !project_root.is_absolute() {
+        bail!("managed live project root must be absolute");
+    }
+
+    let raw_configuration_path = unique_argument_value(&server.arguments, "--config")?
+        .context("managed live server requires an explicit --config argument")?;
+    let configuration_path = resolve_from_directory(raw_configuration_path, &working_directory);
+    let authority = ConfigurationAuthority::new(configuration_path, AuthorityLimits::default())
+        .map_err(anyhow::Error::msg)
+        .context("could not initialize the managed live configuration authority")?;
+    let configuration = authority
+        .effective_configuration()
+        .map_err(anyhow::Error::msg)
+        .context("could not read the managed live effective configuration")?;
+    let live = configuration
+        .pointer("/perception/rust_live")
+        .and_then(Value::as_object)
+        .context("effective configuration has no perception.rust_live object")?;
+    let capture_settings = build_capture_settings_v3(&configuration)
+        .context("could not resolve managed live capture settings")?;
+    let camera_profile_id = capture_settings
+        .pointer("/requested/camera_profile_id")
+        .and_then(Value::as_str)
+        .context("resolved capture settings have no camera profile identity")?
+        .to_owned();
+
+    let effective_configuration_bytes = serde_json::to_vec(&configuration)
+        .context("could not serialize effective managed live configuration")?;
+    let capture_settings_bytes = serde_json::to_vec(&capture_settings)
+        .context("could not serialize managed live capture settings")?;
+    let model_path = configured_project_path(live, "onnx_path", &project_root)?;
+    let model_manifest_path = PathBuf::from(format!("{}.manifest.json", model_path.display()));
+    let checkpoint_path = configured_project_path(live, "source_checkpoint_path", &project_root)?;
+    let server_executable = resolve_program_path(&server.executable, &working_directory)?
+        .canonicalize()
+        .context("could not canonicalize managed server executable")?;
+    let sibling_directory = server_executable
+        .parent()
+        .context("managed server executable has no parent directory")?;
+    let executables = resolve_live_executables(
+        &configuration,
+        &project_root,
+        unique_argument_value(&server.arguments, "--live-executable")?.map(Path::new),
+        unique_argument_value(&server.arguments, "--capture-helper-executable")?.map(Path::new),
+        Some(sibling_directory),
+    )
+    .map_err(anyhow::Error::msg)
+    .context("could not resolve the managed live detector executables")?;
+    let detector_executable = executables
+        .detector
+        .canonicalize()
+        .context("could not canonicalize managed live detector executable")?;
+    let capture_helper_executable = executables
+        .capture_helper
+        .canonicalize()
+        .context("could not canonicalize managed live capture helper executable")?;
+    let provider_selection = required_configuration_string(live, "provider")?;
+    let model_image_size = live
+        .get("image_size")
+        .and_then(Value::as_u64)
+        .context("perception.rust_live.image_size must be a positive integer")?;
+    let ball_class_id = live
+        .get("ball_class_id")
+        .and_then(Value::as_u64)
+        .context("perception.rust_live.ball_class_id must be a non-negative integer")?;
+    let cue_class_id = live.get("cue_class_id").and_then(Value::as_u64);
+    let confidence_threshold = live
+        .get("confidence")
+        .and_then(Value::as_f64)
+        .context("perception.rust_live.confidence must be a finite number")?;
+    let iou_threshold = live
+        .get("iou")
+        .and_then(Value::as_f64)
+        .context("perception.rust_live.iou must be a finite number")?;
+
+    Ok(Some(ManagedLiveProvenance {
+        effective_configuration_sha256: sha256_bytes(&effective_configuration_bytes),
+        capture_settings_sha256: sha256_bytes(&capture_settings_bytes),
+        camera_profile_id,
+        detector_model_sha256: sha256_file(&model_path)?,
+        model_manifest_sha256: sha256_file(&model_manifest_path)?,
+        source_checkpoint_sha256: sha256_file(&checkpoint_path)?,
+        detector_executable_sha256: sha256_file(&detector_executable)?,
+        capture_helper_executable_sha256: sha256_file(&capture_helper_executable)?,
+        provider_selection,
+        model_image_size,
+        ball_class_id,
+        cue_class_id,
+        confidence_threshold,
+        iou_threshold,
+    }))
+}
+
+fn unique_argument_value<'a>(arguments: &'a [String], name: &str) -> Result<Option<&'a str>> {
+    let mut found = None;
+    for (index, argument) in arguments.iter().enumerate() {
+        let value = if let Some(value) = argument.strip_prefix(&format!("{name}=")) {
+            Some(value)
+        } else if argument == name {
+            Some(
+                arguments
+                    .get(index + 1)
+                    .context("managed server option is missing its value")?
+                    .as_str(),
+            )
+        } else {
+            None
+        };
+        if let Some(value) = value {
+            if found.replace(value).is_some() {
+                bail!("managed server has more than one {name} argument");
+            }
+        }
+    }
+    Ok(found)
+}
+
+fn resolve_from_directory(value: &str, directory: &Path) -> PathBuf {
+    let path = Path::new(value);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        directory.join(path)
+    }
+}
+
+fn configured_project_path(
+    live: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    project_root: &Path,
+) -> Result<PathBuf> {
+    let configured = required_configuration_string(live, key)?;
+    let path = Path::new(&configured);
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        project_root.join(path)
+    })
+}
+
+fn required_configuration_string(
+    values: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<String> {
+    values
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("perception.rust_live.{key} must be a non-empty string"))
+}
+
+fn resolve_program_path(program: &Path, working_directory: &Path) -> Result<PathBuf> {
+    if program.is_absolute() {
+        return Ok(program.to_path_buf());
+    }
+    if program.components().count() > 1 {
+        return Ok(working_directory.join(program));
+    }
+    for directory in std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()) {
+        let directory = if directory.is_absolute() {
+            directory
+        } else {
+            working_directory.join(directory)
+        };
+        let candidate = directory.join(program);
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    bail!(
+        "could not resolve managed server executable {}",
+        program.display()
+    )
+}
+
+fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path)
+        .with_context(|| format!("could not open provenance input {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; PROVENANCE_HASH_BUFFER_SIZE];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .with_context(|| format!("could not read provenance input {}", path.display()))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 async fn wait_for_first_localization(
@@ -737,9 +988,18 @@ async fn run_windows(
     let mut limitations = vec![
         "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
         "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
-        "A network stream has no input-content hash, and the receiver cannot identify the detector model or runtime.",
+        "A network state stream has no input-video content hash.",
         "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
     ];
+    if input.detector_model.is_none() {
+        limitations.push(
+            "Detector model and configured runtime identity are unavailable for this externally managed state stream.",
+        );
+    } else {
+        limitations.push(
+            "The recorded provider is the configured selection; actual per-node accelerator placement and dynamic runtime version are unavailable.",
+        );
+    }
     if config.managed_server.is_some() {
         limitations.push(
             "Managed-server mode qualifies state delivery and process lifecycle; inference-process resource sampling is not yet included.",
@@ -890,6 +1150,25 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
             server.readiness_probe_attempts,
             server.shutdown.as_ref().map_or("unavailable", |shutdown| shutdown.status),
         ));
+        if let Some(live) = &server.live_provenance {
+            output.push_str(&format!(
+                "- Live camera profile: `{}`; provider selection: `{}`; model size: `{}`; confidence / IoU: `{:.4}` / `{:.4}`; ball/cue classes: `{}` / `{}`\n- Effective configuration SHA-256: `{}`\n- Capture settings SHA-256: `{}`\n- Detector model SHA-256: `{}`\n- Model manifest SHA-256: `{}`\n- Source checkpoint SHA-256: `{}`\n- Detector executable SHA-256: `{}`\n- Capture helper SHA-256: `{}`\n",
+                live.camera_profile_id,
+                live.provider_selection,
+                live.model_image_size,
+                live.confidence_threshold,
+                live.iou_threshold,
+                live.ball_class_id,
+                live.cue_class_id.map_or_else(|| "unavailable".to_owned(), |id| id.to_string()),
+                live.effective_configuration_sha256,
+                live.capture_settings_sha256,
+                live.detector_model_sha256,
+                live.model_manifest_sha256,
+                live.source_checkpoint_sha256,
+                live.detector_executable_sha256,
+                live.capture_helper_executable_sha256,
+            ));
+        }
     }
     output.push_str("\n## Limitations\n\n");
     for limitation in &report.limitations {
@@ -958,11 +1237,13 @@ fn create_new_output(path: &Path, label: &str) -> Result<File> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_environment, render_markdown, ManagedServerConfig, StateAuditRunConfig,
+        collect_environment, managed_live_provenance, render_markdown, ManagedLiveProvenance,
+        ManagedServerConfig, ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig,
         StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS,
         DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
     };
     use crate::performance_audit_receiver::StateReceiverConfig;
+    use serde_json::{json, Value};
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -1041,6 +1322,104 @@ mod tests {
     }
 
     #[test]
+    fn managed_live_provenance_hashes_model_runtime_and_effective_camera_profile() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        let binary_directory = root.join("bin");
+        let model_directory = root.join("models");
+        std::fs::create_dir_all(&binary_directory).unwrap();
+        std::fs::create_dir_all(&model_directory).unwrap();
+        let server_executable = binary_directory.join("billiards-server");
+        let detector_executable = binary_directory.join("billiards-perception-live");
+        let capture_helper = binary_directory.join("billiards-perception-gstreamer-probe");
+        let model_path = model_directory.join("detector.onnx");
+        let model_manifest_path = PathBuf::from(format!("{}.manifest.json", model_path.display()));
+        let checkpoint_path = model_directory.join("detector.pt");
+        std::fs::write(&server_executable, b"gateway-test-binary").unwrap();
+        std::fs::write(&detector_executable, b"detector-test-binary").unwrap();
+        std::fs::write(&capture_helper, b"capture-helper-test-binary").unwrap();
+        std::fs::write(&model_path, b"onnx-test-model").unwrap();
+        std::fs::write(&model_manifest_path, b"model-manifest-test-content").unwrap();
+        std::fs::write(&checkpoint_path, b"checkpoint-test-model").unwrap();
+
+        let mut configuration: Value =
+            serde_json::from_str(include_str!("../contracts/configuration/v1/defaults.json"))
+                .unwrap();
+        configuration["vision"]["camera"]["device_id"] = json!("http://127.0.0.1:8001/stream.mjpg");
+        configuration["vision"]["camera"]["video_file_path"] = json!("");
+        configuration["perception"]["rust_live"]["onnx_path"] = json!("models/detector.onnx");
+        configuration["perception"]["rust_live"]["source_checkpoint_path"] =
+            json!("models/detector.pt");
+        configuration["perception"]["rust_live"]["executable_path"] =
+            json!("bin/billiards-perception-live");
+        configuration["perception"]["rust_live"]["capture_helper_executable_path"] =
+            json!("bin/billiards-perception-gstreamer-probe");
+        let configuration_path = root.join("config.json");
+        std::fs::write(
+            &configuration_path,
+            serde_json::to_vec_pretty(&configuration).unwrap(),
+        )
+        .unwrap();
+        let launch = ManagedServerConfig {
+            executable: server_executable,
+            arguments: vec![
+                "--config".to_owned(),
+                configuration_path.display().to_string(),
+                "--project-root".to_owned(),
+                root.display().to_string(),
+                "--start-live".to_owned(),
+            ],
+            working_directory: Some(root.to_path_buf()),
+            startup_timeout: Duration::from_secs(1),
+            readiness_probe_interval: Duration::from_millis(20),
+            shutdown_timeout: Duration::from_secs(1),
+        };
+
+        let provenance = managed_live_provenance(&launch).unwrap().unwrap();
+        assert_eq!(
+            provenance.detector_model_sha256,
+            super::sha256_file(&model_path).unwrap()
+        );
+        assert_eq!(
+            provenance.source_checkpoint_sha256,
+            super::sha256_file(&checkpoint_path).unwrap()
+        );
+        assert_eq!(
+            provenance.model_manifest_sha256,
+            super::sha256_file(&model_manifest_path).unwrap()
+        );
+        assert_eq!(
+            provenance.detector_executable_sha256,
+            super::sha256_file(&detector_executable).unwrap()
+        );
+        assert_eq!(
+            provenance.capture_helper_executable_sha256,
+            super::sha256_file(&capture_helper).unwrap()
+        );
+        assert_eq!(provenance.provider_selection, "cpu");
+        assert_eq!(provenance.ball_class_id, 1);
+        assert_eq!(provenance.cue_class_id, Some(0));
+        assert!(!provenance.effective_configuration_sha256.is_empty());
+        assert!(!provenance.capture_settings_sha256.is_empty());
+        assert!(!provenance.camera_profile_id.is_empty());
+        let serialized = serde_json::to_string(&provenance).unwrap();
+        assert!(!serialized.contains("http://127.0.0.1:8001/stream.mjpg"));
+    }
+
+    #[test]
+    fn externally_managed_server_does_not_claim_live_model_provenance() {
+        let launch = ManagedServerConfig {
+            executable: PathBuf::from("server"),
+            arguments: Vec::new(),
+            working_directory: None,
+            startup_timeout: Duration::from_secs(1),
+            readiness_probe_interval: Duration::from_millis(20),
+            shutdown_timeout: Duration::from_secs(1),
+        };
+        assert!(managed_live_provenance(&launch).unwrap().is_none());
+    }
+
+    #[test]
     fn markdown_discloses_accuracy_and_clock_limitations() {
         let report = StateAuditRunReport {
             schema_version: RUN_REPORT_SCHEMA_VERSION,
@@ -1070,12 +1449,45 @@ mod tests {
                 websocket_url: "ws://127.0.0.1:8080/state".to_owned(),
                 content_sha256: None,
                 content_hash_status: "unavailable_for_network_stream",
-                detector_model: None,
-                detector_runtime: None,
+                detector_model: Some("sha256:model".to_owned()),
+                detector_runtime: Some("cpu".to_owned()),
             },
             warmup: None,
             measured_runs: Vec::new(),
-            managed_server: None,
+            managed_server: Some(ManagedServerRunMetadata {
+                executable: "billiards-server".to_owned(),
+                process_id: Some(123),
+                argument_count: 3,
+                arguments_sha256: "arguments-hash".to_owned(),
+                live_provenance: Some(ManagedLiveProvenance {
+                    effective_configuration_sha256: "configuration-hash".to_owned(),
+                    capture_settings_sha256: "capture-hash".to_owned(),
+                    camera_profile_id: "camera-profile-test".to_owned(),
+                    detector_model_sha256: "model-hash".to_owned(),
+                    model_manifest_sha256: "manifest-hash".to_owned(),
+                    source_checkpoint_sha256: "checkpoint-hash".to_owned(),
+                    detector_executable_sha256: "detector-hash".to_owned(),
+                    capture_helper_executable_sha256: "helper-hash".to_owned(),
+                    provider_selection: "cpu".to_owned(),
+                    model_image_size: 1280,
+                    ball_class_id: 1,
+                    cue_class_id: Some(0),
+                    confidence_threshold: 0.3,
+                    iou_threshold: 0.45,
+                }),
+                startup_timeout_seconds: 60.0,
+                readiness_probe_interval_ms: 250,
+                shutdown_timeout_seconds: 10.0,
+                startup_elapsed_seconds: 2.0,
+                readiness_probe_attempts: 3,
+                first_observed_source_frame_id: Some("frame-1".to_owned()),
+                shutdown: Some(ManagedServerShutdown {
+                    status: "terminated_gracefully",
+                    exit_code: Some(0),
+                    signal: None,
+                    forced: false,
+                }),
+            }),
             limitations: vec![
                 "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
                 "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
@@ -1085,6 +1497,8 @@ mod tests {
         assert!(markdown.contains("Detector accuracy is unavailable"));
         assert!(markdown.contains("unrelated clocks are not subtracted"));
         assert!(markdown.contains("Working tree dirty"));
+        assert!(markdown.contains("camera-profile-test"));
+        assert!(markdown.contains("Detector model SHA-256: `model-hash`"));
     }
 
     #[cfg(unix)]

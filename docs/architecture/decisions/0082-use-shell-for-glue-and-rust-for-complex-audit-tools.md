@@ -129,9 +129,15 @@ runner launches the gateway in a private process group; on success, timeout,
 or receive failure it sends `SIGTERM` to the group, waits for the gateway and
 its detector/capture descendants, and sends `SIGKILL` to the group only after
 the configured grace period expires. It then reaps the gateway. Schema
-version 2 records executable path, PID, an argument digest, readiness timing
+version 3 records executable path, PID, an argument digest, readiness timing
 and probe count, the first observed frame identity, and shutdown outcome
-without copying raw arguments into the report. The new thin
+without copying raw arguments into the report. For managed `--start-live`
+runs, it also hashes the effective configuration, resolved capture settings,
+ONNX model and manifest, source checkpoint, detector executable, and capture
+helper. It records the camera-profile identity, configured provider, input
+size, thresholds, and ball/cue class mapping without exposing the raw camera
+URL or configuration contents. These are configured identities, not proof of
+actual accelerator placement or dynamic runtime version. The new thin
 `scripts/performance-audit-live.sh` builds the
 runner, gateway, live detector, and GStreamer capture helper with the explicit
 source feature, then forwards gateway arguments without shell evaluation.
