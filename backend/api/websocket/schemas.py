@@ -25,7 +25,6 @@ class StreamType(str, Enum):
     TRAJECTORY = "trajectory"
     ALERT = "alert"
     CONFIG = "config"
-    PERFORMANCE = "performance"
 
 
 class MessageType(str, Enum):
@@ -37,8 +36,6 @@ class MessageType(str, Enum):
     TRAJECTORY = StreamType.TRAJECTORY.value
     ALERT = StreamType.ALERT.value
     CONFIG = StreamType.CONFIG.value
-    PERFORMANCE = StreamType.PERFORMANCE.value
-    METRICS = "metrics"
 
     # Connection management
     CONNECTION = "connection"
@@ -496,18 +493,6 @@ class ErrorData(BaseModel):
     )
 
 
-class MetricsData(BaseModel):
-    """Performance metrics data structure."""
-
-    broadcast_stats: dict[str, Union[int, float, bool]] = Field(
-        ..., description="Broadcasting statistics"
-    )
-    frame_metrics: dict[str, Union[int, float]] = Field(
-        ..., description="Frame streaming metrics"
-    )
-    connection_stats: dict[str, Any] = Field(..., description="Connection statistics")
-
-
 # Client-sent message schemas
 class SubscribeRequest(BaseModel):
     """Client subscription request."""
@@ -660,18 +645,6 @@ def create_status_message(
         timestamp=datetime.now(),
         sequence=sequence,
         data=status_data.dict(),
-    )
-
-
-def create_metrics_message(
-    metrics_data: MetricsData, sequence: Optional[int] = None
-) -> WebSocketMessage:
-    """Create a metrics message."""
-    return WebSocketMessage(
-        type=MessageType.METRICS,
-        timestamp=datetime.now(),
-        sequence=sequence,
-        data=metrics_data.dict(),
     )
 
 

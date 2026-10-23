@@ -332,39 +332,6 @@ def test_video_replay_delivers_probe_frame_at_configured_end_boundary(
     assert capture.get_status() == CameraStatus.DISCONNECTED
 
 
-def test_first_capture_read_duration_is_attached_to_first_frame(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    camera = FakeVideoCapture(
-        reads=[(True, make_frame(8)), (False, None)],
-        properties={capture_module.cv2.CAP_PROP_POS_FRAMES: 0},
-    )
-    monkeypatch.setattr(
-        capture_module.cv2,
-        "VideoCapture",
-        lambda device, backend: camera,
-    )
-    monotonic_time = iter((1_000, 1_025, 2_000, 2_005))
-    monkeypatch.setattr(
-        capture_module.time, "perf_counter_ns", lambda: next(monotonic_time)
-    )
-    capture = CameraCapture(
-        {
-            "device_id": "recorded.mp4",
-            "fps": 0,
-            "performance_audit_enabled": True,
-        }
-    )
-
-    assert capture._connect_camera() is True
-    capture._capture_loop()
-
-    delivered = capture.get_frame()
-    assert delivered is not None
-    _frame, info = delivered
-    assert info.camera_read_seconds == pytest.approx(25e-9)
-
-
 def test_failed_camera_open_releases_capture_and_records_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -412,7 +379,7 @@ def test_get_frame_preserves_fifo_order_and_reports_empty_queue() -> None:
     assert capture.get_frame() is None
 
 
-def test_capture_loop_drops_oldest_frame_and_reports_read_timing(
+def test_capture_loop_drops_oldest_frame_and_keeps_latest_frame(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     first_frame = make_frame(1)
@@ -425,18 +392,13 @@ def test_capture_loop_drops_oldest_frame_and_reports_read_timing(
             "device_id": "recorded.mp4",
             "buffer_size": 1,
             "fps": 0,
-            "performance_audit_enabled": True,
             "frame_log_interval": 100,
         }
     )
     capture._cap = camera  # type: ignore[assignment]
 
     wall_times = iter((10.0, 10.1, 10.2))
-    monotonic_times = iter((100, 110, 200, 225, 300, 310))
     monkeypatch.setattr(capture_module.time, "time", lambda: next(wall_times))
-    monkeypatch.setattr(
-        capture_module.time, "perf_counter_ns", lambda: next(monotonic_times)
-    )
 
     capture._capture_loop()
 
@@ -445,14 +407,13 @@ def test_capture_loop_drops_oldest_frame_and_reports_read_timing(
     frame, info = queued
     assert info.frame_number == 2
     assert info.timestamp == 10.1
-    assert info.camera_read_seconds == pytest.approx(25e-9)
     assert np.all(frame == 2)
     assert capture._frames_captured == 2
     assert capture._frames_dropped == 1
     assert capture._fps_tracker == [10.0, 10.1]
 
 
-def test_capture_timestamp_is_taken_after_read_while_duration_uses_monotonic_time(
+def test_capture_timestamp_is_taken_after_frame_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     wall_time = [100.0]
@@ -468,15 +429,10 @@ def test_capture_timestamp_is_taken_after_read_while_duration_uses_monotonic_tim
         {
             "device_id": "recorded.mp4",
             "fps": 0,
-            "performance_audit_enabled": True,
         }
     )
     capture._cap = camera  # type: ignore[assignment]
-    monotonic_time = iter((1_000, 1_025, 2_000, 2_005))
     monkeypatch.setattr(capture_module.time, "time", lambda: wall_time[0])
-    monkeypatch.setattr(
-        capture_module.time, "perf_counter_ns", lambda: next(monotonic_time)
-    )
 
     capture._capture_loop()
 
@@ -484,7 +440,6 @@ def test_capture_timestamp_is_taken_after_read_while_duration_uses_monotonic_tim
     assert delivered is not None
     _frame, info = delivered
     assert info.timestamp == 86_500.0
-    assert info.camera_read_seconds == pytest.approx(25e-9)
 
 
 def test_non_video_read_failure_disables_capture_and_updates_status() -> None:
@@ -883,9 +838,7 @@ def test_live_config_update_failure_is_reported() -> None:
     assert capture._last_error == "property write failed"
 
 
-def test_frame_info_keeps_capture_read_duration_optional() -> None:
+def test_frame_info_records_post_read_software_timestamp() -> None:
     info = FrameInfo(1, 123.0, (5, 3), 3)
 
-    assert info.camera_read_seconds is None
-    assert info.capture_queue_frames_skipped == 0
-    assert info.capture_queue_depth_after_drain is None
+    assert info.timestamp == 123.0

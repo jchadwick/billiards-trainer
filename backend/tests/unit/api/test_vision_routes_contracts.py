@@ -1,4 +1,4 @@
-"""HTTP contracts for the anonymous vision and performance routes."""
+"""HTTP contracts for the retained vision compatibility routes."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 
 import backend.api.dependencies as dependencies
 import backend.api.routes.vision as vision_route
-import backend.api.routes.vision_performance as performance_route
 from backend.vision.detection.yolo_detector import ModelValidationError
 
 
@@ -23,7 +22,6 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     monkeypatch.setattr(vision_route, "MODELS_DIR", tmp_path / "models")
     app = FastAPI()
     app.include_router(vision_route.router, prefix="/api/v1/vision")
-    app.include_router(performance_route.router, prefix="/api/v1")
     return TestClient(app)
 
 
@@ -31,29 +29,6 @@ def _write_model(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"test model")
     return path
-
-
-def test_vision_and_performance_routes_are_available_without_credentials(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """No auth dependency is required and credential-like headers do not gate routes."""
-    vision = SimpleNamespace(audit_recorder=None, audit_domains={"state": False})
-    monkeypatch.setattr(dependencies.app_state, "vision_module", vision)
-
-    anonymous = client.get("/api/v1/vision/performance/audit")
-    with_credentials = client.get(
-        "/api/v1/vision/performance/audit",
-        headers={
-            "Authorization": "Bearer invalid",
-            "X-API-Key": "invalid",
-            "Cookie": "session=invalid",
-        },
-    )
-
-    assert anonymous.status_code == 200
-    assert with_credentials.status_code == anonymous.status_code
-    assert with_credentials.json() == anonymous.json()
-    assert anonymous.json()["audit_enabled"] is False
 
 
 def test_model_info_reports_empty_components_and_lists_onnx_files(
@@ -490,103 +465,3 @@ def test_reload_success_false_validation_exception_and_runtime_exception(
     )
     assert unexpected.status_code == 503
     assert unexpected.json()["detail"] == "Vision processing failed"
-
-
-def test_performance_routes_report_unavailable_and_disabled_states(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    missing_audit = client.get("/api/v1/vision/performance/audit")
-    assert missing_audit.status_code == 503
-    assert missing_audit.json()["detail"] == "Vision module not initialized"
-
-    missing_stats = client.get("/api/v1/vision/performance")
-    missing_summary = client.get("/api/v1/vision/performance/summary")
-    missing_bottlenecks = client.get("/api/v1/vision/performance/bottlenecks")
-    assert [
-        r.status_code for r in (missing_stats, missing_summary, missing_bottlenecks)
-    ] == [
-        503,
-        503,
-        503,
-    ]
-
-    monkeypatch.setattr(dependencies.app_state, "vision_module", SimpleNamespace())
-    disabled_stats = client.get("/api/v1/vision/performance")
-    assert disabled_stats.status_code == 200
-    assert disabled_stats.json()["profiling_enabled"] is False
-    assert disabled_stats.json()["error"] == "Performance profiling is disabled"
-    disabled_summary = client.get("/api/v1/vision/performance/summary")
-    assert disabled_summary.status_code == 503
-    assert disabled_summary.json()["detail"] == "Performance profiling is disabled"
-    disabled_bottlenecks = client.get("/api/v1/vision/performance/bottlenecks")
-    assert disabled_bottlenecks.status_code == 503
-
-
-def test_audit_status_reports_recorder_health_and_both_profiler_views(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    recorder = SimpleNamespace(
-        host_id="host",
-        clock_domain_id="domain",
-        clock_implementation="monotonic",
-        status=lambda: {"queued": 2, "dropped": 1},
-    )
-    stats = SimpleNamespace(get_summary=lambda: {"frames": 12})
-    profiler = SimpleNamespace(
-        get_realtime_status=lambda: {"fps": 30},
-        get_current_stats=lambda: stats,
-        get_bottlenecks=lambda top_n: [("inference", float(top_n))],
-    )
-    vision = SimpleNamespace(
-        audit_recorder=recorder,
-        audit_domains={"state": True, "trajectory": False},
-        profiler=profiler,
-    )
-    monkeypatch.setattr(dependencies.app_state, "vision_module", vision)
-
-    audit = client.get("/api/v1/vision/performance/audit")
-    assert audit.status_code == 200
-    assert audit.json()["audit_enabled"] is True
-    assert audit.json()["event_export"] == {"queued": 2, "dropped": 1}
-    assert audit.json()["audit_domains"] == {"state": True, "trajectory": False}
-
-    stats_response = client.get("/api/v1/vision/performance")
-    assert stats_response.json()["fps"] == 30
-    assert stats_response.json()["event_export"] == {"queued": 2, "dropped": 1}
-    assert client.get("/api/v1/vision/performance/summary").json() == {
-        "profiling_enabled": True,
-        "frames": 12,
-    }
-    assert client.get("/api/v1/vision/performance/bottlenecks?top_n=2").json() == {
-        "profiling_enabled": True,
-        "bottlenecks": [{"rank": 1, "stage": "inference", "time_ms": 2.0}],
-    }
-
-
-def test_performance_routes_map_profiler_errors_and_validate_query_types(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    class BrokenProfiler:
-        def get_realtime_status(self) -> dict[str, Any]:
-            raise RuntimeError("status failed")
-
-        def get_current_stats(self) -> Any:
-            raise RuntimeError("summary failed")
-
-        def get_bottlenecks(self, top_n: int) -> list[tuple[str, float]]:
-            raise RuntimeError(f"bottlenecks failed: {top_n}")
-
-    monkeypatch.setattr(
-        dependencies.app_state,
-        "vision_module",
-        SimpleNamespace(profiler=BrokenProfiler()),
-    )
-    assert client.get("/api/v1/vision/performance").status_code == 500
-    assert client.get("/api/v1/vision/performance/summary").status_code == 500
-    assert client.get("/api/v1/vision/performance/bottlenecks").status_code == 500
-    assert (
-        client.get(
-            "/api/v1/vision/performance/bottlenecks?top_n=not-a-number"
-        ).status_code
-        == 422
-    )

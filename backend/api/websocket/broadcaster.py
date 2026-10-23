@@ -392,60 +392,6 @@ class MessageBroadcaster:
             "game_type": game_type,
             # Note: coordinate_metadata removed - scale is now mandatory in each Vector2D
         }
-        state_audit_identity = (observation_status or {}).get("source_frame_number")
-        if websocket_handler.select_performance_audit_detail(
-            "state", state_audit_identity, category="state_published"
-        ):
-            component_timestamps = (observation_status or {}).get(
-                "component_observation_timestamps"
-            )
-            component_ages = (
-                {
-                    name: max(0.0, time.monotonic() - observed_at)
-                    for name, observed_at in component_timestamps.items()
-                    if isinstance(observed_at, (int, float))
-                    and not isinstance(observed_at, bool)
-                }
-                if isinstance(component_timestamps, dict)
-                else {}
-            )
-            websocket_handler.record_performance_audit(
-                "state",
-                {
-                    "event_type": "state_published",
-                    "stream_sequence": state_data["sequence"],
-                    "source_frame_number": state_audit_identity,
-                    "source_timestamp": (observation_status or {}).get(
-                        "source_timestamp"
-                    ),
-                    "source_timestamp_kind": (observation_status or {}).get(
-                        "source_timestamp_kind"
-                    ),
-                    "source_publication_monotonic_ns": (observation_status or {}).get(
-                        "source_publication_monotonic_ns"
-                    ),
-                    "source_process_id": (observation_status or {}).get(
-                        "source_process_id"
-                    ),
-                    "vision_instance_id": (observation_status or {}).get(
-                        "vision_instance_id"
-                    ),
-                    "vision_process_id": (observation_status or {}).get(
-                        "vision_process_id"
-                    ),
-                    "map_revision": (observation_status or {}).get("map_revision"),
-                    "calibration_revision": (observation_status or {}).get(
-                        "calibration_revision"
-                    ),
-                    "component_observation_status": (observation_status or {}).get(
-                        "component_observation_status"
-                    ),
-                    "component_age_seconds": component_ages,
-                    "ball_count": len(balls),
-                    "cue_present": cue is not None,
-                },
-            )
-
         # Check if state has changed before logging
         state_changed = self._has_state_changed(balls, cue, table, game_type)
         if state_changed:
@@ -588,31 +534,6 @@ class MessageBroadcaster:
             "prediction_settings": prediction_settings or {},
             "source_observations": source_observations or {},
         }
-        if websocket_handler.select_performance_audit_detail(
-            "trajectory", source_frame_number, category="trajectory_published"
-        ):
-            websocket_handler.record_performance_audit(
-                "trajectory",
-                {
-                    "event_type": "trajectory_published",
-                    "stream_sequence": trajectory_data["sequence"],
-                    "source_frame_number": source_frame_number,
-                    "source_timestamp": source_timestamp,
-                    "source_timestamp_kind": source_timestamp_kind,
-                    "source_publication_monotonic_ns": (
-                        (source_observations or {}).get(
-                            "source_publication_monotonic_ns"
-                        )
-                    ),
-                    "map_revision": map_revision,
-                    "calibration_revision": calibration_revision,
-                    "prediction_status": prediction_status,
-                    "spatial_valid": spatial_valid,
-                    "line_count": len(lines),
-                    "collision_count": len(collisions or []),
-                },
-            )
-
         # Broadcast via WebSocket
         await self._broadcast_to_stream(StreamType.TRAJECTORY, trajectory_data)
 
@@ -660,74 +581,6 @@ class MessageBroadcaster:
 
         await self._broadcast_to_stream(StreamType.CONFIG, config_update_data)
 
-    async def broadcast_performance_stats(
-        self,
-        performance_data: dict[str, Any],
-    ) -> None:
-        """Broadcast vision performance statistics to subscribers.
-
-        Args:
-            performance_data: Performance stats from the vision profiler including FPS, CPU, memory
-        """
-        # _broadcast_to_stream will wrap this in the proper message format and add sequence
-        await self._broadcast_to_stream(StreamType.PERFORMANCE, performance_data)
-
-    async def send_performance_metrics(
-        self, target_clients: Optional[list[str]] = None
-    ) -> None:
-        """Send performance metrics to specified clients only.
-
-        IMPORTANT: Metrics are NO LONGER automatically broadcast to all clients
-        to prevent browser crashes from large metric payloads. Metrics should be
-        requested via REST API endpoint or sent to specific clients only.
-        """
-        metrics_data = {
-            "broadcast_stats": {
-                "messages_sent": self.broadcast_stats.messages_sent,
-                "bytes_sent": self.broadcast_stats.bytes_sent,
-                "failed_sends": self.broadcast_stats.failed_sends,
-                "validation_failures": self.broadcast_stats.validation_failures,
-                "average_latency": self.broadcast_stats.average_latency,
-                "peak_latency": self.broadcast_stats.peak_latency,
-                "compression_enabled": self.broadcast_stats.compression_enabled,
-            },
-            "frame_metrics": {
-                "frames_received": self.broadcast_stats.frame_metrics.frames_received,
-                "frames_sent": self.broadcast_stats.frame_metrics.frames_sent,
-                "bytes_sent": self.broadcast_stats.frame_metrics.bytes_sent,
-                "compression_ratio": self.broadcast_stats.frame_metrics.compression_ratio,
-                "average_latency": self.broadcast_stats.frame_metrics.average_latency,
-                "dropped_frames": self.broadcast_stats.frame_metrics.dropped_frames,
-                "target_fps": self.broadcast_stats.frame_metrics.target_fps,
-                "actual_fps": self.broadcast_stats.frame_metrics.actual_fps,
-            },
-            "connection_stats": websocket_handler.get_connection_stats(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        # Send as a special metrics message
-        message = {
-            "type": "metrics",
-            "data": metrics_data,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-
-        if target_clients:
-            # Send to specific clients only
-            tasks = [
-                websocket_handler.send_to_client(client_id, message)
-                for client_id in target_clients
-                if client_id in websocket_handler.connections
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
-        else:
-            # DISABLED: Do not broadcast metrics to all clients to prevent browser overload
-            # Use REST API endpoint /api/v1/websocket/metrics instead
-            logger.warning(
-                "send_performance_metrics called without target_clients. "
-                "Metrics should be retrieved via REST API, not broadcast to all clients."
-            )
-
     def get_broadcast_stats(self) -> dict[str, Any]:
         """Get current broadcasting statistics."""
         return {
@@ -737,36 +590,6 @@ class MessageBroadcaster:
             "queue_size": self.frame_queue.qsize(),
             "broadcast_stats": self.broadcast_stats.__dict__,
             "active_tasks": list(self.broadcast_tasks.keys()),
-        }
-
-    def get_performance_metrics(self) -> dict[str, Any]:
-        """Get performance metrics as data (for REST API use).
-
-        This method returns metrics as a dictionary without broadcasting
-        to clients, suitable for REST API endpoints.
-        """
-        return {
-            "broadcast_stats": {
-                "messages_sent": self.broadcast_stats.messages_sent,
-                "bytes_sent": self.broadcast_stats.bytes_sent,
-                "failed_sends": self.broadcast_stats.failed_sends,
-                "validation_failures": self.broadcast_stats.validation_failures,
-                "average_latency": self.broadcast_stats.average_latency,
-                "peak_latency": self.broadcast_stats.peak_latency,
-                "compression_enabled": self.broadcast_stats.compression_enabled,
-            },
-            "frame_metrics": {
-                "frames_received": self.broadcast_stats.frame_metrics.frames_received,
-                "frames_sent": self.broadcast_stats.frame_metrics.frames_sent,
-                "bytes_sent": self.broadcast_stats.frame_metrics.bytes_sent,
-                "compression_ratio": self.broadcast_stats.frame_metrics.compression_ratio,
-                "average_latency": self.broadcast_stats.frame_metrics.average_latency,
-                "dropped_frames": self.broadcast_stats.frame_metrics.dropped_frames,
-                "target_fps": self.broadcast_stats.frame_metrics.target_fps,
-                "actual_fps": self.broadcast_stats.frame_metrics.actual_fps,
-            },
-            "connection_stats": websocket_handler.get_connection_stats(),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     async def _broadcast_to_stream(

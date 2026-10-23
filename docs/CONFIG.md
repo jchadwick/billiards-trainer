@@ -51,10 +51,11 @@ Image-space values carry scale metadata, including each point, boundary, and
 extent. Do not infer a missing scale from the configured resolution. See
 [Coordinate Systems](COORDINATE_SYSTEMS.md) for the coordinate contract.
 
-## Performance measurement settings
+## Performance measurement
 
-The `performance_audit` section describes bounded, opt-in measurement defaults
-used by the retained audit tools. It does not start a Python application server
-or enable server instrumentation by itself. The supported Rust live-camera
-qualification command and its explicit hardware requirements are documented
-in [Performance Audit](PERFORMANCE_AUDIT.md).
+Performance measurements run through the explicit Rust audit commands; their
+run options are command-line arguments rather than application settings. The
+old Python-only `performance_audit` configuration and instrumentation were
+removed because they measured a retired pipeline. See
+[Performance Audit](PERFORMANCE_AUDIT.md) for the supported live and recorded
+video workflows.

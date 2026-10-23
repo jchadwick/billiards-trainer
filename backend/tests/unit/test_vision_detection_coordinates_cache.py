@@ -59,7 +59,6 @@ def test_invalid_region_filter_receives_camera_pixels_and_detector_shares_frame_
     module = VisionModule.__new__(VisionModule)
     module.phase_scheduler = VisionPhaseScheduler({"enabled": False})
     module._frame_number = 0
-    module.profiler = None
     module.detector = FakeDetector()
     module.config = SimpleNamespace(
         enable_ball_detection=True,

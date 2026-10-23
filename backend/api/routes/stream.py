@@ -239,19 +239,6 @@ def _get_stream_config(app_state: ApplicationState) -> dict[str, Any]:
     return {}
 
 
-def _viewer_audit_recorder(vision_module: Any) -> Any | None:
-    """Return the audit queue only when viewer interference is enabled."""
-    domains = getattr(vision_module, "audit_domains", {})
-    recorder = getattr(vision_module, "audit_recorder", None)
-    return (
-        recorder
-        if recorder is not None
-        and isinstance(domains, dict)
-        and domains.get("viewers", False)
-        else None
-    )
-
-
 def _configured_send_backpressure_limit(
     performance_config: dict[str, Any],
 ) -> float | None:
@@ -276,27 +263,6 @@ def _configured_send_backpressure_limit(
     ):
         return None
     return float(value)
-
-
-def _viewer_audit_detail_selected(
-    recorder: Any | None,
-    identity: int | str | None,
-    sample_rate: float,
-) -> bool:
-    """Sample a viewer frame before building detail events or timing encode/send."""
-    if recorder is None:
-        return False
-    selector = getattr(recorder, "select_detail_sample", None)
-    if not callable(selector):
-        return True
-    return bool(
-        selector(
-            "viewers",
-            identity,
-            sample_rate,
-            category="viewer_frame",
-        )
-    )
 
 
 class CameraModuleAdapter:
@@ -566,8 +532,6 @@ async def generate_mjpeg_stream(
     max_height: Optional[int] = None,
     raw: bool = False,
     stream_config: Optional[dict[str, Any]] = None,
-    audit_recorder: Any | None = None,
-    audit_detail_sample_rate: float = 0.1,
 ) -> AsyncGenerator[bytes, None]:
     """Generate MJPEG stream from camera frames.
 
@@ -630,22 +594,15 @@ async def generate_mjpeg_stream(
 
                 # Get latest frame from vision module
                 logger.debug(f"Getting frame for client {client_id}")
-                read_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 frame = vision_module.get_frame_for_streaming(
                     scale=default_scale, raw=raw
                 )
-                read_finished_ns = time.perf_counter_ns() if audit_recorder else 0
                 if frame is None:
                     logger.debug(f"No frame available for client {client_id}")
                     await asyncio.sleep(sleep_interval)
                     continue
 
                 frame_count += 1
-                detail_selected = _viewer_audit_detail_selected(
-                    audit_recorder,
-                    frame_count,
-                    audit_detail_sample_rate,
-                )
                 if frame_count % frame_log_interval == 0:
                     logger.debug(f"Client {client_id} processed {frame_count} frames")
 
@@ -665,9 +622,7 @@ async def generate_mjpeg_stream(
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                encode_started_ns = time.perf_counter_ns() if detail_selected else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
-                encode_finished_ns = time.perf_counter_ns() if detail_selected else 0
 
                 if not success:
                     logger.warning("Failed to encode frame as JPEG")
@@ -686,46 +641,11 @@ async def generate_mjpeg_stream(
                 # A TCP chunk cannot be retracted after it enters the response
                 # writer. Bound the wait for that chunk, then make a slow viewer
                 # reconnect and begin from the current camera frame.
-                if detail_selected and audit_recorder is not None:
-                    audit_recorder.record(
-                        {
-                            "event_type": "viewer_frame_encoded",
-                            "domain": "viewers",
-                            "viewer_id": str(client_id),
-                            "frame_number": frame_count,
-                            "frame_dimensions": [
-                                int(frame.shape[1]),
-                                int(frame.shape[0]),
-                            ],
-                            "frame_read_seconds": max(
-                                0, read_finished_ns - read_started_ns
-                            )
-                            / 1e9,
-                            "jpeg_encode_seconds": max(
-                                0, encode_finished_ns - encode_started_ns
-                            )
-                            / 1e9,
-                            "payload_bytes": len(chunk),
-                            "viewer_count": len(_streaming_clients),
-                        },
-                        force_keep=True,
-                    )
                 send_started_ns = time.perf_counter_ns()
                 yield chunk
                 send_backpressure_seconds = (
                     max(0, time.perf_counter_ns() - send_started_ns) / 1e9
                 )
-                if detail_selected and audit_recorder is not None:
-                    audit_recorder.record(
-                        {
-                            "event_type": "viewer_send_backpressure",
-                            "domain": "viewers",
-                            "viewer_id": str(client_id),
-                            "frame_number": frame_count,
-                            "send_backpressure_seconds": send_backpressure_seconds,
-                        },
-                        force_keep=True,
-                    )
 
                 # Update statistics
                 _stream_stats["total_frames_served"] += 1
@@ -969,14 +889,6 @@ async def video_stream_raw(
                 max_height=height,
                 raw=True,
                 stream_config=stream_config,
-                audit_recorder=_viewer_audit_recorder(app_state.vision_module),
-                audit_detail_sample_rate=float(
-                    app_state.config_module.get(
-                        "performance_audit.detailed_event_sample_rate", 0.05
-                    )
-                    if app_state.config_module is not None
-                    else 0.1
-                ),
             ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
@@ -1020,7 +932,6 @@ async def generate_mjpeg_stream_from_shm(
     """
     client_id = id(asyncio.current_task())
     reader: Optional[SharedMemoryFrameReader] = None
-    audit_recorder = _viewer_audit_recorder(app_state.vision_module)
 
     logger.info(
         f"Starting shared memory stream for client {client_id} (quality={quality}, fps={fps})"
@@ -1071,9 +982,6 @@ async def generate_mjpeg_stream_from_shm(
         maximum_send_backpressure_seconds = _configured_send_backpressure_limit(
             perf_cfg
         )
-        audit_detail_sample_rate = float(
-            config_module.get("performance_audit.detailed_event_sample_rate", 0.05)
-        )
 
         # Track this client
         _streaming_clients.add(client_id)
@@ -1094,9 +1002,7 @@ async def generate_mjpeg_stream_from_shm(
                     continue
 
                 # Read frame from shared memory (non-blocking, returns None if no new frame)
-                read_started_ns = time.perf_counter_ns() if audit_recorder else 0
                 frame, metadata = reader.read_frame()
-                read_finished_ns = time.perf_counter_ns() if audit_recorder else 0
 
                 if frame is None or (
                     metadata and metadata.frame_number == last_frame_number
@@ -1106,26 +1012,12 @@ async def generate_mjpeg_stream_from_shm(
                     continue
 
                 frame_count += 1
-                # Frame numbers are stable across identical replay runs and
-                # shared by every viewer. Keep the writer PID in event
-                # provenance, but out of the sampling key so process restarts
-                # do not select a different subset of the same replay.
-                frame_identity = (
-                    metadata.frame_number if metadata is not None else frame_count
-                )
-                detail_selected = _viewer_audit_detail_selected(
-                    audit_recorder,
-                    frame_identity,
-                    audit_detail_sample_rate,
-                )
                 if frame_count % frame_log_interval == 0:
                     logger.debug(f"Client {client_id} processed {frame_count} frames")
 
                 # Encode frame as JPEG
                 encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
-                encode_started_ns = time.perf_counter_ns() if detail_selected else 0
                 success, buffer = cv2.imencode(".jpg", frame, encode_params)
-                encode_finished_ns = time.perf_counter_ns() if detail_selected else 0
 
                 if not success:
                     logger.warning(f"Client {client_id} failed to encode frame as JPEG")
@@ -1144,49 +1036,11 @@ async def generate_mjpeg_stream_from_shm(
                 # The in-flight TCP chunk cannot be skipped. Disconnect a
                 # viewer that remains backpressured past its configured
                 # freshness window; reconnecting reads the newest shared frame.
-                if detail_selected and audit_recorder is not None:
-                    audit_recorder.record(
-                        {
-                            "event_type": "viewer_frame_encoded",
-                            "domain": "viewers",
-                            "viewer_id": str(client_id),
-                            "frame_number": metadata.frame_number if metadata else None,
-                            "source_process_id": (
-                                metadata.writer_pid if metadata else None
-                            ),
-                            "frame_dimensions": [
-                                int(frame.shape[1]),
-                                int(frame.shape[0]),
-                            ],
-                            "frame_read_seconds": max(
-                                0, read_finished_ns - read_started_ns
-                            )
-                            / 1e9,
-                            "jpeg_encode_seconds": max(
-                                0, encode_finished_ns - encode_started_ns
-                            )
-                            / 1e9,
-                            "payload_bytes": len(chunk),
-                            "viewer_count": len(_streaming_clients),
-                        },
-                        force_keep=True,
-                    )
                 send_started_ns = time.perf_counter_ns()
                 yield chunk
                 send_backpressure_seconds = (
                     max(0, time.perf_counter_ns() - send_started_ns) / 1e9
                 )
-                if detail_selected and audit_recorder is not None:
-                    audit_recorder.record(
-                        {
-                            "event_type": "viewer_send_backpressure",
-                            "domain": "viewers",
-                            "viewer_id": str(client_id),
-                            "frame_number": metadata.frame_number if metadata else None,
-                            "send_backpressure_seconds": send_backpressure_seconds,
-                        },
-                        force_keep=True,
-                    )
 
                 # Update statistics
                 _stream_stats["total_frames_served"] += 1

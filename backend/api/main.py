@@ -353,7 +353,6 @@ async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
 
         if runtime_config.get("perception.mode", "live") == "live":
             # Rust owns the sole capture and localization publisher.
-            websocket_handler.configure_performance_audit()
             publisher = SceneSnapshotStatePublisher(message_broadcaster)
             app_state.scene_state_publisher = publisher
             live_settings = RustLiveSettings.from_configuration(runtime_config)
@@ -373,7 +372,6 @@ async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
             )
         else:
             # Recorded replay is the only publisher in this branch.
-            websocket_handler.configure_performance_audit()
             publisher = SceneSnapshotStatePublisher(message_broadcaster)
             app_state.scene_state_publisher = publisher
             replay_settings = RustReplaySettings.from_configuration(runtime_config)
@@ -454,8 +452,6 @@ async def lifespan(_app: Any) -> AsyncGenerator[None, None]:
             await rate_limiter.close()
         except Exception:
             logger.exception("Error closing WebSocket rate-limit store")
-
-        websocket_handler.configure_performance_audit()
 
         app_state.is_healthy = False
         logger.info("Billiards Trainer API shutdown complete")

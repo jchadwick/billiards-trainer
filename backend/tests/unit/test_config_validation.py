@@ -86,50 +86,11 @@ def test_validator_allows_documented_dynamic_logger_names() -> None:
     assert errors == []
 
 
-def test_performance_audit_configuration_is_validated_and_bounded() -> None:
-    errors, _ = validate_configuration(
-        {
-            "performance_audit": {
-                "enabled": True,
-                "state_enabled": True,
-                "trajectory_enabled": False,
-                "trajectory_workload_enabled": False,
-                "viewers_enabled": False,
-                "sample_rate": 0.25,
-                "detailed_frame_sample_rate": 0.05,
-                "detailed_event_sample_rate": 0.05,
-                "heartbeat_interval_seconds": 20.0,
-                "history_size": 1000,
-                "export_drain_timeout_seconds": 2.5,
-            }
-        }
-    )
-    assert errors == []
-    assert (
-        load_schema_reference()["performance_audit"]["trajectory_workload_enabled"]
-        is True
-    )
+def test_retired_python_performance_audit_config_is_not_supported() -> None:
+    errors, _ = validate_configuration({"performance_audit": {"enabled": True}})
 
-    errors, _ = validate_configuration(
-        {
-            "performance_audit": {
-                "sample_rate": 1.5,
-                "detailed_frame_sample_rate": 0,
-                "detailed_event_sample_rate": 1.1,
-                "heartbeat_interval_seconds": 0,
-                "event_queue_capacity": 0,
-                "export_drain_timeout_seconds": 0,
-            }
-        }
-    )
-    assert {error["field"] for error in errors} >= {
-        "performance_audit.sample_rate",
-        "performance_audit.detailed_frame_sample_rate",
-        "performance_audit.detailed_event_sample_rate",
-        "performance_audit.heartbeat_interval_seconds",
-        "performance_audit.event_queue_capacity",
-        "performance_audit.export_drain_timeout_seconds",
-    }
+    assert "performance_audit" in {error["field"] for error in errors}
+    assert "performance_audit" not in load_schema_reference()
 
 
 def test_rust_calibration_control_configuration_is_bounded_and_all_or_none() -> None:
@@ -646,23 +607,6 @@ def test_rate_limit_store_timeout_must_be_positive_and_finite(timeout: float) ->
     assert "api.rate_limiting.store_timeout_seconds" in {
         error["field"] for error in errors
     }
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("minimum_overhead_repetitions", 0),
-        ("minimum_overhead_delivery_samples", -1),
-        ("minimum_overhead_repetitions", 1.5),
-        ("minimum_overhead_delivery_samples", True),
-    ],
-)
-def test_overhead_evidence_thresholds_require_positive_integers(
-    field: str, value: Any
-) -> None:
-    errors, _ = validate_configuration({"performance_audit": {field: value}})
-
-    assert f"performance_audit.{field}" in {error["field"] for error in errors}
 
 
 @pytest.mark.parametrize(

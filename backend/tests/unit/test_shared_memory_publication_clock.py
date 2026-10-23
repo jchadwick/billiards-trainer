@@ -152,7 +152,7 @@ def test_legacy_writer_can_still_leave_publication_clock_unavailable() -> None:
         legacy_writer.cleanup()
 
 
-def test_video_process_enables_publication_clock_without_audit(monkeypatch) -> None:
+def test_video_process_enables_publication_clock(monkeypatch) -> None:
     class ConfigStub:
         def get(self, _path, default=None):
             return default
@@ -171,6 +171,5 @@ def test_video_process_enables_publication_clock_without_audit(monkeypatch) -> N
     monkeypatch.setattr(video_process_module, "SharedMemoryFrameWriter", WriterStub)
     process = VideoProcess(ConfigStub())
 
-    assert process.audit_recorder is None
     assert process._initialize_ipc_writer(8, 6) is True
     assert captured["capture_publication_clock"] is True

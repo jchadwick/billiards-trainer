@@ -16,7 +16,7 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
 
@@ -62,7 +62,6 @@ class _PredictionRequest:
     observation_age_seconds: Optional[float]
     maximum_observation_age_seconds: float
     lifecycle_generation: int
-    timing: dict[str, float | None] = field(default_factory=dict, compare=False)
 
 
 @dataclass(frozen=True)
@@ -255,8 +254,6 @@ class IntegrationService:
         self._state_event_drain_scheduled = False
         self._state_event_drain_task: Optional[asyncio.Task[None]] = None
         self.coalesced_state_event_count = 0
-        self._audit_recorder = getattr(vision_module, "audit_recorder", None)
-        self._audit_domains = getattr(vision_module, "audit_domains", {})
         self._vision_instance_id = str(uuid.uuid4())
         self._vision_process_id = os.getpid()
         self._last_processed_observation_identity: tuple[Any, ...] | None = None
@@ -291,15 +288,6 @@ class IntegrationService:
 
         # Configuration (use provided or singleton)
         self.config = config_module if config_module is not None else config
-        # The audit-only workload switch is inert in normal operation. It lets
-        # matched state-only runs remove prediction scheduling/compute while
-        # retaining lifecycle invalidation and all production defaults.
-        self._audit_trajectory_workload_enabled = bool(
-            self.config.get("performance_audit.trajectory_workload_enabled", True)
-        )
-        self._audit_detail_sample_rate = float(
-            self.config.get("performance_audit.detailed_event_sample_rate", 0.05)
-        )
         self._maximum_prediction_observation_age_seconds = float(
             self.config.get(
                 "vision.processing.phase_scheduler.maximum_observation_age_seconds",
@@ -530,31 +518,7 @@ class IntegrationService:
                 loop_start = asyncio.get_event_loop().time()
 
                 # Get detection result from vision
-                poll_sampled = self._audit_enabled("state") and (
-                    self._should_sample_audit_detail(
-                        "state", None, category="integration_vision_poll"
-                    )
-                )
-                poll_started_ns = time.perf_counter_ns() if poll_sampled else None
                 detection_result = await self._get_vision_detection()
-                if poll_sampled and poll_started_ns is not None:
-                    poll_finished_ns = time.perf_counter_ns()
-                    self._record_audit_event(
-                        "state",
-                        {
-                            "event_type": "integration_vision_poll",
-                            "observation_available": detection_result is not None,
-                            "poll_seconds": max(0, poll_finished_ns - poll_started_ns)
-                            / 1e9,
-                            "vision_queue_depth": (
-                                self.vision._frame_queue.qsize()
-                                if hasattr(self.vision, "_frame_queue")
-                                else None
-                            ),
-                            "configured_target_fps": self.target_fps,
-                        },
-                    )
-
                 if detection_result:
                     # Convert to Core format and update state
                     observation_processed = await self._process_detection(
@@ -615,38 +579,11 @@ class IntegrationService:
             identity are processed but cannot be deduplicated.
         """
         observation_identity = self._source_observation_identity(detection)
-        if (
-            observation_identity is not None
-            and observation_identity == self._last_stale_observation_identity
+        if observation_identity is not None and observation_identity in (
+            self._last_stale_observation_identity,
+            self._last_processed_observation_identity,
         ):
             self.duplicate_observation_count += 1
-            return False
-        if (
-            observation_identity is not None
-            and observation_identity == self._last_processed_observation_identity
-        ):
-            self.duplicate_observation_count += 1
-            if self._audit_enabled("state") and self._should_sample_audit_detail(
-                "state",
-                getattr(detection, "source_frame_number", detection.frame_number),
-                category="integration_observation_duplicate",
-            ):
-                self._record_audit_event(
-                    "state",
-                    {
-                        "event_type": "integration_observation_duplicate",
-                        "source_frame_number": getattr(
-                            detection, "source_frame_number", detection.frame_number
-                        ),
-                        "source_process_id": getattr(
-                            detection, "source_process_id", None
-                        ),
-                        "vision_instance_id": getattr(
-                            self, "_vision_instance_id", None
-                        ),
-                        "duplicate_observation_count": self.duplicate_observation_count,
-                    },
-                )
             return False
 
         maximum_observation_age = getattr(self, "maximum_observation_age_seconds", 0.5)
@@ -666,29 +603,8 @@ class IntegrationService:
             )
             return False
 
-        state_audit_enabled = self._audit_enabled("state")
-        state_audit_detail = state_audit_enabled and (
-            self._should_sample_audit_detail(
-                "state",
-                getattr(detection, "source_frame_number", detection.frame_number),
-                category="integration_observation_processed",
-            )
-        )
-        # A malformed coordinate contract must stop at this boundary instead
-        # of injecting unscaled values into Core. Keep the integration loop
-        # alive so a corrected frame can recover on the next observation.
-        observation_started_ns = time.perf_counter_ns() if state_audit_detail else None
-        conversion_started_ns = observation_started_ns
-        conversion_finished_ns: int | None = None
-        core_started_ns: int | None = None
-        core_finished_ns: int | None = None
-        trajectory_started_ns: int | None = None
-        trajectory_finished_ns: int | None = None
-        lock_wait_seconds: float | None = None
         try:
             detection_data = self._convert_detection_to_core_format(detection)
-            if state_audit_detail:
-                conversion_finished_ns = time.perf_counter_ns()
         except CoordinateConversionError as error:
             self.error_count += 1
             logger.error(
@@ -696,32 +612,8 @@ class IntegrationService:
                 detection.frame_number,
                 error,
             )
-            if state_audit_enabled:
-                conversion_finished_ns = (
-                    time.perf_counter_ns() if state_audit_detail else None
-                )
-                self._record_audit_event(
-                    "state",
-                    {
-                        "event_type": "integration_observation_rejected",
-                        "source_frame_number": getattr(
-                            detection, "source_frame_number", detection.frame_number
-                        ),
-                        "coordinate_conversion_seconds": (
-                            max(0, conversion_finished_ns - conversion_started_ns) / 1e9
-                            if state_audit_detail
-                            and conversion_started_ns is not None
-                            and conversion_finished_ns is not None
-                            else None
-                        ),
-                        "reason": "coordinate_contract_invalid",
-                    },
-                    force_keep=True,
-                )
             return False
 
-        # Attach vision eligibility/provenance to the Core update. Public
-        # freshness advances only after Core accepts this state update.
         status = self._observation_status_with_identity(detection)
         if status is not None:
             detection_data["observation_status"] = copy.deepcopy(status)
@@ -729,24 +621,11 @@ class IntegrationService:
         state_event_token = object()
         update_lock = getattr(self, "_core_update_provenance_lock", None)
         if update_lock is None:
-            # Lightweight unit-test doubles may bypass __init__.
             update_lock = asyncio.Lock()
             self._core_update_provenance_lock = update_lock
 
-        # Keep the status handoff in registration order. Core's own state lock
-        # serializes calls, and this integration lock ensures concurrent
-        # gateway callers cannot reorder their handoffs while awaiting Core.
-        lock_wait_started_ns = time.perf_counter_ns() if state_audit_detail else None
         async with update_lock:
-            if state_audit_detail and lock_wait_started_ns is not None:
-                lock_acquired_ns = time.perf_counter_ns()
-                lock_wait_seconds = (
-                    max(0, lock_acquired_ns - lock_wait_started_ns) / 1e9
-                )
-
-            # Another caller may have admitted this same source result while
-            # this task was converting coordinates or waiting for the Core
-            # lock. Recheck inside the serialized section before touching Core.
+            # Recheck admission and source freshness after waiting for the lock.
             if observation_identity is not None and observation_identity in (
                 self._last_processed_observation_identity,
                 self._last_stale_observation_identity,
@@ -754,10 +633,6 @@ class IntegrationService:
                 self.duplicate_observation_count += 1
                 return False
 
-            # A result can wait for conversion and the Core-update lock after
-            # Vision computed its age. Re-read the shared host monotonic clock
-            # immediately before Core mutation so it cannot cross the freshness
-            # deadline while waiting in this service.
             observation_age_seconds, freshness_error = (
                 self._refresh_observation_publication_age(detection)
             )
@@ -794,130 +669,32 @@ class IntegrationService:
                 status["frame_publication_age_seconds"] = observation_age_seconds
                 detection_data["observation_status"] = copy.deepcopy(status)
 
-            # This source result has now completed admission and validation.
-            # Remember its exact identity to avoid repeating the same failed
-            # Core call on every poll; the ordering watermark below advances
-            # only after Core accepts the update.
             if observation_identity is not None:
                 self._last_processed_observation_identity = observation_identity
             self._last_stale_observation_identity = None
 
             self._register_state_event_observation(state_event_token, status)
+            core_update_succeeded = False
             try:
-                if state_audit_detail:
-                    core_started_ns = time.perf_counter_ns()
                 await self.core.update_state(detection_data)
-                if state_audit_detail:
-                    core_finished_ns = time.perf_counter_ns()
-                core_update_status = "complete"
-            except Exception as e:
-                if state_audit_detail:
-                    core_finished_ns = time.perf_counter_ns()
-                core_update_status = "failed"
+                core_update_succeeded = True
+            except Exception as error:
                 self.error_count += 1
-                logger.error(f"Failed to update Core state: {e}", exc_info=True)
+                logger.error("Failed to update Core state: %s", error, exc_info=True)
             finally:
-                # If Core failed before emitting its event (or has no listener),
-                # discard the pending handoff. If the callback already consumed
-                # it, this is a no-op.
                 self._discard_state_event_observation(state_event_token)
 
-            # Freshness must describe the state actually held by Core. Updating
-            # it before releasing this lock preserves ordering between
-            # concurrent gateway callers.
-            if core_update_status == "complete":
-                # Only the accepted Core state advances source ordering and
-                # public freshness. Failed updates remain deduped by exact
-                # identity above without making an older Core result stale.
+            if core_update_succeeded:
                 watermark = self._source_observation_watermark(detection)
                 if watermark is not None:
                     self._latest_processed_source_watermark = watermark
                 self.latest_observation_status = status
                 self._latest_observation_received_at = time.monotonic()
 
-        # Freshness must describe the state actually held by Core. A failed
-        # update leaves the prior status/receipt age untouched and must not
-        # launch predictions from a mixture of old Core state and new vision.
-        trajectory_admission_status = "skipped_core_update_failed"
-        if core_update_status == "complete":
-            if state_audit_detail:
-                trajectory_started_ns = time.perf_counter_ns()
-            if self._trajectory_calculation_enabled_for_current_run():
-                await self._check_trajectory_calculation(detection)
-                trajectory_admission_status = "checked"
-            else:
-                # Preserve lifecycle state (phase transitions and calibration
-                # invalidation) while excluding prediction admission and
-                # compute from the state-only audit workload.
-                self._pending_prediction = None
-                prediction_task = getattr(self, "_prediction_task", None)
-                if prediction_task is not None and not prediction_task.done():
-                    self._prediction_lifecycle_generation += 1
-                # Invalidate before lifecycle refresh can await a broadcast;
-                # otherwise an old worker could publish across that await.
-                await self._refresh_prediction_lifecycle(detection)
-                trajectory_admission_status = "skipped_for_audit_workload_control"
-            if state_audit_detail:
-                trajectory_finished_ns = time.perf_counter_ns()
-        elif state_audit_detail:
-            trajectory_finished_ns = time.perf_counter_ns()
-
-        if state_audit_enabled and core_update_status == "failed":
-            self._record_audit_event(
-                "state",
-                {
-                    "event_type": "integration_observation_failed",
-                    "source_frame_number": status.get("source_frame_number"),
-                    "source_process_id": status.get("source_process_id"),
-                    "vision_instance_id": status.get("vision_instance_id"),
-                    "reason": "core_update_failed",
-                },
-                force_keep=True,
-            )
-
-        if state_audit_detail:
-            assert conversion_started_ns is not None
-            assert conversion_finished_ns is not None
-            assert observation_started_ns is not None
-            assert trajectory_finished_ns is not None
-            self._record_audit_event(
-                "state",
-                {
-                    "event_type": "integration_observation_processed",
-                    "source_frame_number": status.get("source_frame_number"),
-                    "source_process_id": status.get("source_process_id"),
-                    "vision_instance_id": status.get("vision_instance_id"),
-                    "source_timestamp": status.get("source_timestamp"),
-                    "source_timestamp_kind": status.get("source_timestamp_kind"),
-                    "map_revision": status.get("map_revision"),
-                    "calibration_revision": status.get("calibration_revision"),
-                    "coordinate_conversion_seconds": max(
-                        0, conversion_finished_ns - conversion_started_ns
-                    )
-                    / 1e9,
-                    "integration_lock_wait_seconds": lock_wait_seconds,
-                    "core_update_seconds": (
-                        max(0, core_finished_ns - core_started_ns) / 1e9
-                        if core_started_ns is not None and core_finished_ns is not None
-                        else None
-                    ),
-                    "core_update_status": core_update_status,
-                    "trajectory_admission_status": trajectory_admission_status,
-                    "trajectory_admission_seconds": (
-                        max(0, trajectory_finished_ns - trajectory_started_ns) / 1e9
-                        if trajectory_started_ns is not None
-                        and trajectory_finished_ns is not None
-                        else None
-                    ),
-                    "ball_count": len(detection.balls),
-                    "cue_present": detection.cue is not None,
-                    "observation_status": status.get("component_observation_status"),
-                    "service_elapsed_seconds": max(
-                        0, trajectory_finished_ns - observation_started_ns
-                    )
-                    / 1e9,
-                },
-            )
+        # Prediction follows accepted state updates; it remains secondary to
+        # localization but keeps the existing compatibility-service behavior.
+        if core_update_succeeded:
+            await self._check_trajectory_calculation(detection)
         return True
 
     @staticmethod
@@ -997,24 +774,10 @@ class IntegrationService:
         *,
         reason: str,
     ) -> None:
-        """Record a freshness rejection consistently at either admission check."""
+        """Remember and count a freshness rejection at either admission check."""
         if observation_identity is not None:
             self._last_stale_observation_identity = observation_identity
         self.stale_observation_count += 1
-        if self._audit_enabled("state"):
-            self._record_audit_event(
-                "state",
-                {
-                    "event_type": "integration_observation_rejected",
-                    "source_frame_number": getattr(
-                        detection, "source_frame_number", detection.frame_number
-                    ),
-                    "reason": reason,
-                    "frame_publication_age_seconds": observation_age_seconds,
-                    "maximum_observation_age_seconds": maximum_observation_age,
-                },
-                force_keep=True,
-            )
 
     def _source_observation_identity(
         self, detection: DetectionResult
@@ -1168,53 +931,6 @@ class IntegrationService:
                 return "duplicate_source_frame"
 
         return None
-
-    def _audit_enabled(self, domain: str) -> bool:
-        """Check audit activation without constructing an event on the hot path."""
-        recorder = getattr(self, "_audit_recorder", None)
-        domains = getattr(self, "_audit_domains", {})
-        return bool(
-            recorder is not None
-            and isinstance(domains, dict)
-            and domains.get(domain, False)
-        )
-
-    def _trajectory_calculation_enabled_for_current_run(self) -> bool:
-        """Keep the prediction workload switch scoped to an active audit run."""
-        if getattr(self, "_audit_recorder", None) is None:
-            return True
-        return bool(getattr(self, "_audit_trajectory_workload_enabled", True))
-
-    def _should_sample_audit_detail(
-        self,
-        domain: str,
-        identity: int | str | None,
-        *,
-        category: str,
-    ) -> bool:
-        """Select detail before allocating event payloads or timing spans."""
-        if not self._audit_enabled(domain):
-            return False
-        recorder = getattr(self, "_audit_recorder", None)
-        selector = getattr(recorder, "select_detail_sample", None)
-        if not callable(selector):
-            return True
-        return bool(
-            selector(
-                domain,
-                identity,
-                getattr(self, "_audit_detail_sample_rate", 1.0),
-                category=category,
-            )
-        )
-
-    def _record_audit_event(
-        self, domain: str, event: dict[str, Any], *, force_keep: bool = False
-    ) -> None:
-        """Record an event only when its audit domain is explicitly enabled."""
-        recorder = getattr(self, "_audit_recorder", None)
-        if recorder is not None and self._audit_enabled(domain):
-            recorder.record(event, force_keep=force_keep)
 
     def _register_state_event_observation(
         self,
@@ -1590,18 +1306,6 @@ class IntegrationService:
 
     def _queue_prediction(self, request: _PredictionRequest) -> None:
         """Keep only the newest request and supervise a single worker task."""
-        previous = self._pending_prediction
-        if previous is not None:
-            self._record_audit_event(
-                "trajectory",
-                {
-                    "event_type": "trajectory_request_coalesced",
-                    "replaced_source_frame_number": previous.metadata.get(
-                        "source_frame_number"
-                    ),
-                    "source_frame_number": request.metadata.get("source_frame_number"),
-                },
-            )
         self._pending_prediction = request
         task = self._prediction_task
         if task is None or task.done():
@@ -1654,35 +1358,15 @@ class IntegrationService:
         self, request: _PredictionRequest
     ) -> MultiballTrajectoryResult:
         """Run physics with detached values and serialized calculator access."""
-        worker_started_ns = time.perf_counter_ns()
-        executor_submitted_ns = request.timing.pop(
-            "executor_submitted_monotonic_ns", None
-        )
-        request.timing["executor_wait_seconds"] = (
-            max(0, worker_started_ns - executor_submitted_ns) / 1e9
-            if isinstance(executor_submitted_ns, int)
-            else None
-        )
-        lock_started_ns = worker_started_ns
         with self._trajectory_calculation_lock:
-            compute_started_ns = time.perf_counter_ns()
-            request.timing["calculator_lock_wait_seconds"] = (
-                max(0, compute_started_ns - lock_started_ns) / 1e9
+            return self.trajectory_calculator.predict_multiball_cue_shot(
+                cue_state=request.cue_state,
+                ball_state=request.ball_state,
+                table_state=request.table_state,
+                other_balls=request.other_balls,
+                quality=request.quality,
+                max_collision_depth=request.max_collision_depth,
             )
-            try:
-                return self.trajectory_calculator.predict_multiball_cue_shot(
-                    cue_state=request.cue_state,
-                    ball_state=request.ball_state,
-                    table_state=request.table_state,
-                    other_balls=request.other_balls,
-                    quality=request.quality,
-                    max_collision_depth=request.max_collision_depth,
-                )
-            finally:
-                compute_finished_ns = time.perf_counter_ns()
-                request.timing["physics_compute_seconds"] = (
-                    max(0, compute_finished_ns - compute_started_ns) / 1e9
-                )
 
     async def _prediction_worker(self) -> None:
         """Calculate queued predictions without blocking frame processing."""
@@ -1690,13 +1374,6 @@ class IntegrationService:
             while self._pending_prediction is not None:
                 request = self._pending_prediction
                 self._pending_prediction = None
-                worker_started = time.monotonic()
-                request.timing["prediction_queue_wait_seconds"] = max(
-                    0.0, worker_started - request.requested_at
-                )
-                request.timing["executor_submitted_monotonic_ns"] = (
-                    time.perf_counter_ns()
-                )
                 try:
                     result = await asyncio.to_thread(
                         self._calculate_multiball_prediction, request
@@ -1706,16 +1383,6 @@ class IntegrationService:
                         "Background trajectory calculation failed for source frame %s",
                         request.metadata.get("source_frame_number"),
                     )
-                    self._record_audit_event(
-                        "trajectory",
-                        {
-                            "event_type": "trajectory_prediction_failed",
-                            "source_frame_number": request.metadata.get(
-                                "source_frame_number"
-                            ),
-                            **request.timing,
-                        },
-                    )
                     continue
 
                 if not self._prediction_request_is_current(request):
@@ -1723,19 +1390,8 @@ class IntegrationService:
                         "Discarding stale trajectory result for source frame %s",
                         request.metadata.get("source_frame_number"),
                     )
-                    self._record_audit_event(
-                        "trajectory",
-                        {
-                            "event_type": "trajectory_prediction_discarded_stale",
-                            "source_frame_number": request.metadata.get(
-                                "source_frame_number"
-                            ),
-                            **request.timing,
-                        },
-                    )
                     continue
 
-                publish_started = time.perf_counter()
                 try:
                     await self._emit_multiball_trajectory(
                         result, prediction_metadata=request.metadata
@@ -1745,36 +1401,7 @@ class IntegrationService:
                         "Failed to publish trajectory for source frame %s",
                         request.metadata.get("source_frame_number"),
                     )
-                    request.timing["trajectory_publication_seconds"] = max(
-                        0.0, time.perf_counter() - publish_started
-                    )
-                    self._record_audit_event(
-                        "trajectory",
-                        {
-                            "event_type": "trajectory_publication_failed",
-                            "source_frame_number": request.metadata.get(
-                                "source_frame_number"
-                            ),
-                            **request.timing,
-                        },
-                    )
                     continue
-
-                request.timing["trajectory_publication_seconds"] = max(
-                    0.0, time.perf_counter() - publish_started
-                )
-                self._record_audit_event(
-                    "trajectory",
-                    {
-                        "event_type": "trajectory_prediction_published",
-                        "source_frame_number": request.metadata.get(
-                            "source_frame_number"
-                        ),
-                        "source_timestamp": request.metadata.get("source_timestamp"),
-                        "prediction_status": "live",
-                        **request.timing,
-                    },
-                )
 
                 total_lines = sum(
                     max(len(trajectory.points) - 1, 0)
@@ -2546,30 +2173,9 @@ class IntegrationService:
             )
             self._logged_state_structure = True
 
-        observation = (
-            observation_status
-            if isinstance(observation_status, dict)
-            else self.latest_observation_status
-        )
-        source_frame_number = (
-            observation.get("source_frame_number")
-            if isinstance(observation, dict)
-            else None
-        )
-        publication_detail = self._audit_enabled("state") and (
-            self._should_sample_audit_detail(
-                "state",
-                source_frame_number,
-                category="state_publication_enqueued",
-            )
-        )
-
         # State is latest-value data. A failed send is dropped immediately;
         # retrying it after backoff could publish an obsolete table snapshot.
-        # Detailed timing is selected before this await so ordinary updates do
-        # not pay audit clock costs.
-        broadcast_started_ns = time.perf_counter_ns() if publication_detail else None
-        broadcast_succeeded = await self._broadcast_latest_state_once(
+        await self._broadcast_latest_state_once(
             self.broadcaster.broadcast_game_state,
             data_summary,
             balls_converted,
@@ -2582,44 +2188,6 @@ class IntegrationService:
                 else observation_status
             ),
         )
-        if publication_detail and broadcast_started_ns is not None:
-            self._record_audit_event(
-                "state",
-                {
-                    "event_type": "state_publication_enqueued",
-                    "source_frame_number": (
-                        observation.get("source_frame_number")
-                        if isinstance(observation, dict)
-                        else None
-                    ),
-                    "source_timestamp": (
-                        observation.get("source_timestamp")
-                        if isinstance(observation, dict)
-                        else None
-                    ),
-                    "source_timestamp_kind": (
-                        observation.get("source_timestamp_kind")
-                        if isinstance(observation, dict)
-                        else None
-                    ),
-                    "map_revision": (
-                        observation.get("map_revision")
-                        if isinstance(observation, dict)
-                        else None
-                    ),
-                    "calibration_revision": (
-                        observation.get("calibration_revision")
-                        if isinstance(observation, dict)
-                        else None
-                    ),
-                    "serialization_and_enqueue_seconds": max(
-                        0, time.perf_counter_ns() - broadcast_started_ns
-                    )
-                    / 1e9,
-                    "broadcast_succeeded": broadcast_succeeded,
-                    "payload_ball_count": len(balls_converted),
-                },
-            )
 
     def _on_trajectory_calculated(
         self, event_type: str, event_data: dict[str, Any]

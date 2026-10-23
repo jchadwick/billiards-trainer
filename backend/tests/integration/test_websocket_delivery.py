@@ -3,7 +3,6 @@
 import asyncio
 import json
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -83,106 +82,6 @@ class CountingManager(WebSocketManager):
 
 def add_connection(handler: WebSocketHandler, client_id: str, socket) -> None:
     handler.connections[client_id] = WebSocketConnection(socket, client_id)
-
-
-class AuditRecorder:
-    def __init__(self, selected: bool) -> None:
-        self.selected = selected
-        self.events: list[tuple[dict, bool]] = []
-        self.selections: list[tuple[str, int | str | None, str]] = []
-        self.sample_rates: list[float] = []
-
-    def select_detail_sample(self, domain, identity, sample_rate, *, category="detail"):
-        self.selections.append((domain, identity, category))
-        self.sample_rates.append(sample_rate)
-        return self.selected
-
-    def record(self, event, *, force_keep=False):
-        self.events.append((event, force_keep))
-        return True
-
-
-@pytest.mark.integration
-def test_unsampled_websocket_message_skips_timing_and_keeps_delivery(monkeypatch):
-    handler = WebSocketHandler(manager=WebSocketManager())
-    recorder = AuditRecorder(selected=False)
-    handler.configure_performance_audit(recorder, {"state": True})
-    connection = WebSocketConnection(RecordingSocket(), "sampled-out")
-
-    def fail_if_timed():
-        raise AssertionError("unsampled serialization must not take audit clocks")
-
-    monkeypatch.setattr(handler_module.time, "perf_counter_ns", fail_if_timed)
-    assert handler._enqueue_message(
-        connection,
-        {
-            "type": "state",
-            "data": {
-                "sequence": 12,
-                "observation_status": {"source_frame_number": 91},
-            },
-        },
-    )
-
-    queued = connection.outbound_messages[0]
-    assert queued.audit_sampled is False
-    assert json.loads(queued.payload)["data"]["sequence"] == 12
-    assert recorder.selections == [("state", 91, "websocket_message")]
-    assert recorder.events == []
-
-
-@pytest.mark.integration
-def test_audit_activation_refreshes_sampling_from_selected_config(monkeypatch):
-    handler = WebSocketHandler(manager=WebSocketManager())
-    selected_config = SimpleNamespace(
-        get=lambda key, default=None: (
-            0.05 if key == "performance_audit.detailed_event_sample_rate" else default
-        )
-    )
-    monkeypatch.setattr(handler_module, "config", selected_config)
-    recorder = AuditRecorder(selected=True)
-    handler.configure_performance_audit(recorder, {"state": True})
-    connection = WebSocketConnection(RecordingSocket(), "selected-config")
-
-    assert handler._enqueue_message(
-        connection,
-        {
-            "type": "state",
-            "data": {
-                "sequence": 1,
-                "observation_status": {"source_frame_number": 1},
-            },
-        },
-    )
-
-    assert recorder.sample_rates == [0.05]
-
-
-@pytest.mark.integration
-def test_websocket_delivery_samples_details_but_forces_coalescing_anomaly():
-    handler = WebSocketHandler(manager=WebSocketManager())
-    recorder = AuditRecorder(selected=False)
-    handler.configure_performance_audit(recorder, {"state": True})
-    connection = WebSocketConnection(RecordingSocket(), "coalescing")
-
-    for frame_number in (1, 2):
-        assert handler._enqueue_message(
-            connection,
-            {
-                "type": "state",
-                "data": {
-                    "sequence": frame_number,
-                    "observation_status": {"source_frame_number": frame_number},
-                },
-            },
-        )
-
-    assert len(connection.outbound_messages) == 1
-    assert json.loads(connection.outbound_messages[0].payload)["data"]["sequence"] == 2
-    assert len(recorder.events) == 1
-    event, force_keep = recorder.events[0]
-    assert event["event_type"] == "websocket_update_coalesced"
-    assert force_keep is True
 
 
 @pytest.mark.integration

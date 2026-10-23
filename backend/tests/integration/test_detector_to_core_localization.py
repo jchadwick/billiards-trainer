@@ -8,7 +8,6 @@ serializer, and Core state update without requiring a camera or model file.
 from __future__ import annotations
 
 import threading
-from contextlib import nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -75,13 +74,6 @@ class UltralyticsResultModel:
         ]
 
 
-class NoopProfiler:
-    """Match the optional detector profiler API without instrumentation."""
-
-    def span(self, _name: str) -> Any:
-        return nullcontext()
-
-
 @dataclass(frozen=True)
 class ReplayCase:
     width: int
@@ -116,7 +108,6 @@ def _detector_for(case: ReplayCase) -> tuple[YOLODetector, UltralyticsResultMode
     detector._detection_cache = {}
     detector._inference_model_generation = 0
     detector._opencv_classifier = None
-    detector.audit_profiler = NoopProfiler()
     detector.stats = {
         "total_inferences": 0,
         "total_detections": 0,

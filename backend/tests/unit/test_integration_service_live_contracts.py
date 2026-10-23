@@ -35,8 +35,6 @@ def _service() -> IntegrationService:
     service._state_event_drain_scheduled = False
     service._state_event_drain_task = None
     service.coalesced_state_event_count = 0
-    service._audit_recorder = None
-    service._audit_domains = {}
     service._vision_instance_id = "vision-run-test"
     service._vision_process_id = 1234
     service._last_processed_observation_identity = None
@@ -54,7 +52,6 @@ def _service() -> IntegrationService:
     service._prediction_task = None
     service._prediction_lifecycle_generation = 0
     service._pending_prediction = None
-    service._record_audit_event = Mock()
     return service
 
 

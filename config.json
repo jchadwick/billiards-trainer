@@ -31,26 +31,6 @@
       "enable_profiling": false
     }
   },
-  "performance_audit": {
-    "enabled": false,
-    "state_enabled": true,
-    "trajectory_enabled": false,
-    "trajectory_workload_enabled": true,
-    "viewers_enabled": false,
-    "warmup_seconds": 30,
-    "measured_seconds": 120,
-    "repetitions": 3,
-    "soak_seconds": 1200,
-    "sample_rate": 1.0,
-    "history_size": 10000,
-    "event_queue_capacity": 2048,
-    "event_export_limit": 200000,
-    "export_drain_timeout_seconds": 5.0,
-    "resource_sample_interval_seconds": 1.0,
-    "latency_reference_budget_ms": 50.0,
-    "instrumentation_overhead_budget_percent": 2.0,
-    "output_directory": "thoughts/performance-audits"
-  },
   "perception": {
     "freshness": {
       "maximum_observation_age_seconds": 0.5
@@ -69,11 +49,6 @@
     "operation_timeout_seconds": 5.0
   },
   "vision": {
-    "performance": {
-      "enable_profiling": false,
-      "profile_log_interval": 30,
-      "profile_history_size": 100
-    },
     "camera": {
       "device_id": 0,
       "backend": "auto",

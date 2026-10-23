@@ -26,8 +26,6 @@ def _service() -> IntegrationService:
     service.latest_observation_status = None
     service._latest_observation_received_at = None
     service.error_count = 0
-    service._audit_recorder = object()
-    service._audit_domains = {"state": True}
     service._state_event_lock = integration_service_module.threading.Lock()
     service._pending_state_event = None
     service._state_event_drain_scheduled = False
@@ -40,7 +38,6 @@ def _service() -> IntegrationService:
         return_value={"balls": [], "frame_number": 1}
     )
     service._check_trajectory_calculation = AsyncMock()
-    service._record_audit_event = Mock()
     return service
 
 
@@ -77,12 +74,6 @@ async def test_stale_source_observation_is_rejected_before_core_update():
     assert service.core.update_state.await_count == 0
     assert service.stale_observation_count == 1
     assert service._last_processed_observation_identity is None
-    rejected_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_rejected"
-    )
-    assert rejected_event["reason"] == "observation_age_exceeded"
 
     # The same stale source frame is not re-counted on every integration poll.
     assert await service._process_detection(stale) is False
@@ -149,13 +140,6 @@ async def test_observation_that_ages_out_while_waiting_for_core_lock_is_rejected
     assert service._last_processed_observation_identity is None
     assert service._last_stale_observation_identity is not None
     assert service.stale_observation_count == 1
-    rejected_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_rejected"
-    )
-    assert rejected_event["reason"] == "observation_age_exceeded"
-    assert rejected_event["frame_publication_age_seconds"] == pytest.approx(0.5)
 
 
 @pytest.mark.asyncio
@@ -181,12 +165,6 @@ async def test_negative_monotonic_delta_rejects_stamped_observation(
     assert monotonic_ns.call_count == 1
     assert detection.frame_publication_age_seconds is None
     assert service.core.update_state.await_count == 0
-    rejected_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_rejected"
-    )
-    assert rejected_event["reason"] == "negative_monotonic_delta"
 
 
 @pytest.mark.asyncio
@@ -213,12 +191,6 @@ async def test_unavailable_monotonic_clock_rejects_stamped_observation(
 
     assert detection.frame_publication_age_seconds is None
     assert service.core.update_state.await_count == 0
-    rejected_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_rejected"
-    )
-    assert rejected_event["reason"] == "monotonic_clock_unavailable"
 
 
 @pytest.mark.asyncio
@@ -251,57 +223,7 @@ async def test_legacy_age_is_preserved_without_monotonic_publication_stamp(
 
 
 @pytest.mark.asyncio
-async def test_disabled_audit_skips_profiler_timers_and_event_construction(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = _service()
-    service._audit_recorder = None
-    service._audit_domains = {"state": False}
-    service._should_sample_audit_detail = Mock(
-        side_effect=AssertionError("disabled audit must skip detail selection")
-    )
-
-    def fail_if_profiled() -> int:
-        raise AssertionError("disabled state audit must not read the profiling clock")
-
-    monkeypatch.setattr(
-        integration_service_module,
-        "time",
-        SimpleNamespace(perf_counter_ns=fail_if_profiled, monotonic=lambda: 1.0),
-    )
-
-    assert await service._process_detection(_detection()) is True
-    assert service.core.update_state.await_count == 1
-    service._should_sample_audit_detail.assert_not_called()
-    service._record_audit_event.assert_not_called()
-
-
 @pytest.mark.asyncio
-async def test_sampled_out_observation_skips_detail_timers_but_updates_core(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service = _service()
-
-    class UnsampledRecorder:
-        def select_detail_sample(self, *_args, **_kwargs) -> bool:
-            return False
-
-    service._audit_recorder = UnsampledRecorder()
-
-    def fail_if_timed() -> int:
-        raise AssertionError("sampled-out observation must not read audit clocks")
-
-    monkeypatch.setattr(
-        integration_service_module,
-        "time",
-        SimpleNamespace(perf_counter_ns=fail_if_timed, monotonic=lambda: 1.0),
-    )
-
-    assert await service._process_detection(_detection()) is True
-    assert service.core.update_state.await_count == 1
-    service._record_audit_event.assert_not_called()
-
-
 @pytest.mark.asyncio
 async def test_repeated_cached_observation_does_not_refresh_or_advance_core(
     monkeypatch: pytest.MonkeyPatch,
@@ -334,12 +256,6 @@ async def test_repeated_cached_observation_does_not_refresh_or_advance_core(
     assert service.latest_observation_status is first_status
     assert service.duplicate_observation_count == 1
     assert monotonic.call_count == 1
-    duplicate_events = [
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_duplicate"
-    ]
-    assert len(duplicate_events) == 1
 
     service.running = False
     service.frame_count = 1
@@ -442,82 +358,10 @@ async def test_core_failure_preserves_last_applied_freshness_and_skips_trajector
     statistics = service.get_statistics()
     assert statistics["frames_processed"] == 2
     assert statistics["errors"] == 1
-    processed_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_processed"
-        and call.args[1].get("core_update_status") == "failed"
-    )
-    assert processed_event["core_update_status"] == "failed"
-    assert processed_event["trajectory_admission_status"] == (
-        "skipped_core_update_failed"
-    )
-    assert processed_event["integration_lock_wait_seconds"] >= 0
 
 
 @pytest.mark.asyncio
-async def test_audit_state_only_workload_skips_prediction_but_keeps_state_and_lifecycle():
-    service = _service()
-    service._audit_trajectory_workload_enabled = False
-    service._prediction_task = None
-    service._prediction_lifecycle_generation = 0
-    service._pending_prediction = object()
-    service._refresh_prediction_lifecycle = AsyncMock()
-
-    assert await service._process_detection(_detection()) is True
-
-    assert service.core.update_state.await_count == 1
-    service._check_trajectory_calculation.assert_not_awaited()
-    service._refresh_prediction_lifecycle.assert_awaited_once()
-    assert service._pending_prediction is None
-    processed_event = next(
-        call.args[1]
-        for call in service._record_audit_event.call_args_list
-        if call.args[1].get("event_type") == "integration_observation_processed"
-    )
-    assert processed_event["trajectory_admission_status"] == (
-        "skipped_for_audit_workload_control"
-    )
-
-
 @pytest.mark.asyncio
-async def test_audit_workload_invalidates_active_prediction_before_lifecycle_await():
-    service = _service()
-    service._audit_trajectory_workload_enabled = False
-    service._prediction_lifecycle_generation = 7
-    service._pending_prediction = object()
-    worker = asyncio.create_task(asyncio.sleep(10))
-    service._prediction_task = worker
-    refresh_started = asyncio.Event()
-    release_refresh = asyncio.Event()
-
-    async def delayed_refresh(_detection):
-        refresh_started.set()
-        await release_refresh.wait()
-
-    service._refresh_prediction_lifecycle = delayed_refresh
-    processing = asyncio.create_task(service._process_detection(_detection()))
-    try:
-        await refresh_started.wait()
-        assert service._prediction_lifecycle_generation == 8
-        assert service._pending_prediction is None
-        service._check_trajectory_calculation.assert_not_awaited()
-    finally:
-        release_refresh.set()
-        await processing
-        worker.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await worker
-
-
-def test_audit_trajectory_workload_switch_is_ignored_without_recorder():
-    service = _service()
-    service._audit_recorder = None
-    service._audit_trajectory_workload_enabled = False
-
-    assert service._trajectory_calculation_enabled_for_current_run() is True
-
-
 @pytest.mark.asyncio
 async def test_new_frame_and_restarted_writer_with_reset_counter_are_accepted():
     service = _service()
@@ -737,8 +581,6 @@ async def test_state_event_flood_keeps_one_pending_latest_snapshot() -> None:
 @pytest.mark.asyncio
 async def test_failed_latest_state_publication_is_not_retried() -> None:
     service = _service()
-    service._audit_recorder = None
-    service._audit_domains = {"state": False}
     attempts = 0
 
     async def fail_publication(*_args, **_kwargs) -> None:

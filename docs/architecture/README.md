@@ -24,7 +24,10 @@ HTML, JavaScript, and CSS. The Python service is a migration bridge. Model
 training, dataset preparation, and other annotation workflows remain
 off-device. The retained Python FastAPI package is an offline compatibility
 test reference, not a running migration bridge. The reviewed temporal-label
-importer is Rust under ADR-0083. ADR-0085
+importer is Rust under ADR-0083. ADR-0088 removes the Python compatibility
+profiler, fake diagnostics route, their hooks, and their configuration; the
+Rust live, saved-video, and temporal evaluation commands remain the supported
+measurement tools. ADR-0085
 supersedes ADR-0082's temporary Python collector-retention requirement while
 preserving its shell-for-glue and Rust-for-complex-tooling decision. The Rust
 live runner owns state and optional trajectory receipt audits, detector timing,
@@ -36,8 +39,8 @@ replay; browser/video-viewer interference and representative temporal accuracy
 evidence remain open.
 Optional dataset preparation, camera calibration authoring, and model export
 remain off-device. Standalone Python accuracy/performance evaluators are
-retired. Python profiler/status endpoints remain only in the offline test
-reference and do not audit the Rust runtime. ADR-0086 also retires the
+retired. Python profiler/status endpoints are retired rather than retained in
+the offline test reference. ADR-0086 also retires the
 disconnected LÖVE trajectory visualizer;
 the supported browser client remains the `/live` application and the separate
 projector client remains available.
@@ -256,9 +259,10 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Superseded by 0085 | Audit tooling migration | Shell/Rust ownership split remains; temporary Python collector retention ended when the Rust live audit and temporal-label path became canonical |
 | [0083](decisions/0083-import-reviewed-temporal-annotations-with-rust.md) | Import reviewed temporal annotations with Rust | Accepted | Temporal label authoring | Rust CLI validates reviewed CVAT keyframes, video identity and timing with bounded inputs and atomic output; generated-video Python/Rust parity passed and the Python importer was retired |
 | [0084](decisions/0084-replay-recorded-video-with-rust-perception.md) | Replay recorded video with Rust perception | Accepted | Saved-video evaluation | PTS-paced latest-frame and unpaced capacity modes run through current Rust inference; predecode excludes live codec contention and labels are still required for accuracy claims |
-| [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Partially superseded by 0087 (dataset extraction disposition) | Tooling scope | Rust owns live, saved-video, and labeled temporal evidence; offline dataset/model-authoring tools remain Python, while viewer interference and representative accuracy evidence remain open |
+| [0085](decisions/0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md) | Retire legacy audit tooling in favor of Rust-owned evidence paths | Partially superseded by 0087 (dataset extraction) and 0088 (Python profiler/status retirement) | Tooling scope | Rust owns live, saved-video, and labeled temporal evidence; offline dataset/model-authoring tools remain Python, while viewer interference and representative accuracy evidence remain open |
 | [0086](decisions/0086-retire-the-incomplete-native-visualizer.md) | Retire the incomplete native visualizer | Accepted | Client scope | Remove the disconnected trajectory-only LÖVE client; keep the `/live` browser application and distinct projector client |
 | [0087](decisions/0087-retire-the-heuristic-video-frame-dataset-creator.md) | Retire the heuristic video frame dataset creator | Accepted | Dataset tooling | Remove the unowned, untested sampler with invalid count edge cases; retain tested dataset merging and lineage-bound model export |
+| [0088](decisions/0088-retire-python-performance-instrumentation-and-fake-diagnostics.md) | Retire Python performance instrumentation and fake diagnostics | Accepted | Measurement ownership | Remove retired-pipeline profiler/status endpoints, audit hooks, and configuration; preserve real health and delivery contracts and use Rust audit tools |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

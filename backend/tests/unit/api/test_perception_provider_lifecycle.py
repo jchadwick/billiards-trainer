@@ -84,7 +84,6 @@ def test_recorded_rust_lifespan_uses_one_publisher_and_closes_supervisor(
     monkeypatch.setattr(main, "shutdown_websocket_system", AsyncMock())
     monkeypatch.setattr(main, "_register_shutdown_functions", AsyncMock())
     monkeypatch.setattr(main, "setup_signal_handlers", Mock())
-    monkeypatch.setattr(main.websocket_handler, "configure_performance_audit", Mock())
     health_monitor = SimpleNamespace(
         register_components=Mock(),
         start_monitoring=AsyncMock(),

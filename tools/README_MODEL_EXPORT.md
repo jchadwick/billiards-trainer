@@ -17,12 +17,17 @@ Export from a reviewed checkpoint:
 .venv/bin/python tools/export_high_res_model.py \
   --model /path/to/reviewed-checkpoint.pt \
   --output-dir models/exported \
-  --imgsz 640 \
+  --imgsz 1280 \
   --format onnx
 ```
 
-The Rust live runtime consumes ONNX and its generated manifest. CoreML output is
-retained only for the Python compatibility detector. `--simplify` is disabled
-by default and requires the separately installed `onnxslim` package. Compare
-real outputs and use the Rust temporal evaluator before treating an export as
-qualified; matching checkpoint lineage alone is insufficient.
+Set `perception.rust_live.onnx_path` and
+`perception.rust_live.source_checkpoint_path` to the resulting model and source
+checkpoint in `config.json`. The Rust live runtime requires the ONNX input size
+to match `perception.rust_live.image_size` (1280 by default), and verifies the
+generated sibling manifest before loading either CPU or OpenVINO inference.
+CoreML output is retained only for the Python compatibility detector.
+`--simplify` is disabled by default and requires the separately installed
+`onnxslim` package. Compare real outputs and use the Rust temporal evaluator
+before treating an export as qualified; matching checkpoint lineage alone is
+insufficient.

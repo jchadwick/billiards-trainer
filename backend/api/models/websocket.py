@@ -509,48 +509,6 @@ class ConfigMessage(BaseWebSocketMessage):
 
 
 # =============================================================================
-# Metrics Message Models
-# =============================================================================
-
-
-class PerformanceMetrics(BaseModel):
-    """System performance metrics data."""
-
-    cpu_usage: float = Field(..., ge=0.0, le=100.0, description="CPU usage percentage")
-    memory_usage: float = Field(
-        ..., ge=0.0, le=100.0, description="Memory usage percentage"
-    )
-    disk_usage: float = Field(
-        ..., ge=0.0, le=100.0, description="Disk usage percentage"
-    )
-    network_io: dict[str, float] = Field(
-        default_factory=dict, description="Network I/O statistics"
-    )
-    processing_fps: float = Field(
-        default=0.0, ge=0.0, description="Video processing frames per second"
-    )
-    api_requests_per_second: float = Field(
-        default=0.0, ge=0.0, description="API requests per second"
-    )
-    websocket_connections: int = Field(
-        default=0, ge=0, description="Active WebSocket connections"
-    )
-    error_rate: float = Field(
-        default=0.0, ge=0.0, le=100.0, description="Error rate percentage"
-    )
-
-
-class MetricsMessage(BaseWebSocketMessage):
-    """System metrics update message."""
-
-    type: MessageType = Field(default=MessageType.METRICS, frozen=True)
-    metrics: PerformanceMetrics = Field(..., description="Performance metrics data")
-    collection_interval: int = Field(
-        default=5, ge=1, description="Metrics collection interval in seconds"
-    )
-
-
-# =============================================================================
 # Event Message Models
 # =============================================================================
 
@@ -750,7 +708,6 @@ def validate_websocket_message(message_dict: dict[str, Any]) -> BaseWebSocketMes
         MessageType.TRAJECTORY: TrajectoryMessage,
         MessageType.ALERT: AlertMessage,
         MessageType.CONFIG: ConfigMessage,
-        MessageType.METRICS: MetricsMessage,
         MessageType.EVENT: EventMessage,
         MessageType.COMMAND: CommandMessage,
         MessageType.RESPONSE: ResponseMessage,

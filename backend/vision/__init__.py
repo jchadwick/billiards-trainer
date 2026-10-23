@@ -14,17 +14,10 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, cast
 
 import cv2
 import numpy as np
-
-from backend.performance_audit import (
-    AsyncAuditRecorder,
-    AuditResourceSampler,
-    audit_domains_from_config,
-)
 
 from .calibration.color import ColorCalibrator
 from .calibration.geometry import GeometricCalibrator
@@ -52,9 +45,6 @@ from .models import (
     Table,
 )
 from .motion_monitor import MotionAssessment, MotionMonitor
-
-# Performance profiling
-from .performance_profiler import PerformanceProfiler
 from .phase_scheduler import (
     BallMapObservation,
     BallPosition,
@@ -365,105 +355,7 @@ class VisionModule:
         # Region of interest
         self._roi_corners: list[tuple[int, int]] | None = None
 
-        # Expensive detailed measurements are created only for an explicit
-        # audit session. A CLI override is process-local and never saved.
-        self.audit_domains = audit_domains_from_config(
-            bool(_get_config_value("performance_audit.enabled", False)),
-            os.environ.get("BT_PERFORMANCE_AUDIT"),
-            state_enabled=bool(
-                _get_config_value("performance_audit.state_enabled", True)
-            ),
-            trajectory_enabled=bool(
-                _get_config_value("performance_audit.trajectory_enabled", False)
-            ),
-            viewers_enabled=bool(
-                _get_config_value("performance_audit.viewers_enabled", False)
-            ),
-        )
-        audit_state_enabled = self.audit_domains["state"]
-        self.audit_recorder: AsyncAuditRecorder | None = None
-        if any(self.audit_domains.values()):
-            output_directory = _get_config_value(
-                "performance_audit.output_directory", "thoughts/performance-audits"
-            )
-            self.audit_recorder = AsyncAuditRecorder(
-                Path(output_directory) / "live",
-                queue_capacity=_get_config_value(
-                    "performance_audit.event_queue_capacity", 2048
-                ),
-                sample_rate=_get_config_value("performance_audit.sample_rate", 1.0),
-                max_exported_events=_get_config_value(
-                    "performance_audit.event_export_limit", 200000
-                ),
-            )
-        enable_profiling = audit_state_enabled
-        profile_interval = _get_config_value(
-            "vision.performance.profile_log_interval", 30
-        )
-        profile_history = _get_config_value(
-            "performance_audit.history_size",
-            _get_config_value("vision.performance.profile_history_size", 100),
-        )
-        profile_console = _get_config_value(
-            "vision.performance.enable_console_logging", False
-        )
-        resource_interval = _get_config_value(
-            "performance_audit.resource_sample_interval_seconds", 1.0
-        )
-        target_fps = _get_config_value("vision.camera.fps", None)
-
-        self.profiler: PerformanceProfiler | None = None
-        self.resource_sampler: AuditResourceSampler | None = None
-        if enable_profiling:
-            self.profiler = PerformanceProfiler(
-                history_size=profile_history,
-                log_interval=profile_interval,
-                enable_console_logging=profile_console,
-                resource_sample_interval_seconds=resource_interval,
-                target_fps=target_fps,
-                detailed_sample_rate=_get_config_value(
-                    "performance_audit.detailed_frame_sample_rate", 0.05
-                ),
-                event_sink=(
-                    self._record_profiler_audit_event
-                    if self.audit_recorder is not None
-                    else None
-                ),
-            )
-            if profile_console:
-                logger.info(
-                    f"Performance profiler enabled with console logging (every {profile_interval} frames)"
-                )
-            else:
-                logger.info(
-                    "Performance profiler enabled (API-only compatibility mode)"
-                )
-            self._attach_profiler_to_detector()
-        elif self.audit_recorder is not None:
-            self.resource_sampler = AuditResourceSampler(
-                self.audit_recorder, resource_interval
-            )
-
         logger.info("Vision Module initialized successfully")
-
-    def _attach_profiler_to_detector(self) -> None:
-        """Connect the opt-in profiler after detector and profiler setup."""
-        detector = self.detector
-        profiler = self.profiler
-        if detector is not None and profiler is not None:
-            detector.audit_profiler = profiler
-
-    def _record_profiler_audit_event(self, event: dict[str, Any]) -> None:
-        """Enqueue profiler data and attach exporter health to resource samples."""
-        recorder = getattr(self, "audit_recorder", None)
-        if recorder is None:
-            return
-        if event.get("event_type") == "process_resource_sample":
-            event = {**event, "audit_export_status": recorder.status()}
-        recorder.record(
-            event,
-            force_keep=event.get("event_type") == "vision_frame_sampling_summary",
-        )
 
     def _initialize_components(self) -> None:
         """Initialize all vision processing components."""
@@ -672,14 +564,8 @@ class VisionModule:
             self.stats.last_error = str(e)
 
     def close(self) -> None:
-        """Release optional audit resources during application shutdown."""
+        """Stop capture and release vision resources during shutdown."""
         self.stop_capture()
-        if self.profiler is not None:
-            self.profiler.close()
-        if self.resource_sampler is not None:
-            self.resource_sampler.close()
-        if self.audit_recorder is not None:
-            self.audit_recorder.close()
 
     def process_frame(self) -> DetectionResult | None:
         """Get latest detection results from processing thread.
@@ -854,15 +740,7 @@ class VisionModule:
 
                 # Get frame from VideoConsumer (shared memory IPC)
                 logger.debug("VisionModule: Getting frame from VideoConsumer")
-                shm_read_started_ns = (
-                    time.perf_counter_ns() if self._audit_enabled("state") else 0
-                )
                 frame, source_metadata = self._video_consumer.get_frame_with_metadata()
-                shm_read_copy_seconds = (
-                    (time.perf_counter_ns() - shm_read_started_ns) / 1e9
-                    if shm_read_started_ns
-                    else None
-                )
 
                 if frame is None:
                     # No new frame available, sleep briefly and continue
@@ -935,18 +813,12 @@ class VisionModule:
                             if source_metadata is not None
                             else None
                         ),
-                        "shared_memory_read_copy_seconds": shm_read_copy_seconds,
                         "enqueued_monotonic": time.monotonic(),
                     }
                     self._enqueue_frame(frame_data)
                 except queue.Full:
                     logger.debug("Processing queue full, dropping incoming frame")
                     self.stats.frames_dropped += 1
-                    self._record_queue_drop(
-                        frame_data,
-                        None,
-                        reason="incoming_frame_overload",
-                    )
 
             except Exception as e:
                 logger.error(f"Error in VisionModule capture loop: {e}", exc_info=True)
@@ -967,40 +839,12 @@ class VisionModule:
                 return
             except queue.Full:
                 try:
-                    dropped_frame = self._frame_queue.get_nowait()
+                    self._frame_queue.get_nowait()
                 except queue.Empty:
                     # The processing thread won the race for the queued item;
                     # retry insertion without losing the incoming frame.
                     continue
                 self.stats.frames_dropped += 1
-                self._record_queue_drop(dropped_frame, frame_data)
-
-    def _record_queue_drop(
-        self,
-        dropped_frame: dict[str, Any],
-        replacement_frame: dict[str, Any] | None,
-        *,
-        reason: str = "latest_frame_replacement",
-    ) -> None:
-        """Report latest-frame queue evictions without blocking frame capture."""
-        recorder = getattr(self, "audit_recorder", None)
-        if recorder is None or not self._audit_enabled("state"):
-            return
-        recorder.record(
-            {
-                "event_type": "vision_queue_frame_dropped",
-                "reason": reason,
-                "source_frame_number": dropped_frame.get("source_frame_number"),
-                "source_process_id": dropped_frame.get("source_process_id"),
-                "replacement_source_frame_number": (
-                    replacement_frame.get("source_frame_number")
-                    if replacement_frame is not None
-                    else None
-                ),
-                "queue_depth_after_drop": self._frame_queue.qsize(),
-            },
-            force_keep=True,
-        )
 
     def _processing_loop(self) -> None:
         """Main processing loop running in separate thread."""
@@ -1023,13 +867,9 @@ class VisionModule:
                         newer_frame_data = self._frame_queue.get_nowait()
                     except queue.Empty:
                         break
-                    self._record_queue_drop(frame_data, newer_frame_data)
                     frame_data = newer_frame_data
                     self.stats.frames_dropped += 1
 
-                processing_queue_depth = (
-                    self._frame_queue.qsize() if self._audit_enabled("state") else None
-                )
                 # Process frame
                 queue_delay_seconds = max(
                     0.0,
@@ -1048,13 +888,6 @@ class VisionModule:
                     source_publication_monotonic_ns=frame_data.get(
                         "source_publication_monotonic_ns"
                     ),
-                    queue_delay_seconds=queue_delay_seconds,
-                    audit_metadata={
-                        "shared_memory_read_copy_seconds": frame_data.get(
-                            "shared_memory_read_copy_seconds"
-                        ),
-                        "processing_queue_depth": processing_queue_depth,
-                    },
                 )
 
                 processing_time = time.monotonic() - start_time
@@ -1598,8 +1431,6 @@ class VisionModule:
         source_timestamp_kind: str | None = None,
         source_process_id: int | None = None,
         source_publication_monotonic_ns: int | None = None,
-        queue_delay_seconds: float = 0.0,
-        audit_metadata: dict[str, Any] | None = None,
     ) -> DetectionResult | None:
         """Process a single frame through the complete pipeline.
 
@@ -1633,13 +1464,6 @@ class VisionModule:
                     and source_process_id != previous_source_process_id
                 )
                 if source_process_restarted:
-                    self._record_source_frame_event(
-                        "vision_source_restart_detected",
-                        source_frame_number,
-                        source_timestamp,
-                        source_process_id,
-                        reason="source_process_changed",
-                    )
                     self._reset_after_source_restart()
                 previous_source_frame = getattr(
                     self, "_phase_last_source_frame_number", None
@@ -1677,22 +1501,9 @@ class VisionModule:
                         and source_timestamp > previous_source_timestamp
                     )
                     if reset_sequence or reset_large_drop:
-                        self._record_source_frame_event(
-                            "vision_source_restart_detected",
-                            source_frame_number,
-                            source_timestamp,
-                            source_process_id,
-                        )
                         self._reset_after_source_restart()
                     else:
                         self.stats.frames_dropped += 1
-                        self._record_source_frame_event(
-                            "vision_source_frame_rejected",
-                            source_frame_number,
-                            source_timestamp,
-                            source_process_id,
-                            reason="out_of_order_source_frame",
-                        )
                         return None
                 elif (
                     not source_process_restarted
@@ -1701,13 +1512,6 @@ class VisionModule:
                     and source_timestamp <= previous_source_timestamp
                 ):
                     self.stats.frames_dropped += 1
-                    self._record_source_frame_event(
-                        "vision_source_frame_rejected",
-                        source_frame_number,
-                        source_timestamp,
-                        source_process_id,
-                        reason="non_monotonic_source_timestamp",
-                    )
                     return None
                 self._phase_last_source_frame_number = source_frame_number
                 self._phase_last_source_process_id = source_process_id
@@ -1751,32 +1555,6 @@ class VisionModule:
                 self._phase_calibration_revision = calibration_revision
 
             # Start profiling this frame
-            if self.profiler:
-                if self.profiler.start_frame(frame_number):
-                    self.profiler.update_current_frame_metadata(
-                        {
-                            "source_frame_number": source_frame_number,
-                            "source_timestamp": source_timestamp,
-                            "source_timestamp_kind": source_timestamp_kind,
-                            "source_process_id": source_process_id,
-                            "source_publication_monotonic_ns": (
-                                source_publication_monotonic_ns
-                            ),
-                            "queue_delay_seconds": queue_delay_seconds,
-                            **(audit_metadata or {}),
-                            "calibration_revision": calibration_revision,
-                            "phase": (
-                                phase_decision.phase.value
-                                if phase_decision is not None
-                                else "unscheduled"
-                            ),
-                        }
-                    )
-                current_frame = self.profiler.current_frame
-                if current_frame is not None:
-                    current_frame.queue_wait_time = queue_delay_seconds
-                    current_frame.inclusive_stages["queue_wait"] = queue_delay_seconds
-                    current_frame.exclusive_stages["queue_wait"] = queue_delay_seconds
 
             # Preserve the original frame for display. Scheduled inference can
             # use a smaller view when a validated phase profile requests one.
@@ -1784,8 +1562,6 @@ class VisionModule:
 
             # Apply masking ONCE - marker dots and table boundaries
             # This happens BEFORE any detection so YOLO/OpenCV never see masked regions
-            if self.profiler:
-                self.profiler.start_stage("masking")
 
             if phase_aware and phase_decision and phase_decision.run_motion_monitor:
                 motion_timestamp = self._monotonic_now()
@@ -1854,9 +1630,6 @@ class VisionModule:
                 else (*frame_cache_key, "table-crop", ball_crop_rect)
             )
 
-            if self.profiler:
-                self.profiler.end_stage("masking")
-
             # Ball and cue inference have independent schedules. Skipped jobs
             # preserve their latest successful result and never call tracking.
             run_ball_detection = bool(
@@ -1897,15 +1670,11 @@ class VisionModule:
                     cue_detection_status = "failed"
 
             if run_ball_detection and self.detector is not None:
-                if self.profiler:
-                    self.profiler.start_stage("ball_detection")
                 try:
                     # Keep color classification aligned with the detector's
                     # resized/cropped view while preserving the original color
                     # evidence. Masks are useful for localization inference,
                     # but can erase pixels needed to classify a ball.
-                    if self.profiler:
-                        self.profiler.start_stage("preprocessing")
                     classification_input = self._resize_for_phase(
                         frame, processing_max_dimension
                     )
@@ -1914,9 +1683,6 @@ class VisionModule:
                         classification_input = classification_input[
                             crop_y:crop_bottom, crop_x:crop_right
                         ]
-                    if self.profiler:
-                        self.profiler.end_stage("preprocessing")
-                        self.profiler.start_stage("detector_inference")
                     outcome_method = getattr(
                         self.detector,
                         "detect_balls_with_classification_outcome",
@@ -1970,11 +1736,7 @@ class VisionModule:
                             classification_frame=classification_input,
                         )
                         ball_detection_status = "observed"
-                    if self.profiler:
-                        self.profiler.end_stage("detector_inference")
                     if ball_detection_status == "observed":
-                        if self.profiler:
-                            self.profiler.start_stage("postprocessing")
                         if ball_crop_rect is None:
                             raw_balls = self._normalise_balls_to_source(
                                 list(raw_balls),
@@ -2021,9 +1783,6 @@ class VisionModule:
                             else:
                                 filtered_balls.append(ball)
 
-                        if self.profiler:
-                            self.profiler.end_stage("postprocessing")
-
                         if excluded_count:
                             logger.debug(
                                 "Filtered out %s ball(s) in invalid regions",
@@ -2049,22 +1808,15 @@ class VisionModule:
                                 )
                             )
                         ):
-                            if self.profiler:
-                                self.profiler.start_stage("tracking")
-                            try:
-                                detected_balls = self.tracker.update_tracking(
-                                    detected_balls,
-                                    frame_number,
-                                    # Tracker intervals must use the same monotonic
-                                    # domain as its expiry and prediction settings.
-                                    # `timestamp` is wall-clock publication time and
-                                    # must remain source metadata only.
-                                    frame_monotonic_time,
-                                )
-                            finally:
-                                if self.profiler:
-                                    self.profiler.end_stage("tracking")
-
+                            detected_balls = self.tracker.update_tracking(
+                                detected_balls,
+                                frame_number,
+                                # Tracker intervals must use the same monotonic
+                                # domain as its expiry and prediction settings.
+                                # `timestamp` is wall-clock publication time and
+                                # must remain source metadata only.
+                                frame_monotonic_time,
+                            )
                         ball_detection_status = "observed"
                         ball_observation_timestamp = self._monotonic_now()
                         if phase_aware:
@@ -2104,10 +1856,6 @@ class VisionModule:
                     detected_balls = (
                         list(self._phase_last_ball_map) if phase_aware else []
                     )
-                finally:
-                    if self.profiler:
-                        self.profiler.end_stage("ball_detection")
-
             if phase_aware and phase_decision and phase_decision.verify_ball_map:
                 if ball_detection_status == "observed":
                     ball_map_observation = BallMapObservation(
@@ -2127,8 +1875,6 @@ class VisionModule:
                     )
 
             if run_cue_detection and self.detector is not None:
-                if self.profiler:
-                    self.profiler.start_stage("cue_detection")
                 try:
                     yolo_detection = self.detector.detect_cue(
                         processing_input,
@@ -2184,10 +1930,6 @@ class VisionModule:
                             detected=False,
                             reliable=False,
                         )
-                finally:
-                    if self.profiler:
-                        self.profiler.end_stage("cue_detection")
-
             if phase_aware and detected_cue is not None:
                 cue_age_seconds = (
                     self._monotonic_now() - self._phase_last_cue_timestamp
@@ -2276,8 +2018,6 @@ class VisionModule:
                     )
 
             # Create result
-            if self.profiler:
-                self.profiler.start_stage("result_building")
             processing_time = (
                 time.monotonic() - start_time
             ) * 1000  # Convert to milliseconds
@@ -2471,63 +2211,13 @@ class VisionModule:
                 ),
             )
 
-            if self.profiler:
-                self.profiler.end_stage("result_building")
-
             # End profiling for this frame
-            if self.profiler:
-                current_frame = self.profiler.current_frame
-                if current_frame is not None:
-                    current_frame.metadata.update(
-                        {
-                            "frame_status": "complete",
-                            "component_observation_status": result.component_observation_status,
-                            "ball_positions_status": result.ball_positions_status,
-                            "map_revision": result.map_revision,
-                            "ball_count": len(result.balls),
-                            "cue_present": result.cue is not None,
-                            "frame_publication_age_seconds": result.frame_publication_age_seconds,
-                        }
-                    )
-                self.profiler.end_frame(frame_status="complete")
 
             return result
 
         except Exception as e:
             logger.error(f"Frame processing failed: {e}")
             self.stats.last_error = str(e)
-
-            # Frame-level detail sampling must never hide a failed observation.
-            # This event is rare and stays correlated with its source identity.
-            recorder = getattr(self, "audit_recorder", None)
-            if recorder is not None and self._audit_enabled("state"):
-                failure_event: dict[str, Any] = {
-                    "event_type": "vision_frame_failed",
-                    "frame_number": frame_number,
-                    "source_frame_number": source_frame_number,
-                    "source_timestamp": source_timestamp,
-                    "source_timestamp_kind": source_timestamp_kind,
-                    "source_process_id": source_process_id,
-                    "source_publication_monotonic_ns": source_publication_monotonic_ns,
-                    "queue_delay_seconds": queue_delay_seconds,
-                    "error_type": type(e).__name__,
-                }
-                if isinstance(audit_metadata, dict):
-                    failure_event.update(
-                        {
-                            key: audit_metadata[key]
-                            for key in ("calibration_revision", "map_revision")
-                            if key in audit_metadata
-                        }
-                    )
-                recorder.record(failure_event, force_keep=True)
-
-            # End profiling even on error
-            if self.profiler:
-                current_frame = self.profiler.current_frame
-                if current_frame is not None:
-                    current_frame.metadata["frame_status"] = "failed"
-                self.profiler.end_frame(frame_status="failed")
 
             return None
 
@@ -2583,35 +2273,6 @@ class VisionModule:
         if not math.isfinite(wall_age_seconds) or wall_age_seconds < 0:
             return None
         return wall_age_seconds
-
-    def _record_source_frame_event(
-        self,
-        event_type: str,
-        source_frame_number: int,
-        source_timestamp: float | None,
-        source_process_id: int | None,
-        *,
-        reason: str | None = None,
-    ) -> None:
-        """Record source discontinuities only for state audit sessions."""
-        recorder = getattr(self, "audit_recorder", None)
-        if recorder is None or not self._audit_enabled("state"):
-            return
-        event: dict[str, Any] = {
-            "event_type": event_type,
-            "source_frame_number": source_frame_number,
-            "source_timestamp": source_timestamp,
-            "source_timestamp_kind": "shared_memory_publication",
-            "source_process_id": source_process_id,
-        }
-        if reason is not None:
-            event["reason"] = reason
-        recorder.record(event, force_keep=True)
-
-    def _audit_enabled(self, domain: str) -> bool:
-        """Return whether an audit domain is active, including partial test setups."""
-        domains = getattr(self, "audit_domains", {})
-        return isinstance(domains, dict) and bool(domains.get(domain, False))
 
     def _is_ball_in_invalid_region(
         self, x: float, y: float, frame_width: int, frame_height: int

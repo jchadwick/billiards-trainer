@@ -1,5 +1,9 @@
 # Backend quality: core and vision stages
 
+> Historical implementation report. The Python profiler and compatibility
+> detection pipeline mentioned below were retired under ADR-0088; this document
+> records work at the time and is not a current runtime or measurement guide.
+
 This stage removes strict typing and style findings in `backend/core/` and
 `backend/vision/` without broad ignores or changing the configured check scope.
 It also repairs several stale CoreModule calls found while validating types.
@@ -37,11 +41,12 @@ vision import-order fixes, which were completed in this stage.
 The four `backend/tools/` sources now pass Ruff, Black, isort, and scoped strict
 mypy. The diagnostics script had duplicated and monkey-patched the vision
 pipeline using detector/config attributes removed by the current architecture;
-it now uses the production `VisionModule` profiler instead. Benchmark frame
+it then used the production `VisionModule` profiler instead. Benchmark frame
 inputs are normalized to the detector's uint8 contract, and optional detector
 and tracker components are checked before use. PEP 604 annotations in tools are
 postponed so the package's declared Python 3.9 syntax floor remains supported.
 
-Verification: scoped strict mypy passed 4 files; the benchmark and coordinate
-tool tests passed (7 total); Python compilation and CLI help paths passed. Full
-camera/model/video diagnostics remain hardware and asset dependent.
+Verification at the time: scoped strict mypy passed 4 files; the benchmark and
+coordinate tool tests passed (7 total); Python compilation and CLI help paths
+passed. The profiler and benchmark have since been retired; Rust-owned current
+runtime auditing is documented in `docs/PERFORMANCE_AUDIT.md`.

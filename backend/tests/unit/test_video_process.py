@@ -31,18 +31,12 @@ def frame_info(frame_number: int = 1) -> FrameInfo:
         timestamp=100.0 + frame_number,
         size=(2, 2),
         channels=3,
-        camera_read_seconds=0.002,
-        capture_queue_frames_skipped=1,
-        capture_queue_depth_after_drain=0,
     )
 
 
-def test_normal_startup_disables_audit_collectors_but_keeps_publication_clock() -> None:
+def test_video_process_keeps_software_publication_clock_enabled() -> None:
     process = make_process()
 
-    assert process.audit_recorder is None
-    assert process.resource_sampler is None
-    assert process.audit_domain is None
     assert process.capture_publication_clock is True
 
 
@@ -163,7 +157,6 @@ def test_camera_initialization_resolves_configured_video_source(monkeypatch) -> 
     assert received["device_id"] == "recording.mp4"
     assert received["resolution"] == [1280, 720]
     assert received["fps"] == 25
-    assert received["performance_audit_enabled"] is False
 
 
 def test_camera_and_shared_memory_initialization_failures_are_reported(
@@ -212,20 +205,10 @@ def test_ipc_writer_publishes_bgr_with_a_monotonic_publication_clock(
     assert received["initialized"] is True
 
 
-def test_main_loop_publishes_latest_camera_frame_and_samples_audit(monkeypatch) -> None:
+def test_main_loop_publishes_latest_camera_frame(monkeypatch) -> None:
     frame = np.zeros((2, 2, 3), dtype=np.uint8)
     info = frame_info(7)
     process = make_process(**{"processing.main_loop_sleep": 0})
-    process.audit_domain = "state"
-
-    class Recorder:
-        events: list[dict[str, object]] = []
-
-        def select_detail_sample(self, *_args, **_kwargs) -> bool:
-            return True
-
-        def record(self, event: dict[str, object]) -> None:
-            self.events.append(event)
 
     class Camera:
         def __init__(self) -> None:
@@ -244,13 +227,10 @@ def test_main_loop_publishes_latest_camera_frame_and_samples_audit(monkeypatch) 
         def write_frame(self, image: np.ndarray, frame_number: int) -> None:
             self.frames.append((image, frame_number))
 
-    recorder = Recorder()
-    recorder.events = []
     writer = Writer()
     writer.frames = []
     process.camera = Camera()  # type: ignore[assignment]
     process.ipc_writer = writer  # type: ignore[assignment]
-    process.audit_recorder = recorder  # type: ignore[assignment]
 
     def stop_after_one_frame(_seconds: float) -> None:
         process.shutdown_event.set()
@@ -262,15 +242,9 @@ def test_main_loop_publishes_latest_camera_frame_and_samples_audit(monkeypatch) 
     assert writer.frames == [(frame, 7)]
     assert process._frames_captured == 1
     assert process._frames_written == 1
-    assert recorder.events[0]["source_frame_number"] == 7
-    assert recorder.events[0]["camera_read_seconds"] == 0.002
-    assert recorder.events[0]["camera_total_dropped_frames"] == 2
-    assert recorder.events[0]["camera_frame_queue_retrieval_seconds"] is None
 
 
-def test_statistics_and_cleanup_release_camera_writer_and_audit_resources(
-    caplog,
-) -> None:
+def test_statistics_and_cleanup_release_camera_and_writer(caplog) -> None:
     caplog.set_level(logging.INFO)
     process = make_process()
     events: list[str] = []
@@ -290,18 +264,8 @@ def test_statistics_and_cleanup_release_camera_writer_and_audit_resources(
         def cleanup(self) -> None:
             events.append("writer-cleaned")
 
-    class Sampler:
-        def close(self) -> None:
-            events.append("sampler-closed")
-
-    class Recorder:
-        def close(self) -> None:
-            events.append("recorder-closed")
-
     process.camera = Camera()  # type: ignore[assignment]
     process.ipc_writer = Writer()  # type: ignore[assignment]
-    process.resource_sampler = Sampler()  # type: ignore[assignment]
-    process.audit_recorder = Recorder()  # type: ignore[assignment]
     process._start_time = 10.0
     process._frames_written = 9
     process._log_statistics(13.0)
@@ -310,15 +274,9 @@ def test_statistics_and_cleanup_release_camera_writer_and_audit_resources(
 
     process._cleanup()
 
-    assert events == [
-        "camera-stopped",
-        "writer-cleaned",
-        "sampler-closed",
-        "recorder-closed",
-    ]
+    assert events == ["camera-stopped", "writer-cleaned"]
     assert process.camera is None
     assert process.ipc_writer is None
-    assert process.resource_sampler is None
 
 
 def test_start_initialization_failure_returns_error_and_always_cleans_up(

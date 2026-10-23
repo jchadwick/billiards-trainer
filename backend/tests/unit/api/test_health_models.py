@@ -10,8 +10,6 @@ from backend.api.models.health_models import (
     AlertModel,
     AlertRequest,
     AlertsResponse,
-    ComponentStatus,
-    DiagnosticsInfo,
     HealthCheckRequest,
     HealthCheckResult,
     HealthStatusEnum,
@@ -236,16 +234,6 @@ def test_request_and_summary_models_apply_defaults_and_bounds() -> None:
         service=ServiceHealthModel(name="api", type="api", status="healthy"),
         processing_time=0,
     )
-    diagnostics = DiagnosticsInfo(
-        components=[ComponentStatus(name="camera", status="unknown")],
-        configuration_valid=True,
-        dependencies_available=True,
-        storage_accessible=True,
-        network_connectivity=True,
-        performance_acceptable=False,
-        warnings=["camera unavailable"],
-    )
-
     assert health_request.include_details
     assert health_request.include_metrics
     assert health_request.include_system_resources
@@ -257,8 +245,6 @@ def test_request_and_summary_models_apply_defaults_and_bounds() -> None:
     assert alerts.success
     assert alerts.active_alerts == 0
     assert service_response.service.name == "api"
-    assert diagnostics.components[0].status is HealthStatusEnum.UNKNOWN
-    assert diagnostics.warnings == ["camera unavailable"]
 
 
 def test_mutable_health_model_defaults_are_isolated_between_instances() -> None:

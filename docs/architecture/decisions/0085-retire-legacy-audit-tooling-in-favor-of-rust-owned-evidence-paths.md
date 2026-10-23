@@ -1,10 +1,10 @@
 # ADR-0085: Retire legacy audit tooling in favor of Rust-owned evidence paths
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-23
 - Deciders: Project maintainers
 - Supersedes: ADR-0082
-- Superseded by: None
+- Superseded by: ADR-0088 for the Python compatibility profiler/status retention only
 
 ## Context
 

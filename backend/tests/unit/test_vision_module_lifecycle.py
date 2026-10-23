@@ -72,33 +72,16 @@ def _construct_module(
     fake_consumer = consumer or _FakeVideoConsumer()
     monkeypatch.setattr(vision, "VideoConsumer", lambda: fake_consumer)
     monkeypatch.setattr(vision, "_get_config_value", lambda _key, default: default)
-    monkeypatch.delenv("BT_PERFORMANCE_AUDIT", raising=False)
     module = vision.VisionModule(_vision_config(**config_overrides))
     return module, fake_consumer
 
 
 @pytest.mark.unit
-def test_normal_initialization_does_not_create_optional_audit_workers(
+def test_normal_initialization_leaves_detection_components_uninitialized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class UnexpectedAuditConstruction:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            raise AssertionError("disabled audit must not allocate collectors")
-
-    monkeypatch.setattr(vision, "AsyncAuditRecorder", UnexpectedAuditConstruction)
-    monkeypatch.setattr(vision, "AuditResourceSampler", UnexpectedAuditConstruction)
-    monkeypatch.setattr(vision, "PerformanceProfiler", UnexpectedAuditConstruction)
-
     module, _consumer = _construct_module(monkeypatch)
 
-    assert module.audit_domains == {
-        "state": False,
-        "trajectory": False,
-        "viewers": False,
-    }
-    assert module.audit_recorder is None
-    assert module.profiler is None
-    assert module.resource_sampler is None
     assert module.detector is None
     assert module.tracker is None
 

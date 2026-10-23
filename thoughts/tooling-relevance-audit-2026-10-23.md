@@ -12,21 +12,22 @@ commands or baselines.
 
 | Area | Current disposition | Reason and limits |
 | --- | --- | --- |
-| `billiards-server`, `billiards-perception-live`, capture helper, configuration authority, and game-session authority | Keep | These are supported Rust runtime processes or subprocess contracts. |
+| `billiards-server`, `billiards-perception-live`, and supervised capture helper | Keep | These are supported Rust runtime processes with lifecycle or integration coverage. |
+| Rust configuration-authority CLI | Keep as developer utility | `make config-check` uses the bounded one-shot validator; the running Rust gateway uses `ConfigurationAuthority` in-process, and the CLI has process-level tests. |
+| Rust game-session-authority CLI | Keep only as a Python compatibility subprocess | Its only caller is the retained Python compatibility API. The supported Rust gateway uses `GameSessionStore` in-process; the CLI is not part of the supported Rust runtime and lacks a dedicated binary process test. |
 | Rust camera discovery | Keep | Read-only inventory helps select a camera without opening it; useful operational diagnostic. |
 | Rust still-image inference | Keep as diagnostic | Useful to inspect a model and decoder; still images do not establish live capacity, freshness, or accuracy. |
 | Rust live performance audit | Keep as canonical | Measures state delivery and optional detector timings with bounded artifacts. |
 | Rust recorded-video replay (`billiards-perception-video-replay`) | Keep as canonical, narrowly scoped | PTS-paced latest-frame mode measures detector-side freshness; unpaced mode measures processing capacity. It reuses current Rust inference and optional temporal scoring, but predecodes video and does not represent live camera/decoder contention or browser rendering. |
 | Rust temporal label importer/evaluator | Keep as canonical | Imports reviewed video labels and scores temporally aligned state; accuracy evidence still depends on adequate labels. |
 | Rust detection-batch receiver and synchronous still-image TCP sender | Retire | The only retained workflow was the retired still-image equivalence evaluator. Current video scoring uses bounded JSONL artifacts; live state receipt uses the scene transport and audit subscriber. The old receiver's tests no longer protect a supported caller. |
-| Rust configuration/session one-shot authorities | Keep | They are called by the gateway and have bounded protocols; they are runtime components rather than experiments. |
 | `perception/contracts/public-state/generate_fixtures.py` | Keep as migration-only test oracle | Captures the actual Python adapter output used for Rust differential fixtures. It is not a server/runtime tool and should be removed when the compatibility oracle and its fixtures are re-baselined. |
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
-| Python FastAPI profiler/status endpoints | Retain only with the Python compatibility test surface | The FastAPI package is explicitly offline differential-test code and is not installed or runnable as the application server. These endpoints do not measure the Rust runtime; remove them with the compatibility fixture if that surface is retired. Never use their data for Rust performance or accuracy claims. |
+| Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, readiness watcher, development setup verifier | Keep | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. |
-| `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
-| `tools/merge_yolo_datasets.py` | Keep | Class-name remapping and safe output handling are directly tested; it prepares reviewed data and does not create labels. |
+| `tools/export_high_res_model.py` | Keep | Its lineage-bound ONNX/CoreML export workflow has a separate opt-in dependency target. Rust needs the ONNX size to match `perception.rust_live.image_size` and verifies model/checkpoint hashes. ONNX is used by Rust; CoreML only by the Python compatibility detector. Export alone does not establish parity or accuracy. |
+| `tools/merge_yolo_datasets.py` | Keep as generic preparation only | Class-name remapping and safe output handling are directly tested; it prepares reviewed data and does not create labels. Its sorted IDs do not guarantee the Rust live `cue_class_id`/`ball_class_id` contract, so a merged dataset must be checked for class order before training/export. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep only as legacy test/reference code | Its behavior has unit coverage, but the retired grid-calibration CLI and its YAML guide were removed. OpenCV YAML does not configure the Rust live calibration bundle. |
 | Projector client and UDP test senders | Keep as isolated optional client; exclude from `/live` evidence | This separate LÖVE application receives a custom loopback UDP protocol with no current Rust publisher or WebSocket client. Its tests validate local payload/coordinate behavior only; they do not exercise capture, detection, or browser delivery. ADR-0086 preserves it as a distinct projection use case. |
@@ -39,8 +40,8 @@ commands or baselines.
 | `billiards-server` | Keep: product runtime | Serves the HTML/JS/CSS application, API, and current scene read model; Rust HTTP/WebSocket integration tests exercise the real gateway contracts. |
 | `billiards-perception-live` | Keep: product runtime | Owns the live perception process contract and composes capture, inference, calibration, tracking, and audit boundaries; lifecycle and live integration tests cover current behavior. |
 | `billiards-perception-gstreamer-probe` | Keep: product capture helper | Despite its name, this is the supervised GStreamer capture helper selected by deployment and the live supervisor. Its helper/source protocols and lifecycle tests cover real subprocess behavior; physical-camera qualification remains a separate gap. |
-| `billiards-perception-config` | Keep: runtime authority | The gateway launches it for configuration validation and updates; bounded file/lock behavior and command integration have dedicated tests. |
-| `billiards-perception-game-session` | Keep: runtime authority | The gateway launches it for session lifecycle operations; process and lifecycle contracts have dedicated tests. |
+| `billiards-perception-config` | Keep: developer validation command | `make config-check` invokes it for explicit configuration validation. Runtime configuration reads and updates use the library in-process through the Rust gateway; binary process contracts cover its one-shot protocol. |
+| `billiards-perception-game-session` | Keep: Python compatibility adapter only | The Python compatibility route invokes it through `backend/perception/rust_game_session.py`. The Rust gateway uses the session store directly in-process; this binary is not part of the supported runtime and its lifecycle is not separately tested as a process. |
 | `billiards-perception-camera-discovery` | Keep: read-only diagnostic | Reports enumerated video sources without opening a device. It has bounded output and command tests, and answers a different operational question from capture qualification. |
 | `billiards-perception-infer` | Keep: narrow model diagnostic | Runs current Rust inference on PNG/JPEG inputs and can produce raw detection/scene JSONL. It is useful for model-load and pre/post-processing smoke checks, but is not the canonical video freshness or temporal accuracy tool. Its unsupported batch-TCP mode was removed. |
 | `billiards-perception-video-replay` | Keep: canonical saved-video detector audit | Reuses production Rust inference with PTS-paced latest-frame and unpaced capacity modes. It reports decoder/model provenance, bounded traces and accuracy when reviewed labels are supplied; it does not measure live camera or browser delay. |
@@ -111,14 +112,12 @@ commands or baselines.
 - Dedicated coordinate-scaling implementation notes for the retired visualizer;
   current coordinate contracts stay in the runtime docs and the separate
   projector's maintained protocol tests.
-- Python profiler/status endpoints are not active product diagnostics: the
-  Python FastAPI app exists only for offline compatibility tests. This pass
-  classifies them accurately but leaves them attached to that compatibility
-  test surface; they are not evidence for Rust behavior.
-- The Python `PerformanceProfiler` and event collector are retained only inside
-  the offline compatibility reference. They have no supported application
-  server or Rust consumer and do not produce Rust performance evidence. Remove
-  them when the remaining Python compatibility surface is retired.
+- Python profiler/status endpoints, fake system diagnostics, and the Python
+  event collector are removed under ADR-0088. The compatibility API remains an
+  offline test reference, but no longer preserves measurement-only routes or
+  hooks for the retired Python perception pipeline. Orphan diagnostics models
+  and the unproduced performance/metrics WebSocket message types are removed;
+  actual Core/WebSocket delivery counters and REST health data remain.
 - The unused root and vision-specific pip requirement manifests, an unused
   deployment backup utility, a TPU diagnostic for the old Python detector, and
   redundant deployment/setup aliases.
@@ -142,6 +141,24 @@ commands or baselines.
    receipts do not represent browser rendering or physical display latency.
 2. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
+3. The checked-in `config.json` selects the legacy `.mlpackage` under Python
+   vision settings but has no `perception.rust_live` ONNX/checkpoint paths. The
+   external model directory currently has no ONNX export or matching manifest,
+   so live startup needs a reviewed export and explicit config before it can
+   run. Export at 1280 to match Rust's default input size, and verify model
+   class IDs against configured cue/ball IDs.
+4. The dataset merger remains generic preparation, not a safe Rust detector
+   training pipeline: alphabetic IDs can disagree with Rust's configured cue
+   and ball IDs, and a tested three-class result is rejected by the two-class
+   live runtime. Keep it out of the production model workflow until its output
+   manifest is checked against the runtime class ontology.
+5. The Python calibration-bundle helper has test callers but no live Rust
+   product caller. Retire the helper and migrate its tests when the Python
+   compatibility capture-settings path is removed; preserve the shared
+   calibration schema and Rust-consumed fixture.
+6. CoreML export creates an artifact the Rust runtime cannot consume. It is
+   retained only for the offline Python detector reference; remove its format
+   branch and export dependency when that reference no longer needs CoreML.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
@@ -155,11 +172,12 @@ permanent ffmpeg/model end-to-end test.
 
 ## Verification performed
 
-- ADR validation: 86 records accepted.
-- Python backend tests: 2,952 passed, 2 skipped (the two skips require external
+- ADR validation: 88 records accepted.
+- Python backend tests: 2,844 passed, 2 skipped (the skips require external
   recorded model inputs).
-- Python backend coverage: 81.83%, above the configured 80% gate.
-- Rust suite: passed, including unit, binary, and integration targets.
+- Python backend coverage: 82.55%, above the configured 80% gate.
+- Rust `cargo test --locked --all-targets --quiet`: passed, including 306
+  library tests and the binary/integration targets.
 - Browser tests: 70 passed.
 - Production build: `make build` passed for the browser client and Rust runtime.
 - Model-export utility tests: 7 passed, including lazy optional dependency
@@ -184,3 +202,7 @@ permanent ffmpeg/model end-to-end test.
   there were no callers or extraction tests and inspecting its invalid count
   edge cases. Dataset-merge tests remain the verification for the supported
   dataset preparation path.
+- This pass's backend verification: `make test-python` passed all 2,844 tests
+  with the configured coverage gate; Ruff, strict mypy, Black, isort, and ADR
+  validation passed. The dedicated shell workflow syntax-checked all 11
+  tracked scripts and its YAML parsed successfully.

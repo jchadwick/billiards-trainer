@@ -245,9 +245,6 @@ class YOLODetector:
         self.enable_opencv_classification = enable_opencv_classification
         self.min_ball_size = min_ball_size
         self.camera_resolution = camera_resolution
-        # Set by VisionModule only during an explicitly enabled audit session.
-        self.audit_profiler: Any | None = None
-
         # Auto-detect best device if not specified or if "auto"
         if device == "auto" or device is None:
             self.device = self._auto_detect_device()
@@ -1151,24 +1148,13 @@ class YOLODetector:
                 logger.debug("Using default ball-classification crop padding")
             crop_padding_ratio = max(crop_padding_ratio, 1.0)
 
-            profiler = getattr(self, "audit_profiler", None)
-            if profiler is None:
-                balls = self._adapt_and_classify_balls(
-                    list(outcome.detections),
-                    frame,
-                    classification_image,
-                    min_confidence,
-                    crop_padding_ratio,
-                )
-            else:
-                with profiler.span("classification_and_adaptation"):
-                    balls = self._adapt_and_classify_balls(
-                        list(outcome.detections),
-                        frame,
-                        classification_image,
-                        min_confidence,
-                        crop_padding_ratio,
-                    )
+            balls = self._adapt_and_classify_balls(
+                list(outcome.detections),
+                frame,
+                classification_image,
+                min_confidence,
+                crop_padding_ratio,
+            )
         except Exception as error:
             logger.error(
                 "Ball adaptation/classification failed (%s)",
@@ -1708,19 +1694,9 @@ class YOLODetector:
 
         # Keep the cache scoped to exactly one explicit frame/view. Holding the
         # lock through inference prevents concurrent ball/cue requests for that
-        # same key from launching duplicate model calls. The optional audit span
-        # distinguishes cache-lock wait from the detector's actual service time.
-        profiler = getattr(self, "audit_profiler", None)
-        if profiler is None:
-            with self._cache_lock:
-                return self._run_inference_locked(frame, cache_key)
-
-        with profiler.span("detector_cache_lock_wait"):
-            self._cache_lock.acquire()
-        try:
+        # same key from launching duplicate model calls.
+        with self._cache_lock:
             return self._run_inference_locked(frame, cache_key)
-        finally:
-            self._cache_lock.release()
 
     def _run_inference_locked(
         self,
@@ -1729,30 +1705,15 @@ class YOLODetector:
     ) -> list[Detection]:
         """Run a cache lookup and detector backend while owning its cache lock."""
         if cache_key is not None and cache_key in self._detection_cache:
-            profiler = getattr(self, "audit_profiler", None)
-            current_frame = profiler.current_frame if profiler is not None else None
-            if current_frame is not None:
-                current_frame.metadata["detector_cache_hits"] = (
-                    current_frame.metadata.get("detector_cache_hits", 0) + 1
-                )
             logger.debug("[PERF] Reusing inference for current frame/view")
             return list(self._detection_cache[cache_key])
 
         self._detection_cache.clear()
-        profiler = getattr(self, "audit_profiler", None)
-        if profiler is None:
-            detections = (
-                self._run_tpu_inference(frame)
-                if self.model_format == ModelFormat.EDGETPU
-                else self._run_standard_inference(frame)
-            )
-        else:
-            with profiler.span("detector_backend"):
-                detections = (
-                    self._run_tpu_inference(frame)
-                    if self.model_format == ModelFormat.EDGETPU
-                    else self._run_standard_inference(frame)
-                )
+        detections = (
+            self._run_tpu_inference(frame)
+            if self.model_format == ModelFormat.EDGETPU
+            else self._run_standard_inference(frame)
+        )
 
         if cache_key is not None:
             self._detection_cache[cache_key] = detections
@@ -1771,34 +1732,17 @@ class YOLODetector:
 
         start_time = time.perf_counter()
         inference_start = None
-        profiler = getattr(self, "audit_profiler", None)
         failure_stage = DetectionFailureStage.INFERENCE
 
         try:
-            if profiler is None:
-                # Acquire lock for thread-safe model access during inference.
-                with self._model_lock:
-                    if not self.model_loaded or self.model is None:
-                        raise _ModelUnavailableError("inference backend is not loaded")
-                    inference_start = time.perf_counter()
-                    results = self._invoke_standard_model(
-                        self.model, frame, self.confidence, self.nms_threshold
-                    )
-            else:
-                # Separate waiting for the shared model lock from the actual
-                # backend call so contention is visible in audit reports.
-                with profiler.span("detector_model_lock_wait"):
-                    self._model_lock.acquire()
-                try:
-                    if not self.model_loaded or self.model is None:
-                        raise _ModelUnavailableError("inference backend is not loaded")
-                    inference_start = time.perf_counter()
-                    with profiler.span("model_execute"):
-                        results = self._invoke_standard_model(
-                            self.model, frame, self.confidence, self.nms_threshold
-                        )
-                finally:
-                    self._model_lock.release()
+            # Acquire the model lock for thread-safe hot-swapping and inference.
+            with self._model_lock:
+                if not self.model_loaded or self.model is None:
+                    raise _ModelUnavailableError("inference backend is not loaded")
+                inference_start = time.perf_counter()
+                results = self._invoke_standard_model(
+                    self.model, frame, self.confidence, self.nms_threshold
+                )
 
             inference_time = (time.perf_counter() - inference_start) * 1000  # ms
 

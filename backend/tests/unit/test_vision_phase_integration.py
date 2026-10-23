@@ -183,7 +183,6 @@ def _make_module(*, settings=None, ball_factory=None):
     module.config = SimpleNamespace(enable_ball_detection=True, enable_tracking=True)
     module.detector = _FakeDetector(ball_factory)
     module.tracker = _FakeTracker()
-    module.profiler = None
     module.stats = VisionStatistics()
     module._frame_number = 0
     module._apply_all_masks = lambda frame: frame.copy()

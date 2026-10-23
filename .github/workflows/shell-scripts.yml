@@ -1,0 +1,71 @@
+name: Shell Script Syntax
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/shell-scripts.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "scripts/**"
+      - ".github/workflows/shell-scripts.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: shell-syntax-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  syntax:
+    name: Check tracked shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fetch public source without credentials
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          fi
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Syntax-check each script with its declared shell
+        shell: bash
+        run: |
+          set -euo pipefail
+          checked=0
+          while IFS= read -r -d '' script; do
+            [[ "${script}" == *.sh ]] || continue
+            IFS= read -r shebang < "${script}" || shebang=""
+            case "${shebang}" in
+              '#!'*'/bash'|'#!'*'/bash '*|'#!'*'env bash'|'#!'*'env bash '*|'#!'*'env -S bash'|'#!'*'env -S bash '*)
+                bash -n -- "${script}"
+                shell=bash
+                ;;
+              '#!'*'/sh'|'#!'*'/sh '*|'#!'*'env sh'|'#!'*'env sh '*|'#!'*'env -S sh'|'#!'*'env -S sh '*)
+                sh -n "${script}"
+                shell=sh
+                ;;
+              *)
+                printf 'Unsupported or missing shell shebang in %s: %s\n' "${script}" "${shebang}" >&2
+                exit 1
+                ;;
+            esac
+            printf '✓ %s (%s syntax)\n' "${script}" "${shell}"
+            checked=$((checked + 1))
+          done < <(git ls-files -z -- scripts)
+
+          if ((checked == 0)); then
+            echo 'No tracked scripts/*.sh files were found.' >&2
+            exit 1
+          fi
+          printf 'Syntax-checked %d tracked shell scripts.\n' "${checked}"

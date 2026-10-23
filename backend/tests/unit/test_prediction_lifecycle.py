@@ -337,7 +337,7 @@ def test_prediction_request_owns_detached_physics_inputs():
     assert request.lifecycle_generation == 1
 
 
-def test_failed_calculation_retains_lock_and_compute_timing():
+def test_failed_calculation_releases_lock():
     def fail_calculation(**_kwargs):
         raise RuntimeError("physics calculation failed")
 
@@ -347,9 +347,9 @@ def test_failed_calculation_retains_lock_and_compute_timing():
     with pytest.raises(RuntimeError, match="physics calculation failed"):
         service._calculate_multiball_prediction(request)
 
-    assert request.timing["executor_wait_seconds"] is None
-    assert request.timing["calculator_lock_wait_seconds"] >= 0
-    assert request.timing["physics_compute_seconds"] >= 0
+    # A calculation failure must not wedge subsequent trajectory work.
+    assert service._trajectory_calculation_lock.acquire(blocking=False)
+    service._trajectory_calculation_lock.release()
 
 
 @pytest.mark.asyncio

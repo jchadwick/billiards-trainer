@@ -34,16 +34,11 @@ class _OutboundMessage:
 
     payload: str
     replaceable_key: str | None = None
-    enqueued_monotonic_ns: int | None = None
     created_monotonic_ns: int | None = None
-    message_type: str | None = None
-    stream_sequence: Any = None
     source_observation_age_seconds: float | None = None
     source_observation_age_applies: bool = False
     source_publication_monotonic_ns: int | None = None
     source_publication_tick_applies: bool = False
-    audit_domain: str | None = None
-    audit_sampled: bool = False
 
 
 class WebSocketConnection:
@@ -187,58 +182,6 @@ class WebSocketHandler:
         # Resolve the global manager lazily to avoid the handler/manager import cycle.
         # Injection keeps tests and embedded handlers isolated from global state.
         self._manager_override = manager
-        self._audit_recorder: Any = None
-        self._audit_domains: dict[str, bool] = {}
-        self._audit_detail_sample_rate = self._sample_rate_setting(
-            "performance_audit.detailed_event_sample_rate", 0.05
-        )
-
-    def configure_performance_audit(
-        self, recorder: Any = None, domains: dict[str, bool] | None = None
-    ) -> None:
-        """Attach optional non-blocking transport instrumentation."""
-        # The global handler can be constructed while importing the ASGI app,
-        # before backend.main selects its --config file. Refresh this setting
-        # at activation so a selected runtime configuration controls sampling.
-        self._audit_detail_sample_rate = self._sample_rate_setting(
-            "performance_audit.detailed_event_sample_rate", 0.05
-        )
-        self._audit_recorder = recorder
-        self._audit_domains = dict(domains or {})
-
-    def _record_delivery_event(
-        self, event: dict[str, Any], *, force_keep: bool = False
-    ) -> None:
-        """Enqueue transport events only when an audit session is active."""
-        if self._audit_recorder is not None:
-            self._audit_recorder.record(event, force_keep=force_keep)
-
-    def select_performance_audit_detail(
-        self, domain: str, identity: int | str | None, *, category: str
-    ) -> bool:
-        """Select detail before callers allocate event fields or timing spans."""
-        if not self._audit_domains.get(domain, False):
-            return False
-        selector = getattr(self._audit_recorder, "select_detail_sample", None)
-        if not callable(selector):
-            return self._audit_recorder is not None
-        return bool(
-            selector(
-                domain,
-                identity,
-                self._audit_detail_sample_rate,
-                category=category,
-            )
-        )
-
-    def record_performance_audit(
-        self, domain: str, event: dict[str, Any], *, force_keep: bool = False
-    ) -> None:
-        """Record an event for an independently enabled audit domain."""
-        if self._audit_domains.get(domain, False):
-            self._record_delivery_event(
-                {"domain": domain, **event}, force_keep=force_keep
-            )
 
     def _get_manager(self) -> Any:
         """Return the subscription manager used by this handler."""
@@ -265,15 +208,6 @@ class WebSocketHandler:
             return default
         value = float(value)
         return value if value > 0 and math.isfinite(value) else default
-
-    @staticmethod
-    def _sample_rate_setting(key: str, default: float) -> float:
-        """Read a validated probability, with a safe fallback for test hosts."""
-        value = config.get(key, default)
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return default
-        value = float(value)
-        return value if 0 < value <= 1 and math.isfinite(value) else default
 
     def _ensure_writer(self, connection: WebSocketConnection) -> None:
         """Start the connection's supervised writer if it is not already active."""
@@ -460,33 +394,12 @@ class WebSocketHandler:
     def _record_expired_update(
         self,
         connection: WebSocketConnection,
-        *,
-        message_type: str | None,
-        stream_sequence: Any,
-        audit_domain: str | None,
-        reason: str,
-        age_seconds: float | None,
-        source_observation_age_seconds: float | None,
     ) -> None:
-        """Count and optionally audit an intentional stale-update drop."""
+        """Count an intentional stale-update drop for delivery diagnostics."""
         connection.dropped_updates += 1
         connection.expired_updates += 1
         self.delivery_metrics["dropped_updates"] += 1
         self.delivery_metrics["expired_updates"] += 1
-        if audit_domain is not None:
-            self._record_delivery_event(
-                {
-                    "event_type": "websocket_update_dropped",
-                    "domain": audit_domain,
-                    "message_type": message_type,
-                    "client_id": connection.client_id,
-                    "dropped_stream_sequence": stream_sequence,
-                    "reason": reason,
-                    "queue_age_seconds": age_seconds,
-                    "source_observation_age_seconds": source_observation_age_seconds,
-                },
-                force_keep=True,
-            )
 
     def _error_message(self, client_id: str, code: str, message: str) -> dict[str, Any]:
         """Build a safe protocol error correlated with its connection request."""
@@ -506,22 +419,6 @@ class WebSocketHandler:
         message_copy = dict(message)
         message_copy.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
         message_copy.setdefault("sequence", connection.message_count)
-        message_type = message_copy.get("type")
-        message_data = message_copy.get("data")
-        data_sequence = (
-            message_data.get("sequence") if isinstance(message_data, dict) else None
-        )
-        stream_sequence = (
-            data_sequence if data_sequence is not None else message_copy.get("sequence")
-        )
-        if message_type == "state" and self._audit_domains.get("state", False):
-            audit_domain = "state"
-        elif message_type == "trajectory" and self._audit_domains.get(
-            "trajectory", False
-        ):
-            audit_domain = "trajectory"
-        else:
-            audit_domain = None
         source_observation_age_seconds, source_observation_age_applies = (
             self._observation_freshness(message_copy)
             if replaceable_key is not None
@@ -549,23 +446,6 @@ class WebSocketHandler:
             ):
                 connection.dropped_updates += 1
                 self.delivery_metrics["dropped_updates"] += 1
-                if audit_domain is not None:
-                    self._record_delivery_event(
-                        {
-                            "event_type": "websocket_state_out_of_order_dropped",
-                            "domain": audit_domain,
-                            "message_type": message_type,
-                            "client_id": connection.client_id,
-                            "dropped_stream_sequence": stream_sequence,
-                            "source_frame_number": source_frame_number,
-                            "latest_source_frame_number": (
-                                connection.state_source_frame_number
-                            ),
-                            "producer_epoch": source_epoch,
-                            "reason": "older_source_observation",
-                        },
-                        force_keep=True,
-                    )
                 return True
         if (
             replaceable_key == "state"
@@ -575,91 +455,26 @@ class WebSocketHandler:
         ):
             self._record_expired_update(
                 connection,
-                message_type=(message_type if isinstance(message_type, str) else None),
-                stream_sequence=stream_sequence,
-                audit_domain=audit_domain,
-                reason="state_observation_age_exceeded",
-                age_seconds=0.0,
-                source_observation_age_seconds=source_observation_age_seconds,
             )
             return True
-        audit_identity: int | str | None = None
-        if isinstance(message_data, dict):
-            observation_status = message_data.get("observation_status")
-            candidate_identity = message_data.get("source_frame_number")
-            if candidate_identity is None and isinstance(observation_status, dict):
-                candidate_identity = observation_status.get("source_frame_number")
-            if candidate_identity is None:
-                candidate_identity = message_data.get("sequence")
-            if isinstance(candidate_identity, (int, str)) and not isinstance(
-                candidate_identity, bool
-            ):
-                audit_identity = candidate_identity
-        audit_sampled = (
-            self.select_performance_audit_detail(
-                audit_domain, audit_identity, category="websocket_message"
-            )
-            if audit_domain is not None
-            else False
-        )
-        serialize_started_ns = time.perf_counter_ns() if audit_sampled else None
         serialized = json.dumps(message_copy)
-        serialized_ns = time.perf_counter_ns() if audit_sampled else None
         outbound = _OutboundMessage(
             payload=serialized,
             replaceable_key=replaceable_key,
-            enqueued_monotonic_ns=serialized_ns,
             created_monotonic_ns=created_monotonic_ns,
-            message_type=message_type if isinstance(message_type, str) else None,
-            stream_sequence=stream_sequence,
             source_observation_age_seconds=source_observation_age_seconds,
             source_observation_age_applies=source_observation_age_applies,
             source_publication_monotonic_ns=source_publication_monotonic_ns,
             source_publication_tick_applies=source_publication_tick_applies,
-            audit_domain=audit_domain,
-            audit_sampled=audit_sampled,
         )
-        if audit_sampled and audit_domain is not None:
-            assert serialize_started_ns is not None
-            assert serialized_ns is not None
-            self._record_delivery_event(
-                {
-                    "event_type": "websocket_message_serialized",
-                    "domain": audit_domain,
-                    "message_type": message_type,
-                    "stream_sequence": stream_sequence,
-                    "client_id": connection.client_id,
-                    "serialization_seconds": max(
-                        0, serialized_ns - serialize_started_ns
-                    )
-                    / 1e9,
-                    "queue_depth_before_enqueue": len(connection.outbound_messages),
-                    "payload_bytes": len(serialized.encode()),
-                }
-            )
 
         if replaceable_key is not None:
             existing = connection.replaceable_messages.get(replaceable_key)
             if existing is not None:
                 # Keep its position relative to ordered control messages while
                 # replacing stale data with the freshest update for this stream.
-                if existing.audit_domain is not None:
-                    self._record_delivery_event(
-                        {
-                            "event_type": "websocket_update_coalesced",
-                            "domain": existing.audit_domain,
-                            "message_type": message_type,
-                            "client_id": connection.client_id,
-                            "dropped_stream_sequence": existing.stream_sequence,
-                            "replacement_stream_sequence": stream_sequence,
-                            "queue_depth": len(connection.outbound_messages),
-                        },
-                        force_keep=True,
-                    )
                 existing.payload = outbound.payload
-                existing.enqueued_monotonic_ns = outbound.enqueued_monotonic_ns
                 existing.created_monotonic_ns = outbound.created_monotonic_ns
-                existing.stream_sequence = outbound.stream_sequence
                 existing.source_observation_age_seconds = (
                     outbound.source_observation_age_seconds
                 )
@@ -672,9 +487,6 @@ class WebSocketHandler:
                 existing.source_publication_tick_applies = (
                     outbound.source_publication_tick_applies
                 )
-                existing.message_type = outbound.message_type
-                existing.audit_domain = outbound.audit_domain
-                existing.audit_sampled = outbound.audit_sampled
                 if source_order is not None:
                     # Equal watermarks are accepted intentionally: a health
                     # or stale refresh may describe this same observation.
@@ -702,20 +514,6 @@ class WebSocketHandler:
                     )
                     return False
                 connection.outbound_messages.remove(oldest)
-                if oldest.audit_domain is not None:
-                    self._record_delivery_event(
-                        {
-                            "event_type": "websocket_update_dropped",
-                            "domain": oldest.audit_domain,
-                            "message_type": oldest.message_type,
-                            "client_id": connection.client_id,
-                            "dropped_stream_sequence": oldest.stream_sequence,
-                            "replacement_stream_sequence": stream_sequence,
-                            "reason": "replaceable_queue_capacity",
-                            "queue_depth": len(connection.outbound_messages),
-                        },
-                        force_keep=True,
-                    )
                 oldest_key = oldest.replaceable_key
                 if oldest_key is not None:
                     connection.replaceable_messages.pop(oldest_key, None)
@@ -727,19 +525,6 @@ class WebSocketHandler:
             if connection.control_queue_depth >= self.control_queue_capacity:
                 connection.control_queue_overflows += 1
                 self.delivery_metrics["control_queue_overflows"] += 1
-                if audit_domain is not None:
-                    self._record_delivery_event(
-                        {
-                            "event_type": "websocket_control_queue_overflow",
-                            "domain": audit_domain,
-                            "message_type": message_type,
-                            "client_id": connection.client_id,
-                            "stream_sequence": stream_sequence,
-                            "queue_depth": connection.control_queue_depth,
-                            "queue_capacity": self.control_queue_capacity,
-                        },
-                        force_keep=True,
-                    )
                 return False
             connection.control_queue_depth += 1
 
@@ -791,14 +576,6 @@ class WebSocketHandler:
                     if queue_age_seconds >= self.max_replaceable_message_age_seconds:
                         self._record_expired_update(
                             connection,
-                            message_type=outbound.message_type,
-                            stream_sequence=outbound.stream_sequence,
-                            audit_domain=outbound.audit_domain,
-                            reason="replaceable_queue_age_exceeded",
-                            age_seconds=queue_age_seconds,
-                            source_observation_age_seconds=(
-                                outbound.source_observation_age_seconds
-                            ),
                         )
                         continue
                     replaceable_age_remaining = (
@@ -820,12 +597,6 @@ class WebSocketHandler:
                         ):
                             self._record_expired_update(
                                 connection,
-                                message_type=outbound.message_type,
-                                stream_sequence=outbound.stream_sequence,
-                                audit_domain=outbound.audit_domain,
-                                reason="state_source_publication_timestamp_unavailable",
-                                age_seconds=queue_age_seconds,
-                                source_observation_age_seconds=None,
                             )
                             continue
 
@@ -839,12 +610,6 @@ class WebSocketHandler:
                         ):
                             self._record_expired_update(
                                 connection,
-                                message_type=outbound.message_type,
-                                stream_sequence=outbound.stream_sequence,
-                                audit_domain=outbound.audit_domain,
-                                reason="state_observation_age_exceeded",
-                                age_seconds=queue_age_seconds,
-                                source_observation_age_seconds=source_age_seconds,
                             )
                             continue
 
@@ -858,12 +623,6 @@ class WebSocketHandler:
                         except (TypeError, ValueError, json.JSONDecodeError):
                             self._record_expired_update(
                                 connection,
-                                message_type=outbound.message_type,
-                                stream_sequence=outbound.stream_sequence,
-                                audit_domain=outbound.audit_domain,
-                                reason="state_source_publication_timestamp_unavailable",
-                                age_seconds=queue_age_seconds,
-                                source_observation_age_seconds=source_age_seconds,
                             )
                             continue
                         outbound.source_observation_age_seconds = source_age_seconds
@@ -879,12 +638,6 @@ class WebSocketHandler:
                         if source_age_remaining <= 0:
                             self._record_expired_update(
                                 connection,
-                                message_type=outbound.message_type,
-                                stream_sequence=outbound.stream_sequence,
-                                audit_domain=outbound.audit_domain,
-                                reason="state_observation_age_exceeded",
-                                age_seconds=queue_age_seconds,
-                                source_observation_age_seconds=source_age_seconds,
                             )
                             continue
 
@@ -903,66 +656,16 @@ class WebSocketHandler:
                 if write_timeout <= 0:
                     self._record_expired_update(
                         connection,
-                        message_type=outbound.message_type,
-                        stream_sequence=outbound.stream_sequence,
-                        audit_domain=outbound.audit_domain,
-                        reason="state_observation_age_exceeded",
-                        age_seconds=queue_age_seconds,
-                        source_observation_age_seconds=(
-                            outbound.source_observation_age_seconds
-                        ),
                     )
                     continue
 
-                send_started_ns = (
-                    time.perf_counter_ns() if outbound.audit_sampled else None
-                )
                 try:
                     await asyncio.wait_for(
                         connection.websocket.send_text(delivery_payload),
                         timeout=write_timeout,
                     )
-                    payload_bytes = len(delivery_payload.encode())
-                    connection.bytes_sent += payload_bytes
-                    if outbound.audit_sampled and outbound.audit_domain is not None:
-                        assert send_started_ns is not None
-                        self._record_delivery_event(
-                            {
-                                "event_type": "websocket_delivery_complete",
-                                "domain": outbound.audit_domain,
-                                "message_type": outbound.message_type,
-                                "stream_sequence": outbound.stream_sequence,
-                                "client_id": connection.client_id,
-                                "queue_wait_seconds": max(
-                                    0,
-                                    send_started_ns
-                                    - (
-                                        outbound.enqueued_monotonic_ns
-                                        if outbound.enqueued_monotonic_ns is not None
-                                        else send_started_ns
-                                    ),
-                                )
-                                / 1e9,
-                                "socket_send_seconds": max(
-                                    0, time.perf_counter_ns() - send_started_ns
-                                )
-                                / 1e9,
-                                "payload_bytes": payload_bytes,
-                            }
-                        )
+                    connection.bytes_sent += len(delivery_payload.encode())
                 except asyncio.TimeoutError:
-                    if outbound.audit_domain is not None:
-                        self._record_delivery_event(
-                            {
-                                "event_type": "websocket_send_timeout",
-                                "domain": outbound.audit_domain,
-                                "message_type": outbound.message_type,
-                                "stream_sequence": outbound.stream_sequence,
-                                "client_id": connection.client_id,
-                                "queue_depth": len(connection.outbound_messages),
-                            },
-                            force_keep=True,
-                        )
                     connection.send_timeouts += 1
                     self.delivery_metrics["send_timeouts"] += 1
                     logger.warning(

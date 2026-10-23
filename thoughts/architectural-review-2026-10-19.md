@@ -193,7 +193,13 @@ Client implementations diverge. [LiveView](../frontend/web/src/components/video/
 
 **Priority: P1 enabling work. Evidence: audit/gate gaps confirmed.**
 
-The audit currently has excessive observed off/on differences and truncates sustained traces. Its [exporter](../backend/performance_audit.py:105) still takes locks/builds envelopes on producers, and the [writer opens a file for each event](../backend/performance_audit.py:186). An asynchronous queue prevents disk backpressure but does not make instrumentation free.
+At the time of this review, the Python audit had excessive observed off/on
+differences and truncated sustained traces. Its exporter took locks and built
+envelopes on producers, and its writer opened a file for each event. Those
+Python components have since been retired under ADR-0085 and ADR-0088; this is
+historical evidence, not a description of the current Rust audit runner. An
+asynchronous queue prevents disk backpressure but does not make instrumentation
+free.
 
 The then-current Python profile replay synchronously read and processed every
 frame, waiting only when ahead of presentation time. When overloaded it fell

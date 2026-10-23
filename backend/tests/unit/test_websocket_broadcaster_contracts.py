@@ -27,10 +27,7 @@ def _ball(x: float = 10.0, y: float = 20.0) -> dict[str, object]:
 
 
 @pytest.fixture
-def broadcaster(monkeypatch: pytest.MonkeyPatch) -> MessageBroadcaster:
-    audit = Mock()
-    audit.select_performance_audit_detail.return_value = False
-    monkeypatch.setattr(broadcaster_module, "websocket_handler", audit)
+def broadcaster() -> MessageBroadcaster:
     result = MessageBroadcaster()
     result._broadcast_to_stream = AsyncMock()
     return result
@@ -92,35 +89,6 @@ async def test_game_state_rejects_invalid_observations_without_publishing(
 
 
 @pytest.mark.asyncio
-async def test_state_audit_records_source_identity_and_component_age(
-    monkeypatch: pytest.MonkeyPatch,
-    broadcaster: MessageBroadcaster,
-) -> None:
-    monkeypatch.setattr(broadcaster_module.time, "monotonic", lambda: 12.0)
-    audit = broadcaster_module.websocket_handler
-    audit.select_performance_audit_detail.return_value = True
-
-    await broadcaster.broadcast_game_state(
-        [_ball()],
-        observation_status={
-            "source_frame_number": 42,
-            "source_timestamp_kind": "shared_memory_publication_monotonic",
-            "component_observation_timestamps": {"balls": 10.5, "invalid": True},
-            "map_revision": 8,
-        },
-    )
-
-    audit.select_performance_audit_detail.assert_called_once_with(
-        "state", 42, category="state_published"
-    )
-    event = audit.record_performance_audit.call_args.args[1]
-    assert event["source_frame_number"] == 42
-    assert event["source_timestamp_kind"] == "shared_memory_publication_monotonic"
-    assert event["map_revision"] == 8
-    assert event["component_age_seconds"] == {"balls": 1.5}
-
-
-@pytest.mark.asyncio
 async def test_alert_routes_targeted_and_broadcast_delivery(
     monkeypatch: pytest.MonkeyPatch,
     broadcaster: MessageBroadcaster,
@@ -146,22 +114,16 @@ async def test_alert_routes_targeted_and_broadcast_delivery(
 
 
 @pytest.mark.asyncio
-async def test_config_and_performance_publications_use_their_own_streams(
+async def test_config_publication_uses_its_own_stream(
     broadcaster: MessageBroadcaster,
 ) -> None:
     await broadcaster.broadcast_config_update("vision", {"fps": 30}, "changed")
-    await broadcaster.broadcast_performance_stats({"fps": 29.5})
 
-    assert [
-        call.args[0] for call in broadcaster._broadcast_to_stream.await_args_list
-    ] == [
-        StreamType.CONFIG,
-        StreamType.PERFORMANCE,
-    ]
+    assert broadcaster._broadcast_to_stream.await_count == 1
+    assert broadcaster._broadcast_to_stream.await_args.args[0] is StreamType.CONFIG
     assert broadcaster._broadcast_to_stream.await_args_list[0].args[1]["config"] == {
         "fps": 30
     }
-    assert broadcaster._broadcast_to_stream.await_args_list[1].args[1] == {"fps": 29.5}
 
 
 @pytest.mark.asyncio

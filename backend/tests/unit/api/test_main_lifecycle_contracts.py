@@ -76,11 +76,6 @@ def _install_lifecycle_stubs(
         "_create_rust_game_session_authority",
         lambda _configuration, _settings: object(),
     )
-    monkeypatch.setattr(
-        api_main.websocket_handler,
-        "configure_performance_audit",
-        lambda **_kwargs: None,
-    )
     return state, health, registered_shutdowns
 
 

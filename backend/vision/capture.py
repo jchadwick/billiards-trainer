@@ -65,17 +65,13 @@ class FrameInfo:
     ``timestamp`` is sampled by the software after the frame is retrieved from
     its backend. OpenCV and the current Kinect adapter do not provide a common
     sensor-exposure clock, so this value must not be interpreted as exposure
-    time. ``camera_read_seconds`` is a monotonic duration around the backend
-    retrieval operation when the performance audit is enabled.
+    time.
     """
 
     frame_number: int
     timestamp: float
     size: tuple[int, int]
     channels: int
-    camera_read_seconds: float | None = None
-    capture_queue_frames_skipped: int = 0
-    capture_queue_depth_after_drain: int | None = None
 
 
 class CameraCapture:
@@ -168,13 +164,10 @@ class CameraCapture:
         self._max_reconnect_attempts = config.get("max_reconnect_attempts", 5)
         self._stop_timeout = config.get("stop_timeout", 5.0)
 
-        # Performance parameters
+        # Performance and logging parameters
         self._frame_log_interval = config.get("frame_log_interval", 30)
         self._fps_tracker_size = config.get("fps_tracker_size", 10)
         self._frame_sleep_compensation = config.get("frame_sleep_compensation", 0.001)
-        self._audit_timing_enabled = bool(
-            config.get("performance_audit_enabled", False)
-        )
 
         # Video frame range parameters
         self._video_start_frame = config.get("video_start_frame", 0)
@@ -541,10 +534,6 @@ class CameraCapture:
                 # Capture frame
                 frame: NDArray[Any] | None = None
                 frame_timestamp: float | None = None
-                camera_read_seconds: float | None = None
-                camera_read_started_ns = 0
-                camera_read_finished_ns = 0
-
                 if self._use_kinect2:
                     # Get frame from Kinect v2
                     logger.debug("Attempting to get Kinect v2 frame")
@@ -552,15 +541,7 @@ class CameraCapture:
                     if kinect_capture is None:
                         self._update_status(CameraStatus.ERROR)
                         continue
-                    if self._audit_timing_enabled:
-                        camera_read_started_ns = time.perf_counter_ns()
                     kinect_frame = kinect_capture.get_latest_frame()
-                    if self._audit_timing_enabled:
-                        camera_read_finished_ns = time.perf_counter_ns()
-                        camera_read_seconds = (
-                            max(0, camera_read_finished_ns - camera_read_started_ns)
-                            / 1e9
-                        )
                     if kinect_frame and kinect_frame.color is not None:
                         frame = kinect_frame.color
                         frame_timestamp = time.time()
@@ -605,18 +586,7 @@ class CameraCapture:
                                 self._update_status(CameraStatus.DISCONNECTED)
                                 break
 
-                    if self._audit_timing_enabled:
-                        camera_read_started_ns = time.perf_counter_ns()
                     ret, frame = capture.read()
-                    if self._audit_timing_enabled:
-                        camera_read_finished_ns = time.perf_counter_ns()
-                        camera_read_seconds = (
-                            max(
-                                0,
-                                camera_read_finished_ns - camera_read_started_ns,
-                            )
-                            / 1e9
-                        )
                     if ret and frame is not None:
                         frame_timestamp = time.time()
 
@@ -690,7 +660,6 @@ class CameraCapture:
                     timestamp=current_time,
                     size=(frame.shape[1], frame.shape[0]),
                     channels=frame.shape[2] if len(frame.shape) > 2 else 1,
-                    camera_read_seconds=camera_read_seconds,
                 )
 
                 try:
@@ -871,17 +840,11 @@ class CameraCapture:
             Tuple of (frame, frame_info) if available, None otherwise
         """
         latest = None
-        skipped_frames = 0
         try:
             while True:
                 next_frame = self._frame_queue.get_nowait()
-                if latest is not None:
-                    skipped_frames += 1
                 latest = next_frame
         except queue.Empty:
-            if latest is not None:
-                latest[1].capture_queue_frames_skipped = skipped_frames
-                latest[1].capture_queue_depth_after_drain = self._frame_queue.qsize()
             return latest
 
     def is_connected(self) -> bool:

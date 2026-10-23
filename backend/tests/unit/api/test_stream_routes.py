@@ -182,29 +182,6 @@ async def _unused_stream(**_kwargs: Any) -> AsyncGenerator[bytes, None]:
     yield b""
 
 
-def test_viewer_audit_compatibility_without_selector_and_domain_guard() -> None:
-    recorder = SimpleNamespace(record=Mock())
-    vision = SimpleNamespace(
-        audit_recorder=recorder,
-        audit_domains={"viewers": True},
-    )
-
-    assert stream_route._viewer_audit_recorder(vision) is recorder
-    assert stream_route._viewer_audit_detail_selected(recorder, 5, 0.1) is True
-    assert (
-        stream_route._viewer_audit_recorder(
-            SimpleNamespace(audit_recorder=recorder, audit_domains=["viewers"])
-        )
-        is None
-    )
-    assert (
-        stream_route._viewer_audit_recorder(
-            SimpleNamespace(audit_recorder=None, audit_domains={"viewers": True})
-        )
-        is None
-    )
-
-
 @pytest.mark.asyncio
 async def test_shared_memory_route_uses_config_defaults_and_no_cache_headers(
     monkeypatch: pytest.MonkeyPatch,
@@ -412,22 +389,13 @@ async def test_raw_stream_route_refuses_unavailable_camera(
 
 
 @pytest.mark.asyncio
-async def test_raw_stream_route_wires_raw_mode_and_viewer_audit_configuration(
+async def test_raw_stream_route_wires_raw_mode_and_configured_dimensions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     camera = _Camera()
-    recorder = object()
     app_state = SimpleNamespace(
-        config_module=_Config(
-            {
-                "api.stream": _stream_config(),
-                "performance_audit.detailed_event_sample_rate": 0.25,
-            }
-        ),
-        vision_module=SimpleNamespace(
-            audit_domains={"viewers": True},
-            audit_recorder=recorder,
-        ),
+        config_module=_Config({"api.stream": _stream_config()}),
+        vision_module=None,
     )
     requested: dict[str, Any] = {}
 
@@ -450,8 +418,6 @@ async def test_raw_stream_route_wires_raw_mode_and_viewer_audit_configuration(
     assert requested["raw"] is True
     assert requested["max_fps"] == 24
     assert requested["quality"] == 81
-    assert requested["audit_recorder"] is recorder
-    assert requested["audit_detail_sample_rate"] == 0.25
     assert requested["max_width"] == 320
     assert requested["max_height"] == 240
     assert response.media_type == "multipart/x-mixed-replace; boundary=frame"
@@ -650,7 +616,7 @@ def test_camera_adapter_handles_disconnected_state_and_unavailable_frame() -> No
 
 
 @pytest.mark.asyncio
-async def test_live_mjpeg_generator_yields_resized_frames_and_audits_send(
+async def test_live_mjpeg_generator_yields_resized_frames(
     monkeypatch: pytest.MonkeyPatch,
     clean_stream_globals: None,
 ) -> None:
@@ -666,10 +632,6 @@ async def test_live_mjpeg_generator_yields_resized_frames_and_audits_send(
     )
     monkeypatch.setattr(stream_route.cv2, "resize", resize)
     monkeypatch.setattr(stream_route.cv2, "imencode", encode)
-    recorder = SimpleNamespace(
-        select_detail_sample=Mock(return_value=True),
-        record=Mock(),
-    )
     generator = stream_route.generate_mjpeg_stream(
         vision_module=cast("Any", camera),
         quality=72,
@@ -681,8 +643,6 @@ async def test_live_mjpeg_generator_yields_resized_frames_and_audits_send(
             "performance": {"frame_log_interval": 1, "sleep_interval_ms": 0},
             "resolution": {"default_scale": 0.5},
         },
-        audit_recorder=recorder,
-        audit_detail_sample_rate=0.4,
     )
 
     chunks = [await generator.__anext__(), await generator.__anext__()]
@@ -699,15 +659,6 @@ async def test_live_mjpeg_generator_yields_resized_frames_and_audits_send(
     assert [call.args[2] for call in encode.call_args_list] == [
         [stream_route.cv2.IMWRITE_JPEG_QUALITY, 72],
         [stream_route.cv2.IMWRITE_JPEG_QUALITY, 72],
-    ]
-    recorder.select_detail_sample.assert_any_call(
-        "viewers", 1, 0.4, category="viewer_frame"
-    )
-    assert [call.args[0]["event_type"] for call in recorder.record.call_args_list] == [
-        "viewer_frame_encoded",
-        "viewer_send_backpressure",
-        "viewer_frame_encoded",
-        "viewer_send_backpressure",
     ]
     assert stream_route._stream_stats["total_frames_served"] == 2
     assert stream_route._stream_stats["active_streams"] == 0
@@ -1004,9 +955,8 @@ async def test_shared_memory_stream_skips_duplicate_frames_and_delivers_latest_a
     app_state = SimpleNamespace(
         config_module=_Config(
             {
-                "video.shared_memory_name": "audit-frames",
+                "video.shared_memory_name": "test-frames",
                 "video.shared_memory_attach_timeout_sec": 0.25,
-                "performance_audit.detailed_event_sample_rate": 0,
                 "api.stream": {"performance": {"sleep_interval_ms": 0}},
             }
         ),
@@ -1061,7 +1011,6 @@ async def test_shared_memory_stream_recovers_after_transient_reader_error(
                 "video.shared_memory_name": "fresh-frames",
                 "video.shared_memory_attach_timeout_sec": 0.2,
                 "api.stream": {"performance": {"sleep_interval_ms": 0}},
-                "performance_audit.detailed_event_sample_rate": 0,
             }
         ),
         vision_module=None,
@@ -1113,7 +1062,6 @@ async def test_shared_memory_stream_disconnects_after_configured_send_backpressu
                         "maximum_send_backpressure_seconds": 0.05,
                     }
                 },
-                "performance_audit.detailed_event_sample_rate": 0,
             }
         ),
         vision_module=None,
@@ -1157,7 +1105,6 @@ async def test_stop_endpoint_terminates_shared_memory_stream_and_detaches_reader
                 "video.shared_memory_name": "fresh-frames",
                 "video.shared_memory_attach_timeout_sec": 0.2,
                 "api.stream": {"performance": {"sleep_interval_ms": 0}},
-                "performance_audit.detailed_event_sample_rate": 0,
             }
         ),
         vision_module=None,
@@ -1200,7 +1147,7 @@ async def test_shared_memory_stream_maps_missing_video_process_to_503_and_detach
     app_state = SimpleNamespace(
         config_module=_Config(
             {
-                "video.shared_memory_name": "audit-frames",
+                "video.shared_memory_name": "test-frames",
                 "video.shared_memory_attach_timeout_sec": 0.25,
             }
         ),

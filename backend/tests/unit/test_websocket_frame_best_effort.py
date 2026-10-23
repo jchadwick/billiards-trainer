@@ -20,11 +20,11 @@ async def test_disabled_websocket_video_records_cadence_without_encoding_or_reta
 
     await broadcaster.broadcast_frame(frame, width=96, height=64)
 
-    metrics = broadcaster.get_performance_metrics()["frame_metrics"]
-    assert metrics["frames_received"] == 1
-    assert metrics["frames_sent"] == 0
-    assert metrics["bytes_sent"] == 0
-    assert metrics["actual_fps"] == 0
+    metrics = broadcaster.broadcast_stats.frame_metrics
+    assert metrics.frames_received == 1
+    assert metrics.frames_sent == 0
+    assert metrics.bytes_sent == 0
+    assert metrics.actual_fps == 0
     latest_frame = broadcaster.frame_buffer.get_latest_frame()
     assert latest_frame is not None
     assert "image" not in latest_frame

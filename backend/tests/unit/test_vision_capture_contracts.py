@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
-import pytest
 
 from backend.vision import capture as capture_module
 from backend.vision.capture import CameraCapture, CameraStatus
+
+if TYPE_CHECKING:
+    import pytest
 
 
 class FakeVideoCapture:
@@ -90,7 +92,6 @@ def test_network_source_keeps_only_latest_copy_and_counts_producer_drops() -> No
     assert result is not None
     delivered_frame, metadata = result
     assert metadata.frame_number == 3
-    assert metadata.capture_queue_frames_skipped == 0
     assert capture._frames_captured == 3
     assert capture._frames_dropped == 2
     # Each published frame is copied before the backend reuses its buffer.
@@ -152,53 +153,6 @@ def test_capture_read_exception_becomes_health_error_without_stale_delivery() ->
     assert capture.get_health().last_error == "device read interrupted"
     assert capture.get_status() is CameraStatus.ERROR
     assert statuses == [CameraStatus.ERROR]
-
-
-def test_audit_off_never_reads_monotonic_clock(monkeypatch: pytest.MonkeyPatch) -> None:
-    capture = CameraCapture({"device_id": "recording.mp4", "fps": 0})
-    capture._cap = FakeVideoCapture(  # type: ignore[assignment]
-        reads=[(True, _frame(9)), (False, None)]
-    )
-    monkeypatch.setattr(
-        capture_module.time,
-        "perf_counter_ns",
-        lambda: pytest.fail("disabled audit must not sample the monotonic clock"),
-    )
-    monkeypatch.setattr(capture_module.time, "time", lambda: 42.5)
-
-    capture._capture_loop()
-
-    result = capture.get_frame()
-    assert result is not None
-    _frame_value, metadata = result
-    assert metadata.timestamp == 42.5
-    assert metadata.camera_read_seconds is None
-
-
-def test_capture_audit_duration_clamps_a_non_monotonic_test_clock_to_zero(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    capture = CameraCapture(
-        {
-            "device_id": "recording.mp4",
-            "fps": 0,
-            "performance_audit_enabled": True,
-        }
-    )
-    capture._cap = FakeVideoCapture(  # type: ignore[assignment]
-        reads=[(True, _frame(3)), (False, None)]
-    )
-    monotonic_ns = iter((200, 100, 300, 350))
-    monkeypatch.setattr(
-        capture_module.time, "perf_counter_ns", lambda: next(monotonic_ns)
-    )
-
-    capture._capture_loop()
-
-    result = capture.get_frame()
-    assert result is not None
-    _frame_value, metadata = result
-    assert metadata.camera_read_seconds == 0.0
 
 
 def test_stream_buffer_control_failure_does_not_disable_network_capture() -> None:

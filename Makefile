@@ -19,8 +19,8 @@
 # Default target
 .DEFAULT_GOAL := help
 
-# The supported application runtime is Rust. Python remains for the compatibility
-# service, its tests, and optional offline model/data authoring.
+# The supported application runtime is Rust. Python remains for offline
+# compatibility tests and optional model/data authoring.
 PYTHON_VENV_DIR ?= .venv
 PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
 BACKEND_DIR := backend

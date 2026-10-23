@@ -2,7 +2,6 @@
 
 import platform
 import threading
-from contextlib import nullcontext
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
@@ -53,16 +52,7 @@ class TensorLike:
         return self.values
 
 
-class RecordingProfiler:
-    """Provide the span interface used by instrumented inference."""
-
-    def span(self, _name: str) -> Any:
-        return nullcontext()
-
-
-def _bare_detector(
-    device: str, *, profiled: bool
-) -> tuple[YOLODetector, RecordingModel]:
+def _bare_detector(device: str) -> tuple[YOLODetector, RecordingModel]:
     detector = YOLODetector.__new__(YOLODetector)
     model = RecordingModel()
     detector.model_path = None
@@ -78,7 +68,6 @@ def _bare_detector(
     detector._cache_lock = threading.Lock()
     detector._detection_cache = {}
     detector._inference_model_generation = 0
-    detector.audit_profiler = RecordingProfiler() if profiled else None
     detector.stats = {
         "total_inferences": 0,
         "total_detections": 0,
@@ -91,11 +80,10 @@ def _bare_detector(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("device", ["cpu", "mps", "cuda:0"])
-@pytest.mark.parametrize("profiled", [False, True])
 def test_pytorch_inference_uses_configured_device_in_both_paths(
-    device: str, profiled: bool
+    device: str,
 ) -> None:
-    detector, model = _bare_detector(device, profiled=profiled)
+    detector, model = _bare_detector(device)
     frame = np.zeros((24, 32, 3), dtype=np.uint8)
 
     assert detector._run_standard_inference(frame) == []
@@ -118,7 +106,7 @@ def test_pytorch_inference_uses_configured_device_in_both_paths(
 
 @pytest.mark.unit
 def test_effective_device_is_unavailable_until_runtime_reports_it() -> None:
-    detector, _model = _bare_detector("mps", profiled=False)
+    detector, _model = _bare_detector("mps")
     detector.model = None
 
     info = detector.get_model_info()
@@ -142,7 +130,7 @@ def test_auto_device_selects_native_coreml_for_mlpackage_on_macos(
 
 @pytest.mark.unit
 def test_coreml_model_info_reports_backend_without_claiming_compute_unit() -> None:
-    detector, _model = _bare_detector("coreml", profiled=False)
+    detector, _model = _bare_detector("coreml")
     detector.model_format = ModelFormat.COREML
 
     info = detector.get_model_info()
@@ -155,7 +143,7 @@ def test_coreml_model_info_reports_backend_without_claiming_compute_unit() -> No
 def test_coreml_loader_resolves_lazily_exposed_ultralytics_yolo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    detector, _model = _bare_detector("coreml", profiled=False)
+    detector, _model = _bare_detector("coreml")
     loaded_model = SimpleNamespace(names={0: "ball"})
     loaded_paths: list[str] = []
     lazy_lookups: list[str] = []
@@ -192,7 +180,7 @@ def test_coreml_loader_resolves_lazily_exposed_ultralytics_yolo(
 def test_coreml_loader_preserves_missing_runtime_dependency_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    detector, _model = _bare_detector("coreml", profiled=False)
+    detector, _model = _bare_detector("coreml")
 
     def load_yolo(_path: str) -> Any:
         raise ImportError("No module named 'coremltools'")
@@ -216,7 +204,7 @@ def test_coreml_loader_preserves_missing_runtime_dependency_error(
 
 @pytest.mark.unit
 def test_onnx_backend_does_not_receive_pytorch_device_argument() -> None:
-    detector, model = _bare_detector("coreml", profiled=False)
+    detector, model = _bare_detector("coreml")
     detector.model_format = ModelFormat.ONNX
     frame = np.zeros((24, 32, 3), dtype=np.uint8)
 
@@ -227,7 +215,7 @@ def test_onnx_backend_does_not_receive_pytorch_device_argument() -> None:
 
 @pytest.mark.unit
 def test_standard_inference_decodes_successful_ultralytics_result() -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     detector.class_names = {2: "8-ball"}
     model.result = [
         SimpleNamespace(
@@ -278,7 +266,7 @@ def _ultralytics_result(*, xyxy: Any = None, class_id: float = 0.0) -> list[Any]
 def test_ball_observation_outcome_distinguishes_successful_empty_from_unavailable() -> (
     None
 ):
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     frame = np.zeros((64, 96, 3), dtype=np.uint8)
 
     empty = detector.detect_balls_outcome(frame)
@@ -307,7 +295,7 @@ def test_ball_observation_outcome_distinguishes_successful_empty_from_unavailabl
 
 @pytest.mark.unit
 def test_ball_observation_outcome_reports_decoded_detections() -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     detector.class_names = {0: "8-ball", 1: "cue"}
     model.result = _ultralytics_result()
 
@@ -322,7 +310,7 @@ def test_ball_observation_outcome_reports_decoded_detections() -> None:
 def test_standard_backend_failure_is_not_reported_as_successful_empty(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     model.failure = RuntimeError("private backend detail")
 
     outcome = detector.detect_balls_outcome(np.zeros((64, 96, 3), dtype=np.uint8))
@@ -336,7 +324,7 @@ def test_standard_backend_failure_is_not_reported_as_successful_empty(
 
 @pytest.mark.unit
 def test_standard_result_decoding_failure_has_safe_failure_stage() -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     model.result = [
         SimpleNamespace(
             boxes=[
@@ -369,7 +357,7 @@ class FailingTPUInterpreter:
 def test_tpu_backend_failure_is_not_reported_as_successful_empty(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    detector, _model = _bare_detector("tpu", profiled=False)
+    detector, _model = _bare_detector("tpu")
     detector.model_format = ModelFormat.EDGETPU
     detector.tpu_interpreter = FailingTPUInterpreter()
     detector.tpu_input_details = [
@@ -393,7 +381,7 @@ def test_tpu_backend_failure_is_not_reported_as_successful_empty(
 def test_list_apis_preserve_empty_fallback_and_classification_behavior(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     frame = np.zeros((64, 96, 3), dtype=np.uint8)
 
     assert detector.detect_balls(frame) == []
@@ -421,7 +409,7 @@ def test_list_apis_preserve_empty_fallback_and_classification_behavior(
 def test_classification_outcome_reports_successful_empty_and_classified_balls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     frame = np.zeros((64, 96, 3), dtype=np.uint8)
 
     empty = detector.detect_balls_with_classification_outcome(frame)
@@ -461,7 +449,7 @@ def test_classification_failure_is_stage_tagged_without_raw_exception_text(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    detector, model = _bare_detector("cpu", profiled=False)
+    detector, model = _bare_detector("cpu")
     model.result = _ultralytics_result()
 
     def fail_classification(*_args: Any) -> list[Ball]:
@@ -504,7 +492,7 @@ def test_classification_outcome_preserves_legacy_instance_and_subclass_overrides
         confidence=0.93,
     )
 
-    instance_detector, _model = _bare_detector("cpu", profiled=False)
+    instance_detector, _model = _bare_detector("cpu")
     instance_detector.model_loaded = False
     monkeypatch.setattr(
         instance_detector,
@@ -534,7 +522,7 @@ def test_classification_outcome_preserves_legacy_instance_and_subclass_overrides
             self.observed_frame_key = frame_key
             return self.legacy_detections
 
-    base_detector, _model = _bare_detector("cpu", profiled=False)
+    base_detector, _model = _bare_detector("cpu")
     subclass_detector = LegacySubclass.__new__(LegacySubclass)
     subclass_detector.__dict__.update(base_detector.__dict__)
     subclass_detector.model_loaded = False
@@ -559,7 +547,7 @@ def test_classification_outcome_maps_legacy_override_exception_to_safe_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    detector, _model = _bare_detector("cpu", profiled=False)
+    detector, _model = _bare_detector("cpu")
     detector.model_loaded = False
 
     def fail_override(_frame: np.ndarray, *, frame_key: Any = None) -> list[Detection]:
@@ -583,7 +571,7 @@ def test_standard_inference_duration_uses_monotonic_clock(
 ) -> None:
     import time
 
-    detector, _model = _bare_detector("cpu", profiled=False)
+    detector, _model = _bare_detector("cpu")
     timestamps = iter([10.0, 10.001, 10.004, 10.006])
     monkeypatch.setattr(time, "perf_counter", lambda: next(timestamps))
     monkeypatch.setattr(
@@ -603,7 +591,7 @@ def test_standard_inference_duration_uses_monotonic_clock(
 def test_edge_tpu_decoder_handles_both_prediction_axis_layouts(
     feature_axis_first: bool,
 ) -> None:
-    detector, _model = _bare_detector("cpu", profiled=False)
+    detector, _model = _bare_detector("cpu")
     detector.class_names = {0: "ball", 1: "cue"}
     predictions = np.zeros((12, 6), dtype=np.float32)
     predictions[7] = [50.0, 25.0, 20.0, 10.0, 0.91, 0.09]
@@ -627,7 +615,7 @@ def test_edge_tpu_decoder_handles_both_prediction_axis_layouts(
 
 @pytest.mark.unit
 def test_tpu_nms_keeps_distinct_balls_at_large_image_coordinates() -> None:
-    detector, _model = _bare_detector("cpu", profiled=False)
+    detector, _model = _bare_detector("cpu")
     detections = [
         Detection(
             class_id=0,

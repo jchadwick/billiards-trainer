@@ -18,10 +18,10 @@ Rust migration.
   static browser assets; it is not WebAssembly.
 - **Models:** The Rust live detector consumes a verified ONNX export and its
   source checkpoint. Number classification is intentionally excluded.
-- **Python:** Python is retained for the compatibility service and its tests,
-  plus optional model export, dataset preparation, and calibration authoring.
-  Install the model-export stack only with `make install-model-tools`. Python
-  is not the supported application-server runtime.
+- **Python:** Python supports offline compatibility tests, optional model
+  export, dataset preparation, and calibration authoring. Install the
+  model-export stack only with `make install-model-tools`. Python is not the
+  supported application-server runtime.
 
 The Rust live path and deployment packaging are still being qualified. A
 successful build or replay is not proof of camera accuracy, calibrated table

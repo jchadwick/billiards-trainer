@@ -37,7 +37,6 @@ def _frame_record(frame_number: int) -> dict[str, Any]:
         "source_timestamp_kind": "shared_memory_publication",
         "source_process_id": 17,
         "source_publication_monotonic_ns": None,
-        "shared_memory_read_copy_seconds": None,
         "enqueued_monotonic": 0.0,
     }
 
@@ -71,8 +70,6 @@ def test_processing_worker_recovers_after_transient_inference_error(
         "detection_complete": [],
         "error_occurred": [],
     }
-    module.audit_domains = {"state": False}
-    module.audit_recorder = None
     module.stop_capture = lambda: None
 
     recovered_result = {"source_frame_number": 2}

@@ -37,7 +37,7 @@ def test_stream_types_have_one_shared_source_of_truth():
     assert [
         stream_type.value for stream_type in StreamType
     ] == websocket_schemas.VALID_STREAM_TYPES
-    assert {"frame", "state", "trajectory", "alert", "config", "performance"} == {
+    assert {"frame", "state", "trajectory", "alert", "config"} == {
         stream_type.value for stream_type in StreamType
     }
 

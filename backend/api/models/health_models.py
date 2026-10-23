@@ -380,38 +380,6 @@ class SystemStatusResponse(BaseModel):
     processing_time: float = Field(..., ge=0, description="Processing time in seconds")
 
 
-# Utility models
-
-
-class ComponentStatus(BaseModel):
-    """Generic component status."""
-
-    name: str = Field(..., description="Component name")
-    status: HealthStatusEnum = Field(..., description="Component status")
-    message: Optional[str] = Field(None, description="Status message")
-    last_updated: datetime = Field(
-        default_factory=datetime.now, description="Last status update"
-    )
-
-
-class DiagnosticsInfo(BaseModel):
-    """System diagnostics information."""
-
-    timestamp: datetime = Field(
-        default_factory=datetime.now, description="Diagnostics timestamp"
-    )
-    components: list[ComponentStatus] = Field(..., description="Component statuses")
-    configuration_valid: bool = Field(
-        ..., description="Configuration validation status"
-    )
-    dependencies_available: bool = Field(..., description="Dependencies availability")
-    storage_accessible: bool = Field(..., description="Storage accessibility")
-    network_connectivity: bool = Field(..., description="Network connectivity")
-    performance_acceptable: bool = Field(..., description="Performance acceptability")
-    errors: list[str] = Field(default=[], description="Diagnostic errors")
-    warnings: list[str] = Field(default=[], description="Diagnostic warnings")
-
-
 # Validators
 
 
@@ -459,9 +427,6 @@ __all__ = [
     "MetricsCollectionModel",
     # Alert models
     "AlertModel",
-    # Utility models
-    "ComponentStatus",
-    "DiagnosticsInfo",
     # Request models
     "HealthCheckRequest",
     "MetricsRequest",

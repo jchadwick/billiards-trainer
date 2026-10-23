@@ -18,7 +18,6 @@ Performance Targets:
 """
 
 import logging
-import os
 import signal
 import threading
 import time
@@ -32,11 +31,6 @@ from backend.config import Config
 from backend.perception.camera_source import (
     is_http_camera_source,
     resolve_configured_camera_source,
-)
-from backend.performance_audit import (
-    AsyncAuditRecorder,
-    AuditResourceSampler,
-    audit_domains_from_config,
 )
 from backend.video.ipc.shared_memory import FrameFormat, SharedMemoryFrameWriter
 from backend.vision.calibration.camera import CameraCalibrator, CameraParameters
@@ -70,58 +64,10 @@ class VideoProcess:
         self.camera: Optional[CameraCapture] = None
         self.ipc_writer: Optional[SharedMemoryFrameWriter] = None
         self.shutdown_event = threading.Event()
-        audit_domains = audit_domains_from_config(
-            bool(self.config.get("performance_audit.enabled", False)),
-            os.environ.get("BT_PERFORMANCE_AUDIT"),
-            state_enabled=bool(
-                self.config.get("performance_audit.state_enabled", True)
-            ),
-            trajectory_enabled=bool(
-                self.config.get("performance_audit.trajectory_enabled", False)
-            ),
-            viewers_enabled=bool(
-                self.config.get("performance_audit.viewers_enabled", False)
-            ),
-        )
-        self.audit_domains = audit_domains
-        self._audit_detail_sample_rate = self.config.get(
-            "performance_audit.detailed_event_sample_rate", 0.05
-        )
-        # Keep publication timing available in normal operation so the
-        # vision pipeline can enforce freshness without depending on wall
-        # clock synchronization or audit activation. This is software
-        # publication time, not camera exposure time.
+        # Keep software publication timing available in normal operation so
+        # downstream freshness checks do not depend on wall-clock alignment.
+        # This is frame retrieval/publication time, not sensor exposure time.
         self.capture_publication_clock = True
-        self.audit_recorder: AsyncAuditRecorder | None = None
-        self.resource_sampler: AuditResourceSampler | None = None
-        self.audit_domain = next(
-            (
-                domain
-                for domain in ("state", "trajectory", "viewers")
-                if audit_domains[domain]
-            ),
-            None,
-        )
-        if any(audit_domains.values()):
-            output_directory = self.config.get(
-                "performance_audit.output_directory", "thoughts/performance-audits"
-            )
-            self.audit_recorder = AsyncAuditRecorder(
-                Path(output_directory) / "video-process",
-                queue_capacity=self.config.get(
-                    "performance_audit.event_queue_capacity", 2048
-                ),
-                sample_rate=self.config.get("performance_audit.sample_rate", 1.0),
-                max_exported_events=self.config.get(
-                    "performance_audit.event_export_limit", 200000
-                ),
-            )
-            self.resource_sampler = AuditResourceSampler(
-                self.audit_recorder,
-                self.config.get(
-                    "performance_audit.resource_sample_interval_seconds", 1.0
-                ),
-            )
 
         # Load configuration
         self._shm_name = self.config.get("video.shared_memory_name", "billiards_video")
@@ -369,7 +315,6 @@ class VideoProcess:
                     "vision.camera.video_start_frame", 0
                 ),
                 "video_end_frame": self.config.get("vision.camera.video_end_frame"),
-                "performance_audit_enabled": self.audit_recorder is not None,
             }
 
             # Create camera capture instance
@@ -455,67 +400,14 @@ class VideoProcess:
                     continue
 
                 frame, frame_info = frame_data
-                audit_detail = bool(
-                    self.audit_recorder is not None
-                    and self.audit_domain is not None
-                    and self.audit_recorder.select_detail_sample(
-                        self.audit_domain,
-                        frame_info.frame_number,
-                        self._audit_detail_sample_rate,
-                        category="video_frame_published",
-                    )
-                )
                 self._frames_captured += 1
 
                 # Apply distortion correction if enabled
-                undistortion_started_ns = time.perf_counter_ns() if audit_detail else 0
                 processed_frame = self._undistort_frame(frame)
-                undistortion_finished_ns = time.perf_counter_ns() if audit_detail else 0
 
                 # Write frame to shared memory
-                publication_started_ns = time.perf_counter_ns() if audit_detail else 0
                 writer.write_frame(processed_frame, frame_info.frame_number)
-                publication_finished_ns = time.perf_counter_ns() if audit_detail else 0
                 self._frames_written += 1
-                if audit_detail and self.audit_recorder is not None:
-                    self.audit_recorder.record(
-                        {
-                            "event_type": "video_frame_published",
-                            "domain": self.audit_domain,
-                            "source_frame_number": frame_info.frame_number,
-                            "source_timestamp": frame_info.timestamp,
-                            "source_timestamp_kind": "camera_capture_thread_wall_time",
-                            "timestamp_semantics": (
-                                "software frame retrieval time; not sensor exposure time"
-                            ),
-                            "frame_dimensions": [
-                                int(processed_frame.shape[1]),
-                                int(processed_frame.shape[0]),
-                            ],
-                            # Queue retrieval occurs before source identity is
-                            # available for deterministic sampling. Keep that
-                            # small duration explicitly unavailable rather than
-                            # taking clocks on every polling iteration.
-                            "camera_frame_queue_retrieval_seconds": None,
-                            "camera_read_seconds": frame_info.camera_read_seconds,
-                            "camera_capture_queue_frames_skipped": (
-                                frame_info.capture_queue_frames_skipped
-                            ),
-                            "camera_capture_queue_depth_after_drain": (
-                                frame_info.capture_queue_depth_after_drain
-                            ),
-                            "camera_total_dropped_frames": camera.get_health().frames_dropped,
-                            "undistortion_seconds": max(
-                                0, undistortion_finished_ns - undistortion_started_ns
-                            )
-                            / 1e9,
-                            "shared_memory_publication_seconds": max(
-                                0,
-                                publication_finished_ns - publication_started_ns,
-                            )
-                            / 1e9,
-                        },
-                    )
 
                 # Log statistics periodically
                 current_time = time.time()
@@ -612,13 +504,7 @@ class VideoProcess:
             finally:
                 self.ipc_writer = None
 
-        if self.resource_sampler is not None:
-            self.resource_sampler.close()
-            self.resource_sampler = None
-
         logger.info("Cleanup complete")
-        if self.audit_recorder is not None:
-            self.audit_recorder.close()
 
     def _signal_handler(self, signum: int, frame: Optional[FrameType]) -> None:
         """Handle shutdown signals (SIGTERM, SIGINT).

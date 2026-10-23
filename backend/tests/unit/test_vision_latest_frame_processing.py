@@ -25,7 +25,6 @@ def _frame_record(frame_number: int) -> dict[str, Any]:
         "source_timestamp_kind": "vision_capture_fallback",
         "source_process_id": None,
         "source_publication_monotonic_ns": None,
-        "shared_memory_read_copy_seconds": None,
         "enqueued_monotonic": time.monotonic(),
     }
 
@@ -46,8 +45,6 @@ def _bare_module(frame_records: list[dict[str, Any]]) -> VisionModule:
         "detection_complete": [],
         "error_occurred": [],
     }
-    state.audit_domains = {"state": False}
-    state.audit_recorder = None
 
     def no_op_stop_capture() -> None:
         return None
