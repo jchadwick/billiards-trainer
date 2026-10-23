@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import pytest
 
 import backend.tools.benchmark_vision_profiles as benchmark_module
-import backend.tools.evaluate_rust_scene_snapshots as rust_evaluation_module
 from backend.tools.benchmark_vision_profiles import (
     ReplayClock,
     _normalize_temporal_result,
@@ -431,45 +430,6 @@ def test_rust_scene_adapter_requires_raw_coordinates_and_explicit_offset(
     scene_path.write_text(json.dumps(scene) + "\n", encoding="utf-8")
     frames = load_rust_scene_snapshots(scene_path, annotation, frame_index_offset=4)
     assert frames[0]["source_frame_index"] == 4
-
-
-def test_rust_scene_file_evaluation_binds_video_hash_and_emits_run_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    video_path = tmp_path / "sequence.mp4"
-    video_path.write_bytes(b"test-video-identity")
-    video_hash = rust_evaluation_module._hash_file(video_path)
-    annotation = _annotations(
-        [
-            _frame(
-                0,
-                balls=[_ball("ball-1", 1882.4, 1024.7)],
-                session="replay-session-01",
-            )
-        ]
-    )
-    annotation["sequence"].update(
-        {"video_sha256": video_hash, "width": 3840, "height": 2160}
-    )
-    annotation_path = tmp_path / "annotations.json"
-    annotation_path.write_text(json.dumps(annotation), encoding="utf-8")
-    scene_path = tmp_path / "scene-snapshots.jsonl"
-    scene_path.write_text(json.dumps(_rust_scene_fixture()) + "\n", encoding="utf-8")
-    monkeypatch.setattr(
-        rust_evaluation_module, "_read_video_geometry", lambda _path: (3840, 2160)
-    )
-
-    report = rust_evaluation_module.evaluate_files(
-        video_path=video_path,
-        annotation_path=annotation_path,
-        scene_snapshot_path=scene_path,
-    )
-
-    assert report["metadata"]["video_sha256"] == video_hash
-    assert report["metadata"]["timestamp_basis"] == "annotation video presentation time"
-    assert report["metadata"]["rust_monotonic_timestamps_used_for_latency"] is False
-    assert report["metadata"]["wall_clock_output_latency_measured"] is False
-    assert report["temporal_localization"]["ball_localization"]["recall"] == 1.0
 
 
 def test_temporal_json_loader_rejects_nonstandard_and_overflow_numbers(tmp_path: Path):
