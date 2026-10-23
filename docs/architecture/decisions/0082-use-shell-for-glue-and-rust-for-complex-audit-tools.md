@@ -96,22 +96,33 @@ intervals. It can emit a versioned JSON report and bounded JSONL state details.
 The command rejects URL userinfo, query strings, and fragments, and it does not
 support authentication headers or credentials.
 
-This is a state-receiver component, not a replacement for the existing
-`backend/tools/collect_performance_audit.py` workflow. Trajectory collection,
-producer timing/export analysis, process-resource sampling, configuration and
-hardware provenance, input replay orchestration, cross-run comparison,
-accuracy evaluation, and the final Markdown report remain Python-owned and are
-required parity work. The Python collector must remain until those contracts
-have Rust implementations and differential fixtures. The Rust receiver's
-real-socket tests use a loopback test peer; the new command has not yet been
-qualified against the full application process or as a performance baseline.
+The collector is still not replaced. Trajectory collection, producer
+timing/export analysis, configuration and hardware provenance, input replay
+orchestration, cross-run comparison, accuracy evaluation, and the final
+Markdown report remain Python-owned and are required parity work. The Python
+collector must remain until those contracts have Rust implementations and
+differential fixtures. The Rust receiver's real-socket tests use a loopback
+test peer; the command has not yet been qualified against the full application
+process or as a performance baseline.
+
+This slice adds optional process CPU and resident-memory sampling to the
+Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the
+observed process start-time value, respects the CPU sampler's minimum refresh
+interval, keeps a bounded tail, reports total and retained counts, and marks
+inaccessible or changed processes unavailable. The
+sampler is absent unless `--resource-process-id` is supplied. Its optional
+report section advances the receiver report to schema version 2. A thin
+`scripts/performance-audit-state.sh` wrapper locates the Rust manifest and
+passes arguments through unchanged. This does not yet remove the Python
+resource sampler in the older orchestrator.
 
 ## Verification
 
 - Rust unit and integration tests cover malformed and bounded configuration,
   rejected credential-bearing URLs, fresh/stale/repeated source identities,
   camera-session restarts, stream order and gaps, bounded retention, JSON/JSONL
-  command output, and unavailable cross-process clock comparisons.
+  command output, optional resource sampling of a real process, bounded
+  resource retention, and unavailable cross-process clock comparisons.
 - The integration test opens a real loopback WebSocket connection and exercises
   both the library API and the executable. It does not claim full gateway or
   live-model qualification.

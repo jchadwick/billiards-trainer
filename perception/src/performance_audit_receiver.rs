@@ -18,7 +18,11 @@ use tokio::time::{interval_at, sleep_until, timeout, Instant as TokioInstant, Mi
 use tokio_tungstenite::tungstenite::{protocol::WebSocketConfig, Message};
 use tokio_tungstenite::{connect_async_with_config, WebSocketStream};
 
-pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 1;
+use crate::process_resource_sampler::{
+    ProcessResourceSampler, ProcessResourceSamplerConfig, ProcessResourceSummary,
+};
+
+pub const AUDIT_REPORT_SCHEMA_VERSION: u8 = 2;
 pub const DEFAULT_MAXIMUM_MESSAGE_BYTES: usize = 1_048_576;
 pub const MAXIMUM_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SAMPLES: usize = 10_000;
@@ -31,6 +35,10 @@ pub struct StateReceiverConfig {
     pub summary_interval: Duration,
     pub maximum_message_bytes: usize,
     pub maximum_samples: usize,
+    /// Optional PID to sample on a separate worker thread. No sampler is
+    /// created unless this is explicitly configured.
+    pub resource_sample_process_id: Option<u32>,
+    pub resource_sample_interval: Duration,
 }
 
 impl Default for StateReceiverConfig {
@@ -41,6 +49,8 @@ impl Default for StateReceiverConfig {
             summary_interval: Duration::from_secs(5),
             maximum_message_bytes: DEFAULT_MAXIMUM_MESSAGE_BYTES,
             maximum_samples: DEFAULT_MAXIMUM_SAMPLES,
+            resource_sample_process_id: None,
+            resource_sample_interval: Duration::from_secs(1),
         }
     }
 }
@@ -61,6 +71,20 @@ impl StateReceiverConfig {
         }
         if !(1..=MAXIMUM_SAMPLES).contains(&self.maximum_samples) {
             bail!("maximum samples must be between 1 and {MAXIMUM_SAMPLES}");
+        }
+        if self.resource_sample_process_id == Some(0) {
+            bail!("resource sample process ID must be positive");
+        }
+        if self.resource_sample_process_id.is_some() && self.resource_sample_interval.is_zero() {
+            bail!("resource sample interval must be positive when process sampling is enabled");
+        }
+        if self.resource_sample_process_id.is_some()
+            && self.resource_sample_interval < sysinfo::MINIMUM_CPU_UPDATE_INTERVAL
+        {
+            bail!(
+                "resource sample interval must be at least {} ms for valid process CPU samples",
+                sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.as_millis()
+            );
         }
         Ok(())
     }
@@ -90,6 +114,9 @@ pub struct StateReceiverReport {
     pub timing: TimingSummary,
     pub cross_process_source_to_receipt_latency: UnavailableMeasurement,
     pub detail_retention: DetailRetention,
+    /// Present only when process sampling was explicitly enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_resources: Option<ProcessResourceSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,6 +243,16 @@ where
     config.validate()?;
     let started_at_utc = utc_now();
     let started = Instant::now();
+    let mut resource_sampler = config
+        .resource_sample_process_id
+        .map(|process_id| {
+            ProcessResourceSampler::start(ProcessResourceSamplerConfig {
+                process_id,
+                sample_interval: config.resource_sample_interval,
+                maximum_samples: config.maximum_samples,
+            })
+        })
+        .transpose()?;
     let deadline = TokioInstant::now() + config.duration;
     let mut summary_tick = interval_at(
         TokioInstant::now() + config.summary_interval,
@@ -254,12 +291,20 @@ where
     let elapsed = started.elapsed();
     let _ = socket.close(None).await;
     let finished_at_utc = utc_now();
+    let process_resources = resource_sampler
+        .as_mut()
+        .map(|sampler| {
+            sampler.stop()?;
+            Ok::<ProcessResourceSummary, anyhow::Error>(sampler.summary())
+        })
+        .transpose()?;
     Ok(accumulator.finish(
         started_at_utc,
         finished_at_utc,
         elapsed,
         termination_reason,
         config.maximum_samples,
+        process_resources,
     ))
 }
 
@@ -585,6 +630,7 @@ impl StateAccumulator {
         elapsed: Duration,
         termination_reason: &'static str,
         maximum_samples: usize,
+        process_resources: Option<ProcessResourceSummary>,
     ) -> StateReceiverOutput {
         let retained_sample_count = self.samples.len();
         let state_samples_truncated = self.counts.state_messages > retained_sample_count as u64;
@@ -649,6 +695,7 @@ impl StateAccumulator {
                 retained_state_samples: retained_sample_count,
                 state_samples_truncated,
             },
+            process_resources,
         };
         StateReceiverOutput {
             report,
@@ -796,6 +843,19 @@ mod tests {
     }
 
     #[test]
+    fn resource_sampling_is_opt_in_and_requires_valid_pid_and_cpu_interval() {
+        let mut config = StateReceiverConfig::default();
+        assert!(config.validate().is_ok());
+        config.resource_sample_process_id = Some(0);
+        assert!(config.validate().is_err());
+        config.resource_sample_process_id = Some(1);
+        config.resource_sample_interval = Duration::from_millis(1);
+        assert!(config.validate().is_err());
+        config.resource_sample_interval = sysinfo::MINIMUM_CPU_UPDATE_INTERVAL;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
     fn rejects_credentialed_fragmented_and_non_ws_urls() {
         for url in [
             "wss://localhost/state",
@@ -830,6 +890,7 @@ mod tests {
             Duration::from_secs(1),
             "peer_closed",
             2,
+            None,
         );
 
         assert_eq!(output.report.counts.state_messages, 3);
@@ -886,6 +947,7 @@ mod tests {
             Duration::from_secs(1),
             "peer_closed",
             10,
+            None,
         );
 
         assert_eq!(output.report.counts.invalid_json_messages, 1);
@@ -940,6 +1002,7 @@ mod tests {
             Duration::from_secs(1),
             "peer_closed",
             8,
+            None,
         );
         assert_eq!(
             output.report.source_observations.source_frame_sequence_gaps,
@@ -990,6 +1053,7 @@ mod tests {
             Duration::from_secs(1),
             "peer_closed",
             4,
+            None,
         );
         assert_eq!(
             output
@@ -1020,6 +1084,7 @@ mod tests {
             Duration::from_secs(1),
             "peer_closed",
             10,
+            None,
         );
         assert_eq!(
             output

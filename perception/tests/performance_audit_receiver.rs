@@ -55,6 +55,8 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         summary_interval: Duration::from_secs(1),
         maximum_message_bytes: 4096,
         maximum_samples: 16,
+        resource_sample_process_id: None,
+        resource_sample_interval: Duration::from_secs(1),
     };
     let output = connect_and_collect(&format!("ws://{address}/state"), &config)
         .await
@@ -92,6 +94,7 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         output.report.cross_process_source_to_receipt_latency.status,
         "unavailable_unverified_clock"
     );
+    assert!(output.report.process_resources.is_none());
 }
 
 #[tokio::test]
@@ -105,6 +108,7 @@ async fn command_exports_versioned_json_and_bounded_jsonl_details() {
             .send(Message::Text(state_message(1, "42").into()))
             .await
             .unwrap();
+        tokio::time::sleep(Duration::from_millis(480)).await;
         socket.close(None).await.unwrap();
     });
 
@@ -121,6 +125,10 @@ async fn command_exports_versioned_json_and_bounded_jsonl_details() {
             report_path.to_str().unwrap(),
             "--details-jsonl",
             details_path.to_str().unwrap(),
+            "--resource-process-id",
+            &std::process::id().to_string(),
+            "--resource-sample-interval-ms",
+            "200",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -138,9 +146,22 @@ async fn command_exports_versioned_json_and_bounded_jsonl_details() {
 
     let report: serde_json::Value =
         serde_json::from_slice(&fs::read(report_path).unwrap()).unwrap();
-    assert_eq!(report["report"]["schema_version"], 1);
+    assert_eq!(report["report"]["schema_version"], 2);
     assert_eq!(report["report"]["counts"]["state_messages"], 1);
     assert_eq!(report["retained_samples"].as_array().unwrap().len(), 1);
+    assert_eq!(report["report"]["process_resources"]["status"], "available");
+    assert!(
+        report["report"]["process_resources"]["sample_count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        report["report"]["process_resources"]["resident_memory_bytes"]["maximum"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
 
     let details = fs::read_to_string(details_path).unwrap();
     let samples: Vec<serde_json::Value> = details

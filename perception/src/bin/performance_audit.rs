@@ -41,6 +41,15 @@ struct Arguments {
     #[arg(long, default_value_t = DEFAULT_MAXIMUM_SAMPLES, value_parser = clap::value_parser!(usize))]
     maximum_samples: usize,
 
+    /// Optional process ID to sample for CPU and resident memory on a
+    /// dedicated worker. Disabled when omitted.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    resource_process_id: Option<u32>,
+
+    /// Sampling interval used when --resource-process-id is supplied.
+    #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(u64).range(1..))]
+    resource_sample_interval_ms: u64,
+
     /// Write the versioned report and bounded detail window as JSON. The file must not already exist.
     #[arg(long)]
     output_json: Option<PathBuf>,
@@ -73,6 +82,8 @@ async fn main() -> Result<()> {
         summary_interval: Duration::from_secs(arguments.summary_interval_seconds),
         maximum_message_bytes: arguments.maximum_message_bytes,
         maximum_samples: arguments.maximum_samples,
+        resource_sample_process_id: arguments.resource_process_id,
+        resource_sample_interval: Duration::from_millis(arguments.resource_sample_interval_ms),
     };
     config.validate()?;
     if let (Some(report), Some(details)) = (&arguments.output_json, &arguments.details_jsonl) {
@@ -120,6 +131,17 @@ fn print_final_summary(output: &StateReceiverOutput) {
         "local receive interval",
         &report.timing.local_state_receive_interval_ms,
     );
+    if let Some(resources) = &report.process_resources {
+        println!(
+            "process resources: status={} pid={} samples={} retained={} cpu-per-core-p95={:?}% rss-max={:?}B",
+            resources.status,
+            resources.process_id,
+            resources.sample_count,
+            resources.retained_sample_count,
+            resources.cpu_percent_per_core.p95,
+            resources.resident_memory_bytes.maximum,
+        );
+    }
 }
 
 fn rate(count: u64, seconds: f64) -> f64 {

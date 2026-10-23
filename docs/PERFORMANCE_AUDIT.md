@@ -33,6 +33,29 @@ This collector is a test tool, not an application service. The general API
 audit settings below describe the retained compatibility workflow; they do not
 turn on instrumentation in the supported Rust gateway.
 
+The native `billiards-performance-audit` receiver is being expanded in Rust
+one audited contract at a time. Invoke its thin shell entry point for a live
+state stream:
+
+```bash
+scripts/performance-audit-state.sh \
+  --url ws://127.0.0.1:8001/api/v1/websocket/ws \
+  --duration-seconds 120 \
+  --output-json /tmp/live-audit.json
+```
+
+To include one process's resources, add `--resource-process-id <pid>` and,
+optionally, `--resource-sample-interval-ms <milliseconds>` (default `1000`,
+minimum `200` to respect the process-CPU sampler's update interval).
+Resource sampling is opt-in, runs on its own worker thread, binds to the
+observed process start-time value, and retains no more than the configured
+sample limit. It reports per-core CPU percentage, accumulated CPU
+milliseconds, resident-memory bytes, unavailable samples, and retention loss.
+Reports with this optional section use schema version 2. This receiver slice
+does not yet replace Python's warm-up/repetition orchestration, trajectory and
+viewer measurement, provenance collection, cross-run comparisons, or Markdown
+report.
+
 | Setting | Default | Purpose |
 | --- | ---: | --- |
 | `performance_audit.enabled` | `false` | Global activation |
