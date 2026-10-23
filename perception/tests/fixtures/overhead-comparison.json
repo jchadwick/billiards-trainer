@@ -1,0 +1,153 @@
+{
+  "input": {
+    "baseline_summary": "fixture-baseline.json",
+    "budget_percent": 2.0,
+    "minimum_repetitions": 3,
+    "minimum_delivery_samples": 100,
+    "current_metadata": {
+      "revision": "revision-a",
+      "dirty_worktree_sha256": "dirty-a",
+      "host": "audit-host",
+      "platform": "platform-a",
+      "processor": "processor-a",
+      "hardware": {"logical_cpu_count": 8},
+      "effective_configuration": {
+        "camera": {},
+        "detection": {},
+        "processing": {},
+        "vision_performance": {},
+        "video": {},
+        "calibration": {},
+        "websocket_delivery": {},
+        "stream_quality": {},
+        "performance_audit": {
+          "enabled": true,
+          "state_enabled": true,
+          "trajectory_enabled": false,
+          "viewers_enabled": false,
+          "sample_rate": 1.0
+        }
+      },
+      "model": {"sha256": "model-a"},
+      "configured_video_input": {"sha256": "input-a"}
+    },
+    "baseline_metadata": {
+      "revision": "revision-a",
+      "dirty_worktree_sha256": "dirty-a",
+      "host": "audit-host",
+      "platform": "platform-a",
+      "processor": "processor-a",
+      "hardware": {"logical_cpu_count": 8},
+      "effective_configuration": {
+        "camera": {},
+        "detection": {},
+        "processing": {},
+        "vision_performance": {},
+        "video": {},
+        "calibration": {},
+        "websocket_delivery": {},
+        "stream_quality": {},
+        "performance_audit": {
+          "enabled": false,
+          "state_enabled": true,
+          "trajectory_enabled": false,
+          "viewers_enabled": false,
+          "sample_rate": 1.0
+        }
+      },
+      "model": {"sha256": "model-a"},
+      "configured_video_input": {"sha256": "input-a"}
+    },
+    "baseline_repetitions": [
+      {
+        "unique_observations_per_second": 100.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 100.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": false, "trajectory": false, "viewers": false}
+      },
+      {
+        "unique_observations_per_second": 100.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 100.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": false, "trajectory": false, "viewers": false}
+      },
+      {
+        "unique_observations_per_second": 100.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 100.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": false, "trajectory": false, "viewers": false}
+      }
+    ],
+    "current_repetitions": [
+      {
+        "unique_observations_per_second": 98.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 102.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": true, "trajectory": false, "viewers": false}
+      },
+      {
+        "unique_observations_per_second": 98.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 102.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": true, "trajectory": false, "viewers": false}
+      },
+      {
+        "unique_observations_per_second": 98.0,
+        "source_publication_to_client_receipt_ms": {"count": 100, "p95": 102.0},
+        "streams": ["state"],
+        "video_viewer": {"url": null},
+        "subscriber_delay_ms": 0.0,
+        "warmup_seconds": 30.0,
+        "requested_measured_seconds": 120.0,
+        "collector_settings": {"sample_rate": 1.0},
+        "server_audit_domains": {"state": true, "trajectory": false, "viewers": false}
+      }
+    ]
+  },
+  "expected": {
+    "baseline_summary": "fixture-baseline.json",
+    "same_revision": true,
+    "same_dirty_worktree": true,
+    "same_model_hash": true,
+    "same_input_hash": true,
+    "same_relevant_configuration": true,
+    "same_audit_configuration": true,
+    "same_collector_settings": true,
+    "same_workload": true,
+    "reference_state_only_workload": true,
+    "same_machine": true,
+    "baseline_instrumentation_off": true,
+    "current_state_audit_only": true,
+    "unique_observation_throughput_change_percent": -2.0,
+    "source_publication_to_client_receipt_p95_change_percent": 2.0,
+    "overhead_budget_percent": 2.0,
+    "enough_repetitions_and_samples": true,
+    "status": "pass",
+    "interpretation": "Instrumentation overhead is within the configured budget."
+  }
+}
