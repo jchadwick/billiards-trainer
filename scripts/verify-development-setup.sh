@@ -25,10 +25,10 @@ check_command npm
 
 if ((failures == 0)); then
     cargo metadata --locked --manifest-path perception/Cargo.toml --no-deps >/dev/null
-    if [[ -d frontend/web/node_modules ]]; then
+    if [[ -x frontend/web/node_modules/.bin/vite ]]; then
         printf '✓ Browser dependencies are installed\n'
     else
-        printf '✗ Browser dependencies are missing; run `make dev`\n' >&2
+        printf '✗ Browser build dependencies are missing; run `make dev`\n' >&2
         failures=$((failures + 1))
     fi
 fi

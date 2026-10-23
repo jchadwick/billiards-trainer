@@ -37,8 +37,9 @@ The local Rust gateway serves the browser application at
 ## Retained Python tooling
 
 Python is not part of the supported server runtime. The repository keeps Python
-for compatibility tests, dataset/calibration authoring, and optional model
-export. Those tools are opt-in:
+for compatibility/reference tests and optional ONNX model export. The removed
+dataset and legacy calibration experiments are not supported tooling. The
+remaining Python workflows are opt-in:
 
 ```bash
 make install-python-tools

@@ -61,7 +61,7 @@ help: ## Show this help message
 
 # ===== Environment Setup =====
 
-install-python-tools: python-venv ## Install Python compatibility, tests, data, and calibration tools
+install-python-tools: python-venv ## Install retained Python compatibility and reference-test dependencies
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install --upgrade pip
 	@$(PYTHON_VENV_DIR)/bin/python -m pip install -e ".[python-tooling,dev]"
 	@echo "$(GREEN)Optional Python authoring and compatibility-test dependencies installed.$(RESET)"
@@ -140,7 +140,7 @@ test-rust-camera: ## Test the production GStreamer camera feature (requires GStr
 test-web: ## Run browser client tests
 	cd frontend/web && npm test
 
-test-python: ## Run retained Python compatibility and offline model/data-tool tests
+test-python: ## Run retained Python compatibility and model-export tests
 	$(PYTHON) -m pytest
 
 test-unit: ## Run all retained Python unit/core/common tests without the full-suite coverage gate

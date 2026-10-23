@@ -4,11 +4,13 @@ on:
   push:
     branches: [main, develop]
     paths:
+      - "setup.sh"
       - "**/*.sh"
       - ".github/workflows/shell-scripts.yml"
   pull_request:
     branches: [main, develop]
     paths:
+      - "setup.sh"
       - "**/*.sh"
       - ".github/workflows/shell-scripts.yml"
   workflow_dispatch:

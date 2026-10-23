@@ -59,6 +59,10 @@ commands or baselines.
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: test fixture server | Provides an isolated local MJPEG source for capture/replay tests; it does not measure camera exposure or physical capture. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
+| Root `Makefile` | Keep the focused build/test/run/deploy interface; remove the false `install` alias and broad process kill | `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. Local builds now reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
+| `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. The release build now passes `cargo build --locked`; staging and process lifecycle still need behavioral tests beyond source-contract assertions. |
+| `.github/workflows/shell-scripts.yml` | Keep and broaden | It now syntax-checks every tracked `*.sh`, not only `scripts/**`; this is syntax coverage, not behavioral coverage or ShellCheck. |
+| Make targets for Python compatibility tests/lint | Keep as compatibility checks | The user has allowed the Python service/reference to remain for now. Do not mistake its tests for Rust runtime or live-camera qualification. |
 | `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
 | `make test-rust-camera` | Keep: production feature test | Runs the all-target Rust suite with the exact physical GStreamer source feature enabled and uses a separate Cargo target directory. `make test-all` includes it; the ordinary feature-free `make test-rust` remains usable without native GStreamer development libraries. |
 | `tools/export_high_res_model.py` | Keep: ONNX only | Creates the verified model artifact consumed by Rust; its unused CoreML branch and model-export dependency were removed under ADR-0092. |
@@ -160,7 +164,7 @@ major CSS-framework migration.
   or tests. Scikit-learn was added to the active Python tooling group because
   compatibility color calibration imports it.
 - The project now declares Python 3.10 as its minimum because the retained
-  ONNX Runtime dependency no longer resolves for Python 3.9. The heavy model
+  ONNX Runtime dependency no longer resolves for Python 3.9. The heavy ONNX
   exporter stack is an explicit extra and install target; the retired dataset
   merger no longer motivates a Python tooling install path.
 - The model exporter now emits ONNX only. The CoreML package branch had no
@@ -175,11 +179,22 @@ major CSS-framework migration.
 
 ## Gaps and follow-up priorities
 
-1. Measure browser/video-viewer interference separately. Current live audit
+1. Collect reviewed temporal labels with independently surveyed table-space
+   positions, then run the Rust evaluator. The current tests prove evaluator
+   semantics but there is no representative truth set and no production
+   localization-accuracy result.
+2. Add hardware-free process-level smoke tests for the maintained audit,
+   replay, temporal-evaluate, and CVAT-import CLIs. Their libraries and CLI
+   parsers are tested, but the complete command-to-artifact paths are not all
+   invoked from CI.
+3. Add an isolated staged-bundle smoke for deploy/run/update. Existing checks
+   validate script contracts and shell syntax, not packaging rollback, PID
+   ownership, or real startup/shutdown behavior.
+4. Measure browser/video-viewer interference separately. Current live audit
    receipts do not represent browser rendering or physical display latency.
-2. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+5. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
-3. The checked-in `config.json` selects the legacy `.mlpackage` under Python
+6. The checked-in `config.json` selects the legacy `.mlpackage` under Python
    vision settings, has no explicit `perception.rust_live` ONNX/checkpoint
    paths, and points at a missing `assets/demo3.mp4`; its integer camera ID is
    not a qualified GStreamer source. A valid 1280 ONNX export and matching
@@ -187,11 +202,11 @@ major CSS-framework migration.
    (`cue=0`, `ball=1`). The local Rust model smoke test loads that export, but
    the product launcher still needs an effective capture/model configuration
    before live startup is testable.
-4. The Python calibration-bundle helper has test callers but no live Rust
+7. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
    calibration schema and Rust-consumed fixture.
-5. The offline Python compatibility detector still contains CoreML loading
+8. The offline Python compatibility detector still contains CoreML loading
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
@@ -224,7 +239,7 @@ path remain untested.
 - Frontend npm audit: zero vulnerabilities for both the full locked dependency
   tree and the production-only dependency tree.
 - Production build: `make build` passed for the browser client and Rust runtime.
-- Model-export utility tests: 7 passed, including lazy optional dependency
+- Model-export utility tests: 6 passed, including lazy optional dependency
   loading and the actionable missing-Ultralytics path.
 - Public-state fixture generator: 35 differential cases generated.
 - `uv lock --check`, Docker Compose configuration, Make help output, supported
@@ -300,3 +315,18 @@ path remain untested.
   model-dependent skips at 82.55% coverage; `make lint format-check` and
   `make build` also passed. The release CLI smoke does not represent a live
   receipt-latency measurement.
+- The second pass removed the no-op `make install` alias and the global process
+  killer from `make run`, kept local browser dependency installation out of
+  each build, and made release packaging use `cargo build --locked`. Exporter
+  examples no longer pass an unsupported `--format` flag or advertise CoreML.
+  Shell CI now checks all 13 tracked shell scripts. The focused deployment
+  contract passed 10 tests with coverage disabled for that isolated run, the
+  browser production build passed, and the corrected exporter `--help` output
+  matches its documented options. A focused pytest invocation with the default
+  full-suite coverage gate first failed at 0% coverage; rerunning the same tests
+  without that unrelated gate passed all 10.
+- The retained Python install/test descriptions now match the actual surface:
+  compatibility/reference tests and ONNX export, with no bundled dataset
+  preparation or supported legacy calibration CLI. Development setup now checks
+  for Vite itself, the dependency required by `make build-frontend`, instead of
+  accepting any `node_modules` directory. The setup verifier passed on this Mac.
