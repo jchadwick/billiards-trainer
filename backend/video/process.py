@@ -1,20 +1,9 @@
-"""Video Module Process - Standalone video capture process.
+"""Legacy Python capture implementation retained for compatibility tests.
 
-This module runs as a separate OS process to capture video frames and write them
-to shared memory for consumption by the Vision Module and API streaming endpoints.
-
-Architecture:
-    - Runs as independent process (python -m backend.video)
-    - Captures video frames using CameraCapture
-    - Writes frames to shared memory using SharedMemoryFrameWriter
-    - Provides clean shutdown with resource cleanup
-    - Handles signals (SIGTERM, SIGINT) gracefully
-
-Performance Targets:
-    - 30 FPS sustained capture rate
-    - <5ms write latency to shared memory
-    - <10% CPU usage
-    - Stable memory usage (~20MB)
+The supported application uses the Rust camera owner and bounded latest-frame
+capture path. This implementation's historical FPS, CPU, and shared-memory
+targets do not describe or qualify the Rust runtime. ``python -m backend.video``
+is intentionally retired; see ``backend/video/README.md`` for the boundary.
 """
 
 import logging
@@ -41,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoProcess:
-    """Main orchestrator for Video Module process.
+    """Main orchestrator for the offline Python compatibility implementation.
 
     This class manages the video capture lifecycle:
     1. Initialize camera from config

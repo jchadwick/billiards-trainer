@@ -149,6 +149,8 @@ def test_start_translates_attach_timeout_and_preserves_cause(
 
     assert error.value.__cause__ is timeout
     assert consumer.is_running is False
+    assert "Rust runtime does not publish this protocol" in str(error.value)
+    assert "python -m backend.video" not in str(error.value)
 
 
 def test_start_translates_other_attach_failures(
@@ -160,12 +162,17 @@ def test_start_translates_other_attach_failures(
 
     with pytest.raises(
         VideoModuleNotAvailableError,
-        match="Failed to attach to shared memory 'broken_segment': permission denied",
+        match=(
+            "Failed to attach to legacy Python shared memory "
+            "'broken_segment': permission denied"
+        ),
     ) as error:
         consumer.start()
 
     assert isinstance(error.value.__cause__, OSError)
     assert consumer.is_running is False
+    assert "Rust runtime does not publish this protocol" in str(error.value)
+    assert "python -m backend.video" not in str(error.value)
 
 
 def test_frame_reads_require_started_consumer() -> None:

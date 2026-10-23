@@ -1,7 +1,6 @@
-"""VideoConsumer - Simplified wrapper around SharedMemoryFrameReader for Vision Module.
+"""Legacy Python shared-memory consumer retained for compatibility tests.
 
-This module provides a clean interface for the Vision Module to consume video frames
-from the Video Module via shared memory IPC.
+It does not consume frames from the supported Rust camera pipeline.
 """
 
 import logging
@@ -16,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class VideoModuleNotAvailableError(Exception):
-    """Raised when Video Module is not available or shared memory cannot be attached."""
+    """Raised when a legacy Python shared-memory source cannot be attached."""
 
     pass
 
@@ -24,9 +23,9 @@ class VideoModuleNotAvailableError(Exception):
 class VideoConsumer:
     """Wraps SharedMemoryFrameReader with simplified interface and error handling.
 
-    This class provides a clean interface for the Vision Module to consume frames
-    from shared memory. It handles connection errors gracefully and provides clear
-    error messages if the Video Module is not running.
+    This compatibility class reads the old Python-only shared-memory protocol.
+    The Rust runtime does not publish that protocol, so starting the supported
+    application cannot satisfy this consumer.
 
     Usage:
         consumer = VideoConsumer()
@@ -63,7 +62,7 @@ class VideoConsumer:
     def start(self) -> None:
         """Attach to Video Module's shared memory.
 
-        This will wait for the shared memory segment to be created by the Video Module.
+        Wait for a legacy Python producer to create its shared-memory segment.
 
         Raises:
             VideoModuleNotAvailableError: If Video Module is not running or shared
@@ -86,17 +85,19 @@ class VideoConsumer:
 
         except TimeoutError as e:
             error_msg = (
-                f"Video Module not available. Is it running?\n"
-                f"Start with: python -m backend.video\n"
-                f"Shared memory segment '{self._shm_name}' not found within {self._attach_timeout}s timeout."
+                "Legacy Python shared-memory source is unavailable; the Rust "
+                "runtime does not publish this protocol. "
+                f"Shared memory segment '{self._shm_name}' not found within "
+                f"{self._attach_timeout}s timeout. See backend/video/README.md."
             )
             logger.error(error_msg)
             raise VideoModuleNotAvailableError(error_msg) from e
 
         except Exception as e:
             error_msg = (
-                f"Failed to attach to shared memory '{self._shm_name}': {e}\n"
-                f"Ensure Video Module is running: python -m backend.video"
+                f"Failed to attach to legacy Python shared memory "
+                f"'{self._shm_name}': {e}. The Rust runtime does not publish "
+                "this protocol; see backend/video/README.md."
             )
             logger.error(error_msg)
             raise VideoModuleNotAvailableError(error_msg) from e

@@ -118,6 +118,10 @@ major CSS-framework migration.
 - The one-image ball-grid distortion experiment. Its guide reported roughly
   360 px RMS and coefficients at clamp limits, which is not acceptable evidence
   for camera correction or precise ball positions.
+- The unreferenced Python video distortion-correction guide. It documented
+  inactive settings and unqualified timing values for a retired launcher; the
+  Python implementation remains only as offline compatibility code, and the
+  supported Rust capture path has its own explicit calibration contract.
 - The `nokhwa` compile-only camera spike and CI leg. It tested dependency
   compilation only and was never a capture adapter.
 - The Rust detection-batch loopback receiver, still-image TCP producer option,

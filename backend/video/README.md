@@ -6,11 +6,10 @@ Rust capture helper. The old command `python -m backend.video` now exits with a
 message directing users to `make run`.
 
 The Python `VideoProcess`, shared-memory structures, and associated helpers
-remain in the repository only where offline compatibility tests and migration
-comparisons still use them. They are not copied into the Docker image or local
-Rust distribution. The older distortion-correction document in this directory
-describes a Python-only implementation; its settings are not active Rust
-configuration and its examples do not describe current camera behavior.
+remain in the repository only for offline compatibility tests and migration
+comparisons. They are not copied into the Docker image or local Rust
+distribution. Their timing and distortion-correction behavior is not evidence
+about the supported Rust capture path.
 
 ## Supported application commands
 

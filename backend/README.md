@@ -2,9 +2,9 @@
 
 > **Runtime status:** The supported application server and live localization
 > process are Rust. This directory contains Python modules retained for
-> migration reference, tests, model export, dataset preparation, calibration
-> authoring, and other off-device tools; it is not launched by the supported app
-> runtime. The browser remains a standard HTML/CSS/JavaScript application.
+> migration reference, offline tests, and optional ONNX model export; it is not
+> launched by the supported app runtime. The browser remains a standard
+> HTML/CSS/JavaScript application.
 > Start the Rust app with `make run`; see the root README and
 > [`perception/README.md`](../perception/README.md) for current runtime details.
 
