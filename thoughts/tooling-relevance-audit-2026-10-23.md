@@ -55,6 +55,7 @@ commands or baselines.
 | Tool | Disposition | Evidence and boundary |
 | --- | --- | --- |
 | `scripts/deploy/build-dist.sh`, `run.sh`, `update.sh` | Keep | The Make/deployment path builds and launches the current Rust runtime; the local deployment tests reject legacy executables. |
+| Docker/Compose image and Make targets | Keep as a separate optional Linux gateway/network-source lane | The image builds the Rust runtime and Compose defaults to gateway-only mode. The service has no physical camera device mapping, and CI builds but does not start the image or exercise its health check. It is not physical-camera qualification or a substitute for native macOS packaging. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
 | `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG and restarts for a reconnecting client. It can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
@@ -76,6 +77,7 @@ commands or baselines.
 | React Query, TanStack devtools, Chart.js, `web-vitals`, Tailwind/PostCSS, and duplicate scripts | Retired | No imports or application consumers remained after the client was reduced to `/live`; explicit CSS replaces the utility framework. The earlier forms-plugin note was stale: no plugin remained in the active config or dependency manifest. |
 | Browser E2E against real Rust state plus MJPEG | Gap; not represented by unit tests | The retained tests use controlled stream/socket inputs. Add a focused browser smoke test when an owned local integration fixture exists. |
 | Browser CI | Keep: focused workflow | `.github/workflows/web.yml` triggers on `frontend/web/**` and runs locked dependency install, Vitest, TypeScript typecheck, and production build. It does not claim real-browser or live-camera E2E coverage. |
+| `npm run preview` | Retired | No repository workflow called it, and Vite preview served only the static bundle without the Rust API needed by `/live`; keep `npm run dev` for frontend work and `make run` for the integrated application. |
 
 The locked browser dependency tree reports **zero npm audit vulnerabilities** in
 both production and development dependencies. Retiring the vulnerable Tailwind
@@ -200,6 +202,9 @@ major CSS-framework migration.
   `make install-model-tools` for the retained model-export workflow.
 - The unreferenced `frontend/web/Dockerfile.dev`, which had no Make, Compose,
   CI, or documented workflow caller and used an unlocked dependency install.
+- The unused `frontend/web` `preview` script, which served built static files
+  without the Rust API required by `/live` and had no documented or automated
+  caller.
 - The orphaned `backend/HEALTH_MONITORING.md`, whose test command referenced a
   deleted file and described the retired Python deployment. Current runtime
   health evidence belongs to the Rust gateway contracts.
@@ -210,18 +215,23 @@ major CSS-framework migration.
    positions, then run the Rust evaluator. The current tests prove evaluator
    semantics but there is no representative truth set and no production
    localization-accuracy result.
-2. Add hardware-free process-level smoke tests for the maintained audit,
-   replay, temporal-evaluate, and CVAT-import CLIs. Their libraries and CLI
-   parsers are tested, but the complete command-to-artifact paths are not all
-   invoked from CI.
+2. Add hardware-free process-level smoke tests for the live performance-audit
+   and recorded-video replay CLIs. The CVAT importer and temporal evaluator
+   now have a real-process workflow test that passes importer output to the
+   evaluator and checks the generated localization report; the live-audit and
+   replay commands still lack equivalent command-to-artifact tests.
 3. Add an isolated staged-bundle smoke for deploy/run/update. Existing checks
    validate script contracts and shell syntax, not packaging rollback, PID
    ownership, or real startup/shutdown behavior.
-4. Measure browser/video-viewer interference separately. Current live audit
+4. Add a Docker/Compose runtime smoke if this optional deployment lane is
+   retained. CI currently verifies image construction only; there is no
+   container startup/API health check, and Compose does not pass through a
+   physical camera.
+5. Measure browser/video-viewer interference separately. Current live audit
    receipts do not represent browser rendering or physical display latency.
-5. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+6. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
-6. The checked-in `config.json` still selects the legacy `.mlpackage` under
+7. The checked-in `config.json` still selects the legacy `.mlpackage` under
    Python vision settings, points at missing `assets/demo3.mp4`, and uses an
    integer camera ID that is not a qualified GStreamer source. It has not been
    qualified as the product launcher config. The Rust live path is now
@@ -230,14 +240,19 @@ major CSS-framework migration.
    valid 1280 ONNX export and matching manifest exist in the external model
    repository, with two classes (`cue=0`, `ball=1`). Migrating the checked-in
    default config and qualifying its physical source remain open.
-7. The Python calibration-bundle helper has test callers but no live Rust
+8. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
    calibration schema and Rust-consumed fixture.
-8. The offline Python compatibility detector still contains CoreML loading
+9. The offline Python compatibility detector still contains CoreML loading
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
+
+The retired `frontend/projector/love.js` packager is absent from the tracked
+repository, but this developer checkout still has an ignored nested Git
+repository at that path with local changes. It was not altered during this
+review because it is independent checkout data, not a root-repository tool.
 
 ## Follow-up validation (2026-10-23)
 
@@ -280,10 +295,11 @@ dataset experiments are not required to run or verify the Rust live path.
 
 These results do not close the remaining tool and system gaps: temporal
 accuracy labels; a physical Linux webcam and hardware-provider qualification;
-viewer interference; the 20-minute memory run; and the offline compatibility
-detector's remaining CoreML branch. The shared Rust replay/evaluator workflows
-remain useful, but their complete CLI artifact paths still need hardware-free
-process-level tests in CI.
+viewer interference; and the offline compatibility detector's remaining
+CoreML branch. The 20-minute state/memory soak is complete, while its bounded
+timing trace is intentionally partial after reaching retention limits. The
+shared live-audit and replay CLIs still need hardware-free command-to-artifact
+tests; the importer-to-evaluator process workflow now has that coverage.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
@@ -429,3 +445,22 @@ path remain untested.
   perception, and supervised GStreamer capture binaries. These checks establish
   build and contract integrity, not physical-camera qualification, detector
   accuracy, or browser-rendering latency.
+
+### Tool inventory follow-up (2026-10-23)
+
+- The actual temporal-import CLI now feeds its generated annotation file into
+  the actual temporal-evaluate CLI in a hardware-free process test. It checks
+  annotation identity/contents, stdout and report-file agreement, and exact
+  matched/false-positive/false-negative counts. The targeted integration test
+  passed; process-level artifact coverage for video replay and the live audit
+  remains open.
+- Removed the unused Vite `preview` package script after confirming it served
+  only static assets and had no repository caller. Frontend unit tests (16),
+  TypeScript typecheck, and the production Vite build passed after removal.
+- The inventory now includes Docker/Compose as an optional Linux gateway and
+  network-source lane. CI builds the image but does not start it, and Compose
+  does not map through a physical camera; do not use it as camera qualification.
+- A separate inventory check confirmed the retired `love.js` packager is not
+  tracked or registered by the root repository. An ignored nested checkout
+  with local modifications remains on this developer machine and was left
+  untouched.
