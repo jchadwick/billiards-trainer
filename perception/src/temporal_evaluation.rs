@@ -2320,7 +2320,7 @@ mod tests {
             &output_script,
             Path::new("unused-video"),
             0,
-            Duration::from_secs(1),
+            Duration::from_secs(5),
         )
         .unwrap_err();
         assert!(error.to_string().contains("bounded output size"));

@@ -242,8 +242,10 @@ path remain untested.
   `make test-all` passed 306 Rust library tests, all Rust binary/integration
   targets, 16 browser tests, and 2,837 Python compatibility tests with two
   model-dependent skips; backend coverage remained 82.55%. The isolated local
-  deployment-policy check passed all 10 tests. Lua coordinate checks, Lua
+  deployment-policy check passed all 10 tests. A parallel-load-sensitive Rust
+  ffprobe fixture timeout was raised from one to five seconds; its separate
+  explicit timeout assertion remains, and `make test-rust` passes all targets.
+  Lua coordinate checks, Lua
   syntax checks, shell syntax checks, whitespace validation, and the 91-record
-  ADR validation passed. The first Rust suite attempt had one intermittent
-  ffprobe output-bound assertion failure; the isolated test and full rerun both
-  passed.
+  ADR validation passed. The isolated ffprobe-bound test and subsequent full
+  Rust and repository suites passed.
