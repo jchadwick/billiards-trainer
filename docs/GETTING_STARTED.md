@@ -9,21 +9,26 @@ JavaScript application built from `frontend/web`.
 - Rust toolchain with Cargo
 - Node.js and npm
 - GNU Make
-- GStreamer development and runtime packages for the default camera-enabled
-  Rust build
+- GStreamer 1.x development files discoverable through `pkg-config` to build
+  camera-enabled Rust binaries, plus the matching runtime and camera provider
+  plugins to use a physical camera
 
-Install the prerequisites with your operating system's package manager. The
-setup script does not install system packages or create a Python environment.
+Install system prerequisites with your operating system's package manager.
+`make dev` does not install system packages or create a Python environment. It
+prints a warning when GStreamer development files are unavailable; the
+default non-camera development setup can still complete, but camera-enabled
+builds and physical-camera capture require the GStreamer components above.
 
 ## Setup and run
 
 ```bash
-./setup.sh
+make dev
 ```
 
-The script fetches Rust dependencies, installs the locked browser dependencies,
-and checks the development toolchain. Prepare `config.json` with the verified
-model paths and capture settings, then run:
+This fetches locked Rust dependencies, installs the locked browser dependencies,
+creates the local data/log/temp directories, and verifies the required Rust and
+browser toolchain. Prepare `config.json` with the verified model paths and
+capture settings, then run:
 
 ```bash
 make test

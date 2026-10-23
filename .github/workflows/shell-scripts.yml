@@ -4,7 +4,6 @@ on:
   push:
     branches: [main, develop]
     paths:
-      - "setup.sh"
       - "**/*.sh"
       - ".githooks/**"
       - "Makefile"
@@ -12,7 +11,6 @@ on:
   pull_request:
     branches: [main, develop]
     paths:
-      - "setup.sh"
       - "**/*.sh"
       - ".githooks/**"
       - "Makefile"

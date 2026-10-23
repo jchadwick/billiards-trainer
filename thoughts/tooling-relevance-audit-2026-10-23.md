@@ -25,6 +25,7 @@ commands or baselines.
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retired | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retired | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
+| Root `setup.sh` bootstrap wrapper | Retired in follow-up | It only preflighted commands and delegated to `make dev`, which already fetches Rust and browser dependencies, creates local directories, and runs `scripts/verify-development-setup.sh`. Getting Started now documents `make dev` directly; tracked-script CI still checks every remaining shell script. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; its fake-FFmpeg smoke test checks listener exit/restart and child shutdown, not real HTTP client disconnect or multipart decoding. It does not simulate camera exposure, driver buffering, or a physical camera. |
 | `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Overwrite restores the previous model/manifest pair if either staged promotion fails. The exporter and Rust loader consume the same v1 manifest fixture, and Rust rejects unknown schema versions. Export alone does not establish runtime parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
@@ -213,7 +214,8 @@ major CSS-framework migration.
   actual Core/WebSocket delivery counters and REST health data remain.
 - The unused root and vision-specific pip requirement manifests, an unused
   deployment backup utility, a TPU diagnostic for the old Python detector, and
-  redundant deployment/setup aliases.
+  redundant deployment/setup aliases. The root `setup.sh` wrapper was removed
+  after confirming that it duplicated `make dev` and its setup verifier.
 - Unused graphics, hot-reload, scikit-image, Numba, SQLAlchemy, email-validation,
   and pytest-mock dependencies found in manifests without corresponding imports
   or tests. Scikit-learn was added to the active Python tooling group because
