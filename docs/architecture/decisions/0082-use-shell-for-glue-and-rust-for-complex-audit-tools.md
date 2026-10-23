@@ -100,8 +100,9 @@ The receiver now negotiates the retained API's welcome and explicit state
 subscription protocol, sends its JSON application heartbeat independently of
 WebSocket control frames, and still accepts the Rust gateway's immediate
 push-style state stream. Loopback real-socket tests exercise both contracts;
-qualification against a running application remains outstanding. The
-heartbeat defaults to 20 seconds and is configurable on the Rust CLI.
+qualification against a running application has now completed against the
+Rust gateway. The heartbeat defaults to 20 seconds and is configurable on the
+Rust CLI.
 The version-4 report distinguishes unique observed source frames from repeated
 state publication, counts complete and uncorrelated messages, normalizes
 component observation statuses, and detects bounded source gaps, restarts,
@@ -117,12 +118,39 @@ measurement and report logic in Rust. Loopback integration tests exercise
 multiple actual WebSocket sessions, report/detail output, and explicit failure
 artifacts.
 
+The same Rust runner can now manage a local application-server child through
+the `--server-executable` and repeated `--server-argument` options. It accepts
+only loopback state URLs in this mode, probes until it receives an individual
+state containing both a fresh observation identity and observed ball
+positions, and does not begin warm-up or measurements before that gate. A child
+exit during the audit fails the run. On success, timeout, or receive failure,
+the runner sends `SIGTERM`, waits for the configured grace period, force-stops
+only if necessary, and reaps the child. Schema version 2 records executable
+path, PID, an argument digest, readiness timing and probe count, the first
+observed frame identity, and shutdown outcome without copying raw arguments
+into the report. The new thin `scripts/performance-audit-live.sh` builds the
+runner, gateway, live detector, and GStreamer capture helper with the explicit
+source feature, then forwards gateway arguments without shell evaluation.
+Real loopback tests cover a failed observation before
+readiness, successful repeated measurements, startup timeout, failure
+artifacts, and child cleanup. A live run against the configured remote MJPEG
+input verified the complete managed-server path on the development Mac. In a
+five-second smoke window, the receiver recorded 43 complete state messages,
+42 fresh unique observed frames, and no WebSocket message-sequence gaps. The
+source frame counter had three gaps totaling nine skipped frame IDs. The state-receipt
+interval p50/p95/p99 was 101/201/386 ms; the producer-reported
+read-completion-to-publication age was 95.9/97.6/98.3 ms. Startup took 3.85 s
+and the gateway exited cleanly. This short run confirms integration only; it
+is not a performance baseline or an accuracy qualification. The first attempt
+exposed a stale supervisor CLI contract for frame preview, which is now fixed
+and covered by configuration/argument tests.
+
 The Python collector is still not replaced. Its generic compatibility mode,
-trajectory collection, server event-window joins, input replay, baseline
-selection, and Rust live-camera qualification remain Python-owned migration
-work. The state-only Rust runner has loopback protocol coverage but has not yet
-been qualified against the full application process or as a performance
-baseline. Accuracy remains unavailable without temporal labels.
+trajectory collection, viewer workload, server event-window joins, baseline
+selection, and full camera-profile provenance remain Python-owned migration
+work. The Rust runner now owns managed full-server lifecycle for state-only
+audits and has both loopback protocol coverage and a remote-input smoke check.
+Accuracy remains unavailable without temporal labels.
 
 This slice adds optional process CPU and resident-memory sampling to the
 Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the

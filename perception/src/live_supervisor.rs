@@ -7,7 +7,7 @@
 //! failures visible as not-ready state without putting Python in the service
 //! process tree.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -240,61 +240,7 @@ impl LiveProcessConfig {
             push_value_argument(&mut arguments, live, key, argument)?;
         }
 
-        if required_bool(live, "frame_preview_enabled")? {
-            for (key, argument) in [
-                ("frame_preview_bind_address", "frame-preview-bind-address"),
-                ("frame_preview_port", "frame-preview-port"),
-                (
-                    "frame_preview_max_header_bytes",
-                    "frame-preview-max-header-bytes",
-                ),
-                (
-                    "frame_preview_max_jpeg_bytes",
-                    "frame-preview-max-jpeg-bytes",
-                ),
-                (
-                    "frame_preview_max_concurrent_encodes",
-                    "frame-preview-max-concurrent-encodes",
-                ),
-                ("frame_preview_jpeg_quality", "frame-preview-jpeg-quality"),
-                (
-                    "frame_preview_request_timeout_ms",
-                    "frame-preview-request-timeout-ms",
-                ),
-                (
-                    "frame_preview_write_timeout_ms",
-                    "frame-preview-write-timeout-ms",
-                ),
-            ] {
-                push_value_argument(&mut arguments, live, key, argument)?;
-            }
-            if required_bool(live, "frame_preview_calibration_control_enabled")? {
-                push_config_argument(
-                    &mut arguments,
-                    live,
-                    "frame_preview_calibration_store_path",
-                    "frame-preview-calibration-store-path",
-                    &project_root,
-                    true,
-                )?;
-                for (key, argument) in [
-                    (
-                        "frame_preview_calibration_store_lock_timeout_ms",
-                        "frame-preview-calibration-store-lock-timeout-ms",
-                    ),
-                    (
-                        "frame_preview_calibration_store_max_file_bytes",
-                        "frame-preview-calibration-store-max-file-bytes",
-                    ),
-                    (
-                        "frame_preview_calibration_max_request_bytes",
-                        "frame-preview-calibration-max-request-bytes",
-                    ),
-                ] {
-                    push_value_argument(&mut arguments, live, key, argument)?;
-                }
-            }
-        }
+        append_frame_preview_arguments(&mut arguments, live, &project_root)?;
 
         let graceful_stop_timeout = Duration::from_millis(seconds_as_milliseconds(required_f64(
             live,
@@ -404,6 +350,87 @@ impl LiveProcessConfig {
         drop(stdin);
         Ok(child)
     }
+}
+
+/// Translate gateway frame-preview settings into the detector's actual CLI
+/// contract. Configuration stores the listener address and port separately,
+/// while the detector accepts one SocketAddr in `--frame-preview-tcp`.
+fn append_frame_preview_arguments(
+    arguments: &mut Vec<String>,
+    live: &serde_json::Map<String, Value>,
+    project_root: &Path,
+) -> Result<(), String> {
+    if !required_bool(live, "frame_preview_enabled")? {
+        return Ok(());
+    }
+
+    let bind_address = required_string(live, "frame_preview_bind_address")?
+        .parse::<IpAddr>()
+        .map_err(|error| format!("frame-preview bind address is invalid: {error}"))?;
+    if !bind_address.is_loopback() {
+        return Err("frame-preview bind address must be loopback".to_owned());
+    }
+    let port = u16::try_from(required_u64(live, "frame_preview_port")?)
+        .map_err(|error| format!("frame-preview port is invalid: {error}"))?;
+    push_argument(
+        arguments,
+        "frame-preview-tcp",
+        SocketAddr::new(bind_address, port).to_string(),
+    );
+
+    for (key, argument) in [
+        (
+            "frame_preview_max_header_bytes",
+            "frame-preview-max-header-bytes",
+        ),
+        (
+            "frame_preview_max_jpeg_bytes",
+            "frame-preview-max-jpeg-bytes",
+        ),
+        (
+            "frame_preview_max_concurrent_encodes",
+            "frame-preview-max-concurrent-encodes",
+        ),
+        ("frame_preview_jpeg_quality", "frame-preview-jpeg-quality"),
+        (
+            "frame_preview_request_timeout_ms",
+            "frame-preview-request-timeout-ms",
+        ),
+        (
+            "frame_preview_write_timeout_ms",
+            "frame-preview-write-timeout-ms",
+        ),
+    ] {
+        push_value_argument(arguments, live, key, argument)?;
+    }
+
+    if required_bool(live, "frame_preview_calibration_control_enabled")? {
+        push_config_argument(
+            arguments,
+            live,
+            "frame_preview_calibration_store_path",
+            "frame-preview-calibration-store-path",
+            project_root,
+            true,
+        )?;
+        for (key, argument) in [
+            (
+                "frame_preview_calibration_store_lock_timeout_ms",
+                "frame-preview-calibration-store-lock-timeout-ms",
+            ),
+            (
+                "frame_preview_calibration_store_max_file_bytes",
+                "frame-preview-calibration-store-max-file-bytes",
+            ),
+            (
+                "frame_preview_calibration_max_request_bytes",
+                "frame-preview-calibration-max-request-bytes",
+            ),
+        ] {
+            push_value_argument(arguments, live, key, argument)?;
+        }
+    }
+    Ok(())
 }
 
 struct CaptureSource {
@@ -658,6 +685,80 @@ mod tests {
             .contains(&"--capture-settings-stdin".to_owned()));
         assert!(config.arguments.contains(&"--onnx".to_owned()));
         assert!(config.arguments.contains(&"--source-checkpoint".to_owned()));
+    }
+
+    #[test]
+    fn frame_preview_arguments_match_live_detector_cli_contract() {
+        let project = tempfile::tempdir().unwrap();
+        let mut configuration = remote_stream_config();
+        configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(true);
+        let config = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+        let arguments = config.arguments;
+
+        assert!(arguments
+            .windows(2)
+            .any(|pair| pair == ["--frame-preview-tcp", "127.0.0.1:0"]));
+        assert!(arguments
+            .windows(2)
+            .any(|pair| { pair == ["--frame-preview-max-header-bytes", "8192"] }));
+        assert!(arguments
+            .windows(2)
+            .any(|pair| { pair == ["--frame-preview-max-jpeg-bytes", "4194304"] }));
+        assert!(arguments
+            .windows(2)
+            .any(|pair| { pair == ["--frame-preview-max-concurrent-encodes", "1"] }));
+        assert!(arguments
+            .windows(2)
+            .any(|pair| { pair == ["--frame-preview-calibration-max-request-bytes", "65536"] }));
+        assert!(!arguments.iter().any(|argument| {
+            argument == "--frame-preview-bind-address" || argument == "--frame-preview-port"
+        }));
+    }
+
+    #[test]
+    fn disabled_frame_preview_adds_no_preview_arguments() {
+        let project = tempfile::tempdir().unwrap();
+        let mut configuration = remote_stream_config();
+        configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(false);
+        let config = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        assert!(!config
+            .arguments
+            .iter()
+            .any(|argument| argument.starts_with("--frame-preview-")));
+    }
+
+    #[test]
+    fn frame_preview_rejects_non_loopback_listener_address() {
+        let project = tempfile::tempdir().unwrap();
+        let mut configuration = remote_stream_config();
+        configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(true);
+        configuration["perception"]["rust_live"]["frame_preview_bind_address"] =
+            Value::String("0.0.0.0".to_owned());
+        let error = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            project.path(),
+            "127.0.0.1:49321".parse().unwrap(),
+            None,
+            None,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("frame-preview bind address must be loopback"));
     }
 
     #[test]

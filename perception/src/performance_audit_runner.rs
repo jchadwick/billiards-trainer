@@ -10,8 +10,9 @@
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
@@ -29,7 +30,7 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 1;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 2;
 const MAXIMUM_REPETITIONS: usize = 1_000;
 
 /// Settings for one repeatable state-only collection workflow.
@@ -43,12 +44,56 @@ pub struct StateAuditRunConfig {
     pub soak_duration: Duration,
     pub output_root: PathBuf,
     pub receiver: StateReceiverConfig,
+    /// Optional application server child. Its first observed localization
+    /// gates warm-up and measurements, and the child is always reaped before
+    /// this command exits.
+    pub managed_server: Option<ManagedServerConfig>,
+}
+
+/// Launch and lifecycle limits for a locally managed Rust application server.
+#[derive(Debug, Clone)]
+pub struct ManagedServerConfig {
+    pub executable: PathBuf,
+    pub arguments: Vec<String>,
+    pub working_directory: Option<PathBuf>,
+    pub startup_timeout: Duration,
+    pub readiness_probe_interval: Duration,
+    pub shutdown_timeout: Duration,
+}
+
+impl ManagedServerConfig {
+    fn validate(&self, url: &str) -> Result<()> {
+        if self.executable.as_os_str().is_empty() {
+            bail!("managed server executable must not be empty");
+        }
+        if self.startup_timeout.is_zero() {
+            bail!("managed server startup timeout must be positive");
+        }
+        if self.readiness_probe_interval.is_zero() {
+            bail!("managed server readiness probe interval must be positive");
+        }
+        if self.shutdown_timeout.is_zero() {
+            bail!("managed server shutdown timeout must be positive");
+        }
+        if let Some(directory) = &self.working_directory {
+            if !directory.is_dir() {
+                bail!(
+                    "managed server working directory is not a directory: {}",
+                    directory.display()
+                );
+            }
+        }
+        validate_loopback_websocket_url(url)
+    }
 }
 
 impl StateAuditRunConfig {
     pub fn validate(&self) -> Result<()> {
         validate_websocket_url(&self.url)?;
         self.receiver.validate()?;
+        if let Some(server) = &self.managed_server {
+            server.validate(&self.url)?;
+        }
         if self.measured.is_zero() {
             bail!("measured duration must be positive");
         }
@@ -94,7 +139,38 @@ pub struct StateAuditRunReport {
     pub input: InputMetadata,
     pub warmup: Option<WarmupSummary>,
     pub measured_runs: Vec<MeasuredRunReference>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_server: Option<ManagedServerRunMetadata>,
     pub limitations: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagedServerRunMetadata {
+    pub executable: String,
+    pub process_id: Option<u32>,
+    pub argument_count: usize,
+    pub arguments_sha256: String,
+    pub startup_timeout_seconds: f64,
+    pub readiness_probe_interval_ms: u128,
+    pub shutdown_timeout_seconds: f64,
+    pub startup_elapsed_seconds: f64,
+    pub readiness_probe_attempts: u64,
+    pub first_observed_source_frame_id: Option<String>,
+    pub shutdown: Option<ManagedServerShutdown>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ManagedServerShutdown {
+    pub status: &'static str,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub forced: bool,
+}
+
+struct RunningManagedServer {
+    child: tokio::process::Child,
+    metadata: ManagedServerRunMetadata,
+    started: Instant,
 }
 
 #[derive(Debug, Serialize)]
@@ -180,22 +256,75 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
         detector_runtime: None,
     };
 
-    let result = run_windows(
-        config,
-        &run_directory,
-        &run_id,
-        started_at_utc.clone(),
-        environment,
-        input,
-    )
+    let mut child = None;
+    let mut managed_metadata = None;
+    let result = async {
+        if let Some(launch) = &config.managed_server {
+            let running = spawn_managed_server(launch)?;
+            let started = running.started;
+            child = Some(running.child);
+            managed_metadata = Some(running.metadata);
+            let managed_child = child
+                .as_mut()
+                .context("managed server child was not retained after launch")?;
+            let readiness = wait_for_first_localization(config, launch, managed_child)
+                .await
+                .context("managed server did not publish a first observed state")?;
+            if let Some(metadata) = &mut managed_metadata {
+                metadata.startup_elapsed_seconds = started.elapsed().as_secs_f64();
+                metadata.readiness_probe_attempts = readiness.probe_attempts;
+                metadata.first_observed_source_frame_id = readiness.source_frame_id;
+            }
+        }
+
+        let mut report = if let Some(managed_child) = &mut child {
+            run_windows_while_server_alive(
+                config,
+                &run_directory,
+                &run_id,
+                started_at_utc.clone(),
+                environment,
+                input,
+                managed_child,
+            )
+            .await?
+        } else {
+            run_windows(
+                config,
+                &run_directory,
+                &run_id,
+                started_at_utc.clone(),
+                environment,
+                input,
+            )
+            .await?
+        };
+
+        if let (Some(managed_child), Some(metadata), Some(launch)) = (
+            &mut child,
+            &mut managed_metadata,
+            config.managed_server.as_ref(),
+        ) {
+            metadata.shutdown = Some(stop_managed_server(managed_child, launch).await?);
+        }
+        report.managed_server = managed_metadata.take();
+        write_report_artifacts(&run_directory, &report)?;
+        Ok::<PathBuf, anyhow::Error>(run_directory.clone())
+    }
     .await;
 
     match result {
-        Ok(report) => {
-            write_report_artifacts(&run_directory, &report)?;
-            Ok(run_directory)
-        }
+        Ok(path) => Ok(path),
         Err(error) => {
+            if let (Some(managed_child), Some(metadata), Some(launch)) = (
+                &mut child,
+                &mut managed_metadata,
+                config.managed_server.as_ref(),
+            ) {
+                if metadata.shutdown.is_none() {
+                    metadata.shutdown = stop_managed_server(managed_child, launch).await.ok();
+                }
+            }
             let failure_path = run_directory.join("failure.json");
             if let Ok(file) = create_new_output(&failure_path, "failure report") {
                 let failure = serde_json::json!({
@@ -204,6 +333,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                     "run_id": run_id,
                     "error": format!("{error:#}"),
                     "failed_at_utc": Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+                    "managed_server": managed_metadata,
                 });
                 let mut writer = BufWriter::new(file);
                 let _ = serde_json::to_writer_pretty(&mut writer, &failure);
@@ -215,6 +345,238 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
             })
         }
     }
+}
+
+struct FirstLocalizationReadiness {
+    probe_attempts: u64,
+    source_frame_id: Option<String>,
+}
+
+fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedServer> {
+    let mut command = tokio::process::Command::new(&config.executable);
+    command
+        .args(&config.arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true);
+    if let Some(directory) = &config.working_directory {
+        command.current_dir(directory);
+    }
+    let child = command.spawn().with_context(|| {
+        format!(
+            "could not start managed server {}",
+            config.executable.display()
+        )
+    })?;
+    let process_id = child.id();
+    let argument_count = config.arguments.len();
+    let mut argument_hasher = Sha256::new();
+    for argument in &config.arguments {
+        argument_hasher.update((argument.len() as u64).to_be_bytes());
+        argument_hasher.update(argument.as_bytes());
+    }
+    Ok(RunningManagedServer {
+        child,
+        metadata: ManagedServerRunMetadata {
+            executable: config.executable.display().to_string(),
+            process_id,
+            argument_count,
+            arguments_sha256: format!("{:x}", argument_hasher.finalize()),
+            startup_timeout_seconds: config.startup_timeout.as_secs_f64(),
+            readiness_probe_interval_ms: config.readiness_probe_interval.as_millis(),
+            shutdown_timeout_seconds: config.shutdown_timeout.as_secs_f64(),
+            startup_elapsed_seconds: 0.0,
+            readiness_probe_attempts: 0,
+            first_observed_source_frame_id: None,
+            shutdown: None,
+        },
+        started: Instant::now(),
+    })
+}
+
+async fn wait_for_first_localization(
+    run: &StateAuditRunConfig,
+    launch: &ManagedServerConfig,
+    child: &mut tokio::process::Child,
+) -> Result<FirstLocalizationReadiness> {
+    let started = Instant::now();
+    let mut attempts = 0u64;
+    let mut last_connection_error = None;
+    while started.elapsed() < launch.startup_timeout {
+        if let Some(status) = child
+            .try_wait()
+            .context("could not check managed server process state")?
+        {
+            bail!("managed server exited before readiness: {status}");
+        }
+        let remaining = launch.startup_timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break;
+        }
+        let probe_duration = launch.readiness_probe_interval.min(remaining);
+        let mut probe = run.receiver.clone();
+        probe.duration = probe_duration;
+        probe.connect_timeout = probe.connect_timeout.min(probe_duration);
+        probe.maximum_samples = 1;
+        probe.resource_sample_process_id = None;
+        attempts = attempts.saturating_add(1);
+        match connect_and_collect(&run.url, &probe).await {
+            Ok(output) => {
+                let observed_sample = output.retained_samples.iter().find(|sample| {
+                    sample.freshness_status.as_deref() == Some("fresh")
+                        && sample.ball_positions_status.as_deref() == Some("observed")
+                        && sample.observation_identity.is_some()
+                });
+                if let Some(sample) = observed_sample {
+                    return Ok(FirstLocalizationReadiness {
+                        probe_attempts: attempts,
+                        source_frame_id: sample.source_frame_id.clone(),
+                    });
+                }
+            }
+            Err(error) => last_connection_error = Some(format!("{error:#}")),
+        }
+        if let Some(status) = child
+            .try_wait()
+            .context("could not check managed server process state")?
+        {
+            bail!("managed server exited before readiness: {status}");
+        }
+        let remaining = launch.startup_timeout.saturating_sub(started.elapsed());
+        if !remaining.is_zero() {
+            tokio::time::sleep(launch.readiness_probe_interval.min(remaining)).await;
+        }
+    }
+    let connection_detail = last_connection_error
+        .map(|error| format!("; last WebSocket error: {error}"))
+        .unwrap_or_default();
+    bail!(
+        "no fresh observed source state arrived within {:.2}s after {attempts} readiness probes{connection_detail}",
+        launch.startup_timeout.as_secs_f64()
+    )
+}
+
+async fn run_windows_while_server_alive(
+    config: &StateAuditRunConfig,
+    run_directory: &Path,
+    run_id: &str,
+    started_at_utc: String,
+    environment: RunEnvironment,
+    input: InputMetadata,
+    child: &mut tokio::process::Child,
+) -> Result<StateAuditRunReport> {
+    tokio::select! {
+        result = run_windows(config, run_directory, run_id, started_at_utc, environment, input) => result,
+        status = child.wait() => {
+            let status = status.context("could not wait for managed server process")?;
+            bail!("managed server exited during the audit windows: {status}");
+        }
+    }
+}
+
+async fn stop_managed_server(
+    child: &mut tokio::process::Child,
+    config: &ManagedServerConfig,
+) -> Result<ManagedServerShutdown> {
+    if let Some(status) = child
+        .try_wait()
+        .context("could not check managed server before shutdown")?
+    {
+        return Ok(shutdown_from_status("already_exited", status, false));
+    }
+    let process_id = child
+        .id()
+        .context("managed server process has no operating-system ID")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        let process_id = libc::pid_t::try_from(process_id)
+            .context("managed server process ID is outside the platform range")?;
+        // SAFETY: process_id came from the live child handle and is checked
+        // above before sending the application's supported termination signal.
+        let result = unsafe { libc::kill(process_id, libc::SIGTERM) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error).context("could not signal managed server to stop");
+            }
+        }
+        if let Ok(result) = tokio::time::timeout(config.shutdown_timeout, child.wait()).await {
+            let status = result.context("could not reap managed server")?;
+            return Ok(shutdown_from_status(
+                if status.signal() == Some(libc::SIGTERM) {
+                    "terminated_gracefully"
+                } else {
+                    "exited_during_shutdown"
+                },
+                status,
+                false,
+            ));
+        }
+        child
+            .start_kill()
+            .context("could not force-stop the unresponsive managed server")?;
+        let status = tokio::time::timeout(config.shutdown_timeout, child.wait())
+            .await
+            .context("managed server did not exit after forced termination")?
+            .context("could not reap force-stopped managed server")?;
+        Ok(shutdown_from_status("force_killed", status, true))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = process_id;
+        child
+            .start_kill()
+            .context("could not stop the managed server")?;
+        let status = tokio::time::timeout(config.shutdown_timeout, child.wait())
+            .await
+            .context("managed server did not exit after termination")?
+            .context("could not reap managed server")?;
+        Ok(shutdown_from_status("terminated", status, false))
+    }
+}
+
+fn shutdown_from_status(
+    status_name: &'static str,
+    status: ExitStatus,
+    forced: bool,
+) -> ManagedServerShutdown {
+    #[cfg(unix)]
+    let signal = {
+        use std::os::unix::process::ExitStatusExt;
+        status.signal()
+    };
+    #[cfg(not(unix))]
+    let signal = None;
+    ManagedServerShutdown {
+        status: status_name,
+        exit_code: status.code(),
+        signal,
+        forced,
+    }
+}
+
+fn validate_loopback_websocket_url(url: &str) -> Result<()> {
+    let authority = url
+        .strip_prefix("ws://")
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or_default();
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or_default()
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host)
+    };
+    let loopback = host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback());
+    if !loopback {
+        bail!("managed server WebSocket URL must use a loopback address");
+    }
+    Ok(())
 }
 
 async fn run_windows(
@@ -236,6 +598,11 @@ async fn run_windows(
         let output = connect_and_collect(&config.url, &warmup_receiver)
             .await
             .context("state audit warm-up failed")?;
+        if config.managed_server.is_some()
+            && output.report.freshness.unique_observed_source_observations == 0
+        {
+            bail!("managed server produced no fresh observed state during warm-up");
+        }
         Some(WarmupSummary {
             requested_duration_seconds: config.warmup.as_secs_f64(),
             actual_duration_seconds: output.report.elapsed_seconds,
@@ -263,6 +630,11 @@ async fn run_windows(
         let output = connect_and_collect(&config.url, &receiver)
             .await
             .with_context(|| format!("state audit measured run {repetition} failed"))?;
+        if config.managed_server.is_some()
+            && output.report.freshness.unique_observed_source_observations == 0
+        {
+            bail!("managed server produced no fresh observed state in measured run {repetition}");
+        }
         let (report_path, details_path) =
             write_window_artifacts(run_directory, repetition, &output)?;
         measured_runs.push(MeasuredRunReference {
@@ -291,6 +663,17 @@ async fn run_windows(
         resource_process_id: config.receiver.resource_sample_process_id,
         resource_sample_interval_ms: config.receiver.resource_sample_interval.as_millis(),
     };
+    let mut limitations = vec![
+        "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
+        "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
+        "A network stream has no input-content hash, and the receiver cannot identify the detector model or runtime.",
+        "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
+    ];
+    if config.managed_server.is_some() {
+        limitations.push(
+            "Managed-server mode qualifies state delivery and process lifecycle; inference-process resource sampling is not yet included.",
+        );
+    }
     Ok(StateAuditRunReport {
         schema_version: RUN_REPORT_SCHEMA_VERSION,
         tool: "billiards-performance-audit-run",
@@ -303,12 +686,8 @@ async fn run_windows(
         input,
         warmup,
         measured_runs,
-        limitations: vec![
-            "This receiver measures state publication and network delivery; it does not measure camera exposure-to-state latency.",
-            "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
-            "A network stream has no input-content hash, and the receiver cannot identify the detector model or runtime.",
-            "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",
-        ],
+        managed_server: None,
+        limitations,
     })
 }
 
@@ -430,6 +809,17 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
         report.environment.total_memory_bytes.map_or_else(|| "unavailable".to_owned(), |bytes| bytes.to_string()),
         report.configuration.maximum_samples_per_run,
     ));
+    if let Some(server) = &report.managed_server {
+        output.push_str(&format!(
+            "- Managed server: `{}` (PID `{}`), first observed frame `{}`, ready after {:.2}s across {} probes; shutdown `{}`\n",
+            server.executable,
+            server.process_id.map_or_else(|| "unavailable".to_owned(), |pid| pid.to_string()),
+            server.first_observed_source_frame_id.as_deref().unwrap_or("unavailable"),
+            server.startup_elapsed_seconds,
+            server.readiness_probe_attempts,
+            server.shutdown.as_ref().map_or("unavailable", |shutdown| shutdown.status),
+        ));
+    }
     output.push_str("\n## Limitations\n\n");
     for limitation in &report.limitations {
         output.push_str(&format!("- {limitation}\n"));
@@ -497,9 +887,9 @@ fn create_new_output(path: &Path, label: &str) -> Result<File> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_environment, render_markdown, StateAuditRunConfig, StateAuditRunReport,
-        DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
-        DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
+        collect_environment, render_markdown, ManagedServerConfig, StateAuditRunConfig,
+        StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS,
+        DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
     };
     use crate::performance_audit_receiver::StateReceiverConfig;
     use std::path::PathBuf;
@@ -515,6 +905,7 @@ mod tests {
             soak_duration: Duration::from_secs(DEFAULT_SOAK_SECONDS),
             output_root: PathBuf::from(DEFAULT_OUTPUT_ROOT),
             receiver: StateReceiverConfig::default(),
+            managed_server: None,
         }
     }
 
@@ -546,6 +937,27 @@ mod tests {
         invalid = config();
         invalid.receiver.maximum_samples = 0;
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn managed_server_requires_loopback_and_positive_lifecycle_deadlines() {
+        let mut valid = config();
+        valid.managed_server = Some(ManagedServerConfig {
+            executable: PathBuf::from("billiards-server"),
+            arguments: vec!["--start-live".to_owned()],
+            working_directory: None,
+            startup_timeout: Duration::from_secs(60),
+            readiness_probe_interval: Duration::from_millis(250),
+            shutdown_timeout: Duration::from_secs(10),
+        });
+        assert!(valid.validate().is_ok());
+
+        valid.url = "ws://192.0.2.10:8001/api/v1/websocket/ws".to_owned();
+        assert!(valid.validate().is_err());
+
+        valid.url = "ws://127.0.0.1:8001/api/v1/websocket/ws".to_owned();
+        valid.managed_server.as_mut().unwrap().startup_timeout = Duration::ZERO;
+        assert!(valid.validate().is_err());
     }
 
     #[test]
@@ -592,6 +1004,7 @@ mod tests {
             },
             warmup: None,
             measured_runs: Vec::new(),
+            managed_server: None,
             limitations: vec![
                 "Detector accuracy is unavailable without temporally aligned ground-truth annotations.",
                 "State receipt intervals and source-reported ages use their documented clock domains; unrelated clocks are not subtracted.",

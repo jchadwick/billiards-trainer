@@ -1,13 +1,13 @@
 # Repeatable real-time performance audit
 
 > **Rust migration status:** `backend.main` and `backend.dev_server` no longer
-> launch an application server. The Python collector remains an off-device
-> compatibility/reference tool. Its `--rust-live-qualification` mode starts and
-> measures the Rust live process directly, but currently requires an explicitly
-> selected local GStreamer camera. The Rust state receiver can measure the
-> application WebSocket or Rust gateway directly; full repeat/warm-up/report
-> orchestration around the Rust gateway, including remote-MJPEG replay, remains
-> open.
+> launch an application server. `scripts/performance-audit-live.sh` builds the
+> native audit runner, Rust gateway, live detector, and GStreamer capture
+> helper, launches the gateway as a child, waits
+> for a fresh observed state, then runs bounded warm-up and measurement windows.
+> The Python collector remains only as an off-device reference for legacy
+> trajectory, viewer, and compatibility scenarios; the state-only live path
+> does not need Python.
 
 This workflow measures fresh, correct state delivery on one development
 machine. It separates vision and state production, trajectory work, and video
@@ -18,20 +18,60 @@ State correctness is the first gate, followed by fresh-state latency and unique
 source-observation throughput. The configured 50 ms value is a reference
 deadline for reporting misses, not a result or a guarantee.
 
+## Development-machine integration smoke
+
+The managed Rust live path was exercised against the target machine's remote
+MJPEG stream from the development Mac. A five-second measured window received
+43 complete state messages: 42 fresh, unique observed frames and one reused
+state; there were no WebSocket sequence gaps, while the source frame counter
+reported three gaps totaling nine skipped IDs. Read-completion-to-publication
+age was 95.9/97.6/98.3 ms at p50/p95/p99; local receipt intervals were
+101/201/386 ms. First observed state arrived after 3.85 seconds and the managed
+gateway shut down cleanly. The recorded run is
+[20261023-022700-75881fe0](../thoughts/performance-audits/20261023-022700-75881fe0/report.md).
+
+This short run verifies end-to-end integration only. It is not a performance
+baseline: it has one five-second window, zero warm-up, no verified accuracy
+labels, and no detector identity or camera-content hash. Do not use its
+percentiles to rank implementation changes.
+
 ## Opt in
 
 Audit collection is off by default. The former Python server flag
-`python -m backend.main --performance-audit` is retired. For the current direct
-Rust live-camera measurement mode, inspect the offline collector's explicit
-camera-profile arguments with:
+`python -m backend.main --performance-audit` is retired. To run the full Rust
+gateway and live detector as one supervised audit, pass the gateway's normal
+CLI arguments as repeated `--server-argument` values. The runner does not
+start warm-up until it sees a state with a fresh observation identity and
+`ball_positions_status: observed`; it writes a failure artifact and stops the
+server if that state does not arrive before the configured startup timeout.
 
 ```bash
-uv run python backend/tools/collect_performance_audit.py --help
+scripts/performance-audit-live.sh \
+  --url ws://127.0.0.1:8001/api/v1/websocket/ws \
+  --server-argument=--config \
+  --server-argument=/path/to/live-config.json \
+  --server-argument=--project-root \
+  --server-argument=/path/to/project \
+  --server-argument=--http-port \
+  --server-argument=8001 \
+  --server-argument=--start-live \
+  --warmup-seconds 0 --duration-seconds 30 --repetitions 1
 ```
 
-This collector is a test tool, not an application service. The general API
-audit settings below describe the retained compatibility workflow; they do not
-turn on instrumentation in the supported Rust gateway.
+`--server-argument` forwards one literal argument per occurrence; no shell
+string is evaluated. Set `--startup-timeout-seconds` if the selected model or
+input needs longer to produce its first state. The runner sends the managed
+server `SIGTERM` after the audit, waits for shutdown, then force-stops and reaps
+it only if the configured shutdown timeout expires. Managed runs require a
+loopback WebSocket URL.
+
+This remains a measurement harness, not an application service. The legacy
+Python compatibility commands below are retained as differential references;
+they do not turn on instrumentation in the supported Rust gateway.
+The live wrapper builds with `camera-gstreamer-source`; the host needs the
+GStreamer development libraries and the `soup`, `multipart`, `jpeg`, `app`,
+`videoconvertscale`, and `videorate` runtime plugins required by the remote
+MJPEG helper.
 
 The native `billiards-performance-audit-run` command owns the state-only
 repeatable workflow. It defaults to a 30-second warm-up followed by three
