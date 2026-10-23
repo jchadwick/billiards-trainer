@@ -1,0 +1,61 @@
+name: Browser Client Checks
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "frontend/web/**"
+      - ".github/workflows/web.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "frontend/web/**"
+      - ".github/workflows/web.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: browser-client-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Test and build the /live client
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend/web
+    steps:
+      - name: Fetch public source without credentials
+        working-directory: ${{ github.workspace }}
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
+          fi
+          git checkout --quiet --detach FETCH_HEAD
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/web/package-lock.json
+
+      - name: Install locked browser dependencies
+        run: npm ci
+
+      - name: Run focused client tests
+        run: npm test
+
+      - name: Check TypeScript types
+        run: npm run typecheck
+
+      - name: Build production client assets
+        run: npm run build
