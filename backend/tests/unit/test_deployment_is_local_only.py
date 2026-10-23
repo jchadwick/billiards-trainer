@@ -7,7 +7,6 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PROJECT_DEPLOYMENT_SCRIPTS = (
-    PROJECT_ROOT / "frontend/projector/deploy.sh",
     PROJECT_ROOT / "scripts/deploy/build-dist.sh",
     PROJECT_ROOT / "scripts/deploy/update.sh",
 )

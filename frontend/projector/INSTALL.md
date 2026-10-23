@@ -37,13 +37,3 @@ To open a windowed development instance:
 ```bash
 love . conf_windowed.lua
 ```
-
-The legacy-named helper script runs the local projector:
-
-```bash
-./deploy.sh run
-```
-
-Despite its retained filename, `deploy.sh` only operates on the current
-machine. It does not install packages, connect to another host, or publish
-files.

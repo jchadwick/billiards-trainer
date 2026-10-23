@@ -42,13 +42,8 @@ projector/
 ├── conf.lua                    # Fullscreen-capable LÖVE configuration
 ├── conf_windowed.lua           # Local windowed test configuration
 ├── core/                       # Renderer, calibration, UDP receiver, contracts
-├── modules/                    # Trajectory, calibration, and debug drawing
-└── deploy.sh                   # Legacy-named local run helper
+└── modules/                    # Trajectory, calibration, and debug drawing
 ```
-
-Despite its filename, `deploy.sh` operates only on the current machine. Its
-only command is `run`; it does not install software, request credentials, or
-publish files.
 
 ## Local development and verification
 
