@@ -33,8 +33,10 @@ measurement tools. ADR-0085
 supersedes ADR-0082's temporary Python collector-retention requirement while
 preserving its shell-for-glue and Rust-for-complex-tooling decision. The Rust
 live runner owns state and optional trajectory receipt audits, detector timing,
-and optional process-resource sampling; the Rust temporal evaluator owns
-reviewed-label scoring. The retired Python collector/profile benchmark,
+and optional process-resource sampling; ADR-0098 adds a separate, opt-in
+gateway WebSocket timing stream so detector and gateway process/footer/resource
+attribution remain distinct. The Rust temporal evaluator owns reviewed-label
+scoring. The retired Python collector/profile benchmark,
 still-image equivalence evaluator, and collector-only Rust adapters are
 historical. ADR-0084 implements bounded recorded-video capacity/freshness
 replay; browser/video-viewer interference and representative temporal accuracy
@@ -294,6 +296,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0095](decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md) | Defer trajectory interference controls until a Rust workload exists | Accepted | Performance audit | Do not add a no-op server switch; re-evaluate when a supported Rust trajectory producer and output contract exist |
 | [0096](decisions/0096-retire-the-unused-python-calibration-bundle-bridge.md) | Retire the unused Python calibration bundle bridge | Accepted | Calibration tooling | Remove the test-only Python converter; retain the calibration contract, historical perspective fixture, and Rust solver/store/projector |
 | [0097](decisions/0097-protect-deployment-bundle-replacement-and-restart.md) | Protect deployment bundle replacement and restart | Accepted | Deployment tooling | Replace only marked bundles, retain recoverable backups, verify forced shutdown, and cover package/update behavior with shell tests |
+| [0098](decisions/0098-add-independent-gateway-websocket-audit-telemetry.md) | Add independent gateway WebSocket audit telemetry | Accepted | Performance audit | Measure gateway publication-to-selection, message assembly, serialization, and bounded send-call duration without changing latest-only delivery or mixing detector records |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and
