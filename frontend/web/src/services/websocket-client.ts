@@ -1,6 +1,4 @@
-/**
- * WebSocket client with auto-reconnection and comprehensive error handling
- */
+/** Shared state transport with reconnect and replay of the desired subscription. */
 
 import type {
   WebSocketMessage,
@@ -22,18 +20,6 @@ export interface WebSocketConfig {
   connectionTimeout?: number;
 }
 
-export interface ConnectionStats {
-  connected_at?: Date;
-  last_ping?: Date;
-  uptime: number;
-  messages_sent: number;
-  messages_received: number;
-  bytes_sent: number;
-  bytes_received: number;
-  reconnect_count: number;
-  last_error?: string;
-}
-
 export type MessageHandler = (message: WebSocketMessage) => void;
 export type ConnectionStateHandler = (state: ConnectionState, error?: Error) => void;
 
@@ -51,20 +37,9 @@ export class WebSocketClient {
 
   // Event handlers
   private messageHandlers = new Map<MessageType, Set<MessageHandler>>();
-  private allMessageHandlers = new Set<MessageHandler>();
   private stateHandlers = new Set<ConnectionStateHandler>();
   /** Desired subscriptions survive reconnects and are replayed after every open. */
   private subscriptions = new Map<string, Record<string, any> | undefined>();
-
-  // Statistics
-  private stats: ConnectionStats = {
-    uptime: 0,
-    messages_sent: 0,
-    messages_received: 0,
-    bytes_sent: 0,
-    bytes_received: 0,
-    reconnect_count: 0,
-  };
 
   constructor(config: WebSocketConfig) {
     this.config = {
@@ -77,12 +52,10 @@ export class WebSocketClient {
       ...config,
     };
 
-    // Initialize message handlers map
-    // MessageType is a TypeScript type, not a runtime enum, so we need to list values explicitly
+    // MessageType is erased at runtime, so initialize only the live stream and
+    // the control responses that callers can observe.
     const messageTypes: MessageType[] = [
-      'frame', 'state', 'trajectory', 'alert', 'config', 'metrics',
-      'connection', 'ping', 'pong', 'subscribe', 'unsubscribe',
-      'subscribed', 'unsubscribed', 'status', 'error'
+      'state', 'pong', 'subscribed', 'unsubscribed', 'status', 'error',
     ];
 
     messageTypes.forEach(type => {
@@ -200,8 +173,6 @@ export class WebSocketClient {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(messageStr);
-        this.stats.messages_sent++;
-        this.stats.bytes_sent += messageStr.length;
         return true;
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -258,15 +229,6 @@ export class WebSocketClient {
     }
   }
 
-  /** Register a handler for all valid messages, including legacy server types. */
-  onAny(handler: MessageHandler): void {
-    this.allMessageHandlers.add(handler);
-  }
-
-  offAny(handler: MessageHandler): void {
-    this.allMessageHandlers.delete(handler);
-  }
-
   off(messageType: MessageType, handler: MessageHandler): void {
     const handlers = this.messageHandlers.get(messageType);
     if (handlers) {
@@ -289,7 +251,6 @@ export class WebSocketClient {
   private onOpen(): void {
     console.log('WebSocket connected');
     this.setState('connected');
-    this.stats.connected_at = new Date();
     this.reconnectAttempts = 0;
 
     // Restore stream subscriptions before flushing application messages. A
@@ -301,8 +262,6 @@ export class WebSocketClient {
       const message = this.messageQueue.shift();
       if (message && this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.send(message);
-        this.stats.messages_sent++;
-        this.stats.bytes_sent += message.length;
       }
     }
 
@@ -319,25 +278,13 @@ export class WebSocketClient {
         return;
       }
 
-      this.stats.messages_received++;
-      this.stats.bytes_received += event.data.length;
-      this.stats.last_ping = new Date();
-
-      this.allMessageHandlers.forEach(handler => {
-        try {
-          handler(data);
-        } catch (error) {
-          console.error(`Error in WebSocket message handler for ${data.type}:`, error);
-        }
-      });
-
       // Handle pong messages
       if (data.type === 'pong') {
         this.handlePong(data);
       }
 
       // Dispatch to registered handlers
-      const handlers = this.messageHandlers.get(data.type);
+      const handlers = this.messageHandlers.get(data.type as MessageType);
       if (handlers) {
         handlers.forEach(handler => {
           try {
@@ -368,7 +315,6 @@ export class WebSocketClient {
   private onError(event: Event): void {
     console.error('WebSocket error:', event);
     const error = new Error('WebSocket connection error');
-    this.stats.last_error = error.message;
     this.setState('error', error);
   }
 
@@ -402,7 +348,6 @@ export class WebSocketClient {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
-      this.stats.reconnect_count++;
       this.connect().catch(error => {
         console.error('Reconnection failed:', error);
         this.scheduleReconnect();
@@ -475,21 +420,8 @@ export class WebSocketClient {
   // Public Accessors
   // =============================================================================
 
-  get connectionState(): ConnectionState {
-    return this.state;
-  }
-
   get isConnected(): boolean {
     return this.state === 'connected';
-  }
-
-  get connectionStats(): ConnectionStats {
-    return {
-      ...this.stats,
-      uptime: this.stats.connected_at
-        ? Date.now() - this.stats.connected_at.getTime()
-        : 0,
-    };
   }
 
   // =============================================================================
@@ -507,7 +439,6 @@ export class WebSocketClient {
   destroy(): void {
     this.disconnect();
     this.messageHandlers.clear();
-    this.allMessageHandlers.clear();
     this.stateHandlers.clear();
     this.messageQueue.length = 0;
     this.subscriptions.clear();
@@ -520,103 +451,4 @@ export class WebSocketClient {
 
 export function createWebSocketClient(config: WebSocketConfig): WebSocketClient {
   return new WebSocketClient(config);
-}
-
-// =============================================================================
-// Connection Quality Monitor
-// =============================================================================
-
-export class ConnectionQualityMonitor {
-  private client: WebSocketClient;
-  private metrics = {
-    latencyHistory: [] as number[],
-    messageHistory: [] as number[],
-    errorCount: 0,
-    lastQualityCheck: Date.now(),
-  };
-
-  constructor(client: WebSocketClient) {
-    this.client = client;
-    this.startMonitoring();
-  }
-
-  private startMonitoring(): void {
-    // Monitor connection quality every 30 seconds
-    setInterval(() => {
-      this.updateQualityMetrics();
-    }, 30000);
-  }
-
-  private updateQualityMetrics(): void {
-    const stats = this.client.connectionStats;
-    const now = Date.now();
-    const timeDiff = now - this.metrics.lastQualityCheck;
-
-    // Calculate message rate
-    const messageRate = (stats.messages_received * 1000) / timeDiff;
-    this.metrics.messageHistory.push(messageRate);
-
-    // Keep only last 10 measurements
-    if (this.metrics.messageHistory.length > 10) {
-      this.metrics.messageHistory.shift();
-    }
-
-    this.metrics.lastQualityCheck = now;
-  }
-
-  getQualityScore(): number {
-    const stats = this.client.connectionStats;
-    let score = 1.0;
-
-    // Factor in reconnection count
-    if (stats.reconnect_count > 0) {
-      score -= Math.min(stats.reconnect_count * 0.1, 0.5);
-    }
-
-    // Factor in error count
-    if (this.metrics.errorCount > 0) {
-      score -= Math.min(this.metrics.errorCount * 0.05, 0.3);
-    }
-
-    // Factor in message consistency
-    if (this.metrics.messageHistory.length > 0) {
-      const avgRate = this.metrics.messageHistory.reduce((a, b) => a + b, 0) / this.metrics.messageHistory.length;
-      const variance = this.metrics.messageHistory.reduce((acc, rate) => acc + Math.pow(rate - avgRate, 2), 0) / this.metrics.messageHistory.length;
-      if (variance > 10) {
-        score -= 0.1;
-      }
-    }
-
-    return Math.max(0, Math.min(1, score));
-  }
-
-  getHealthStatus(): {
-    score: number;
-    status: 'excellent' | 'good' | 'fair' | 'poor';
-    issues: string[];
-  } {
-    const score = this.getQualityScore();
-    const stats = this.client.connectionStats;
-    const issues: string[] = [];
-
-    if (stats.reconnect_count > 3) {
-      issues.push('Frequent reconnections detected');
-    }
-
-    if (this.metrics.errorCount > 5) {
-      issues.push('Multiple connection errors');
-    }
-
-    if (score < 0.3) {
-      issues.push('Poor connection stability');
-    }
-
-    let status: 'excellent' | 'good' | 'fair' | 'poor';
-    if (score >= 0.9) status = 'excellent';
-    else if (score >= 0.7) status = 'good';
-    else if (score >= 0.5) status = 'fair';
-    else status = 'poor';
-
-    return { score, status, issues };
-  }
 }

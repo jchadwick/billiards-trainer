@@ -9,7 +9,6 @@ import './styles.css';
 const rootStore = getRootStore();
 const router = createRouter({
   routeTree,
-  context: { stores: rootStore },
   defaultPreload: 'intent',
   scrollRestoration: true,
   defaultStructuralSharing: true,

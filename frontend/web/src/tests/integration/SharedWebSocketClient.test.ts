@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketClient } from '../../services/websocket-client';
-import { SystemStore } from '../../stores/SystemStore';
-import { VideoStore } from '../../stores/VideoStore';
-import { apiClient } from '../../api/client';
+import { RootStore } from '../../stores/RootStore';
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -39,14 +37,14 @@ class MockWebSocket {
   }
 }
 
-describe('shared WebSocket client subscriptions', () => {
+describe('live WebSocket connectivity', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     MockWebSocket.instances = [];
   });
 
-  it('shares an in-flight connection and restores desired streams exactly once after reconnect', async () => {
+  it('shares an in-flight connection and restores the state subscription after reconnect', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket);
     const client = new WebSocketClient({
       url: 'ws://localhost:8000/api/v1/websocket/ws',
@@ -67,7 +65,6 @@ describe('shared WebSocket client subscriptions', () => {
       expect.objectContaining({ type: 'subscribe', data: { streams: ['state'] } }),
     ]);
 
-    // Repeating the same intent does not create duplicate subscription traffic.
     client.subscribe(['state']);
     expect(firstSocket.sent).toHaveLength(1);
 
@@ -84,83 +81,53 @@ describe('shared WebSocket client subscriptions', () => {
     client.destroy();
   });
 
-  it('delivers live state to SystemStore and VideoStore through one injected socket', async () => {
+  it('publishes only the newest accepted state and resets ordering after producer restart', async () => {
     vi.stubGlobal('WebSocket', MockWebSocket);
-    vi.spyOn(apiClient, 'stopVideoCapture').mockResolvedValue({
-      success: true,
-      timestamp: new Date().toISOString(),
+    const client = new WebSocketClient({
+      url: 'ws://localhost:8000/api/v1/websocket/ws',
+      heartbeatInterval: 60_000,
     });
-    const url = 'ws://localhost:8000/api/v1/websocket/ws';
-    const client = new WebSocketClient({ url, heartbeatInterval: 60_000 });
-    const systemStore = new SystemStore(client);
-    const videoStore = new VideoStore(client);
+    const store = new RootStore(client);
 
     try {
-      const connecting = systemStore.connect(url);
       expect(MockWebSocket.instances).toHaveLength(1);
       const socket = MockWebSocket.instances[0];
       socket.open();
-      expect((await connecting).success).toBe(true);
-      expect(systemStore.status.isConnected).toBe(true);
-      expect(videoStore.isRealtimeConnected).toBe(true);
-
-      const state = {
-        balls: [],
-        ball_count: 0,
-        frame_number: 7,
-        game_type: '8ball',
-      };
-      socket.onmessage?.({
-        data: JSON.stringify({ type: 'state', timestamp: new Date().toISOString(), data: state }),
-      } as MessageEvent);
-
-      expect(videoStore.latestGameState).toEqual(state);
-      expect(MockWebSocket.instances).toHaveLength(1);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(store.system.status.isConnected).toBe(true);
       expect(socket.sent.map(message => JSON.parse(message))).toEqual([
         expect.objectContaining({ type: 'subscribe', data: { streams: ['state'] } }),
       ]);
+
+      const publish = (frameNumber: number, sessionId: string, sequence: number) => {
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: 'state',
+            timestamp: new Date().toISOString(),
+            data: {
+              balls: [],
+              ball_count: 0,
+              frame_number: frameNumber,
+              observation_status: {
+                observation_identity: {
+                  engine_instance_id: 'engine',
+                  session_id: sessionId,
+                },
+                transport_sequence: sequence,
+              },
+            },
+          }),
+        } as MessageEvent);
+      };
+
+      publish(12, 'session-a', 12);
+      publish(11, 'session-a', 11);
+      expect(store.videoStore.latestGameState?.frame_number).toBe(12);
+
+      publish(1, 'session-b', 1);
+      expect(store.videoStore.latestGameState?.frame_number).toBe(1);
     } finally {
-      videoStore.dispose();
-      systemStore.destroy();
-      client.destroy();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-  });
-
-  it('keeps a standalone VideoStore self-contained and subscribed to state', async () => {
-    vi.stubGlobal('WebSocket', MockWebSocket);
-    const timestamp = new Date().toISOString();
-    vi.spyOn(apiClient, 'getStreamStatus').mockResolvedValue({
-      success: true,
-      data: { camera: { connected: true } },
-      timestamp,
-    });
-    vi.spyOn(apiClient, 'startVideoCapture').mockResolvedValue({ success: true, timestamp });
-    vi.spyOn(apiClient, 'getCalibrationData').mockResolvedValue({ success: false, timestamp });
-    vi.spyOn(apiClient, 'stopVideoCapture').mockResolvedValue({ success: true, timestamp });
-
-    const videoStore = new VideoStore();
-    try {
-      const connecting = videoStore.connect();
-      for (let attempt = 0; attempt < 10 && MockWebSocket.instances.length === 0; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-      expect(MockWebSocket.instances).toHaveLength(1);
-      const socket = MockWebSocket.instances[0];
-      socket.open();
-      await connecting;
-
-      const subscriptions = socket.sent.map(message => JSON.parse(message));
-      expect(subscriptions).toEqual([
-        expect.objectContaining({
-          type: 'subscribe',
-          data: { streams: ['state', 'frame', 'trajectory', 'metrics', 'alert'], filters: { quality: 'medium', frame_rate: 30 } },
-        }),
-      ]);
-      expect(videoStore.isRealtimeConnected).toBe(true);
-    } finally {
-      videoStore.dispose();
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await store.shutdown();
     }
   });
 });

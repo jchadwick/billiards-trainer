@@ -2,10 +2,10 @@
   "projectName": "web",
   "mode": "file-router",
   "typescript": true,
-  "tailwind": false,
+  "tailwind": true,
   "packageManager": "npm",
   "git": true,
   "version": 1,
-  "framework": "react-cra",
+  "framework": "react-vite",
   "chosenAddOns": []
 }
