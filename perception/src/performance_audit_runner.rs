@@ -21,8 +21,8 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::performance_audit_receiver::{
-    connect_and_collect, validate_websocket_url, StateReceiverConfig, StateReceiverOutput,
-    StateReceiverReport,
+    connect_and_collect, connect_and_wait_for_first_fresh_observed_localization,
+    validate_websocket_url, StateReceiverConfig, StateReceiverOutput, StateReceiverReport,
 };
 
 pub const DEFAULT_WARMUP_SECONDS: u64 = 30;
@@ -305,7 +305,8 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
             &mut managed_metadata,
             config.managed_server.as_ref(),
         ) {
-            metadata.shutdown = Some(stop_managed_server(managed_child, launch).await?);
+            metadata.shutdown =
+                Some(stop_managed_server(managed_child, metadata.process_id, launch).await?);
         }
         report.managed_server = managed_metadata.take();
         write_report_artifacts(&run_directory, &report)?;
@@ -322,7 +323,10 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                 config.managed_server.as_ref(),
             ) {
                 if metadata.shutdown.is_none() {
-                    metadata.shutdown = stop_managed_server(managed_child, launch).await.ok();
+                    metadata.shutdown =
+                        stop_managed_server(managed_child, metadata.process_id, launch)
+                            .await
+                            .ok();
                 }
             }
             let failure_path = run_directory.join("failure.json");
@@ -360,6 +364,15 @@ fn spawn_managed_server(config: &ManagedServerConfig) -> Result<RunningManagedSe
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Put the gateway and its supervised detector/capture descendants in
+        // a private process group. If the runner itself is interrupted or the
+        // gateway is force-stopped, the full live pipeline can still be
+        // signalled as one bounded unit.
+        command.as_std_mut().process_group(0);
+    }
     if let Some(directory) = &config.working_directory {
         command.current_dir(directory);
     }
@@ -421,14 +434,12 @@ async fn wait_for_first_localization(
         probe.maximum_samples = 1;
         probe.resource_sample_process_id = None;
         attempts = attempts.saturating_add(1);
-        match connect_and_collect(&run.url, &probe).await {
+        match connect_and_wait_for_first_fresh_observed_localization(&run.url, &probe).await {
             Ok(output) => {
-                let observed_sample = output.retained_samples.iter().find(|sample| {
-                    sample.freshness_status.as_deref() == Some("fresh")
-                        && sample.ball_positions_status.as_deref() == Some("observed")
-                        && sample.observation_identity.is_some()
-                });
-                if let Some(sample) = observed_sample {
+                if output.report.termination_reason == "first_fresh_observed_localization" {
+                    let sample = output.retained_samples.last().context(
+                        "readiness receiver stopped without retaining its qualifying state",
+                    )?;
                     return Ok(FirstLocalizationReadiness {
                         probe_attempts: attempts,
                         source_frame_id: sample.source_frame_id.clone(),
@@ -477,55 +488,81 @@ async fn run_windows_while_server_alive(
 
 async fn stop_managed_server(
     child: &mut tokio::process::Child,
+    process_group_id: Option<u32>,
     config: &ManagedServerConfig,
 ) -> Result<ManagedServerShutdown> {
-    if let Some(status) = child
+    let parent_status_before_shutdown = child
         .try_wait()
-        .context("could not check managed server before shutdown")?
-    {
-        return Ok(shutdown_from_status("already_exited", status, false));
-    }
-    let process_id = child
-        .id()
-        .context("managed server process has no operating-system ID")?;
+        .context("could not check managed server before shutdown")?;
     #[cfg(unix)]
     {
         use std::os::unix::process::ExitStatusExt;
-        let process_id = libc::pid_t::try_from(process_id)
-            .context("managed server process ID is outside the platform range")?;
-        // SAFETY: process_id came from the live child handle and is checked
-        // above before sending the application's supported termination signal.
-        let result = unsafe { libc::kill(process_id, libc::SIGTERM) };
-        if result != 0 {
-            let error = std::io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ESRCH) {
-                return Err(error).context("could not signal managed server to stop");
+        let process_group_id =
+            process_group_id.context("managed server process group has no operating-system ID")?;
+        let process_group_id = libc::pid_t::try_from(process_group_id)
+            .context("managed server process group ID is outside the platform range")?;
+        let group_existed_before_shutdown = process_group_exists(process_group_id)?;
+        if !group_existed_before_shutdown {
+            let status = parent_status_before_shutdown
+                .context("managed server process group exited before its process was reaped")?;
+            return Ok(shutdown_from_status("already_exited", status, false));
+        }
+
+        signal_process_group(process_group_id, libc::SIGTERM)
+            .context("could not signal managed server process group to stop")?;
+        let deadline = Instant::now() + config.shutdown_timeout;
+        let mut parent_status = parent_status_before_shutdown;
+        loop {
+            if parent_status.is_none() {
+                parent_status = child
+                    .try_wait()
+                    .context("could not check managed server while shutting down")?;
             }
+            if !process_group_exists(process_group_id)? {
+                if let Some(status) = parent_status {
+                    return Ok(shutdown_from_status(
+                        if status.success() || status.signal() == Some(libc::SIGTERM) {
+                            "terminated_gracefully"
+                        } else {
+                            "exited_during_shutdown"
+                        },
+                        status,
+                        false,
+                    ));
+                }
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            tokio::time::sleep(remaining.min(Duration::from_millis(20))).await;
         }
-        if let Ok(result) = tokio::time::timeout(config.shutdown_timeout, child.wait()).await {
-            let status = result.context("could not reap managed server")?;
-            return Ok(shutdown_from_status(
-                if status.signal() == Some(libc::SIGTERM) {
-                    "terminated_gracefully"
-                } else {
-                    "exited_during_shutdown"
-                },
-                status,
-                false,
-            ));
+
+        signal_process_group(process_group_id, libc::SIGKILL)
+            .context("could not force-stop the managed server process group")?;
+        let status = if let Some(status) = parent_status {
+            status
+        } else {
+            tokio::time::timeout(config.shutdown_timeout, child.wait())
+                .await
+                .context("managed server did not exit after forced termination")?
+                .context("could not reap force-stopped managed server")?
+        };
+        let forced_deadline = Instant::now() + config.shutdown_timeout;
+        while process_group_exists(process_group_id)? {
+            let remaining = forced_deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                bail!("managed server descendants remain after process-group termination");
+            }
+            tokio::time::sleep(remaining.min(Duration::from_millis(20))).await;
         }
-        child
-            .start_kill()
-            .context("could not force-stop the unresponsive managed server")?;
-        let status = tokio::time::timeout(config.shutdown_timeout, child.wait())
-            .await
-            .context("managed server did not exit after forced termination")?
-            .context("could not reap force-stopped managed server")?;
         Ok(shutdown_from_status("force_killed", status, true))
     }
     #[cfg(not(unix))]
     {
-        let _ = process_id;
+        if let Some(status) = parent_status_before_shutdown {
+            return Ok(shutdown_from_status("already_exited", status, false));
+        }
         child
             .start_kill()
             .context("could not stop the managed server")?;
@@ -535,6 +572,40 @@ async fn stop_managed_server(
             .context("could not reap managed server")?;
         Ok(shutdown_from_status("terminated", status, false))
     }
+}
+
+#[cfg(unix)]
+fn signal_process_group(process_group_id: libc::pid_t, signal: libc::c_int) -> Result<()> {
+    // SAFETY: process_group_id was obtained from this runner's child and the
+    // child was started in a private group, so the negative ID cannot target
+    // the runner or another application process.
+    let result = unsafe { libc::kill(-process_group_id, signal) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(());
+    }
+    Err(error).context("could not signal managed server process group")
+}
+
+#[cfg(unix)]
+fn process_group_exists(process_group_id: libc::pid_t) -> Result<bool> {
+    // SAFETY: signal zero only probes for the private group created for this
+    // runner-owned child and does not deliver a signal to its members.
+    let result = unsafe { libc::kill(-process_group_id, 0) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return Ok(false);
+    }
+    if error.raw_os_error() == Some(libc::EPERM) {
+        return Ok(true);
+    }
+    Err(error).context("could not inspect managed server process group")
 }
 
 fn shutdown_from_status(
@@ -1014,5 +1085,106 @@ mod tests {
         assert!(markdown.contains("Detector accuracy is unavailable"));
         assert!(markdown.contains("unrelated clocks are not subtracted"));
         assert!(markdown.contains("Working tree dirty"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_server_cleanup_stops_descendants_after_parent_exit() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::Instant;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("server-exits-after-spawn.sh");
+        let child_pid_path = directory.path().join("descendant.pid");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\n/bin/sleep 60 &\nprintf '%s\\n' \"$!\" > '{}'\nexit 0\n",
+                child_pid_path.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let launch = ManagedServerConfig {
+            executable: script,
+            arguments: Vec::new(),
+            working_directory: None,
+            startup_timeout: Duration::from_secs(1),
+            readiness_probe_interval: Duration::from_millis(20),
+            shutdown_timeout: Duration::from_secs(1),
+        };
+        let mut running = super::spawn_managed_server(&launch).unwrap();
+        let process_group_id = running.metadata.process_id.unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let child_pid = loop {
+            if let Ok(pid) = std::fs::read_to_string(&child_pid_path) {
+                if running.child.try_wait().unwrap().is_some() {
+                    break pid.trim().parse::<libc::pid_t>().unwrap();
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "server did not exit after spawning its child"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+
+        let shutdown =
+            super::stop_managed_server(&mut running.child, Some(process_group_id), &launch)
+                .await
+                .unwrap();
+
+        assert_eq!(shutdown.status, "terminated_gracefully");
+        assert!(!shutdown.forced);
+        assert!(!super::process_group_exists(process_group_id as libc::pid_t).unwrap());
+        // SAFETY: signal zero checks that the owned grandchild has been reaped
+        // after its process group received SIGTERM.
+        assert_eq!(unsafe { libc::kill(child_pid, 0) }, -1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_server_force_shutdown_kills_the_full_process_group() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("server-ignores-term.sh");
+        let child_pid_path = directory.path().join("descendant.pid");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ntrap '' TERM\n/bin/sleep 60 &\nprintf '%s\\n' \"$!\" > '{}'\nwait\n",
+                child_pid_path.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let launch = ManagedServerConfig {
+            executable: script,
+            arguments: Vec::new(),
+            working_directory: None,
+            startup_timeout: Duration::from_secs(1),
+            readiness_probe_interval: Duration::from_millis(20),
+            shutdown_timeout: Duration::from_millis(150),
+        };
+        let mut running = super::spawn_managed_server(&launch).unwrap();
+        let process_group_id = running.metadata.process_id.unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+        while !child_pid_path.is_file() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "server did not start its child"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let shutdown =
+            super::stop_managed_server(&mut running.child, Some(process_group_id), &launch)
+                .await
+                .unwrap();
+
+        assert_eq!(shutdown.status, "force_killed");
+        assert!(shutdown.forced);
+        assert!(!super::process_group_exists(process_group_id as libc::pid_t).unwrap());
     }
 }

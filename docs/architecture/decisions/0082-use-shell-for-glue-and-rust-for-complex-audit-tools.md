@@ -122,26 +122,31 @@ The same Rust runner can now manage a local application-server child through
 the `--server-executable` and repeated `--server-argument` options. It accepts
 only loopback state URLs in this mode, probes until it receives an individual
 state containing both a fresh observation identity and observed ball
-positions, and does not begin warm-up or measurements before that gate. A child
-exit during the audit fails the run. On success, timeout, or receive failure,
-the runner sends `SIGTERM`, waits for the configured grace period, force-stops
-only if necessary, and reaps the child. Schema version 2 records executable
-path, PID, an argument digest, readiness timing and probe count, the first
-observed frame identity, and shutdown outcome without copying raw arguments
-into the report. The new thin `scripts/performance-audit-live.sh` builds the
+positions, and does not begin warm-up or measurements before that gate. Its
+readiness receiver stops on that exact state instead of waiting out the whole
+probe interval. A child exit during the audit fails the run. On Unix, the
+runner launches the gateway in a private process group; on success, timeout,
+or receive failure it sends `SIGTERM` to the group, waits for the gateway and
+its detector/capture descendants, and sends `SIGKILL` to the group only after
+the configured grace period expires. It then reaps the gateway. Schema
+version 2 records executable path, PID, an argument digest, readiness timing
+and probe count, the first observed frame identity, and shutdown outcome
+without copying raw arguments into the report. The new thin
+`scripts/performance-audit-live.sh` builds the
 runner, gateway, live detector, and GStreamer capture helper with the explicit
 source feature, then forwards gateway arguments without shell evaluation.
 Real loopback tests cover a failed observation before
 readiness, successful repeated measurements, startup timeout, failure
 artifacts, and child cleanup. A live run against the configured remote MJPEG
 input verified the complete managed-server path on the development Mac. In a
-five-second smoke window, the receiver recorded 43 complete state messages,
-42 fresh unique observed frames, and no WebSocket message-sequence gaps. The
-source frame counter had three gaps totaling nine skipped frame IDs. The state-receipt
-interval p50/p95/p99 was 101/201/386 ms; the producer-reported
-read-completion-to-publication age was 95.9/97.6/98.3 ms. Startup took 3.85 s
-and the gateway exited cleanly. This short run confirms integration only; it
-is not a performance baseline or an accuracy qualification. The first attempt
+five-second smoke window, the receiver recorded 24 complete state messages,
+19 fresh unique observed frames, and five repeated states. There were no
+WebSocket message-sequence gaps; the source frame counter had three gaps
+totaling 21 skipped frame IDs. The state-receipt interval p50/p95/p99 was
+103/499/658 ms; the producer-reported read-completion-to-publication age was
+95.9/98.0/98.4 ms. Startup took 3.84 s and the gateway exited with code zero
+without forced termination. This short run confirms integration only; it is
+not a performance baseline or an accuracy qualification. The first attempt
 exposed a stale supervisor CLI contract for frame preview, which is now fixed
 and covered by configuration/argument tests.
 

@@ -21,14 +21,14 @@ deadline for reporting misses, not a result or a guarantee.
 ## Development-machine integration smoke
 
 The managed Rust live path was exercised against the target machine's remote
-MJPEG stream from the development Mac. A five-second measured window received
-43 complete state messages: 42 fresh, unique observed frames and one reused
-state; there were no WebSocket sequence gaps, while the source frame counter
-reported three gaps totaling nine skipped IDs. Read-completion-to-publication
-age was 95.9/97.6/98.3 ms at p50/p95/p99; local receipt intervals were
-101/201/386 ms. First observed state arrived after 3.85 seconds and the managed
-gateway shut down cleanly. The recorded run is
-[20261023-022700-75881fe0](../thoughts/performance-audits/20261023-022700-75881fe0/report.md).
+MJPEG stream from the development Mac. The latest five-second window received
+24 complete state messages: 19 fresh, unique observed frames and five repeated
+states. It had no WebSocket sequence gaps; the source frame counter reported
+three gaps totaling 21 skipped IDs. Read-completion-to-publication age was
+95.9/98.0/98.4 ms at p50/p95/p99; local receipt intervals were 103/499/658 ms.
+First observed state arrived after 3.84 seconds, and the managed gateway
+exited with code zero without forced termination. The recorded run is
+[20261023-023743-3b43f629](../thoughts/performance-audits/20261023-023743-3b43f629/report.md).
 
 This short run verifies end-to-end integration only. It is not a performance
 baseline: it has one five-second window, zero warm-up, no verified accuracy
@@ -60,10 +60,12 @@ scripts/performance-audit-live.sh \
 
 `--server-argument` forwards one literal argument per occurrence; no shell
 string is evaluated. Set `--startup-timeout-seconds` if the selected model or
-input needs longer to produce its first state. The runner sends the managed
-server `SIGTERM` after the audit, waits for shutdown, then force-stops and reaps
-it only if the configured shutdown timeout expires. Managed runs require a
-loopback WebSocket URL.
+input needs longer to produce its first state. On Unix the runner starts the
+gateway in a private process group, sends `SIGTERM` to that group after the
+audit, waits for the gateway and its detector/capture descendants to exit, and
+sends `SIGKILL` to the group only if the configured shutdown timeout expires.
+It then reaps the gateway process. Managed runs require a loopback WebSocket
+URL.
 
 This remains a measurement harness, not an application service. The legacy
 Python compatibility commands below are retained as differential references;
