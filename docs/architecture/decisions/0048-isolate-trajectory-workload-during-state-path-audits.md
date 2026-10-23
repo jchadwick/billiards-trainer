@@ -1,10 +1,14 @@
 # ADR-0048: Isolate trajectory workload during state-path audits
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-21
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0095
+
+> Superseded by ADR-0095: this Python-service audit control was never ported
+> to the supported Rust server. The decision and verification below are
+> historical and do not describe a current setting or Rust behavior.
 
 ## Context
 

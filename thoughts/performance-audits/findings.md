@@ -6,9 +6,20 @@
 
 The audit used the real YOLO model on `test_data/demo3.mp4` (3840×2160 at 30 fps) on the local M4 Max. The detector reported MPS, but actual execution placement was not recorded and is now disputed by the diagnostic above. State was received by a headless local WebSocket client. The corrected 20-minute run sent an application heartbeat every 20 seconds and received all 26,001 state messages without client-side loss. Source timestamps represent shared-memory publication, not camera exposure.
 
-The trajectory audit domain was disabled, but the application still calculated trajectories from the integration loop during the run. Thus “state-only” means state-only instrumentation and subscriber streams; it does not isolate state processing from trajectory computation. No browser rendering or display latency was measured.
+This paragraph describes a historical Python-service run. At the time, the trajectory audit domain was disabled, but the Python application still calculated trajectories from the integration loop during the run. Thus “state-only” meant state-only instrumentation and subscriber streams; it did not isolate state processing from trajectory computation. No browser rendering or display latency was measured. This trajectory implementation did not survive the Rust migration and does not describe the current supported server.
 
 ## Findings, ranked by likely effect on fresh state
+
+> **Rust migration correction (2026-10-23):** this ranking combines measurements
+> from multiple generations of the application. The original trajectory
+> interference hypothesis came from the Python service; its trajectory
+> implementation did not survive the Rust migration. The supported Rust server
+> has no trajectory prediction producer or compute workload, so that Python
+> cost does not establish a Rust bottleneck. `--include-trajectory` records
+> subscriber receipts only; no trajectory-on/off comparison is currently
+> possible. Treat later Rust measurements in the dated follow-up sections
+> separately. See
+> [ADR-0095](../../docs/architecture/decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md).
 
 ### 1. 4K capture and detector execution are the main measured critical-path costs
 
@@ -26,13 +37,13 @@ The 20-minute receiver observed 21.67 state messages/s but only 17.83 unique sou
 
 **Expected benefit:** fewer stale results and less wasted work. **Complexity:** medium. **Accuracy risk:** medium to high if cadence misses short motion or cue events.
 
-### 3. Repeated per-update trajectory work and verbose logs confound the state baseline
+### 3. Historical Python trajectory work and verbose logs confound the old state baseline
 
-The integration loop calculated trajectory predictions repeatedly while state was being published, even though trajectory instrumentation was disabled. The live process also emitted detailed per-ball trajectory logs at high frequency. This workload can consume CPU and event-loop time, so the current audit does not separate its contribution from vision or state work.
+The former Python integration loop calculated trajectory predictions repeatedly while state was being published, even though trajectory instrumentation was disabled. The old live process also emitted detailed per-ball trajectory logs at high frequency. This workload may have consumed CPU and event-loop time in those historical runs. The implementation did not survive the Rust migration, so those measurements do not show a current Rust cost.
 
-**Candidate experiment:** the audit now has a workload-level `trajectory_workload_enabled` switch that suppresses prediction admission while retaining lifecycle invalidation. The recorded state run above predates that isolation and still calculated predictions, so it cannot estimate interference. Repeat the same input with the switch off and on, then separately enable trajectory detail and compare queue, compute, freshness, and state latency. In another matched run, suppress or sample the per-ball hot-path logs. Do not infer a trajectory optimization from the older state-only instrumentation run.
+**Candidate experiment:** do not add or use a trajectory on/off switch until the Rust server has an active prediction producer. When that exists, first define its lifecycle and output contract, then compare matched runs while measuring prediction work, queueing, freshness, and state latency. The Rust subscriber's `--include-trajectory` option only collects messages; it does not control server computation. The old Python hot-path log hypothesis also needs fresh Rust profiling before it can rank as a Rust optimization candidate.
 
-**Expected benefit:** isolates consumer interference and may reduce repeated work. **Complexity:** medium. **Accuracy risk:** medium; prediction lifecycle and settlement behavior must remain correct.
+**Historical hypothesis:** reducing repeated Python prediction and logging work might have lowered CPU demand. No Rust performance benefit or accuracy risk can be inferred from that implementation; the current detector-to-state Rust path has no prediction lifecycle to preserve.
 
 ### 4. Full-rate audit detail exceeded its overhead budget; sampled detail passed a short screen
 

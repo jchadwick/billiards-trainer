@@ -72,13 +72,15 @@ unavailable resource samples are disclosed in the report.
 
 For an interference comparison, hold the same input, model, camera settings,
 calibration, warm-up, and measurement windows constant. `--include-trajectory`
-adds trajectory receipt collection; it does not enable or disable prediction
-computation in the application. It cannot establish trajectory workload
-interference unless the effective application configuration independently
-changes that computation. Record the exact configuration for both runs. The
-subscriber-delay option is a stress test, not a production client profile. The
-current runner does not provide a video-viewer workload, so do not infer viewer
-impact from these runs.
+adds receiver-side trajectory subscription and receipt collection only. The
+supported Rust server currently has no trajectory prediction producer or
+computation for this option to control, so it cannot establish trajectory
+workload interference. Revisit this experiment only after a Rust trajectory
+engine and output contract exist, as recorded in
+[ADR-0095](architecture/decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md).
+The subscriber-delay option is a stress test, not a production client profile.
+The current runner does not provide a video-viewer workload, so do not infer
+viewer impact from these runs.
 
 The five-second remote-stream smoke in
 [run 20261023-023743-3b43f629](../thoughts/performance-audits/20261023-023743-3b43f629/report.md)

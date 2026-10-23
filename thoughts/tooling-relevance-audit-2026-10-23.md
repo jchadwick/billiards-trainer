@@ -215,23 +215,18 @@ major CSS-framework migration.
    positions, then run the Rust evaluator. The current tests prove evaluator
    semantics but there is no representative truth set and no production
    localization-accuracy result.
-2. Add hardware-free process-level smoke tests for the live performance-audit
-   and recorded-video replay CLIs. The CVAT importer and temporal evaluator
-   now have a real-process workflow test that passes importer output to the
-   evaluator and checks the generated localization report; the live-audit and
-   replay commands still lack equivalent command-to-artifact tests.
-3. Add an isolated staged-bundle smoke for deploy/run/update. Existing checks
+2. Add an isolated staged-bundle smoke for deploy/run/update. Existing checks
    validate script contracts and shell syntax, not packaging rollback, PID
    ownership, or real startup/shutdown behavior.
-4. Add a Docker/Compose runtime smoke if this optional deployment lane is
+3. Add a Docker/Compose runtime smoke if this optional deployment lane is
    retained. CI currently verifies image construction only; there is no
    container startup/API health check, and Compose does not pass through a
    physical camera.
-5. Measure browser/video-viewer interference separately. Current live audit
+4. Measure browser/video-viewer interference separately. Current live audit
    receipts do not represent browser rendering or physical display latency.
-6. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
+5. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
-7. The checked-in `config.json` still selects the legacy `.mlpackage` under
+6. The checked-in `config.json` still selects the legacy `.mlpackage` under
    Python vision settings, points at missing `assets/demo3.mp4`, and uses an
    integer camera ID that is not a qualified GStreamer source. It has not been
    qualified as the product launcher config. The Rust live path is now
@@ -240,7 +235,7 @@ major CSS-framework migration.
    valid 1280 ONNX export and matching manifest exist in the external model
    repository, with two classes (`cue=0`, `ball=1`). Migrating the checked-in
    default config and qualifying its physical source remain open.
-8. The Python calibration-bundle helper has test callers but no live Rust
+7. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
    calibration schema and Rust-consumed fixture.
@@ -451,9 +446,13 @@ path remain untested.
 - The actual temporal-import CLI now feeds its generated annotation file into
   the actual temporal-evaluate CLI in a hardware-free process test. It checks
   annotation identity/contents, stdout and report-file agreement, and exact
-  matched/false-positive/false-negative counts. The targeted integration test
-  passed; process-level artifact coverage for video replay and the live audit
-  remains open.
+  matched/false-positive/false-negative counts. Added equivalent process-level
+  command-to-artifact tests for the real live-performance-audit and
+  recorded-video replay CLIs. The live test checks fresh unique observations,
+  report agreement, bounded samples, and fixture shutdown. The replay test runs
+  the real tiny ONNX model behind deterministic fake media tools and checks
+  input/model hashes, processed-frame counts, output artifacts, and explicit
+  accuracy-unavailable labeling. All three targeted CLI workflow tests pass.
 - Removed the unused Vite `preview` package script after confirming it served
   only static assets and had no repository caller. Frontend unit tests (16),
   TypeScript typecheck, and the production Vite build passed after removal.
@@ -468,3 +467,16 @@ path remain untested.
   tracked or registered by the root repository. An ignored nested checkout
   with local modifications remains on this developer machine and was left
   untouched.
+- Tracked the 2,395-byte ONNX fixture already embedded by live Rust tests; it
+  was ignored and untracked, making clean-checkout test builds non-reproducible.
+  The real-detector live-application integration test passes using the tracked
+  fixture.
+- ADR-0095 supersedes the unimplemented Python trajectory-workload switch in
+  ADR-0048. The Rust server has no trajectory producer to isolate, and
+  `--include-trajectory` is receiver-only; current performance documentation
+  and findings now state that boundary explicitly.
+- Final verification after these changes: `make test-all` passed 312 default
+  Rust library tests, 324 GStreamer-feature Rust library tests, 16 browser
+  tests, and 2,827 Python compatibility tests with one model-dependent skip at
+  82.48% coverage. `make lint format-check`, `make build`, `git diff --check`,
+  and validation of all 95 ADRs passed.

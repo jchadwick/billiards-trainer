@@ -173,8 +173,10 @@ API-container state delivery is smoke-tested but below the requested 5 Hz;
 server-stage telemetry, labeled temporal accuracy, and sustained client
 freshness remain open. ADR-0046 accepts process-local capture timing
 segments for the supervised camera helper without claiming exposure timing.
-ADRs 0047 and 0048 accept receiver-side scene-transport measurement and an
-audit-only trajectory-workload control. ADR-0049 is superseded by ADR-0050,
+ADR-0047 accepts receiver-side scene-transport measurement. ADR-0048's proposed
+Python trajectory-workload control was not migrated to the Rust server and is
+superseded by ADR-0095; trajectory receipts remain a subscriber-only option.
+ADR-0049 is superseded by ADR-0050,
 which accepts normalized Python/Rust audit evidence and fresh-observation
 counting. ADR-0051's bounded repeat-count feature and its API replay smoke
 were retired by ADR-0094; the old test and smoke results remain historical
@@ -240,7 +242,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0045](decisions/0045-use-the-native-openvino-runtime-backend-for-openvino-selection.md) | Use the native OpenVINO Runtime backend for explicit OpenVINO selection | Accepted | 3/3 | Bounded Linux and Apple Silicon runtime/model smokes, 30-frame CPU/native output comparisons, and target API state delivery pass; 5 Hz freshness, labeled temporal accuracy, and Rust server-stage telemetry remain open ([Linux report](../../thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/native-openvino-runtime-20261021/report.md), [Apple Silicon report](../../thoughts/performance-audits/native-openvino-macos-runtime-20261021/report.md), [target replay notes](../../thoughts/performance-audits/target-rust-replay-smoke-20261021/target-smoke-notes.md)) |
 | [0046](decisions/0046-segment-supervised-camera-capture-timing.md) | Segment supervised camera capture timing across process boundaries | Accepted | 5 | Timed helper stages and parent framed-read completion use separate process-local durations; camera exposure remains unavailable; verify timed/legacy protocol and audit-disabled paths |
 | [0047](decisions/0047-measure-rust-scene-transport-at-the-python-receiver.md) | Historical Python-receiver transport audit contract | Superseded by 0085 for collector implementation | Audit | Rust audit retains bounded ordering, gap, freshness, and source-identity measurements; payload-size distributions and server-side latest-queue pressure are not currently reported |
-| [0048](decisions/0048-isolate-trajectory-workload-during-state-path-audits.md) | Isolate trajectory workload during state-path audits | Accepted | Audit | State-only runs suppress prediction admission only while audit control is active, preserving Core updates and production prediction behavior |
+| [0048](decisions/0048-isolate-trajectory-workload-during-state-path-audits.md) | Isolate trajectory workload during state-path audits | Superseded by 0095 | Historical audit feature | Proposed Python-only workload control was not ported; current Rust audit can subscribe to trajectory messages but does not control server computation |
 | [0049](decisions/0049-explicit-performance-audit-count-semantics.md) | Make performance audit count semantics explicit | Superseded by 0050 | Audit | Historical sampling and retained-event counting policy; use ADR-0050's normalized fresh-observation and source-update metrics |
 | [0050](decisions/0050-normalize-audit-evidence-across-python-and-rust-runtimes.md) | Preserve fresh-observation and clock semantics in audit evidence | Superseded by 0085 for cross-runtime collector implementation | Audit | Rust audit counts unique observed source frames, separates cached/failed updates, and leaves incomparable cross-process latency unavailable; Python envelope normalization is retired |
 | [0051](decisions/0051-repeat-recorded-input-for-bounded-paced-audits.md) | Repeat recorded input for bounded paced audits | Superseded by 0094 | Historical audit feature | Repeat-count configuration and API replay supervision were removed; saved-video evaluation still supports paced and unpaced single-corpus analysis |
@@ -287,6 +289,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0092](decisions/0092-use-onnx-as-the-only-maintained-model-export.md) | Use ONNX as the only maintained model export | Accepted | Model authoring | Retire the unused CoreML exporter branch and its model-export dependency; keep the lineage-bound ONNX artifact for Rust CPU, auto, and OpenVINO inference |
 | [0093](decisions/0093-score-temporal-localization-in-physical-table-coordinates.md) | Score temporal localization in physical table coordinates | Accepted | Accuracy evaluation | Preserve pixel-only v1 labels; v2 requires complete independently measured table-space labels per scored frame and an explicit millimeter match gate; production evidence remains open |
 | [0094](decisions/0094-retire-obsolete-inference-and-replay-tools.md) | Retire obsolete inference and replay tools | Accepted | Tooling scope | Remove the still-image CLI and orphaned API replay/replay-v2 ingress/configuration; preserve shared inference, live capture, and standalone recorded-video/JSONL/temporal evaluation |
+| [0095](decisions/0095-defer-trajectory-interference-switch-until-rust-workload-exists.md) | Defer trajectory interference controls until a Rust workload exists | Accepted | Performance audit | Do not add a no-op server switch; re-evaluate when a supported Rust trajectory producer and output contract exist |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and
