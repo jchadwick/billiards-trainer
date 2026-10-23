@@ -233,10 +233,9 @@ class YOLODetector:
             RuntimeError: If model loading fails and auto_fallback is False
 
         Note:
-            These defaults (confidence=0.15, enable_opencv_classification=False, min_ball_size=20)
-            are based on extensive testing with the VisionModule and video_debugger tool.
-            They provide the best balance of detection recall (catching all balls) while
-            maintaining precision (filtering out false positives like markers and shadows).
+            These defaults are retained for the legacy Python VisionModule path.
+            Historical Python debugger results do not qualify the Rust detector's
+            accuracy, recall, or false-positive rate.
         """
         self.model_path = model_path
         self.confidence = confidence

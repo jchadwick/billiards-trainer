@@ -3,7 +3,18 @@
 > camera and HTTP video paths are documented in the current backend API and
 > [deployment guide](../../docs/DOCKER.md).
 
-# Streaming Service Specification
+# Historical Streaming Service Proposal
+
+> This document describes a proposed standalone Python/GStreamer fan-out
+> service. That architecture is not part of the supported application
+> lifecycle; its FPS, latency, protocol, and multi-consumer claims are not
+> current runtime requirements or measurements. See
+> [`docs/SYSTEM_INTEGRATION.md`](../../docs/SYSTEM_INTEGRATION.md) for the
+> supported Rust capture and delivery path.
+
+---
+
+## Original proposal
 
 ## Module Purpose
 

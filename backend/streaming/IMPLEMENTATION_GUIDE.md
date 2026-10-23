@@ -1,6 +1,7 @@
 > Historical implementation proposal: the GStreamer publisher described here
 > is not part of the current application lifecycle. The supported camera and
-> HTTP video paths are documented in the current backend API and
+> capture paths are documented in
+> [system integration](../../docs/SYSTEM_INTEGRATION.md) and the
 > [deployment guide](../../docs/DOCKER.md).
 
 # GStreamer Multi-Consumer Streaming Implementation Guide

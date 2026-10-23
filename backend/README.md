@@ -734,13 +734,11 @@ for legacy module tests only and are not supported app launchers.
 
 ### Testing with Video File
 
-```bash
-# Use video debugger tool
-python tools/video_debugger.py test_video.mp4 --detection-backend yolo
-
-# Options
-python tools/video_debugger.py video.mp4 --loop --log-level INFO
-```
+The former Python video debugger has been retired because it exercised the
+legacy Python perception pipeline. The supported Rust runtime does not yet
+have a recorded-video replay command; do not use the retained Python
+`VisionModule` to qualify Rust detector accuracy or freshness. Current live
+runtime measurement instructions are in [`docs/PERFORMANCE_AUDIT.md`](../docs/PERFORMANCE_AUDIT.md).
 
 ### API Access
 
@@ -865,11 +863,8 @@ not the public contract of the Rust application server.
 # Run the supported Rust application while investigating live behavior
 make run
 
-# Use video debugger for vision issues
-python tools/video_debugger.py video.mp4 --log-level DEBUG
-
-# The supported app server is Rust. Profile Python only when investigating an
-# offline model/evaluation tool, not to estimate application-server performance.
+# The supported app server is Rust. Python vision timings do not qualify the
+# current detector or application-server performance.
 ```
 
 ### Common Issues

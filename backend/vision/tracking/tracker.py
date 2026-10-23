@@ -234,9 +234,9 @@ class ObjectTracker:
     ) -> None:
         """Initialize tracker with configuration.
 
-        These default values have been tuned through empirical testing with video_debugger
-        to provide optimal tracking stability and ghost ball rejection for pool table
-        scenarios. The parameters balance between:
+        These defaults are retained for the legacy Python tracker path. Historical
+        Python video-debugger results do not qualify the Rust live tracker. The
+        settings were intended to balance:
         - Quick initial detection of stationary balls
         - Stable tracking during motion
         - Aggressive filtering of ghost balls during collisions/high-speed events
@@ -320,7 +320,8 @@ class ObjectTracker:
             }
         )
 
-        # Tracking parameters with tuned defaults from video_debugger testing
+        # Legacy Python tracker settings retained for compatibility. They are not
+        # acceptance values for the Rust live-tracking path.
         self.min_hits = config.get(
             "min_hits", 3
         )  # Reduced from 10 to 3 for faster ball confirmation (100ms @ 30fps)
