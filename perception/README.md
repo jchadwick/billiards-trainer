@@ -422,38 +422,13 @@ NCHW tensors, with each path recorded in the JSON result. Load them with NumPy
 as `np.fromfile(path, dtype="<f4").reshape(1, 3, image_size, image_size)` and
 compare directly with the Python/OpenCV input tensor.
 
-To isolate source decoding from resize and tensor conversion, the
-`decode_rgb_probe` example writes the raw row-major RGB bytes produced by the
-same `image-rs` reader used by inference:
-
-```bash
-cargo run --release --manifest-path perception/Cargo.toml --example decode_rgb_probe -- \
-  backend/vision/test_data/grid.jpg /tmp/grid.image-rs.rgb
-```
-
-Then compare those bytes with the RGB pixels used by the Python reference:
-
-```bash
-uv run --project . python - <<'PY'
-import cv2
-import numpy as np
-
-bgr = cv2.imread("backend/vision/test_data/grid.jpg", cv2.IMREAD_COLOR)
-opencv_rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-rust_rgb = np.fromfile("/tmp/grid.image-rs.rgb", dtype=np.uint8).reshape(opencv_rgb.shape)
-difference = np.abs(rust_rgb.astype(np.int16) - opencv_rgb.astype(np.int16))
-print("different pixels:", np.count_nonzero(np.any(difference != 0, axis=2)))
-print("mean/max channel difference:", difference.mean(), difference.max())
-PY
-```
-
-For `grid.jpg`, direct comparison with Python OpenCV's BGR-to-RGB output found
-695,791 of 8,294,400 pixels with at least one differing channel, mean absolute
-channel difference 0.06365/255 and maximum 3/255. The captured hashes and
-counts are in the [raw decoder comparison](../thoughts/performance-audits/rust-inference-prototype-20261020/evidence/raw-jpeg-decoder-comparison.json).
-This confirms a decode difference on one JPEG; it does not show a change in
-detection accuracy. Test additional JPEGs and Linux before selecting or adding
-a decoder dependency.
+One isolated `grid.jpg` comparison found 695,791 of 8,294,400 decoded pixels
+with at least one channel differing between `image-rs` and OpenCV; mean
+absolute channel difference was 0.06365/255 and maximum was 3/255. This is
+single-image decoder evidence, not detection-accuracy evidence, and does not
+justify adding another decoder. The one-off raw-byte probe was retired; the
+input and result hashes are preserved in the
+[raw decoder comparison](../thoughts/performance-audits/rust-inference-prototype-20261020/evidence/raw-jpeg-decoder-comparison.json).
 
 The current comparison settings use a 1280 square input. The configured
 `models/billiards-yolov8n.mlpackage` declares `imgsz: [1280, 1280]` in its
