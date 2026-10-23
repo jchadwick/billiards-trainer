@@ -1,8 +1,8 @@
 # Temporal label review plan for `demo2_short.mp4`
 
-This is a frame-selection aid for an initial temporal accuracy check, not a
-label file or accuracy result. A reviewer must inspect the source video and
-explicitly mark every listed frame reviewed before any labels are scored.
+This is a source-frame selection aid for an initial temporal accuracy check,
+not a label file or accuracy result. A reviewer must inspect the source video
+and explicitly mark each reviewed frame before any labels are scored.
 
 ## Bound source
 
@@ -15,23 +15,31 @@ explicitly mark every listed frame reviewed before any labels are scored.
   each has a corresponding produced scene snapshot. Scene IDs are one-based;
   CVAT reviewed-frame indices are zero-based.
 
-| Source frame index | Replay time (s) | Scene ID | Review context |
-| ---: | ---: | --- | --- |
-| 0 | 0.000000 | `frame-000001` | Initial settled table layout |
-| 150 | 5.000000 | `frame-000151` | Player approaches and begins aiming |
-| 240 | 8.000000 | `frame-000241` | Pre-shot / cue near the central cluster |
-| 300 | 10.000000 | `frame-000301` | Shot and early movement |
-| 356 | 11.866666 | `frame-000357` | Post-contact ball movement |
-| 415 | 13.833333 | `frame-000416` | Later movement and partial player occlusion |
-| 488 | 16.266666 | `frame-000489` | Settlement transition |
-| 600 | 20.000000 | `frame-000601` | Settled post-shot layout |
-| 1140 | 38.033333 | `frame-001141` | Late settled layout |
+## Candidate source frames
+
+The original nine-frame proposal was selected because the replay had emitted a
+scene at each index. That conditions the sample on successful detector output
+and excludes dropped source frames, so those nine indices must not be used as
+the accuracy sample.
+
+The replacement list is frozen independently of detector output in
+[`candidate-source-frame-indices.json`](candidate-source-frame-indices.json).
+It has 66 zero-based source indices: a 2-second systematic sample across the
+whole clip, including its last frame, plus a 5 Hz sample from source frames 240
+through 540 (about 8–18 seconds) to cover the visible aiming, shot, movement,
+occlusion, and settlement sequence. The dense interval was chosen by inspecting
+a source-video contact sheet only; it was not filtered against replay scene or
+detection records. The importer JSON is still only a candidate list: add an
+index to the final reviewed-frame file only after a person checks the complete
+source frame and its tracks.
 
 ## Review rules
 
 1. Annotate from the original video only. Do not inspect `scenes.jsonl` or
-   `detections.jsonl` until CVAT labels are complete; this keeps the labels
-   independent of the model output being evaluated.
+   `detections.jsonl` until the CVAT labels and reviewed-frame list are
+   complete; this keeps the labels and sample selection independent of model
+   output. Include candidate indices even when the replay did not produce a
+   scene there; missing source-frame output is part of the freshness result.
 2. In CVAT, use the `ball` and `cue` labels and stable track IDs. At each
    candidate frame, add an explicit keyframe for every active track. Mark
    visible, occluded, and removed balls deliberately; do not let CVAT
@@ -54,6 +62,7 @@ labels against the existing replay snapshots with
 `scripts/evaluate-temporal-localization.sh`. The current replay report remains
 explicitly accuracy-unavailable until that human review and scoring are done.
 
-Nine reviewed frames are a diagnostic sample only. A production recommendation
-still requires held-out sequences covering varied motion, collisions,
-occlusion/reacquisition, camera interruptions, and calibration changes.
+The 66-frame list is a diagnostic sample from one video only. It cannot support
+a production recommendation without held-out sequences covering varied motion,
+collisions, occlusion/reacquisition, camera interruptions, and calibration
+changes.

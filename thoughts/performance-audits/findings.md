@@ -330,3 +330,18 @@ not exposure time. The model still detects generic balls and cue only. The
 [full cadence comparison](dev-cadence-qualified-20261023/cadence-qualification.md)
 has model/input hashes, per-run links, shutdown caveats, and the next
 validation steps.
+
+### 2026-10-23 follow-up: temporal accuracy sample correction
+
+The first temporal-label review proposal selected nine frames because the
+replay had emitted a scene at each one. That would bias accuracy and freshness
+scoring toward successful detections and omit dropped source frames. Do not use
+that nine-frame list as an evaluation sample. The replacement
+[source-only candidate list](temporal-localization-prep-20261023/candidate-source-frame-indices.json)
+contains 66 indices selected from the original video timeline: a 2-second
+whole-clip sample plus a 5 Hz sequence through the visible aiming, movement,
+occlusion, and settlement section. Its plan requires reviewing the complete
+source frames first and includes indices with no produced scene, which the
+scorer treats as missing-result/freshness evidence. The list is still only a
+candidate: no reviewed temporal labels exist, so detector accuracy remains
+unavailable and no production profile can be recommended.
