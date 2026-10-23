@@ -221,14 +221,15 @@ major CSS-framework migration.
    receipts do not represent browser rendering or physical display latency.
 5. Keep the generic `cue`/`ball` detector separate from numbered-ball identity;
    no current model/tool proves 6/7/8-ball classification.
-6. The checked-in `config.json` selects the legacy `.mlpackage` under Python
-   vision settings, has no explicit `perception.rust_live` ONNX/checkpoint
-   paths, and points at a missing `assets/demo3.mp4`; its integer camera ID is
-   not a qualified GStreamer source. A valid 1280 ONNX export and matching
-   manifest now exist in the external model repository, with two classes
-   (`cue=0`, `ball=1`). The local Rust model smoke test loads that export, but
-   the product launcher still needs an effective capture/model configuration
-   before live startup is testable.
+6. The checked-in `config.json` still selects the legacy `.mlpackage` under
+   Python vision settings, points at missing `assets/demo3.mp4`, and uses an
+   integer camera ID that is not a qualified GStreamer source. It has not been
+   qualified as the product launcher config. The Rust live path is now
+   end-to-end testable with an explicitly validated Rust-default-derived
+   config and local MJPEG input; see the matched live audit reports below. A
+   valid 1280 ONNX export and matching manifest exist in the external model
+   repository, with two classes (`cue=0`, `ball=1`). Migrating the checked-in
+   default config and qualifying its physical source remain open.
 7. The Python calibration-bundle helper has test callers but no live Rust
    product caller. Retire the helper and migrate its tests when the Python
    compatibility capture-settings path is removed; preserve the shared
@@ -237,6 +238,41 @@ major CSS-framework migration.
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
+
+## Follow-up validation (2026-10-23)
+
+The retained Rust live audit is no longer merely CLI-tested: the supported
+`scripts/performance-audit-live.sh` workflow completed matched three-by-120
+second state-delivery runs, with and without nested pipeline timing, on the
+development Mac. Unique source-frame update throughput changed from 21.980/s to
+22.108/s (+0.58%), while mean p95 read-completion-to-publication age changed
+from 78.33 ms to 77.05 ms. The audit-only capture-mailbox metric showed 32.57 ms
+p95 queue residence and paired frame data showed only 2.4 microseconds p95
+between dequeue and inference start. See
+[the matched audit](performance-audits/rust-mailbox-overhead-20261023/comparison.md).
+
+A same-source 20 fps cap reduced unique source-frame skips from 7.86/s to
+0.39/s and read-completion-to-publication p95 from 77.05 ms to 67.72 ms, with
+19.62 fresh updates/s at the 20 fps cap. This uses a looped HTTP-MJPEG fixture,
+not a physical webcam, and supplies no temporal ground truth. See
+[the camera-rate comparison](performance-audits/camera-rate-20261023/comparison.md).
+The fixture exercises the Rust HTTP-MJPEG helper; it does not establish camera
+exposure age, webcam support for an exact 20 fps mode, or Linux target behavior.
+
+The repository acceptance run passed the Rust tests, GStreamer camera-feature
+tests, browser tests and typecheck, and retained Python compatibility tests:
+2,827 passed, one model-dependent skip, and 82.48% Python coverage against an
+80% gate. Strict Rust Clippy, browser typecheck, formatting, and validation of
+94 ADRs also passed. The Python API remains as the explicitly retained
+compatibility service; retired inference, replay, profiler, training, and
+dataset experiments are not required to run or verify the Rust live path.
+
+These results do not close the remaining tool and system gaps: temporal
+accuracy labels; a physical Linux webcam and hardware-provider qualification;
+viewer interference; the 20-minute memory run; and the offline compatibility
+detector's remaining CoreML branch. The shared Rust replay/evaluator workflows
+remain useful, but their complete CLI artifact paths still need hardware-free
+process-level tests in CI.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
