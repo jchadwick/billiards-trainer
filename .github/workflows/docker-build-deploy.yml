@@ -42,3 +42,8 @@ jobs:
           push: false
           load: true
           tags: billiards-trainer:ci
+
+      - name: Start container and verify gateway health and live app
+        env:
+          DOCKER_IMAGE: billiards-trainer:ci
+        run: bash scripts/tooling/docker-runtime-smoke.sh

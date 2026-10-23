@@ -13,7 +13,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env docs
+.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-smoke docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env docs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -39,6 +39,7 @@ RUST_SCENE_BIND ?= 127.0.0.1
 RUST_SCENE_PORT ?= 49321
 RUST_CONFIG ?= config.json
 RUST_SERVER_ARGS ?=
+BILLIARDS_TRAINER_IMAGE ?= billiards-trainer:dev
 LOGS_DIR := logs
 DATA_DIR := data
 TEMP_DIR := temp
@@ -251,7 +252,10 @@ clean-all: clean clean-logs clean-frontend ## Clean generated build, log, and br
 # ===== Docker Compose =====
 
 docker-build: ## Build the Rust application image with Docker Compose
-	docker compose build backend
+	BILLIARDS_TRAINER_IMAGE="$(BILLIARDS_TRAINER_IMAGE)" docker compose build backend
+
+docker-smoke: docker-build ## Build and run a local gateway-only container smoke test
+	DOCKER_IMAGE="$(BILLIARDS_TRAINER_IMAGE)" bash scripts/tooling/docker-runtime-smoke.sh
 
 docker-run: ## Run the Rust application in the foreground with Docker Compose
 	docker compose up backend

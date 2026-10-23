@@ -40,6 +40,22 @@ def test_docker_ci_builds_the_repository_root_rust_runtime_image():
     assert "billiards-trainer:ci" in workflow
 
 
+def test_docker_image_is_started_by_the_ci_and_local_runtime_smoke():
+    repository = Path(__file__).resolve().parents[3]
+    workflow = (
+        repository / ".github" / "workflows" / "docker-build-deploy.yml"
+    ).read_text(encoding="utf-8")
+    makefile = (repository / "Makefile").read_text(encoding="utf-8")
+    compose = (repository / "docker-compose.yml").read_text(encoding="utf-8")
+    smoke_script = repository / "scripts" / "tooling" / "docker-runtime-smoke.sh"
+
+    assert smoke_script.is_file()
+    assert "scripts/tooling/docker-runtime-smoke.sh" in workflow
+    assert "docker-smoke:" in makefile
+    assert "image: ${BILLIARDS_TRAINER_IMAGE:-billiards-trainer:dev}" in compose
+    assert "START_LIVE=false" in smoke_script.read_text(encoding="utf-8")
+
+
 def test_distribution_target_uses_shell_bundle_builder_without_duplicate_frontend_build():
     makefile = Path(__file__).resolve().parents[3] / "Makefile"
     lines = makefile.read_text(encoding="utf-8").splitlines()

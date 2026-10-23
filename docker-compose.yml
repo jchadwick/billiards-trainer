@@ -1,5 +1,6 @@
 services:
   backend:
+    image: ${BILLIARDS_TRAINER_IMAGE:-billiards-trainer:dev}
     build:
       context: .
       dockerfile: backend/Dockerfile
