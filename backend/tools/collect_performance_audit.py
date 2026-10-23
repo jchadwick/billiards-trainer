@@ -4981,17 +4981,23 @@ async def run_audit(args: argparse.Namespace) -> Path:
                 trajectory_queue_capacity=args.queue_capacity,
                 trajectory_maximum_records=args.event_export_limit + 2,
             )
-            repetition_result["collector_settings"] = {
+            collector_settings = {
                 "history_size": args.history_size,
                 "queue_capacity": args.queue_capacity,
-                "trajectory_summary_queue_capacity": args.queue_capacity,
                 "sample_rate": args.sample_rate,
                 "event_export_limit": args.event_export_limit,
-                "trajectory_summary_maximum_records_requested": (
-                    args.event_export_limit + 2
-                ),
                 "heartbeat_interval_seconds": args.heartbeat_interval,
             }
+            if "trajectory" in streams:
+                collector_settings.update(
+                    {
+                        "trajectory_summary_queue_capacity": args.queue_capacity,
+                        "trajectory_summary_maximum_records_requested": (
+                            args.event_export_limit + 2
+                        ),
+                    }
+                )
+            repetition_result["collector_settings"] = collector_settings
             repetitions.append(repetition_result)
             if not args.quiet:
                 print()
