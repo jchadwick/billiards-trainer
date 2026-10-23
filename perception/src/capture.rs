@@ -52,6 +52,9 @@ pub struct CaptureHelperTimingNs {
 pub struct CaptureFrameTiming {
     pub helper: Option<CaptureHelperTimingNs>,
     pub parent_framed_record_read_ns: Option<u64>,
+    /// Time from parent framed-read completion until the synchronous consumer
+    /// dequeues the frame. Populated only when live audit timing is enabled.
+    pub parent_receiver_queue_wait_ns: Option<u64>,
 }
 
 #[cfg(test)]
@@ -861,6 +864,10 @@ impl Display for MailboxTerminal {
 }
 
 /// Outcome of one blocking or timed mailbox receive operation.
+// Keep the owned frame inline: boxing it would add an allocation to every
+// live dequeue. The mailbox itself is capacity-one, and control outcomes carry
+// no frame-sized data.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, PartialEq)]
 enum ReceiveOutcome {
     /// The most recent queued frame was received.
@@ -960,8 +967,38 @@ impl CaptureFrameReceiver {
         timeout: Duration,
         callback: impl FnOnce(&RgbFrameEnvelope) -> T,
     ) -> CaptureReceiveOutcome<T> {
+        self.receive_with_timeout_inner(timeout, false, |frame, _queue_wait_ns| callback(frame))
+    }
+
+    /// Audit-only receive path that records how long a captured frame remained
+    /// in the capacity-one mailbox before the synchronous consumer dequeued it.
+    /// Ordinary receive calls avoid the extra monotonic clock read.
+    pub(crate) fn receive_with_timeout_and_queue_timing<T>(
+        &mut self,
+        timeout: Duration,
+        measure_queue_wait: bool,
+        callback: impl FnOnce(&RgbFrameEnvelope, Option<u64>) -> T,
+    ) -> CaptureReceiveOutcome<T> {
+        self.receive_with_timeout_inner(timeout, measure_queue_wait, callback)
+    }
+
+    fn receive_with_timeout_inner<T>(
+        &mut self,
+        timeout: Duration,
+        measure_queue_wait: bool,
+        callback: impl FnOnce(&RgbFrameEnvelope, Option<u64>) -> T,
+    ) -> CaptureReceiveOutcome<T> {
         match self.mailbox.receive_timeout(timeout) {
-            ReceiveOutcome::Frame(frame) => CaptureReceiveOutcome::Frame(callback(&frame)),
+            ReceiveOutcome::Frame(frame) => {
+                let queue_wait_ns = measure_queue_wait
+                    .then(|| {
+                        Instant::now()
+                            .checked_duration_since(frame.host_read_completed_at)
+                            .map(|duration| duration.as_nanos().min(u64::MAX as u128) as u64)
+                    })
+                    .flatten();
+                CaptureReceiveOutcome::Frame(callback(&frame, queue_wait_ns))
+            }
             ReceiveOutcome::TimedOut => CaptureReceiveOutcome::TimedOut,
             ReceiveOutcome::Closed => CaptureReceiveOutcome::Closed,
             ReceiveOutcome::Cancelled => CaptureReceiveOutcome::Cancelled,
@@ -3997,8 +4034,8 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 mod tests {
     use super::{
         test_frame_budget, BudgetedRgb8Buffer, CaptureAggregateFrameLimit, CaptureEnvelopeError,
-        CaptureFrameBudget, CaptureFrameLimit, LatestFrameMailbox, MailboxTerminal, ReceiveOutcome,
-        RgbFrameEnvelope, TEST_FRAME_LIMIT,
+        CaptureFrameBudget, CaptureFrameLimit, CaptureFrameReceiver, CaptureReceiveOutcome,
+        LatestFrameMailbox, MailboxTerminal, ReceiveOutcome, RgbFrameEnvelope, TEST_FRAME_LIMIT,
     };
     use crate::detection_batch::{
         BatchTimestamp, ClockKind, SourceFrame, TimeUnit, TimestampStage,
@@ -4644,6 +4681,40 @@ mod tests {
             second,
             super::CaptureReceiveOutcome::Frame("frame-3".to_owned())
         );
+    }
+
+    #[test]
+    fn receiver_queue_wait_is_measured_only_for_the_audit_receive_path() {
+        let mailbox = LatestFrameMailbox::new("session-a", TEST_FRAME_LIMIT).unwrap();
+        let mut receiver: CaptureFrameReceiver = mailbox.claim_receiver().unwrap();
+        let mut delayed = envelope("session-a", "delayed-frame", 1);
+        delayed.host_read_completed_at = Instant::now() - Duration::from_millis(5);
+        mailbox.publish(delayed).unwrap();
+
+        let CaptureReceiveOutcome::Frame(queue_wait_ns) = receiver
+            .receive_with_timeout_and_queue_timing(
+                Duration::from_secs(1),
+                true,
+                |_frame, queue_wait_ns| queue_wait_ns,
+            )
+        else {
+            panic!("published frame should be delivered");
+        };
+        assert!(queue_wait_ns.is_some_and(|duration| duration >= 5_000_000));
+
+        let next_mailbox = LatestFrameMailbox::new("session-b", TEST_FRAME_LIMIT).unwrap();
+        let mut next_receiver = next_mailbox.claim_receiver().unwrap();
+        next_mailbox
+            .publish(envelope("session-b", "untimed-frame", 2))
+            .unwrap();
+        let CaptureReceiveOutcome::Frame(queue_wait_ns) = next_receiver
+            .receive_with_timeout(Duration::from_secs(1), |frame| {
+                frame.capture_timing().parent_receiver_queue_wait_ns
+            })
+        else {
+            panic!("published frame should be delivered");
+        };
+        assert_eq!(queue_wait_ns, None);
     }
 
     #[test]

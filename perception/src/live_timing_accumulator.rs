@@ -17,6 +17,7 @@ const DURATION_FIELDS: &[&str] = &[
     "capture_helper_rgb_buffer_allocation",
     "capture_helper_rgb_mapping_copy",
     "parent_framed_record_read",
+    "capture_receiver_queue_wait",
     "parent_record_read_complete_to_inference_start",
     "parent_record_read_complete_to_scene_queue_submit",
     // Keep fields used by older, retained schema-v1 audit records.
@@ -37,6 +38,7 @@ const INFERENCE_OUTCOME_DURATION_FIELDS: &[&str] = &[
     "capture_helper_rgb_buffer_allocation",
     "capture_helper_rgb_mapping_copy",
     "parent_framed_record_read",
+    "capture_receiver_queue_wait",
     "parent_record_read_complete_to_inference_start",
     "preprocess",
     "inference",
@@ -193,6 +195,12 @@ impl RustLiveTimingAccumulator {
         let mut durations = empty_duration_map(DURATION_FIELDS);
         let mut matched_detections = Vec::new();
         let mut matched_tracks = Vec::new();
+        let mut frame_elapsed_ms = Vec::new();
+        let mut span_durations_ms: BTreeMap<String, (Vec<f64>, Vec<f64>)> = BTreeMap::new();
+        let mut frames_with_span_timing = 0_u64;
+        let mut frames_without_span_timing = 0_u64;
+        let mut dropped_span_records = 0_u64;
+        let mut invalid_clock_spans = 0_u64;
         for key in &matched_keys {
             let Some(record) = frame_records.get(key) else {
                 continue;
@@ -213,8 +221,78 @@ impl RustLiveTimingAccumulator {
             if let Some(value) = record.get("track_count").and_then(integer_as_f64) {
                 matched_tracks.push(value);
             }
+            let Some(frame_timing) = record.get("frame_timing").filter(|value| !value.is_null())
+            else {
+                frames_without_span_timing = frames_without_span_timing.saturating_add(1);
+                continue;
+            };
+            frames_with_span_timing = frames_with_span_timing.saturating_add(1);
+            if let Some(elapsed_ms) = frame_timing
+                .get("frame_elapsed_ns")
+                .and_then(nonnegative_integer)
+                .map(|nanoseconds| nanoseconds as f64 / 1_000_000.0)
+            {
+                frame_elapsed_ms.push(elapsed_ms);
+            }
+            dropped_span_records = dropped_span_records.saturating_add(
+                frame_timing
+                    .get("dropped_spans")
+                    .and_then(nonnegative_integer)
+                    .unwrap_or(0),
+            );
+            invalid_clock_spans = invalid_clock_spans.saturating_add(
+                frame_timing
+                    .get("invalid_clock_spans")
+                    .and_then(nonnegative_integer)
+                    .unwrap_or(0),
+            );
+            if let Some(spans) = frame_timing.get("spans").and_then(Value::as_array) {
+                for span in spans {
+                    let Some(name) = span.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let summaries = span_durations_ms.entry(name.to_owned()).or_default();
+                    if let Some(duration_ms) = span
+                        .get("inclusive_elapsed_ns")
+                        .and_then(nonnegative_integer)
+                        .map(|nanoseconds| nanoseconds as f64 / 1_000_000.0)
+                    {
+                        summaries.0.push(duration_ms);
+                    }
+                    if let Some(duration_ms) = span
+                        .get("exclusive_elapsed_ns")
+                        .and_then(nonnegative_integer)
+                        .map(|nanoseconds| nanoseconds as f64 / 1_000_000.0)
+                    {
+                        summaries.1.push(duration_ms);
+                    }
+                }
+            }
         }
         let stage_summary = duration_summaries(&durations, Some(self.maximum_samples));
+        let span_duration_summary = Value::Object(
+            span_durations_ms
+                .into_iter()
+                .map(|(name, (inclusive, exclusive))| {
+                    (
+                        name,
+                        json!({
+                            "inclusive": percentile_object(&inclusive, Some(self.maximum_samples)),
+                            "exclusive": percentile_object(&exclusive, Some(self.maximum_samples)),
+                        }),
+                    )
+                })
+                .collect(),
+        );
+        let frame_timing_summary = json!({
+            "measurement_scope": "matched_timing_and_state_frames",
+            "frames_with_timing": frames_with_span_timing,
+            "frames_without_timing": frames_without_span_timing,
+            "frame_elapsed_ms": percentile_object(&frame_elapsed_ms, Some(self.maximum_samples)),
+            "span_durations_ms": span_duration_summary,
+            "dropped_span_records": dropped_span_records,
+            "invalid_clock_spans": invalid_clock_spans,
+        });
 
         let matched_writes = matched_keys
             .iter()
@@ -376,6 +454,7 @@ impl RustLiveTimingAccumulator {
                 ],
             },
             "stage_durations_ms": stage_summary,
+            "frame_timing": frame_timing_summary,
             "stale_inference_timing_ms": stale_inference_summary,
             "matched_detection_count": mean_summary(&matched_detections),
             "matched_track_count": mean_summary(&matched_tracks),
@@ -652,7 +731,7 @@ mod tests {
             "transport_sequence": sequence,
             "detection_count": 16,
             "track_count": 15,
-            "durations_ms": { "inference": 2.4 },
+            "durations_ms": { "inference": 2.4, "capture_receiver_queue_wait": 0.7 },
             "audit_receiver_monotonic_ns": receive_ns,
         })
     }
@@ -709,8 +788,52 @@ mod tests {
             1
         );
         assert_eq!(summary["stage_durations_ms"]["inference"]["p95"], 2.4);
+        assert_eq!(
+            summary["stage_durations_ms"]["capture_receiver_queue_wait"]["p95"],
+            0.7
+        );
         assert_eq!(summary["measurement_monotonic_window_ns"]["start"], 100);
         assert_eq!(summary["measurement_monotonic_window_ns"]["end"], 200);
+    }
+
+    #[test]
+    fn summarizes_frame_elapsed_and_nested_inclusive_exclusive_spans() {
+        let mut accumulator = RustLiveTimingAccumulator::new(8).unwrap();
+        accumulator.begin_measurement(100);
+        let mut record = frame(json!(7), 150);
+        record["frame_timing"] = json!({
+            "frame_elapsed_ns": 12_500_000,
+            "dropped_spans": 2,
+            "invalid_clock_spans": 1,
+            "spans": [
+                {
+                    "name": "frame_processing",
+                    "inclusive_elapsed_ns": 12_000_000,
+                    "exclusive_elapsed_ns": 4_000_000,
+                },
+                {
+                    "name": "model_execute",
+                    "inclusive_elapsed_ns": 8_000_000,
+                    "exclusive_elapsed_ns": 8_000_000,
+                },
+            ]
+        });
+        accumulator.add(record);
+        accumulator.end_measurement(200);
+
+        let summary = accumulator.summary(&[matching_state(json!(7))], false);
+        assert_eq!(summary["frame_timing"]["frames_with_timing"], 1);
+        assert_eq!(summary["frame_timing"]["frame_elapsed_ms"]["p95"], 12.5);
+        assert_eq!(
+            summary["frame_timing"]["span_durations_ms"]["frame_processing"]["inclusive"]["p95"],
+            12.0
+        );
+        assert_eq!(
+            summary["frame_timing"]["span_durations_ms"]["frame_processing"]["exclusive"]["p95"],
+            4.0
+        );
+        assert_eq!(summary["frame_timing"]["dropped_span_records"], 2);
+        assert_eq!(summary["frame_timing"]["invalid_clock_spans"], 1);
     }
 
     #[test]

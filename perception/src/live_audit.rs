@@ -19,6 +19,7 @@ use crate::capture::CaptureFrameTiming;
 use crate::capture_pipeline::CapturePipelineStats;
 use crate::detection_batch::BatchTimestamp;
 use crate::inference::FrameInferenceTimings;
+use crate::live_timing_spans::FrameTimingSnapshot;
 use crate::SceneTransportStats;
 
 /// Maximum number of queued audit events. Each event contains bounded identity
@@ -28,7 +29,7 @@ pub const MAX_LIVE_AUDIT_QUEUE_CAPACITY: usize = 4_096;
 /// and is capped so a malformed or future record cannot monopolize the writer.
 pub const MIN_LIVE_AUDIT_RECORD_BYTES: usize = 1_024;
 pub const MAX_LIVE_AUDIT_RECORD_BYTES: usize = 1_048_576;
-pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 3;
+pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 4;
 
 /// Explicit settings for the opt-in side channel. There are no implicit
 /// address, queue, framing, or deadline defaults.
@@ -95,6 +96,7 @@ pub(crate) struct LiveAuditFrame<'a> {
     pub scene_serialization_ms: Option<f64>,
     pub scene_queue_submit_ms: Option<f64>,
     pub parent_record_read_complete_to_scene_queue_ms: f64,
+    pub frame_timing: Option<&'a FrameTimingSnapshot>,
 }
 
 /// A scalar-only disposition for an observation that did not produce a frame
@@ -202,6 +204,7 @@ impl LiveAuditRecorder {
             detection_count: frame.detection_count,
             track_count: frame.track_count,
             source_timestamp: frame.source_timestamp.cloned(),
+            frame_timing: frame.frame_timing.cloned(),
             durations_ms: FrameDurationsMs {
                 capture_helper_appsink_pull_wait: frame
                     .capture_timing
@@ -218,6 +221,10 @@ impl LiveAuditRecorder {
                 parent_framed_record_read: frame
                     .capture_timing
                     .parent_framed_record_read_ns
+                    .map(ns_to_ms),
+                capture_receiver_queue_wait: frame
+                    .capture_timing
+                    .parent_receiver_queue_wait_ns
                     .map(ns_to_ms),
                 parent_record_read_complete_to_inference_start: frame
                     .parent_record_read_complete_to_inference_start_ms,
@@ -283,6 +290,10 @@ impl LiveAuditRecorder {
                     parent_framed_record_read: timings
                         .capture_timing
                         .parent_framed_record_read_ns
+                        .map(ns_to_ms),
+                    capture_receiver_queue_wait: timings
+                        .capture_timing
+                        .parent_receiver_queue_wait_ns
                         .map(ns_to_ms),
                     parent_record_read_complete_to_inference_start: timings
                         .parent_record_read_complete_to_inference_start_ms,
@@ -399,6 +410,10 @@ impl Drop for LiveAuditExporter {
     }
 }
 
+// Keep audit records inline when entering the bounded queue so producing one
+// record does not require an additional allocation; queue capacity bounds the
+// retained memory and oversized records are rejected before enqueue.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum AuditCommand {
     Record(AuditRecord),
@@ -423,6 +438,9 @@ enum AuditRecord {
         track_count: usize,
         /// Null means the source exposed no trustworthy timestamp.
         source_timestamp: Option<BatchTimestamp>,
+        /// Bounded nested spans on the same process monotonic clock; null means
+        /// the timing collector could not produce a complete frame snapshot.
+        frame_timing: Option<FrameTimingSnapshot>,
         durations_ms: FrameDurationsMs,
     },
     SceneSocketWrite {
@@ -466,6 +484,8 @@ struct FrameDurationsMs {
     capture_helper_rgb_mapping_copy: Option<f64>,
     /// Parent-local duration covering the full framed record read and RGB copy.
     parent_framed_record_read: Option<f64>,
+    /// Parent-local frame completion through capacity-one receiver dequeue.
+    capture_receiver_queue_wait: Option<f64>,
     /// Parent record read completion through inference start, including receiver wait.
     parent_record_read_complete_to_inference_start: f64,
     preprocess: f64,
@@ -489,6 +509,8 @@ struct InferenceOutcomeDurationsMs {
     capture_helper_rgb_mapping_copy: Option<f64>,
     /// Parent-local span for reading and copying the complete framed record.
     parent_framed_record_read: Option<f64>,
+    /// Parent-local frame completion through capacity-one receiver dequeue.
+    capture_receiver_queue_wait: Option<f64>,
     /// Includes receiver queue delay after the parent completed the framed read.
     parent_record_read_complete_to_inference_start: f64,
     preprocess: f64,
@@ -862,6 +884,7 @@ mod tests {
                     rgb_mapping_copy_ns: 30_000,
                 }),
                 parent_framed_record_read_ns: Some(40_000),
+                parent_receiver_queue_wait_ns: Some(50_000),
             },
             parent_record_read_complete_to_inference_start_ms: 0.4,
             preprocess_ms: 1.2,
@@ -873,6 +896,7 @@ mod tests {
             scene_serialization_ms: Some(0.1),
             scene_queue_submit_ms: Some(0.03),
             parent_record_read_complete_to_scene_queue_ms: 5.9,
+            frame_timing: None,
         });
         recorder.record_scene_socket_write(LiveAuditSceneWrite {
             engine_instance_id: "engine-a",
@@ -916,6 +940,7 @@ mod tests {
             0.03
         );
         assert_eq!(frame["durations_ms"]["parent_framed_record_read"], 0.04);
+        assert_eq!(frame["durations_ms"]["capture_receiver_queue_wait"], 0.05);
         assert_eq!(frame["durations_ms"]["engine_total"], 5.7);
         assert_eq!(
             frame["durations_ms"]["calibration"],
@@ -999,6 +1024,7 @@ mod tests {
             scene_serialization_ms: None,
             scene_queue_submit_ms: None,
             parent_record_read_complete_to_scene_queue_ms: 0.0,
+            frame_timing: None,
         });
         let summary = exporter.finish();
         assert!(!summary.connected);

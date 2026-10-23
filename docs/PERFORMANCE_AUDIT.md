@@ -1,7 +1,9 @@
 # Performance and localization evaluation
 
 The supported measurement path is Rust. Use the live audit for delivery speed,
-freshness, skipped/repeated states, and optional detector-stage timings. Use the
+freshness, skipped/repeated states, and optional nested capture-to-publication
+timings. Each audited frame reports actual read-completion-to-snapshot elapsed
+time separately from per-stage inclusive and exclusive durations. Use the
 temporal evaluator for accuracy against reviewed video labels. These answer
 different questions and must be run on the same model, input, calibration, and
 effective settings before comparing a change.
@@ -56,17 +58,27 @@ The wrapper builds the Rust server, live detector, GStreamer helper, and audit
 runner in release mode before starting the run. Each `--server-argument`
 forwards one literal argument. Timing collection is opt-in; without it, the
 detector does not open the audit side channel or allocate its timing-retention
-queue. Timing records and state receipts retain separate monotonic clock
+queue or per-frame span contexts. Frame spans cover host read-completion,
+detector preprocessing/model execution/decode, calibration, tracking and state
+assembly, serialization, and scene queue submission where those stages apply.
+When audit timing is active, capture records also report capacity-one receiver
+mailbox residence from software read-completion until dequeue, separately from
+the remaining freshness/admission/scheduling interval before inference starts.
+The measured host boundary is software read-completion, never camera exposure.
+Timing records and state receipts retain separate monotonic clock
 domains, so the audit does not invent cross-process latency where clocks are not
 verified comparable. Losses, incomplete identity joins, detector restarts, and
 unavailable resource samples are disclosed in the report.
 
 For an interference comparison, hold the same input, model, camera settings,
-calibration, warm-up, and measurement windows constant. Compare state-only with
-state plus `--include-trajectory`; record the exact effective configuration
-for both runs. The subscriber-delay option is a stress test, not a production
-client profile. The current runner does not provide a video-viewer workload, so
-do not infer viewer impact from these runs.
+calibration, warm-up, and measurement windows constant. `--include-trajectory`
+adds trajectory receipt collection; it does not enable or disable prediction
+computation in the application. It cannot establish trajectory workload
+interference unless the effective application configuration independently
+changes that computation. Record the exact configuration for both runs. The
+subscriber-delay option is a stress test, not a production client profile. The
+current runner does not provide a video-viewer workload, so do not infer viewer
+impact from these runs.
 
 The five-second remote-stream smoke in
 [run 20261023-023743-3b43f629](../thoughts/performance-audits/20261023-023743-3b43f629/report.md)

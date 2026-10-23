@@ -32,6 +32,7 @@ pub mod live_config;
 pub mod live_handshake;
 pub mod live_supervisor;
 pub mod live_timing_accumulator;
+pub mod live_timing_spans;
 pub mod managed_live_audit;
 pub mod performance_audit_receiver;
 pub mod performance_audit_runner;

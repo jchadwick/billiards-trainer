@@ -29,6 +29,7 @@ use crate::detection_batch::{
     MAX_IDENTIFIER_CHARACTERS,
 };
 use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext, GeometryError};
+use crate::live_timing_spans::{FrameTimingContext, SpanId};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
 use crate::{
     calibration::{TableCalibrationV1, ValidatedTableCalibrationV1},
@@ -221,13 +222,49 @@ impl FrameInferenceEngine {
         Ok(output)
     }
 
+    /// Run borrowed RGB8 inference while recording its nested detector stages
+    /// into the caller's opt-in frame context. The ordinary inference entry
+    /// point remains free of audit allocations and locking.
+    pub(crate) fn infer_rgb8_with_spans(
+        &mut self,
+        source_width: u32,
+        source_height: u32,
+        pixels: &[u8],
+        timing: &FrameTimingContext,
+        parent: SpanId,
+    ) -> Result<FrameInferenceOutput> {
+        let engine_start = Instant::now();
+        let preprocess_start = Instant::now();
+        let preprocess_span = timing.start_child_span("preprocess", parent).ok();
+        let prepared = prepare_rgb8(source_width, source_height, pixels, self.image_size as u32)
+            .context("failed to preprocess RGB frame")?;
+        drop(preprocess_span);
+        let preprocess_ms = elapsed_ms(preprocess_start);
+
+        let mut output = self.infer_prepared_with_spans(&prepared, Some((timing, parent)))?;
+        output.timings.preprocess_ms = preprocess_ms;
+        output.timings.engine_total_ms = elapsed_ms(engine_start);
+        Ok(output)
+    }
+
     fn infer_prepared(&mut self, prepared: &PreparedInput) -> Result<FrameInferenceOutput> {
+        self.infer_prepared_with_spans(prepared, None)
+    }
+
+    fn infer_prepared_with_spans(
+        &mut self,
+        prepared: &PreparedInput,
+        timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<FrameInferenceOutput> {
         let engine_start = Instant::now();
 
         let inference_start = Instant::now();
+        let inference_span = timing
+            .and_then(|(context, parent)| context.start_child_span("model_execute", parent).ok());
+        let session_result = run_session(&mut self.session, &prepared.values, self.image_size);
+        drop(inference_span);
         let (output_shape, output_values) =
-            run_session(&mut self.session, &prepared.values, self.image_size)
-                .context("ONNX inference failed for RGB frame")?;
+            session_result.context("ONNX inference failed for RGB frame")?;
         let inference_ms = elapsed_ms(inference_start);
         ensure!(
             output_shape == self.expected_output_shape,
@@ -235,6 +272,8 @@ impl FrameInferenceEngine {
         );
 
         let decode_start = Instant::now();
+        let decode_span = timing
+            .and_then(|(context, parent)| context.start_child_span("decode_nms", parent).ok());
         let detections = decode_yolo_v8_output(
             &output_shape
                 .iter()
@@ -248,6 +287,7 @@ impl FrameInferenceEngine {
             self.max_detections,
         )
         .context("failed to decode ONNX output for RGB frame")?;
+        drop(decode_span);
         let decode_and_nms_ms = elapsed_ms(decode_start);
 
         Ok(FrameInferenceOutput {
@@ -3121,10 +3161,11 @@ mod tests {
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
+    use crate::live_timing_spans::FrameTimingContext;
     use crate::tracking::TrackingConfigV1;
     use image::{Rgb, RgbImage};
     use serde_json::{json, Value};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
@@ -3912,6 +3953,29 @@ mod tests {
         let borrowed_output = engine
             .infer_rgb8(image.width(), image.height(), image.as_raw())
             .unwrap();
+        let timing = FrameTimingContext::new(Instant::now());
+        let detector_span = timing.start_span("detector").unwrap();
+        let timed_output = engine
+            .infer_rgb8_with_spans(
+                image.width(),
+                image.height(),
+                image.as_raw(),
+                &timing,
+                detector_span.id(),
+            )
+            .unwrap();
+        drop(detector_span);
+        let timing_snapshot = timing.snapshot().unwrap();
+        let timing_names = timing_snapshot
+            .spans
+            .iter()
+            .map(|span| span.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(timing_names.contains("detector"));
+        assert!(timing_names.contains("preprocess"));
+        assert!(timing_names.contains("model_execute"));
+        assert!(timing_names.contains("decode_nms"));
+        assert_eq!(timed_output.detections, borrowed_output.detections);
         assert_eq!(borrowed_output.source_width_px, output.source_width_px);
         assert_eq!(borrowed_output.source_height_px, output.source_height_px);
         assert_eq!(borrowed_output.detections, output.detections);

@@ -1,0 +1,8 @@
+{
+  "error": "could not read the managed live effective configuration: validation_failed: Configuration validation failed",
+  "failed_at_utc": "2026-10-23T10:08:54.744Z",
+  "managed_server": null,
+  "run_id": "20261023-100854-966edb85",
+  "schema_version": 6,
+  "tool": "billiards-performance-audit-run"
+}

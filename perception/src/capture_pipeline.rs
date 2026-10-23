@@ -14,7 +14,8 @@ use serde::Serialize;
 
 use crate::calibration::ValidatedTableCalibrationV1;
 use crate::capture::{
-    CaptureFrameReceiver, CaptureReceiveOutcome, CaptureTimestampSemantics, RgbFrameEnvelope,
+    CaptureFrameReceiver, CaptureFrameTiming, CaptureReceiveOutcome, CaptureTimestampSemantics,
+    RgbFrameEnvelope,
 };
 use crate::capture_session_ack::CaptureSessionAcknowledgement;
 use crate::detection_batch::{
@@ -28,6 +29,7 @@ use crate::live_audit::{
     LiveAuditFrame, LiveAuditInferenceTimings, LiveAuditObservationOutcome, LiveAuditRecorder,
 };
 use crate::live_config::{CaptureSessionCompatibility, ExpectedCaptureSettings};
+use crate::live_timing_spans::{FrameTimingContext, SpanGuard, SpanId};
 use crate::public_state_lifecycle::{PublicStateDeliveryV1, SceneStateLifecycle};
 use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
@@ -52,6 +54,19 @@ pub trait Rgb8FrameDetector {
         pixels: &[u8],
     ) -> Result<FrameInferenceOutput>;
 
+    /// Run inference with optional nested audit timing. Implementations that
+    /// do not expose internal stages retain their existing behavior; the live
+    /// capture path still measures the detector as one inclusive span.
+    fn infer_rgb8_with_timing(
+        &mut self,
+        width_px: u32,
+        height_px: u32,
+        pixels: &[u8],
+        _timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<FrameInferenceOutput> {
+        self.infer_rgb8(width_px, height_px, pixels)
+    }
+
     fn model_identity(&self) -> &ModelIdentity;
 
     fn inference_settings(&self) -> &crate::detection_batch::InferenceSettings;
@@ -65,6 +80,22 @@ impl Rgb8FrameDetector for FrameInferenceEngine {
         pixels: &[u8],
     ) -> Result<FrameInferenceOutput> {
         FrameInferenceEngine::infer_rgb8(self, width_px, height_px, pixels)
+    }
+
+    fn infer_rgb8_with_timing(
+        &mut self,
+        width_px: u32,
+        height_px: u32,
+        pixels: &[u8],
+        timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<FrameInferenceOutput> {
+        if let Some((context, parent)) = timing {
+            FrameInferenceEngine::infer_rgb8_with_spans(
+                self, width_px, height_px, pixels, context, parent,
+            )
+        } else {
+            FrameInferenceEngine::infer_rgb8(self, width_px, height_px, pixels)
+        }
     }
 
     fn model_identity(&self) -> &ModelIdentity {
@@ -493,6 +524,21 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     /// after it validates and enters the bounded writer slot. The writer's
     /// queue replaces older pending scenes and never waits for socket I/O.
     pub fn process(&mut self, frame: &RgbFrameEnvelope) -> Result<CapturePipelineOutcome> {
+        self.process_with_receiver_queue_wait(frame, None)
+    }
+
+    fn process_with_receiver_queue_wait(
+        &mut self,
+        frame: &RgbFrameEnvelope,
+        receiver_queue_wait_ns: Option<u64>,
+    ) -> Result<CapturePipelineOutcome> {
+        let capture_timing = receiver_queue_wait_ns
+            .map(|queue_wait_ns| {
+                let mut timing = frame.capture_timing();
+                timing.parent_receiver_queue_wait_ns = Some(queue_wait_ns);
+                timing
+            })
+            .unwrap_or_else(|| frame.capture_timing());
         if self.live_startup_required && self.preflight_binding.is_none() {
             self.audit_failure(
                 frame,
@@ -562,6 +608,39 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             return Ok(CapturePipelineOutcome::Skipped(reason));
         }
 
+        // Construct timing state only for explicitly audited frames. The
+        // disabled production path creates no span context, mutex, or span
+        // buffer. The context starts at host read-completion, never camera
+        // exposure, so its elapsed value remains in the verified parent clock.
+        let timing_context = self
+            .audit
+            .as_ref()
+            .map(|_| FrameTimingContext::new(frame.host_read_completed_at()));
+        let mut frame_span = timing_context.as_ref().and_then(|timing| {
+            timing
+                .start_span_at("frame_processing", None, frame.host_read_completed_at())
+                .ok()
+        });
+        let frame_span_id = frame_span.as_ref().map(SpanGuard::id);
+        if let (Some(timing), Some(parent), Some(queue_wait_ns)) = (
+            timing_context.as_ref(),
+            frame_span_id,
+            receiver_queue_wait_ns,
+        ) {
+            if let (Some(queue_wait_end), Ok(queue_wait_span)) = (
+                frame
+                    .host_read_completed_at()
+                    .checked_add(Duration::from_nanos(queue_wait_ns)),
+                timing.start_span_at(
+                    "capture_receiver_queue_wait",
+                    Some(parent),
+                    frame.host_read_completed_at(),
+                ),
+            ) {
+                let _ = queue_wait_span.finish_at(queue_wait_end);
+            }
+        }
+
         let source = frame.source();
         let inference_started = Instant::now();
         let parent_record_read_complete_to_inference_start_ms =
@@ -573,18 +652,23 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 }
             };
         self.stats.inference_started = self.stats.inference_started.saturating_add(1);
-        let inference =
-            match self
-                .detector
-                .infer_rgb8(source.width_px, source.height_px, frame.rgb8())
-            {
-                Ok(output) => output,
-                Err(error) => {
-                    self.stats.inference_failures = self.stats.inference_failures.saturating_add(1);
-                    self.audit_failure(frame, None, "inference", "inference_failed");
-                    return Err(error).context("RGB8 inference failed for captured frame");
-                }
-            };
+        let detector_span =
+            start_timing_child_span(timing_context.as_ref(), "detector", frame_span_id);
+        let inference_timing_parent = detector_span.as_ref().map(SpanGuard::id);
+        let inference = match self.detector.infer_rgb8_with_timing(
+            source.width_px,
+            source.height_px,
+            frame.rgb8(),
+            timing_context.as_ref().zip(inference_timing_parent),
+        ) {
+            Ok(output) => output,
+            Err(error) => {
+                self.stats.inference_failures = self.stats.inference_failures.saturating_add(1);
+                self.audit_failure(frame, None, "inference", "inference_failed");
+                return Err(error).context("RGB8 inference failed for captured frame");
+            }
+        };
+        drop(detector_span);
         let inference_completed = Instant::now();
         if inference.source_width_px != source.width_px
             || inference.source_height_px != source.height_px
@@ -609,6 +693,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
             self.audit_stale_after_inference(
                 frame,
+                capture_timing,
                 inference.timings,
                 parent_record_read_complete_to_inference_start_ms,
                 age,
@@ -653,6 +738,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             }
         };
         let calibration_started = Instant::now();
+        let calibration_span =
+            start_timing_child_span(timing_context.as_ref(), "calibration", frame_span_id);
         let calibrated = self.config.calibration.as_ref().map(|applied| {
             let context = AppliedCalibrationContext {
                 calibration_revision: applied.calibration_revision,
@@ -664,12 +751,18 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 calibrate_detection_batch(&batch, &applied.calibration, context),
             )
         });
+        drop(calibration_span);
         let calibration_ms = self
             .config
             .calibration
             .as_ref()
             .map(|_| calibration_started.elapsed().as_secs_f64() * 1_000.0);
         let tracking_started = self.audit.as_ref().map(|_| Instant::now());
+        let tracking_span = start_timing_child_span(
+            timing_context.as_ref(),
+            "tracking_and_state_assembly",
+            frame_span_id,
+        );
         let mut candidate_tracker = self.tracker.clone();
         let tracked_scene = match candidate_tracker.process_with_precalibrated_batch_report(
             &batch,
@@ -689,11 +782,17 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error).context("failed to build complete captured scene");
             }
         };
+        drop(tracking_span);
         let association_capacity_evictions = tracked_scene.association_capacity_evictions;
         let scene = tracked_scene.snapshot;
         let mut tracking_state_ms =
             tracking_started.map(|started| started.elapsed().as_secs_f64() * 1_000.0);
         let serialization_started = self.audit.as_ref().map(|_| Instant::now());
+        let scene_serialization_span = start_timing_child_span(
+            timing_context.as_ref(),
+            "scene_json_serialization",
+            frame_span_id,
+        );
         let raw_payload = match encode_scene_snapshot_v1(&scene) {
             Ok(payload) => payload,
             Err(error) => {
@@ -708,6 +807,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error).context("captured scene failed schema validation");
             }
         };
+        drop(scene_serialization_span);
         let mut scene_serialization_ms =
             serialization_started.map(|started| started.elapsed().as_secs_f64() * 1_000.0);
         let age = match frame_age(frame.host_read_completed_at(), Instant::now()) {
@@ -734,6 +834,13 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             ));
         }
 
+        let lifecycle_span = self.state_lifecycle.as_ref().and_then(|_| {
+            start_timing_child_span(
+                timing_context.as_ref(),
+                "public_state_lifecycle",
+                frame_span_id,
+            )
+        });
         let payload = if let Some(lifecycle) = self.state_lifecycle.as_mut() {
             let state_assembly_started = self.audit.as_ref().map(|_| Instant::now());
             let session_id = &scene.source.session_id;
@@ -760,8 +867,14 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             }
             let envelope_serialization_started = self.audit.as_ref().map(|_| Instant::now());
             let event = PublicStateDeliveryV1::new(&scene, current_state.as_ref());
+            let delivery_serialization_span = start_timing_child_span(
+                timing_context.as_ref(),
+                "public_state_json_serialization",
+                frame_span_id,
+            );
             let event_payload = serde_json::to_vec(&event)
                 .context("failed to serialize Rust public-state delivery v1")?;
+            drop(delivery_serialization_span);
             if let (Some(total_ms), Some(started)) = (
                 scene_serialization_ms.as_mut(),
                 envelope_serialization_started,
@@ -772,6 +885,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         } else {
             raw_payload
         };
+        drop(lifecycle_span);
 
         let next_batch_sequence = match self.next_batch_sequence.checked_add(1) {
             Some(sequence) => sequence,
@@ -786,6 +900,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             }
         };
         let queue_submit_started = self.audit.as_ref().map(|_| Instant::now());
+        let queue_submit_span =
+            start_timing_child_span(timing_context.as_ref(), "scene_queue_submit", frame_span_id);
         let freshness_deadline = frame
             .host_read_completed_at()
             .checked_add(self.config.maximum_frame_age)
@@ -807,6 +923,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             );
             return Err(error).context("failed to queue captured scene snapshot");
         }
+        drop(queue_submit_span);
 
         self.tracker = candidate_tracker;
         self.next_batch_sequence = next_batch_sequence;
@@ -821,6 +938,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 .association_capacity_evictions
                 .saturating_add(u64::try_from(association_capacity_evictions).unwrap_or(u64::MAX));
         }
+        if let Some(frame_span) = frame_span.take() {
+            let _ = frame_span.finish();
+        }
+        let frame_timing = timing_context
+            .as_ref()
+            .and_then(|timing| timing.snapshot().ok());
         let parent_record_read_complete_to_scene_queue_ms =
             match frame_age(frame.host_read_completed_at(), Instant::now()) {
                 Ok(age) => age.as_secs_f64() * 1_000.0,
@@ -878,7 +1001,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 detection_count: batch.detections.len(),
                 track_count: scene.balls.len(),
                 source_timestamp: batch.source.timestamp.as_ref(),
-                capture_timing: frame.capture_timing(),
+                capture_timing,
                 parent_record_read_complete_to_inference_start_ms,
                 preprocess_ms: inference.timings.preprocess_ms,
                 inference_ms: inference.timings.inference_ms,
@@ -889,6 +1012,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 scene_serialization_ms,
                 scene_queue_submit_ms,
                 parent_record_read_complete_to_scene_queue_ms,
+                frame_timing: frame_timing.as_ref(),
             });
         }
         Ok(CapturePipelineOutcome::Published(Box::new(
@@ -913,7 +1037,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         receiver: &mut CaptureFrameReceiver,
         timeout: Duration,
     ) -> CaptureReceiveOutcome<Result<CapturePipelineOutcome>> {
-        receiver.receive_with_timeout(timeout, |frame| self.process(frame))
+        let measure_queue_wait = self.audit.is_some();
+        receiver.receive_with_timeout_and_queue_timing(
+            timeout,
+            measure_queue_wait,
+            |frame, queue_wait_ns| self.process_with_receiver_queue_wait(frame, queue_wait_ns),
+        )
     }
 
     /// Current local processing counters.
@@ -967,6 +1096,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     fn audit_stale_after_inference(
         &self,
         frame: &RgbFrameEnvelope,
+        capture_timing: CaptureFrameTiming,
         inference: FrameInferenceTimings,
         parent_record_read_complete_to_inference_start_ms: f64,
         age: Duration,
@@ -978,7 +1108,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             "freshness_check",
             "stale_after_inference",
             Some(LiveAuditInferenceTimings {
-                capture_timing: frame.capture_timing(),
+                capture_timing,
                 parent_record_read_complete_to_inference_start_ms,
                 inference,
                 parent_record_read_complete_to_inference_complete_ms: age.as_secs_f64() * 1_000.0,
@@ -1280,6 +1410,17 @@ fn validate_config(config: &CapturePipelineConfig, tracking: &TrackingConfigV1) 
 fn frame_age(read_completed_at: Instant, now: Instant) -> Result<Duration> {
     now.checked_duration_since(read_completed_at)
         .context("host frame read-completion time is later than the local monotonic clock")
+}
+
+fn start_timing_child_span(
+    context: Option<&FrameTimingContext>,
+    name: &str,
+    parent: Option<SpanId>,
+) -> Option<SpanGuard> {
+    let (Some(context), Some(parent)) = (context, parent) else {
+        return None;
+    };
+    context.start_child_span(name, parent).ok()
 }
 
 fn batch_monotonic_timestamp(
@@ -1867,7 +2008,7 @@ mod tests {
     }
 
     #[test]
-    fn opted_in_pipeline_exports_measured_stage_spans_without_scene_content() {
+    fn opted_in_pipeline_exports_measured_stage_spans_and_receiver_queue_wait() {
         let listener =
             std::net::TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
                 .unwrap();
@@ -1924,8 +2065,9 @@ mod tests {
         )
         .unwrap();
 
+        let captured = frame("audit-frame", Some(900_000), Instant::now());
         let outcome = pipeline
-            .process(&frame("audit-frame", Some(900_000), Instant::now()))
+            .process_with_receiver_queue_wait(&captured, Some(5_000_000))
             .unwrap();
         assert!(matches!(outcome, CapturePipelineOutcome::Published(_)));
         let pipeline_counters = pipeline.stats();
@@ -1961,6 +2103,7 @@ mod tests {
         assert_eq!(durations["preprocess"], 1.0);
         assert_eq!(durations["inference"], 2.0);
         assert_eq!(durations["decode_and_nms"], 0.5);
+        assert_eq!(durations["capture_receiver_queue_wait"], 5.0);
         assert_eq!(durations["calibration"], serde_json::Value::Null);
         for stage in [
             "tracking_and_state_assembly",
@@ -1969,6 +2112,20 @@ mod tests {
         ] {
             assert!(durations[stage].as_f64().is_some_and(|value| value >= 0.0));
         }
+        let timing = &frame_record["frame_timing"];
+        assert!(timing["frame_elapsed_ns"].as_u64().is_some());
+        let spans = timing["spans"].as_array().unwrap();
+        assert!(spans.iter().any(|span| span["name"] == "frame_processing"));
+        assert!(spans
+            .iter()
+            .any(|span| span["name"] == "capture_receiver_queue_wait"));
+        assert!(spans.iter().any(|span| span["name"] == "detector"));
+        assert!(spans
+            .iter()
+            .any(|span| span["name"] == "tracking_and_state_assembly"));
+        assert!(spans
+            .iter()
+            .all(|span| span["inclusive_elapsed_ns"].as_u64().is_some()));
         assert!(frame_record.get("balls").is_none());
         assert!(frame_record.get("detections").is_none());
         assert_eq!(footer_record["record_type"], "footer");
@@ -2099,7 +2256,10 @@ mod tests {
         assert_eq!(records[3]["reason"], "stale_before_inference");
         assert_eq!(records[4]["frame_id"], "stale-after-inference");
         assert_eq!(records[4]["reason"], "stale_after_inference");
-        assert_eq!(records[4]["schema_version"], 3);
+        assert_eq!(
+            records[4]["schema_version"],
+            crate::live_audit::LIVE_AUDIT_SCHEMA_VERSION
+        );
         assert_eq!(records[4]["transport_sequence"], serde_json::Value::Null);
         assert_eq!(
             records[4]["source_timestamp"]["stage"],

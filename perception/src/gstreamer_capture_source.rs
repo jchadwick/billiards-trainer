@@ -510,6 +510,7 @@ impl CaptureSource for GstreamerCaptureSource {
                     CaptureFrameTiming {
                         helper: record.header.capture_timings_ns,
                         parent_framed_record_read_ns,
+                        parent_receiver_queue_wait_ns: None,
                     },
                     frame_limit,
                 )

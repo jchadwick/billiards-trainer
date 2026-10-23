@@ -1879,7 +1879,7 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
             live_timing.measurement_clock_domain_id,
         ));
         output.push_str(
-            "| Run | Timing status | Matched frames | Inference p95 (ms) | Timing details |\n| ---: | :--- | ---: | ---: | :--- |\n",
+            "| Run | Timing status | Matched frames | Inference p95 (ms) | Frame elapsed p95 (ms) | Model exclusive p95 (ms) | Timing details |\n| ---: | :--- | ---: | ---: | ---: | ---: | :--- |\n",
         );
         for run in &report.measured_runs {
             let summary = run.live_timing_summary.as_ref();
@@ -1895,13 +1895,29 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
                 .and_then(|summary| summary.pointer("/stage_durations_ms/inference/p95"))
                 .and_then(serde_json::Value::as_f64)
                 .map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"));
+            let frame_elapsed_p95 = summary
+                .and_then(|summary| summary.pointer("/frame_timing/frame_elapsed_ms/p95"))
+                .and_then(serde_json::Value::as_f64)
+                .map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"));
+            let model_exclusive_p95 = summary
+                .and_then(|summary| {
+                    summary.pointer("/frame_timing/span_durations_ms/model_execute/exclusive/p95")
+                })
+                .and_then(serde_json::Value::as_f64)
+                .map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"));
             let detail_link = run
                 .live_timing_details_path
                 .as_deref()
                 .map_or_else(|| "unavailable".to_owned(), |path| format!("`{path}`"));
             output.push_str(&format!(
-                "| {} | {} | {} | {} | {} |\n",
-                run.repetition, status, matched_frames, inference_p95, detail_link,
+                "| {} | {} | {} | {} | {} | {} | {} |\n",
+                run.repetition,
+                status,
+                matched_frames,
+                inference_p95,
+                frame_elapsed_p95,
+                model_exclusive_p95,
+                detail_link,
             ));
         }
     }
@@ -2193,6 +2209,16 @@ mod tests {
             "frame_id": "frame-1",
             "transport_sequence": 7,
             "durations_ms": { "inference": 2.5 },
+            "frame_timing": {
+                "frame_elapsed_ns": 5_000_000,
+                "dropped_spans": 0,
+                "invalid_clock_spans": 0,
+                "spans": [{
+                    "name": "model_execute",
+                    "inclusive_elapsed_ns": 2_000_000,
+                    "exclusive_elapsed_ns": 2_000_000
+                }]
+            },
         });
         let snapshot = ManagedLiveAuditSnapshot {
             listener_address: "127.0.0.1:9000".parse().unwrap(),
@@ -2242,6 +2268,11 @@ mod tests {
         assert_eq!(summary["status"], "complete");
         assert_eq!(summary["state_timing_correlation"]["matched_frames"], 1);
         assert_eq!(summary["stage_durations_ms"]["inference"]["count"], 1);
+        assert_eq!(summary["frame_timing"]["frame_elapsed_ms"]["p95"], 5.0);
+        assert_eq!(
+            summary["frame_timing"]["span_durations_ms"]["model_execute"]["exclusive"]["p95"],
+            2.0
+        );
         assert_eq!(
             summary["measurement_monotonic_window_ns"]["clock_domain_id"],
             "test-clock-domain"

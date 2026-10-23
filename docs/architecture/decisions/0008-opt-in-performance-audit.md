@@ -110,7 +110,12 @@ before/after validation.
 - The configured formatting, lint, typing, backend test, and coverage gates are
   required before implementation is complete.
 
-## Implementation progress (2026-10-21)
+## Historical implementation status (2026-10-21)
+
+This records the earlier Python-backed runtime and is retained as historical
+context. Those collector implementations and reducer commands were later
+retired during the Rust migration; this section does not describe the current
+codebase.
 
 The bounded API, vision, and video-process collectors, deterministic nested
 frame spans, headless receipt audit, and repeatable report exporter are
@@ -143,3 +148,31 @@ Ruff, Black, strict mypy, Rust formatting, Rust lint, the Rust tests, and all 51
 ADR validations pass. Pytest still exits nonzero because total coverage is
 56.48%, below the configured 80% gate; the coverage shortfall remains an open
 repository-wide acceptance item.
+
+## Current Rust implementation status (2026-10-23)
+
+The Rust live capture pipeline now creates a bounded per-frame timing context
+only when live pipeline timing audit is enabled. It records host read-completion
+to scene-queue-submission elapsed time and nested inclusive/exclusive spans for
+detector preprocessing, model execution, decode/NMS, calibration, tracking and
+state assembly, serialization, and queue submission. The audited receive path
+also times capacity-one mailbox residence from host read-completion to dequeue
+and reports it independently from the remaining freshness, admission, and
+scheduling work before inference. Cross-process intervals remain segmented
+unless monotonic clocks are verified comparable. Versioned frame records
+retain the span tree, and the summary reports frame elapsed and per-span
+percentile distributions with missing, invalid-clock, and dropped span counts.
+Deterministic tests cover nesting, overlapping children, error and panic
+cleanup, cross-thread completion, invalid clocks, bounded capacity, and
+disabled contexts.
+
+The first Rust audit off/on comparison stayed inside the 2% budget for its
+development-Mac, looped-video workload, but its executable predates the mailbox
+residence metric. Repeat that comparison with the current build and output
+outside the repository. Other open gates are independent runtime controls and
+matched interference runs for trajectory computation; a repeatable video-viewer
+workload comparison; gateway/WebSocket stage coverage; and reviewed temporal
+physical-accuracy labels for moving, occluded, settling, and interrupted-camera
+cases. The `--include-trajectory` option adds trajectory receipt collection
+only; it does not toggle trajectory computation. Historical Python audit
+results remain context, not current-Rust qualification.
