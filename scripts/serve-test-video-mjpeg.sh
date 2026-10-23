@@ -101,6 +101,11 @@ while ((stopping == 0)); do
   else
     listener_status=$?
   fi
+  # A signal trap can interrupt Bash's first wait before the child has exited.
+  # Wait again after forwarding TERM so shutdown does not leave FFmpeg behind.
+  if ((stopping != 0)); then
+    wait "${listener_pid}" || true
+  fi
   listener_pid=""
 
   if ((stopping != 0)); then
