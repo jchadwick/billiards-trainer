@@ -337,11 +337,13 @@ The first temporal-label review proposal selected nine frames because the
 replay had emitted a scene at each one. That would bias accuracy and freshness
 scoring toward successful detections and omit dropped source frames. Do not use
 that nine-frame list as an evaluation sample. The replacement
-[source-only candidate list](temporal-localization-prep-20261023/candidate-source-frame-indices.json)
-contains 66 indices selected from the original video timeline: a 2-second
-whole-clip sample plus a 5 Hz sequence through the visible aiming, movement,
-occlusion, and settlement section. Its plan requires reviewing the complete
-source frames first and includes indices with no produced scene, which the
-scorer treats as missing-result/freshness evidence. The list is still only a
-candidate: no reviewed temporal labels exist, so detector accuracy remains
-unavailable and no production profile can be recommended.
+design was refined after a source-only inspection localized the shot to frames
+270–306. It now has two separately scored cohorts: 40 reproducible
+hash-stratified frames across the clip and every frame in the 37-frame motion
+burst. The [review plan](temporal-localization-prep-20261023/annotation-review-plan.md)
+and its [clip-wide indices](temporal-localization-prep-20261023/candidate-clipwide-source-frame-indices.json)
+and [motion-burst indices](temporal-localization-prep-20261023/candidate-motion-burst-source-frame-indices.json)
+include source frames even when no scene was emitted, so missed output counts
+against freshness. These are still candidates until every frame is reviewed;
+no temporal labels exist yet, so detector accuracy remains unavailable and no
+production profile can be recommended.
