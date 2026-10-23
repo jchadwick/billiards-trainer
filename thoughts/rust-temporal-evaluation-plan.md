@@ -57,7 +57,7 @@ Rust. A shared fixture is asserted by both Rust and Python, and the Rust
 file-level test verifies video hash/geometry binding with the scene adapter.
 
 Verification completed so far: all 12 focused Rust evaluator tests pass; all
-43 focused Python evaluator/benchmark tests pass with `--no-cov`; the complete
+42 focused Python evaluator/benchmark tests pass with `--no-cov`; the complete
 Rust all-target suite passes (276 library tests plus all binary and integration
 tests), and strict Clippy passes. The isolated Python test command without
 `--no-cov` exits nonzero because the repository-wide 80% coverage gate is
@@ -66,4 +66,8 @@ intended for the full suite and a single file produces 8.90% total coverage.
 This does not yet replace Python. Broader recorded temporal clips and a real
 Rust detector replay still need report-by-report comparison. Once those are
 qualified, remove the Python evaluator and its compatibility tests, then move
-on to the next substantial Python audit tool.
+on to the next substantial Python audit tool. The separate Python
+`evaluate_rust_scene_snapshots.py` command adapter has already been retired;
+`scripts/evaluate-temporal-localization.sh` is now the developer entry point to
+the Rust evaluator, while Python scoring/reference behavior remains available
+to the existing benchmark until full temporal parity is established.

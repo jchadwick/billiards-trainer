@@ -255,7 +255,11 @@ by both Rust and the retained Python evaluator, and a file-level test covers
 video binding and scene normalization. This establishes a focused port, not
 full temporal-corpus parity: keep the Python scoring code until the broader
 temporal cases and a recorded detector replay have been compared, then retire
-the Python evaluator and its adapter tests as part of that follow-up.
+the Python evaluator and its compatibility tests as part of that follow-up.
+The redundant standalone Python command adapter has been retired: developers
+use the shell wrapper, which runs the Rust CLI, while the Rust file-level tests
+cover video binding and scene normalization. This removes the duplicate command
+implementation without discarding the broader Python differential reference.
 
 ## Verification
 
@@ -288,7 +292,7 @@ the Python evaluator and its adapter tests as part of that follow-up.
   unmatched truths, fresh-versus-cached results, unavailable samples,
   session/calibration transitions, label-time freshness, bounded inputs,
   bounded `ffprobe` output and timeout, and exact file identity. The focused
-  Python reference/evaluator suite passes 43 tests; it requires the targeted
+  Python reference/evaluator suite passes 42 tests; it requires the targeted
   no-coverage invocation because the repository-wide coverage gate is not met
   by running one test file in isolation.
 - The overhead shell entry point resolves and runs from outside the repository

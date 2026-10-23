@@ -1678,11 +1678,13 @@ and requires matching raw source-pixel geometry. Cue presence and center error
 can be scored from Rust scene data; endpoint and angle scores remain unavailable
 because the scene contract does not publish cue endpoints.
 
-Use `backend/tools/evaluate_rust_scene_snapshots.py --video VIDEO --annotations
+Use `scripts/evaluate-temporal-localization.sh --video VIDEO --annotations
 LABELS.json --scene-snapshots SCENES.jsonl` to score a labeled replay; an explicit
-`--frame-index-offset` supports a known trimmed/segmented replay. The adapter and
-command wrapper are covered by 42 deterministic temporal benchmark tests, and
-Ruff, Black, isort, strict mypy, and CLI help checks pass. The repository has no
+`--frame-index-offset` supports a known trimmed/segmented replay. The wrapper
+forwards to the Rust CLI, whose file-level evaluator binds video and scene
+identity. The redundant Python command adapter has been retired; the Python
+scoring reference remains for differential checks against benchmark cases.
+Deterministic temporal tests and CLI help checks pass. The repository has no
 held-out temporal labels yet, so this is adapter verification only: it does not
 establish Rust temporal accuracy, live-camera freshness, calibrated physical
 position accuracy, or performance improvement.
