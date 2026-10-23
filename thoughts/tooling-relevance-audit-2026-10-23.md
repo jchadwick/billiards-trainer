@@ -21,11 +21,11 @@ commands or baselines.
 | Rust recorded-video replay (`billiards-perception-video-replay`) | Keep as canonical, narrowly scoped | PTS-paced latest-frame mode measures detector-side freshness; unpaced mode measures processing capacity. It reuses current Rust inference and optional temporal scoring, but predecodes video and does not represent live camera/decoder contention or browser rendering. |
 | Rust temporal label importer/evaluator | Keep as canonical | Imports reviewed video labels and scores temporally aligned state. V1 remains pixel-only; v2 adds independently measured table coordinates with explicit uncertainty and a required millimeter gate. Recorded-video calibration feeds this scorer, but held-out physical accuracy evidence still needs to be collected. |
 | Rust detection-batch receiver and synchronous still-image TCP sender | Retire | The only retained workflow was the retired still-image equivalence evaluator. Current video scoring uses bounded JSONL artifacts; live state receipt uses the scene transport and audit subscriber. The old receiver's tests no longer protect a supported caller. |
-| `perception/contracts/public-state/generate_fixtures.py` | Keep as migration-only test oracle | Captures the actual Python adapter output used for Rust differential fixtures. It is not a server/runtime tool and should be removed when the compatibility oracle and its fixtures are re-baselined. |
+| `perception/contracts/public-state/generate_fixtures.py` | Keep as a compatibility-test oracle while Python adapter tests remain | Regenerates 35 checked-in cross-runtime cases from the actual offline Python adapter; those fixtures still detect semantic drift against Rust. It is not a runtime or general-purpose authoring tool. Retire it with the Python adapter reference once that comparison is no longer needed. |
 | `camera-nokhwa-build-spike` Cargo feature and CI check | Retire | It compiled a native dependency but had no camera source factory, runtime caller, or capture evidence. The supported capture work proceeds through the supervised GStreamer adapter; the compile-only experiment and CI leg were removed. |
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
-| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; its fake-FFmpeg smoke test verifies listener restart and child shutdown, but the fixture does not simulate camera exposure, driver buffering, or a physical camera. |
+| `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; its fake-FFmpeg smoke test checks listener exit/restart and child shutdown, not real HTTP client disconnect or multipart decoding. It does not simulate camera exposure, driver buffering, or a physical camera. |
 | `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Overwrite restores the previous model/manifest pair if either staged promotion fails. The exporter and Rust loader consume the same v1 manifest fixture, and Rust rejects unknown schema versions. Export alone does not establish runtime parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
@@ -58,12 +58,12 @@ commands or baselines.
 | Docker/Compose image and Make targets | Keep as a separate optional Linux gateway/network-source lane | The image builds the Rust runtime and Compose defaults to gateway-only mode. The service has no physical camera device mapping, and CI builds but does not start the image or exercise its health check. It is not physical-camera qualification or a substitute for native macOS packaging. |
 | `scripts/performance-audit-live.sh`, `performance-audit-run.sh`, `run-rust-video-audit.sh` | Keep | Thin wrappers for the canonical Rust live runner, external subscriber, and recorded-video CLI; no measurement logic is duplicated in shell. Both performance-audit entry points and video replay build/run release binaries so the observer does not add debug-build overhead. |
 | `scripts/evaluate-temporal-localization.sh`, `import-cvat-temporal-annotations.sh` | Keep | Thin entry points for the Rust evaluator and reviewed-annotation importer. |
-| `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG and restarts for a reconnecting client. It can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
+| `scripts/serve-test-video-mjpeg.sh` | Keep: manual network-capture fixture | Streams a saved video at its source frame rate over one-client HTTP multipart MJPEG. The smoke test simulates listener exit/restart and child shutdown; it does not create an HTTP client or validate multipart parsing. The fixture can exercise network-source capture and the end-to-end software path, but cannot stand in for physical camera timing or qualify live camera freshness. |
 | `scripts/verify-development-setup.sh` | Keep: development setup | Checks required local tooling; it does not duplicate application readiness or detector accuracy checks. |
 | `make security-check` | Keep, fail closed | It composes independent Rust and browser dependency checks; `cargo-audit` is required, and a missing Rust audit tool fails instead of reporting a misleading successful partial check. `make test-tooling` covers both its failure and dispatch paths. |
 | `backend/README.md` and `backend/requirements.txt` | Retire | The 936-line README described retired Python launchers and workflows; the unbounded requirements file duplicated and diverged from `pyproject.toml`. Current setup instructions use the root runtime guide and the checked-in Python lock. |
 | Python module `SPECS.md` files and streaming implementation guide | Retire | Their 2,014 lines prescribed an unimplemented multi-stream Python service, described retired vision commands, and included production claims for numbered-ball recognition. Current API, coordinate, runtime, and ADR documents are authoritative. |
-| Root `Makefile` | Keep the focused build/test/run/deploy interface; remove the false `install` alias and broad process kill | `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. Local builds now reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
+| Root `Makefile` | Keep the focused build/test/run/deploy interface; remove false aliases and broad process killing | `make run` builds the browser and all colocated live processes; `make run-api` builds the browser and gateway with default features, without camera libraries or capture processes. `make test-all` includes tooling smoke tests. `install` only ran `build`, and `kill-processes` used machine-wide `pkill -x`, which could stop another checkout. The duplicate `quickstart` and network-fetched `docs-serve` targets were removed. Local builds reuse installed browser packages; `make dev` and release packaging still perform locked installs. |
 | `scripts/deploy/build-dist.sh` | Keep; lock Rust dependency resolution | It is the package builder. Release builds pass `cargo build --locked`; `make test-deploy` tests package assembly, safe replacement and rollback, frontend failure isolation, cleanup, and updater lifecycle. Tests run through the system Bash path to catch macOS Bash compatibility issues. |
 | `.github/workflows/shell-scripts.yml` | Keep and broaden | It syntax-checks every tracked `*.sh` and the active `.githooks/pre-commit`, not only `scripts/**`; deployment and audit smoke tests cover key behavior, but syntax coverage is not full behavioral coverage or ShellCheck. |
 | Make targets for Python compatibility tests/lint | Keep as compatibility checks | The user has allowed the Python service/reference to remain for now. Do not mistake its tests for Rust runtime or live-camera qualification. |
@@ -216,6 +216,27 @@ major CSS-framework migration.
 - The unused `frontend/web` `preview` script, which served built static files
   without the Rust API required by `/live` and had no documented or automated
   caller.
+- The stale Python GPU acceleration guide, whose VAAPI/OpenCL claims and
+  instructions described removed Python inference paths rather than the Rust
+  OpenVINO runtime.
+- The abandoned Python still-image detector corpus (about 108 MB), its weak
+  dimension-only fixture test, the empty training folder, and the unused
+  17-class training template. The prior replay test used a deterministic fake
+  detector, so that corpus was not accuracy evidence; Rust temporal labels are
+  the supported route for detector evaluation.
+- Orphan Playwright result metadata in `frontend/web`; it had no active browser
+  runner or route consumer.
+- The unused `quickstart` and `docs-serve` Make aliases, and the MJPEG smoke
+  test's inaccurate “client disconnect” claim. The smoke test simulates
+  listener child exit/restart and shutdown; it never connected an HTTP client.
+- The `model_assets` pytest marker and CI exclusion after its only marked test
+  was retired. CI now collects and runs the complete retained backend suite.
+- The mismatch where `make run` did not build sibling live processes, even
+  though the server launches them from the build directory. The integrated
+  command builds them first; `make run-api` no longer requests the optional
+  camera feature it does not use. Rust edits under `perception/` now trigger
+  Rust tests in the local pre-commit hook, and `make test-all` runs tooling
+  smoke tests.
 - The orphaned `backend/HEALTH_MONITORING.md`, whose test command referenced a
   deleted file and described the retired Python deployment. Current runtime
   health evidence belongs to the Rust gateway contracts.
@@ -295,9 +316,10 @@ These results do not close the remaining tool and system gaps: temporal
 accuracy labels; a physical Linux webcam and hardware-provider qualification;
 viewer interference; and the offline compatibility detector's remaining
 CoreML branch. The 20-minute state/memory soak is complete, while its bounded
-timing trace is intentionally partial after reaching retention limits. The
-shared live-audit and replay CLIs still need hardware-free command-to-artifact
-tests; the importer-to-evaluator process workflow now has that coverage.
+timing trace is intentionally partial after reaching retention limits. At this
+point in the chronology, command-to-artifact coverage was still outstanding for
+the live-audit and replay CLIs. The later tool-inventory follow-up below adds
+that coverage for both.
 
 The recorded-video command's real-detector runs are functionality and
 development-machine comparison checks, not production baselines: they used one
@@ -333,7 +355,8 @@ path remain untested.
 - `uv lock --check`, Docker Compose configuration, Make help output, supported
   offline-tool `--help` commands, and shell syntax checks passed.
 - `make test-tooling test-deploy` passed, including the MJPEG fixture's simulated
-  client-disconnect restart and graceful child-process shutdown.
+  listener exit/restart and graceful child-process shutdown. The smoke does not
+  create an HTTP client or test client-disconnect handling.
 - Strict Rust Clippy, Make's isolated-target Rust test target, Python lint for
   backend/tools and backend type checks, browser typecheck/tests,
   ADR validation, lockfile check, public fixture generation, Docker Compose
@@ -527,3 +550,47 @@ path remain untested.
   type checks and formatting checks passed; all five workflow YAML files
   parsed; `uv lock --check`, whitespace checks, and validation of all 97 ADRs
   passed.
+
+### Complete tool sweep (2026-10-23)
+
+- Rechecked the already-ported Rust commands alongside shell, Make, deployment,
+  browser, model-export, and Python compatibility tools. The retained Rust
+  executables have distinct runtime, camera discovery, config validation,
+  replay, live audit, annotation import, or accuracy-evaluation roles; their
+  command-level coverage is listed above. The deleted still-image and
+  batch-TCP commands had no remaining supported caller.
+- Kept the Python ONNX exporter because it is the supported authoring bridge
+  from the upstream Ultralytics checkpoint to the lineage-checked model
+  consumed by Rust. Kept the public-state fixture generator only as a
+  cross-runtime oracle while the offline Python adapter remains; its 35 cases
+  test compatibility semantics rather than the Rust runtime. The retained
+  Python service and its tests remain the explicit compatibility boundary.
+- The final cleanup removed the abandoned 108 MB still-image corpus, its
+  dimension-only test, the empty training directory, and the unused 17-class
+  training template. It also retired the stale GPU guide, orphan browser
+  metadata, and unneeded model-assets marker/filter. These did not provide
+  model-accuracy evidence or validate a supported runtime workflow.
+- Repaired the root launch tooling: `make run` now builds the browser and its
+  colocated live processes before the server starts; `make run-api` builds and
+  launches the gateway with default Cargo features, without the camera-only
+  GStreamer dependencies. Both `--help` launch smokes passed. `make test-all`
+  includes the tooling failure/dispatch and saved-video listener lifecycle
+  smoke tests. The MJPEG smoke is explicitly limited to listener exit/restart
+  and child shutdown; it does not emulate an HTTP client disconnect.
+- Removed the obsolete model-assets test exclusion so CI collects the retained
+  backend suite. The Python suite passed 2,821 tests at 82.48% coverage, above
+  its configured 80% gate. `make test-all` passed 320 default-feature Rust
+  library tests, 332 GStreamer-feature Rust library tests, the Rust
+  binary/integration process tests, 16 browser tests, Python compatibility
+  tests, tooling smoke tests, and deployment lifecycle tests.
+- `make lint format-check lint-python` passed: strict Rust Clippy, Rust format,
+  browser TypeScript checking, Ruff, and strict mypy. Python Black/isort
+  formatting had also passed after the Python test-fixture cleanup. Shell
+  syntax, all workflow YAML parsing, `uv lock --check`, `git diff --check`, and
+  validation of all 98 ADRs passed.
+- Remaining evidence gaps are not tool-retirement candidates: no held-out
+  temporal labels establish localization accuracy, no physical Linux webcam
+  run qualifies camera timing/provider behavior, no browser E2E run measures
+  viewer interference, and `cargo-audit` is unavailable on this Mac. The Rust
+  dependency check correctly fails closed when that auditor is missing; the
+  browser dependency audit reports zero vulnerabilities.
