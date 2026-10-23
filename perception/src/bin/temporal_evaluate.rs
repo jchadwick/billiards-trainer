@@ -17,7 +17,7 @@ use billiards_perception::temporal_evaluation::{
     about = "Score Rust scene snapshots against exact recorded-video temporal labels"
 )]
 struct Arguments {
-    /// Original recorded video; its SHA-256 and first video-stream geometry are verified.
+    /// Original video; SHA-256 and the annotation-selected stream geometry are verified.
     #[arg(long)]
     video: PathBuf,
     /// Versioned temporal localization annotation JSON.

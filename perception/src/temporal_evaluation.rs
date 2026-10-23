@@ -1509,8 +1509,13 @@ fn hash_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Query the first video stream's dimensions using the configured ffprobe.
-pub fn video_geometry(ffprobe: &Path, video_path: &Path, timeout: Duration) -> Result<(u32, u32)> {
+/// Query one video stream's dimensions using the configured ffprobe.
+pub fn video_geometry(
+    ffprobe: &Path,
+    video_path: &Path,
+    video_stream_index: u64,
+    timeout: Duration,
+) -> Result<(u32, u32)> {
     if timeout.is_zero() {
         bail!("ffprobe timeout must be positive");
     }
@@ -1519,7 +1524,7 @@ pub fn video_geometry(ffprobe: &Path, video_path: &Path, timeout: Duration) -> R
             "-v",
             "error",
             "-select_streams",
-            "v:0",
+            &format!("v:{video_stream_index}"),
             "-show_entries",
             "stream=width,height",
             "-of",
@@ -1666,8 +1671,6 @@ pub fn evaluate_files(
             bail!("{label} does not exist: {}", path.display());
         }
     }
-    let (video_sha256, _) = hash_file(video_path, config.maximum_video_bytes)?;
-    let video_geometry = video_geometry(ffprobe, video_path, config.ffprobe_timeout)?;
     let annotation_bytes = read_bounded_file(
         annotation_path,
         config.maximum_annotation_bytes,
@@ -1675,6 +1678,18 @@ pub fn evaluate_files(
     )?;
     let annotations_sha256 = hash_bytes(&annotation_bytes);
     let annotations = parse_annotation_document(&annotation_bytes)?;
+    let source_video_stream_index = annotations
+        .annotation_metadata
+        .as_ref()
+        .map(|metadata| metadata.source_video_stream_index)
+        .unwrap_or(0);
+    let (video_sha256, _) = hash_file(video_path, config.maximum_video_bytes)?;
+    let video_geometry = video_geometry(
+        ffprobe,
+        video_path,
+        source_video_stream_index,
+        config.ffprobe_timeout,
+    )?;
     if annotations.sequence.video_sha256.to_lowercase() != video_sha256 {
         bail!("annotation video SHA-256 does not match input");
     }
@@ -1702,6 +1717,7 @@ pub fn evaluate_files(
             "video_path": absolute_path(video_path),
             "video_sha256": video_sha256,
             "video_geometry": { "width": video_geometry.0, "height": video_geometry.1 },
+            "source_video_stream_index": source_video_stream_index,
             "annotations_path": absolute_path(annotation_path),
             "annotations_sha256": annotations_sha256,
             "scene_snapshots_path": absolute_path(scene_snapshot_path),
@@ -2225,6 +2241,19 @@ mod tests {
         annotation.sequence.video_sha256 = video_hash.clone();
         annotation.sequence.width = 3840;
         annotation.sequence.height = 2160;
+        annotation.annotation_metadata = Some(AnnotationMetadata {
+            source_annotation_format: "cvat_video_1.1".to_owned(),
+            source_annotation_sha256: "b".repeat(64),
+            reviewed_frames_sha256: "c".repeat(64),
+            epoch_events_sha256: None,
+            frame_index_offset: 0,
+            source_video_stream_index: 1,
+            presentation_time_source: "ffprobe_best_effort_timestamp_time".to_owned(),
+            presentation_time_origin_seconds: 0.0,
+            ball_radius_method: "mean_box_half_extent".to_owned(),
+            cue_polyline_point_order: "first_tip_second_butt".to_owned(),
+            tool_version: 1,
+        });
         std::fs::write(&annotation_path, serde_json::to_vec(&annotation).unwrap()).unwrap();
         std::fs::write(
             &scenes_path,
@@ -2242,7 +2271,7 @@ mod tests {
         .unwrap();
         std::fs::write(
             &ffprobe_path,
-            "#!/bin/sh\nprintf '%s\\n' '{\"streams\":[{\"width\":3840,\"height\":2160}]}'\n",
+            "#!/bin/sh\ntest \"$4\" = 'v:1' || exit 2\nprintf '%s\\n' '{\"streams\":[{\"width\":3840,\"height\":2160}]}'\n",
         )
         .unwrap();
         let mut permissions = std::fs::metadata(&ffprobe_path).unwrap().permissions();
@@ -2264,6 +2293,7 @@ mod tests {
         assert_eq!(report["metadata"]["annotations_sha256"], annotation_hash);
         assert_eq!(report["metadata"]["scene_snapshots_sha256"], scene_hash);
         assert_eq!(report["metadata"]["video_geometry"]["width"], 3840);
+        assert_eq!(report["metadata"]["source_video_stream_index"], 1);
         assert_eq!(report["metadata"]["scored_engine_frames"], 1);
         assert_eq!(
             report["metadata"]["rust_monotonic_timestamps_used_for_latency"],
@@ -2289,6 +2319,7 @@ mod tests {
         let error = video_geometry(
             &output_script,
             Path::new("unused-video"),
+            0,
             Duration::from_secs(1),
         )
         .unwrap_err();
@@ -2302,6 +2333,7 @@ mod tests {
         let error = video_geometry(
             &timeout_script,
             Path::new("unused-video"),
+            0,
             Duration::from_millis(20),
         )
         .unwrap_err();
