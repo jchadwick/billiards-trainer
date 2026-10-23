@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Check the saved-video MJPEG fixture restarts after a disconnect and reaps its
-# listener process when the wrapper receives a shutdown signal.
+# Check the saved-video MJPEG fixture restarts after a listener exit and reaps
+# its active listener process when the wrapper receives a shutdown signal.
 
 set -euo pipefail
 
@@ -45,9 +45,9 @@ fi
 count=$((count + 1))
 printf '%s\n' "$count" > "$INVOCATION_COUNT"
 
-# Model a client disconnect: the first listener exits, causing the fixture to
-# reopen the one-client FFmpeg listener. The next listener stays alive until
-# the wrapper asks it to stop.
+# Model an exited listener: the fixture should open a replacement. The next
+# listener stays alive until the wrapper asks it to stop. This does not create
+# an HTTP client or verify the multipart stream format.
 if ((count == 1)); then
     exit 1
 fi
@@ -99,4 +99,4 @@ if kill -0 "$child_pid" 2>/dev/null; then
     fail "listener process $child_pid is still alive after wrapper shutdown"
 fi
 
-printf '%s\n' 'saved-video MJPEG restart and child shutdown smoke passed'
+printf '%s\n' 'saved-video MJPEG listener restart and child shutdown smoke passed'
