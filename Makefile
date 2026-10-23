@@ -13,7 +13,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env quickstart docs docs-serve
+.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env docs
 
 # Default target
 .DEFAULT_GOAL := help
@@ -125,7 +125,7 @@ fix: format lint ## Fix code formatting and run linting
 
 test: test-rust test-web ## Run Rust runtime and browser tests
 
-test-all: test test-rust-camera test-python test-deploy ## Run Rust, browser, camera-feature, retained Python, and deployment tests
+test-all: test test-rust-camera test-python test-tooling test-deploy ## Run Rust, browser, camera-feature, retained Python, tooling, and deployment tests
 
 test-rust: ## Run Rust unit, contract, and fixture tests
 	CARGO_TARGET_DIR="$(RUST_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
@@ -177,7 +177,7 @@ build: build-frontend build-rust ## Build the Rust application and web client
 
 # ===== Development Server =====
 
-run: build-frontend setup-dirs ## Run Rust server, live detector, and retained web client
+run: build-frontend build-rust setup-dirs ## Build and run Rust server, live detector, and retained web client
 	@echo "$(BLUE)Starting Billiards Trainer Rust server...$(RESET)"
 	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
@@ -185,7 +185,7 @@ run: build-frontend setup-dirs ## Run Rust server, live detector, and retained w
 		--config "$(abspath $(RUST_CONFIG))" --project-root "$(PWD)" \
 		--web-root "$(PWD)/backend/static" --start-live $(RUST_SERVER_ARGS)
 
-run-api: build-frontend build-rust ## Run Rust gateway without live capture
+run-api: build-frontend setup-dirs ## Run Rust gateway without live capture
 	cargo run --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
 		--scene-bind $(RUST_SCENE_BIND) --scene-port $(RUST_SCENE_PORT) \
@@ -308,28 +308,10 @@ check-env: ## Check Rust, Node.js, npm, and camera build prerequisites
 		echo "$(YELLOW)GStreamer development libraries are required for the default camera-enabled build$(RESET)"; \
 	fi
 
-# ===== Quick Start =====
-
-quickstart: ## Quick setup for new developers
-	@echo "$(CYAN)Welcome to Billiards Trainer!$(RESET)"
-	@echo "$(BLUE)Setting up development environment...$(RESET)"
-	$(MAKE) dev
-	@echo ""
-	@echo "$(GREEN)Setup complete! Next steps:$(RESET)"
-	@echo "  1. $(YELLOW)make run$(RESET)                  # Run the Rust application"
-	@echo "  2. $(YELLOW)make test$(RESET)                 # Run Rust and browser tests"
-	@echo "  3. $(YELLOW)make test-python$(RESET)          # Optional retained Python checks"
-	@echo ""
-	@echo "$(CYAN)Available commands: make help$(RESET)"
-
 # ===== Documentation =====
 
 docs: ## Generate Rust API documentation
 	cargo doc --locked --manifest-path $(RUST_MANIFEST) --no-deps
-
-docs-serve: docs ## Serve generated Rust API documentation locally
-	@echo "$(BLUE)Serving Rust API documentation at http://localhost:8080$(RESET)"
-	cd perception/target/doc && npx --yes http-server -p 8080
 
 # ===== Deployment =====
 
