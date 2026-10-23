@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "run_revision": "8b85223dad8f15f4f390e3212dac6893acae108c",
+  "environment": {
+    "operating_system": "macos",
+    "architecture": "aarch64",
+    "processor": "Apple M4 Max",
+    "logical_cpu_count": 14
+  },
+  "workload": {
+    "type": "local_rust_live_mjpeg_recording",
+    "video_path": "test_data/demo2_short.mp4",
+    "video_sha256": "4e09e30c49fed7e134f43f276c629394c209757e0440958a51ab148f12f6e388",
+    "video_resolution_px": [1280, 720],
+    "model_sha256": "4ceec94901553ff8a22f71d8cca684ec314a9fec8b7f219c410a5df16be4c4fa",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "runtime_provider": "ONNX Runtime CPUExecutionProvider",
+    "image_size_px": 1280,
+    "confidence_threshold": 0.4,
+    "iou_threshold": 0.45,
+    "warmup_seconds": 30,
+    "measured_window_seconds": 120,
+    "measured_windows_per_arm": 3,
+    "configuration_difference": "vision.camera.fps only",
+    "configuration_sha256_with_fps_removed": "5a2c890e0e3777d9753be27a7820fff0ba35847aeb74902084effc9f2f42198d",
+    "camera_timestamp_semantics": "read_completion_only"
+  },
+  "arms": [
+    {
+      "capture_fps": 15,
+      "status": "exploratory_unqualified",
+      "run_ids": ["20261023-085647-2548e800"],
+      "measured_windows": 3,
+      "medians": {
+        "state_messages_per_second": 14.949769,
+        "unique_observed_ball_frames_per_second": 10.383173,
+        "stale_state_messages_per_window": 43,
+        "missing_source_frame_ids_per_window": 49,
+        "read_completion_to_publication_p50_ms": 45.036875,
+        "read_completion_to_publication_p95_ms": 56.683980,
+        "read_completion_to_publication_p99_ms": 63.817233,
+        "inference_p95_ms": 45.377250,
+        "inference_start_wait_p95_ms": 12.165791,
+        "detector_cpu_cores": 3.069857
+      },
+      "producer_clean_shutdown": false,
+      "audit_records_dropped": 0,
+      "detector_restarts_during_measured_windows": false,
+      "notes": [
+        "The three 120-second measurement windows completed and had complete state messages, but all producer footers reported an unclean shutdown.",
+        "A separate 20-second check with the MJPEG fixture already listening reproduced the unclean shutdown, so 15 fps remains unqualified pending lifecycle investigation."
+      ]
+    },
+    {
+      "capture_fps": 20,
+      "status": "complete_relational_measurement",
+      "run_ids": [
+        "20261023-083918-3e4cdf51",
+        "20261023-084737-305faf88",
+        "20261023-085015-5bf002a4"
+      ],
+      "measured_windows": 3,
+      "medians": {
+        "state_messages_per_second": 19.808038,
+        "unique_observed_ball_frames_per_second": 14.291305,
+        "stale_state_messages_per_window": 21,
+        "missing_source_frame_ids_per_window": 45,
+        "read_completion_to_publication_p50_ms": 47.622333,
+        "read_completion_to_publication_p95_ms": 63.065167,
+        "read_completion_to_publication_p99_ms": 70.176766,
+        "inference_p95_ms": 45.185416,
+        "inference_start_wait_p95_ms": 17.918500,
+        "detector_cpu_cores": 4.073559
+      },
+      "producer_clean_shutdown": true,
+      "audit_records_dropped": 0,
+      "detector_restarts_during_measured_windows": false
+    },
+    {
+      "capture_fps": 30,
+      "status": "complete_relational_measurement",
+      "run_ids": [
+        "20261023-084207-4f44a18b",
+        "20261023-084501-7dff273d",
+        "20261023-085251-aaaad580"
+      ],
+      "measured_windows": 3,
+      "medians": {
+        "state_messages_per_second": 22.257742,
+        "unique_observed_ball_frames_per_second": 16.624559,
+        "stale_state_messages_per_window": 24,
+        "missing_source_frame_ids_per_window": 941,
+        "read_completion_to_publication_p50_ms": 60.359730,
+        "read_completion_to_publication_p95_ms": 77.649808,
+        "read_completion_to_publication_p99_ms": 82.459044,
+        "inference_p95_ms": 44.996958,
+        "inference_start_wait_p95_ms": 33.055250,
+        "detector_cpu_cores": 4.598068
+      },
+      "producer_clean_shutdown": true,
+      "audit_records_dropped": 0,
+      "detector_restarts_during_measured_windows": false
+    }
+  ],
+  "limitations": [
+    "No reviewed temporal accuracy labels or independently surveyed physical ball positions were supplied.",
+    "The looped MJPEG source is a saved video, not a physical webcam or target Linux machine.",
+    "The live timestamp is read completion, not camera exposure.",
+    "Trajectory work and browser/video viewers were not enabled, so consumer interference was not measured.",
+    "Ball-number classification is outside this model; classes are generic ball and cue.",
+    "The live delivery audit does not measure physical display latency, event-loop lag, or allocation trends."
+  ]
+}

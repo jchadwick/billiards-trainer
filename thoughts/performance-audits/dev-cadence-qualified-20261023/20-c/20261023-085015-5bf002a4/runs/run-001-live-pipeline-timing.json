@@ -1,0 +1,354 @@
+{
+  "repetition": 1,
+  "schema_version": 6,
+  "summary": {
+    "association_capacity_pressure": {
+      "malformed_pressure_outcome_records": 0,
+      "measured_window_evicted_tracks": 18,
+      "measured_window_pressure_frames": 18,
+      "measurement_status": "complete",
+      "run_total_evicted_tracks": 18,
+      "run_total_includes_warmup": true,
+      "run_total_pressure_frames": 18
+    },
+    "footer": {
+      "audit_receiver_monotonic_ns": 151187270750,
+      "clean_shutdown": true,
+      "dropped_records": 0,
+      "export_status": "complete",
+      "failed_observations": 0,
+      "pipeline_counters": {
+        "association_capacity_evictions": 18,
+        "association_capacity_pressure_frames": 18,
+        "duplicate_frames": 0,
+        "frames_received": 2977,
+        "inference_failures": 0,
+        "inference_started": 2977,
+        "out_of_order_frames": 0,
+        "preflight_rejections": 0,
+        "publication_failures": 0,
+        "scene_processing_failures": 0,
+        "scenes_submitted": 2975,
+        "stale_frames": 2
+      },
+      "record_type": "footer",
+      "records_written_before_footer": 5970,
+      "rejected_observations": 0,
+      "scene_socket_write_failures": 0,
+      "scene_socket_write_successes": 2975,
+      "scene_transport_counters": {
+        "connection_attempts": 1,
+        "connection_failures": 0,
+        "dropped_snapshots": 0,
+        "expired_snapshots": 0,
+        "last_written_sequence": 2975,
+        "oversized_submissions": 0,
+        "queued_snapshots": 2975,
+        "replaced_pending_snapshots": 0,
+        "successful_connections": 1,
+        "superseded_before_write_snapshots": 0,
+        "write_failures": 0,
+        "written_snapshots": 2975
+      },
+      "schema_version": 3,
+      "skipped_observations": 2
+    },
+    "managed_process_resource_sampling": {
+      "observed_process_ids": [
+        8838
+      ],
+      "restart_during_window": false,
+      "sampled_process_id": 8838,
+      "sampled_process_status": "available",
+      "status": "complete",
+      "unsampled_process_ids": []
+    },
+    "matched_detection_count": {
+      "count": 1719,
+      "mean": 10.139034322280395
+    },
+    "matched_scene_socket_write_durations_ms": {
+      "failed": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null
+      },
+      "written": {
+        "count": 1719,
+        "p50": 0.024749999999999998,
+        "p95": 0.030334,
+        "p99": 0.033083
+      }
+    },
+    "matched_track_count": {
+      "count": 1719,
+      "mean": 9.688190808609656
+    },
+    "measurement_monotonic_window_ns": {
+      "applies_to": "audit record receive times and outcome window only",
+      "clock": "managed_live_audit_receiver_monotonic",
+      "clock_domain_id": "managed-live-audit-2559770e-6a96-4183-95b0-c3bc6cfeae00",
+      "end": 151159265208,
+      "start": 31156164125
+    },
+    "observation_outcome_reasons_received": {
+      "association_capacity_pressure_evicted_1": 18,
+      "stale_after_inference": 2
+    },
+    "observation_outcomes_in_measurement_window": {
+      "degraded": 18,
+      "skipped": 2
+    },
+    "observation_outcomes_received": {
+      "degraded": 18,
+      "skipped": 2
+    },
+    "out_of_window_outcome_records": 0,
+    "producer_dropped_records": 0,
+    "receiver_loss_counts_run_total": {
+      "connection_limit_drops": 0,
+      "connection_task_failures": 0,
+      "malformed_records": 0,
+      "oversized_records": 0,
+      "queue_dropped_records": 0,
+      "retention_evictions": 0,
+      "retention_oversize_drops": 0,
+      "transport_errors": 0
+    },
+    "record_counts": {
+      "footer": 1,
+      "frame": 2373,
+      "observation_outcome": 20,
+      "scene_socket_write": 2373
+    },
+    "records_received": 4767,
+    "retained_records": 4767,
+    "retention_limit": 200000,
+    "scene_socket_write_attempts_received": 2373,
+    "scene_socket_write_outcomes_received": {
+      "written": 2373
+    },
+    "stage_durations_ms": {
+      "calibration": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "capture_helper_appsink_pull_wait": {
+        "count": 1719,
+        "p50": 41.302459,
+        "p95": 72.525875,
+        "p99": 73.509166,
+        "sample_limit": 200000
+      },
+      "capture_helper_rgb_buffer_allocation": {
+        "count": 1719,
+        "p50": 0.014375,
+        "p95": 0.019792,
+        "p99": 0.030167,
+        "sample_limit": 200000
+      },
+      "capture_helper_rgb_mapping_copy": {
+        "count": 1719,
+        "p50": 0.039083,
+        "p95": 0.054459,
+        "p99": 0.072667,
+        "sample_limit": 200000
+      },
+      "decode_and_nms": {
+        "count": 1719,
+        "p50": 0.090625,
+        "p95": 0.099375,
+        "p99": 0.105542,
+        "sample_limit": 200000
+      },
+      "engine_total": {
+        "count": 1719,
+        "p50": 44.508582999999994,
+        "p95": 46.245000000000005,
+        "p99": 47.084917,
+        "sample_limit": 200000
+      },
+      "host_read_complete_to_inference_start": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "host_read_complete_to_scene_queue_submit": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "sample_limit": 200000
+      },
+      "inference": {
+        "count": 1719,
+        "p50": 43.43425,
+        "p95": 45.185416,
+        "p99": 46.032833000000004,
+        "sample_limit": 200000
+      },
+      "parent_framed_record_read": {
+        "count": 1719,
+        "p50": 41.689417,
+        "p95": 72.919792,
+        "p99": 73.890458,
+        "sample_limit": 200000
+      },
+      "parent_record_read_complete_to_inference_start": {
+        "count": 1719,
+        "p50": 3.3425830000000003,
+        "p95": 17.767125,
+        "p99": 21.427875,
+        "sample_limit": 200000
+      },
+      "parent_record_read_complete_to_scene_queue_submit": {
+        "count": 1719,
+        "p50": 47.520084,
+        "p95": 62.39625,
+        "p99": 67.37887500000001,
+        "sample_limit": 200000
+      },
+      "preprocess": {
+        "count": 1719,
+        "p50": 0.976333,
+        "p95": 1.029709,
+        "p99": 1.0556249999999998,
+        "sample_limit": 200000
+      },
+      "scene_json_serialization": {
+        "count": 1719,
+        "p50": 0.042624999999999996,
+        "p95": 0.050167,
+        "p99": 0.053583,
+        "sample_limit": 200000
+      },
+      "scene_queue_submit": {
+        "count": 1719,
+        "p50": 0.0049169999999999995,
+        "p95": 0.008749999999999999,
+        "p99": 0.010709,
+        "sample_limit": 200000
+      },
+      "tracking_and_state_assembly": {
+        "count": 1719,
+        "p50": 0.070542,
+        "p95": 0.08249999999999999,
+        "p99": 0.087667,
+        "sample_limit": 200000
+      }
+    },
+    "stale_inference_timing_ms": {
+      "deadline_overrun_ms": {
+        "count": 2,
+        "p50": 8.31895800000001,
+        "p95": 15.502792000000014,
+        "p99": 15.502792000000014
+      },
+      "stage_durations_ms": {
+        "capture_helper_appsink_pull_wait": {
+          "count": 2,
+          "p50": 33.073666,
+          "p95": 33.670834,
+          "p99": 33.670834,
+          "sample_limit": 200000
+        },
+        "capture_helper_rgb_buffer_allocation": {
+          "count": 2,
+          "p50": 0.015917,
+          "p95": 0.03,
+          "p99": 0.03,
+          "sample_limit": 200000
+        },
+        "capture_helper_rgb_mapping_copy": {
+          "count": 2,
+          "p50": 0.040709,
+          "p95": 0.184083,
+          "p99": 0.184083,
+          "sample_limit": 200000
+        },
+        "decode_and_nms": {
+          "count": 2,
+          "p50": 0.093875,
+          "p95": 0.093958,
+          "p99": 0.093958,
+          "sample_limit": 200000
+        },
+        "engine_total": {
+          "count": 2,
+          "p50": 94.221375,
+          "p95": 104.38625,
+          "p99": 104.38625,
+          "sample_limit": 200000
+        },
+        "inference": {
+          "count": 2,
+          "p50": 93.135459,
+          "p95": 103.352166,
+          "p99": 103.352166,
+          "sample_limit": 200000
+        },
+        "maximum_frame_age": {
+          "count": 2,
+          "p50": 100.0,
+          "p95": 100.0,
+          "p99": 100.0,
+          "sample_limit": 200000
+        },
+        "parent_framed_record_read": {
+          "count": 2,
+          "p50": 33.53875,
+          "p95": 34.828542,
+          "p99": 34.828542,
+          "sample_limit": 200000
+        },
+        "parent_record_read_complete_to_inference_complete": {
+          "count": 2,
+          "p50": 108.31895800000001,
+          "p95": 115.50279200000001,
+          "p99": 115.50279200000001,
+          "sample_limit": 200000
+        },
+        "parent_record_read_complete_to_inference_start": {
+          "count": 2,
+          "p50": 11.116249999999999,
+          "p95": 14.097333,
+          "p99": 14.097333,
+          "sample_limit": 200000
+        },
+        "preprocess": {
+          "count": 2,
+          "p50": 0.939292,
+          "p95": 0.991292,
+          "p99": 0.991292,
+          "sample_limit": 200000
+        }
+      },
+      "stale_outcomes": 2,
+      "timed_stale_outcomes": 2
+    },
+    "state_timing_correlation": {
+      "duplicate_timing_frame_records": 0,
+      "identity_fields": [
+        "engine_instance_id",
+        "source_session_id",
+        "source_frame_id",
+        "transport_sequence"
+      ],
+      "matched_frames": 1719,
+      "measured_states_without_timing": 1,
+      "retained_measured_states": 1720,
+      "retained_timing_frames": 2373,
+      "state_trace_truncated": false,
+      "timing_frames_without_measured_state": 654,
+      "timing_trace_truncated": false
+    },
+    "status": "complete"
+  },
+  "tool": "billiards-performance-audit-run"
+}

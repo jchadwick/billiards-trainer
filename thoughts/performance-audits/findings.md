@@ -277,3 +277,45 @@ fixed-content segment and the current 5% detail-sampling default.
 - [Earlier 10% full-clip instrumentation-off run](local-sampled-instrumentation-ab/20261021-205220-1943b30c/report.md)
 - [Earlier 10% full-clip instrumentation-on run](local-sampled-instrumentation-ab/20261021-210036-d31a23d5/report.md)
 - [Latest-state freshness contract and implementation limits](../latest-state-freshness-contract.md)
+
+## 2026-10-23 follow-up: live Rust capture cadence on the development Mac
+
+A repeated 20-versus-30 fps comparison used the current Rust live server and
+detector against the same looped 1280×720 MJPEG recording on the Apple M4 Max.
+Each arm used a 30-second warm-up and three 120-second windows. The JSON
+configuration snapshots differ only in `vision.camera.fps`; all runs used CPU
+ONNX Runtime, the same model, and the same inference settings. The 20/30 run
+order was counterbalanced. A 15 fps arm was also measured across three
+120-second windows, but is marked exploratory because every producer footer
+reported an unclean shutdown, reproduced in a short check with the source
+already listening.
+
+| Capture cap | State messages/s | Unique observed ball-bearing frames/s | Read completion → publication p95 | Inference p95 | Inference-start wait p95 | Detector CPU median | Missing source frame IDs/window |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 15 fps | 14.95 | 10.38 | 56.68 ms | 45.38 ms | 12.17 ms | 3.07 cores | 49 |
+| 20 fps | 19.81 | 14.29 | 63.07 ms | 45.19 ms | 17.92 ms | 4.07 cores | 45 |
+| 30 fps | 22.26 | 16.62 | 77.65 ms | 45.00 ms | 33.06 ms | 4.60 cores | 941 |
+
+**20 fps is the strongest next physical-camera test point, not a production
+setting recommendation.** Relative to 30 fps, it yielded 2.33 fewer fresh
+observed-ball frames/s but reduced p95 publication age by 14.58 ms, detector
+CPU by about 11%, and missing source frame IDs by roughly 95%. Fifteen fps cut
+CPU by about 25% relative to 20 fps, but also lost about 27% of fresh
+observed-ball frames/s, reported more stale states, and did not shut down
+cleanly. Keep latest-frame/drop-old-work behavior.
+
+Inference remained about 45 ms p95 at each rate and dominated the measured
+processing stages; preprocessing was about 1 ms, decode/NMS about 0.1 ms, and
+tracking, serialization, and queue submission were each below 0.1 ms. The
+highest-value speed experiment is therefore the model/runtime path. Do not
+recommend changing input size, precision, provider, or cadence for production
+until temporal labels establish position, motion, occlusion, and identity
+accuracy.
+
+These were local Mac relational results from a saved recording, with no
+physical table calibration, temporal labels, target Linux hardware, browser
+viewer, or trajectory subscriber. The camera timestamp is host read completion,
+not exposure time. The model still detects generic balls and cue only. The
+[full cadence comparison](dev-cadence-qualified-20261023/cadence-qualification.md)
+has model/input hashes, per-run links, shutdown caveats, and the next
+validation steps.
