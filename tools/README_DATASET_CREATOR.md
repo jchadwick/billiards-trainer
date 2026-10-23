@@ -483,7 +483,6 @@ After extracting frames:
 ## See Also
 
 - `tools/train_yolo.py` - YOLO training script
-- `tools/video_debugger.py` - Video analysis tool
 - `backend/vision/detection/balls.py` - Ball detection module
 
 ## License

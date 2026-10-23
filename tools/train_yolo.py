@@ -446,28 +446,22 @@ class YOLOTrainer:
         print("\n🎉 Training pipeline completed!")
         print("\n📝 Next steps:\n")
 
-        if 'onnx_model' in self.config:
-            print(f"1. Test your model:")
-            print(f"   python tools/test_yolo_model.py {self.config['onnx_model']}")
-            print()
-
-        if 'best_model' in self.config:
-            print(f"2. Validate model performance:")
-            print(f"   python tools/benchmark_detectors.py --yolo-model {self.config['best_model']}")
-            print()
-
-        print(f"3. Review training plots in:")
+        print("1. Review training plots and validation metrics:")
         if 'results_dir' in self.config:
             print(f"   {self.config['results_dir']}")
         print()
 
-        print("4. Integrate model into vision system:")
-        print("   • Copy ONNX model to models/yolov8n-pool.onnx")
-        print("   • Update config: detection_backend = 'yolo'")
-        print("   • Restart backend")
+        print("2. Keep the selected checkpoint and exported model as separate artifacts.")
+        print("   Verify the Rust runtime's model lineage and manifest requirements in:")
+        print("   docs/DOCKER.md")
         print()
 
-        print("5. If results aren't good enough:")
+        print("3. Qualify a runtime change with the Rust workflows in:")
+        print("   docs/PERFORMANCE_AUDIT.md")
+        print("   Training metrics and model-provider parity do not qualify live accuracy or freshness.")
+        print()
+
+        print("4. If training results are insufficient:")
         print("   • Collect more training data")
         print("   • Improve annotation quality")
         print("   • Try training for more epochs")
