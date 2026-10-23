@@ -14,12 +14,12 @@ if [[ -n "${CARGO_BUILD_TARGET:-}" ]]; then
 fi
 
 target_dir="${CARGO_TARGET_DIR:-${repo_root}/perception/target}"
-cargo build --locked --manifest-path "${manifest}" \
+cargo build --release --locked --manifest-path "${manifest}" \
   --features camera-gstreamer-source \
   --bin billiards-performance-audit-run \
   --bin billiards-server \
   --bin billiards-perception-live \
   --bin billiards-perception-gstreamer-probe
 
-exec "${target_dir}/debug/billiards-performance-audit-run" \
-  --server-executable "${target_dir}/debug/billiards-server" "$@"
+exec "${target_dir}/release/billiards-performance-audit-run" \
+  --server-executable "${target_dir}/release/billiards-server" "$@"
