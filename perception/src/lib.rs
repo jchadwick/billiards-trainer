@@ -44,6 +44,7 @@ mod scene_transport;
 pub mod server;
 pub mod server_audit_summary;
 pub mod tracking;
+pub mod trajectory_summary;
 pub mod web_static;
 
 pub use scene_transport::{SceneTransportConfig, SceneTransportStats};
