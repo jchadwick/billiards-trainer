@@ -91,6 +91,7 @@ async fn main() -> Result<()> {
         maximum_samples: arguments.maximum_samples,
         resource_sample_process_id: arguments.resource_process_id,
         resource_sample_interval: Duration::from_millis(arguments.resource_sample_interval_ms),
+        subscriber_delay: Duration::ZERO,
     };
     config.validate()?;
     if let (Some(report), Some(details)) = (&arguments.output_json, &arguments.details_jsonl) {

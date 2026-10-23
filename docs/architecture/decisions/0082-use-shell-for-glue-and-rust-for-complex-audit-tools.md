@@ -165,12 +165,23 @@ not a performance baseline or an accuracy qualification. The first attempt
 exposed a stale supervisor CLI contract for frame preview, which is now fixed
 and covered by configuration/argument tests.
 
-The Python collector is still not replaced. Its generic compatibility mode,
-trajectory collection, viewer workload, server event-window joins, baseline
-selection, and full camera-profile provenance remain Python-owned migration
-work. The Rust runner now owns managed full-server lifecycle for state-only
-audits and has both loopback protocol coverage and a remote-input smoke check.
-Accuracy remains unavailable without temporal labels.
+The Rust run controller now supports an optional state-plus-trajectory
+subscription on the same connection. Trajectory allocation is absent by
+default; when enabled, its summary and receipt tail are bounded, its metadata
+and lifecycle fields are tested on a real loopback WebSocket, and the run
+writer emits versioned per-window JSON and JSONL artifacts. A configurable
+subscriber delay exercises best-effort delivery and exposes resulting gaps.
+The collector leaves cross-process trajectory latency unavailable because it
+does not yet verify a shared monotonic clock domain. Its Python summary engine
+remains an independent differential reference.
+
+The Python collector is still not replaced. Its remaining migration work
+includes viewer workload, server event-window and clock joins, baseline
+selection, full camera-profile provenance, and end-to-end report orchestration
+not yet covered by the Rust runner. The Rust runner owns managed full-server
+lifecycle for state and optional trajectory audits and has both loopback
+protocol coverage and a remote-input smoke check. Accuracy remains unavailable
+without temporal labels.
 
 This slice adds optional process CPU and resident-memory sampling to the
 Rust receiver. It uses `sysinfo` on a dedicated thread, binds samples to the
@@ -205,8 +216,9 @@ loopback timing records and starts the bounded Rust sampler for each measured
 window. The window report lists sampled and observed detector PIDs. A restart,
 resource-sampling failure, timing loss, or missing identity evidence marks the
 resource result partial or unavailable; post-window footer data is excluded
-from measured-window PID accounting. Runner report schema version 5 adds this
-optional configuration and per-window status. CLI validation, latest-PID
+from measured-window PID accounting. Runner report schema version 6 adds this
+optional configuration and per-window status alongside optional trajectory
+receipts. CLI validation, latest-PID
 replacement/timeout behavior, complete-resource summaries, restart handling,
 and footer exclusion have dedicated tests. The all-target Rust tests, strict
 Clippy, formatting check, and ADR validator pass (2026-10-22). The existing
@@ -301,6 +313,10 @@ implementation without discarding the broader Python differential reference.
 - The integration test opens a real loopback WebSocket connection and exercises
   both the library API and the executable. It does not claim full gateway or
   live-model qualification.
+- The trajectory integration test validates the explicit state-plus-trajectory
+  subscription, interleaved receipts, sequence gaps, invalidation counts,
+  bounded detail retention, and versioned run artifacts. State-only collection
+  remains the default and does not allocate trajectory retention.
 - The native live-qualification helper is exercised as a real child process,
   including its ready/start/stop protocol, bounded sample details, process
   identity, memory sample, and failure fallback in the Python coordinator.

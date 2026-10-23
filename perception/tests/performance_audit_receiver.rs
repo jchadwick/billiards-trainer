@@ -73,6 +73,7 @@ async fn readiness_receiver_stops_on_the_first_fresh_observed_localization() {
         maximum_samples: 1,
         resource_sample_process_id: None,
         resource_sample_interval: Duration::from_secs(1),
+        subscriber_delay: Duration::ZERO,
     };
     let output = billiards_perception::performance_audit_receiver::connect_and_wait_for_first_fresh_observed_localization(
         &format!("ws://{address}/state"),
@@ -123,6 +124,7 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         maximum_samples: 16,
         resource_sample_process_id: None,
         resource_sample_interval: Duration::from_secs(1),
+        subscriber_delay: Duration::ZERO,
     };
     let output = connect_and_collect(&format!("ws://{address}/state"), &config)
         .await
@@ -172,6 +174,7 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         "unavailable_unverified_clock"
     );
     assert!(output.report.process_resources.is_none());
+    assert!(output.trajectory.is_none());
 }
 
 #[tokio::test]
@@ -246,6 +249,7 @@ async fn negotiates_application_subscription_and_answers_json_heartbeats() {
         maximum_samples: 16,
         resource_sample_process_id: None,
         resource_sample_interval: Duration::from_secs(1),
+        subscriber_delay: Duration::ZERO,
     };
     let output = connect_and_collect(&format!("ws://{address}/api/v1/websocket/ws"), &config)
         .await
@@ -257,7 +261,9 @@ async fn negotiates_application_subscription_and_answers_json_heartbeats() {
         output.retained_samples[0].source_frame_id.as_deref(),
         Some("700")
     );
-    assert!(output.report.counts.non_state_messages >= 2);
+    // Subscription acknowledgements are now consumed outside the measurement
+    // window, while the server's application ping remains a measured message.
+    assert!(output.report.counts.non_state_messages >= 1);
     assert!(application_ping_responses >= 1);
 }
 

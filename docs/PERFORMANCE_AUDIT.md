@@ -90,8 +90,9 @@ GStreamer development libraries and the `soup`, `multipart`, `jpeg`, `app`,
 `videoconvertscale`, and `videorate` runtime plugins required by the remote
 MJPEG helper.
 
-The native `billiards-performance-audit-run` command owns the state-only
-repeatable workflow. It defaults to a 30-second warm-up followed by three
+The native `billiards-performance-audit-run` command owns the repeatable
+state-delivery workflow and can opt into trajectory receipts on the same
+WebSocket connection. It defaults to a 30-second warm-up followed by three
 120-second measured windows; each connection is closed between windows. Use
 `--soak` for one 20-minute bounded-retention run after the same warm-up. It
 writes a schema-versioned `summary.json`, a Markdown report, one JSON report and
@@ -102,9 +103,23 @@ kernel, memory, and effective limits. A managed `--start-live` run adds the
 model, runtime-binary, capture-helper, effective-configuration, and camera
 profile identities described above. External state streams do not disclose
 detector identity; network input-video hashing and accuracy evidence remain
-unavailable in either mode. Runner report schema version 5 adds the optional
-managed detector resource-sampling configuration and per-window process
-identity status; state-receiver reports retain their own schema version.
+unavailable in either mode. Runner report schema version 6 adds optional
+trajectory receipt summaries and bounded detail files, managed detector
+resource-sampling configuration, and per-window process identity status;
+state-receiver reports retain their own schema version. Trajectory collection
+is off by default and has no extra accumulator or detail buffer in state-only
+runs.
+
+Add `--include-trajectory` to subscribe to state and trajectory together. The
+report adds trajectory message, source-identity, sequence-gap, invalidation,
+and bounded age summaries; each measured window also gets a trajectory JSON
+summary and JSONL receipt tail. The collector retains source and lifecycle
+metadata, not full trajectory geometry or prediction-accuracy labels. Its
+cross-process receipt latency remains unavailable unless a shared monotonic
+clock domain is verified. To exercise best-effort delivery with a deliberately
+slow subscriber, add `--subscriber-delay-ms <milliseconds>`; the delay is
+applied after each received state or trajectory message and the resulting
+sequence gaps remain part of the report.
 
 For a managed Rust live server, `--live-pipeline-timing-audit` also enables a
 bounded loopback side channel from the detector. The runner binds the receiver
@@ -167,6 +182,11 @@ Run a short smoke check or the standard repeated audit with:
 scripts/performance-audit-run.sh \
   --url ws://127.0.0.1:8080/api/v1/websocket/ws \
   --warmup-seconds 0 --duration-seconds 10 --repetitions 1
+
+scripts/performance-audit-run.sh \
+  --url ws://127.0.0.1:8080/api/v1/websocket/ws \
+  --include-trajectory --subscriber-delay-ms 25 \
+  --warmup-seconds 0 --duration-seconds 30 --repetitions 1
 
 scripts/performance-audit-run.sh \
   --url ws://127.0.0.1:8080/api/v1/websocket/ws \

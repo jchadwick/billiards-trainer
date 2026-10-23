@@ -156,11 +156,17 @@ verified calibration and labels.
   trajectory-summary bridge integration passes in the 66-test collector unit
   file, alongside Ruff, Black, and mypy. The 5,404-line Python collector still
   owns event-file collection and
-  clock-window selection, warm-up/repetition and replay orchestration,
-  trajectory WebSocket subscription, provenance and baseline selection, accuracy
+  clock-window selection, warm-up/repetition and replay orchestration, viewer
+  workload collection, provenance and baseline selection, accuracy
   evaluation, and Markdown output. Keep it until these remaining contracts have
   Rust implementations and differential coverage. This tooling slice did not
   run a new full-app audit or establish a sustained performance baseline.
+  Since that snapshot, the Rust repeatable runner has gained opt-in state and
+  trajectory subscription on one WebSocket, bounded trajectory summaries and
+  receipt details, slow-subscriber simulation, and schema-versioned report
+  artifacts. Real loopback tests cover interleaving, subscription negotiation,
+  gaps, invalidations and retention. Python remains the differential reference;
+  the viewer and event-window orchestration are still to migrate.
 
 - **2026-10-22 Mac recorded-video live smoke:** On the development M4 Max, the
   Rust gateway and supervised live detector used the real two-class ONNX

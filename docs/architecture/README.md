@@ -23,11 +23,14 @@ server-side components run in Rust, while the browser application remains
 HTML, JavaScript, and CSS. The Python service is a migration bridge. Python
 training and annotation workflows remain off-device; complex audit tooling
 migrates to Rust under ADR-0082, with Python retained temporarily as an
-independent differential reference. Rust now samples process resources and
-owns the server-event, delivery-latency, and instrumentation-overhead reducers;
-collector orchestration and remaining report work stay Python for now. Managed
-live audits resolve detector-child resources from the timing stream per
-measured window; restarts and incomplete evidence remain explicitly partial.
+independent differential reference. Rust now samples process resources,
+collects state and optional trajectory receipts in the repeatable audit runner,
+and owns the server-event, delivery-latency, and instrumentation-overhead
+reducers. Viewer workload, event-window and clock joins, baseline selection,
+full camera-profile provenance, and remaining report orchestration stay Python
+for now. Managed live audits resolve detector-child resources from the timing
+stream per measured window; restarts and incomplete evidence remain explicitly
+partial.
 ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway
@@ -240,7 +243,7 @@ evidence, and surface material changes in scope or tradeoffs.
 | [0079](decisions/0079-reduce-the-first-rust-hosted-client-to-live-view.md) | Reduce the first Rust-hosted client to the live view | Accepted | Mac-first browser qualification | Only `/live` remains in the route tree; root redirects and unknown routes show a live-only notice; local Rust state and remote 1280×720 MJPEG smoke pass, while calibration and production video delivery remain open |
 | [0080](decisions/0080-use-rust-as-the-only-supported-application-server.md) | Use Rust as the only supported application server | Accepted | Rust server cutover | Python launch commands fail with migration guidance; Rust, browser, compatibility, Docker and distribution checks pass |
 | [0081](decisions/0081-use-direct-rust-http-delivery-without-nginx.md) | Use direct Rust HTTP delivery without Nginx | Accepted | Direct Rust deployment | Retire the Python/Nginx installer and standalone Nginx image; keep bounded Rust WebSocket concurrency, payload, and write behavior |
-| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust receiver supports direct and subscription-style WebSocket contracts; Rust run controller provides warm-up, repeated/soak windows, bounded per-run artifacts, provenance and Markdown; resource sampling and server-event, delivery-latency, overhead, and trajectory reducers are tested; legacy API/live-camera collection, replay, baseline selection and accuracy evaluation remain Python |
+| [0082](decisions/0082-use-shell-for-glue-and-rust-for-complex-audit-tools.md) | Use shell for glue and Rust for complex audit tools | Accepted | Audit tooling migration | Rust runner collects state and optional trajectory over one WebSocket with bounded summaries/details, slow-subscriber experiments, managed lifecycle/resources, provenance and Markdown; viewer scenarios, event-window/clock joins, baseline selection, full camera provenance and accuracy orchestration remain Python |
 
 These stage references are dependencies, not evidence that the stages have run.
 Backend bindings, camera-specific adapters, precision/resolution profiles and

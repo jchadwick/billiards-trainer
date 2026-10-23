@@ -26,7 +26,7 @@ use crate::managed_live_audit::{
     ManagedLiveAuditReceiver, ManagedLiveAuditReceiverConfig, ManagedLiveAuditSnapshot,
 };
 use crate::performance_audit_receiver::{
-    connect_and_collect, connect_and_wait_for_first_fresh_observed_localization,
+    connect_and_collect_streams, connect_and_wait_for_first_fresh_observed_localization,
     validate_websocket_url, StateReceiverConfig, StateReceiverOutput, StateReceiverReport,
 };
 
@@ -35,7 +35,7 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 5;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 6;
 pub const DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY: usize = 2_048;
 pub const DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const DEFAULT_LIVE_AUDIT_RETAINED_RECORDS: usize = 200_000;
@@ -45,7 +45,7 @@ pub const DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT: Duration = Duration::from_millis(1_0
 const MAXIMUM_REPETITIONS: usize = 1_000;
 const PROVENANCE_HASH_BUFFER_SIZE: usize = 64 * 1024;
 
-/// Settings for one repeatable state-only collection workflow.
+/// Settings for one repeatable state and optional trajectory collection workflow.
 #[derive(Debug, Clone)]
 pub struct StateAuditRunConfig {
     pub url: String,
@@ -56,6 +56,8 @@ pub struct StateAuditRunConfig {
     pub soak_duration: Duration,
     pub output_root: PathBuf,
     pub receiver: StateReceiverConfig,
+    /// Subscribe to and summarize trajectory receipts alongside state.
+    pub include_trajectory: bool,
     /// Optional live-detector stage timing side channel. `None` allocates no
     /// listener, queue, tasks, or detailed timing retention.
     pub live_pipeline_timing_audit: Option<LivePipelineTimingAuditConfig>,
@@ -339,6 +341,8 @@ pub struct EffectiveRunConfiguration {
     pub summary_interval_seconds: f64,
     pub maximum_message_bytes: usize,
     pub maximum_samples_per_run: usize,
+    pub trajectory_collection_enabled: bool,
+    pub subscriber_delay_ms: u128,
     pub resource_process_id: Option<u32>,
     pub resource_sample_interval_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -395,6 +399,8 @@ pub struct WarmupSummary {
     pub actual_duration_seconds: f64,
     pub state_messages: u64,
     pub unique_observed_source_frames: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trajectory_messages: Option<u64>,
     pub termination_reason: &'static str,
     pub measurements_excluded: bool,
 }
@@ -405,6 +411,12 @@ pub struct MeasuredRunReference {
     pub report_path: String,
     pub details_path: String,
     pub report: StateReceiverReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trajectory_summary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trajectory_details_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trajectory_summary: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub live_timing_summary_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -438,7 +450,7 @@ struct WindowRunParameters<'a> {
     live_audit_receiver: Option<&'a ManagedLiveAuditReceiver>,
 }
 
-/// Run the configured warm-up and state-only measurement windows.
+/// Run the configured warm-up and state-delivery measurement windows.
 ///
 /// All filesystem writes happen after each receiver window has ended. The
 /// receiver itself keeps bounded detail and percentile windows, and this
@@ -454,7 +466,11 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
     let started_at_utc = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);
     let environment = collect_environment();
     let mut input = InputMetadata {
-        kind: "websocket_state_stream",
+        kind: if config.include_trajectory {
+            "websocket_state_and_trajectory_streams"
+        } else {
+            "websocket_state_stream"
+        },
         websocket_url: config.url.clone(),
         content_sha256: None,
         content_hash_status: "unavailable_for_network_stream",
@@ -1208,9 +1224,10 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         warmup_receiver.duration = config.warmup;
         warmup_receiver.maximum_samples = 1;
         warmup_receiver.resource_sample_process_id = None;
-        let output = connect_and_collect(&config.url, &warmup_receiver)
-            .await
-            .context("state audit warm-up failed")?;
+        let output =
+            connect_and_collect_streams(&config.url, &warmup_receiver, config.include_trajectory)
+                .await
+                .context("state audit warm-up failed")?;
         if config.managed_server.is_some()
             && output.report.freshness.unique_observed_source_observations == 0
         {
@@ -1224,6 +1241,10 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
                 .report
                 .freshness
                 .unique_observed_source_observations,
+            trajectory_messages: output
+                .trajectory
+                .as_ref()
+                .and_then(|trajectory| trajectory.summary["trajectory_messages_received"].as_u64()),
             termination_reason: output.report.termination_reason,
             measurements_excluded: true,
         })
@@ -1257,7 +1278,7 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         if config.sample_managed_live_process_resources {
             receiver.resource_sample_process_id = selected_managed_process_id;
         }
-        let output = connect_and_collect(&config.url, &receiver)
+        let output = connect_and_collect_streams(&config.url, &receiver, config.include_trajectory)
             .await
             .with_context(|| format!("state audit measured run {repetition} failed"))?;
         let timing_started_at_tick_ns = live_audit_receiver
@@ -1271,8 +1292,12 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         {
             bail!("managed server produced no fresh observed state in measured run {repetition}");
         }
-        let (report_path, details_path) =
+        let (report_path, details_path, trajectory_summary_path, trajectory_details_path) =
             write_window_artifacts(run_directory, repetition, &output)?;
+        let trajectory_summary = output
+            .trajectory
+            .as_ref()
+            .map(|trajectory| trajectory.summary.clone());
         let sampled_process_id = output
             .report
             .process_resources
@@ -1288,6 +1313,9 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
             report_path,
             details_path,
             report: output.report,
+            trajectory_summary_path,
+            trajectory_details_path,
+            trajectory_summary,
             live_timing_summary_path: None,
             live_timing_details_path: None,
             live_timing_summary: None,
@@ -1326,6 +1354,8 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         summary_interval_seconds: config.receiver.summary_interval.as_secs_f64(),
         maximum_message_bytes: config.receiver.maximum_message_bytes,
         maximum_samples_per_run: config.receiver.maximum_samples,
+        trajectory_collection_enabled: config.include_trajectory,
+        subscriber_delay_ms: config.receiver.subscriber_delay.as_millis(),
         resource_process_id: config.receiver.resource_sample_process_id,
         resource_sample_interval_ms: config.receiver.resource_sample_interval.as_millis(),
         managed_live_process_resource_sampling: config
@@ -1373,6 +1403,10 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         limitations.push(
             "Live-pipeline timing is diagnostic and opt-in; it does not provide temporal ground-truth accuracy evidence or camera-exposure timing.",
         );
+    }
+    if config.include_trajectory {
+        limitations.push("Trajectory receipts report source and lifecycle metadata; full trajectory geometry, prediction quality, and ground-truth accuracy are not evaluated by this collector.");
+        limitations.push("Cross-process trajectory age and publication-to-receipt latency remain unavailable because this collector does not verify a shared monotonic clock domain.");
     }
     Ok(RunWindowsOutput {
         report: StateAuditRunReport {
@@ -1668,7 +1702,7 @@ fn write_window_artifacts(
     run_directory: &Path,
     repetition: usize,
     output: &StateReceiverOutput,
-) -> Result<(String, String)> {
+) -> Result<(String, String, Option<String>, Option<String>)> {
     let report_relative = format!("runs/run-{repetition:03}.json");
     let details_relative = format!("runs/run-{repetition:03}.jsonl");
     let runs_directory = run_directory.join("runs");
@@ -1684,6 +1718,14 @@ fn write_window_artifacts(
             "schema_version": output.report.schema_version,
             "tool": output.report.tool,
             "report": output.report,
+            "trajectory": output.trajectory.as_ref().map(|trajectory| &trajectory.summary),
+            "trajectory_detail_retention": output.trajectory.as_ref().map(|trajectory| {
+                serde_json::json!({
+                    "sample_limit": trajectory.sample_limit,
+                    "retained_samples": trajectory.retained_samples.len(),
+                    "samples_truncated": trajectory.samples_truncated,
+                })
+            }),
         }),
     )
     .context("could not serialize window report")?;
@@ -1699,7 +1741,49 @@ fn write_window_artifacts(
         details_writer.write_all(b"\n")?;
     }
     details_writer.flush()?;
-    Ok((report_relative, details_relative))
+
+    let (trajectory_summary_path, trajectory_details_path) =
+        if let Some(trajectory) = &output.trajectory {
+            let summary_relative = format!("runs/run-{repetition:03}-trajectory.json");
+            let details_relative = format!("runs/run-{repetition:03}-trajectory.jsonl");
+            let summary_path = run_directory.join(&summary_relative);
+            let summary_file = create_new_output(&summary_path, "trajectory summary")?;
+            let mut summary_writer = BufWriter::new(summary_file);
+            serde_json::to_writer_pretty(
+                &mut summary_writer,
+                &serde_json::json!({
+                    "schema_version": RUN_REPORT_SCHEMA_VERSION,
+                    "tool": "billiards-performance-audit-run",
+                    "repetition": repetition,
+                    "summary": trajectory.summary,
+                    "sample_limit": trajectory.sample_limit,
+                    "retained_samples": trajectory.retained_samples.len(),
+                    "samples_truncated": trajectory.samples_truncated,
+                }),
+            )
+            .context("could not serialize trajectory window summary")?;
+            summary_writer.write_all(b"\n")?;
+            summary_writer.flush()?;
+
+            let details_path = run_directory.join(&details_relative);
+            let details_file = create_new_output(&details_path, "trajectory window details")?;
+            let mut details_writer = BufWriter::new(details_file);
+            for sample in &trajectory.retained_samples {
+                serde_json::to_writer(&mut details_writer, sample)
+                    .context("could not serialize retained trajectory sample")?;
+                details_writer.write_all(b"\n")?;
+            }
+            details_writer.flush()?;
+            (Some(summary_relative), Some(details_relative))
+        } else {
+            (None, None)
+        };
+    Ok((
+        report_relative,
+        details_relative,
+        trajectory_summary_path,
+        trajectory_details_path,
+    ))
 }
 
 fn write_report_artifacts(run_directory: &Path, report: &StateAuditRunReport) -> Result<()> {
@@ -1725,10 +1809,11 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
     );
     if let Some(warmup) = &report.warmup {
         output.push_str(&format!(
-            "Warm-up: {:.2}s requested, {:.2}s observed, {} state messages (excluded from measurements).\n\n",
+            "Warm-up: {:.2}s requested, {:.2}s observed, {} state messages, {} trajectory messages (excluded from measurements).\n\n",
             warmup.requested_duration_seconds,
             warmup.actual_duration_seconds,
             warmup.state_messages,
+            warmup.trajectory_messages.map_or_else(|| "not collected".to_owned(), |count| count.to_string()),
         ));
     }
     output.push_str(
@@ -1746,6 +1831,38 @@ fn render_markdown(report: &StateAuditRunReport) -> String {
             optional_ms(timing.p95),
             optional_ms(timing.p99),
         ));
+    }
+    if report.configuration.trajectory_collection_enabled {
+        output.push_str("\n## Trajectory delivery\n\n| Run | Messages | Unique source observations | Sequence gaps | Invalidated or spatially invalid | Summary | Details |\n| ---: | ---: | ---: | ---: | ---: | :--- | :--- |\n");
+        for run in &report.measured_runs {
+            let summary = run.trajectory_summary.as_ref();
+            let count = summary
+                .and_then(|value| value.get("trajectory_messages_received"))
+                .and_then(serde_json::Value::as_u64);
+            let unique = summary
+                .and_then(|value| value.get("trajectory_unique_source_observations"))
+                .and_then(serde_json::Value::as_u64);
+            let gaps = summary
+                .and_then(|value| value.get("trajectory_sequence_gaps"))
+                .and_then(serde_json::Value::as_u64);
+            let invalidated = summary
+                .and_then(|value| value.get("trajectory_invalidated_or_spatially_invalid_messages"))
+                .and_then(serde_json::Value::as_u64);
+            output.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} | {} |\n",
+                run.repetition,
+                optional_count(count),
+                optional_count(unique),
+                optional_count(gaps),
+                optional_count(invalidated),
+                run.trajectory_summary_path
+                    .as_deref()
+                    .unwrap_or("unavailable"),
+                run.trajectory_details_path
+                    .as_deref()
+                    .unwrap_or("unavailable"),
+            ));
+        }
     }
     if let Some(live_timing) = &report.live_pipeline_timing {
         output.push_str(&format!(
@@ -1839,6 +1956,10 @@ fn optional_ms(value: Option<f64>) -> String {
     value.map_or_else(|| "unavailable".to_owned(), |value| format!("{value:.2}"))
 }
 
+fn optional_count(value: Option<u64>) -> String {
+    value.map_or_else(|| "unavailable".to_owned(), |value| value.to_string())
+}
+
 fn collect_environment() -> RunEnvironment {
     let manifest_directory = Path::new(env!("CARGO_MANIFEST_DIR"));
     let revision = git_output(manifest_directory, &["rev-parse", "--verify", "HEAD"]);
@@ -1916,6 +2037,7 @@ mod tests {
             soak_duration: Duration::from_secs(DEFAULT_SOAK_SECONDS),
             output_root: PathBuf::from(DEFAULT_OUTPUT_ROOT),
             receiver: StateReceiverConfig::default(),
+            include_trajectory: false,
             managed_server: None,
             live_pipeline_timing_audit: None,
             sample_managed_live_process_resources: false,
@@ -2297,6 +2419,8 @@ mod tests {
                 summary_interval_seconds: 5.0,
                 maximum_message_bytes: 1_048_576,
                 maximum_samples_per_run: 10_000,
+                trajectory_collection_enabled: false,
+                subscriber_delay_ms: 0,
                 resource_process_id: None,
                 resource_sample_interval_ms: 1_000,
                 managed_live_process_resource_sampling: None,

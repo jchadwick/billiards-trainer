@@ -1,4 +1,4 @@
-//! Repeatable state-only audit workflow and bounded artifact writer.
+//! Repeatable state and optional trajectory audit workflow with bounded artifacts.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -63,6 +63,14 @@ struct Arguments {
     /// Maximum retained percentile and detail samples per measured window.
     #[arg(long, default_value_t = DEFAULT_MAXIMUM_SAMPLES as u64, value_parser = clap::value_parser!(u64).range(1..=1000000))]
     maximum_samples: u64,
+
+    /// Subscribe to trajectory receipts alongside state and report bounded delivery summaries.
+    #[arg(long)]
+    include_trajectory: bool,
+
+    /// Artificial per-message subscriber delay for slow-consumer experiments.
+    #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u64).range(0..=60000))]
+    subscriber_delay_ms: u64,
 
     /// Optional process ID for separate CPU and resident-memory sampling.
     #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
@@ -181,7 +189,9 @@ async fn main() -> Result<()> {
             maximum_samples: arguments.maximum_samples as usize,
             resource_sample_process_id: arguments.resource_process_id,
             resource_sample_interval: Duration::from_millis(arguments.resource_sample_interval_ms),
+            subscriber_delay: Duration::from_millis(arguments.subscriber_delay_ms),
         },
+        include_trajectory: arguments.include_trajectory,
         managed_server,
         live_pipeline_timing_audit,
         sample_managed_live_process_resources: arguments.sample_managed_live_process_resources,
@@ -254,6 +264,22 @@ mod tests {
         assert!(arguments.sample_managed_live_process_resources);
         assert_eq!(arguments.live_audit_queue_capacity, 128);
         assert_eq!(arguments.live_audit_max_record_bytes, 8192);
+    }
+
+    #[test]
+    fn cli_enables_optional_trajectory_and_slow_subscriber_experiment() {
+        let arguments = Arguments::try_parse_from([
+            "billiards-performance-audit-run",
+            "--url",
+            "ws://127.0.0.1:8080/api/v1/websocket/ws",
+            "--include-trajectory",
+            "--subscriber-delay-ms",
+            "75",
+        ])
+        .unwrap();
+
+        assert!(arguments.include_trajectory);
+        assert_eq!(arguments.subscriber_delay_ms, 75);
     }
 
     #[test]
