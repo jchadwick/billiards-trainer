@@ -631,6 +631,12 @@ path remain untested.
   Updated Docker and system-integration instructions to describe only the
   retained compatibility/reference tests and optional ONNX exporter, not the
   retired dataset and calibration-authoring workflows.
+- Reconciled an implementation gap against ADR-0088: the unused
+  `system.performance` defaults and schema were still present despite the
+  profiler retirement. Removed those fields from the Rust configuration
+  contract and both checked-in configs, plus the obsolete Python fixture key
+  and empty profiling comments. No runtime consumers remained; the Rust config
+  check and full repository test target pass.
 - Docker now has a configurable Compose image name, an opt-in
   `make docker-smoke` target, and the same bounded runtime check in Docker CI.
   The smoke starts the built image with capture disabled on an ephemeral

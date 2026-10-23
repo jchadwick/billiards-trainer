@@ -22,13 +22,6 @@
         "projector": "ERROR",
         "config": "ERROR"
       }
-    },
-    "performance": {
-      "mode": "performance",
-      "max_memory_mb": 4096,
-      "max_cpu_percent": 90,
-      "thread_pool_size": 8,
-      "enable_profiling": false
     }
   },
   "perception": {

@@ -80,27 +80,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "performance": {
-          "type": "object",
-          "properties": {
-            "mode": {
-              "type": "string"
-            },
-            "max_memory_mb": {
-              "type": "integer"
-            },
-            "max_cpu_percent": {
-              "type": "integer"
-            },
-            "thread_pool_size": {
-              "type": "integer"
-            },
-            "enable_profiling": {
-              "type": "boolean"
-            }
-          },
-          "additionalProperties": false
         }
       },
       "additionalProperties": false

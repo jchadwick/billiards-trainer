@@ -233,7 +233,6 @@ async def local_pipeline(monkeypatch, tmp_path):
         ],
         "table.marker_dots": [],
         "vision.processing.phase_scheduler.enabled": False,
-        "vision.performance.enable_profiling": False,
         "integration.max_collision_depth": 1,
     }
     monkeypatch.setattr(

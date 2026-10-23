@@ -1555,8 +1555,6 @@ class VisionModule:
                 )
                 self._phase_calibration_revision = calibration_revision
 
-            # Start profiling this frame
-
             # Preserve the original frame for display. Scheduled inference can
             # use a smaller view when a validated phase profile requests one.
             processed_frame = frame
@@ -2211,8 +2209,6 @@ class VisionModule:
                     component_statuses if phase_aware else {}
                 ),
             )
-
-            # End profiling for this frame
 
             return result
 
