@@ -96,6 +96,13 @@ intervals. It can emit a versioned JSON report and bounded JSONL state details.
 The command rejects URL userinfo, query strings, and fragments, and it does not
 support authentication headers or credentials.
 
+The receiver now negotiates the retained API's welcome and explicit state
+subscription protocol, sends its JSON application heartbeat independently of
+WebSocket control frames, and still accepts the Rust gateway's immediate
+push-style state stream. Loopback real-socket tests exercise both contracts;
+qualification against a running application remains outstanding. The
+heartbeat defaults to 20 seconds and is configurable on the Rust CLI.
+
 The collector is still not replaced. Trajectory collection, producer
 timing/export analysis, configuration and hardware provenance, input replay
 orchestration, baseline selection, accuracy evaluation, and the final Markdown

@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::{fs, process::Stdio};
 
 use billiards_perception::performance_audit_receiver::{connect_and_collect, StateReceiverConfig};
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::process::Command;
@@ -52,6 +52,7 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
     let config = StateReceiverConfig {
         duration: Duration::from_secs(2),
         connect_timeout: Duration::from_secs(1),
+        application_heartbeat_interval: Duration::from_secs(20),
         summary_interval: Duration::from_secs(1),
         maximum_message_bytes: 4096,
         maximum_samples: 16,
@@ -95,6 +96,93 @@ async fn receives_live_websocket_states_and_reports_gaps_and_freshness() {
         "unavailable_unverified_clock"
     );
     assert!(output.report.process_resources.is_none());
+}
+
+#[tokio::test]
+async fn negotiates_application_subscription_and_answers_json_heartbeats() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(
+                json!({"type": "connection", "data": {"client_id": "audit-client"}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+
+        let subscribe = tokio::time::timeout(Duration::from_secs(1), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        let Message::Text(subscribe) = subscribe else {
+            panic!("expected a text subscription request");
+        };
+        let subscribe: serde_json::Value = serde_json::from_str(&subscribe).unwrap();
+        assert_eq!(subscribe["type"], "subscribe");
+        assert_eq!(subscribe["data"]["streams"], json!(["state"]));
+
+        socket
+            .send(Message::Text(
+                json!({"type": "subscribed", "data": {"streams": ["state"]}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        socket
+            .send(Message::Text(state_message(7, "700").into()))
+            .await
+            .unwrap();
+        socket
+            .send(Message::Text(
+                json!({"type": "ping", "data": {}}).to_string().into(),
+            ))
+            .await
+            .unwrap();
+
+        let mut application_ping_responses = 0;
+        while let Some(message) = tokio::time::timeout(Duration::from_secs(1), socket.next())
+            .await
+            .unwrap()
+        {
+            let message = message.unwrap();
+            if let Message::Text(text) = message {
+                let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if value["type"] == "ping" {
+                    application_ping_responses += 1;
+                }
+            }
+        }
+        application_ping_responses
+    });
+
+    let config = StateReceiverConfig {
+        duration: Duration::from_millis(150),
+        connect_timeout: Duration::from_secs(1),
+        application_heartbeat_interval: Duration::from_millis(25),
+        summary_interval: Duration::from_secs(1),
+        maximum_message_bytes: 4096,
+        maximum_samples: 16,
+        resource_sample_process_id: None,
+        resource_sample_interval: Duration::from_secs(1),
+    };
+    let output = connect_and_collect(&format!("ws://{address}/api/v1/websocket/ws"), &config)
+        .await
+        .unwrap();
+    let application_ping_responses = server.await.unwrap();
+
+    assert_eq!(output.report.counts.state_messages, 1);
+    assert_eq!(
+        output.retained_samples[0].source_frame_id.as_deref(),
+        Some("700")
+    );
+    assert!(output.report.counts.non_state_messages >= 2);
+    assert!(application_ping_responses >= 1);
 }
 
 #[tokio::test]

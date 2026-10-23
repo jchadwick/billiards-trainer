@@ -1,13 +1,13 @@
 # Repeatable real-time performance audit
 
 > **Rust migration status:** `backend.main` and `backend.dev_server` no longer
-> launch an application server. The generic API audit workflow below describes
-> the retained Python reference service and its endpoints; it is not a
-> supported way to measure the Rust application. The Python collector remains
-> an off-device test tool. Its `--rust-live-qualification` mode starts and
-> measures the Rust live process directly, but currently requires an
-> explicitly selected local GStreamer camera. End-to-end audit wiring through
-> the Rust gateway, including remote-MJPEG replay, remains open.
+> launch an application server. The Python collector remains an off-device
+> compatibility/reference tool. Its `--rust-live-qualification` mode starts and
+> measures the Rust live process directly, but currently requires an explicitly
+> selected local GStreamer camera. The Rust state receiver can measure the
+> application WebSocket or Rust gateway directly; full repeat/warm-up/report
+> orchestration around the Rust gateway, including remote-MJPEG replay, remains
+> open.
 
 This workflow measures fresh, correct state delivery on one development
 machine. It separates vision and state production, trajectory work, and video
@@ -34,8 +34,12 @@ audit settings below describe the retained compatibility workflow; they do not
 turn on instrumentation in the supported Rust gateway.
 
 The native `billiards-performance-audit` receiver and summary reducers are
-being expanded in Rust one audited contract at a time. Invoke the thin shell
-entry point for a live state stream:
+being expanded in Rust one audited contract at a time. The state receiver
+supports both the application WebSocket contract (welcome, explicit `state`
+subscription, and JSON heartbeats) and the Rust gateway's direct pushed-state
+contract. Its default JSON heartbeat interval is 20 seconds, separate from
+WebSocket control-frame pings. Invoke the thin shell entry point for a live
+state stream:
 
 ```bash
 scripts/performance-audit-state.sh \
@@ -176,8 +180,9 @@ timing every empty polling iteration.
 The compatibility API status endpoints are
 `GET /api/v1/vision/performance/audit` and
 `GET /api/v1/vision/performance`. The supported Rust gateway does not currently
-expose these endpoints; use the direct Rust live-camera qualification mode
-above when its local-camera requirements fit the test.
+expose these endpoints. Its WebSocket state stream can still be measured with
+the native receiver, but server-side audit event joins and the complete
+repeatable report workflow are not yet wired to the Rust gateway.
 
 The headless collector accepts both Python state identities and native Rust
 scene identities. Rust observations retain engine, session, and full frame ID;

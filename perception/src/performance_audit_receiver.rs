@@ -11,7 +11,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use chrono::{SecondsFormat, Utc};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
 use tokio::time::{interval_at, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
@@ -32,6 +32,9 @@ pub const MAXIMUM_SAMPLES: usize = 1_000_000;
 pub struct StateReceiverConfig {
     pub duration: Duration,
     pub connect_timeout: Duration,
+    /// Application-level keepalive interval. This is distinct from RFC 6455
+    /// ping frames because the retained API handler tracks JSON ping messages.
+    pub application_heartbeat_interval: Duration,
     pub summary_interval: Duration,
     pub maximum_message_bytes: usize,
     pub maximum_samples: usize,
@@ -46,6 +49,7 @@ impl Default for StateReceiverConfig {
         Self {
             duration: Duration::from_secs(30),
             connect_timeout: Duration::from_secs(5),
+            application_heartbeat_interval: Duration::from_secs(20),
             summary_interval: Duration::from_secs(5),
             maximum_message_bytes: DEFAULT_MAXIMUM_MESSAGE_BYTES,
             maximum_samples: DEFAULT_MAXIMUM_SAMPLES,
@@ -62,6 +66,9 @@ impl StateReceiverConfig {
         }
         if self.connect_timeout.is_zero() {
             bail!("WebSocket connect timeout must be positive");
+        }
+        if self.application_heartbeat_interval.is_zero() {
+            bail!("application heartbeat interval must be positive");
         }
         if self.summary_interval.is_zero() {
             bail!("terminal summary interval must be positive");
@@ -241,6 +248,13 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     config.validate()?;
+    let initial_message = timeout(
+        config.connect_timeout,
+        initialize_state_subscription(&mut socket),
+    )
+    .await
+    .context("timed out negotiating the state WebSocket")??;
+    let (mut sender, mut receiver) = socket.split();
     let started_at_utc = utc_now();
     let started = Instant::now();
     let mut resource_sampler = config
@@ -260,6 +274,12 @@ where
     );
     summary_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut accumulator = StateAccumulator::new(config.maximum_samples);
+    let mut initial_message = initial_message;
+    let mut heartbeat_tick = interval_at(
+        TokioInstant::now() + config.application_heartbeat_interval,
+        config.application_heartbeat_interval,
+    );
+    heartbeat_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let termination_reason = loop {
         tokio::select! {
             _ = sleep_until(deadline) => break "duration_elapsed",
@@ -273,8 +293,23 @@ where
                     accumulator.counts.invalid_json_messages,
                 );
             }
-            message = socket.next() => match message {
-                Some(Ok(Message::Text(text))) => accumulator.record_payload(text.as_bytes(), started.elapsed(), true),
+            _ = heartbeat_tick.tick() => {
+                sender.send(Message::Text(r#"{"type":"ping","data":{}}"#.into())).await
+                    .context("could not send application-level WebSocket heartbeat")?;
+            }
+            message = async {
+                if let Some(message) = initial_message.take() {
+                    Some(Ok(message))
+                } else {
+                    receiver.next().await
+                }
+            } => match message {
+                Some(Ok(Message::Text(text))) => {
+                    if accumulator.record_payload(text.as_bytes(), started.elapsed(), true) {
+                        sender.send(Message::Text(r#"{"type":"ping","data":{}}"#.into())).await
+                            .context("could not answer application-level WebSocket ping")?;
+                    }
+                }
                 Some(Ok(Message::Binary(bytes))) => {
                     accumulator.counts.binary_messages = accumulator.counts.binary_messages.saturating_add(1);
                     if bytes.len() <= config.maximum_message_bytes {
@@ -289,7 +324,7 @@ where
     };
 
     let elapsed = started.elapsed();
-    let _ = socket.close(None).await;
+    let _ = sender.close().await;
     let finished_at_utc = utc_now();
     let process_resources = resource_sampler
         .as_mut()
@@ -306,6 +341,51 @@ where
         config.maximum_samples,
         process_resources,
     ))
+}
+
+/// Negotiate the compatibility API's explicit state subscription while
+/// retaining support for the Rust gateway, which publishes its first state
+/// immediately after the WebSocket upgrade. The returned message is the first
+/// data/control message for a direct stream and is counted inside the measured
+/// window; the API's `connection` welcome is intentionally outside it.
+async fn initialize_state_subscription<S>(
+    socket: &mut WebSocketStream<S>,
+) -> Result<Option<Message>>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    loop {
+        let Some(message) = socket.next().await else {
+            bail!("WebSocket peer closed before the state stream was ready");
+        };
+        let message = message.context("WebSocket failed during state subscription setup")?;
+        let Message::Text(text) = &message else {
+            return Ok(Some(message));
+        };
+        let Ok(value) = serde_json::from_str::<Value>(text) else {
+            return Ok(Some(message));
+        };
+        match value.get("type").and_then(Value::as_str) {
+            Some("connection") => {
+                socket
+                    .send(Message::Text(
+                        r#"{"type":"subscribe","data":{"streams":["state"]}}"#.into(),
+                    ))
+                    .await
+                    .context("could not subscribe to the state WebSocket stream")?;
+                return Ok(None);
+            }
+            Some("ping") => {
+                // The API's JSON heartbeat protocol expects an application
+                // ping response. RFC 6455 control pongs are handled separately.
+                socket
+                    .send(Message::Text(r#"{"type":"ping","data":{}}"#.into()))
+                    .await
+                    .context("could not answer application-level WebSocket ping")?;
+            }
+            _ => return Ok(Some(message)),
+        }
+    }
 }
 
 pub fn validate_websocket_url(url: &str) -> Result<()> {
@@ -485,7 +565,9 @@ impl StateAccumulator {
         self.record_payload(bytes, received_after, true);
     }
 
-    fn record_payload(&mut self, bytes: &[u8], received_after: Duration, is_text: bool) {
+    /// Record one payload and return whether it was an application ping that
+    /// needs an application-level response.
+    fn record_payload(&mut self, bytes: &[u8], received_after: Duration, is_text: bool) -> bool {
         if is_text {
             self.counts.text_messages = self.counts.text_messages.saturating_add(1);
         }
@@ -494,12 +576,12 @@ impl StateAccumulator {
             Err(_) => {
                 self.counts.invalid_json_messages =
                     self.counts.invalid_json_messages.saturating_add(1);
-                return;
+                return false;
             }
         };
         if message.get("type").and_then(Value::as_str) != Some("state") {
             self.counts.non_state_messages = self.counts.non_state_messages.saturating_add(1);
-            return;
+            return message.get("type").and_then(Value::as_str) == Some("ping");
         }
         self.counts.state_messages = self.counts.state_messages.saturating_add(1);
 
@@ -614,6 +696,7 @@ impl StateAccumulator {
             read_completion_to_publication_age_ms: age_ms,
         };
         self.push_detail(sample);
+        false
     }
 
     fn push_detail(&mut self, sample: StateSample) {
@@ -835,6 +918,9 @@ mod tests {
     fn config_is_bounded_and_requires_positive_limits() {
         let mut config = StateReceiverConfig::default();
         assert!(config.validate().is_ok());
+        config.application_heartbeat_interval = Duration::ZERO;
+        assert!(config.validate().is_err());
+        config.application_heartbeat_interval = Duration::from_secs(20);
         config.maximum_samples = 0;
         assert!(config.validate().is_err());
         config.maximum_samples = 1;

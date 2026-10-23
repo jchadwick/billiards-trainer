@@ -29,6 +29,10 @@ struct Arguments {
     #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
     connect_timeout_seconds: u64,
 
+    /// Interval for the API's JSON heartbeat. Separate from WebSocket control pings.
+    #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u64).range(1..))]
+    application_heartbeat_interval_seconds: u64,
+
     /// How often to print a live terminal summary.
     #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..))]
     summary_interval_seconds: u64,
@@ -79,6 +83,9 @@ async fn main() -> Result<()> {
     let config = StateReceiverConfig {
         duration: Duration::from_secs(arguments.duration_seconds),
         connect_timeout: Duration::from_secs(arguments.connect_timeout_seconds),
+        application_heartbeat_interval: Duration::from_secs(
+            arguments.application_heartbeat_interval_seconds,
+        ),
         summary_interval: Duration::from_secs(arguments.summary_interval_seconds),
         maximum_message_bytes: arguments.maximum_message_bytes,
         maximum_samples: arguments.maximum_samples,
