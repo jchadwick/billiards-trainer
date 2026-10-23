@@ -45,6 +45,7 @@ pub mod public_state_lifecycle;
 mod scene_transport;
 pub mod server;
 pub mod server_audit_summary;
+pub mod temporal_annotation_import;
 pub mod temporal_evaluation;
 pub mod tracking;
 pub mod trajectory_summary;

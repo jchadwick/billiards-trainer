@@ -94,6 +94,10 @@ path = "src/bin/performance_audit_trajectory_summary.rs"
 name = "billiards-temporal-evaluate"
 path = "src/bin/temporal_evaluate.rs"
 
+[[bin]]
+name = "billiards-temporal-import-cvat"
+path = "src/bin/temporal_import_cvat.rs"
+
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }
@@ -101,6 +105,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4.5.60", features = ["derive"] }
 futures-util = "0.3"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+quick-xml = "0.42"
 nokhwa = { version = "=0.10.11", default-features = false, features = ["input-native"], optional = true }
 gstreamer = { version = "=0.24.4", default-features = false, optional = true }
 gstreamer-app = { version = "=0.24.4", default-features = false, optional = true }
