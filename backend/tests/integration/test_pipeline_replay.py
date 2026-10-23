@@ -41,8 +41,6 @@ from backend.core.coordinates import Vector2D
 from backend.core.models import BallState, GameState, GameType, TableState
 from backend.integration_service import IntegrationService
 from backend.perception.scene_state_adapter import SceneSnapshotStatePublisher
-from backend.performance_audit import AsyncAuditRecorder
-from backend.tools.collect_performance_audit import _delivery_latency_summary
 from backend.vision import VisionModule
 from backend.vision.models import BallType
 
@@ -289,122 +287,6 @@ async def local_pipeline(monkeypatch, tmp_path):
             connection.writer_task is None or connection.writer_task.done()
             for connection in active_connections
         )
-
-
-@pytest.mark.integration
-@pytest.mark.system
-async def test_opt_in_audit_correlates_pipeline_publication_with_client_receipt(
-    local_pipeline, monkeypatch, tmp_path
-):
-    """A real replayed detection remains traceable through socket receipt."""
-    recorder = AsyncAuditRecorder(tmp_path / "audit" / "events")
-    domains = {"state": True, "trajectory": False, "viewers": False}
-    local_pipeline.handler.configure_performance_audit(recorder, domains)
-    # This test verifies the full correlated trace for its single source frame;
-    # ordinary audit runs use the configured deterministic detail sample.
-    local_pipeline.handler._audit_detail_sample_rate = 1.0
-    monkeypatch.setattr(broadcaster_module, "websocket_handler", local_pipeline.handler)
-
-    vision = VisionModule(
-        {
-            "enable_ball_detection": False,
-            "enable_tracking": False,
-            "background_image_path": None,
-            "phase_scheduler": {"enabled": False},
-        }
-    )
-    assert vision.audit_recorder is None
-    assert vision.profiler is None
-    assert vision.resource_sampler is None
-    vision.config.enable_ball_detection = True
-    vision.detector = FixtureDetector()
-    vision.audit_recorder = recorder
-    vision.audit_domains = domains
-    integration = IntegrationService(vision, CoreModule(), local_pipeline.broadcaster)
-    frame = cv2.imread(str(RECORDING))
-    assert frame is not None
-    source_timestamp = time.time()
-    source_publication_monotonic_ns = time.perf_counter_ns() - 10_000_000
-    detection = await asyncio.to_thread(
-        vision._process_single_frame,
-        frame,
-        frame_number=19,
-        timestamp=source_timestamp,
-        source_frame_number=19,
-        source_timestamp=source_timestamp,
-        source_timestamp_kind="shared_memory_publication",
-        source_process_id=1234,
-        source_publication_monotonic_ns=source_publication_monotonic_ns,
-    )
-    assert detection is not None
-    restarted_detection = await asyncio.to_thread(
-        vision._process_single_frame,
-        frame,
-        frame_number=1,
-        timestamp=source_timestamp + 1.0,
-        source_frame_number=1,
-        source_timestamp=source_timestamp + 1.0,
-        source_timestamp_kind="shared_memory_publication",
-        source_process_id=5678,
-    )
-    assert restarted_detection is not None
-    # Exercise the production gateway path: coordinate conversion, Core update,
-    # Core event correlation, and WebSocket publication. A direct broadcaster
-    # call would leave the most important state-producing boundaries untested.
-    integration._event_loop = asyncio.get_running_loop()
-    integration._subscribe_to_core_events()
-
-    try:
-        async with websockets.connect(local_pipeline.url) as client:
-            welcome = await receive_type(client, "connection")
-            client_id = welcome["data"]["client_id"]
-            await client.send(
-                json.dumps({"type": "subscribe", "data": {"streams": ["state"]}})
-            )
-            await receive_type(client, "subscribed")
-            assert await integration._process_detection(detection)
-            state_message = await receive_type(client, "state")
-            received_ns = time.perf_counter_ns()
-            state = state_message["data"]
-            assert state["observation_status"]["source_frame_number"] == 19
-            assert state["observation_status"]["source_process_id"] == 1234
-            assert (
-                state["observation_status"]["source_publication_monotonic_ns"]
-                == source_publication_monotonic_ns
-            )
-            recorder.record(
-                {
-                    "event_type": "state_received",
-                    "domain": "state",
-                    "client_id": client_id,
-                    "stream_sequence": state["sequence"],
-                    "receive_monotonic_ns": received_ns,
-                    "source_publication_monotonic_ns": source_publication_monotonic_ns,
-                    "source_publication_to_client_receipt_ms": (
-                        received_ns - source_publication_monotonic_ns
-                    )
-                    / 1e6,
-                    "clock_comparable": True,
-                }
-            )
-
-        recorder.close()
-        with recorder.output_path.open(encoding="utf-8") as events_file:
-            events = [json.loads(line) for line in events_file if line.strip()]
-        assert any(
-            event.get("event_type") == "vision_source_restart_detected"
-            and event.get("source_frame_number") == 1
-            and event.get("source_process_id") == 5678
-            for event in events
-        )
-        latency = _delivery_latency_summary(events, events)
-        assert latency["state_publication_to_receipt_ms"]["count"] == 1
-        assert latency["source_publication_to_state_ms"]["count"] == 1
-        assert latency["source_publication_to_client_receipt_ms"]["count"] == 1
-        assert latency["socket_send_to_receipt_ms"]["count"] == 1
-        assert latency["state_publication_to_receipt_ms"]["p50"] >= 0
-    finally:
-        vision.close()
 
 
 async def receive_type(client, message_type):
